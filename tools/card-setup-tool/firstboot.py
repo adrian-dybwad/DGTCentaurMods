@@ -107,7 +107,7 @@ progress = "Installing     "
 write_epaper(6, "[3/3] Installing")
 write_epaper(7, "    DGTCM")
 
-deb_path = Path("/boot/DGTCentaurMods_armhf.deb")
+deb_path = Path("/boot/firmware/DGTCentaurMods_armhf.deb")
 if deb_path.exists():
     run(f"apt-get -y install {deb_path}", env=env_noask)
 else:
