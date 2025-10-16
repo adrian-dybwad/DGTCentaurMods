@@ -87,7 +87,7 @@ echo -e "::: Setup services"
     systemctl enable rfcomm.service
     systemctl enable centaurmods-web.service
     systemctl enable DGTCentaurMods.service
-    systemctl enable ntp
+#    systemctl enable ntp
     systemctl enable var-run-sdp.path
     systemctl enable var-run-sdp.service
     systemctl enable stopDGTController.service
@@ -168,9 +168,28 @@ else
     sudo apt-get install -y python3-pip
 fi
 
-echo -e "::: Installing python packages."
-    cd $DGTCM_PATH
-    CFLAGS="-fcommon" pip3 install -r $DGTCM_PATH/setup/requirements.txt
+#echo -e "::: Installing python packages."
+#    cd $DGTCM_PATH
+#    CFLAGS="-fcommon" pip3 install -r $DGTCM_PATH/setup/requirements.txt
+echo -e "::: Installing python packages (trixie-safe)"
+set -e
+export DEBIAN_FRONTEND=noninteractive
+
+# 3.1 System Python packages from Debian (no PEP 668 issues)
+if [ -f "$DGTCM_PATH/setup/debian-python.txt" ]; then
+    APT_PKGS="$(tr '\n' ' ' < "$DGTCM_PATH/setup/debian-python.txt" | sed 's/  */ /g')"
+    apt-get update
+    apt-get install -y $APT_PKGS
+fi
+
+# 3.2 Private virtualenv for non-Debian libs
+VENV_DIR="$DGTCM_PATH/.venv"
+python3 -m venv "$VENV_DIR"
+# shellcheck disable=SC1091
+. "$VENV_DIR/bin/activate"
+python -m pip install --upgrade pip wheel
+pip install -r "$DGTCM_PATH/setup/requirements-venv.txt"
+deactivate
 
 
 function insertMaia {
