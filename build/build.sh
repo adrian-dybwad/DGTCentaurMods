@@ -2,6 +2,9 @@
 
 source config/build.config
 
+# Use /var/tmp for large build artifacts (disk-backed, not tiny RAM /tmp)
+BUILD_TMP="/var/tmp"
+
 BASEDIR=`pwd`
 PACKAGE="DGTCentaurMods"
 INSTALLDIR="/opt/${PACKAGE}"
@@ -21,22 +24,28 @@ function detectVersion {
 
 function stage {
     STAGE="dgtcentaurmods_${VERSION}_armhf"
+    STAGE_DIR="${BUILD_TMP}/${STAGE}"
     echo -e "::: Staging build"
-    cp -r $(basename "$PWD"/${PACKAGE}) /tmp/${STAGE}
+    rm -rf "${STAGE_DIR}"
+    cp -r "$(basename "$PWD"/${PACKAGE})" "${STAGE_DIR}"
     return
 }
 
 function setPermissions {
     echo -e "::: Setting permissions"
-    sudo chown root.root /tmp/${STAGE}/etc
-    sudo chmod 777 /tmp/${STAGE}/opt/${PACKAGE}/engines
+    sudo chown root:root "${STAGE_DIR}/etc"
+    sudo chmod 777 "${STAGE_DIR}/opt/${PACKAGE}/engines"
     return
 }
 
 function build {
     echo -e "::: Building version ${VERSION}"
     if [ ! -d ${BASEDIR}/releases ]; then mkdir ${BASEDIR}/releases; fi
-    dpkg-deb --build /tmp/${STAGE} ${BASEDIR}/releases/${STAGE}.deb
+    rm -f ${BASEDIR}/releases/${STAGE}.deb
+    # Use gzip (lighter on tmp space) and correct ownership
+    dpkg-deb --root-owner-group -Zgzip --build "${STAGE_DIR}" ${BASEDIR}/releases/${STAGE}.deb
+    # Free staging immediately
+    sudo rm -rf "${STAGE_DIR}"
     return
 }
 
@@ -44,69 +53,47 @@ function insertStockfish {
     REPLY="Y"
     if [ $FULL -eq 1 ]; then
         read -p "Do you want to compile and insert Stockfinsh in this build? (y/n): "
-    fi
+    fi 
     case $REPLY in
         [Yy]* )
-            cd /tmp
+            cd "${BUILD_TMP}"
             echo -e "Cloning Stockfish repo"
+            rm -rf Stockfish
             git clone $STOCKFISH_REPO
 
-            # Ensure sqlite headers & pkg-config exist for portable flags
-            if ! dpkg-query -W -f='${Status}' libsqlite3-dev 2>/dev/null | grep -q "ok installed"; then
+            if [ $(dpkg-query -W -f='${Status}' libsqlite3-dev 2>/dev/null | grep -c "ok installed") -eq 0 ]; then
                 sudo apt-get update -y
                 sudo apt-get install -y libsqlite3-dev
             fi
-            if ! command -v pkg-config >/dev/null 2>&1; then
-                sudo apt-get update -y
-                sudo apt-get install -y pkg-config
-            fi
 
-            # Recompute flags now that pkg-config may exist
-            SQLITE_CFLAGS="$(pkg-config --cflags sqlite3 2>/dev/null || echo -I/usr/include)"
-            SQLITE_LIBS="$(pkg-config --libs sqlite3 2>/dev/null || echo -lsqlite3)"
+            # Patch include if needed
+            sed -i 's|^#include "/usr/local/include/sqlite3\.h"|#include <sqlite3.h>|' Stockfish/src/uci.cpp 2>/dev/null || true
 
-            # Patch bad absolute include if present (switch to #include <sqlite3.h>)
-            # This avoids /usr/local/include/sqlite3.h hardcoding in third-party sources.
-            if grep -Rq '^#include "/usr/local/include/sqlite3\.h"' /tmp/Stockfish/src 2>/dev/null; then
-                echo "::: Patching Stockfish sqlite include"
-                sed -i 's|^#include "/usr/local/include/sqlite3\.h"|#include <sqlite3.h>|' /tmp/Stockfish/src/uci.cpp 2>/dev/null || true
-            fi
+            cd Stockfish/src
+            # Strip bogus -I pointing to a file (cosmetic)
+            sed -i 's|-I/usr/local/include/sqlite3\.h||g' Makefile 2>/dev/null || true
+            sed -i 's|-I/usr/local/include/sqlite3\.h||g' ../Makefile 2>/dev/null || true
 
-            cd /tmp/Stockfish/src
             make clean
-
-            # Build with portable SQLite flags; also pass them to linker.
-            # You can add ARCH_FLAGS (e.g., -mfpu=neon-vfpv4) if desired.
-            CXXFLAGS="${CXXFLAGS} ${SQLITE_CFLAGS}" \
-            LDFLAGS="${LDFLAGS} ${SQLITE_LIBS}" \
-            make -j"$(nproc)" build ARCH=armv7 COMP=gcc ARCH_FLAGS="-mfpu=neon-vfpv4"
-
-            # Verify binary exists before moving
-            if [ ! -f stockfish ]; then
-                echo "ERROR: Stockfish build failed (no stockfish binary). See build log above."
-                exit 1
-            fi
+            make -j"$(nproc)" build ARCH=armv7
 
             mv stockfish stockfish_pi
-            cp stockfish_pi /tmp/${STAGE}${INSTALLDIR}/engines
+            cp stockfish_pi "${STAGE_DIR}${INSTALLDIR}/engines"
             return
             ;;
-        [Nn]* ) return
-            ;;
+        [Nn]* ) return ;;
     esac
 }
 
 function clean {
     echo -e "::: Cleaning"
-    sudo rm -rf /tmp/dgtcentaurmods*
+    sudo rm -rf "${BUILD_TMP}/dgtcentaurmods_"* "${BUILD_TMP}/Stockfish"
     rm -rf ${BASEDIR}/releases
-    rm -rf /tmp/Stockfish
 }
 
 function removeDev {
-    #All files in repo that are used in development stage are removed here
-    rm /tmp/${STAGE}/opt/${PACKAGE}/config/centaur.ini
-    rm /tmp/${STAGE}/opt/${PACKAGE}/db/centaur.db
+    rm -f "${STAGE_DIR}/opt/${PACKAGE}/config/centaur.ini"
+    rm -f "${STAGE_DIR}/opt/${PACKAGE}/db/centaur.db"
 }
 
 function main() {
