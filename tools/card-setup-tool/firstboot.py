@@ -29,7 +29,7 @@ time.sleep(30)
 
 os.system("apt update")
 os.system("apt install -y python3-pip")
-os.system("apt install -y libopenjp2-7-dev libtiff5 libopenjp2-7")
+os.system("apt install -y libopenjp2-7-dev libtiff6 libopenjp2-7")
 
 import pip
 
