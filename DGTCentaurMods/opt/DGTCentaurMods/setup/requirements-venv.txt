@@ -2,6 +2,3 @@
 berserk>=0.12.10
 casttube>=0.2.1
 ndjson>=0.3.1
-PyChromecast>=9.2.1
-PyGithub>=1.55
-python-dotenv>=0.19.1
