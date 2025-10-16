@@ -109,26 +109,6 @@ echo -e "::: Setup services"
 
 systemctl daemon-reload
 
-
-# Update rc.local
-if ! cat /etc/rc.local | grep -q "#dgtcentaurmods"
-then
-    cp /etc/rc.local /etc/rc.local.bak
-    if cat /etc/rc.local | grep -q "^exit 0" /etc/rc.local; then sed -i "s/^exit 0.*//g" /etc/rc.local; fi
-    sed -i "$ a	sudo sdptool add SP & \n\
-\n\
-sudo bluetoothctl <<EOF \n\
-power on \n\
-agent on \n\
-discoverable on \n\
-pairable on \n\
-EOF" /etc/rc.local
-    sed -i "$ a exit 0" /etc/rc.local
-    # Mark rc.local as changed.
-    sed -i "$ a #dgtcentaurmods" /etc/rc.local
-fi
-
-
 function update_hostname {
 #Do not update unless hostname is still the default one.
 if [ $(hostname) = $DEFAULT_HOSTNAME ]
