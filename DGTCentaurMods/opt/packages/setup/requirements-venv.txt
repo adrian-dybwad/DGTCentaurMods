@@ -5,4 +5,3 @@ ndjson
 pyserial
 spidev
 RPi.GPIO
-Pillow
