@@ -38,5 +38,5 @@ class AssetManager():
         if os.path.exists("/home/pi/resources/" + resource_file):
             return "/home/pi/resources/" + resource_file
         else:
-            return "/opt/package/DGTCentaurMods/resources/" + resource_file
+            return "/opt/packages/DGTCentaurMods/resources/" + resource_file
         
