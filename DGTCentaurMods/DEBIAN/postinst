@@ -5,7 +5,7 @@ set -euo pipefail
 DEFAULT_HOSTNAME="raspberrypi"
 ARCH=`uname -m`
 NEW_HOSTNAME="dgtcentaur"
-CONFIG="/boot/config.txt"
+CONFIG="/boot/firmware/config.txt"
 PACKAGE="DGTCentaurMods"
 PACKAGES_PATH="/opt/packages"
 DGTCM_PATH="${PACKAGES_PATH}/${PACKAGE}"

@@ -72,7 +72,7 @@ class RaspberryPi:
         self.GPIO.setup(self.BUSY_PIN, self.GPIO.IN)
 
         # SPI device, bus = 0, device = 0
-        self.SPI.open(0, 0)
+        self.SPI.open(1, 0)
         self.SPI.max_speed_hz = 4000000
         self.SPI.mode = 0b00
         return 0
