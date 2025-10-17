@@ -124,11 +124,11 @@ then
     then
         mv ${CENTAUR_ENGINE}/$STOCKFISH ${CENTAUR_ENGINE}/$STOCKFISH.bak
         mv ${DGTCM_PATH}/engines/$STOCKFISH $CENTAUR_ENGINE/$STOCKFISH
-        chown -R pi.root $CENTAUR_ENGINE
+        chown -R pi:root $CENTAUR_ENGINE
     else
         mkdir -p $CENTAUR_ENGINE
         mv ${DGTCM_PATH}/engines/$STOCKFISH $CENTAUR_ENGINE
-        chown -R pi.root $CENTAUR_ENGINE
+        chown -R pi:root $CENTAUR_ENGINE
     fi
 #else
 #    echo -e "Downloading Stockfish..."
@@ -220,8 +220,8 @@ insertZahak
 
 # Setting final permissions
 function setPermissions {
-    chown -R pi.pi ${DGTCM_PATH}
-    chown -R pi.root $CENTAUR
+    chown -R pi:pi ${DGTCM_PATH}
+    chown -R pi:root $CENTAUR
 
 }
 
