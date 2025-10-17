@@ -6,18 +6,18 @@ After=network.target
 #Environment=PYTHONUNBUFFERED=1
 #ExecStartPre=/bin/sleep 4
 #ExecStart=python3 game/menu.py
-#WorkingDirectory=/opt/DGTCentaurMods
-#Environment="PYTHONPATH=/opt"
+#WorkingDirectory=/opt/packages/DGTCentaurMods
+#Environment="PYTHONPATH=/opt/packages"
 #StandardOutput=file:/var/log/modmenuoutput.log
 #StandardError=file:/var/log/modmenuoutput.log
 #Restart=no
 #User=pi
 
 [Service]
-Environment=DGTCM_PATH=/opt/DGTCentaurMods
-ExecStart=/opt/DGTCentaurMods/.venv/bin/python game/menu.py
-# or: ExecStart=/opt/DGTCentaurMods/.venv/bin/python /opt/DGTCentaurMods/game/menu.py
-WorkingDirectory=/opt/DGTCentaurMods
+Environment=DGTCM_PATH=/opt/packages/DGTCentaurMods
+ExecStart=/opt/packages/DGTCentaurMods/.venv/bin/python game/menu.py
+# or: ExecStart=/opt/packages/DGTCentaurMods/.venv/bin/python /opt/packages/DGTCentaurMods/game/menu.py
+WorkingDirectory=/opt/packages/DGTCentaurMods
 Restart=on-failure
 
 [Install]

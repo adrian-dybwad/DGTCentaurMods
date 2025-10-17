@@ -7,8 +7,8 @@ Requires=poweroff.target
 
 [Service]
 ExecStart=python3 board/shutdown.py
-Environment="PYTHONPATH=/opt"
-WorkingDirectory=/opt/DGTCentaurMods
+Environment="PYTHONPATH=/opt/packages"
+WorkingDirectory=/opt/packages/DGTCentaurMods
 Type=oneshot
 
 [Install]
