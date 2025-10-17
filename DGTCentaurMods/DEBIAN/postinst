@@ -161,6 +161,7 @@ export DEBIAN_FRONTEND=noninteractive
 # Create venv if missing
 if [ ! -x "$VENV_DIR/bin/python" ]; then
   python3 -m venv --system-site-packages "$VENV_DIR"
+  sudo chmod +x $PACKAGES_PATH/run.sh
 fi
 
 # Upgrade pip/wheel inside the venv
