@@ -5,3 +5,4 @@ ndjson
 pyserial
 spidev
 RPi.GPIO
+chess
