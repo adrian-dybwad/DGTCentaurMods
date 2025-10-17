@@ -16,7 +16,7 @@ After=network.target
 [Service]
 Environment=DGTCM_PATH=/opt/DGTCentaurMods
 ExecStart=/opt/DGTCentaurMods/.venv/bin/python game/menu.py
-# or: ExecStart=/opt/DGTCentaurMods/.venv/bin/python /opt/DGTCentaurMods/bin/your_entrypoint.py
+# or: ExecStart=/opt/DGTCentaurMods/.venv/bin/python /opt/DGTCentaurMods/game/menu.py
 WorkingDirectory=/opt/DGTCentaurMods
 Restart=on-failure
 

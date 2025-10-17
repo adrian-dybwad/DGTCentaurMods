@@ -7,7 +7,8 @@ ARCH=`uname -m`
 NEW_HOSTNAME="dgtcentaur"
 CONFIG="/boot/config.txt"
 PACKAGE="DGTCentaurMods"
-DGTCM_PATH="/opt/${PACKAGE}"
+PACKAGES_PATH="/opt/packages"
+DGTCM_PATH="${PACKAGES_PATH}/${PACKAGE}"
 DATABASE="${DGTCM_PATH}/db/centaur.db"
 CONFIGINI="${DGTCM_PATH}/config/centaur.ini"
 CMDLINEFILE="/boot/cmdline.txt"
@@ -19,8 +20,8 @@ STOCKFISH="stockfish_pi"
 RODENT_REPO="https://github.com/nescitus/rodent-iv.git"
 MAIA_REPO="https://github.com/CSSLab/maia-chess.git"
 FENLOG="/home/pi/centaur/fen.log"
-VENV_DIR="$DGTCM_PATH/.venv"
-REQ_VENV="$DGTCM_PATH/setup/requirements-venv.txt"
+VENV_DIR="$PACKAGES_PATH/.venv"
+REQ_VENV="$PACKAGES_PATH/setup/requirements-venv.txt"
 WHEELS_DIR="$DGTCM_PATH/wheels"   # ship this in the .deb (optional but recommended)
 ################################
 
