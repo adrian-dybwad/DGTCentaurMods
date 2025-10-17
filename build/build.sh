@@ -7,7 +7,7 @@ BUILD_TMP="/var/tmp"
 
 BASEDIR=`pwd`
 PACKAGE="DGTCentaurMods"
-INSTALLDIR="/opt/${PACKAGE}"
+INSTALLDIR="/opt/packages/${PACKAGE}"
 cd ../
 
 # -------- SQLite (portable) flags --------
