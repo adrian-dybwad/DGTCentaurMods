@@ -44,8 +44,17 @@ then
     echo -e "::: Checking SPI 1.0 bus."
     # If you really need /dev/spidev1.x, add an SPI1 overlay (choose CS count)
     if ! grep -q '^dtoverlay=spi1-.*cs' "$CONFIG"; then
-      printf '%s\n' 'dtoverlay=spi1-1cs' >> "$CONFIG"
+      printf '%s\n' 'dtoverlay=spi1-1cs,cs0_spidev=on' >> "$CONFIG"
+    elif grep -q '^dtoverlay=spi1-1cs' "$CONFIG" && ! grep -q 'cs0_spidev=on' "$CONFIG"; then
+      # upgrade existing line to include spidev binding
+      sed -i 's/^dtoverlay=spi1-1cs.*/dtoverlay=spi1-1cs,cs0_spidev=on/' "$CONFIG"
     fi
+
+    # Make sure SPI master is enabled in firmware
+    raspi-config nonint do_spi 0 || true
+  
+    # Ensure the user has SPI permissions
+    adduser pi spi || true
 
     echo "::: Checking serial port. "
     # Enable UART (idempotent)
