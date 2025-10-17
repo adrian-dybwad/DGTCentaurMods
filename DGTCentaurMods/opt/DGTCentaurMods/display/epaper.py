@@ -217,7 +217,7 @@ def stopEpaper():
     lg = Image.open(filename)
     lgs = Image.new('1', (128, 296), 255)
     lgs.paste(lg,(0,0))
-    qrfile = str(AssetManger.get_resource_path("qr-support.png"))
+    qrfile = str(AssetManager.get_resource_path("qr-support.png"))
     qr = Image.open(qrfile)
     qr = qr.resize((128,128))
     lgs.paste(qr,(0,160))
@@ -457,7 +457,7 @@ def drawWindow(x, y, w, data):
         if tw >= dw:
             tw = 0
             dyoff = dyoff + 1
-    filename = str(AssetManger.get_resource_path("epaper.jpg"))
+    filename = str(AssetManager.get_resource_path("epaper.jpg"))
     epaperbuffer.save(filename)    
 
 def drawImagePartial(x, y, img):
@@ -595,7 +595,7 @@ class MenuDraw:
         draw = ImageDraw.Draw(epaperbuffer)
         draw.rectangle([(0, 40), (8, 191)], fill = 255, outline = 255)
         draw.rectangle([(2,((index + 2) * 20) + 5), (8, ((index+2) * 20) + 14)], fill = 0, outline = 0)
-        filename = str(AssetManger.get_resource_path("epaper.jpg"))
+        filename = str(AssetManager.get_resource_path("epaper.jpg"))
         epaperbuffer.save(filename)
         epd.send_command(0x91) # Enter partial mode
         epd.send_command(0x90) # Set resolution
