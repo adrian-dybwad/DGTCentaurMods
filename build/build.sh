@@ -34,7 +34,7 @@ function stage {
 function setPermissions {
     echo -e "::: Setting permissions"
     sudo chown root:root "${STAGE_DIR}/etc"
-    sudo chmod 777 "${STAGE_DIR}/opt/${PACKAGE}/engines"
+    sudo chmod 777 "${STAGE_DIR}/opt/packages/${PACKAGE}/engines"
     return
 }
 
@@ -92,8 +92,8 @@ function clean {
 }
 
 function removeDev {
-    rm -f "${STAGE_DIR}/opt/${PACKAGE}/config/centaur.ini"
-    rm -f "${STAGE_DIR}/opt/${PACKAGE}/db/centaur.db"
+    rm -f "${STAGE_DIR}/opt/packages/${PACKAGE}/config/centaur.ini"
+    rm -f "${STAGE_DIR}/opt/packages/${PACKAGE}/db/centaur.db"
 }
 
 function main() {
