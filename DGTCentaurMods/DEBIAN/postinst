@@ -32,32 +32,29 @@ then
     cp $CONFIG $CONFIG.bak
     cp $CMDLINEFILE $CMDLINEFILE.bak
 
-    # Enabke SPI bus if not enbaled
+    # Enable SPI bus if not enabled
     echo "::: Checking SPI"
-        SPION=`cat $CONFIG | grep "^#dtparam=spi=on"`
-        SPI10=`cat $CONFIG | grep "^dtoverlay=spi1-3cs"`
-    if [ ! -z $SPION ]
-    then
-        sed -i "s/#dtparam=spi=on/dtparam=spi=on/g" $CONFIG
-    else
-        sed -i "$ a dtparam=spi=on" $CONFIG
-    fi    
+    # Ensure SPI master is enabled (idempotent)
+    if grep -q '^#dtparam=spi=on' "$CONFIG"; then
+      sed -i 's/^#dtparam=spi=on/dtparam=spi=on/' "$CONFIG"
+    elif ! grep -q '^dtparam=spi=on' "$CONFIG"; then
+      printf '%s\n' 'dtparam=spi=on' >> "$CONFIG"
+    fi
     
     echo -e "::: Checking SPI 1.0 bus."
-    if [ -z $SPI10 ]
-    then
-        sed -i "$ a dtoverlay=spi1-3cs" $CONFIG
+    # If you really need /dev/spidev1.x, add an SPI1 overlay (choose CS count)
+    if ! grep -q '^dtoverlay=spi1-.*cs' "$CONFIG"; then
+      printf '%s\n' 'dtoverlay=spi1-1cs' >> "$CONFIG"
     fi
 
-echo "::: Checking serial port. "
-    UARTON=`cat $CONFIG | grep "^#enable_uart=1"`
-    if [ ! -z $UARTON ]
-    then
-        echo "::: Enabling serial port..."
-        sed -i "s/#enable_uart=1.*/enable_uart=1/g" $CONFIG
-    else
-        sed -i "$ a enable_uart=1" $CONFIG
+    echo "::: Checking serial port. "
+    # Enable UART (idempotent)
+    if grep -q '^#enable_uart=1' "$CONFIG"; then
+      sed -i 's/^#enable_uart=1.*/enable_uart=1/' "$CONFIG"
+    elif ! grep -q '^enable_uart=1' "$CONFIG"; then
+      printf '%s\n' 'enable_uart=1' >> "$CONFIG"
     fi
+    
     # Mark file as modified
     sed -i "$ a #dgtcentaurmods" $CONFIG
 fi
