@@ -581,8 +581,8 @@ deb_tree() {
 PKG=$(dpkg-deb -f ./dgtcentaurmods_1.3.3_armhf.deb Package)
 deb_tree "$PKG"
 dgtcentaurmods
-pi@dgt:~/DGTCentaurMods/build/releases $ ldd /opt/packages/DGTCentaurMods/engines/stockfish_pi
-ldd: /opt/packages/DGTCentaurMods/engines/stockfish_pi: No such file or directory
+pi@dgt:~/DGTCentaurMods/build/releases $ ldd /opt/DGTCentaurMods/engines/stockfish_pi
+ldd: /opt/DGTCentaurMods/engines/stockfish_pi: No such file or directory
 pi@dgt:~/DGTCentaurMods/build/releases $ cat > deb-deptree.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail

@@ -26,8 +26,8 @@ import configparser
 class Settings:
     """ Class handling config.ini """
 
-    configfile = '/opt/packages/DGTCentaurMods/config/centaur.ini'
-    defconfigfile = '/opt/packages/DGTCentaurMods/defaults/config/centaur.ini'
+    configfile = '/opt/DGTCentaurMods/config/centaur.ini'
+    defconfigfile = '/opt/DGTCentaurMods/defaults/config/centaur.ini'
 
     @staticmethod
     def read(section, key, default = ''):

@@ -4,8 +4,8 @@ After=network.target DGTCentaurMods.service
 
 [Service]
 ExecStart=authbind --deep flask run
-WorkingDirectory=/opt/packages/DGTCentaurMods/web
-Environment="PYTHONPATH=/opt/packages"
+WorkingDirectory=/opt/DGTCentaurMods/web
+Environment="PYTHONPATH=/opt"
 StandardOutput=inherit
 StandardError=inherit
 Restart=always
