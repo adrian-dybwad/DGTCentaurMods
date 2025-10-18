@@ -8,7 +8,7 @@ def select_from_list_epaper(
     highlight_index=0,
     lines_per_page=7,
     font_size=18,
-    rotation=270,              # <— try 0/90/180/270; many Waveshare 2.9" need 270
+    rotation=90,              # <— try 0/90/180/270; many Waveshare 2.9" need 270
 ):
     from DGTCentaurMods.display import epd2in9d
     from DGTCentaurMods.display.ui_components import AssetManager
