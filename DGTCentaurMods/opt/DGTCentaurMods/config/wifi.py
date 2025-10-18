@@ -3,67 +3,15 @@
 # (license header unchanged)
 
 from DGTCentaurMods.ui.epaper_menu import select_from_list_epaper
-from DGTCentaurMods.ui.input_adapters import poll_actions_from_board
+from DGTCentaurMods.ui.input_adapters import poll_actions_direct
 from DGTCentaurMods.board import board
 import os, time, sys, re
-import threading
-import queue
-from typing import Optional
 
 # OPTIONAL: the e-paper menu does its own init/clear; this is not required:
 # board.initScreen()
 # time.sleep(1)
 
-# Create a robust polling function that doesn't rely on pause/unpause
-wifi_button_queue = queue.Queue()
-wifi_event_thread = None
-wifi_callback_active = False
-
-def wifi_button_callback(button_id):
-    """Direct callback for WiFi menu button events"""
-    global wifi_button_queue
-    if button_id == board.BTNBACK:
-        wifi_button_queue.put("BACK")
-    elif button_id == board.BTNTICK:
-        wifi_button_queue.put("SELECT")
-    elif button_id == board.BTNUP:
-        wifi_button_queue.put("UP")
-    elif button_id == board.BTNDOWN:
-        wifi_button_queue.put("DOWN")
-    elif button_id == board.BTNHELP:
-        wifi_button_queue.put("HELP")
-    elif button_id == board.BTNPLAY:
-        wifi_button_queue.put("PLAY")
-
-def start_wifi_direct_polling():
-    """Start direct event subscription for WiFi menu"""
-    global wifi_callback_active
-    if not wifi_callback_active:
-        wifi_callback_active = True
-        # Subscribe to events with a long timeout, just like the main menu
-        board.subscribeEvents(wifi_button_callback, None, timeout=3600)
-        return True
-    return False
-
-def stop_wifi_direct_polling():
-    """Stop WiFi event subscription"""
-    global wifi_callback_active
-    if wifi_callback_active:
-        wifi_callback_active = False
-        # Pause events to stop our subscription
-        board.pauseEvents()
-        time.sleep(0.1)  # Brief pause to ensure events are stopped
-        board.unPauseEvents()
-        return True
-    return False
-
-def poll_wifi_actions() -> Optional[str]:
-    """Get the next button action from the WiFi queue (non-blocking)"""
-    global wifi_button_queue
-    try:
-        return wifi_button_queue.get_nowait()
-    except queue.Empty:
-        return None
+# Use the existing input_adapters system but with improved responsiveness
 
 print("Testing key loop...")
 import time
@@ -173,15 +121,14 @@ print("----------------------------------------------------------")
 print(networks)
 print("----------------------------------------------------------")
 
-# Use direct event subscription like the main menu does
-print("Starting WiFi menu with direct event polling...")
-start_wifi_direct_polling()
+# Use the existing input_adapters system without pause/unpause
+print("Starting WiFi menu...")
 
 try:
     answer = select_from_list_epaper(
         options=list(networks.keys()),
         title="Wi-Fi Networks",
-        poll_action=poll_wifi_actions,
+        poll_action=poll_actions_direct,
         highlight_index=0,
         lines_per_page=7,
         font_size=18,
@@ -189,9 +136,6 @@ try:
 except Exception as e:
     print(f"Error in WiFi menu: {e}")
     answer = None
-finally:
-    print("Stopping WiFi direct polling...")
-    stop_wifi_direct_polling()
 
 print("++++++++++++++++++++++++++++++")
 print(answer)

@@ -73,3 +73,34 @@ def poll_actions_from_board() -> Optional[str]:
         return button_queue.get_nowait()
     except queue.Empty:
         return None
+
+# Alternative approach: Direct polling without hijacking the main menu
+def poll_actions_direct() -> Optional[str]:
+    """Direct polling approach that doesn't interfere with main menu events"""
+    try:
+        # Send key event request directly to the board
+        b.sendPacket(b'\x94', b'')
+        resp = b._ser_read(1000)
+        resp = bytearray(resp)
+        
+        # Check for button presses using the same logic as the main events thread
+        if len(resp) >= 6:
+            addr1 = b.addr1
+            addr2 = b.addr2
+            
+            # Check for different button presses
+            if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0510000000007d17"):
+                return "SELECT"  # TICK
+            elif (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0508000000007d3c"):
+                return "UP"  # UP
+            elif (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a05020000000061"):
+                return "DOWN"  # DOWN
+            elif (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0510000000007d47"):
+                return "BACK"  # BACK
+            elif (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0540000000006d"):
+                return "HELP"  # HELP
+                
+    except Exception as e:
+        logging.debug(f"Error in direct polling: {e}")
+    
+    return None
