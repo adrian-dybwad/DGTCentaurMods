@@ -44,46 +44,100 @@ def poll_actions_from_board() -> Optional[str]:
             key_event_part = hx[key_event_start:]
             print(f"DEBUG: Key event part: {key_event_part}")
             
-            # The response format is much shorter: b1000606500d
-            # This suggests a different protocol than expected
-            # Let's try to extract the key code from the end
-            if len(key_event_part) >= 12:
-                # Extract the last few characters as potential key code
-                key_code = key_event_part[-2:]  # Last 2 hex digits
-                print(f"DEBUG: Extracted key code: {key_code}")
-                
-                # Map key codes to actions based on observed patterns
-                # These codes might need adjustment based on actual button behavior
-                if key_code == "0d":  # Based on the response b1000606500d
-                    print("DEBUG: Detected key press (code 0d)")
-                    # For now, let's treat any key press as UP for testing
-                    return "UP"
-                elif key_code == "3c":  # Based on original patterns
-                    print("DEBUG: Detected UP key")
-                    return "UP"
-                elif key_code == "61":
-                    print("DEBUG: Detected DOWN key")
-                    return "DOWN"
-                elif key_code == "17":
-                    print("DEBUG: Detected SELECT key")
-                    return "SELECT"
-                elif key_code == "47":
-                    print("DEBUG: Detected BACK key")
-                    return "BACK"
+            # The board can send multiple key events in one response
+            # Example: b1000606500db10011065000140a0500
+            # We need to find all key event markers and process each one
             
-            # Also check for the longer patterns in case we get them
-            if "00140a050800000000" in key_event_part:  # UP pattern
-                print("DEBUG: Detected UP key (long pattern)")
-                return "UP"
-            if "00140a050200000000" in key_event_part:  # DOWN pattern
-                print("DEBUG: Detected DOWN key (long pattern)")
-                return "DOWN"
-            if "00140a051000000000" in key_event_part:  # SELECT pattern
-                print("DEBUG: Detected SELECT key (long pattern)")
-                return "SELECT"
-            if "00140a050100000000" in key_event_part:  # BACK pattern
-                print("DEBUG: Detected BACK key (long pattern)")
-                return "BACK"
+            # Split by key event markers to find all key events
+            key_events = []
+            remaining = key_event_part
+            
+            while remaining:
+                # Look for the next key event marker
+                next_marker1 = remaining.find(f"b100{a1}{a2}")
+                next_marker2 = remaining.find(f"b100{a1}0{a2}")
+                
+                next_marker = -1
+                if next_marker1 != -1 and next_marker2 != -1:
+                    next_marker = min(next_marker1, next_marker2)
+                elif next_marker1 != -1:
+                    next_marker = next_marker1
+                elif next_marker2 != -1:
+                    next_marker = next_marker2
+                
+                if next_marker == -1:
+                    break
+                
+                # Extract this key event
+                if next_marker > 0:
+                    # Skip to the start of this key event
+                    remaining = remaining[next_marker:]
+                
+                # Find the end of this key event (start of next one or end of string)
+                next_start1 = remaining[1:].find(f"b100{a1}{a2}")
+                next_start2 = remaining[1:].find(f"b100{a1}0{a2}")
+                
+                next_start = -1
+                if next_start1 != -1 and next_start2 != -1:
+                    next_start = min(next_start1, next_start2) + 1
+                elif next_start1 != -1:
+                    next_start = next_start1 + 1
+                elif next_start2 != -1:
+                    next_start = next_start2 + 1
+                
+                if next_start == -1:
+                    # This is the last key event
+                    key_events.append(remaining)
+                    break
+                else:
+                    # Extract this key event and continue
+                    key_events.append(remaining[:next_start])
+                    remaining = remaining[next_start:]
+            
+            # Process each key event
+            for i, key_event in enumerate(key_events):
+                print(f"DEBUG: Processing key event {i+1}: {key_event}")
+                
+                # Extract key code from the end
+                if len(key_event) >= 12:
+                    key_code = key_event[-2:]  # Last 2 hex digits
+                    print(f"DEBUG: Key event {i+1} code: {key_code}")
+                    
+                    # Map key codes to actions
+                    if key_code == "0d":  # Based on observed pattern
+                        print("DEBUG: Detected key press (code 0d)")
+                        return "UP"  # Temporary mapping
+                    elif key_code == "3c":
+                        print("DEBUG: Detected UP key")
+                        return "UP"
+                    elif key_code == "61":
+                        print("DEBUG: Detected DOWN key")
+                        return "DOWN"
+                    elif key_code == "17":
+                        print("DEBUG: Detected SELECT key")
+                        return "SELECT"
+                    elif key_code == "47":
+                        print("DEBUG: Detected BACK key")
+                        return "BACK"
+                
+                # Check for longer patterns
+                if "00140a050800000000" in key_event:  # UP pattern
+                    print("DEBUG: Detected UP key (long pattern)")
+                    return "UP"
+                if "00140a050200000000" in key_event:  # DOWN pattern
+                    print("DEBUG: Detected DOWN key (long pattern)")
+                    return "DOWN"
+                if "00140a051000000000" in key_event:  # SELECT pattern
+                    print("DEBUG: Detected SELECT key (long pattern)")
+                    return "SELECT"
+                if "00140a050100000000" in key_event:  # BACK pattern
+                    print("DEBUG: Detected BACK key (long pattern)")
+                    return "BACK"
+                
+                # Check for the pattern we saw in SELECT: 00140a0500
+                if "00140a0500" in key_event:
+                    print("DEBUG: Detected SELECT key (pattern 00140a0500)")
+                    return "SELECT"
 
         return None
     except Exception:
