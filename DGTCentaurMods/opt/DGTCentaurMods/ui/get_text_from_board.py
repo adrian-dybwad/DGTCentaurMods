@@ -38,10 +38,16 @@ def getText(title):
     from DGTCentaurMods.board.board import (
         pauseEvents, unPauseEvents, getBoardState, clearSerial, 
         sendPacket, _ser_read, addr1, addr2, beep, SOUND_GENERAL, 
-        SOUND_WRONG, BTNBACK, BTNTICK, BTNUP, BTNDOWN, clearScreen
+        SOUND_WRONG, BTNBACK, BTNTICK, BTNUP, BTNDOWN, clearScreen,
+        writeTextToBuffer, writeText, font18, screenbuffer
     )
     
     global screenbuffer
+    
+    # Initialize display
+    epaper.initEpaper()
+    epaper.clearScreen()
+    
     try:
         try:
             pauseEvents()
@@ -91,7 +97,8 @@ def getText(title):
                     draw.text((col * 16, 80 + row * 20), ch, font=font18, fill=0)
             screenbuffer = image.copy()
             img = image.transpose(Image.FLIP_TOP_BOTTOM).transpose(Image.FLIP_LEFT_RIGHT)
-            epaper.DisplayPartial(epaper.getbuffer(img))
+            # Update the display buffer
+            epaper.epaperbuffer.paste(img, (0, 0))
 
         def _read_fields_and_type():
             nonlocal typed, charpage
