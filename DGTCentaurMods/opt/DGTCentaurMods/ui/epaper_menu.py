@@ -12,7 +12,7 @@ shutdown_requested = False
 def signal_handler(signum, frame):
     """Handle CTRL+C gracefully"""
     global shutdown_requested
-    print("\n🛑 Shutdown requested...")
+    print("\nShutdown requested...")
     shutdown_requested = True
     # Force exit immediately
     os._exit(0)
@@ -140,23 +140,13 @@ def select_from_list_epaper(
     last_paint = 0.0
     start_time = time.time()
 
-    # Check if poll_action is working at all
-    test_attempts = 0
-    max_test_attempts = 10
-    while test_attempts < max_test_attempts:
-        try:
-            act = poll_action()
-            if act is not None:
-                break  # Polling is working
-        except Exception as e:
-            logging.error(f"Error in poll_action test: {e}")
-        test_attempts += 1
-        time.sleep(0.1)
-    
-    if test_attempts >= max_test_attempts:
-        logging.warning("Poll action not responding, using fallback selection")
-        # Fallback: return first item after a delay
-        time.sleep(2.0)
+    # Start event subscription for button detection
+    try:
+        from DGTCentaurMods.ui.input_adapters import start_event_subscription
+        start_event_subscription()
+        logging.debug("Started event subscription for menu")
+    except Exception as e:
+        logging.error(f"Failed to start event subscription: {e}")
         return items[0] if items else None
 
     while True:

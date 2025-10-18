@@ -2,82 +2,54 @@
 from typing import Optional
 import time
 import logging
+import threading
+import queue
 from DGTCentaurMods.board import board as b
 
-# Map the Centaur hex signatures to high-level actions.
-# We format addr1/addr2 dynamically because the controller can change them.
+# Global queue for button events
+button_queue = queue.Queue()
+current_callback = None
+
+def button_event_callback(button_id):
+    """Callback function for button events from the main board system"""
+    global button_queue
+    # Map button constants to action strings
+    if button_id == b.BTNBACK:
+        button_queue.put("BACK")
+    elif button_id == b.BTNTICK:
+        button_queue.put("SELECT")
+    elif button_id == b.BTNUP:
+        button_queue.put("UP")
+    elif button_id == b.BTNDOWN:
+        button_queue.put("DOWN")
+    elif button_id == b.BTNHELP:
+        button_queue.put("HELP")
+    elif button_id == b.BTNPLAY:
+        button_queue.put("PLAY")
+
+def start_event_subscription():
+    """Start subscribing to board events for button detection"""
+    global current_callback
+    if current_callback is None:
+        current_callback = button_event_callback
+        # Subscribe to events with a long timeout
+        b.subscribeEvents(button_event_callback, None, timeout=3600)  # 1 hour timeout
+        logging.debug("Started event subscription for button detection")
+
+def stop_event_subscription():
+    """Stop the event subscription"""
+    global current_callback
+    if current_callback is not None:
+        # Pause events to stop the subscription
+        b.pauseEvents()
+        current_callback = None
+        logging.debug("Stopped event subscription for button detection")
+
 def poll_actions_from_board() -> Optional[str]:
+    """Get the next button action from the queue (non-blocking)"""
+    global button_queue
     try:
-        # Clear any existing data first
-        try:
-            b._ser_read(100)  # Clear buffer
-        except Exception as e:
-            logging.debug(f"Failed to clear buffer: {e}")
-            return None
-        
-        # Ask for key events - don't change timeout to avoid port reconfiguration
-        b.sendPacket(b'\x94', b'')
-        resp = b._ser_read(256)  # Use default timeout to avoid port locking issues
-        if not resp:
-            return None
-
-        hx = resp.hex()[:-2]  # drop checksum
-        a1 = f"{b.addr1:02x}"
-        a2 = f"{b.addr2:02x}"
-
-        # Debug: log the actual response for analysis (but limit output)
-        if hx and len(hx) > 10:  # Only log if we got a meaningful response
-            # Truncate very long responses to avoid spam
-            display_hx = hx[:100] + "..." if len(hx) > 100 else hx
-            print(f"DEBUG: Response: {display_hx}")
-
-        # Special case: UP button might only send board state (870006065063)
-        if hx == f"8700{a1}0{a2}063":
-            print("DEBUG: Detected UP key (board state only)")
-            return "UP"
-
-        # Look for specific button patterns from the debug output
-        if f"b10011{a1}{a2}00140a0508000000007d3c" in hx:
-            print("DEBUG: Detected UP button")
-            return "UP"
-        elif f"b10010{a1}{a2}00140a05020000000061" in hx:
-            print("DEBUG: Detected DOWN button")
-            return "DOWN"
-        elif f"b10011{a1}{a2}00140a0510000000007d17" in hx:
-            print("DEBUG: Detected SELECT button")
-            return "SELECT"
-        elif f"b10011{a1}{a2}00140a0501000000007d47" in hx:
-            print("DEBUG: Detected BACK button")
-            return "BACK"
-        
-        # Fallback: look for simpler patterns
-        if f"b100{a1}0{a2}0d" in hx:
-            print("DEBUG: Detected key press (0d pattern) - treating as SELECT")
-            return "SELECT"
-        
-        # Look for other patterns
-        if f"b100{a1}0{a2}" in hx:
-            # Extract the last few characters to determine the key
-            key_part = hx[hx.rfind(f"b100{a1}0{a2}"):]
-            if len(key_part) >= 12:
-                key_code = key_part[-2:]
-                print(f"DEBUG: Detected key code: {key_code}")
-                
-                # Map based on observed patterns
-                if key_code == "0d":
-                    return "SELECT"
-                elif key_code == "3c":
-                    return "UP"
-                elif key_code == "61":
-                    return "DOWN"
-                elif key_code == "17":
-                    return "SELECT"
-                elif key_code == "47":
-                    return "BACK"
-
-        return None
-    except Exception as e:
-        # Never blow up the UI loop on a transient read error
-        logging.debug(f"Error in poll_actions_from_board: {e}")
-        time.sleep(0.01)
+        # Try to get an action from the queue without blocking
+        return button_queue.get_nowait()
+    except queue.Empty:
         return None
