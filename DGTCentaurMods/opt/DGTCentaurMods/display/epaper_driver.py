@@ -87,7 +87,7 @@ class epaperDriver(object):
         
     def DisplayPartial(self, bitmap):
         """ Display the passed black and white bitmap image in Partial mode """
-        self.driverFunc.DisplayPartial(self.getbuffer(bitmap))
+        self.driverFunc.displayPartial(self.getbuffer(bitmap))
     
     def DisplayRegion(self, y0, y1, bitmap):
         """ Display the passed black and white part bitmap image in Partial mode """
