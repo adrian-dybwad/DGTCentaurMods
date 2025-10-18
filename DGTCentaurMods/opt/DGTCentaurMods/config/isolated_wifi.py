@@ -119,27 +119,40 @@ def init_board():
         return None, 0, 0
 
 def poll_key(board_obj, addr1, addr2):
-    """Poll for key events using the working input adapter"""
+    """Poll for key events using direct board communication"""
     try:
-        from DGTCentaurMods.ui.input_adapters import poll_actions_from_board
+        # Send key event request
+        board_obj.sendPacket(b'\x94', b'')
+        resp = board_obj._ser_read(256)
         
-        # Use the working input adapter
-        action = poll_actions_from_board()
-        if action:
-            print(f"Raw action detected: {action}")
-            # Convert action to key name
-            if action == "SELECT":
-                return "SELECT"
-            elif action == "UP":
-                return "UP"
-            elif action == "DOWN":
-                return "DOWN"
-            elif action == "BACK":
-                return "BACK"
-            elif action == "HELP":
-                return "HELP"
-            elif action == "PLAY":
-                return "PLAY"
+        if not resp:
+            return None
+            
+        hx = resp.hex()
+        a1 = f"{addr1:02x}"
+        a2 = f"{addr2:02x}"
+        
+        print(f"DEBUG: Response: {hx}")
+        
+        # Look for key event patterns
+        if f"b100{a1}0{a2}" in hx:
+            # Extract the last few characters to determine the key
+            key_part = hx[hx.rfind(f"b100{a1}0{a2}"):]
+            if len(key_part) >= 12:
+                key_code = key_part[-2:]
+                print(f"DEBUG: Detected key code: {key_code}")
+                
+                # Map based on observed patterns
+                if key_code == "0d":
+                    return "SELECT"
+                elif key_code == "3c":
+                    return "UP"
+                elif key_code == "61":
+                    return "DOWN"
+                elif key_code == "17":
+                    return "SELECT"
+                elif key_code == "47":
+                    return "BACK"
         
         return None
     except Exception as e:
