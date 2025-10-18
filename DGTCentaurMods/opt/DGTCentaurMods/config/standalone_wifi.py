@@ -101,44 +101,27 @@ def simple_display_text(text: str, y_offset: int = 0):
         print(f"Display error: {e}")
 
 def simple_key_poll() -> Optional[str]:
-    """Simple key polling without complex parsing"""
+    """Simple key polling using the working input adapter"""
     try:
-        from DGTCentaurMods.board import board as b
+        from DGTCentaurMods.ui.input_adapters import poll_actions_from_board
         
-        # Clear any existing data first
-        try:
-            b._ser_read(1000)
-        except:
-            pass
-        
-        # Send key event request
-        b.sendPacket(b'\x94', b'')
-        resp = b._ser_read(256)
-        
-        if not resp:
-            return None
-            
-        hx = resp.hex()
-        a1 = f"{b.addr1:02x}"
-        a2 = f"{b.addr2:02x}"
-        
-        # Look for key event patterns
-        if f"b100{a1}0{a2}" in hx:
-            # Extract key code from the end
-            if len(hx) >= 12:
-                key_code = hx[-2:]
-                if key_code == "0d":
-                    return "SELECT"
-                elif key_code == "3c":
-                    return "UP"
-                elif key_code == "61":
-                    return "DOWN"
-                elif key_code == "47":
-                    return "BACK"
-                elif key_code == "6d":
-                    return "HELP"
-                elif key_code == "2a":
-                    return "PLAY"
+        # Use the working input adapter
+        action = poll_actions_from_board()
+        if action:
+            print(f"Raw action detected: {action}")
+            # Convert action to key name
+            if action == "SELECT":
+                return "SELECT"
+            elif action == "UP":
+                return "UP"
+            elif action == "DOWN":
+                return "DOWN"
+            elif action == "BACK":
+                return "BACK"
+            elif action == "HELP":
+                return "HELP"
+            elif action == "PLAY":
+                return "PLAY"
         
         return None
     except Exception as e:
