@@ -151,8 +151,19 @@ if not answer:
 # Get password using board text input
 from DGTCentaurMods.ui.get_text_from_board import getText
 
-# Use board text input for password
-password = getText("WiFi Password", board, manage_events=False)
+# Pause events for password input
+try:
+    board.pauseEvents()
+except Exception:
+    pass
+
+try:
+    password = getText("WiFi Password", board, manage_events=False)
+finally:
+    try:
+        board.unPauseEvents()
+    except Exception:
+        pass
 print(password)
 
 if password == "":
