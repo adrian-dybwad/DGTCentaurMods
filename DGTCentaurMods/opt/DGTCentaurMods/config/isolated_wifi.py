@@ -17,7 +17,7 @@ shutdown_requested = False
 def signal_handler(signum, frame):
     """Handle CTRL+C gracefully"""
     global shutdown_requested
-    print("\n🛑 Shutdown requested...")
+    print("\nShutdown requested...")
     shutdown_requested = True
     try:
         from DGTCentaurMods.display import epaper
@@ -175,34 +175,34 @@ def main():
     """Main WiFi configuration function"""
     global shutdown_requested
     
-    print("🔧 DGT Centaur WiFi Configuration (Isolated)")
+    print("DGT Centaur WiFi Configuration (Isolated)")
     print("=" * 50)
     
     # Initialize board
     board_obj, addr1, addr2 = init_board()
     if not board_obj:
-        print("❌ Failed to initialize board")
+        print("Failed to initialize board")
         return
     
     # Initialize display
     epaper = init_display()
     if not epaper:
-        print("❌ Failed to initialize display")
+        print("Failed to initialize display")
         return
     
-    print("✅ Hardware initialized")
+    print("Hardware initialized")
     
     # Get WiFi networks
-    print("📡 Scanning for WiFi networks...")
+    print("Scanning for WiFi networks...")
     networks = get_wifi_networks()
     
     if not networks:
-        print("❌ No WiFi networks found")
+        print("No WiFi networks found")
         display_text(epd, "No WiFi networks found")
         time.sleep(3)
         return
     
-    print(f"📶 Found {len(networks)} networks")
+    print(f"Found {len(networks)} networks")
     
     # Display networks and allow selection
     selected_index = 0
@@ -242,7 +242,7 @@ def main():
     
     show_networks()
     
-    print("⌨️  Use UP/DOWN to navigate, SELECT to choose, BACK to cancel")
+    print("Use UP/DOWN to navigate, SELECT to choose, BACK to cancel")
     
     while not shutdown_requested:
         key = poll_key(board_obj, addr1, addr2)
@@ -250,7 +250,7 @@ def main():
             time.sleep(0.05)  # Reduced from 0.1 to 0.05 for better responsiveness
             continue
             
-        print(f"🔑 Key pressed: {key}")
+        print(f"Key pressed: {key}")
         
         if key == "UP":
             selected_index = (selected_index - 1) % len(networks)
@@ -260,7 +260,7 @@ def main():
             show_networks()
         elif key == "SELECT":
             selected_network = networks[selected_index]
-            print(f"✅ Selected: {selected_network}")
+            print(f"Selected: {selected_network}")
             
             # Show confirmation
             clear_display(epaper)
@@ -290,7 +290,7 @@ def main():
             while not shutdown_requested:
                 confirm_key = poll_key(board_obj, addr1, addr2)
                 if confirm_key == "SELECT":
-                    print(f"🔧 Configuring WiFi: {selected_network}")
+                    print(f"Configuring WiFi: {selected_network}")
                     
                     # Show password input screen
                     try:
@@ -319,17 +319,17 @@ def main():
                     
                     # Use board text input method
                     try:
-                        print("🔐 Starting password input...")
+                        print("Starting password input...")
                         
                         # Use the board's text input method
                         password = board_obj.getText("WiFi Password")
                         
                         if password is None:
-                            print("❌ Password input cancelled")
+                            print("Password input cancelled")
                             show_networks()
                             break
                         
-                        print(f"✅ Password entered: {'*' * len(password)}")
+                        print(f"Password entered: {'*' * len(password)}")
                         
                     except Exception as e:
                         print(f"Password input error: {e}")
@@ -358,20 +358,20 @@ def main():
                             time.sleep(0.1)
                     
                 elif confirm_key == "BACK":
-                    print("❌ Cancelled")
+                    print("Cancelled")
                     show_networks()
                     break
                     
         elif key == "BACK":
-            print("❌ Cancelled")
+            print("Cancelled")
             return
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n🛑 Interrupted by user")
+        print("\nInterrupted by user")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
     finally:
-        print("👋 Goodbye!")
+        print("Goodbye!")
