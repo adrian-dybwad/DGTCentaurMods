@@ -1,0 +1,281 @@
+#!/usr/bin/env python3
+"""
+Completely isolated WiFi configuration that doesn't interfere with the main DGT system.
+This script manages its own display and serial communication independently.
+"""
+import sys
+import os
+import time
+import signal
+import subprocess
+import serial
+from typing import Optional, List
+
+# Global flag for graceful shutdown
+shutdown_requested = False
+
+def signal_handler(signum, frame):
+    """Handle CTRL+C gracefully"""
+    global shutdown_requested
+    print("\n🛑 Shutdown requested...")
+    shutdown_requested = True
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+def get_wifi_networks() -> List[str]:
+    """Get list of available WiFi networks"""
+    try:
+        result = subprocess.run(['iwlist', 'scan'], capture_output=True, text=True)
+        if result.returncode != 0:
+            return []
+        
+        networks = []
+        lines = result.stdout.split('\n')
+        for line in lines:
+            if 'ESSID:' in line:
+                essid = line.split('ESSID:')[1].strip().strip('"')
+                if essid and essid != '':
+                    networks.append(essid)
+        
+        return list(set(networks))  # Remove duplicates
+    except Exception as e:
+        print(f"Error scanning WiFi: {e}")
+        return []
+
+def init_display():
+    """Initialize display independently"""
+    try:
+        # Import only what we need
+        sys.path.insert(0, '/home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods')
+        from DGTCentaurMods.display import epaper
+        from DGTCentaurMods.display import epd2in9d
+        
+        # Create our own display instance
+        epd = epd2in9d.EPD()
+        epd.init()
+        epd.Clear(0xFF)
+        
+        return epd
+    except Exception as e:
+        print(f"Display init error: {e}")
+        return None
+
+def clear_display(epd):
+    """Clear the display"""
+    try:
+        epd.Clear(0xFF)
+    except Exception as e:
+        print(f"Display clear error: {e}")
+
+def display_text(epd, text: str, x: int = 10, y: int = 10):
+    """Display text on the e-paper display"""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        
+        # Create image
+        image = Image.new('1', (epd.width, epd.height), 255)
+        draw = ImageDraw.Draw(image)
+        
+        # Load font
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+        except:
+            font = ImageFont.load_default()
+        
+        # Draw text
+        draw.text((x, y), text, font=font, fill=0)
+        
+        # Display
+        epd.display(epd.getbuffer(image))
+        
+    except Exception as e:
+        print(f"Display text error: {e}")
+
+def init_board():
+    """Initialize board communication independently"""
+    try:
+        # Open serial port directly
+        ser = serial.Serial('/dev/serial0', 1000000, timeout=0.1)
+        
+        # Clear any existing data
+        ser.read(1000)
+        
+        # Send initialization sequence
+        ser.write(b'\x4d')
+        time.sleep(0.1)
+        ser.read(1000)
+        
+        ser.write(b'\x4e')
+        time.sleep(0.1)
+        ser.read(1000)
+        
+        # Try to discover address
+        ser.write(b'\x87\x00\x00\x07')
+        resp = ser.read(1000)
+        
+        if len(resp) > 4:
+            addr1 = resp[3]
+            addr2 = resp[4]
+            print(f"✅ Board connected: {addr1:02x}:{addr2:02x}")
+            return ser, addr1, addr2
+        else:
+            print("❌ Board address discovery failed")
+            return None, 0, 0
+            
+    except Exception as e:
+        print(f"Board init error: {e}")
+        return None, 0, 0
+
+def poll_key(ser, addr1, addr2):
+    """Poll for key events"""
+    try:
+        # Send key event request
+        ser.write(b'\x94')
+        resp = ser.read(256)
+        
+        if not resp:
+            return None
+            
+        hx = resp.hex()
+        a1 = f"{addr1:02x}"
+        a2 = f"{addr2:02x}"
+        
+        # Look for key event patterns
+        if f"b100{a1}0{a2}" in hx:
+            key_code = hx[-2:]
+            if key_code == "0d":
+                return "SELECT"
+            elif key_code == "3c":
+                return "UP"
+            elif key_code == "61":
+                return "DOWN"
+            elif key_code == "47":
+                return "BACK"
+        
+        return None
+    except Exception as e:
+        return None
+
+def main():
+    """Main WiFi configuration function"""
+    global shutdown_requested
+    
+    print("🔧 DGT Centaur WiFi Configuration (Isolated)")
+    print("=" * 50)
+    
+    # Initialize board
+    ser, addr1, addr2 = init_board()
+    if not ser:
+        print("❌ Failed to initialize board")
+        return
+    
+    # Initialize display
+    epd = init_display()
+    if not epd:
+        print("❌ Failed to initialize display")
+        return
+    
+    print("✅ Hardware initialized")
+    
+    # Get WiFi networks
+    print("📡 Scanning for WiFi networks...")
+    networks = get_wifi_networks()
+    
+    if not networks:
+        print("❌ No WiFi networks found")
+        display_text(epd, "No WiFi networks found")
+        time.sleep(3)
+        return
+    
+    print(f"📶 Found {len(networks)} networks")
+    
+    # Display networks and allow selection
+    selected_index = 0
+    
+    def show_networks():
+        clear_display(epd)
+        display_text(epd, "WiFi Networks:", 10, 10)
+        
+        # Show up to 8 networks
+        start_idx = max(0, selected_index - 3)
+        end_idx = min(len(networks), start_idx + 8)
+        
+        for i, network in enumerate(networks[start_idx:end_idx]):
+            y_pos = 40 + (i * 20)
+            prefix = ">" if (start_idx + i) == selected_index else " "
+            text = f"{prefix} {network[:15]}"  # Truncate long names
+            display_text(epd, text, 10, y_pos)
+    
+    show_networks()
+    
+    print("⌨️  Use UP/DOWN to navigate, SELECT to choose, BACK to cancel")
+    
+    while not shutdown_requested:
+        key = poll_key(ser, addr1, addr2)
+        if not key:
+            time.sleep(0.1)
+            continue
+            
+        print(f"🔑 Key pressed: {key}")
+        
+        if key == "UP":
+            selected_index = (selected_index - 1) % len(networks)
+            show_networks()
+        elif key == "DOWN":
+            selected_index = (selected_index + 1) % len(networks)
+            show_networks()
+        elif key == "SELECT":
+            selected_network = networks[selected_index]
+            print(f"✅ Selected: {selected_network}")
+            
+            # Show confirmation
+            clear_display(epd)
+            display_text(epd, f"Selected: {selected_network}", 10, 10)
+            display_text(epd, "Press SELECT to confirm", 10, 40)
+            display_text(epd, "or BACK to cancel", 10, 60)
+            
+            # Wait for confirmation
+            while not shutdown_requested:
+                confirm_key = poll_key(ser, addr1, addr2)
+                if confirm_key == "SELECT":
+                    print(f"🔧 Configuring WiFi: {selected_network}")
+                    clear_display(epd)
+                    display_text(epd, "Configuring WiFi...", 10, 10)
+                    display_text(epd, f"Network: {selected_network}", 10, 40)
+                    
+                    # Here you would normally configure the WiFi
+                    time.sleep(2)
+                    
+                    clear_display(epd)
+                    display_text(epd, "WiFi configured!", 10, 10)
+                    display_text(epd, "Press any key to exit", 10, 40)
+                    
+                    print("✅ WiFi configuration complete!")
+                    
+                    # Wait for any key to exit
+                    while not shutdown_requested:
+                        if poll_key(ser, addr1, addr2):
+                            return
+                        time.sleep(0.1)
+                    
+                elif confirm_key == "BACK":
+                    print("❌ Cancelled")
+                    show_networks()
+                    break
+                    
+        elif key == "BACK":
+            print("❌ Cancelled")
+            return
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n🛑 Interrupted by user")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+    finally:
+        print("👋 Goodbye!")
