@@ -311,30 +311,65 @@ def main():
                     except Exception as e:
                         print(f"Display error: {e}")
                     
-                    # Use simple_text_input for password entry
-                    try:
-                        from DGTCentaurMods.ui.simple_text_input import simple_text_input
-                        from DGTCentaurMods.ui.input_adapters import poll_actions_from_board
-                        
-                        password = simple_text_input(
-                            title="WiFi Password",
-                            poll_action=poll_actions_from_board,
-                            initial_text="",
-                            max_length=63,  # WPA2 max password length
-                            font_size=14,
-                            timeout_seconds=60.0
-                        )
-                        
-                        if password is None:
-                            print("❌ Password input cancelled")
-                            show_networks()
+                    # Simple password input using the existing display
+                    password = ""
+                    char_sets = [
+                        "abcdefghijklmnopqrstuvwxyz",  # lowercase
+                        "ABCDEFGHIJKLMNOPQRSTUVWXYZ",  # uppercase  
+                        "0123456789",                  # numbers
+                        " !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",  # symbols
+                    ]
+                    current_set = 0
+                    current_char_index = 0
+                    
+                    def show_password_input():
+                        try:
+                            from PIL import Image, ImageDraw, ImageFont
+                            
+                            image = Image.new('1', (128, 296), 255)
+                            draw = ImageDraw.Draw(image)
+                            
+                            try:
+                                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+                            except:
+                                font = ImageFont.load_default()
+                            
+                            draw.text((5, 10), f"Network: {selected_network[:15]}", font=font, fill=0)
+                            draw.text((5, 30), f"Password: {password}{'_' if len(password) < 20 else ''}", font=font, fill=0)
+                            draw.text((5, 50), f"Set: {['abc', 'ABC', '123', '!@#'][current_set]}", font=font, fill=0)
+                            draw.text((5, 70), f"Char: {char_sets[current_set][current_char_index]}", font=font, fill=0)
+                            draw.text((5, 90), "UP/DOWN: navigate", font=font, fill=0)
+                            draw.text((5, 105), "SELECT: add char", font=font, fill=0)
+                            draw.text((5, 120), "BACK: delete", font=font, fill=0)
+                            draw.text((5, 140), "HELP: confirm", font=font, fill=0)
+                            
+                            epaper.epaperbuffer.paste(image, (0, 0))
+                        except Exception as e:
+                            print(f"Password display error: {e}")
+                    
+                    show_password_input()
+                    
+                    # Password input loop
+                    while not shutdown_requested and len(password) < 63:
+                        key = poll_key(board_obj, addr1, addr2)
+                        if key == "UP":
+                            current_char_index = (current_char_index - 1) % len(char_sets[current_set])
+                            show_password_input()
+                        elif key == "DOWN":
+                            current_char_index = (current_char_index + 1) % len(char_sets[current_set])
+                            show_password_input()
+                        elif key == "SELECT":
+                            password += char_sets[current_set][current_char_index]
+                            show_password_input()
+                        elif key == "BACK":
+                            if password:
+                                password = password[:-1]
+                                show_password_input()
+                        elif key == "HELP":
                             break
-                        
-                        print(f"✅ Password entered: {'*' * len(password)}")
-                        
-                    except Exception as e:
-                        print(f"Password input error: {e}")
-                        password = ""
+                        time.sleep(0.1)
+                    
+                    print(f"✅ Password entered: {'*' * len(password)}")
                     
                     if not shutdown_requested:
                         # Show success screen
