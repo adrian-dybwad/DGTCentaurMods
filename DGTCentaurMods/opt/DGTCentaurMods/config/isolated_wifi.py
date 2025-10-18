@@ -168,10 +168,19 @@ def poll_key(board_obj, addr1, addr2):
                 print("DEBUG: Detected BACK key")
                 return "BACK"
         
-        # Look for the specific DOWN button pattern from the debug output
+        # Look for the specific button patterns from the debug output
         if "00140a05020000000061" in hx:
             print("DEBUG: Detected DOWN key (pattern match)")
             return "DOWN"
+        elif "00140a0508000000007d3c" in hx:
+            print("DEBUG: Detected UP key (pattern match)")
+            return "UP"
+        elif "00140a0501000000007d47" in hx:
+            print("DEBUG: Detected BACK key (pattern match)")
+            return "BACK"
+        elif "00140a0510000000007d17" in hx:
+            print("DEBUG: Detected SELECT key (pattern match)")
+            return "SELECT"
         
         return None
     except Exception as e:
