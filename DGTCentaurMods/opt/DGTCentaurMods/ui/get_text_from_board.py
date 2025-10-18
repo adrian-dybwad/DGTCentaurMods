@@ -103,15 +103,16 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
         res = getBoardState()
         if not isinstance(res, list) or len(res) != 64:
             res = [0] * 64
-        if res != clearstate:
-            writeTextToBuffer(0, "Remove board")
-            writeText(1, "pieces")
-            deadline = time.time() + 20
-            while time.time() < deadline:
-                time.sleep(0.4)
-                res = getBoardState()
-                if isinstance(res, list) and len(res) == 64 and res == clearstate:
-                    break
+        # Skip the "remove pieces" check for now
+        # if res != clearstate:
+        #     writeTextToBuffer(0, "Remove board")
+        #     writeText(1, "pieces")
+        #     deadline = time.time() + 20
+        #     while time.time() < deadline:
+        #         time.sleep(0.4)
+        #         res = getBoardState()
+        #         if isinstance(res, list) and len(res) == 64 and res == clearstate:
+        #             break
 
         clearSerial()
 
@@ -176,12 +177,16 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
                 if action:
                     print(f"poll_actions_from_board returned: {action}")
                 if action == "BACK":
+                    print("Detected BACK button")
                     return BTNBACK
                 elif action == "SELECT":
+                    print("Detected SELECT button")
                     return BTNTICK
                 elif action == "UP":
+                    print("Detected UP button")
                     return BTNUP
                 elif action == "DOWN":
+                    print("Detected DOWN button")
                     return BTNDOWN
             except Exception as e:
                 print(f"Error in _read_buttons: {e}")
@@ -240,7 +245,7 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
                 if typed_changed:
                     print(f"Piece detected, typed now: '{typed}'")
 
-                if changed or typed_changed or (time.time() - last_draw) > 0.2:
+                if changed or typed_changed or (time.time() - last_draw) > 0.5:
                     _render()
                     last_draw = time.time()
                     changed = False
