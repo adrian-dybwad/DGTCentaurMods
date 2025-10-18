@@ -3,7 +3,7 @@
 # (license header unchanged)
 
 from DGTCentaurMods.ui.epaper_menu import select_from_list_epaper
-from DGTCentaurMods.ui.input_adapters import poll_actions_direct
+from DGTCentaurMods.ui.input_adapters import start_wifi_subscription, stop_wifi_subscription, poll_actions_from_board
 from DGTCentaurMods.board import board
 import os, time, sys, re
 
@@ -121,20 +121,29 @@ print("----------------------------------------------------------")
 print(networks)
 print("----------------------------------------------------------")
 
-# Use the existing input_adapters system without pause/unpause
-print("Starting WiFi menu...")
+# Use the multi-subscriber system
+print("Starting WiFi menu with multi-subscriber system...")
 
-try:
-    answer = select_from_list_epaper(
-        options=list(networks.keys()),
-        title="Wi-Fi Networks",
-        poll_action=poll_actions_direct,
-        highlight_index=0,
-        lines_per_page=7,
-        font_size=18,
-    )
-except Exception as e:
-    print(f"Error in WiFi menu: {e}")
+# Start WiFi subscription
+if start_wifi_subscription():
+    try:
+        answer = select_from_list_epaper(
+            options=list(networks.keys()),
+            title="Wi-Fi Networks",
+            poll_action=poll_actions_from_board,
+            highlight_index=0,
+            lines_per_page=7,
+            font_size=18,
+        )
+    except Exception as e:
+        print(f"Error in WiFi menu: {e}")
+        answer = None
+    finally:
+        # Always stop WiFi subscription when done
+        stop_wifi_subscription()
+        print("WiFi subscription stopped")
+else:
+    print("Failed to start WiFi subscription")
     answer = None
 
 print("++++++++++++++++++++++++++++++")

@@ -1024,19 +1024,65 @@ def eventsThread(keycallback, fieldcallback, tout):
         logging.debug('Timeout. Shutting doen')
         shutdown()
 
+# Multi-subscriber system
+subscribers = []  # List of (callback, field_callback) tuples
+subscriber_lock = threading.Lock()
+
 def subscribeEvents(keycallback, fieldcallback, timeout=100000):
     # Called by any program wanting to subscribe to events
     # Arguments are firstly the callback function for key presses, secondly for piece lifts and places
+    global subscribers, eventsthreadpointer, eventsrunning
+    
     clearSerial()
     
-    # Store the original callback for potential restoration
-    if not hasattr(subscribeEvents, '_original_keycallback'):
-        subscribeEvents._original_keycallback = keycallback
-        subscribeEvents._original_fieldcallback = fieldcallback
+    with subscriber_lock:
+        # Add this subscriber to the list
+        subscribers.append((keycallback, fieldcallback))
+        
+        # If this is the first subscriber, start the events thread
+        if len(subscribers) == 1:
+            eventsrunning = 1
+            eventsthreadpointer = threading.Thread(target=eventsThread, args=(multi_callback, multi_field_callback, timeout))
+            eventsthreadpointer.daemon = True
+            eventsthreadpointer.start()
+
+def unsubscribeEvents(keycallback, fieldcallback):
+    """Remove a subscriber from the events system"""
+    global subscribers, eventsthreadpointer, eventsrunning
     
-    eventsthreadpointer = threading.Thread(target=eventsThread, args=([keycallback, fieldcallback, timeout]))
-    eventsthreadpointer.daemon = True
-    eventsthreadpointer.start()
+    with subscriber_lock:
+        try:
+            subscribers.remove((keycallback, fieldcallback))
+        except ValueError:
+            pass  # Subscriber not found
+        
+        # If no more subscribers, stop the events thread
+        if len(subscribers) == 0:
+            eventsrunning = 0
+            if eventsthreadpointer and eventsthreadpointer.is_alive():
+                eventsthreadpointer.join(timeout=1.0)
+
+def multi_callback(button_id):
+    """Multi-subscriber callback that notifies all subscribers"""
+    global subscribers
+    with subscriber_lock:
+        for keycallback, fieldcallback in subscribers:
+            try:
+                if keycallback:
+                    keycallback(button_id)
+            except Exception as e:
+                logging.error(f"Error in subscriber callback: {e}")
+
+def multi_field_callback(field):
+    """Multi-subscriber field callback that notifies all subscribers"""
+    global subscribers
+    with subscriber_lock:
+        for keycallback, fieldcallback in subscribers:
+            try:
+                if fieldcallback:
+                    fieldcallback(field)
+            except Exception as e:
+                logging.error(f"Error in subscriber field callback: {e}")
 
 def pauseEvents():
     global eventsrunning
