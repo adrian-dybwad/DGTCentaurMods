@@ -119,12 +119,47 @@ def stop_wifi_subscription():
         logging.error(f"Error stopping WiFi subscription: {e}")
         return False
 
-def wifi_menu_wait():
-    """Wait for WiFi menu event - same pattern as main menu"""
-    global wifi_event_key, wifi_selection
-    wifi_event_key.wait()
-    wifi_event_key.clear()
-    return wifi_selection
+# Text input event system
+text_input_event = threading.Event()
+text_input_event_type = None  # 'button' or 'field'
+text_input_button = 0
+text_input_field = -1
+
+def text_input_button_callback(button_id):
+    """Callback for text input button events"""
+    global text_input_button, text_input_event, text_input_event_type
+    text_input_button = button_id
+    text_input_event_type = 'button'
+    text_input_event.set()
+    logging.debug(f"Text input button callback: {button_id}")
+
+def text_input_field_callback(field):
+    """Callback for text input field events"""
+    global text_input_field, text_input_event, text_input_event_type
+    text_input_field = field
+    text_input_event_type = 'field'
+    text_input_event.set()
+    logging.debug(f"Text input field callback: {field}")
+
+def start_text_input_subscription():
+    """Start text input event subscription"""
+    try:
+        b.subscribeEvents(text_input_button_callback, text_input_field_callback, timeout=3600)
+        logging.debug("Started text input event subscription")
+        return True
+    except Exception as e:
+        logging.error(f"Error starting text input subscription: {e}")
+        return False
+
+def stop_text_input_subscription():
+    """Stop text input event subscription"""
+    try:
+        b.unsubscribeEvents(text_input_button_callback, text_input_field_callback)
+        logging.debug("Stopped text input event subscription")
+        return True
+    except Exception as e:
+        logging.error(f"Error stopping text input subscription: {e}")
+        return False
 
 def do_wifi_menu(menu, title=None):
     """WiFi menu function - same pattern as main menu doMenu()"""

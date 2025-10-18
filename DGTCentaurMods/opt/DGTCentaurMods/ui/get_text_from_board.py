@@ -31,32 +31,34 @@ signal.signal(signal.SIGTERM, signal_handler)
 def getText(title="Enter text", board_obj=None, manage_events=True):
     """
     Enter text using the board as a virtual keyboard.
-    Pauses events; robust against short/partial serial reads.
+    Uses event-based system with blocking .wait() for immediate response.
     BACK deletes, TICK confirms, UP/DOWN switch pages.
     
     Args:
         title: The title/prompt to display to the user
         board_obj: The board object to use for communication (optional)
-        manage_events: Whether to pause/unpause events (default True)
+        manage_events: Whether to manage event subscriptions (default True)
     """
     print(f"getText function called with title='{title}', board_obj={board_obj is not None}, manage_events={manage_events}")
     
     from DGTCentaurMods.display import epaper
+    from DGTCentaurMods.ui.input_adapters import (
+        start_text_input_subscription, stop_text_input_subscription,
+        text_input_event, text_input_event_type, text_input_button, text_input_field
+    )
     
     global screenbuffer
     
     # Import board functions if board_obj not provided
     if board_obj is None:
         from DGTCentaurMods.board.board import (
-            pauseEvents, unPauseEvents, getBoardState, clearSerial, 
+            getBoardState, clearSerial, 
             sendPacket, _ser_read, addr1, addr2, beep, SOUND_GENERAL, 
             SOUND_WRONG, BTNBACK, BTNTICK, BTNUP, BTNDOWN, clearScreen,
             writeTextToBuffer, writeText, font18, screenbuffer
         )
     else:
         # Use methods from the provided board object
-        pauseEvents = board_obj.pauseEvents
-        unPauseEvents = board_obj.unPauseEvents
         getBoardState = board_obj.getBoardState
         clearSerial = board_obj.clearSerial
         sendPacket = board_obj.sendPacket
@@ -87,11 +89,11 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
         return None
     
     try:
+        # Start event subscription
         if manage_events:
-            try:
-                pauseEvents()
-            except Exception:
-                pass
+            if not start_text_input_subscription():
+                print("Failed to start text input subscription")
+                return None
 
         clearstate = [0] * 64
         printableascii = (
@@ -107,16 +109,6 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
         res = getBoardState()
         if not isinstance(res, list) or len(res) != 64:
             res = [0] * 64
-        # Skip the "remove pieces" check for now
-        # if res != clearstate:
-        #     writeTextToBuffer(0, "Remove board")
-        #     writeText(1, "pieces")
-        #     deadline = time.time() + 20
-        #     while time.time() < deadline:
-        #         time.sleep(0.4)
-        #         res = getBoardState()
-        #         if isinstance(res, list) and len(res) == 64 and res == clearstate:
-        #             break
 
         clearSerial()
 
@@ -142,58 +134,8 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
             epaper.epaperbuffer.paste(image, (0, 0))
             print("Display buffer updated")
 
-        def _read_fields_and_type():
-            nonlocal typed, charpage
-            try:
-                sendPacket(b'\x83', b'')
-                resp = _ser_read(10000)
-                if len(resp) >= 2 and resp[0] == 133 and resp[1] == 0:
-                    i = 0
-                    while i < len(resp) - 1:
-                        tag = resp[i]
-                        if tag == 65:  # placed
-                            fieldHex = resp[i + 1]
-                            if 0 <= fieldHex < 64:
-                                base = (charpage - 1) * 64
-                                ch = printableascii[base + fieldHex]
-                                typed += ch
-                                beep(SOUND_GENERAL)
-                                print(f"Piece placed on field {fieldHex}, added char '{ch}'")
-                                return True
-                            i += 2
-                        elif tag == 64:  # lifted
-                            i += 2
-                        else:
-                            i += 1
-            except Exception as e:
-                print(f"Error in _read_fields_and_type: {e}")
-            return False
-
-        def _read_buttons():
-            try:
-                from DGTCentaurMods.ui.input_adapters import poll_actions_from_board
-                action = poll_actions_from_board()
-                if action:
-                    print(f"poll_actions_from_board returned: {action}")
-                if action == "BACK":
-                    print("Detected BACK button")
-                    return BTNBACK
-                elif action == "SELECT":
-                    print("Detected SELECT button")
-                    return BTNTICK
-                elif action == "UP":
-                    print("Detected UP button")
-                    return BTNUP
-                elif action == "DOWN":
-                    print("Detected DOWN button")
-                    return BTNDOWN
-            except Exception as e:
-                print(f"Error in _read_buttons: {e}")
-            return 0
-
         print("Starting main input loop...")
         _render()
-        last_draw = 0.0
         start_time = time.time()
         timeout_seconds = 300  # 5 minute timeout
         
@@ -207,13 +149,20 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
             if time.time() - start_time > timeout_seconds:
                 print("Text input timeout")
                 return None
+            
+            # Blocking wait for ANY event (button or field)
+            print("Waiting for event...")
+            event_received = text_input_event.wait(timeout=60)
+            
+            if not event_received:
+                print("Event timeout, continuing...")
+                continue
                 
-            try:
-                typed_changed = _read_fields_and_type()
-                btn = _read_buttons()
-                
-                if btn != 0:
-                    print(f"Button pressed: {btn}")
+            text_input_event.clear()
+            
+            if text_input_event_type == 'button':
+                btn = text_input_button
+                print(f"Button event received: {btn}")
                 
                 if btn == BTNBACK:
                     if typed:
@@ -240,23 +189,24 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
                     beep(SOUND_GENERAL)
                     changed = True
                     print("Switched to page 2")
+                    
+            elif text_input_event_type == 'field':
+                field = text_input_field
+                print(f"Field event received: {field}")
                 
-                if typed_changed:
-                    print(f"Piece detected, typed now: '{typed}'")
+                # Process field event for piece placement
+                if 0 <= field < 64:
+                    base = (charpage - 1) * 64
+                    ch = printableascii[base + field]
+                    typed += ch
+                    beep(SOUND_GENERAL)
+                    print(f"Piece placed on field {field}, added char '{ch}'")
+                    changed = True
 
-                if changed or typed_changed or (time.time() - last_draw) > 1.0:
-                    _render()
-                    last_draw = time.time()
-                    changed = False
-
-            except Exception as e:
-                print(f"Error in main loop: {e}")
-                
-            time.sleep(0.05)
+            if changed:
+                _render()
+                changed = False
 
     finally:
         if manage_events:
-            try:
-                unPauseEvents()
-            except Exception:
-                pass
+            stop_text_input_subscription()
