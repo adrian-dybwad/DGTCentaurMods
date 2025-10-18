@@ -317,48 +317,22 @@ def main():
                     except Exception as e:
                         print(f"Display error: {e}")
                     
-                    # Use board.getText for password entry with timeout
+                    # Use board text input method
                     try:
                         print("🔐 Starting password input...")
                         
-                        # Set up a timeout for password input
-                        import threading
-                        password_result = [None]
-                        password_error = [None]
+                        # Use the board's text input method
+                        password = board_obj.getText("WiFi Password")
                         
-                        def get_password():
-                            try:
-                                password_result[0] = board_obj.getText("WiFi Password")
-                            except Exception as e:
-                                password_error[0] = e
-                        
-                        # Start password input in a thread
-                        password_thread = threading.Thread(target=get_password)
-                        password_thread.daemon = True
-                        password_thread.start()
-                        
-                        # Wait for password input with timeout
-                        timeout = 60  # 60 seconds timeout
-                        password_thread.join(timeout)
-                        
-                        if password_thread.is_alive():
-                            print("⏰ Password input timeout - continuing without password")
-                            password = ""
-                        elif password_error[0]:
-                            print(f"Password input error: {password_error[0]}")
-                            password = ""
-                        elif password_result[0] is None:
+                        if password is None:
                             print("❌ Password input cancelled")
                             show_networks()
                             break
-                        else:
-                            password = password_result[0]
-                            print(f"✅ Password entered: {'*' * len(password)}")
+                        
+                        print(f"✅ Password entered: {'*' * len(password)}")
                         
                     except Exception as e:
                         print(f"Password input error: {e}")
-                        import traceback
-                        traceback.print_exc()
                         password = ""
                     
                     if not shutdown_requested:
