@@ -60,6 +60,37 @@ BTNHELP = 5
 BTNPLAY = 6
 BTNLONGPLAY = 7
 
+import threading
+from serial import SerialException
+
+SER_LOCK = threading.RLock()
+
+def _ser_read(n, timeout=None):
+    """Thread-safe, resilient read."""
+    with SER_LOCK:
+        if timeout is not None:
+            old_to = ser.timeout
+            ser.timeout = timeout
+        try:
+            return ser.read(n)
+        except SerialException:
+            try:
+                ser.reset_input_buffer()
+            except Exception:
+                pass
+            time.sleep(0.05)
+            return b""
+        finally:
+            if timeout is not None:
+                ser.timeout = old_to
+
+def _ser_write(b):
+    with SER_LOCK:
+        try:
+            ser.write(b)
+        except SerialException:
+            time.sleep(0.05)  # brief backoff
+            
 # Get the config
 dev = Settings.read('system', 'developer', 'False')
 
@@ -75,6 +106,11 @@ else:
     # Be robust if the device is not immediately ready.
     try:
         ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
+        try:
+            # POSIX only; prevents another fd on same TTY
+            ser.exclusive = True
+        except Exception:
+            pass
         ser.isOpen()
     except Exception:
         try:
@@ -95,22 +131,22 @@ batterylastchecked = 0
 # But the address might not be that :( Here we send an initial 0x4d to ask the board to provide its address
 logging.debug("Detecting board adress")
 try:
-    ser.read(1000)
+    _ser_read(1000)
 except:
-    ser.read(1000)
+    _ser_read(1000)
 tosend = bytearray(b'\x4d')
-ser.write(tosend)
+_ser_write(tosend)
 try:
-    ser.read(1000)
+    _ser_read(1000)
 except:
-    ser.read(1000)
+    _ser_read(1000)
 logging.debug('Sent payload 1')
 tosend = bytearray(b'\x4e')
-ser.write(tosend)
+_ser_write(tosend)
 try:
-    ser.read(1000)
+    _ser_read(1000)
 except:
-    ser.read(1000)
+    _ser_read(1000)
 logging.debug('Sent payload 2')
 logging.debug('Serial is open. Waiting for response.')
 resp = ""
@@ -122,11 +158,11 @@ while len(resp) < 4 and time.time() < timeout:
     if dev == "True":
         break
     tosend = bytearray(b'\x87\x00\x00\x07')
-    ser.write(tosend)
+    _ser_write(tosend)
     try:
-        resp = ser.read(1000)
+        resp = _ser_read(1000)
     except:
-        resp = ser.read(1000)
+        resp = _ser_read(1000)
     if len(resp) > 3:
         addr1 = resp[3]
         addr2 = resp[4]
@@ -150,33 +186,24 @@ def buildPacket(command, data):
     return tosend
 
 def sendPacket(command, data):
-    # pass command and data as bytes
     tosend = buildPacket(command, data)
-    ser.write(tosend)
+    _ser_write(tosend)
 
 def clearSerial():
     logging.debug('Checking and clear the serial line.')
-    resp1 = ""
-    resp2 = ""
-    while dev == "False" and True:
+    resp1 = resp2 = b""
+    while dev == "False":
         sendPacket(b'\x83', b'')
         expect1 = buildPacket(b'\x85\x00\x06', b'')
-        try:
-            resp1 = ser.read(256)
-        except:
-            pass
+        resp1 = _ser_read(256)
         sendPacket(b'\x94', b'')
         expect2 = buildPacket(b'\xb1\x00\x06', b'')
-        try:
-            resp2 = ser.read(256)
-        except:
-            pass
-        #If board is idle, return True
+        resp2 = _ser_read(256)
         if expect1 == resp1 and expect2 == resp2:
             logging.debug('Board is idle. Serial is clear.')
             return True
-        else:
-            logging.debug('  Attempting to clear serial')
+        logging.debug('  Attempting to clear serial')
+        time.sleep(0.05)
 
 # ---------------------------------------------------------------------------
 # Non-blocking helpers (safe to use alongside existing request/response code)
@@ -193,7 +220,7 @@ def getBoardStateNonBlocking(max_bytes: int = 256) -> Optional[bytes]:
     try:
         prev = ser.timeout
         ser.timeout = 0  # non-blocking
-        data = ser.read(max_bytes) or b""
+        data = _ser_read(max_bytes) or b""
         return data if data else None
     except Exception:
         return None
@@ -431,14 +458,14 @@ def doMenu(items, fast = 0):
         # pressed
         timeout_local = time.time() + 60 * 15
         while buttonPress == 0:
-            ser.read(1000000)
+            _ser_read(1000000)
             sendPacket(b'\x83', b'')
             expect = buildPacket(b'\x85\x00', b'')
-            resp = ser.read(10000)
+            resp = _ser_read(10000)
             resp = bytearray(resp)
             sendPacket(b'\x94', b'')
             expect = buildPacket(b'\xb1\x00', b'')
-            resp = ser.read(10000)
+            resp = _ser_read(10000)
             resp = bytearray(resp)
             if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0501000000007d47"):
                 buttonPress = 1
@@ -523,10 +550,13 @@ def doMenu(items, fast = 0):
 #
 
 def clearBoardData():
-    ser.read(100000)
-    sendPacket(b'\x83', b'')
-    expect = buildPacket(b'\x85\x00\x06', b'')
-    ser.read(1000000)
+    # Don't crash if the port claims ready but returns nothing
+    try:
+        _ser_read(100000)  # dump junk
+        sendPacket(b'\x83', b'')
+        _ser_read(100000)
+    except Exception:
+        time.sleep(0.05)
 
 def beep(beeptype):
     # Ask the centaur to make a beep sound
@@ -559,7 +589,7 @@ def ledArray(inarray, speed = 3, intensity=5):
         tosend.append(rotateField(inarray[i]))
     tosend[2] = len(tosend) + 1
     tosend.append(checksum(tosend))
-    ser.write(tosend)
+    _ser_write(tosend)
 
 def ledFromTo(lfrom, lto, intensity=5):
     # Light up a from and to LED for move indication
@@ -574,8 +604,8 @@ def ledFromTo(lfrom, lto, intensity=5):
     # Wipe checksum byte and append the new checksum.
     tosend.pop()
     tosend.append(checksum(tosend))
-    ser.write(tosend)
-    #ser.read(100000)
+    _ser_write(tosend)
+    #_ser_read(100000)
 
 def led(num, intensity=5):
     # Flashes a specific led
@@ -593,7 +623,7 @@ def led(num, intensity=5):
             # Wipe checksum byte and append the new checksum.
             tosend.pop()
             tosend.append(checksum(tosend))
-            ser.write(tosend)
+            _ser_write(tosend)
             success = 1
         except:
             time.sleep(0.1)
@@ -638,10 +668,10 @@ def waitMove():
     placed = -1
     moves = []
     while placed == -1:
-        ser.read(100000)
+        _ser_read(100000)
         sendPacket(b'\x83', b'')
         expect = buildPacket(b'\x85\x00\x06', b'')
-        resp = ser.read(10000)
+        resp = _ser_read(10000)
         resp = bytearray(resp)
         if (bytearray(resp) != expect):
             if (resp[0] == 133 and resp[1] == 0):
@@ -658,16 +688,16 @@ def waitMove():
                         moves.append(newsquare + 1)
         sendPacket(b'\x94', b'')
         expect = buildPacket(b'\xb1\x00\x06', b'')
-        resp = ser.read(10000)
+        resp = _ser_read(10000)
         resp = bytearray(resp)
     return moves
 
 def poll():
     # Keep polling the board to get data from it
-    ser.read(100000)
+    _ser_read(100000)
     sendPacket(b'\x83', b'')
     expect = buildPacket(b'\x85\x00\x06', b'')
-    resp = ser.read(10000)
+    resp = _ser_read(10000)
     resp = bytearray(resp)
     if (bytearray(resp) != expect):
         if (resp[0] == 133 and resp[1] == 0):
@@ -680,7 +710,7 @@ def poll():
                     newsquare = rotateFieldHex(fieldHex)
     sendPacket(b'\x94', b'')
     expect = buildPacket(b'\xb1\x00\x06', b'')
-    resp = ser.read(10000)
+    resp = _ser_read(10000)
     resp = bytearray(resp)
     if (resp != expect):
         if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0501000000007d47"):
@@ -697,96 +727,183 @@ def poll():
             logging.debug("PLAY BUTTON")
 
 def getText(title):
-    # Allows text to be entered using a virtual keyboard where a chess piece is placed on the board
+    """
+    Enter text using the board as a virtual keyboard.
+    - Pauses the background events thread while active.
+    - Robust against short/partial serial reads.
+    - BACK deletes last char, TICK confirms and returns.
+    - UP/DOWN switch between two character pages.
+    """
     global screenbuffer
-    clearstate = bytearray(b'\x00' * 64)
-    printableascii = " !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~                                                                "
-    charpage = 1
-    typed = ""
-    # First we need a clear board
-    res = getBoardState()
-    if not isinstance(res, list) or len(res) != 64:
-        res = [0]*64
-    if bytearray(res) != clearstate:
-        writeTextToBuffer(0,'Remove board')
-        writeText(1,'pieces')
-        time.sleep(10)
-        while bytearray(res) != clearstate:
-            time.sleep(0.5)
-            res = getBoardState()
-    changed = 1
-    clearBoardData()
-    while True:
-        if changed == 1:
-            image = screenbuffer.copy()
+    try:
+        # Stop any background polling while we monopolize the UART
+        try:
+            pauseEvents()
+        except Exception:
+            pass
+
+        # Constants / state
+        clearstate = [0] * 64
+        printableascii = (
+            " !\"#$%&'()*+,-./0123456789:;<=>?@"
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`"
+            "abcdefghijklmnopqrstuvwxyz{|}~"
+            + (" " * (64 * 2 - 95))  # pad to 128 chars (2 pages of 64)
+        )
+        charpage = 1    # 1 or 2
+        typed = ""
+        changed = True
+
+        # Ensure clear board first (no pieces down)
+        res = getBoardState()
+        if not isinstance(res, list) or len(res) != 64:
+            res = [0] * 64
+        if res != clearstate:
+            writeTextToBuffer(0, "Remove board")
+            writeText(1, "pieces")
+            # Poll until clear, but be resilient
+            deadline = time.time() + 20
+            while time.time() < deadline:
+                time.sleep(0.4)
+                res = getBoardState()
+                if isinstance(res, list) and len(res) == 64 and res == clearstate:
+                    break
+
+        clearSerial()
+
+        def _render():
+            # Draw title, current input box, and 8x8 char grid for current page
+            nonlocal typed, charpage, screenbuffer
+            image = Image.new('1', (128, 296), 255)
             draw = ImageDraw.Draw(image)
-            draw.rectangle([(0, 0), (128, 250)], fill=255)
-            draw.text((0,20),title, font=font18, fill=0)
-            draw.rectangle([(0,39),(128,61)],fill=255,outline=0)
-            tt = typed
-            if len(tt) > 10:
-                tt = tt[-11:]
-            draw.text((0,40),tt, font=font18, fill=0)
-            pos = (charpage -1) * 64
-            lchars = []
-            for i in range(pos,pos+64):
-                lchars.append(printableascii[i])
-            pos = 0
-            for i in range(0,len(lchars),8):
-                for q in range(0,8):
-                    draw.text(((q*16),(pos*20)+80),lchars[i + q], font=font18, fill=0)
-                pos = pos + 1
+            # Title
+            draw.text((0, 20), title, font=font18, fill=0)
+            # Input box
+            draw.rectangle([(0, 39), (128, 61)], outline=0, fill=255)
+            tt = typed[-11:] if len(typed) > 11 else typed
+            draw.text((0, 40), tt, font=font18, fill=0)
+
+            # Characters for current page
+            page_start = (charpage - 1) * 64
+            lchars = [printableascii[i] for i in range(page_start, page_start + 64)]
+            for row in range(8):
+                for col in range(8):
+                    ch = lchars[row * 8 + col]
+                    draw.text((col * 16, 80 + row * 20), ch, font=font18, fill=0)
+
+            # Push to partial display
             screenbuffer = image.copy()
-            image = image.transpose(Image.FLIP_TOP_BOTTOM)
-            image = image.transpose(Image.FLIP_LEFT_RIGHT)
-            epd.DisplayPartial(epd.getbuffer(image))
-            time.sleep(0.1)
-            changed = 0
-        buttonPress = 0
-        ser.read(1000000)
-        sendPacket(b'\x83', b'')
-        expect = buildPacket(b'\x85\x00\x06', b'')
-        resp = ser.read(10000)
-        resp = bytearray(resp)
-        # If a piece is placed it will type a character!
-        if (bytearray(resp) != expect):
-            if (resp[0] == 133 and resp[1] == 0):
-                for x in range(0, len(resp) - 1):
-                    if resp[x] == 65:
-                        fieldHex = resp[x + 1]
-                        typed = typed + lchars[fieldHex]
-                        beep(SOUND_GENERAL)
-                        changed = 1
-        sendPacket(b'\x94', b'')
-        expect = buildPacket(b'\xb1\x00\x06', b'')
-        resp = ser.read(10000)
-        resp = bytearray(resp)
-        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0501000000007d47"):
-            buttonPress = 1 # BACK
-        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0510000000007d17"):
-            buttonPress = 2 # TICK
-        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0508000000007d3c"):
-            buttonPress = 3 # UP
-        if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a05020000000061"):
-            buttonPress = 4 # DOWN
-        if buttonPress == 1 and len(typed) > 0:
-            typed = typed[:-1]
-            beep(SOUND_GENERAL)
-            changed = 1
-        if buttonPress == 2:
-            beep(SOUND_GENERAL)
-            clearScreen()
-            time.sleep(1)
-            return typed
-        if buttonPress == 3:
-            beep(SOUND_GENERAL)
-            charpage = 1
-            changed = 1
-        if buttonPress == 4:
-            beep(SOUND_GENERAL)
-            charpage = 2
-            changed = 1
-        time.sleep(0.2)
+            img = image.transpose(Image.FLIP_TOP_BOTTOM).transpose(Image.FLIP_LEFT_RIGHT)
+            epd.DisplayPartial(epd.getbuffer(img))
+
+        def _read_fields_and_type():
+            """
+            Read a field packet and, if a placement (0x41) is seen, map it to a char
+            for the current page and append to 'typed'.
+            Returns True if we appended a character.
+            """
+            nonlocal typed, charpage
+            try:
+                sendPacket(b'\x83', b'')
+                resp = _ser_read(10000)
+                if len(resp) >= 2 and resp[0] == 133 and resp[1] == 0:
+                    # scan for lift/place markers
+                    i = 0
+                    while i < len(resp) - 1:
+                        tag = resp[i]
+                        if tag == 65:  # placed
+                            fieldHex = resp[i + 1]
+                            # fieldHex 0..63 is square index (per firmware page)
+                            if 0 <= fieldHex < 64:
+                                base = (charpage - 1) * 64
+                                ch = printableascii[base + fieldHex]
+                                typed += ch
+                                beep(SOUND_GENERAL)
+                                return True
+                            i += 2
+                        elif tag == 64:  # lifted (ignore for typing)
+                            i += 2
+                        else:
+                            i += 1
+            except Exception:
+                pass
+            return False
+
+        def _read_buttons():
+            """
+            Poll key event packet; return one of BTN* constants or 0 if none.
+            """
+            try:
+                sendPacket(b'\x94', b'')
+                resp = _ser_read(10000)
+                if len(resp) < 6:
+                    return 0
+                hx = resp.hex()[:-2]  # strip checksum nybble
+                a1 = "{:02x}".format(addr1)
+                a2 = "{:02x}".format(addr2)
+                if hx == ("b10011" + a1 + a2 + "00140a0501000000007d47"):
+                    return BTNBACK
+                if hx == ("b10011" + a1 + a2 + "00140a0510000000007d17"):
+                    return BTNTICK
+                if hx == ("b10011" + a1 + a2 + "00140a0508000000007d3c"):
+                    return BTNUP
+                if hx == ("b10010" + a1 + a2 + "00140a05020000000061"):
+                    return BTNDOWN
+            except Exception:
+                pass
+            return 0
+
+        # Initial draw
+        _render()
+
+        # Main input loop
+        last_draw = 0.0
+        while True:
+            typed_before = typed
+            typed_changed = _read_fields_and_type()
+            btn = _read_buttons()
+
+            if btn == BTNBACK:
+                if len(typed) > 0:
+                    typed = typed[:-1]
+                    beep(SOUND_GENERAL)
+                    changed = True
+                else:
+                    # No chars to delete; give a small feedback beep
+                    beep(SOUND_WRONG)
+
+            elif btn == BTNTICK:
+                beep(SOUND_GENERAL)
+                clearScreen()
+                time.sleep(0.2)
+                return typed
+
+            elif btn == BTNUP:
+                if charpage != 1:
+                    charpage = 1
+                    beep(SOUND_GENERAL)
+                    changed = True
+
+            elif btn == BTNDOWN:
+                if charpage != 2:
+                    charpage = 2
+                    beep(SOUND_GENERAL)
+                    changed = True
+
+            # Re-render if selection changed, typed changed, or >200ms elapsed since last draw
+            if changed or typed_changed or (time.time() - last_draw) > 0.2:
+                _render()
+                last_draw = time.time()
+                changed = False
+
+            time.sleep(0.05)
+
+    finally:
+        # Resume the background events thread
+        try:
+            unPauseEvents()
+        except Exception:
+            pass
 
 def getBoardState(field=None, retries=6, sleep_between=0.12):
     """
@@ -801,13 +918,13 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
             try:
                 ser.reset_input_buffer()
             except Exception:
-                ser.read(10000)
+                _ser_read(10000)
 
             # request snapshot
             sendPacket(b'\xf0\x00\x07', b'\x7f')
 
             # read at least 'needed' bytes; serial timeout keeps this bounded
-            resp = ser.read(needed)
+            resp = _ser_read(needed)
 
             if len(resp) < needed:
                 time.sleep(sleep_between)
@@ -853,7 +970,7 @@ def getChargingState():
     while len(resp) < 7 and time.time() < timeout_local:
         sendPacket(bytearray([152]), b'')
         try:
-            resp = ser.read(1000)
+            resp = _ser_read(1000)
         except:
             pass
         if len(resp) >= 7 and resp[0] == 181:
@@ -871,7 +988,7 @@ def getBatteryLevel():
     while len(resp) < 7 and time.time() < timeout_local:
         sendPacket(bytearray([152]), b'')
         try:
-            resp = ser.read(1000)
+            resp = _ser_read(1000)
         except:
             pass
     if len(resp) < 7:
@@ -962,7 +1079,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                         sendPacket(b'\x83', b'')
                         expect = bytearray(b'\x85\x00\x06' + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big'))
                         expect.append(checksum(expect))
-                        resp = ser.read(10000)
+                        resp = _ser_read(10000)
                         resp = bytearray(resp)
                         if (bytearray(resp) != expect):
                             if (resp[0] == 133 and resp[1] == 0):
@@ -984,7 +1101,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 sendPacket(b'\x94', b'')
                 expect = bytearray(b'\xb1\x00\x06' + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big'))
                 expect.append(checksum(expect))
-                resp = ser.read(10000)
+                resp = _ser_read(10000)
                 resp = bytearray(resp)
                 if not standby:
                     #Disable these buttons on standby
@@ -1010,7 +1127,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                         sendPacket(b'\x94', b'')
                         expect = bytearray(b'\xb1\x00\x06' + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big'))
                         expect.append(checksum(expect))
-                        resp = ser.read(1000)
+                        resp = _ser_read(1000)
                         resp = bytearray(resp)
                         if resp.hex().startswith("b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0500040"):
                             logging.debug('Play btn pressed. Stanby is: %s', standby)
@@ -1046,7 +1163,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                     while len(resp) < 7 and time.time() < timeout_batt:
                         sendPacket(bytearray([152]), b'')
                         try:
-                            resp = ser.read(1000)
+                            resp = _ser_read(1000)
                         except:
                             pass
                     if len(resp) >= 7 and resp[0] == 181:
