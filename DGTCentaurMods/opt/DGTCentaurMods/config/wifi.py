@@ -152,7 +152,7 @@ if not answer:
 from DGTCentaurMods.ui.get_text_from_board import getText
 
 # Use board text input for password
-password = getText("WiFi Password", board)
+password = getText("WiFi Password", board, manage_events=False)
 print(password)
 
 if password == "":

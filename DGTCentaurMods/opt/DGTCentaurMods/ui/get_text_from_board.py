@@ -28,7 +28,7 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 
-def getText(title, board_obj=None):
+def getText(title, board_obj=None, manage_events=True):
     """
     Enter text using the board as a virtual keyboard.
     Pauses events; robust against short/partial serial reads.
@@ -37,6 +37,7 @@ def getText(title, board_obj=None):
     Args:
         title: The title/prompt to display to the user
         board_obj: The board object to use for communication (optional)
+        manage_events: Whether to pause/unpause events (default True)
     """
     from DGTCentaurMods.display import epaper
     
@@ -80,10 +81,11 @@ def getText(title, board_obj=None):
     print("Display initialized and cleared")
     
     try:
-        try:
-            pauseEvents()
-        except Exception:
-            pass
+        if manage_events:
+            try:
+                pauseEvents()
+            except Exception:
+                pass
 
         clearstate = [0] * 64
         printableascii = (
@@ -247,7 +249,8 @@ def getText(title, board_obj=None):
             time.sleep(0.05)
 
     finally:
-        try:
-            unPauseEvents()
-        except Exception:
-            pass
+        if manage_events:
+            try:
+                unPauseEvents()
+            except Exception:
+                pass
