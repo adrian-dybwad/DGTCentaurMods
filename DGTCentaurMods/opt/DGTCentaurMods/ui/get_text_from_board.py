@@ -40,6 +40,8 @@ def getText(title, board_obj=None):
     """
     from DGTCentaurMods.display import epaper
     
+    global screenbuffer
+    
     # Import board functions if board_obj not provided
     if board_obj is None:
         from DGTCentaurMods.board.board import (
@@ -70,8 +72,6 @@ def getText(title, board_obj=None):
         writeText = board_obj.writeText
         font18 = board_obj.font18
         screenbuffer = board_obj.screenbuffer
-    
-    global screenbuffer
     
     # Initialize display
     epaper.initEpaper()
