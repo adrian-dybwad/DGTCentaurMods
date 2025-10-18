@@ -11,6 +11,14 @@ import os, time, sys, re
 # board.initScreen()
 # time.sleep(1)
 
+print("Testing key loop...")
+import time
+for _ in range(50):
+    act = poll_actions_from_board()
+    if act:
+        print("KEY:", act)
+    time.sleep(0.1)
+    
 # Scan for SSIDs
 cmd = "sudo iwlist wlan0 scan | grep 'ESSID'"
 out = os.popen(cmd).read()
@@ -36,6 +44,7 @@ try:
         options=list(networks.keys()),
         title="Wi-Fi Networks",
         poll_action=poll_actions_from_board,
+        highlight_index=0,
         lines_per_page=7,
         font_size=18,
     )
