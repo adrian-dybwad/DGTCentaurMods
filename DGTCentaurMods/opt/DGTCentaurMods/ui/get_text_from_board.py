@@ -157,8 +157,25 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
             if not event_received:
                 print("Event timeout, continuing...")
                 continue
-                
+
+            print(f"event_received {event_received}")    
+            print(f"text_input_event_type {text_input_event_type}")
+            print(f"text_input_button {text_input_button}")
+            print(f"text_input_field {text_input_field}")
+            print(f"BTNBACK {BTNBACK}")
+            print(f"BTNTICK {BTNTICK}")
+            print(f"BTNUP {BTNUP}")
+            print(f"BTNDOWN {BTNDOWN}")
+
             text_input_event.clear()
+
+            print(f"text_input_event_type {text_input_event_type}")
+            print(f"text_input_button {text_input_button}")
+            print(f"text_input_field {text_input_field}")
+            print(f"BTNBACK {BTNBACK}")
+            print(f"BTNTICK {BTNTICK}")
+            print(f"BTNUP {BTNUP}")
+            print(f"BTNDOWN {BTNDOWN}")
             
             if text_input_event_type == 'button':
                 btn = text_input_button
