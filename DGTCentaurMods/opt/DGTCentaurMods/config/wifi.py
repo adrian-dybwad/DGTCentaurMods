@@ -2,8 +2,7 @@
 #
 # (license header unchanged)
 
-from DGTCentaurMods.ui.epaper_menu import select_from_list_epaper
-from DGTCentaurMods.ui.input_adapters import start_wifi_subscription, stop_wifi_subscription, do_wifi_menu
+from DGTCentaurMods.game.menu import doMenu
 from DGTCentaurMods.board import board
 import os, time, sys, re
 
@@ -21,40 +20,19 @@ print("----------------------------------------------------------")
 print(networks)
 print("----------------------------------------------------------")
 
-# Use the event-based WiFi menu (same pattern as main menu)
-print("Starting WiFi menu with event-based system...")
+# Use the existing main menu system - it already works perfectly
+print("Starting WiFi menu using main menu system...")
 
 # Convert networks list to menu format
 menu = {}
-for i, ssid in enumerate(networks.keys()):
-    menu[f"network_{i}"] = ssid
+for ssid in networks.keys():
+    menu[ssid] = ssid
 
-# Initialize WiFi menu state before subscribing
-from DGTCentaurMods.ui.input_adapters import wifi_curmenu, wifi_menuitem
-wifi_curmenu = menu
-wifi_menuitem = 1
+# Use the existing main menu system
+answer = doMenu(menu, "Wi-Fi Networks")
 
-# Start WiFi subscription
-if start_wifi_subscription():
-    try:
-        # Use event-based menu
-        answer = do_wifi_menu(menu, "Wi-Fi Networks")
-        
-        # Convert answer back to network name
-        if answer and answer != "BACK":
-            answer = menu[answer]
-        else:
-            answer = None
-            
-    except Exception as e:
-        print(f"Error in WiFi menu: {e}")
-        answer = None
-    finally:
-        # Always stop WiFi subscription when done
-        stop_wifi_subscription()
-        print("WiFi subscription stopped")
-else:
-    print("Failed to start WiFi subscription")
+# Convert answer back to network name
+if answer == "BACK":
     answer = None
 
 print("++++++++++++++++++++++++++++++")
