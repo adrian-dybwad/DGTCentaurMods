@@ -311,18 +311,30 @@ def main():
                     except Exception as e:
                         print(f"Display error: {e}")
                     
-                    # Wait for password input or confirmation
-                    password = ""
-                    while not shutdown_requested:
-                        key = poll_key(board_obj, addr1, addr2)
-                        if key == "SELECT":
-                            print("✅ WiFi configuration complete!")
-                            break
-                        elif key == "BACK":
-                            print("❌ Cancelled")
+                    # Use simple_text_input for password entry
+                    try:
+                        from DGTCentaurMods.ui.simple_text_input import simple_text_input
+                        from DGTCentaurMods.ui.input_adapters import poll_actions_from_board
+                        
+                        password = simple_text_input(
+                            title="WiFi Password",
+                            poll_action=poll_actions_from_board,
+                            initial_text="",
+                            max_length=63,  # WPA2 max password length
+                            font_size=14,
+                            timeout_seconds=60.0
+                        )
+                        
+                        if password is None:
+                            print("❌ Password input cancelled")
                             show_networks()
                             break
-                        time.sleep(0.1)
+                        
+                        print(f"✅ Password entered: {'*' * len(password)}")
+                        
+                    except Exception as e:
+                        print(f"Password input error: {e}")
+                        password = ""
                     
                     if not shutdown_requested:
                         # Show success screen
@@ -333,7 +345,9 @@ def main():
                             # Truncate network name if too long
                             network_name = selected_network[:20] if len(selected_network) > 20 else selected_network
                             draw.text((5, 30), f"Network: {network_name}", font=font, fill=0)
-                            draw.text((5, 60), "Press any key to exit", font=font, fill=0)
+                            if password:
+                                draw.text((5, 50), "Password: ****", font=font, fill=0)
+                            draw.text((5, 80), "Press any key to exit", font=font, fill=0)
                             epaper.epaperbuffer.paste(image, (0, 0))
                         except:
                             pass
