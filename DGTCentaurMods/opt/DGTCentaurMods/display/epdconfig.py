@@ -47,9 +47,20 @@ class RaspberryPi:
         self.GPIO = RPi.GPIO
         self.SPI = spidev.SpiDev()
         self.GPIO.setwarnings(False)
+        self._initialized = False
 
     def digital_write(self, pin, value):
-        self.GPIO.output(pin, value)
+        # Ensure GPIO is initialized before use
+        try:
+            self.GPIO.output(pin, value)
+        except RuntimeError as e:
+            if "Please set pin numbering mode" in str(e) and not self._initialized:
+                # GPIO not initialized, initialize it now
+                self.module_init()
+                self._initialized = True
+                self.GPIO.output(pin, value)
+            else:
+                raise
 
     def digital_read(self, pin):
         return self.GPIO.input(pin)
@@ -75,6 +86,7 @@ class RaspberryPi:
         self.SPI.open(1, 0)
         self.SPI.max_speed_hz = 4000000
         self.SPI.mode = 0b00
+        self._initialized = True
         return 0
 
     def module_exit(self):
@@ -113,9 +125,20 @@ class JetsonNano:
 
         import Jetson.GPIO
         self.GPIO = Jetson.GPIO
+        self._initialized = False
 
     def digital_write(self, pin, value):
-        self.GPIO.output(pin, value)
+        # Ensure GPIO is initialized before use
+        try:
+            self.GPIO.output(pin, value)
+        except RuntimeError as e:
+            if "Please set pin numbering mode" in str(e) and not self._initialized:
+                # GPIO not initialized, initialize it now
+                self.module_init()
+                self._initialized = True
+                self.GPIO.output(pin, value)
+            else:
+                raise
 
     def digital_read(self, pin):
         return self.GPIO.input(self.BUSY_PIN)
@@ -134,6 +157,7 @@ class JetsonNano:
         self.GPIO.setup(self.CS_PIN, self.GPIO.OUT)
         self.GPIO.setup(self.BUSY_PIN, self.GPIO.IN)
         self.SPI.SYSFS_software_spi_begin()
+        self._initialized = True
         return 0
 
     def module_exit(self):

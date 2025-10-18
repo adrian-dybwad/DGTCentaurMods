@@ -70,6 +70,18 @@ try:
     board.sendPacket(b'\x94', b'')
     resp = board._ser_read(256)
     print(f"  Key event response: {resp.hex() if resp else 'No response'}")
+    
+    # Try multiple key event requests to see if we get any response
+    print("  Testing multiple key event requests...")
+    for i in range(5):
+        board.sendPacket(b'\x94', b'')
+        resp = board._ser_read(256)
+        if resp:
+            print(f"    Attempt {i+1}: {resp.hex()}")
+        else:
+            print(f"    Attempt {i+1}: No response")
+        time.sleep(0.1)
+        
 except Exception as e:
     print(f"  Key event error: {e}")
 
