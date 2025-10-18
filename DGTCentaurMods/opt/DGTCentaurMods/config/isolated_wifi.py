@@ -19,7 +19,13 @@ def signal_handler(signum, frame):
     global shutdown_requested
     print("\n🛑 Shutdown requested...")
     shutdown_requested = True
-    sys.exit(0)
+    try:
+        from DGTCentaurMods.display import epaper
+        epaper.clearScreen()
+    except:
+        pass
+    # Force exit immediately to prevent hanging
+    os._exit(0)
 
 # Register signal handlers
 signal.signal(signal.SIGINT, signal_handler)
@@ -119,7 +125,7 @@ last_key_time = 0
 last_key = None
 
 def poll_key(board_obj, addr1, addr2):
-    """Poll for key events using direct board communication with debouncing"""
+    """Poll for key events using direct board communication with improved responsiveness"""
     global last_key_time, last_key
     
     try:
@@ -134,9 +140,9 @@ def poll_key(board_obj, addr1, addr2):
         a1 = f"{addr1:02x}"
         a2 = f"{addr2:02x}"
         
-        # Debouncing: ignore keys pressed within 0.3 seconds
+        # Reduced debouncing: ignore keys pressed within 0.1 seconds
         current_time = time.time()
-        if current_time - last_key_time < 0.3:
+        if current_time - last_key_time < 0.1:
             return None
         
         detected_key = None
@@ -153,8 +159,8 @@ def poll_key(board_obj, addr1, addr2):
         elif f"b100{a1}0{a2}0d" in hx:
             detected_key = "SELECT"
         
-        # Only return if it's a different key or enough time has passed
-        if detected_key and (detected_key != last_key or current_time - last_key_time > 0.5):
+        # Only return if it's a different key or enough time has passed (reduced from 0.5 to 0.2)
+        if detected_key and (detected_key != last_key or current_time - last_key_time > 0.2):
             print(f"DEBUG: Detected {detected_key} key")
             last_key_time = current_time
             last_key = detected_key
@@ -241,7 +247,7 @@ def main():
     while not shutdown_requested:
         key = poll_key(board_obj, addr1, addr2)
         if not key:
-            time.sleep(0.1)
+            time.sleep(0.05)  # Reduced from 0.1 to 0.05 for better responsiveness
             continue
             
         print(f"🔑 Key pressed: {key}")
@@ -311,17 +317,43 @@ def main():
                     except Exception as e:
                         print(f"Display error: {e}")
                     
-                    # Use board.getText for password entry
+                    # Use board.getText for password entry with timeout
                     try:
                         print("🔐 Starting password input...")
-                        password = board_obj.getText("WiFi Password")
                         
-                        if password is None:
+                        # Set up a timeout for password input
+                        import threading
+                        password_result = [None]
+                        password_error = [None]
+                        
+                        def get_password():
+                            try:
+                                password_result[0] = board_obj.getText("WiFi Password")
+                            except Exception as e:
+                                password_error[0] = e
+                        
+                        # Start password input in a thread
+                        password_thread = threading.Thread(target=get_password)
+                        password_thread.daemon = True
+                        password_thread.start()
+                        
+                        # Wait for password input with timeout
+                        timeout = 60  # 60 seconds timeout
+                        password_thread.join(timeout)
+                        
+                        if password_thread.is_alive():
+                            print("⏰ Password input timeout - continuing without password")
+                            password = ""
+                        elif password_error[0]:
+                            print(f"Password input error: {password_error[0]}")
+                            password = ""
+                        elif password_result[0] is None:
                             print("❌ Password input cancelled")
                             show_networks()
                             break
-                        
-                        print(f"✅ Password entered: {'*' * len(password)}")
+                        else:
+                            password = password_result[0]
+                            print(f"✅ Password entered: {'*' * len(password)}")
                         
                     except Exception as e:
                         print(f"Password input error: {e}")
