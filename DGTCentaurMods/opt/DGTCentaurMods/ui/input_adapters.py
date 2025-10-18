@@ -1,6 +1,7 @@
 # DGTCentaurMods/ui/input_adapters.py
 from typing import Optional
 import time
+import logging
 from DGTCentaurMods.board import board as b
 
 # Map the Centaur hex signatures to high-level actions.
@@ -10,12 +11,13 @@ def poll_actions_from_board() -> Optional[str]:
         # Clear any existing data first
         try:
             b._ser_read(100)  # Clear buffer
-        except:
-            pass
+        except Exception as e:
+            logging.debug(f"Failed to clear buffer: {e}")
+            return None
         
-        # Ask for key events with a shorter timeout for better responsiveness
+        # Ask for key events - don't change timeout to avoid port reconfiguration
         b.sendPacket(b'\x94', b'')
-        resp = b._ser_read(256, timeout=0.02)  # Reduced timeout for faster response
+        resp = b._ser_read(256)  # Use default timeout to avoid port locking issues
         if not resp:
             return None
 
