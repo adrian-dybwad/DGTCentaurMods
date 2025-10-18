@@ -500,8 +500,9 @@ while True:
                                     if selected_network and selected_network != "BACK":
                                         # Get password using getText
                                         from DGTCentaurMods.ui.get_text_from_board import getText
-                                        password = getText("Enter WiFi password")
-                                        
+                                        board.pauseEvents()
+                                        password = getText("Enter WiFi password", manage_events=True)
+                                        board.unPauseEvents()
                                         if password:
                                             epaper.writeText(0, f"Connecting to")
                                             epaper.writeText(1, selected_network)
