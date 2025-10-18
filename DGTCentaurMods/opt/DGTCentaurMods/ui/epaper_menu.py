@@ -1,6 +1,7 @@
 from typing import Iterable, Optional, Callable, List
 from PIL import Image, ImageDraw, ImageFont
 import time
+import logging
 
 ActionPoller = Callable[[], Optional[str]]  # "UP"/"DOWN"/"SELECT"/"BACK"/None
 
@@ -11,6 +12,7 @@ def select_from_list_epaper(
     highlight_index: int = 0,
     lines_per_page: int = 7,
     font_size: int = 18,
+    timeout_seconds: float = 300.0,  # 5 minute timeout
 ) -> Optional[str]:
     from DGTCentaurMods.display import epd2in9d
     from DGTCentaurMods.display.ui_components import AssetManager
@@ -39,12 +41,16 @@ def select_from_list_epaper(
         return None
 
     # ----- init panel ---------------------------------------------------------
-    epd = epd2in9d.EPD()
-    epd.init()
     try:
-        epd.Clear(0xFF)
-    except Exception:
-        pass
+        epd = epd2in9d.EPD()
+        epd.init()
+        try:
+            epd.Clear(0xFF)
+        except Exception as e:
+            logging.warning(f"Failed to clear epaper display: {e}")
+    except Exception as e:
+        logging.error(f"Failed to initialize epaper display: {e}")
+        return None
 
     # Hardcode the working canvas (matches other code paths)
     W, H = 128, 296
@@ -126,9 +132,21 @@ def select_from_list_epaper(
     # ----- loop ---------------------------------------------------------------
     last_i = i
     last_paint = 0.0
+    start_time = time.time()
 
     while True:
-        act = poll_action()
+        # Check for timeout
+        if time.time() - start_time > timeout_seconds:
+            logging.warning("select_from_list_epaper timed out")
+            return None
+        
+        try:
+            act = poll_action()
+        except Exception as e:
+            logging.error(f"Error in poll_action: {e}")
+            time.sleep(0.1)
+            continue
+            
         if act is None:
             time.sleep(0.02)
             continue
@@ -149,8 +167,12 @@ def select_from_list_epaper(
             frame = _frame(i)
             try:
                 epd.DisplayPartial(epd.getbuffer(_flip(frame)))
-            except Exception:
+            except Exception as e:
                 # Fallback: full update
-                epd.display(epd.getbuffer(_flip(frame)))
+                logging.warning(f"DisplayPartial failed, falling back to full update: {e}")
+                try:
+                    epd.display(epd.getbuffer(_flip(frame)))
+                except Exception as e2:
+                    logging.error(f"Both DisplayPartial and display failed: {e2}")
             last_i = i
             last_paint = now
