@@ -13,7 +13,7 @@ def poll_actions_from_board() -> Optional[str]:
 
         # Ask for key events
         b.sendPacket(b'\x94', b'')
-        resp = b._ser_read(1000)
+        resp = b.getBoardStateNonBlocking(max_bytes=256) or b._ser_read(256, timeout=0.01)
         if not resp:
             return None
 
