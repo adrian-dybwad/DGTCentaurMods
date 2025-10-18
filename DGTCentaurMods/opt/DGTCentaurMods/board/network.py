@@ -43,7 +43,6 @@ def shell_run(rcmd):
         print(response_stderr)
         return -1
     else:
-        print(response_stdout)
         return response_stdout
 
 def check_network():
