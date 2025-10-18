@@ -74,8 +74,10 @@ def getText(title, board_obj=None):
         screenbuffer = board_obj.screenbuffer
     
     # Initialize display
+    print(f"Initializing display for text input: {title}")
     epaper.initEpaper()
     epaper.clearScreen()
+    print("Display initialized and cleared")
     
     try:
         try:
@@ -112,6 +114,7 @@ def getText(title, board_obj=None):
         def _render():
             nonlocal typed, charpage
             global screenbuffer
+            print(f"Rendering text input UI: '{typed}' (page {charpage})")
             image = Image.new('1', (128, 296), 255)
             draw = ImageDraw.Draw(image)
             draw.text((0, 20), title, font=font18, fill=0)
@@ -126,8 +129,14 @@ def getText(title, board_obj=None):
                     draw.text((col * 16, 80 + row * 20), ch, font=font18, fill=0)
             screenbuffer = image.copy()
             img = image.transpose(Image.FLIP_TOP_BOTTOM).transpose(Image.FLIP_LEFT_RIGHT)
-            # Update the display buffer
+            # Update the display buffer and refresh
             epaper.epaperbuffer.paste(img, (0, 0))
+            # Force a display refresh
+            try:
+                epaper.refresh()
+                print("Display refreshed successfully")
+            except Exception as e:
+                print(f"Display refresh failed: {e}")
 
         def _read_fields_and_type():
             nonlocal typed, charpage
