@@ -133,9 +133,9 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
                     ch = lchars[row * 8 + col]
                     draw.text((col * 16, 80 + row * 20), ch, font=font18, fill=0)
             screenbuffer = image.copy()
-            img = image.transpose(Image.FLIP_TOP_BOTTOM).transpose(Image.FLIP_LEFT_RIGHT)
-            # Update the display buffer and refresh
-            epaper.epaperbuffer.paste(img, (0, 0))
+            # Remove the image transformations that cause distortion
+            # Just use the image directly without flipping
+            epaper.epaperbuffer.paste(image, (0, 0))
             # Force a display refresh
             try:
                 epaper.refresh()
