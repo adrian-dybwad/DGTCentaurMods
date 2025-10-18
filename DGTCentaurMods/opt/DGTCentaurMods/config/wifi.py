@@ -77,7 +77,7 @@ if section.find("ssid") != -1:
 	print(curconf)
 	if curconf.find(answer) != -1:
 		# SSID is already in file
-		newtext = re.sub('network={[^\}]+?ssid=\"' + answer + '\"[^\}]+?\}\n','',curconf,re.DOTALL)
+		newtext = re.sub(r'network={[^\}]+?ssid=\"' + answer + r'\"[^\}]+?\}\n','',curconf,re.DOTALL)
 		print(newtext)
 		wpas = open('/etc/wpa_supplicant/wpa_supplicant.conf','w')
 		wpas.write(newtext)
