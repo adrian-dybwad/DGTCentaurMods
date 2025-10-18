@@ -138,3 +138,4 @@ def getTextFromButtonsAndKeyboard(prompt="Enter text", board_obj=None):
 
 # Alias for backward compatibility
 getText = getTextFromButtonsAndKeyboard
+
