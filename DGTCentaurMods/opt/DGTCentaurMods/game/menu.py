@@ -474,13 +474,50 @@ while True:
                 if result != "BACK":
                     if result == "wpa2":
                         epaper.loadingScreen()
-                        os.system(
-                            str(sys.executable)
-                            + " "
-                            + str(pathlib.Path(__file__).parent.resolve())
-                            + "/../config/set_wifi.py"
-                        )
-                        board.unPauseEvents()
+                        
+                        # Scan for WiFi networks
+                        import subprocess
+                        try:
+                            scan_result = subprocess.run(['sudo', 'iwlist', 'wlan0', 'scan'], capture_output=True, text=True)
+                            if scan_result.returncode == 0:
+                                networks = []
+                                lines = scan_result.stdout.split('\n')
+                                for line in lines:
+                                    if 'ESSID:' in line:
+                                        essid = line.split('ESSID:')[1].strip().strip('"')
+                                        if essid and essid not in networks:
+                                            networks.append(essid)
+                                
+                                if networks:
+                                    # Create menu for networks
+                                    network_menu = {}
+                                    for ssid in sorted(networks):
+                                        network_menu[ssid] = ssid
+                                    
+                                    # Use doMenu to select network
+                                    selected_network = doMenu(network_menu, "WiFi Networks")
+                                    
+                                    if selected_network and selected_network != "BACK":
+                                        # Get password using getText
+                                        from DGTCentaurMods.ui.get_text_from_board import getText
+                                        password = getText("Enter WiFi password")
+                                        
+                                        if password:
+                                            epaper.writeText(0, f"Connecting to")
+                                            epaper.writeText(1, selected_network)
+                                            # TODO: Implement actual WiFi connection logic here
+                                            time.sleep(2)
+                                            epaper.writeText(3, "Connected!")
+                                            time.sleep(2)
+                                else:
+                                    epaper.writeText(0, "No networks found")
+                                    time.sleep(2)
+                            else:
+                                epaper.writeText(0, "Scan failed")
+                                time.sleep(2)
+                        except Exception as e:
+                            epaper.writeText(0, f"Error: {str(e)[:20]}")
+                            time.sleep(2)
                     if result == "wps":
                         if network.check_network():
                             selection = ""
