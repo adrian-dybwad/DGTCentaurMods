@@ -168,6 +168,11 @@ def poll_key(board_obj, addr1, addr2):
                 print("DEBUG: Detected BACK key")
                 return "BACK"
         
+        # Look for the specific DOWN button pattern from the debug output
+        if "00140a05020000000061" in hx:
+            print("DEBUG: Detected DOWN key (pattern match)")
+            return "DOWN"
+        
         return None
     except Exception as e:
         print(f"Key poll error: {e}")
@@ -210,18 +215,37 @@ def main():
     selected_index = 0
     
     def show_networks():
-        clear_display(epaper)
-        display_text(epaper, "WiFi Networks:", 10, 10)
-        
-        # Show up to 8 networks
-        start_idx = max(0, selected_index - 3)
-        end_idx = min(len(networks), start_idx + 8)
-        
-        for i, network in enumerate(networks[start_idx:end_idx]):
-            y_pos = 40 + (i * 20)
-            prefix = ">" if (start_idx + i) == selected_index else " "
-            text = f"{prefix} {network[:15]}"  # Truncate long names
-            display_text(epaper, text, 10, y_pos)
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            
+            # Create a single image with all networks
+            image = Image.new('1', (128, 296), 255)
+            draw = ImageDraw.Draw(image)
+            
+            # Load font
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+            except:
+                font = ImageFont.load_default()
+            
+            # Draw title
+            draw.text((5, 5), "WiFi Networks:", font=font, fill=0)
+            
+            # Show up to 8 networks
+            start_idx = max(0, selected_index - 3)
+            end_idx = min(len(networks), start_idx + 8)
+            
+            for i, network in enumerate(networks[start_idx:end_idx]):
+                y_pos = 25 + (i * 18)
+                prefix = ">" if (start_idx + i) == selected_index else " "
+                text = f"{prefix} {network[:18]}"  # Truncate long names
+                draw.text((5, y_pos), text, font=font, fill=0)
+            
+            # Update the epaper buffer
+            epaper.epaperbuffer.paste(image, (0, 0))
+            
+        except Exception as e:
+            print(f"Display error: {e}")
     
     show_networks()
     
