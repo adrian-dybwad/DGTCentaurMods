@@ -1184,7 +1184,7 @@ def unPauseEvents():
     global eventsrunning
     eventsrunning = 1
 
-def getText(prompt="Enter text"):
+def getTextFromButtonsAndKeyboard(prompt="Enter text"):
     """
     Get text input from the user using board buttons.
     Returns the entered text or None if cancelled.
