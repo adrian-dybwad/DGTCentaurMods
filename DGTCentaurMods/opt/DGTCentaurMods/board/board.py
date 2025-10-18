@@ -729,39 +729,33 @@ def poll():
 def getText(title):
     """
     Enter text using the board as a virtual keyboard.
-    - Pauses the background events thread while active.
-    - Robust against short/partial serial reads.
-    - BACK deletes last char, TICK confirms and returns.
-    - UP/DOWN switch between two character pages.
+    Pauses events; robust against short/partial serial reads.
+    BACK deletes, TICK confirms, UP/DOWN switch pages.
     """
     global screenbuffer
     try:
-        # Stop any background polling while we monopolize the UART
         try:
             pauseEvents()
         except Exception:
             pass
 
-        # Constants / state
         clearstate = [0] * 64
         printableascii = (
             " !\"#$%&'()*+,-./0123456789:;<=>?@"
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`"
             "abcdefghijklmnopqrstuvwxyz{|}~"
-            + (" " * (64 * 2 - 95))  # pad to 128 chars (2 pages of 64)
+            + (" " * (64 * 2 - 95))
         )
-        charpage = 1    # 1 or 2
+        charpage = 1
         typed = ""
         changed = True
 
-        # Ensure clear board first (no pieces down)
         res = getBoardState()
         if not isinstance(res, list) or len(res) != 64:
             res = [0] * 64
         if res != clearstate:
             writeTextToBuffer(0, "Remove board")
             writeText(1, "pieces")
-            # Poll until clear, but be resilient
             deadline = time.time() + 20
             while time.time() < deadline:
                 time.sleep(0.4)
@@ -772,48 +766,35 @@ def getText(title):
         clearSerial()
 
         def _render():
-            # Draw title, current input box, and 8x8 char grid for current page
-            nonlocal typed, charpage, screenbuffer
+            nonlocal typed, charpage
+            global screenbuffer
             image = Image.new('1', (128, 296), 255)
             draw = ImageDraw.Draw(image)
-            # Title
             draw.text((0, 20), title, font=font18, fill=0)
-            # Input box
             draw.rectangle([(0, 39), (128, 61)], outline=0, fill=255)
             tt = typed[-11:] if len(typed) > 11 else typed
             draw.text((0, 40), tt, font=font18, fill=0)
-
-            # Characters for current page
             page_start = (charpage - 1) * 64
             lchars = [printableascii[i] for i in range(page_start, page_start + 64)]
             for row in range(8):
                 for col in range(8):
                     ch = lchars[row * 8 + col]
                     draw.text((col * 16, 80 + row * 20), ch, font=font18, fill=0)
-
-            # Push to partial display
             screenbuffer = image.copy()
             img = image.transpose(Image.FLIP_TOP_BOTTOM).transpose(Image.FLIP_LEFT_RIGHT)
             epd.DisplayPartial(epd.getbuffer(img))
 
         def _read_fields_and_type():
-            """
-            Read a field packet and, if a placement (0x41) is seen, map it to a char
-            for the current page and append to 'typed'.
-            Returns True if we appended a character.
-            """
             nonlocal typed, charpage
             try:
                 sendPacket(b'\x83', b'')
                 resp = _ser_read(10000)
                 if len(resp) >= 2 and resp[0] == 133 and resp[1] == 0:
-                    # scan for lift/place markers
                     i = 0
                     while i < len(resp) - 1:
                         tag = resp[i]
                         if tag == 65:  # placed
                             fieldHex = resp[i + 1]
-                            # fieldHex 0..63 is square index (per firmware page)
                             if 0 <= fieldHex < 64:
                                 base = (charpage - 1) * 64
                                 ch = printableascii[base + fieldHex]
@@ -821,7 +802,7 @@ def getText(title):
                                 beep(SOUND_GENERAL)
                                 return True
                             i += 2
-                        elif tag == 64:  # lifted (ignore for typing)
+                        elif tag == 64:  # lifted
                             i += 2
                         else:
                             i += 1
@@ -830,15 +811,12 @@ def getText(title):
             return False
 
         def _read_buttons():
-            """
-            Poll key event packet; return one of BTN* constants or 0 if none.
-            """
             try:
                 sendPacket(b'\x94', b'')
                 resp = _ser_read(10000)
                 if len(resp) < 6:
                     return 0
-                hx = resp.hex()[:-2]  # strip checksum nybble
+                hx = resp.hex()[:-2]
                 a1 = "{:02x}".format(addr1)
                 a2 = "{:02x}".format(addr2)
                 if hx == ("b10011" + a1 + a2 + "00140a0501000000007d47"):
@@ -853,44 +831,33 @@ def getText(title):
                 pass
             return 0
 
-        # Initial draw
         _render()
-
-        # Main input loop
         last_draw = 0.0
         while True:
-            typed_before = typed
             typed_changed = _read_fields_and_type()
             btn = _read_buttons()
 
             if btn == BTNBACK:
-                if len(typed) > 0:
+                if typed:
                     typed = typed[:-1]
                     beep(SOUND_GENERAL)
                     changed = True
                 else:
-                    # No chars to delete; give a small feedback beep
                     beep(SOUND_WRONG)
-
             elif btn == BTNTICK:
                 beep(SOUND_GENERAL)
                 clearScreen()
                 time.sleep(0.2)
                 return typed
+            elif btn == BTNUP and charpage != 1:
+                charpage = 1
+                beep(SOUND_GENERAL)
+                changed = True
+            elif btn == BTNDOWN and charpage != 2:
+                charpage = 2
+                beep(SOUND_GENERAL)
+                changed = True
 
-            elif btn == BTNUP:
-                if charpage != 1:
-                    charpage = 1
-                    beep(SOUND_GENERAL)
-                    changed = True
-
-            elif btn == BTNDOWN:
-                if charpage != 2:
-                    charpage = 2
-                    beep(SOUND_GENERAL)
-                    changed = True
-
-            # Re-render if selection changed, typed changed, or >200ms elapsed since last draw
             if changed or typed_changed or (time.time() - last_draw) > 0.2:
                 _render()
                 last_draw = time.time()
@@ -899,7 +866,6 @@ def getText(title):
             time.sleep(0.05)
 
     finally:
-        # Resume the background events thread
         try:
             unPauseEvents()
         except Exception:
