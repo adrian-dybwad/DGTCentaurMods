@@ -28,7 +28,7 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 
-def getText(title, board_obj=None, manage_events=True):
+def getText(title="Enter text", board_obj=None, manage_events=True):
     """
     Enter text using the board as a virtual keyboard.
     Pauses events; robust against short/partial serial reads.

@@ -15,7 +15,7 @@ from typing import Optional, List
 sys.path.insert(0, '/home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods')
 
 # Import text input functionality
-from DGTCentaurMods.ui.text_input import getTextFromButtonsAndKeyboard
+from DGTCentaurMods.ui.get_text_from_board import getText
 
 # Global flag for graceful shutdown
 shutdown_requested = False
@@ -116,10 +116,10 @@ def init_board():
         
         # Check if board is already connected
         if hasattr(b, 'addr1') and hasattr(b, 'addr2') and b.addr1 != 0 and b.addr2 != 0:
-            print(f"✅ Using existing board connection: {b.addr1:02x}:{b.addr2:02x}")
+            print(f"Using existing board connection: {b.addr1:02x}:{b.addr2:02x}")
             return b, b.addr1, b.addr2
         else:
-            print("❌ Board not properly initialized")
+            print("Board not properly initialized")
             return None, 0, 0
             
     except Exception as e:
@@ -328,7 +328,7 @@ def main():
                         print("Starting password input...")
                         
                         # Use the board's text input method
-                        password = getTextFromButtonsAndKeyboard("WiFi Password", board_obj)
+                        password = getText("WiFi Password", board_obj)
                         
                         if password is None:
                             print("Password input cancelled")
