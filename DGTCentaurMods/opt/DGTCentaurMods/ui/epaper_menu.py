@@ -14,7 +14,6 @@ def select_from_list_epaper(
     font_size: int = 18,
     timeout_seconds: float = 300.0,  # 5 minute timeout
 ) -> Optional[str]:
-    from DGTCentaurMods.display import epd2in9d
     from DGTCentaurMods.display.ui_components import AssetManager
 
     # ----- fonts --------------------------------------------------------------
@@ -41,13 +40,11 @@ def select_from_list_epaper(
         return None
 
     # ----- init panel ---------------------------------------------------------
+    # Use the existing display system instead of creating a new instance
     try:
-        epd = epd2in9d.EPD()
-        epd.init()
-        try:
-            epd.Clear(0xFF)
-        except Exception as e:
-            logging.warning(f"Failed to clear epaper display: {e}")
+        from DGTCentaurMods.display import epaper
+        epaper.initEpaper()
+        epaper.clearScreen()
     except Exception as e:
         logging.error(f"Failed to initialize epaper display: {e}")
         return None
@@ -55,18 +52,8 @@ def select_from_list_epaper(
     # Hardcode the working canvas (matches other code paths)
     W, H = 128, 296
 
-    def _flip(img: Image.Image) -> Image.Image:
-        return img.transpose(Image.FLIP_TOP_BOTTOM).transpose(Image.FLIP_LEFT_RIGHT)
-
     # Some panels ignore first draw after Clear; push a solid white frame twice
-    def _kick():
-        blank = Image.new("1", (W, H), 255)
-        epd.display(epd.getbuffer(_flip(blank)))
-        time.sleep(0.15)
-        epd.display(epd.getbuffer(_flip(blank)))
-        time.sleep(0.05)
-
-    _kick()
+    # No need for _kick() when using the existing display system
 
     # ----- layout helpers -----------------------------------------------------
     margin = 6
@@ -124,10 +111,9 @@ def select_from_list_epaper(
     # ----- first full paint ---------------------------------------------------
     i = max(0, min(highlight_index, len(items) - 1))
     base = _frame(i)
-    epd.display(epd.getbuffer(_flip(base)))
-    # Some panels still need a second identical full draw
-    time.sleep(0.1)
-    epd.display(epd.getbuffer(_flip(base)))
+    # Use the existing epaper system to display the frame
+    epaper.epaperbuffer.paste(base, (0, 0))
+    epaper.refresh()
 
     # ----- loop ---------------------------------------------------------------
     last_i = i
@@ -166,13 +152,10 @@ def select_from_list_epaper(
         if i != last_i and (now - last_paint) >= 0.05:
             frame = _frame(i)
             try:
-                epd.DisplayPartial(epd.getbuffer(_flip(frame)))
+                # Use the existing epaper system to update the display
+                epaper.epaperbuffer.paste(frame, (0, 0))
+                epaper.refresh()
             except Exception as e:
-                # Fallback: full update
-                logging.warning(f"DisplayPartial failed, falling back to full update: {e}")
-                try:
-                    epd.display(epd.getbuffer(_flip(frame)))
-                except Exception as e2:
-                    logging.error(f"Both DisplayPartial and display failed: {e2}")
+                logging.error(f"Failed to update epaper display: {e}")
             last_i = i
             last_paint = now

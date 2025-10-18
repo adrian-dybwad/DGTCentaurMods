@@ -13,11 +13,17 @@ import os, time, sys, re
 
 print("Testing key loop...")
 import time
+key_count = 0
 for _ in range(50):
     act = poll_actions_from_board()
     if act:
         print("KEY:", act)
+        key_count += 1
     time.sleep(0.1)
+
+print(f"Key detection test: {key_count} keys detected out of 50 attempts")
+if key_count == 0:
+    print("WARNING: No keys detected! Board communication may be failing.")
     
 # Scan for SSIDs
 cmd = "sudo iwlist wlan0 scan | grep 'ESSID'"
