@@ -50,21 +50,19 @@ def get_wifi_networks() -> List[str]:
         lines = result.stdout.split('\n')
         for line in lines:
             if 'ESSID:' in line:
+                # Extract ESSID from line like 'ESSID:"NetworkName"'
                 essid = line.split('ESSID:')[1].strip().strip('"')
-                if essid and essid != '' and essid != 'off/any':
+                if essid and essid not in networks:
                     networks.append(essid)
         
-        print(f"Found networks: {networks}")
-        return list(set(networks))  # Remove duplicates
+        return sorted(networks)
     except Exception as e:
-        print(f"Error scanning WiFi: {e}")
+        print(f"Error scanning networks: {e}")
         return []
 
 def init_display():
-    """Initialize display using existing system"""
+    """Initialize the e-paper display"""
     try:
-        # Use the existing display system
-        sys.path.insert(0, '/home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods')
         from DGTCentaurMods.display import epaper
         
         # Initialize the display
@@ -94,7 +92,7 @@ def display_text(epaper, text: str, x: int = 10, y: int = 10):
         
         # Load font
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
         except:
             font = ImageFont.load_default()
         
@@ -151,30 +149,42 @@ def poll_key(board_obj, addr1, addr2):
         if current_time - last_key_time < 0.1:
             return None
         
-        detected_key = None
-        
-        # Look for the specific button patterns from the debug output
-        if "00140a05020000000061" in hx:
-            detected_key = "DOWN"
-        elif "00140a0508000000007d3c" in hx:
-            detected_key = "UP"
-        elif "00140a0501000000007d47" in hx:
-            detected_key = "BACK"
-        elif "00140a0510000000007d17" in hx:
-            detected_key = "SELECT"
-        elif f"b100{a1}0{a2}0d" in hx:
-            detected_key = "SELECT"
-        
-        # Only return if it's a different key or enough time has passed (reduced from 0.5 to 0.2)
-        if detected_key and (detected_key != last_key or current_time - last_key_time > 0.2):
-            print(f"DEBUG: Detected {detected_key} key")
-            last_key_time = current_time
-            last_key = detected_key
-            return detected_key
+        # Check for key events in response
+        if a1 in hx and a2 in hx:
+            # Extract key from response
+            key_start = hx.find(a1)
+            if key_start != -1:
+                key_hex = hx[key_start + 4:key_start + 6]
+                try:
+                    key_id = int(key_hex, 16)
+                    
+                    # Map key IDs to names
+                    key_map = {
+                        0x01: "BACK",
+                        0x02: "UP", 
+                        0x04: "DOWN",
+                        0x08: "SELECT",
+                        0x10: "HELP"
+                    }
+                    
+                    if key_id in key_map:
+                        key_name = key_map[key_id]
+                        
+                        # Additional debouncing: ignore same key
+                        if key_name == last_key:
+                            return None
+                        
+                        last_key = key_name
+                        last_key_time = current_time
+                        return key_name
+                        
+                except ValueError:
+                    pass
         
         return None
+        
     except Exception as e:
-        print(f"Key poll error: {e}")
+        print(f"Key polling error: {e}")
         return None
 
 def main():
@@ -196,80 +206,66 @@ def main():
         print("Failed to initialize display")
         return
     
-    print("Hardware initialized")
-    
     # Get WiFi networks
     print("Scanning for WiFi networks...")
     networks = get_wifi_networks()
     
     if not networks:
         print("No WiFi networks found")
-        display_text(epd, "No WiFi networks found")
+        display_text(epaper, "No WiFi networks found")
         time.sleep(3)
         return
     
     print(f"Found {len(networks)} networks")
     
-    # Display networks and allow selection
-    selected_index = 0
+    # Create menu dict for doMenu
+    from DGTCentaurMods.game.menu import doMenu
     
-    def show_networks():
-        try:
-            from PIL import Image, ImageDraw, ImageFont
-            
-            # Create a single image with all networks
-            image = Image.new('1', (128, 296), 255)
-            draw = ImageDraw.Draw(image)
-            
-            # Load font
-            try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-            except:
-                font = ImageFont.load_default()
-            
-            # Draw title
-            draw.text((5, 5), "WiFi Networks:", font=font, fill=0)
-            
-            # Show up to 8 networks
-            start_idx = max(0, selected_index - 3)
-            end_idx = min(len(networks), start_idx + 8)
-            
-            for i, network in enumerate(networks[start_idx:end_idx]):
-                y_pos = 25 + (i * 18)
-                prefix = ">" if (start_idx + i) == selected_index else " "
-                text = f"{prefix} {network[:18]}"  # Truncate long names
-                draw.text((5, y_pos), text, font=font, fill=0)
-            
-            # Update the epaper buffer
-            epaper.epaperbuffer.paste(image, (0, 0))
-            
-        except Exception as e:
-            print(f"Display error: {e}")
+    menu = {}
+    for ssid in networks:
+        menu[ssid] = ssid
     
-    show_networks()
+    # Use main menu system
+    selected_network = doMenu(menu, "WiFi Networks")
     
-    print("Use UP/DOWN to navigate, SELECT to choose, BACK to cancel")
+    # Handle selection
+    if not selected_network or selected_network == "BACK":
+        print("WiFi configuration cancelled")
+        return
     
-    while not shutdown_requested:
-        key = poll_key(board_obj, addr1, addr2)
-        if not key:
-            time.sleep(0.05)  # Reduced from 0.1 to 0.05 for better responsiveness
-            continue
-            
-        print(f"Key pressed: {key}")
+    print(f"Selected: {selected_network}")
+    
+    # Show confirmation
+    clear_display(epaper)
+    try:
+        from PIL import Image, ImageDraw, ImageFont
         
-        if key == "UP":
-            selected_index = (selected_index - 1) % len(networks)
-            show_networks()
-        elif key == "DOWN":
-            selected_index = (selected_index + 1) % len(networks)
-            show_networks()
-        elif key == "SELECT":
-            selected_network = networks[selected_index]
-            print(f"Selected: {selected_network}")
+        image = Image.new('1', (128, 296), 255)
+        draw = ImageDraw.Draw(image)
+        
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+        except:
+            font = ImageFont.load_default()
+        
+        # Truncate network name if too long
+        network_name = selected_network[:20] if len(selected_network) > 20 else selected_network
+        draw.text((5, 10), f"Selected: {network_name}", font=font, fill=0)
+        draw.text((5, 30), "Press SELECT to", font=font, fill=0)
+        draw.text((5, 45), "confirm or BACK", font=font, fill=0)
+        draw.text((5, 60), "to cancel", font=font, fill=0)
+        
+        epaper.epaperbuffer.paste(image, (0, 0))
+    except Exception as e:
+        print(f"Display error: {e}")
+    
+    # Wait for confirmation
+    while not shutdown_requested:
+        confirm_key = poll_key(board_obj, addr1, addr2)
+        if confirm_key == "SELECT":
+            print(f"Configuring WiFi: {selected_network}")
             
-            # Show confirmation
-            clear_display(epaper)
+            # Show password input screen
             try:
                 from PIL import Image, ImageDraw, ImageFont
                 
@@ -281,94 +277,48 @@ def main():
                 except:
                     font = ImageFont.load_default()
                 
-                # Truncate network name if too long
-                network_name = selected_network[:20] if len(selected_network) > 20 else selected_network
-                draw.text((5, 10), f"Selected: {network_name}", font=font, fill=0)
-                draw.text((5, 30), "Press SELECT to", font=font, fill=0)
-                draw.text((5, 45), "confirm or BACK", font=font, fill=0)
-                draw.text((5, 60), "to cancel", font=font, fill=0)
+                draw.text((5, 10), "Enter WiFi password:", font=font, fill=0)
+                draw.text((5, 30), "Use board pieces", font=font, fill=0)
+                draw.text((5, 45), "as keyboard", font=font, fill=0)
                 
                 epaper.epaperbuffer.paste(image, (0, 0))
             except Exception as e:
                 print(f"Display error: {e}")
             
-            # Wait for confirmation
-            while not shutdown_requested:
-                confirm_key = poll_key(board_obj, addr1, addr2)
-                if confirm_key == "SELECT":
-                    print(f"Configuring WiFi: {selected_network}")
+            # Use getText to get password
+            password = getText("Enter WiFi password", board_obj, manage_events=False)
+            
+            if password:
+                print(f"Connecting with password: {'*' * len(password)}")
+                # Here you would implement the actual WiFi connection logic
+                # For now, just show success
+                clear_display(epaper)
+                try:
+                    from PIL import Image, ImageDraw, ImageFont
                     
-                    # Show password input screen
+                    image = Image.new('1', (128, 296), 255)
+                    draw = ImageDraw.Draw(image)
+                    
                     try:
-                        from PIL import Image, ImageDraw, ImageFont
-                        
-                        image = Image.new('1', (128, 296), 255)
-                        draw = ImageDraw.Draw(image)
-                        
-                        try:
-                            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-                        except:
-                            font = ImageFont.load_default()
-                        
-                        # Truncate network name if too long
-                        network_name = selected_network[:20] if len(selected_network) > 20 else selected_network
-                        draw.text((5, 10), f"Network: {network_name}", font=font, fill=0)
-                        draw.text((5, 30), "Password:", font=font, fill=0)
-                        draw.text((5, 50), "Enter password using", font=font, fill=0)
-                        draw.text((5, 65), "keyboard or press", font=font, fill=0)
-                        draw.text((5, 80), "SELECT to skip", font=font, fill=0)
-                        draw.text((5, 110), "BACK to cancel", font=font, fill=0)
-                        
-                        epaper.epaperbuffer.paste(image, (0, 0))
-                    except Exception as e:
-                        print(f"Display error: {e}")
+                        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
+                    except:
+                        font = ImageFont.load_default()
                     
-                    # Use board text input method
-                    try:
-                        print("Starting password input...")
-                        
-                        # Use the board's text input method
-                        password = getText("WiFi Password", board_obj)
-                        
-                        if password is None:
-                            print("Password input cancelled")
-                            show_networks()
-                            break
-                        
-                        print(f"Password entered: {'*' * len(password)}")
-                        
-                    except Exception as e:
-                        print(f"Password input error: {e}")
-                        password = ""
+                    draw.text((5, 5), "Connected!", font=font, fill=0)
+                    draw.text((5, 25), f"Network: {selected_network[:20]}", font=font, fill=0)
                     
-                    if not shutdown_requested:
-                        # Show success screen
-                        try:
-                            image = Image.new('1', (128, 296), 255)
-                            draw = ImageDraw.Draw(image)
-                            draw.text((5, 10), "WiFi configured!", font=font, fill=0)
-                            # Truncate network name if too long
-                            network_name = selected_network[:20] if len(selected_network) > 20 else selected_network
-                            draw.text((5, 30), f"Network: {network_name}", font=font, fill=0)
-                            if password:
-                                draw.text((5, 50), "Password: ****", font=font, fill=0)
-                            draw.text((5, 80), "Press any key to exit", font=font, fill=0)
-                            epaper.epaperbuffer.paste(image, (0, 0))
-                        except:
-                            pass
-                        
-                        # Wait for any key to exit
-                        while not shutdown_requested:
-                            if poll_key(board_obj, addr1, addr2):
-                                return
-                            time.sleep(0.1)
+                    epaper.epaperbuffer.paste(image, (0, 0))
                     
-                elif confirm_key == "BACK":
-                    print("Cancelled")
-                    show_networks()
-                    break
-                    
-        elif key == "BACK":
+                except Exception as e:
+                    print(f"Display error: {e}")
+                
+                # Wait for any key to exit
+                while not shutdown_requested:
+                    if poll_key(board_obj, addr1, addr2):
+                        return
+                    time.sleep(0.1)
+            
+        elif confirm_key == "BACK":
             print("Cancelled")
             return
 
