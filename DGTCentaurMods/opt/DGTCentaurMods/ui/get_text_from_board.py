@@ -134,9 +134,14 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
                     ch = lchars[row * 8 + col]
                     draw.text((col * 16, 80 + row * 20), ch, font=font18, fill=0)
             screenbuffer = image.copy()
-            # Update the display buffer directly without refresh
+            # Update the display buffer
             epaper.epaperbuffer.paste(image, (0, 0))
-            print("Display buffer updated")
+            # Force a display refresh to show the changes
+            try:
+                epaper.refresh()
+                print("Display refreshed successfully")
+            except Exception as e:
+                print(f"Display refresh failed: {e}")
 
         def _read_fields_and_type():
             nonlocal typed, charpage
