@@ -11,6 +11,12 @@ import subprocess
 import serial
 from typing import Optional, List
 
+# Add the DGTCentaurMods path
+sys.path.insert(0, '/home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods')
+
+# Import text input functionality
+from DGTCentaurMods.ui.text_input import getTextFromButtonsAndKeyboard
+
 # Global flag for graceful shutdown
 shutdown_requested = False
 
@@ -322,7 +328,7 @@ def main():
                         print("Starting password input...")
                         
                         # Use the board's text input method
-                        password = board_obj.getText("WiFi Password")
+                        password = getTextFromButtonsAndKeyboard("WiFi Password", board_obj)
                         
                         if password is None:
                             print("Password input cancelled")
