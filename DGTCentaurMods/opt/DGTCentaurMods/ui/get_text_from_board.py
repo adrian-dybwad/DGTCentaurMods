@@ -78,9 +78,13 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
     
     # Initialize display
     print(f"Initializing display for text input: {title}")
-    epaper.initEpaper()
-    epaper.clearScreen()
-    print("Display initialized and cleared")
+    try:
+        # Use the existing epaper system - just clear the buffer
+        epaper.epaperbuffer.paste(Image.new('1', (128, 296), 255), (0, 0))
+        print("Display buffer cleared")
+    except Exception as e:
+        print(f"Display initialization error: {e}")
+        return None
     
     try:
         if manage_events:
@@ -134,14 +138,9 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
                     ch = lchars[row * 8 + col]
                     draw.text((col * 16, 80 + row * 20), ch, font=font18, fill=0)
             screenbuffer = image.copy()
-            # Update the display buffer
+            # Update the display buffer - background thread will handle refresh
             epaper.epaperbuffer.paste(image, (0, 0))
-            # Force a display refresh to show the changes
-            try:
-                epaper.refresh()
-                print("Display refreshed successfully")
-            except Exception as e:
-                print(f"Display refresh failed: {e}")
+            print("Display buffer updated")
 
         def _read_fields_and_type():
             nonlocal typed, charpage
@@ -245,7 +244,7 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
                 if typed_changed:
                     print(f"Piece detected, typed now: '{typed}'")
 
-                if changed or typed_changed or (time.time() - last_draw) > 0.5:
+                if changed or typed_changed or (time.time() - last_draw) > 1.0:
                     _render()
                     last_draw = time.time()
                     changed = False
