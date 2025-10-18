@@ -36,8 +36,21 @@ def poll_actions_from_board() -> Optional[str]:
             print("DEBUG: Detected UP key (board state only)")
             return "UP"
 
-        # Simple approach: look for any key event pattern and map based on the most common one
-        # The response shows many repeated b1000606500d patterns
+        # Look for specific button patterns from the debug output
+        if f"b10011{a1}{a2}00140a0508000000007d3c" in hx:
+            print("DEBUG: Detected UP button")
+            return "UP"
+        elif f"b10010{a1}{a2}00140a05020000000061" in hx:
+            print("DEBUG: Detected DOWN button")
+            return "DOWN"
+        elif f"b10011{a1}{a2}00140a0510000000007d17" in hx:
+            print("DEBUG: Detected SELECT button")
+            return "SELECT"
+        elif f"b10011{a1}{a2}00140a0501000000007d47" in hx:
+            print("DEBUG: Detected BACK button")
+            return "BACK"
+        
+        # Fallback: look for simpler patterns
         if f"b100{a1}0{a2}0d" in hx:
             print("DEBUG: Detected key press (0d pattern) - treating as SELECT")
             return "SELECT"

@@ -120,6 +120,7 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
             nonlocal typed, charpage
             global screenbuffer
             print(f"Rendering text input UI: '{typed}' (page {charpage})")
+            # Create image with correct dimensions for the display
             image = Image.new('1', (128, 296), 255)
             draw = ImageDraw.Draw(image)
             draw.text((0, 20), title, font=font18, fill=0)
@@ -133,15 +134,9 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
                     ch = lchars[row * 8 + col]
                     draw.text((col * 16, 80 + row * 20), ch, font=font18, fill=0)
             screenbuffer = image.copy()
-            # Remove the image transformations that cause distortion
-            # Just use the image directly without flipping
+            # Update the display buffer directly without refresh
             epaper.epaperbuffer.paste(image, (0, 0))
-            # Force a display refresh
-            try:
-                epaper.refresh()
-                print("Display refreshed successfully")
-            except Exception as e:
-                print(f"Display refresh failed: {e}")
+            print("Display buffer updated")
 
         def _read_fields_and_type():
             nonlocal typed, charpage
