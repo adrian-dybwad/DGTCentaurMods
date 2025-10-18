@@ -43,7 +43,7 @@ networks = {ssid: ssid for ssid in unique_essids}
 print("----------------------------------------------------------")
 print(networks)
 print("----------------------------------------------------------")
-answer = board.doMenu(networks,1)
+answer = board.doMenu(networks, 1, "noBoardState")
 print("++++++++++++++++++++++++++++++")
 print(answer)
 print("++++++++++++++++++++++++++++++")
@@ -59,9 +59,12 @@ board.epd.init()
 # Now we need to get the password
 password = board.getText("Wifi Password")
 
+print(password)
+
 if password == "":
 	sys.exit()
 
+sys.exit()
 # Add an SSID
 cmd = """sudo sh -c \"wpa_passphrase '""" + answer + """' '""" + password + """'\""""
 res = os.popen(cmd)

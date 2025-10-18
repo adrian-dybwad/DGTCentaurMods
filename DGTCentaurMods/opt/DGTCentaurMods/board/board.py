@@ -300,7 +300,7 @@ def displayScreenBufferPartial():
     epd.DisplayPartial(epd.getbuffer(image))
     time.sleep(0.1)
 
-def doMenu(items, fast = 0):
+def doMenu(items, fast = 0, doBoardState = "yes"):
     # Draw a menu, let the user navigate and return the value
     # or "BACK" if the user backed out
     # pass a menu like: menu = {'Lichess': 'Lichess', 'Centaur': 'DGT
@@ -316,8 +316,10 @@ def doMenu(items, fast = 0):
         connected = checkInternetSocket()
     quickselect = 0
     quickselectpossible = -1
-    res = getBoardState()
-    if res[32] == 0 and res[33] == 0 and res[34] == 0 and res[35] == 0 and res[36]==0 and res[37] == 0 and res[38] == 0 and res[39] == 0:
+    
+    if doBoardState == "yes":
+      res = getBoardState()
+      if res[32] == 0 and res[33] == 0 and res[34] == 0 and res[35] == 0 and res[36]==0 and res[37] == 0 and res[38] == 0 and res[39] == 0:
         # If the 4th rank is empty then enable quick select mode. Then we can choose a menu option by placing and releasing a piece
         quickselect = 1
     image = Image.new('1', (epd.width, epd.height), 255)
