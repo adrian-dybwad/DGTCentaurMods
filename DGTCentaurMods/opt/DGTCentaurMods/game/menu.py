@@ -478,7 +478,7 @@ while True:
                             str(sys.executable)
                             + " "
                             + str(pathlib.Path(__file__).parent.resolve())
-                            + "/../config/isolated_wifi.py"
+                            + "/../config/set_wifi.py"
                         )
                         board.unPauseEvents()
                     if result == "wps":
