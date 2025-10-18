@@ -149,7 +149,20 @@ if not answer:
     sys.exit(0)
 
 # Get password (getText() already pauses events internally in your updated board.py)
-password = board.getText("Wifi Password")
+# Use the more reliable simple text input instead of getText
+from DGTCentaurMods.ui.simple_text_input import simple_text_input
+from DGTCentaurMods.ui.input_adapters import poll_actions_from_board
+
+# ... existing code ...
+
+# Replace the getText call with simple_text_input
+password = simple_text_input(
+    title="WiFi Password",
+    poll_action=poll_actions_from_board,
+    initial_text="",
+    max_length=32,
+    timeout_seconds=60.0
+)
 print(password)
 
 if password == "":

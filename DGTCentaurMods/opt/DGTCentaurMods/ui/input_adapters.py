@@ -13,9 +13,9 @@ def poll_actions_from_board() -> Optional[str]:
         except:
             pass
         
-        # Ask for key events with a slightly longer timeout
+        # Ask for key events with a shorter timeout for better responsiveness
         b.sendPacket(b'\x94', b'')
-        resp = b._ser_read(256, timeout=0.05)  # Increased timeout
+        resp = b._ser_read(256, timeout=0.02)  # Reduced timeout for faster response
         if not resp:
             return None
 

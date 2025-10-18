@@ -155,7 +155,7 @@ def select_from_list_epaper(
             continue
             
         if act is None:
-            time.sleep(0.02)
+            time.sleep(0.01)  # Reduced sleep for better responsiveness
             continue
 
         if act == "UP" and i > 0:
@@ -170,15 +170,15 @@ def select_from_list_epaper(
             continue
 
         now = time.time()
-        if i != last_i and (now - last_paint) >= 0.1:  # Increased delay to prevent corruption
+        if i != last_i and (now - last_paint) >= 0.05:  # Reduced delay for better responsiveness
             frame = _frame(i)
             try:
                 # Use the existing epaper system to update the display
                 epaper.epaperbuffer.paste(frame, (0, 0))
                 # Don't call refresh() - let the background thread handle updates
                 # The epaperUpdate thread will automatically detect changes and update
-                # Add a small delay to ensure the update is processed
-                time.sleep(0.05)
+                # Reduced delay for better responsiveness
+                time.sleep(0.01)
             except Exception as e:
                 logging.error(f"Failed to update epaper display: {e}")
             last_i = i
