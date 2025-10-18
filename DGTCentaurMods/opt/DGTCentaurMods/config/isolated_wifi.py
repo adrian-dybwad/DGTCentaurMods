@@ -28,8 +28,14 @@ signal.signal(signal.SIGTERM, signal_handler)
 def get_wifi_networks() -> List[str]:
     """Get list of available WiFi networks"""
     try:
-        result = subprocess.run(['iwlist', 'scan'], capture_output=True, text=True)
+        # Try different scanning methods
+        result = subprocess.run(['iwlist', 'wlan0', 'scan'], capture_output=True, text=True)
         if result.returncode != 0:
+            # Try without interface
+            result = subprocess.run(['iwlist', 'scan'], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"iwlist failed: {result.stderr}")
             return []
         
         networks = []
@@ -37,9 +43,10 @@ def get_wifi_networks() -> List[str]:
         for line in lines:
             if 'ESSID:' in line:
                 essid = line.split('ESSID:')[1].strip().strip('"')
-                if essid and essid != '':
+                if essid and essid != '' and essid != 'off/any':
                     networks.append(essid)
         
+        print(f"Raw scan output: {result.stdout[:500]}...")
         return list(set(networks))  # Remove duplicates
     except Exception as e:
         print(f"Error scanning WiFi: {e}")
@@ -112,33 +119,31 @@ def init_board():
         return None, 0, 0
 
 def poll_key(board_obj, addr1, addr2):
-    """Poll for key events using the board object"""
+    """Poll for key events using the working input adapter"""
     try:
-        # Send key event request
-        board_obj.sendPacket(b'\x94', b'')
-        resp = board_obj._ser_read(256)
+        from DGTCentaurMods.ui.input_adapters import poll_actions_from_board
         
-        if not resp:
-            return None
-            
-        hx = resp.hex()
-        a1 = f"{addr1:02x}"
-        a2 = f"{addr2:02x}"
-        
-        # Look for key event patterns
-        if f"b100{a1}0{a2}" in hx:
-            key_code = hx[-2:]
-            if key_code == "0d":
+        # Use the working input adapter
+        action = poll_actions_from_board()
+        if action:
+            print(f"Raw action detected: {action}")
+            # Convert action to key name
+            if action == "SELECT":
                 return "SELECT"
-            elif key_code == "3c":
+            elif action == "UP":
                 return "UP"
-            elif key_code == "61":
+            elif action == "DOWN":
                 return "DOWN"
-            elif key_code == "47":
+            elif action == "BACK":
                 return "BACK"
+            elif action == "HELP":
+                return "HELP"
+            elif action == "PLAY":
+                return "PLAY"
         
         return None
     except Exception as e:
+        print(f"Key poll error: {e}")
         return None
 
 def main():
