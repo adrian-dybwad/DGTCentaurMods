@@ -28,19 +28,48 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 
-def getText(title):
+def getText(title, board_obj=None):
     """
     Enter text using the board as a virtual keyboard.
     Pauses events; robust against short/partial serial reads.
     BACK deletes, TICK confirms, UP/DOWN switch pages.
+    
+    Args:
+        title: The title/prompt to display to the user
+        board_obj: The board object to use for communication (optional)
     """
     from DGTCentaurMods.display import epaper
-    from DGTCentaurMods.board.board import (
-        pauseEvents, unPauseEvents, getBoardState, clearSerial, 
-        sendPacket, _ser_read, addr1, addr2, beep, SOUND_GENERAL, 
-        SOUND_WRONG, BTNBACK, BTNTICK, BTNUP, BTNDOWN, clearScreen,
-        writeTextToBuffer, writeText, font18, screenbuffer
-    )
+    
+    # Import board functions if board_obj not provided
+    if board_obj is None:
+        from DGTCentaurMods.board.board import (
+            pauseEvents, unPauseEvents, getBoardState, clearSerial, 
+            sendPacket, _ser_read, addr1, addr2, beep, SOUND_GENERAL, 
+            SOUND_WRONG, BTNBACK, BTNTICK, BTNUP, BTNDOWN, clearScreen,
+            writeTextToBuffer, writeText, font18, screenbuffer
+        )
+    else:
+        # Use methods from the provided board object
+        pauseEvents = board_obj.pauseEvents
+        unPauseEvents = board_obj.unPauseEvents
+        getBoardState = board_obj.getBoardState
+        clearSerial = board_obj.clearSerial
+        sendPacket = board_obj.sendPacket
+        _ser_read = board_obj._ser_read
+        addr1 = board_obj.addr1
+        addr2 = board_obj.addr2
+        beep = board_obj.beep
+        SOUND_GENERAL = board_obj.SOUND_GENERAL
+        SOUND_WRONG = board_obj.SOUND_WRONG
+        BTNBACK = board_obj.BTNBACK
+        BTNTICK = board_obj.BTNTICK
+        BTNUP = board_obj.BTNUP
+        BTNDOWN = board_obj.BTNDOWN
+        clearScreen = board_obj.clearScreen
+        writeTextToBuffer = board_obj.writeTextToBuffer
+        writeText = board_obj.writeText
+        font18 = board_obj.font18
+        screenbuffer = board_obj.screenbuffer
     
     global screenbuffer
     
@@ -128,20 +157,15 @@ def getText(title):
 
         def _read_buttons():
             try:
-                sendPacket(b'\x94', b'')
-                resp = _ser_read(10000)
-                if len(resp) < 6:
-                    return 0
-                hx = resp.hex()[:-2]
-                a1 = "{:02x}".format(addr1)
-                a2 = "{:02x}".format(addr2)
-                if hx == ("b10011" + a1 + a2 + "00140a0501000000007d47"):
+                from DGTCentaurMods.ui.input_adapters import poll_actions_from_board
+                action = poll_actions_from_board()
+                if action == "BACK":
                     return BTNBACK
-                if hx == ("b10011" + a1 + a2 + "00140a0510000000007d17"):
+                elif action == "SELECT":
                     return BTNTICK
-                if hx == ("b10011" + a1 + a2 + "00140a0508000000007d3c"):
+                elif action == "UP":
                     return BTNUP
-                if hx == ("b10010" + a1 + a2 + "00140a05020000000061"):
+                elif action == "DOWN":
                     return BTNDOWN
             except Exception:
                 pass
