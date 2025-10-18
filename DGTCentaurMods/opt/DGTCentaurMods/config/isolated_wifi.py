@@ -184,6 +184,17 @@ def main():
     print("DGT Centaur WiFi Configuration (Isolated)")
     print("=" * 50)
     
+    # Start WiFi event subscription (replaces main menu events)
+    try:
+        from DGTCentaurMods.ui.input_adapters import start_wifi_event_subscription
+        if start_wifi_event_subscription():
+            print("WiFi event subscription started")
+        else:
+            print("WiFi event subscription already active")
+    except Exception as e:
+        print(f"Failed to start WiFi event subscription: {e}")
+        return
+    
     # Initialize board
     board_obj, addr1, addr2 = init_board()
     if not board_obj:
@@ -380,4 +391,11 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error: {e}")
     finally:
+        # Stop WiFi event subscription and restore main menu events
+        try:
+            from DGTCentaurMods.ui.input_adapters import stop_wifi_event_subscription
+            stop_wifi_event_subscription()
+            print("WiFi event subscription stopped, main menu events restored")
+        except Exception as e:
+            print(f"Error stopping WiFi event subscription: {e}")
         print("Goodbye!")

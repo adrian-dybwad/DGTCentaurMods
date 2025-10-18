@@ -734,8 +734,7 @@ def poll():
         if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0504000000002a"):
             logging.debug("PLAY BUTTON")
 
-# Import text input functionality from ui module
-from DGTCentaurMods.ui.get_text_from_board import getText
+
 
 def getBoardState(field=None, retries=6, sleep_between=0.12):
     """
@@ -1029,6 +1028,12 @@ def subscribeEvents(keycallback, fieldcallback, timeout=100000):
     # Called by any program wanting to subscribe to events
     # Arguments are firstly the callback function for key presses, secondly for piece lifts and places
     clearSerial()
+    
+    # Store the original callback for potential restoration
+    if not hasattr(subscribeEvents, '_original_keycallback'):
+        subscribeEvents._original_keycallback = keycallback
+        subscribeEvents._original_fieldcallback = fieldcallback
+    
     eventsthreadpointer = threading.Thread(target=eventsThread, args=([keycallback, fieldcallback, timeout]))
     eventsthreadpointer.daemon = True
     eventsthreadpointer.start()

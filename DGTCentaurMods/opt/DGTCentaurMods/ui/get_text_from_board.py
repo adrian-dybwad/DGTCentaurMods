@@ -171,9 +171,7 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
 
         def _read_buttons():
             try:
-                from DGTCentaurMods.ui.input_adapters import poll_actions_from_board, start_event_subscription
-                # Start event subscription if not already started
-                start_event_subscription()
+                from DGTCentaurMods.ui.input_adapters import poll_actions_from_board
                 action = poll_actions_from_board()
                 if action:
                     print(f"poll_actions_from_board returned: {action}")
