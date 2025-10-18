@@ -10,7 +10,7 @@ cd "$(dirname "$0")" || exit 1
 # Ensure virtualenv exists
 if [ ! -d ".venv" ]; then
   echo "❌ No .venv found! Create one with:"
-  echo "   python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
+  echo "   python3 -m venv DGTCentaurMods/.venv && source DGTCentaurMods/.venv/bin/activate && pip install -r DGTCentaurMods/setup/requirements.txt"
   exit 1
 fi
 
