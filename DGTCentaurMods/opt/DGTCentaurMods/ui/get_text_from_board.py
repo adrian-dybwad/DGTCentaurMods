@@ -154,20 +154,23 @@ def getText(title, board_obj=None):
                                 ch = printableascii[base + fieldHex]
                                 typed += ch
                                 beep(SOUND_GENERAL)
+                                print(f"Piece placed on field {fieldHex}, added char '{ch}'")
                                 return True
                             i += 2
                         elif tag == 64:  # lifted
                             i += 2
                         else:
                             i += 1
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Error in _read_fields_and_type: {e}")
             return False
 
         def _read_buttons():
             try:
                 from DGTCentaurMods.ui.input_adapters import poll_actions_from_board
                 action = poll_actions_from_board()
+                if action:
+                    print(f"poll_actions_from_board returned: {action}")
                 if action == "BACK":
                     return BTNBACK
                 elif action == "SELECT":
@@ -176,10 +179,11 @@ def getText(title, board_obj=None):
                     return BTNUP
                 elif action == "DOWN":
                     return BTNDOWN
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Error in _read_buttons: {e}")
             return 0
 
+        print("Starting main input loop...")
         _render()
         last_draw = 0.0
         start_time = time.time()
@@ -188,6 +192,7 @@ def getText(title, board_obj=None):
         while True:
             # Check for shutdown request
             if shutdown_requested:
+                print("Shutdown requested, exiting text input")
                 return None
             
             # Check for timeout
@@ -195,35 +200,50 @@ def getText(title, board_obj=None):
                 print("Text input timeout")
                 return None
                 
-            typed_changed = _read_fields_and_type()
-            btn = _read_buttons()
-
-            if btn == BTNBACK:
-                if typed:
-                    typed = typed[:-1]
+            try:
+                typed_changed = _read_fields_and_type()
+                btn = _read_buttons()
+                
+                if btn != 0:
+                    print(f"Button pressed: {btn}")
+                
+                if btn == BTNBACK:
+                    if typed:
+                        typed = typed[:-1]
+                        beep(SOUND_GENERAL)
+                        changed = True
+                        print(f"Deleted character, typed now: '{typed}'")
+                    else:
+                        beep(SOUND_WRONG)
+                        print("No characters to delete")
+                elif btn == BTNTICK:
+                    beep(SOUND_GENERAL)
+                    clearScreen()
+                    time.sleep(0.2)
+                    print(f"Text input confirmed: '{typed}'")
+                    return typed
+                elif btn == BTNUP and charpage != 1:
+                    charpage = 1
                     beep(SOUND_GENERAL)
                     changed = True
-                else:
-                    beep(SOUND_WRONG)
-            elif btn == BTNTICK:
-                beep(SOUND_GENERAL)
-                clearScreen()
-                time.sleep(0.2)
-                return typed
-            elif btn == BTNUP and charpage != 1:
-                charpage = 1
-                beep(SOUND_GENERAL)
-                changed = True
-            elif btn == BTNDOWN and charpage != 2:
-                charpage = 2
-                beep(SOUND_GENERAL)
-                changed = True
+                    print("Switched to page 1")
+                elif btn == BTNDOWN and charpage != 2:
+                    charpage = 2
+                    beep(SOUND_GENERAL)
+                    changed = True
+                    print("Switched to page 2")
+                
+                if typed_changed:
+                    print(f"Piece detected, typed now: '{typed}'")
 
-            if changed or typed_changed or (time.time() - last_draw) > 0.2:
-                _render()
-                last_draw = time.time()
-                changed = False
+                if changed or typed_changed or (time.time() - last_draw) > 0.2:
+                    _render()
+                    last_draw = time.time()
+                    changed = False
 
+            except Exception as e:
+                print(f"Error in main loop: {e}")
+                
             time.sleep(0.05)
 
     finally:
