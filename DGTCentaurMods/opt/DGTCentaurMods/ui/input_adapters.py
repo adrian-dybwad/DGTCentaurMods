@@ -25,36 +25,47 @@ def poll_actions_from_board() -> Optional[str]:
 
         # Debug: log the actual response for analysis
         if hx and len(hx) > 10:  # Only log if we got a meaningful response
-            print(f"DEBUG: Key response: {hx}")
+            print(f"DEBUG: Full response: {hx}")
 
-        # Match the 4 button patterns used elsewhere in the code
-        if hx == ("b10011" + a1 + a2 + "00140a0508000000007d3c"):  # UP
-            return "UP"
-        if hx == ("b10010" + a1 + a2 + "00140a05020000000061"):    # DOWN
-            return "DOWN"
-        if hx == ("b10011" + a1 + a2 + "00140a0510000000007d17"):  # TICK
-            return "SELECT"
-        if hx == ("b10011" + a1 + a2 + "00140a0501000000007d47"):  # BACK
-            return "BACK"
-
-        # Try to parse the actual response we're getting
-        # The response b1000606500d suggests a different format
-        if hx.startswith("b100" + a1 + a2):
-            # This looks like a key event response, but with different data
-            # Let's try to extract the key code from the end
-            if len(hx) >= 12:
-                key_code = hx[-2:]  # Last 2 hex digits
-                print(f"DEBUG: Detected key code: {key_code}")
-                
-                # Map key codes to actions (these might need adjustment based on actual board behavior)
-                if key_code == "3c":  # Based on the original patterns
-                    return "UP"
-                elif key_code == "61":
-                    return "DOWN"
-                elif key_code == "17":
-                    return "SELECT"
-                elif key_code == "47":
-                    return "BACK"
+        # The board sends combined responses like: 870006065063b10011065000140a050800000000
+        # We need to extract the key event part (after the board state part)
+        
+        # Look for the key event marker 'b100' followed by addresses
+        key_event_marker = f"b100{a1}{a2}"
+        key_event_start = hx.find(key_event_marker)
+        
+        if key_event_start != -1:
+            # Extract the key event part
+            key_event_part = hx[key_event_start:]
+            print(f"DEBUG: Key event part: {key_event_part}")
+            
+            # Match the 4 button patterns used elsewhere in the code
+            if key_event_part == ("b10011" + a1 + a2 + "00140a0508000000007d3c"):  # UP
+                print("DEBUG: Detected UP key")
+                return "UP"
+            if key_event_part == ("b10010" + a1 + a2 + "00140a05020000000061"):    # DOWN
+                print("DEBUG: Detected DOWN key")
+                return "DOWN"
+            if key_event_part == ("b10011" + a1 + a2 + "00140a0510000000007d17"):  # TICK
+                print("DEBUG: Detected SELECT key")
+                return "SELECT"
+            if key_event_part == ("b10011" + a1 + a2 + "00140a0501000000007d47"):  # BACK
+                print("DEBUG: Detected BACK key")
+                return "BACK"
+            
+            # Check for partial matches (the response might be truncated)
+            if "00140a050800000000" in key_event_part:  # UP pattern
+                print("DEBUG: Detected UP key (partial match)")
+                return "UP"
+            if "00140a050200000000" in key_event_part:  # DOWN pattern
+                print("DEBUG: Detected DOWN key (partial match)")
+                return "DOWN"
+            if "00140a051000000000" in key_event_part:  # SELECT pattern
+                print("DEBUG: Detected SELECT key (partial match)")
+                return "SELECT"
+            if "00140a050100000000" in key_event_part:  # BACK pattern
+                print("DEBUG: Detected BACK key (partial match)")
+                return "BACK"
 
         return None
     except Exception:
