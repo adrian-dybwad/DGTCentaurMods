@@ -27,44 +27,62 @@ def poll_actions_from_board() -> Optional[str]:
         if hx and len(hx) > 10:  # Only log if we got a meaningful response
             print(f"DEBUG: Full response: {hx}")
 
-        # The board sends combined responses like: 870006065063b10011065000140a050800000000
-        # We need to extract the key event part (after the board state part)
+        # The board sends responses like: b1000606500d
+        # The addresses are formatted as 060650 (0x06, 0x50)
+        # We need to handle both formats: 060650 and 0650
         
         # Look for the key event marker 'b100' followed by addresses
-        key_event_marker = f"b100{a1}{a2}"
-        key_event_start = hx.find(key_event_marker)
+        key_event_marker1 = f"b100{a1}{a2}"  # Format: b1000650
+        key_event_marker2 = f"b100{a1}0{a2}"  # Format: b100060650 (with extra 0)
+        
+        key_event_start = hx.find(key_event_marker1)
+        if key_event_start == -1:
+            key_event_start = hx.find(key_event_marker2)
         
         if key_event_start != -1:
             # Extract the key event part
             key_event_part = hx[key_event_start:]
             print(f"DEBUG: Key event part: {key_event_part}")
             
-            # Match the 4 button patterns used elsewhere in the code
-            if key_event_part == ("b10011" + a1 + a2 + "00140a0508000000007d3c"):  # UP
-                print("DEBUG: Detected UP key")
-                return "UP"
-            if key_event_part == ("b10010" + a1 + a2 + "00140a05020000000061"):    # DOWN
-                print("DEBUG: Detected DOWN key")
-                return "DOWN"
-            if key_event_part == ("b10011" + a1 + a2 + "00140a0510000000007d17"):  # TICK
-                print("DEBUG: Detected SELECT key")
-                return "SELECT"
-            if key_event_part == ("b10011" + a1 + a2 + "00140a0501000000007d47"):  # BACK
-                print("DEBUG: Detected BACK key")
-                return "BACK"
+            # The response format is much shorter: b1000606500d
+            # This suggests a different protocol than expected
+            # Let's try to extract the key code from the end
+            if len(key_event_part) >= 12:
+                # Extract the last few characters as potential key code
+                key_code = key_event_part[-2:]  # Last 2 hex digits
+                print(f"DEBUG: Extracted key code: {key_code}")
+                
+                # Map key codes to actions based on observed patterns
+                # These codes might need adjustment based on actual button behavior
+                if key_code == "0d":  # Based on the response b1000606500d
+                    print("DEBUG: Detected key press (code 0d)")
+                    # For now, let's treat any key press as UP for testing
+                    return "UP"
+                elif key_code == "3c":  # Based on original patterns
+                    print("DEBUG: Detected UP key")
+                    return "UP"
+                elif key_code == "61":
+                    print("DEBUG: Detected DOWN key")
+                    return "DOWN"
+                elif key_code == "17":
+                    print("DEBUG: Detected SELECT key")
+                    return "SELECT"
+                elif key_code == "47":
+                    print("DEBUG: Detected BACK key")
+                    return "BACK"
             
-            # Check for partial matches (the response might be truncated)
+            # Also check for the longer patterns in case we get them
             if "00140a050800000000" in key_event_part:  # UP pattern
-                print("DEBUG: Detected UP key (partial match)")
+                print("DEBUG: Detected UP key (long pattern)")
                 return "UP"
             if "00140a050200000000" in key_event_part:  # DOWN pattern
-                print("DEBUG: Detected DOWN key (partial match)")
+                print("DEBUG: Detected DOWN key (long pattern)")
                 return "DOWN"
             if "00140a051000000000" in key_event_part:  # SELECT pattern
-                print("DEBUG: Detected SELECT key (partial match)")
+                print("DEBUG: Detected SELECT key (long pattern)")
                 return "SELECT"
             if "00140a050100000000" in key_event_part:  # BACK pattern
-                print("DEBUG: Detected BACK key (partial match)")
+                print("DEBUG: Detected BACK key (long pattern)")
                 return "BACK"
 
         return None
