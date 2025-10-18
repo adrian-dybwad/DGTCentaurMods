@@ -6,8 +6,26 @@ This module provides a getText function that takes a title parameter.
 
 import time
 import logging
+import signal
+import sys
+import os
 from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
+
+# Global flag for graceful shutdown
+shutdown_requested = False
+
+def signal_handler(signum, frame):
+    """Handle CTRL+C gracefully"""
+    global shutdown_requested
+    print("\nShutdown requested...")
+    shutdown_requested = True
+    # Force exit immediately to prevent hanging
+    os._exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 
 def getText(title):
@@ -124,7 +142,19 @@ def getText(title):
 
         _render()
         last_draw = 0.0
+        start_time = time.time()
+        timeout_seconds = 300  # 5 minute timeout
+        
         while True:
+            # Check for shutdown request
+            if shutdown_requested:
+                return None
+            
+            # Check for timeout
+            if time.time() - start_time > timeout_seconds:
+                print("Text input timeout")
+                return None
+                
             typed_changed = _read_fields_and_type()
             btn = _read_buttons()
 
