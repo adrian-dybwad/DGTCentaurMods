@@ -30,24 +30,23 @@ import re
 board.initScreen()
 time.sleep(2)
 
-command = """iwlist wlan0 scan | grep -i 'essid:"' | cut -c28-500"""
+command = """sudo iwlist wlan0 scan | grep 'ESSID'"""
 result = os.popen(command)
-result = list(result)
-networks = {}
-for i in range(0,len(result)):
-	result[i] = result[i].replace("\n","")
-	result[i] = result[i].replace("\"","")
-	result[i] = result[i].replace("\\x00",".")
-	result[i] = result[i].replace("\\\\","\\")
-	result[i] = result[i].replace("\\xE2",'\xE2')
-	result[i] = result[i].replace("\\x80",'\x80')
-	result[i] = result[i].replace("\\x99",'\x99')
-	networks[result[i]] = result[i]
 
+# Extract ESSID names using regex
+essids = re.findall(r'ESSID:"(.*?)"', result.read())
+
+# Remove empty and duplicate entries
+unique_essids = sorted(set(filter(None, essids)))
+
+networks = {ssid: ssid for ssid in unique_essids}
+print("----------------------------------------------------------")
 print(networks)
+print("----------------------------------------------------------")
 answer = board.doMenu(networks,1)
-
+print("++++++++++++++++++++++++++++++")
 print(answer)
+print("++++++++++++++++++++++++++++++")
 
 if answer == "BACK":
 	sys.exit()
