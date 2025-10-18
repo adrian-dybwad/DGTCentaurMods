@@ -3,6 +3,24 @@ from typing import Optional, Callable
 from PIL import Image, ImageDraw, ImageFont
 import time
 import logging
+import signal
+import sys
+
+ActionPoller = Callable[[], Optional[str]]  # "UP"/"DOWN"/"SELECT"/"BACK"/None
+
+# Global flag for graceful shutdown
+shutdown_requested = False
+
+def signal_handler(signum, frame):
+    """Handle CTRL+C gracefully"""
+    global shutdown_requested
+    logging.info("Shutdown requested via signal")
+    shutdown_requested = True
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 ActionPoller = Callable[[], Optional[str]]  # "UP"/"DOWN"/"SELECT"/"BACK"/None
 
@@ -104,11 +122,19 @@ def simple_text_input(
         instructions = "↑↓: navigate  ←: back  →: select"
         draw.text((margin, H - margin - line_h), instructions, font=font_small, fill=0)
         
-        # Update display
+        # Update display with better error handling
         try:
             epaper.epaperbuffer.paste(img, (0, 0))
+            # Don't call refresh() - let background thread handle it
         except Exception as e:
             logging.error(f"Failed to update display: {e}")
+            # Try to recover by reinitializing
+            try:
+                epaper.initEpaper()
+                epaper.clearScreen()
+                epaper.epaperbuffer.paste(img, (0, 0))
+            except Exception as e2:
+                logging.error(f"Failed to recover display: {e2}")
 
     # Initial render
     _render()
@@ -117,6 +143,11 @@ def simple_text_input(
     last_action_time = time.time()
     
     while True:
+        # Check for shutdown request
+        if shutdown_requested:
+            logging.info("Text input cancelled by user")
+            return None
+            
         # Check timeout
         if time.time() - start_time > timeout_seconds:
             logging.warning("Text input timed out")

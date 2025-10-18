@@ -2,6 +2,22 @@ from typing import Iterable, Optional, Callable, List
 from PIL import Image, ImageDraw, ImageFont
 import time
 import logging
+import signal
+import sys
+
+# Global flag for graceful shutdown
+shutdown_requested = False
+
+def signal_handler(signum, frame):
+    """Handle CTRL+C gracefully"""
+    global shutdown_requested
+    logging.info("Shutdown requested via signal")
+    shutdown_requested = True
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 ActionPoller = Callable[[], Optional[str]]  # "UP"/"DOWN"/"SELECT"/"BACK"/None
 
@@ -142,6 +158,11 @@ def select_from_list_epaper(
         return items[0] if items else None
 
     while True:
+        # Check for shutdown request
+        if shutdown_requested:
+            logging.info("Menu selection cancelled by user")
+            return None
+            
         # Check for timeout
         if time.time() - start_time > timeout_seconds:
             logging.warning("select_from_list_epaper timed out")
