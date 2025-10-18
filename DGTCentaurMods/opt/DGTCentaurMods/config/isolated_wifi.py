@@ -28,12 +28,8 @@ signal.signal(signal.SIGTERM, signal_handler)
 def get_wifi_networks() -> List[str]:
     """Get list of available WiFi networks"""
     try:
-        # Try different scanning methods
-        result = subprocess.run(['iwlist', 'wlan0', 'scan'], capture_output=True, text=True)
-        if result.returncode != 0:
-            # Try without interface
-            result = subprocess.run(['iwlist', 'scan'], capture_output=True, text=True)
-        
+        # Use the command that actually works
+        result = subprocess.run(['sudo', 'iwlist', 'wlan0', 'scan'], capture_output=True, text=True)
         if result.returncode != 0:
             print(f"iwlist failed: {result.stderr}")
             return []
@@ -46,7 +42,7 @@ def get_wifi_networks() -> List[str]:
                 if essid and essid != '' and essid != 'off/any':
                     networks.append(essid)
         
-        print(f"Raw scan output: {result.stdout[:500]}...")
+        print(f"Found networks: {networks}")
         return list(set(networks))  # Remove duplicates
     except Exception as e:
         print(f"Error scanning WiFi: {e}")
@@ -134,25 +130,43 @@ def poll_key(board_obj, addr1, addr2):
         
         print(f"DEBUG: Response: {hx}")
         
-        # Look for key event patterns
+        # Look for the simple key event pattern first
+        if f"b100{a1}0{a2}0d" in hx:
+            print("DEBUG: Detected SELECT key (0d pattern)")
+            return "SELECT"
+        
+        # Look for other key patterns
         if f"b100{a1}0{a2}" in hx:
-            # Extract the last few characters to determine the key
-            key_part = hx[hx.rfind(f"b100{a1}0{a2}"):]
-            if len(key_part) >= 12:
-                key_code = key_part[-2:]
-                print(f"DEBUG: Detected key code: {key_code}")
-                
-                # Map based on observed patterns
-                if key_code == "0d":
-                    return "SELECT"
-                elif key_code == "3c":
-                    return "UP"
-                elif key_code == "61":
-                    return "DOWN"
-                elif key_code == "17":
-                    return "SELECT"
-                elif key_code == "47":
-                    return "BACK"
+            # Find the last occurrence of the pattern
+            last_pos = hx.rfind(f"b100{a1}0{a2}")
+            if last_pos != -1:
+                # Extract the key code from the end
+                key_part = hx[last_pos:]
+                if len(key_part) >= 12:
+                    key_code = key_part[-2:]
+                    print(f"DEBUG: Detected key code: {key_code}")
+                    
+                    if key_code == "0d":
+                        return "SELECT"
+                    elif key_code == "3c":
+                        return "UP"
+                    elif key_code == "61":
+                        return "DOWN"
+                    elif key_code == "47":
+                        return "BACK"
+        
+        # Look for the longer key event patterns
+        if f"b100{a1}1{a2}" in hx:
+            # This might be UP/DOWN/BACK buttons
+            if "00140a0508000000007d3c" in hx:
+                print("DEBUG: Detected UP key")
+                return "UP"
+            elif "00140a05020000000061" in hx:
+                print("DEBUG: Detected DOWN key")
+                return "DOWN"
+            elif "00140a0501000000007d47" in hx:
+                print("DEBUG: Detected BACK key")
+                return "BACK"
         
         return None
     except Exception as e:
