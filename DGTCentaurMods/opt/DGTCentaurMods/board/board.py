@@ -318,10 +318,10 @@ def doMenu(items, fast = 0, doBoardState = "yes"):
     quickselectpossible = -1
     
     if doBoardState == "yes":
-      res = getBoardState()
-      if res[32] == 0 and res[33] == 0 and res[34] == 0 and res[35] == 0 and res[36]==0 and res[37] == 0 and res[38] == 0 and res[39] == 0:
-        # If the 4th rank is empty then enable quick select mode. Then we can choose a menu option by placing and releasing a piece
-        quickselect = 1
+        res = getBoardState()
+        if res[32] == 0 and res[33] == 0 and res[34] == 0 and res[35] == 0 and res[36]==0 and res[37] == 0 and res[38] == 0 and res[39] == 0:
+            # If the 4th rank is empty then enable quick select mode. Then we can choose a menu option by placing and releasing a piece
+            quickselect = 1
     image = Image.new('1', (epd.width, epd.height), 255)
     while (buttonPress != 2):
         time.sleep(0.05)
