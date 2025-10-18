@@ -151,19 +151,25 @@ if not answer:
 # Get password using board text input
 from DGTCentaurMods.ui.get_text_from_board import getText
 
+print("About to start password input...")
+
 # Pause events for password input
 try:
     board.pauseEvents()
-except Exception:
-    pass
+    print("Events paused for password input")
+except Exception as e:
+    print(f"Error pausing events: {e}")
 
 try:
+    print("Calling getText function...")
     password = getText("WiFi Password", board, manage_events=False)
+    print(f"getText returned: {password}")
 finally:
     try:
         board.unPauseEvents()
-    except Exception:
-        pass
+        print("Events unpaused after password input")
+    except Exception as e:
+        print(f"Error unpausing events: {e}")
 print(password)
 
 if password == "":

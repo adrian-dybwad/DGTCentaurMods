@@ -39,6 +39,8 @@ def getText(title, board_obj=None, manage_events=True):
         board_obj: The board object to use for communication (optional)
         manage_events: Whether to pause/unpause events (default True)
     """
+    print(f"getText function called with title='{title}', board_obj={board_obj is not None}, manage_events={manage_events}")
+    
     from DGTCentaurMods.display import epaper
     
     global screenbuffer
