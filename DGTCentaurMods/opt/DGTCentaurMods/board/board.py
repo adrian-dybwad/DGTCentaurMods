@@ -1039,12 +1039,20 @@ def subscribeEvents(keycallback, fieldcallback, timeout=100000):
         # Add this subscriber to the list
         subscribers.append((keycallback, fieldcallback))
         
-        # If this is the first subscriber, start the events thread
-        if len(subscribers) == 1:
+        # Check if events thread exists and is alive
+        thread_running = (eventsthreadpointer is not None and 
+                         hasattr(eventsthreadpointer, 'is_alive') and 
+                         eventsthreadpointer.is_alive())
+        
+        # If not running, start it with multi_callback
+        if not thread_running:
             eventsrunning = 1
             eventsthreadpointer = threading.Thread(target=eventsThread, args=(multi_callback, multi_field_callback, timeout))
             eventsthreadpointer.daemon = True
             eventsthreadpointer.start()
+            logging.debug(f"Started events thread for subscriber: {keycallback.__name__ if keycallback else 'None'}")
+        else:
+            logging.debug(f"Added subscriber to existing events thread: {keycallback.__name__ if keycallback else 'None'}")
 
 def unsubscribeEvents(keycallback, fieldcallback):
     """Remove a subscriber from the events system"""

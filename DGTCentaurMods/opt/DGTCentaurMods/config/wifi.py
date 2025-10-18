@@ -124,14 +124,19 @@ print("----------------------------------------------------------")
 # Use the event-based WiFi menu (same pattern as main menu)
 print("Starting WiFi menu with event-based system...")
 
+# Convert networks list to menu format
+menu = {}
+for i, ssid in enumerate(networks.keys()):
+    menu[f"network_{i}"] = ssid
+
+# Initialize WiFi menu state before subscribing
+from DGTCentaurMods.ui.input_adapters import wifi_curmenu, wifi_menuitem
+wifi_curmenu = menu
+wifi_menuitem = 1
+
 # Start WiFi subscription
 if start_wifi_subscription():
     try:
-        # Convert networks list to menu format
-        menu = {}
-        for i, ssid in enumerate(networks.keys()):
-            menu[f"network_{i}"] = ssid
-        
         # Use event-based menu
         answer = do_wifi_menu(menu, "Wi-Fi Networks")
         

@@ -16,9 +16,12 @@ def wifi_button_callback(button_id):
     """Callback function for WiFi menu button events - same pattern as main menu"""
     global wifi_selection, wifi_menuitem, wifi_curmenu, wifi_event_key
     
+    logging.debug(f"WiFi callback invoked with button_id: {button_id}")
+    
     if button_id == b.BTNBACK:
         wifi_selection = "BACK"
         wifi_event_key.set()
+        logging.debug("WiFi callback: BACK button, event set")
         return
     elif button_id == b.BTNTICK:
         if wifi_curmenu:
@@ -28,28 +31,36 @@ def wifi_button_callback(button_id):
                     wifi_selection = k
                     wifi_event_key.set()
                     wifi_menuitem = 1
+                    logging.debug(f"WiFi callback: SELECT button, selected {k}, event set")
                     return
                 c = c + 1
         else:
             wifi_selection = "BTNTICK"
             wifi_event_key.set()
+            logging.debug("WiFi callback: TICK button (no menu), event set")
             return
     elif button_id == b.BTNUP:
         wifi_menuitem = wifi_menuitem - 1
+        logging.debug(f"WiFi callback: UP button, menuitem now {wifi_menuitem}")
     elif button_id == b.BTNDOWN:
         wifi_menuitem = wifi_menuitem + 1
+        logging.debug(f"WiFi callback: DOWN button, menuitem now {wifi_menuitem}")
     elif button_id == b.BTNHELP:
         wifi_selection = "BTNHELP"
         wifi_event_key.set()
+        logging.debug("WiFi callback: HELP button, event set")
         return
     
     # Handle menu bounds
     if wifi_curmenu is None:
+        logging.debug("WiFi callback: No current menu, ignoring navigation")
         return
     if wifi_menuitem < 1:
         wifi_menuitem = len(wifi_curmenu)
     if wifi_menuitem > len(wifi_curmenu):
         wifi_menuitem = 1
+    
+    logging.debug(f"WiFi callback: Updated menuitem to {wifi_menuitem}, updating display")
     
     # Update display immediately - same as main menu
     try:
@@ -81,6 +92,7 @@ def wifi_button_callback(button_id):
         
         # Update display
         epaper.epaperbuffer.paste(image, (0, 0))
+        logging.debug("WiFi callback: Display updated")
         
     except Exception as e:
         logging.error(f"Failed to update display: {e}")
@@ -169,6 +181,13 @@ def do_wifi_menu(menu, title=None):
         return None
     
     # Wait for selection - same as main menu
-    wifi_event_key.wait()
+    logging.debug("WiFi menu: Waiting for event...")
+    event_received = wifi_event_key.wait(timeout=60)
     wifi_event_key.clear()
-    return wifi_selection
+    
+    if event_received:
+        logging.debug(f"WiFi menu: Event received, selection: {wifi_selection}")
+        return wifi_selection
+    else:
+        logging.warning("WiFi menu: Timeout waiting for event, returning None")
+        return None
