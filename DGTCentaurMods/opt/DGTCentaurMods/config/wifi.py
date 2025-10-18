@@ -21,6 +21,8 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
+from DGTCentaurMods.ui.epaper_menu import select_from_list_epaper
+from DGTCentaurMods.ui.input_adapters import poll_actions_from_board
 from DGTCentaurMods.board import board
 import os
 import time
@@ -43,7 +45,16 @@ networks = {ssid: ssid for ssid in unique_essids}
 print("----------------------------------------------------------")
 print(networks)
 print("----------------------------------------------------------")
-answer = board.doMenu(networks, 1, "noBoardState")
+
+# networks is a dict {ssid: ssid}; the renderer accepts any iterable of names
+answer = select_from_list_epaper(
+    options=list(networks.keys()),
+    title="Wi-Fi Networks",
+    poll_action=poll_actions_from_board,  # or a mock for testing
+    lines_per_page=7,
+    font_size=18,
+)
+
 print("++++++++++++++++++++++++++++++")
 print(answer)
 print("++++++++++++++++++++++++++++++")
