@@ -90,7 +90,15 @@ def _ser_write(b):
             ser.write(b)
         except SerialException:
             time.sleep(0.05)  # brief backoff
-            
+
+def _ser_drain():
+    """Drain any pending bytes (best-effort)."""
+    with SER_LOCK:
+        try:
+            ser.read(100000)
+        except Exception:
+            pass
+
 # Get the config
 dev = Settings.read('system', 'developer', 'False')
 
