@@ -45,6 +45,7 @@ from PIL import Image, ImageDraw, ImageFont
 menuitem = 1
 curmenu = None
 selection = ""
+main_menu_disabled = False
 centaur_software = "/home/pi/centaur/centaur"
 
 event_key = threading.Event()
@@ -57,6 +58,10 @@ def keyPressed(id):
     global curmenu
     global selection
     global event_key
+    global main_menu_disabled
+    
+    if main_menu_disabled:
+        return  # Ignore events when disabled
     global idle
     epaper.epapermode = 1    
     if idle:
@@ -500,8 +505,15 @@ while True:
                                     if selected_network and selected_network != "BACK":
                                         # Get password using getText
                                         from DGTCentaurMods.ui.get_text_from_board import getText
-                                        # board.pauseEvents()
-                                        password = getText("Enter WiFi password", manage_events=TFalserue)
+                                        
+                                        # Disable main menu handler
+                                        global main_menu_disabled
+                                        main_menu_disabled = True
+                                        
+                                        password = getText("Enter WiFi password", manage_events=True)
+                                        
+                                        # Re-enable main menu handler
+                                        main_menu_disabled = False
                                         # board.unPauseEvents()
                                         if password:
                                             epaper.writeText(0, f"Connecting to")
