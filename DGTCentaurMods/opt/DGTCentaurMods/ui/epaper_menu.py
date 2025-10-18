@@ -43,8 +43,29 @@ def select_from_list_epaper(
     list_top = margin + title_h
     usable_rows = max(3, min(lines_per_page, (imgH - list_top - margin) // line_h))
 
-    # ... keep your _truncate(...) from before ...
-
+    def _truncate(text: str, max_width_px: int) -> str:
+        """
+        Clip overly long SSID or menu entries so they fit the display width.
+        """
+        try:
+            w = font.getlength(text)
+        except Exception:
+            # Pillow < 10 fallback
+            w = font.getsize(text)[0]
+        if w <= max_width_px:
+            return text
+    
+        # progressively cut and add ellipsis
+        while len(text) > 1:
+            text = text[:-1]
+            try:
+                w = font.getlength(text + "…")
+            except Exception:
+                w = font.getsize(text + "…")[0]
+            if w <= max_width_px:
+                return text + "…"
+        return "…"
+    
     def render(idx, items):
         page_start = (idx // usable_rows) * usable_rows
         page_items = items[page_start: page_start + usable_rows]
