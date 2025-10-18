@@ -1,6 +1,6 @@
 # DGTCentaurMods/ui/input_adapters.py
 from typing import Optional
-from DGTCentaurMods.board import board as boardmod
+from DGTCentaurMods.board import board
 
 def poll_actions_from_board() -> Optional[str]:
     """
@@ -11,7 +11,7 @@ def poll_actions_from_board() -> Optional[str]:
     try:
         # Example: decode a short state/read function you already have.
         # Replace with your real non-blocking read:
-        state = boardmod.getBoardStateNonBlocking()  # you might have a helper; otherwise wrap ser.read(…)
+        state = board.getBoardStateNonBlocking()  # you might have a helper; otherwise wrap ser.read(…)
         if not state:
             return None
 

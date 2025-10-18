@@ -1,155 +1,109 @@
 # DGTCentaurMods/ui/epaper_menu.py
-
 from PIL import Image, ImageDraw, ImageFont
-from DGTCentaurMods.display import epd2in9d
-from DGTCentaurMods.display.ui_components import AssetManager
-import os
-from typing import Callable, Iterable, List, Optional
-
-# ----- font loader with safe fallback -----
-def _load_font(size: int) -> ImageFont.FreeTypeFont:
-    try:
-        return ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), size)
-    except Exception:
-        # Debian/RPi default
-        return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", size)
-
-# Action names your input poller should return
-# "UP", "DOWN", "SELECT", "BACK", or None (no input yet)
-InputPoller = Callable[[], Optional[str]]
 
 def select_from_list_epaper(
-    options: Iterable[str],
-    title: str = "Select Wi-Fi",
-    poll_action: InputPoller = lambda: None,
-    highlight_index: int = 0,
-    lines_per_page: int = 7,
-    font_size: int = 18,
-) -> Optional[str]:
-    """
-    Render a scrollable list of options on the e-paper display and navigate
-    with a simple input poller. Returns the selected string or None if cancelled.
+    options,
+    title="Select Wi-Fi",
+    poll_action=lambda: None,
+    highlight_index=0,
+    lines_per_page=7,
+    font_size=18,
+    rotation=270,              # <— try 0/90/180/270; many Waveshare 2.9" need 270
+):
+    from DGTCentaurMods.display import epd2in9d
+    from DGTCentaurMods.display.ui_components import AssetManager
 
-    poll_action(): must return one of {"UP","DOWN","SELECT","BACK"} or None
-    when no input is available on that tick.
-    """
-
-    # sanitize & sort (skip empty SSIDs, or label them "<hidden>")
-    clean: List[str] = []
-    for s in options:
-        s = (s or "").strip()
-        clean.append(s if s else "<hidden>")
-    clean = sorted(set(clean), key=str.casefold)
-    if not clean:
-        return None
+    def _load_font(size):
+        from PIL import ImageFont
+        try:
+            return ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), size)
+        except Exception:
+            return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", size)
 
     font = _load_font(font_size)
     font_small = _load_font(font_size - 2)
 
-    # init display
     epd = epd2in9d.EPD()
     epd.init()
-    width, height = epd.height, epd.width  # epd2in9d uses rotated coords
-    # You can swap depending on your driver’s orientation:
-    # width, height = epd.width, epd.height
 
-    # simple theming
+    # Use the panel's native geometry (no guessing)
+    W, H = epd.width, epd.height  # as reported by driver
+    imgW, imgH = W, H             # we draw in native, then rotate at flush()
+
+    def flush(pil_img):
+        # rotate before sending to panel
+        if rotation:
+            pil_img = pil_img.rotate(rotation, expand=True)
+        epd.display(epd.getbuffer(pil_img))
+
+    # layout in native space
     margin = 6
     line_h = font_size + 4
-    list_top = margin + (font_size + 6)  # leave room for title
-    usable_rows = max(3, min(lines_per_page, (height - list_top - margin) // line_h))
+    title_h = font_size + 6
+    list_top = margin + title_h
+    usable_rows = max(3, min(lines_per_page, (imgH - list_top - margin) // line_h))
 
-    def _truncate(text: str, max_px: int) -> str:
-        if font.getlength(text) <= max_px:
-            return text
-        ell = "…"
-        # binary-shrink
-        lo, hi = 0, len(text)
-        while lo < hi:
-            mid = (lo + hi) // 2
-            test = text[:mid] + ell
-            if font.getlength(test) <= max_px:
-                lo = mid + 1
-            else:
-                hi = mid
-        return text[:max(0, lo - 1)] + ell
+    # ... keep your _truncate(...) from before ...
 
-    def render(idx: int) -> None:
+    def render(idx, items):
         page_start = (idx // usable_rows) * usable_rows
-        page_items = clean[page_start: page_start + usable_rows]
-        img = Image.new("1", (width, height), 255)  # 1-bit white
+        page_items = items[page_start: page_start + usable_rows]
+
+        img = Image.new("1", (imgW, imgH), 255)
         draw = ImageDraw.Draw(img)
 
-        # title
         draw.text((margin, margin), title, font=font_small, fill=0)
 
-        # items
         x = margin
         y = list_top
-        max_text_px = width - margin*2 - 6
+        max_px = imgW - margin*2 - 6
         for i, item in enumerate(page_items):
             is_sel = (page_start + i) == idx
-            # selection bar
             if is_sel:
-                draw.rectangle([x-2, y-2, width - margin, y + line_h - 2], fill=0, outline=0)
-                fill_text = 255
+                draw.rectangle([x-2, y-2, imgW - margin, y + line_h - 2], fill=0)
+                fill = 255
             else:
-                fill_text = 0
-            draw.text((x, y), _truncate(item, max_text_px), font=font, fill=fill_text)
+                fill = 0
+            draw.text((x, y), _truncate(item, max_px), font=font, fill=fill)
             y += line_h
 
-        # footer / page indicator
         page = (idx // usable_rows) + 1
-        pages = (len(clean) + usable_rows - 1) // usable_rows
+        pages = (len(items) + usable_rows - 1) // usable_rows
         footer = f"{page}/{pages}  ↑↓ select, ← back"
         fw = font_small.getlength(footer)
-        draw.text((width - margin - fw, height - margin - (font_size - 2)), footer, font=font_small, fill=0)
+        draw.text((imgW - margin - fw, imgH - margin - (font_size - 2)), footer, font=font_small, fill=0)
 
-        # push to panel
-        epd.display(epd.getbuffer(img))
+        flush(img)
 
-    # initial paint
-    i = max(0, min(highlight_index, len(clean) - 1))
-    render(i)
+    # sanitize options
+    xs = []
+    seen = set()
+    for s in options:
+        s = (s or "").strip() or "<hidden>"
+        if s.lower() not in seen:
+            xs.append(s); seen.add(s.lower())
+    xs.sort(key=str.casefold)
+
+    i = max(0, min(highlight_index, len(xs) - 1))
+    render(i, xs)
 
     try:
-        idle_ticks = 0
         while True:
             act = poll_action()
             if act is None:
-                # small idle refresh throttle (optional)
-                idle_ticks += 1
-                if idle_ticks % 1000 == 0:
-                    # partial refresh to mitigate ghosting (if supported)
-                    render(i)
                 continue
-
-            idle_ticks = 0
-
-            if act == "UP":
-                if i > 0:
-                    i -= 1
-                    render(i)
-            elif act == "DOWN":
-                if i < len(clean) - 1:
-                    i += 1
-                    render(i)
+            if act == "UP" and i > 0:
+                i -= 1; render(i, xs)
+            elif act == "DOWN" and i < len(xs)-1:
+                i += 1; render(i, xs)
             elif act == "SELECT":
-                # clean up display state (optional: sleep)
-                try:
-                    epd.sleep()
-                except Exception:
-                    pass
-                return clean[i]
+                try: epd.sleep()
+                except: pass
+                return xs[i]
             elif act == "BACK":
-                try:
-                    epd.sleep()
-                except Exception:
-                    pass
+                try: epd.sleep()
+                except: pass
                 return None
-            # ignore unknowns and keep polling
     finally:
-        try:
-            epd.sleep()
-        except Exception:
-            pass
+        try: epd.sleep()
+        except: pass

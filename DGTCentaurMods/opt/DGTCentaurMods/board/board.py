@@ -173,6 +173,28 @@ def clearSerial():
         else:
             logging.debug('  Attempting to clear serial')
 
+def getBoardStateNonBlocking():
+    """
+    Try to read from the Centaur serial port without blocking.
+    Returns bytes (may be empty) or None if not available.
+    """
+    global ser
+    if ser is None:
+        return None
+    try:
+        # Non-blocking read of up to 1024 bytes
+        data = ser.read(1024)
+        if data:
+            return data
+        return None
+    except serial.SerialException:
+        # Port disconnected or temporarily unavailable
+        return None
+    except Exception as e:
+        # Debug print optional:
+        # print("getBoardStateNonBlocking error:", e)
+        return None
+
 # Screen functions - deprecated, use epaper.py if possible
 #
 
