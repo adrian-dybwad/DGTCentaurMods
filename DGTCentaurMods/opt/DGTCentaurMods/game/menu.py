@@ -96,6 +96,8 @@ def keyPressed(id):
             selection = "BTNHELP"
             event_key.set()
             return
+        if curmenu is None:
+            return
         if menuitem < 1:
             menuitem = len(curmenu)
         if menuitem > len(curmenu):
