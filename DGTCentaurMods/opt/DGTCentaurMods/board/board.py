@@ -705,6 +705,8 @@ def getText(title):
     typed = ""
     # First we need a clear board
     res = getBoardState()
+    if not isinstance(res, list) or len(res) != 64:
+        res = [0]*64
     if bytearray(res) != clearstate:
         writeTextToBuffer(0,'Remove board')
         writeText(1,'pieces')
@@ -786,30 +788,52 @@ def getText(title):
             changed = 1
         time.sleep(0.2)
 
-def getBoardState(field=None):
-    # Query the board and return a representation of it
-    resp = []
-    while (len(resp) < 64):
-        sendPacket(b'\xf0\x00\x07', b'\x7f')
-        resp = ser.read(10000)
-        if (len(resp) < 64):
-            time.sleep(0.5)
-    resp = resp[6:(64 * 2) + 6]
-    boarddata = [None] * 64
-    for x in range(0, 127, 2):
-        tval = (resp[x] * 256) + resp[x+1]
-        boarddata[(int)(x/2)] = tval
-    # Any square lower than 400 is empty; Any > upperlimit is also empty
-    upperlimit = 32000
-    lowerlimit = 300
-    for x in range(0,64):
-        if ((boarddata[x] < lowerlimit) or (boarddata[x] > upperlimit)):
-            boarddata[x] = 0
-        else:
-            boarddata[x] = 1
-    if field:
-        return boarddata[field]
-    return boarddata
+def getBoardState(field=None, retries=6, sleep_between=0.12):
+    """
+    Query the board and return a 64-length list of 0/1 occupancy flags.
+    Robust against short reads; retries a few times and falls back to zeros.
+    If 'field' is given (0..63), returns just that square.
+    """
+    needed = 6 + 64 * 2  # header + 128 bytes payload
+    for _ in range(retries):
+        try:
+            # clear any junk first
+            try:
+                ser.reset_input_buffer()
+            except Exception:
+                ser.read(10000)
+
+            # request snapshot
+            sendPacket(b'\xf0\x00\x07', b'\x7f')
+
+            # read at least 'needed' bytes; serial timeout keeps this bounded
+            resp = ser.read(needed)
+
+            if len(resp) < needed:
+                time.sleep(sleep_between)
+                continue
+
+            payload = resp[6:6+128]
+            boarddata = [0] * 64
+            upperlimit = 32000
+            lowerlimit = 300
+            # payload is 64 words (big-endian 16-bit)
+            for i in range(0, 128, 2):
+                tval = (payload[i] << 8) | payload[i+1]
+                boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
+
+            if field is not None:
+                return boarddata[field]
+            return boarddata
+
+        except Exception:
+            # transient read/parse error—retry
+            time.sleep(sleep_between)
+
+    # Final fallback so callers (like getText) never crash
+    if field is not None:
+        return 0
+    return [0] * 64
 
 def printBoardState():
     # Helper to display board state
