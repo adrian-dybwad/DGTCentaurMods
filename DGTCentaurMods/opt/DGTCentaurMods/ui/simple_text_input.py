@@ -5,6 +5,7 @@ import time
 import logging
 import signal
 import sys
+import os
 
 ActionPoller = Callable[[], Optional[str]]  # "UP"/"DOWN"/"SELECT"/"BACK"/None
 
@@ -14,9 +15,10 @@ shutdown_requested = False
 def signal_handler(signum, frame):
     """Handle CTRL+C gracefully"""
     global shutdown_requested
-    logging.info("Shutdown requested via signal")
+    print("\n🛑 Shutdown requested...")
     shutdown_requested = True
-    sys.exit(0)
+    # Force exit immediately
+    os._exit(0)
 
 # Register signal handlers
 signal.signal(signal.SIGINT, signal_handler)
