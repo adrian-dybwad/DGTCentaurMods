@@ -46,37 +46,35 @@ def get_wifi_networks() -> List[str]:
         return []
 
 def init_display():
-    """Initialize display independently"""
+    """Initialize display using existing system"""
     try:
-        # Import only what we need
+        # Use the existing display system
         sys.path.insert(0, '/home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods')
         from DGTCentaurMods.display import epaper
-        from DGTCentaurMods.display import epd2in9d
         
-        # Create our own display instance
-        epd = epd2in9d.EPD()
-        epd.init()
-        epd.Clear(0xFF)
+        # Initialize the display
+        epaper.initEpaper()
+        epaper.clearScreen()
         
-        return epd
+        return epaper
     except Exception as e:
         print(f"Display init error: {e}")
         return None
 
-def clear_display(epd):
+def clear_display(epaper):
     """Clear the display"""
     try:
-        epd.Clear(0xFF)
+        epaper.clearScreen()
     except Exception as e:
         print(f"Display clear error: {e}")
 
-def display_text(epd, text: str, x: int = 10, y: int = 10):
+def display_text(epaper, text: str, x: int = 10, y: int = 10):
     """Display text on the e-paper display"""
     try:
         from PIL import Image, ImageDraw, ImageFont
         
         # Create image
-        image = Image.new('1', (epd.width, epd.height), 255)
+        image = Image.new('1', (128, 296), 255)
         draw = ImageDraw.Draw(image)
         
         # Load font
@@ -88,8 +86,8 @@ def display_text(epd, text: str, x: int = 10, y: int = 10):
         # Draw text
         draw.text((x, y), text, font=font, fill=0)
         
-        # Display
-        epd.display(epd.getbuffer(image))
+        # Update the epaper buffer
+        epaper.epaperbuffer.paste(image, (0, 0))
         
     except Exception as e:
         print(f"Display text error: {e}")
@@ -157,8 +155,8 @@ def main():
         return
     
     # Initialize display
-    epd = init_display()
-    if not epd:
+    epaper = init_display()
+    if not epaper:
         print("❌ Failed to initialize display")
         return
     
@@ -180,8 +178,8 @@ def main():
     selected_index = 0
     
     def show_networks():
-        clear_display(epd)
-        display_text(epd, "WiFi Networks:", 10, 10)
+        clear_display(epaper)
+        display_text(epaper, "WiFi Networks:", 10, 10)
         
         # Show up to 8 networks
         start_idx = max(0, selected_index - 3)
@@ -191,7 +189,7 @@ def main():
             y_pos = 40 + (i * 20)
             prefix = ">" if (start_idx + i) == selected_index else " "
             text = f"{prefix} {network[:15]}"  # Truncate long names
-            display_text(epd, text, 10, y_pos)
+            display_text(epaper, text, 10, y_pos)
     
     show_networks()
     
@@ -216,26 +214,26 @@ def main():
             print(f"✅ Selected: {selected_network}")
             
             # Show confirmation
-            clear_display(epd)
-            display_text(epd, f"Selected: {selected_network}", 10, 10)
-            display_text(epd, "Press SELECT to confirm", 10, 40)
-            display_text(epd, "or BACK to cancel", 10, 60)
+            clear_display(epaper)
+            display_text(epaper, f"Selected: {selected_network}", 10, 10)
+            display_text(epaper, "Press SELECT to confirm", 10, 40)
+            display_text(epaper, "or BACK to cancel", 10, 60)
             
             # Wait for confirmation
             while not shutdown_requested:
                 confirm_key = poll_key(board_obj, addr1, addr2)
                 if confirm_key == "SELECT":
                     print(f"🔧 Configuring WiFi: {selected_network}")
-                    clear_display(epd)
-                    display_text(epd, "Configuring WiFi...", 10, 10)
-                    display_text(epd, f"Network: {selected_network}", 10, 40)
+                    clear_display(epaper)
+                    display_text(epaper, "Configuring WiFi...", 10, 10)
+                    display_text(epaper, f"Network: {selected_network}", 10, 40)
                     
                     # Here you would normally configure the WiFi
                     time.sleep(2)
                     
-                    clear_display(epd)
-                    display_text(epd, "WiFi configured!", 10, 10)
-                    display_text(epd, "Press any key to exit", 10, 40)
+                    clear_display(epaper)
+                    display_text(epaper, "WiFi configured!", 10, 10)
+                    display_text(epaper, "Press any key to exit", 10, 40)
                     
                     print("✅ WiFi configuration complete!")
                     
