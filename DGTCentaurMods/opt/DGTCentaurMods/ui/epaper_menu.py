@@ -1,130 +1,170 @@
 # DGTCentaurMods/ui/epaper_menu.py
+from typing import Iterable, Optional, Callable, List
 from PIL import Image, ImageDraw, ImageFont
+import time
+
+ActionPoller = Callable[[], Optional[str]]  # returns "UP"/"DOWN"/"SELECT"/"BACK"/None
 
 def select_from_list_epaper(
-    options,
-    title="Select Wi-Fi",
-    poll_action=lambda: None,
-    highlight_index=0,
-    lines_per_page=7,
-    font_size=18,
-    rotation=90,              # <— try 0/90/180/270; many Waveshare 2.9" need 270
-):
+    options: Iterable[str],
+    title: str = "Select Wi-Fi",
+    poll_action: ActionPoller = lambda: None,
+    highlight_index: int = 0,
+    lines_per_page: int = 7,
+    font_size: int = 18,
+    rotation: int = 270,  # 0/90/180/270 — set what looks correct on your unit
+) -> Optional[str]:
     from DGTCentaurMods.display import epd2in9d
     from DGTCentaurMods.display.ui_components import AssetManager
 
-    def _load_font(size):
-        from PIL import ImageFont
+    def load_font(sz: int):
         try:
-            return ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), size)
+            return ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), sz)
         except Exception:
-            return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", size)
+            return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", sz)
 
-    font = _load_font(font_size)
-    font_small = _load_font(font_size - 2)
+    font = load_font(font_size)
+    font_small = load_font(font_size - 2)
 
-    epd = epd2in9d.EPD()
-    epd.init()
-
-    # Use the panel's native geometry (no guessing)
-    W, H = epd.width, epd.height  # as reported by driver
-    imgW, imgH = W, H             # we draw in native, then rotate at flush()
-
-    def flush(pil_img):
-        # rotate before sending to panel
-        if rotation:
-            pil_img = pil_img.rotate(rotation, expand=True)
-        epd.display(epd.getbuffer(pil_img))
-
-    # layout in native space
-    margin = 6
-    line_h = font_size + 4
-    title_h = font_size + 6
-    list_top = margin + title_h
-    usable_rows = max(3, min(lines_per_page, (imgH - list_top - margin) // line_h))
-
-    def _truncate(text: str, max_width_px: int) -> str:
-        """
-        Clip overly long SSID or menu entries so they fit the display width.
-        """
-        try:
-            w = font.getlength(text)
-        except Exception:
-            # Pillow < 10 fallback
-            w = font.getsize(text)[0]
-        if w <= max_width_px:
-            return text
-    
-        # progressively cut and add ellipsis
-        while len(text) > 1:
-            text = text[:-1]
-            try:
-                w = font.getlength(text + "…")
-            except Exception:
-                w = font.getsize(text + "…")[0]
-            if w <= max_width_px:
-                return text + "…"
-        return "…"
-    
-    def render(idx, items):
-        page_start = (idx // usable_rows) * usable_rows
-        page_items = items[page_start: page_start + usable_rows]
-
-        img = Image.new("1", (imgW, imgH), 255)
-        draw = ImageDraw.Draw(img)
-
-        draw.text((margin, margin), title, font=font_small, fill=0)
-
-        x = margin
-        y = list_top
-        max_px = imgW - margin*2 - 6
-        for i, item in enumerate(page_items):
-            is_sel = (page_start + i) == idx
-            if is_sel:
-                draw.rectangle([x-2, y-2, imgW - margin, y + line_h - 2], fill=0)
-                fill = 255
-            else:
-                fill = 0
-            draw.text((x, y), _truncate(item, max_px), font=font, fill=fill)
-            y += line_h
-
-        page = (idx // usable_rows) + 1
-        pages = (len(items) + usable_rows - 1) // usable_rows
-        footer = f"{page}/{pages}  ↑↓ select, ← back"
-        fw = font_small.getlength(footer)
-        draw.text((imgW - margin - fw, imgH - margin - (font_size - 2)), footer, font=font_small, fill=0)
-
-        flush(img)
-
-    # sanitize options
-    xs = []
+    # sanitize & sort SSIDs once
+    items: List[str] = []
     seen = set()
     for s in options:
         s = (s or "").strip() or "<hidden>"
-        if s.lower() not in seen:
-            xs.append(s); seen.add(s.lower())
-    xs.sort(key=str.casefold)
+        key = s.casefold()
+        if key not in seen:
+            items.append(s)
+            seen.add(key)
+    items.sort(key=str.casefold)
+    if not items:
+        return None
 
-    i = max(0, min(highlight_index, len(xs) - 1))
-    render(i, xs)
-
+    epd = epd2in9d.EPD()
     try:
+        # 1) Init once and HARD clear to full-white
+        epd.init()                # FULL update mode
+        try:
+            epd.Clear(0xFF)       # many drivers support this
+        except Exception:
+            pass
+
+        W, H = epd.width, epd.height
+
+        # draw helpers ---------------------------------------------------------
+        def truncate(text: str, max_px: int) -> str:
+            # fast-fit with Pillow 10’s getlength()
+            if font.getlength(text) <= max_px:
+                return text
+            lo, hi = 0, len(text)
+            while lo < hi:
+                mid = (lo + hi) // 2
+                test = text[:mid] + "…"
+                if font.getlength(test) <= max_px:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            return text[:max(0, lo - 1)] + "…"
+
+        def build_frame(idx: int):
+            # Build a full frame (we’ll send it either as base or partial)
+            img = Image.new("1", (W, H), 255)
+            draw = ImageDraw.Draw(img)
+
+            margin = 6
+            line_h = font_size + 4
+            title_h = font_size + 6
+            list_top = margin + title_h
+            rows = max(3, min(lines_per_page, (H - list_top - margin) // line_h))
+
+            # Title
+            draw.text((margin, margin), title, font=font_small, fill=0)
+
+            # Page slice
+            start = (idx // rows) * rows
+            slice_ = items[start : start + rows]
+
+            # Items
+            x = margin
+            y = list_top
+            max_px = W - margin * 2 - 6
+            for i, it in enumerate(slice_):
+                sel = (start + i) == idx
+                if sel:
+                    draw.rectangle([x - 2, y - 2, W - margin, y + line_h - 2], fill=0)
+                    fill = 255
+                else:
+                    fill = 0
+                draw.text((x, y), truncate(it, max_px), font=font, fill=fill)
+                y += line_h
+
+            # Footer
+            page = (idx // rows) + 1
+            pages = (len(items) + rows - 1) // rows
+            footer = f"{page}/{pages}  ↑↓ select, ← back"
+            fw = font_small.getlength(footer)
+            draw.text((W - margin - fw, H - margin - (font_size - 2)), footer, font=font_small, fill=0)
+
+            if rotation:
+                img = img.rotate(rotation, expand=True)
+
+            return img
+        # ----------------------------------------------------------------------
+
+        # 2) Draw base once, then switch to partial mode
+        i = max(0, min(highlight_index, len(items) - 1))
+        base = build_frame(i)
+        # Send base as a full frame
+        epd.display(epd.getbuffer(base))
+
+        # Try to enter partial mode (driver-specific). If not present, keep full.
+        has_partial = False
+        try:
+            # common “partial init” symbol on many WS drivers:
+            epd.init(epd.PART_UPDATE)
+            has_partial = True
+        except Exception:
+            # fall back to full updates (slower; still works)
+            pass
+
+        last_i = i
+        last_paint = 0.0
+
         while True:
             act = poll_action()
             if act is None:
+                # small sleep to avoid 100% CPU and to keep serial responsive
+                time.sleep(0.02)
                 continue
+
             if act == "UP" and i > 0:
-                i -= 1; render(i, xs)
-            elif act == "DOWN" and i < len(xs)-1:
-                i += 1; render(i, xs)
-            elif act == "SELECT":
-                try: epd.sleep()
-                except: pass
-                return xs[i]
+                i -= 1
+            elif act == "DOWN" and i < len(items) - 1:
+                i += 1
             elif act == "BACK":
-                try: epd.sleep()
-                except: pass
                 return None
+            elif act == "SELECT":
+                return items[i]
+            else:
+                continue
+
+            # only redraw when idx actually changes, and debounce a tad
+            now = time.time()
+            if i != last_i and (now - last_paint) >= 0.05:
+                frame = build_frame(i)
+                if has_partial and hasattr(epd, "displayPartial"):
+                    epd.displayPartial(epd.getbuffer(frame))
+                else:
+                    epd.display(epd.getbuffer(frame))
+                last_i = i
+                last_paint = now
+
     finally:
-        try: epd.sleep()
-        except: pass
+        # 3) Always release the panel cleanly
+        try:
+            epd.sleep()
+        except Exception:
+            pass
+        try:
+            epd.DevExit()  # releases GPIO/SPI on many drivers
+        except Exception:
+            pass

@@ -21,6 +21,8 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
+from __future__ import annotations
+
 import serial
 import sys
 import os
@@ -34,9 +36,10 @@ import pathlib
 import socket
 import queue
 import logging
+from typing import Optional
 
 try:
-    logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log",filemode="w")
+    logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log", filemode="w")
 except:
     logging.basicConfig(level=logging.DEBUG)
 
@@ -62,24 +65,27 @@ dev = Settings.read('system', 'developer', 'False')
 
 # Various setup
 if dev == "True":
-    logging.debug("Developer mode is: ",dev)
-    # Enable virtual serial port
-    # TODO: setup as a service
+    logging.debug("Developer mode is: %s", dev)
+    # Enable virtual serial port (developer convenience)
     os.system("socat -d -d pty,raw,echo=0 pty,raw,echo=0 &")
     time.sleep(10)
     # Then redirect
     ser = serial.Serial("/dev/pts/2", baudrate=1000000, timeout=0.2)
 else:
+    # Be robust if the device is not immediately ready.
     try:
-        ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2) 
+        ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
         ser.isOpen()
-    except:
-        ser.close()
-        ser.open()
+    except Exception:
+        try:
+            if 'ser' in globals() and getattr(ser, 'is_open', False):
+                ser.close()
+        except Exception:
+            pass
+        ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
 
 font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
 time.sleep(2)
-
 
 # Battery related
 chargerconnected = 0
@@ -109,8 +115,8 @@ logging.debug('Sent payload 2')
 logging.debug('Serial is open. Waiting for response.')
 resp = ""
 # This is the most common address of the board
-addr1 = 00
-addr2 = 00
+addr1 = 0x00
+addr2 = 0x00
 timeout = time.time() + 60
 while len(resp) < 4 and time.time() < timeout:
     if dev == "True":
@@ -124,7 +130,7 @@ while len(resp) < 4 and time.time() < timeout:
     if len(resp) > 3:
         addr1 = resp[3]
         addr2 = resp[4]
-        logging.debug("Discovered new address:" + hex(addr1) + hex(addr2))
+        logging.debug("Discovered new address:%s%s", hex(addr1), hex(addr2))
         break
 else:
     logging.debug('FATAL: No response from serial')
@@ -139,7 +145,7 @@ def checksum(barr):
 
 def buildPacket(command, data):
     # pass command and data as bytes
-    tosend = bytearray(command + addr1.to_bytes(1,byteorder='big') + addr2.to_bytes(1,byteorder='big') + data)
+    tosend = bytearray(command + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big') + data)
     tosend.append(checksum(tosend))
     return tosend
 
@@ -147,7 +153,6 @@ def sendPacket(command, data):
     # pass command and data as bytes
     tosend = buildPacket(command, data)
     ser.write(tosend)
-
 
 def clearSerial():
     logging.debug('Checking and clear the serial line.')
@@ -173,31 +178,66 @@ def clearSerial():
         else:
             logging.debug('  Attempting to clear serial')
 
-def getBoardStateNonBlocking():
+# ---------------------------------------------------------------------------
+# Non-blocking helpers (safe to use alongside existing request/response code)
+# ---------------------------------------------------------------------------
+
+def getBoardStateNonBlocking(max_bytes: int = 256) -> Optional[bytes]:
     """
-    Try to read from the Centaur serial port without blocking.
-    Returns bytes (may be empty) or None if not available.
+    Non-blocking peek at incoming data from the board.
+    Returns bytes (or None if nothing immediately available).
+    Temporarily sets serial timeout to 0 and restores it.
     """
-    global ser
     if ser is None:
         return None
     try:
-        # Non-blocking read of up to 1024 bytes
-        data = ser.read(1024)
-        if data:
-            return data
+        prev = ser.timeout
+        ser.timeout = 0  # non-blocking
+        data = ser.read(max_bytes) or b""
+        return data if data else None
+    except Exception:
         return None
-    except serial.SerialException:
-        # Port disconnected or temporarily unavailable
+    finally:
+        try:
+            ser.timeout = prev
+        except Exception:
+            pass
+
+def _map_bytes_to_action(b: bytes) -> Optional[str]:
+    """
+    Convert raw bytes into abstract key actions for menus.
+    Adjust to match your observed protocol if needed.
+    """
+    if not b:
         return None
-    except Exception as e:
-        # Debug print optional:
-        # print("getBoardStateNonBlocking error:", e)
+    s = b.upper()
+    # Heuristics / examples; adapt as required
+    if b"UP" in s or b"\x55" in s:
+        return "UP"
+    if b"DOWN" in s or b"\x44" in s:
+        return "DOWN"
+    if b"LEFT" in s:
+        return "LEFT"
+    if b"RIGHT" in s:
+        return "RIGHT"
+    if b"BACK" in s:
+        return "BACK"
+    if b"OK" in s or b"\r" in s or b"\n" in s:
+        return "OK"
+    return None
+
+def poll_action_from_board() -> Optional[str]:
+    """
+    Non-blocking action poller for UI code (e.g., e-paper menus).
+    Returns one of {"UP","DOWN","LEFT","RIGHT","OK","BACK"} or None.
+    """
+    chunk = getBoardStateNonBlocking()
+    if not chunk:
         return None
+    return _map_bytes_to_action(chunk)
 
 # Screen functions - deprecated, use epaper.py if possible
 #
-
 screenbuffer = Image.new('1', (128, 296), 255)
 initialised = 0
 epd = epd2in9d.EPD()
@@ -284,7 +324,6 @@ def writeText(row, txt):
     time.sleep(0.5)
 
 def writeTextToBuffer(row, txt):
-    # Writes some text on the screen at the given row
     # Writes only to the screen buffer. Script can later call displayScreenBufferPartial to show it
     global screenbuffer
     nimage = screenbuffer.copy()
@@ -390,7 +429,7 @@ def doMenu(items, fast = 0):
 
         # Next we wait for either the up/down/back or tick buttons to get
         # pressed
-        timeout = time.time() + 60 * 15
+        timeout_local = time.time() + 60 * 15
         while buttonPress == 0:
             ser.read(1000000)
             sendPacket(b'\x83', b'')
@@ -438,11 +477,27 @@ def doMenu(items, fast = 0):
                     r = ""
                     for k, v in items.items():
                         if (c == quickselectpossible):
-                            # epd.unsetRegion()
-                            # epd.Clear(0xff)
                             selected = 99999
                             return k
                         c = c + 1
+
+            # Also allow non-blocking bytes to drive the menu if available
+            try:
+                act = poll_action_from_board()
+                if act == "UP" and selected > 1:
+                    buttonPress = 3
+                elif act == "DOWN" and selected < len(items):
+                    buttonPress = 4
+                elif act in ("OK", "RIGHT"):
+                    buttonPress = 2
+                elif act in ("BACK", "LEFT"):
+                    buttonPress = 1
+            except Exception:
+                pass
+
+            if time.time() > timeout_local:
+                epd.Clear(0xff)
+                return "BACK"
 
         sendPacket(b'\xb1\x00\x08', b'\x4c\x08')
         if (buttonPress == 2):
@@ -459,9 +514,6 @@ def doMenu(items, fast = 0):
         if (buttonPress == 3 and selected > 1):
             selected = selected - 1
         if (buttonPress == 1):
-            epd.Clear(0xff)
-            return "BACK"
-        if time.time() > timeout:
             epd.Clear(0xff)
             return "BACK"
         buttonPress = 0
@@ -523,7 +575,6 @@ def ledFromTo(lfrom, lto, intensity=5):
     tosend.pop()
     tosend.append(checksum(tosend))
     ser.write(tosend)
-    # Read off any data
     #ser.read(100000)
 
 def led(num, intensity=5):
@@ -544,8 +595,6 @@ def led(num, intensity=5):
             tosend.append(checksum(tosend))
             ser.write(tosend)
             success = 1
-            # Read off any data
-            #ser.read(100000)
         except:
             time.sleep(0.1)
             tcount = tcount + 1
@@ -553,8 +602,6 @@ def led(num, intensity=5):
 def ledFlash():
     # Flashes the last led lit by led(num) above
     sendPacket(b'\xb0\x00\x0a', b'\x05\x0a\x00\x01')
-    #ser.read(100000)
-
 
 def shutdown():
     update = centaur.UpdateSystem()
@@ -575,13 +622,11 @@ def shutdown():
     epaper.stopEpaper()
     os.system("sudo poweroff")
 
-
 def sleep():
     """
     Sleep the controller.
     """
     sendPacket(b'\xb2\x00\x07', b'\x0a')
-
 
 #
 # Board response - functions related to get something from the board
@@ -602,15 +647,11 @@ def waitMove():
             if (resp[0] == 133 and resp[1] == 0):
                 for x in range(0, len(resp) - 1):
                     if (resp[x] == 64):
-                        # Calculate the square to 0(a1)-63(h8) so that
-                        # all functions match
                         fieldHex = resp[x + 1]
                         newsquare = rotateFieldHex(fieldHex)
                         lifted = newsquare
                         moves.append((newsquare+1) * -1)
                     if (resp[x] == 65):
-                        # Calculate the square to 0(a1)-63(h8) so that
-                        # all functions match
                         fieldHex = resp[x + 1]
                         newsquare = rotateFieldHex(fieldHex)
                         placed = newsquare
@@ -622,10 +663,7 @@ def waitMove():
     return moves
 
 def poll():
-    # We need to continue poll the board to get data from it
-    # Perhaps there's a packet length in here somewhere but
-    # I haven't noticed it yet, therefore we need to process
-    # the data as it comes
+    # Keep polling the board to get data from it
     ser.read(100000)
     sendPacket(b'\x83', b'')
     expect = buildPacket(b'\x85\x00\x06', b'')
@@ -635,13 +673,9 @@ def poll():
         if (resp[0] == 133 and resp[1] == 0):
             for x in range(0, len(resp) - 1):
                 if (resp[x] == 64):
-                    # Calculate the square to 0(a1)-63(h8) so that
-                    # all functions match
                     fieldHex = resp[x + 1]
                     newsquare = rotateFieldHex(fieldHex)
                 if (resp[x] == 65):
-                    # Calculate the square to 0(a1)-63(h8) so that
-                    # all functions match
                     fieldHex = resp[x + 1]
                     newsquare = rotateFieldHex(fieldHex)
     sendPacket(b'\x94', b'')
@@ -663,10 +697,9 @@ def poll():
             logging.debug("PLAY BUTTON")
 
 def getText(title):
-    # Allows text to be entered using a virtual keyboard where a chess piece
-    # is placed on the board in the correct position
+    # Allows text to be entered using a virtual keyboard where a chess piece is placed on the board
     global screenbuffer
-    clearstate = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+    clearstate = bytearray(b'\x00' * 64)
     printableascii = " !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~                                                                "
     charpage = 1
     typed = ""
@@ -683,7 +716,6 @@ def getText(title):
     clearBoardData()
     while True:
         if changed == 1:
-            # print our title and our box that the answer will go in
             image = screenbuffer.copy()
             draw = ImageDraw.Draw(image)
             draw.rectangle([(0, 0), (128, 250)], fill=255)
@@ -693,16 +725,13 @@ def getText(title):
             if len(tt) > 10:
                 tt = tt[-11:]
             draw.text((0,40),tt, font=font18, fill=0)
-            # Using the current charpage display the symbols that a square would represent
             pos = (charpage -1) * 64
             lchars = []
             for i in range(pos,pos+64):
                 lchars.append(printableascii[i])
             pos = 0
             for i in range(0,len(lchars),8):
-                tsts = ""
                 for q in range(0,8):
-                    tsts = tsts + lchars[i + q]
                     draw.text(((q*16),(pos*20)+80),lchars[i + q], font=font18, fill=0)
                 pos = pos + 1
             screenbuffer = image.copy()
@@ -722,8 +751,6 @@ def getText(title):
             if (resp[0] == 133 and resp[1] == 0):
                 for x in range(0, len(resp) - 1):
                     if resp[x] == 65:
-                        # Calculate the square to 0(a1)-63(h8) so that
-                        # all functions match
                         fieldHex = resp[x + 1]
                         typed = typed + lchars[fieldHex]
                         beep(SOUND_GENERAL)
@@ -761,22 +788,18 @@ def getText(title):
 
 def getBoardState(field=None):
     # Query the board and return a representation of it
-    # Consider this function experimental
-    # lowerlimit/upperlimit may need adjusting
-    # Get the board data
     resp = []
     while (len(resp) < 64):
         sendPacket(b'\xf0\x00\x07', b'\x7f')
         resp = ser.read(10000)
         if (len(resp) < 64):
             time.sleep(0.5)
-    resp = resp = resp[6:(64 * 2) + 6]
+    resp = resp[6:(64 * 2) + 6]
     boarddata = [None] * 64
     for x in range(0, 127, 2):
         tval = (resp[x] * 256) + resp[x+1]
         boarddata[(int)(x/2)] = tval
-    # Any square lower than 400 is empty
-    # Any square higher than upper limit is also empty
+    # Any square lower than 400 is empty; Any > upperlimit is also empty
     upperlimit = 32000
     lowerlimit = 300
     for x in range(0,64):
@@ -802,32 +825,26 @@ def getChargingState():
     # Returns if the board is plugged into the charger or not
     # 0 = not plugged in, 1 = plugged in, -1 = error in checking
     resp = ""
-    timeout = time.time() + 5
-    while len(resp) < 7 and time.time() < timeout:
-        # Sending the board a packet starting with 152 gives battery info
+    timeout_local = time.time() + 5
+    while len(resp) < 7 and time.time() < timeout_local:
         sendPacket(bytearray([152]), b'')
         try:
             resp = ser.read(1000)
         except:
             pass
-        if len(resp) < 7:
-            pass
-        else:  
-            if resp[0] == 181:
-                vall = (resp[5] >> 5) & 7
-                if vall == 1:
-                    return 1
-                else:
-                    return 0
-    return - 1
+        if len(resp) >= 7 and resp[0] == 181:
+            vall = (resp[5] >> 5) & 7
+            if vall == 1:
+                return 1
+            else:
+                return 0
+    return -1
 
 def getBatteryLevel():
     # Returns a number 0 - 20 representing battery level of the board
-    # 20 is fully charged. The board dies somewhere around a low of 1
     resp = ""
-    timeout = time.time() + 5
-    while len(resp) < 7 and time.time() < timeout:
-        # Sending the board a packet starting with 152 gives battery info
+    timeout_local = time.time() + 5
+    while len(resp) < 7 and time.time() < timeout_local:
         sendPacket(bytearray([152]), b'')
         try:
             resp = ser.read(1000)
@@ -835,11 +852,10 @@ def getBatteryLevel():
             pass
     if len(resp) < 7:
         return -1
-    else:        
+    else:
         if resp[0] == 181:
             vall = resp[5] & 31
             return vall
-    
 
 #
 # Miscellaneous functions - do they belong in this file?
@@ -874,9 +890,7 @@ def convertField(field):
     square = chr((ord('a') + (field % 8))) + chr(ord('1') + (field // 8))
     return square
 
-
-# This section is the start of a new way of working with the board functions where those functions are
-# the board returning some kind of data
+# Start of event-driven helpers
 import threading
 eventsthreadpointer = ""
 eventsrunning = 1
@@ -890,7 +904,6 @@ def temp():
 
 def eventsThread(keycallback, fieldcallback, tout):
     # This monitors the board for events
-    # keypresses and pieces lifted/placed down
     global eventsrunning
     global standby
     global batterylevel
@@ -900,7 +913,7 @@ def eventsThread(keycallback, fieldcallback, tout):
     hold_timeout = False
     events_paused = False
     to = time.time() + tout
-    logging.debug('Timeout at ' + str(tout) + ' seconds')
+    logging.debug('Timeout at %s seconds', str(tout))
     while time.time() < to:
         loopstart = time.time()
         if eventsrunning == 1:
@@ -931,23 +944,18 @@ def eventsThread(keycallback, fieldcallback, tout):
                             if (resp[0] == 133 and resp[1] == 0):
                                 for x in range(0, len(resp) - 1):
                                     if (resp[x] == 64):
-                                        # Calculate the square to 0(a1)-63(h8) so that
-                                        # all functions match
                                         fieldHex = resp[x + 1]
                                         newsquare = rotateFieldHex(fieldHex)
                                         fieldcallback(newsquare + 1)
                                         to = time.time() + tout
                                     if (resp[x] == 65):
-                                        #print("PIECE PLACED")
-                                        # Calculate the square to 0(a1)-63(h8) so that
-                                        # all functions match
                                         fieldHex = resp[x + 1]
                                         newsquare = rotateFieldHex(fieldHex)
                                         fieldcallback((newsquare + 1) * -1)
                                         to = time.time() + tout
                     except:
                         pass
-           
+
             try:
                 sendPacket(b'\x94', b'')
                 expect = bytearray(b'\xb1\x00\x06' + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big'))
@@ -981,7 +989,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                         resp = ser.read(1000)
                         resp = bytearray(resp)
                         if resp.hex().startswith("b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0500040"):
-                            logging.debug('Play btn pressed. Stanby is:',standby)
+                            logging.debug('Play btn pressed. Stanby is: %s', standby)
                             if standby == False:
                                 logging.debug('Calling standbyScreen()')
                                 epaper.standbyScreen(True)
@@ -1007,29 +1015,24 @@ def eventsThread(keycallback, fieldcallback, tout):
                 pass
             try:
                 # Sending 152 to the controller provides us with battery information
-                # Do this every 30 seconds and fill in the globals
+                # Do this every 15 seconds and fill in the globals
                 if time.time() - batterylastchecked > 15:
-                    # Every 5 seconds check the battery details
                     resp = ""
-                    timeout = time.time() + 4
-                    while len(resp) < 7 and time.time() < timeout:
-                        # Sending the board a packet starting with 152 gives battery info
+                    timeout_batt = time.time() + 4
+                    while len(resp) < 7 and time.time() < timeout_batt:
                         sendPacket(bytearray([152]), b'')
                         try:
                             resp = ser.read(1000)
                         except:
                             pass
-                    if len(resp) < 7:
-                        pass
-                    else:        
-                        if resp[0] == 181:                            
-                            batterylastchecked = time.time()
-                            batterylevel = resp[5] & 31
-                            vall = (resp[5] >> 5) & 7                            
-                            if vall == 1 or vall == 2:
-                                chargerconnected = 1
-                            else:
-                                chargerconnected = 0
+                    if len(resp) >= 7 and resp[0] == 181:
+                        batterylastchecked = time.time()
+                        batterylevel = resp[5] & 31
+                        vall = (resp[5] >> 5) & 7
+                        if vall == 1 or vall == 2:
+                            chargerconnected = 1
+                        else:
+                            chargerconnected = 0
             except:
                 pass
             time.sleep(0.05)
@@ -1049,7 +1052,6 @@ def eventsThread(keycallback, fieldcallback, tout):
         logging.debug('Timeout. Shutting doen')
         shutdown()
 
-
 def subscribeEvents(keycallback, fieldcallback, timeout=100000):
     # Called by any program wanting to subscribe to events
     # Arguments are firstly the callback function for key presses, secondly for piece lifts and places
@@ -1066,5 +1068,3 @@ def pauseEvents():
 def unPauseEvents():
     global eventsrunning
     eventsrunning = 1
-
-
