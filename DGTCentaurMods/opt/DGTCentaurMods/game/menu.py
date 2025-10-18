@@ -507,7 +507,6 @@ while True:
                                         from DGTCentaurMods.ui.get_text_from_board import getText
                                         
                                         # Disable main menu handler
-                                        global main_menu_disabled
                                         main_menu_disabled = True
                                         
                                         password = getText("Enter WiFi password", manage_events=True)
