@@ -66,12 +66,33 @@ def simple_display_text(text: str, y_offset: int = 0):
         
         # Try to load font
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
         except:
             font = ImageFont.load_default()
         
-        # Draw text
-        draw.text((10, 10 + y_offset), text, font=font, fill=0)
+        # Wrap text to fit screen width (128 pixels)
+        words = text.split()
+        lines = []
+        current_line = ""
+        
+        for word in words:
+            test_line = current_line + (" " if current_line else "") + word
+            bbox = draw.textbbox((0, 0), test_line, font=font)
+            if bbox[2] - bbox[0] <= 118:  # Leave 10px margin
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append(current_line)
+                    current_line = word
+                else:
+                    lines.append(word)  # Single word too long
+        
+        if current_line:
+            lines.append(current_line)
+        
+        # Draw lines
+        for i, line in enumerate(lines[:8]):  # Max 8 lines to fit screen
+            draw.text((5, 10 + (i * 18) + y_offset), line, font=font, fill=0)
         
         # Update display
         epaper.epaperbuffer.paste(img, (0, 0))
@@ -84,22 +105,28 @@ def simple_key_poll() -> Optional[str]:
     try:
         from DGTCentaurMods.board import board as b
         
-        # Simple approach - just check for any key event
+        # Clear any existing data first
+        try:
+            b._ser_read(1000)
+        except:
+            pass
+        
+        # Send key event request
         b.sendPacket(b'\x94', b'')
         resp = b._ser_read(256)
+        
         if not resp:
             return None
             
-        hx = resp.hex()[:-2]
+        hx = resp.hex()
         a1 = f"{b.addr1:02x}"
         a2 = f"{b.addr2:02x}"
         
-        # Look for any key event pattern
+        # Look for key event patterns
         if f"b100{a1}0{a2}" in hx:
-            # Extract key code
-            key_part = hx[hx.rfind(f"b100{a1}0{a2}"):]
-            if len(key_part) >= 12:
-                key_code = key_part[-2:]
+            # Extract key code from the end
+            if len(hx) >= 12:
+                key_code = hx[-2:]
                 if key_code == "0d":
                     return "SELECT"
                 elif key_code == "3c":
@@ -108,9 +135,14 @@ def simple_key_poll() -> Optional[str]:
                     return "DOWN"
                 elif key_code == "47":
                     return "BACK"
+                elif key_code == "6d":
+                    return "HELP"
+                elif key_code == "2a":
+                    return "PLAY"
         
         return None
     except Exception as e:
+        print(f"Key poll error: {e}")
         return None
 
 def simple_wifi_selection() -> Optional[str]:
@@ -160,17 +192,35 @@ def main():
         return
     
     # Show initial message
-    simple_display_text("WiFi Configuration", 0)
-    simple_display_text("Press any key to start", 30)
+    simple_display_text("WiFi Configuration\nPress any key to start", 0)
     
     # Wait for key press
     print("⌨️  Press any key to start...")
-    while not shutdown_requested:
+    print("🔍 Testing key detection...")
+    
+    # Test key detection first
+    for i in range(10):
+        key = simple_key_poll()
+        if key:
+            print(f"✅ Key detection working: {key}")
+            break
+        print(f"  Attempt {i+1}/10: No key detected")
+        time.sleep(0.2)
+    
+    # Wait for key press
+    print("⌨️  Waiting for key press...")
+    timeout = time.time() + 30  # 30 second timeout
+    while not shutdown_requested and time.time() < timeout:
         key = simple_key_poll()
         if key:
             print(f"🔑 Key pressed: {key}")
             break
         time.sleep(0.1)
+    
+    if time.time() >= timeout:
+        print("⏰ Timeout waiting for key press")
+        simple_display_text("Timeout waiting\nfor key press\nPress CTRL+C to exit", 0)
+        return
     
     if shutdown_requested:
         return
