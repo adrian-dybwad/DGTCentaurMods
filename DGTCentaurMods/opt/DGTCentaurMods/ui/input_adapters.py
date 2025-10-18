@@ -27,6 +27,12 @@ def poll_actions_from_board() -> Optional[str]:
         if hx and len(hx) > 10:  # Only log if we got a meaningful response
             print(f"DEBUG: Full response: {hx}")
 
+        # Special case: UP button might only send board state (870006065063)
+        # We need to detect this pattern and treat it as UP
+        if hx == f"8700{a1}0{a2}063":
+            print("DEBUG: Detected UP key (board state only)")
+            return "UP"
+
         # The board sends responses like: b1000606500d
         # The addresses are formatted as 060650 (0x06, 0x50)
         # We need to handle both formats: 060650 and 0650
@@ -120,24 +126,53 @@ def poll_actions_from_board() -> Optional[str]:
                         print("DEBUG: Detected BACK key")
                         return "BACK"
                 
-                # Check for longer patterns
-                if "00140a050800000000" in key_event:  # UP pattern
-                    print("DEBUG: Detected UP key (long pattern)")
-                    return "UP"
-                if "00140a050200000000" in key_event:  # DOWN pattern
-                    print("DEBUG: Detected DOWN key (long pattern)")
-                    return "DOWN"
-                if "00140a051000000000" in key_event:  # SELECT pattern
-                    print("DEBUG: Detected SELECT key (long pattern)")
-                    return "SELECT"
-                if "00140a050100000000" in key_event:  # BACK pattern
-                    print("DEBUG: Detected BACK key (long pattern)")
+                # Use the correct patterns from board.py
+                # Format: b10011 + addr1 + addr2 + pattern + checksum
+                # We need to match the full pattern including the checksum
+                
+                # BACK BUTTON: b10011 + addr1 + addr2 + 00140a0501000000007d47
+                if key_event.endswith("00140a0501000000007d47"):
+                    print("DEBUG: Detected BACK key (correct pattern)")
                     return "BACK"
                 
-                # Check for the pattern we saw in SELECT: 00140a0500
-                if "00140a0500" in key_event:
-                    print("DEBUG: Detected SELECT key (pattern 00140a0500)")
+                # TICK/SELECT BUTTON: b10011 + addr1 + addr2 + 00140a0510000000007d17
+                if key_event.endswith("00140a0510000000007d17"):
+                    print("DEBUG: Detected SELECT key (correct pattern)")
                     return "SELECT"
+                
+                # UP BUTTON: b10011 + addr1 + addr2 + 00140a0508000000007d3c
+                if key_event.endswith("00140a0508000000007d3c"):
+                    print("DEBUG: Detected UP key (correct pattern)")
+                    return "UP"
+                
+                # DOWN BUTTON: b10010 + addr1 + addr2 + 00140a05020000000061
+                if key_event.endswith("00140a05020000000061"):
+                    print("DEBUG: Detected DOWN key (correct pattern)")
+                    return "DOWN"
+                
+                # HELP BUTTON: b10010 + addr1 + addr2 + 00140a0540000000006d
+                if key_event.endswith("00140a0540000000006d"):
+                    print("DEBUG: Detected HELP key (correct pattern)")
+                    return "HELP"
+                
+                # PLAY BUTTON: b10010 + addr1 + addr2 + 00140a0504000000002a
+                if key_event.endswith("00140a0504000000002a"):
+                    print("DEBUG: Detected PLAY key (correct pattern)")
+                    return "PLAY"
+                
+                # Check for partial matches (in case response is truncated)
+                if "00140a050100000000" in key_event:  # BACK pattern
+                    print("DEBUG: Detected BACK key (partial pattern)")
+                    return "BACK"
+                if "00140a051000000000" in key_event:  # SELECT pattern
+                    print("DEBUG: Detected SELECT key (partial pattern)")
+                    return "SELECT"
+                if "00140a050800000000" in key_event:  # UP pattern
+                    print("DEBUG: Detected UP key (partial pattern)")
+                    return "UP"
+                if "00140a050200000000" in key_event:  # DOWN pattern
+                    print("DEBUG: Detected DOWN key (partial pattern)")
+                    return "DOWN"
 
         return None
     except Exception:
