@@ -95,46 +95,30 @@ def display_text(epd, text: str, x: int = 10, y: int = 10):
         print(f"Display text error: {e}")
 
 def init_board():
-    """Initialize board communication independently"""
+    """Initialize board communication using existing connection"""
     try:
-        # Open serial port directly
-        ser = serial.Serial('/dev/serial0', 1000000, timeout=0.1)
+        # Use the existing board connection
+        sys.path.insert(0, '/home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods')
+        from DGTCentaurMods.board import board as b
         
-        # Clear any existing data
-        ser.read(1000)
-        
-        # Send initialization sequence
-        ser.write(b'\x4d')
-        time.sleep(0.1)
-        ser.read(1000)
-        
-        ser.write(b'\x4e')
-        time.sleep(0.1)
-        ser.read(1000)
-        
-        # Try to discover address
-        ser.write(b'\x87\x00\x00\x07')
-        resp = ser.read(1000)
-        
-        if len(resp) > 4:
-            addr1 = resp[3]
-            addr2 = resp[4]
-            print(f"✅ Board connected: {addr1:02x}:{addr2:02x}")
-            return ser, addr1, addr2
+        # Check if board is already connected
+        if hasattr(b, 'addr1') and hasattr(b, 'addr2') and b.addr1 != 0 and b.addr2 != 0:
+            print(f"✅ Using existing board connection: {b.addr1:02x}:{b.addr2:02x}")
+            return b, b.addr1, b.addr2
         else:
-            print("❌ Board address discovery failed")
+            print("❌ Board not properly initialized")
             return None, 0, 0
             
     except Exception as e:
         print(f"Board init error: {e}")
         return None, 0, 0
 
-def poll_key(ser, addr1, addr2):
-    """Poll for key events"""
+def poll_key(board_obj, addr1, addr2):
+    """Poll for key events using the board object"""
     try:
         # Send key event request
-        ser.write(b'\x94')
-        resp = ser.read(256)
+        board_obj.sendPacket(b'\x94', b'')
+        resp = board_obj._ser_read(256)
         
         if not resp:
             return None
@@ -167,8 +151,8 @@ def main():
     print("=" * 50)
     
     # Initialize board
-    ser, addr1, addr2 = init_board()
-    if not ser:
+    board_obj, addr1, addr2 = init_board()
+    if not board_obj:
         print("❌ Failed to initialize board")
         return
     
@@ -214,7 +198,7 @@ def main():
     print("⌨️  Use UP/DOWN to navigate, SELECT to choose, BACK to cancel")
     
     while not shutdown_requested:
-        key = poll_key(ser, addr1, addr2)
+        key = poll_key(board_obj, addr1, addr2)
         if not key:
             time.sleep(0.1)
             continue
@@ -239,7 +223,7 @@ def main():
             
             # Wait for confirmation
             while not shutdown_requested:
-                confirm_key = poll_key(ser, addr1, addr2)
+                confirm_key = poll_key(board_obj, addr1, addr2)
                 if confirm_key == "SELECT":
                     print(f"🔧 Configuring WiFi: {selected_network}")
                     clear_display(epd)
@@ -257,7 +241,7 @@ def main():
                     
                     # Wait for any key to exit
                     while not shutdown_requested:
-                        if poll_key(ser, addr1, addr2):
+                        if poll_key(board_obj, addr1, addr2):
                             return
                         time.sleep(0.1)
                     
