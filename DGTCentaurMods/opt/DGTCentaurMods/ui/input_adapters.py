@@ -7,19 +7,25 @@ from DGTCentaurMods.board import board as b
 # We format addr1/addr2 dynamically because the controller can change them.
 def poll_actions_from_board() -> Optional[str]:
     try:
-        # Keepalive: ask for board state (even if we ignore it) to keep the MCU chatty
-        b.sendPacket(b'\x83', b'')
-        _ = b._ser_read(256)  # ignore warm-up payload
-
-        # Ask for key events
+        # Clear any existing data first
+        try:
+            b._ser_read(100)  # Clear buffer
+        except:
+            pass
+        
+        # Ask for key events with a slightly longer timeout
         b.sendPacket(b'\x94', b'')
-        resp = b.getBoardStateNonBlocking(max_bytes=256) or b._ser_read(256, timeout=0.01)
+        resp = b._ser_read(256, timeout=0.05)  # Increased timeout
         if not resp:
             return None
 
         hx = resp.hex()[:-2]  # drop checksum
         a1 = f"{b.addr1:02x}"
         a2 = f"{b.addr2:02x}"
+
+        # Debug: log the actual response for analysis
+        if hx and len(hx) > 10:  # Only log if we got a meaningful response
+            print(f"DEBUG: Key response: {hx}")
 
         # Match the 4 button patterns used elsewhere in the code
         if hx == ("b10011" + a1 + a2 + "00140a0508000000007d3c"):  # UP
@@ -30,6 +36,25 @@ def poll_actions_from_board() -> Optional[str]:
             return "SELECT"
         if hx == ("b10011" + a1 + a2 + "00140a0501000000007d47"):  # BACK
             return "BACK"
+
+        # Try to parse the actual response we're getting
+        # The response b1000606500d suggests a different format
+        if hx.startswith("b100" + a1 + a2):
+            # This looks like a key event response, but with different data
+            # Let's try to extract the key code from the end
+            if len(hx) >= 12:
+                key_code = hx[-2:]  # Last 2 hex digits
+                print(f"DEBUG: Detected key code: {key_code}")
+                
+                # Map key codes to actions (these might need adjustment based on actual board behavior)
+                if key_code == "3c":  # Based on the original patterns
+                    return "UP"
+                elif key_code == "61":
+                    return "DOWN"
+                elif key_code == "17":
+                    return "SELECT"
+                elif key_code == "47":
+                    return "BACK"
 
         return None
     except Exception:
