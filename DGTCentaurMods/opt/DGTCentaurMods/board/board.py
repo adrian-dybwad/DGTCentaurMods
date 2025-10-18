@@ -305,6 +305,9 @@ def doMenu(items, fast = 0, doBoardState = "yes"):
     # or "BACK" if the user backed out
     # pass a menu like: menu = {'Lichess': 'Lichess', 'Centaur': 'DGT
     # Centaur', 'Shutdown': 'Shutdown', 'Reboot': 'Reboot'}
+    
+    beep(SOUND_GENERAL)
+    
     selected = 1
     buttonPress = 0
     first = 1
@@ -323,6 +326,9 @@ def doMenu(items, fast = 0, doBoardState = "yes"):
             # If the 4th rank is empty then enable quick select mode. Then we can choose a menu option by placing and releasing a piece
             quickselect = 1
     image = Image.new('1', (epd.width, epd.height), 255)
+    
+    print(f"buttonPress {buttonPress}")
+    
     while (buttonPress != 2):
         time.sleep(0.05)
         draw = ImageDraw.Draw(image)
