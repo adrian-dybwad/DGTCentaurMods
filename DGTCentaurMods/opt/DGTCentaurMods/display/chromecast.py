@@ -128,7 +128,7 @@ epaper.initEpaper()
 board.subscribeEvents(keyPressed, fieldActivity)
 
 for cc in chromecasts[0]:
-    if cc.device.cast_type in ['cast', 'group']:
+    if cc.device.cast_type == 'cast':
         curmenu.append(cc.device.friendly_name)
 
 # Let the user choose the chromecast
