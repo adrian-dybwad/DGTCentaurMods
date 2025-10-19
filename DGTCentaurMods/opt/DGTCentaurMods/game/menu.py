@@ -532,8 +532,6 @@ while True:
                 result = doMenu(wifimenu, "Wifi Setup")
                 if result != "BACK":
                     if result == "wpa2":
-                        # epaper.loadingScreen()
-                        
                         # Scan for WiFi networks
                         import subprocess
                         try:
@@ -559,36 +557,20 @@ while True:
                                     if selected_network and selected_network != "BACK":
                                         # Get password using getText
                                         from DGTCentaurMods.ui.get_text_from_board import getText
-                                        # Disable main menu handler
-                                        main_menu_disabled = True
-
-                                        try:
-                                            print("DEBUG: Starting password input...")
-                                            epaper.loadingScreen()
-                                            password = getText("Enter WiFi password", manage_events=True)
-                                            print(f"DEBUG: Password input completed, result: {password}")
-                                            
-                                            if password:
-                                                epaper.writeText(0, f"Connecting to")
-                                                epaper.writeText(1, selected_network)
-                                                # Connect to the network
-                                                if connect_to_wifi(selected_network, password):
-                                                    epaper.writeText(3, "Connected!")
-                                                else:
-                                                    epaper.writeText(3, "Connection failed!")
-                                                time.sleep(2)
+                                        password = getText("Enter WiFi password")
+                                        
+                                        if password:
+                                            epaper.writeText(0, f"Connecting to")
+                                            epaper.writeText(1, selected_network)
+                                            # Connect to the network
+                                            if connect_to_wifi(selected_network, password):
+                                                epaper.writeText(3, "Connected!")
                                             else:
-                                                print("DEBUG: No password provided")
-                                                
-                                        except Exception as e:
-                                            print(f"DEBUG: Error during password input: {e}")
-                                            import traceback
-                                            traceback.print_exc()
-                                            
-                                        finally:
-                                            # Always re-enable main menu handler
-                                            print("DEBUG: Re-enabling main menu handler")
-                                            main_menu_disabled = False
+                                                epaper.writeText(3, "Connection failed!")
+                                            time.sleep(2)
+                                        else:
+                                            epaper.writeText(0, "No password provided")
+                                            time.sleep(2)
 
                                 else:
                                     epaper.writeText(0, "No networks found")
