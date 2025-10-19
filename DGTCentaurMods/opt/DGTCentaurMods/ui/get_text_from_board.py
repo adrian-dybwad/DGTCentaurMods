@@ -42,10 +42,7 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
     print(f"getText function called with title='{title}', board_obj={board_obj is not None}, manage_events={manage_events}")
     
     from DGTCentaurMods.display import epaper
-    from DGTCentaurMods.ui.input_adapters import (
-        start_text_input_subscription, stop_text_input_subscription,
-        text_input_event, text_input_event_type, text_input_button, text_input_field
-    )
+    from DGTCentaurMods.ui import input_adapters
     
     global screenbuffer
     
@@ -152,16 +149,16 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
             
             # Blocking wait for ANY event (button or field)
             print("Waiting for event...")
-            event_received = text_input_event.wait(timeout=60)
+            event_received = input_adapters.text_input_event.wait(timeout=60)
             
             if not event_received:
                 print("Event timeout, continuing...")
                 continue
 
             print(f"event_received {event_received}")    
-            print(f"text_input_event_type {text_input_event_type}")
-            print(f"text_input_button {text_input_button}")
-            print(f"text_input_field {text_input_field}")
+            print(f"text_input_event_type {input_adapters.text_input_event_type}")
+            print(f"text_input_button {input_adapters.text_input_button}")
+            print(f"text_input_field {input_adapters.text_input_field}")
             print(f"BTNBACK {BTNBACK}")
             print(f"BTNTICK {BTNTICK}")
             print(f"BTNUP {BTNUP}")
@@ -170,15 +167,15 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
             text_input_event.clear()
 
             print(f"text_input_event_type {text_input_event_type}")
-            print(f"text_input_button {text_input_button}")
-            print(f"text_input_field {text_input_field}")
+            print(f"text_input_button {input_adapters.text_input_button}")
+            print(f"text_input_field {input_adapters.text_input_field}")
             print(f"BTNBACK {BTNBACK}")
             print(f"BTNTICK {BTNTICK}")
             print(f"BTNUP {BTNUP}")
             print(f"BTNDOWN {BTNDOWN}")
             
-            if text_input_event_type == 'button':
-                btn = text_input_button
+            if input_adapters.text_input_event_type == 'button':
+                btn = input_adapters.text_input_button
                 print(f"Button event received: {btn}")
                 
                 if btn == BTNBACK:
@@ -207,8 +204,8 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
                     changed = True
                     print("Switched to page 2")
                     
-            elif text_input_event_type == 'field':
-                field = text_input_field
+            elif input_adapters.text_input_event_type == 'field':
+                field = input_adapters.text_input_field
                 print(f"Field event received: {field}")
                 
                 # Process field event for piece placement
