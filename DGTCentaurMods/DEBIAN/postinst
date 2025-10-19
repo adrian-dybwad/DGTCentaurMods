@@ -86,12 +86,13 @@ rm /usr/lib/python3/dist-packages/DGTCentaurMods
 cd /usr/lib/python3/dist-packages && sudo ln -s ${DGTCM_PATH} DGTCentaurMods
 
 # Allow flask on port 80
-sudo touch /etc/authbind/byport/80
-sudo chmod 777 /etc/authbind/byport/80
+# sudo touch /etc/authbind/byport/80
+# sudo chmod 777 /etc/authbind/byport/80
 
 # Allow memory access for epaper driver
 sudo usermod -a -G gpio pi
 sudo usermod -a -G kmem pi
+
 
 ##### Enable systemd services.
 echo -e "::: Setup services"
@@ -105,6 +106,14 @@ echo -e "::: Setup services"
     systemctl enable stopDGTController.service
     systemctl start var-run-sdp.path
 
+# Setup nginx proxy for web service
+echo -e "::: Setting up nginx proxy"
+    if [ -f "${DGTCM_PATH}/scripts/enable-web-proxy.sh" ]; then
+        chmod +x "${DGTCM_PATH}/scripts/enable-web-proxy.sh"
+        "${DGTCM_PATH}/scripts/enable-web-proxy.sh"
+    else
+        echo -e "::: Warning: enable-web-proxy.sh not found"
+    fi
 
 # Update main.conf in /etc/bluetooth
     cp $BTMAIN $BTMAIN.bak
@@ -268,6 +277,15 @@ case $1 in
     echo -e "::: Finalizing install..."
     #Copy over all defaults from /defaults
     copyDefaults
+
+    # Setup nginx proxy for web service
+    echo -e "::: Setting up nginx proxy"
+    if [ -f "${DGTCM_PATH}/scripts/enable-web-proxy.sh" ]; then
+        chmod +x "${DGTCM_PATH}/scripts/enable-web-proxy.sh"
+        "${DGTCM_PATH}/scripts/enable-web-proxy.sh"
+    else
+        echo -e "::: Warning: enable-web-proxy.sh not found"
+    fi
 
     setPermissions
     ;;
