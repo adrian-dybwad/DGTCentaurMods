@@ -3,11 +3,15 @@ Description=Centaur Web interface
 After=network.target DGTCentaurMods.service
 
 [Service]
-ExecStart=authbind --deep flask run
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt
+Environment=FLASK_APP=app.py
+Environment=FLASK_RUN_HOST=0.0.0.0
+Environment=FLASK_RUN_PORT=5000
+ExecStart=/opt/DGTCentaurMods/.venv/bin/python -m flask run --host=0.0.0.0 --port=5000
 WorkingDirectory=/opt/DGTCentaurMods/web
-Environment="PYTHONPATH=/opt"
-StandardOutput=inherit
-StandardError=inherit
+StandardOutput=file:/var/log/centaurmods-web.log
+StandardError=file:/var/log/centaurmods-web.log
 Restart=always
 User=pi
 
