@@ -88,7 +88,7 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
     try:
         # Start event subscription
         if manage_events:
-            if not start_text_input_subscription():
+            if not input_adapters.start_text_input_subscription():
                 print("Failed to start text input subscription")
                 return None
 
@@ -223,4 +223,4 @@ def getText(title="Enter text", board_obj=None, manage_events=True):
 
     finally:
         if manage_events:
-            stop_text_input_subscription()
+            input_adapters.stop_text_input_subscription()
