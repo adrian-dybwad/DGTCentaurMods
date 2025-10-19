@@ -44,10 +44,13 @@ def getText(title="Enter text"):
     
     try:
         from DGTCentaurMods.display import epaper
+        print("Imported epaper successfully")
         from DGTCentaurMods.ui import input_adapters
+        print("Imported input_adapters successfully")
         from DGTCentaurMods.board import board
+        print("Imported board successfully")
         from DGTCentaurMods.game import menu
-        print("All imports successful")
+        print("Imported menu successfully")
     except ImportError as e:
         print(f"ERROR: Import failed: {e}")
         import traceback
