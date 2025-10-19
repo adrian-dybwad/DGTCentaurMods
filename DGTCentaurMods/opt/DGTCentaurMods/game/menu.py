@@ -201,6 +201,61 @@ show_welcome()
 epaper.quickClear()
 
 
+def connect_to_wifi(ssid, password):
+    """
+    Connect to a WiFi network by configuring wpa_supplicant.
+    
+    Args:
+        ssid: The network SSID to connect to
+        password: The WiFi password
+        
+    Returns:
+        bool: True if configuration succeeded, False otherwise
+    """
+    import re
+    
+    try:
+        # Generate wpa_supplicant network block
+        cmd = f"""sudo sh -c "wpa_passphrase '{ssid}' '{password}'" """
+        section = os.popen(cmd).read()
+        
+        if "ssid" not in section:
+            print("Failed to generate network configuration")
+            return False
+        
+        conf_path = "/etc/wpa_supplicant/wpa_supplicant.conf"
+        
+        # Read current configuration
+        with open(conf_path, "r") as f:
+            curconf = f.read()
+        
+        # Remove any existing block for this SSID (non-greedy)
+        newconf = re.sub(
+            r'network={[^\}]+?ssid="' + re.escape(ssid) + r'"[^\}]+?}\n',
+            '',
+            curconf,
+            flags=re.DOTALL
+        )
+        
+        # Write updated configuration
+        with open(conf_path, "w") as f:
+            f.write(newconf)
+        
+        # Append new network block
+        with open(conf_path, "a") as f:
+            f.write(section)
+        
+        # Reconfigure wpa_supplicant
+        os.system("sudo wpa_cli -i wlan0 reconfigure")
+        
+        print(f"Successfully configured WiFi for {ssid}")
+        return True
+        
+    except Exception as e:
+        print(f"Error connecting to WiFi: {e}")
+        return False
+
+
 def get_lichess_client():
     logging.debug("get_lichess_client")
     import berserk
@@ -477,7 +532,7 @@ while True:
                 result = doMenu(wifimenu, "Wifi Setup")
                 if result != "BACK":
                     if result == "wpa2":
-                        epaper.loadingScreen()
+                        # epaper.loadingScreen()
                         
                         # Scan for WiFi networks
                         import subprocess
@@ -509,15 +564,18 @@ while True:
 
                                         try:
                                             print("DEBUG: Starting password input...")
+                                            epaper.loadingScreen()
                                             password = getText("Enter WiFi password", manage_events=True)
                                             print(f"DEBUG: Password input completed, result: {password}")
                                             
                                             if password:
                                                 epaper.writeText(0, f"Connecting to")
                                                 epaper.writeText(1, selected_network)
-                                                # TODO: Implement actual WiFi connection logic here
-                                                time.sleep(2)
-                                                epaper.writeText(3, "Connected!")
+                                                # Connect to the network
+                                                if connect_to_wifi(selected_network, password):
+                                                    epaper.writeText(3, "Connected!")
+                                                else:
+                                                    epaper.writeText(3, "Connection failed!")
                                                 time.sleep(2)
                                             else:
                                                 print("DEBUG: No password provided")
