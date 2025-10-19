@@ -42,21 +42,40 @@ def getText(title="Enter text"):
     """
     print(f"getText function called with title='{title}'")
     
-    from DGTCentaurMods.display import epaper
-    from DGTCentaurMods.ui import input_adapters
-    from DGTCentaurMods.board import board
-    from DGTCentaurMods.game import menu
+    try:
+        from DGTCentaurMods.display import epaper
+        from DGTCentaurMods.ui import input_adapters
+        from DGTCentaurMods.board import board
+        from DGTCentaurMods.game import menu
+        print("All imports successful")
+    except ImportError as e:
+        print(f"ERROR: Import failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+    except Exception as e:
+        print(f"ERROR: Unexpected error during imports: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
     
     try:
         # Disable main menu handler
-        menu.main_menu_disabled = True
-        print("Main menu handler disabled")
+        try:
+            menu.main_menu_disabled = True
+            print("Main menu handler disabled")
+        except Exception as e:
+            print(f"ERROR: Failed to disable main menu handler: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
         
         try:
             # Start event subscription
             if not input_adapters.start_text_input_subscription():
-                print("Failed to start text input subscription")
+                print("ERROR: Failed to start text input subscription")
                 return None
+            print("Event subscription started successfully")
 
             clearstate = [0] * 64
             printableascii = (
@@ -69,110 +88,181 @@ def getText(title="Enter text"):
             typed = ""
             changed = True
 
-            res = board.getBoardState()
-            if not isinstance(res, list) or len(res) != 64:
+            try:
+                res = board.getBoardState()
+                if not isinstance(res, list) or len(res) != 64:
+                    res = [0] * 64
+                print("Board state retrieved successfully")
+            except Exception as e:
+                print(f"ERROR: Failed to get board state: {e}")
+                import traceback
+                traceback.print_exc()
                 res = [0] * 64
 
-            board.clearSerial()
+            try:
+                board.clearSerial()
+                print("Serial cleared successfully")
+            except Exception as e:
+                print(f"ERROR: Failed to clear serial: {e}")
+                import traceback
+                traceback.print_exc()
 
             def _render():
                 nonlocal typed, charpage
-                print(f"Rendering text input UI: '{typed}' (page {charpage})")
-                # Create image with correct dimensions for the display
-                image = Image.new('1', (128, 296), 255)
-                draw = ImageDraw.Draw(image)
-                draw.text((0, 20), title, font=board.font18, fill=0)
-                draw.rectangle([(0, 39), (128, 61)], outline=0, fill=255)
-                tt = typed[-11:] if len(typed) > 11 else typed
-                draw.text((0, 40), tt, font=board.font18, fill=0)
-                page_start = (charpage - 1) * 64
-                lchars = [printableascii[i] for i in range(page_start, page_start + 64)]
-                for row in range(8):
-                    for col in range(8):
-                        ch = lchars[row * 8 + col]
-                        draw.text((col * 16, 80 + row * 20), ch, font=board.font18, fill=0)
-                # Update the display buffer - background thread will handle refresh
-                epaper.epaperbuffer.paste(image, (0, 0))
-                print("Display buffer updated")
+                try:
+                    print(f"Rendering text input UI: '{typed}' (page {charpage})")
+                    # Create image with correct dimensions for the display
+                    image = Image.new('1', (128, 296), 255)
+                    draw = ImageDraw.Draw(image)
+                    draw.text((0, 20), title, font=board.font18, fill=0)
+                    draw.rectangle([(0, 39), (128, 61)], outline=0, fill=255)
+                    tt = typed[-11:] if len(typed) > 11 else typed
+                    draw.text((0, 40), tt, font=board.font18, fill=0)
+                    page_start = (charpage - 1) * 64
+                    lchars = [printableascii[i] for i in range(page_start, page_start + 64)]
+                    for row in range(8):
+                        for col in range(8):
+                            ch = lchars[row * 8 + col]
+                            draw.text((col * 16, 80 + row * 20), ch, font=board.font18, fill=0)
+                    # Update the display buffer - background thread will handle refresh
+                    epaper.epaperbuffer.paste(image, (0, 0))
+                    print("Display buffer updated")
+                except Exception as e:
+                    print(f"ERROR: Failed to render display: {e}")
+                    import traceback
+                    traceback.print_exc()
 
-            print("Starting main input loop...")
-            _render()
-            start_time = time.time()
-            timeout_seconds = 300  # 5 minute timeout
-            
-            while True:
-                # Check for shutdown request
-                if shutdown_requested:
-                    print("Shutdown requested, exiting text input")
-                    return None
+            try:
+                print("Starting main input loop...")
+                _render()
+                start_time = time.time()
+                timeout_seconds = 300  # 5 minute timeout
                 
-                # Check for timeout
-                if time.time() - start_time > timeout_seconds:
-                    print("Text input timeout")
-                    return None
-                
-                # Blocking wait for ANY event (button or field)
-                print("Waiting for event...")
-                event_received = input_adapters.text_input_event.wait(timeout=60)
-                
-                if not event_received:
-                    print("Event timeout, continuing...")
-                    continue
-
-                input_adapters.text_input_event.clear()
-
-                if input_adapters.text_input_event_type == 'button':
-                    btn = input_adapters.text_input_button
-                    print(f"Button event received: {btn}")
-                    
-                    if btn == board.BTNBACK:
-                        if typed:
-                            typed = typed[:-1]
-                            board.beep(board.SOUND_GENERAL)
-                            changed = True
-                            print(f"Deleted character, typed now: '{typed}'")
-                        else:
-                            board.beep(board.SOUND_WRONG)
-                            print("No characters to delete")
-                    elif btn == board.BTNTICK:
-                        board.beep(board.SOUND_GENERAL)
-                        board.clearScreen()
-                        time.sleep(0.2)
-                        print(f"Text input confirmed: '{typed}'")
-                        return typed
-                    elif btn == board.BTNUP and charpage != 1:
-                        charpage = 1
-                        board.beep(board.SOUND_GENERAL)
-                        changed = True
-                        print("Switched to page 1")
-                    elif btn == board.BTNDOWN and charpage != 2:
-                        charpage = 2
-                        board.beep(board.SOUND_GENERAL)
-                        changed = True
-                        print("Switched to page 2")
+                while True:
+                    try:
+                        # Check for shutdown request
+                        if shutdown_requested:
+                            print("Shutdown requested, exiting text input")
+                            return None
                         
-                elif input_adapters.text_input_event_type == 'field':
-                    field = input_adapters.text_input_field
-                    print(f"Field event received: {field}")
-                    
-                    # Process field event for piece placement
-                    if 0 <= field < 64:
-                        base = (charpage - 1) * 64
-                        ch = printableascii[base + field]
-                        typed += ch
-                        board.beep(board.SOUND_GENERAL)
-                        print(f"Piece placed on field {field}, added char '{ch}'")
-                        changed = True
+                        # Check for timeout
+                        if time.time() - start_time > timeout_seconds:
+                            print("Text input timeout")
+                            return None
+                        
+                        # Blocking wait for ANY event (button or field)
+                        print("Waiting for event...")
+                        event_received = input_adapters.text_input_event.wait(timeout=60)
+                        
+                        if not event_received:
+                            print("Event timeout, continuing...")
+                            continue
 
-                if changed:
-                    _render()
-                    changed = False
+                        input_adapters.text_input_event.clear()
+
+                        if input_adapters.text_input_event_type == 'button':
+                            btn = input_adapters.text_input_button
+                            print(f"Button event received: {btn}")
+                            
+                            try:
+                                if btn == board.BTNBACK:
+                                    if typed:
+                                        typed = typed[:-1]
+                                        board.beep(board.SOUND_GENERAL)
+                                        changed = True
+                                        print(f"Deleted character, typed now: '{typed}'")
+                                    else:
+                                        board.beep(board.SOUND_WRONG)
+                                        print("No characters to delete")
+                                elif btn == board.BTNTICK:
+                                    board.beep(board.SOUND_GENERAL)
+                                    board.clearScreen()
+                                    time.sleep(0.2)
+                                    print(f"Text input confirmed: '{typed}'")
+                                    return typed
+                                elif btn == board.BTNUP and charpage != 1:
+                                    charpage = 1
+                                    board.beep(board.SOUND_GENERAL)
+                                    changed = True
+                                    print("Switched to page 1")
+                                elif btn == board.BTNDOWN and charpage != 2:
+                                    charpage = 2
+                                    board.beep(board.SOUND_GENERAL)
+                                    changed = True
+                                    print("Switched to page 2")
+                            except Exception as e:
+                                print(f"ERROR: Failed to handle button event {btn}: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                
+                        elif input_adapters.text_input_event_type == 'field':
+                            field = input_adapters.text_input_field
+                            print(f"Field event received: {field}")
+                            
+                            try:
+                                # Process field event for piece placement
+                                if 0 <= field < 64:
+                                    base = (charpage - 1) * 64
+                                    ch = printableascii[base + field]
+                                    typed += ch
+                                    board.beep(board.SOUND_GENERAL)
+                                    print(f"Piece placed on field {field}, added char '{ch}'")
+                                    changed = True
+                            except Exception as e:
+                                print(f"ERROR: Failed to handle field event {field}: {e}")
+                                import traceback
+                                traceback.print_exc()
+
+                        if changed:
+                            try:
+                                _render()
+                                changed = False
+                            except Exception as e:
+                                print(f"ERROR: Failed to re-render after change: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                changed = False
+                    except Exception as e:
+                        print(f"ERROR: Unexpected error in main event loop: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        # Continue the loop to avoid hanging
+                        continue
+                        
+            except Exception as e:
+                print(f"ERROR: Failed to start main input loop: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
+
+        except Exception as e:
+            print(f"ERROR: Unexpected error in event subscription logic: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
         finally:
             # Always stop event subscription
-            input_adapters.stop_text_input_subscription()
+            try:
+                input_adapters.stop_text_input_subscription()
+                print("Event subscription stopped successfully")
+            except Exception as e:
+                print(f"ERROR: Failed to stop event subscription: {e}")
+                import traceback
+                traceback.print_exc()
+            
+    except Exception as e:
+        print(f"ERROR: Unexpected error in main text input logic: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
             
     finally:
         # Always re-enable main menu handler
-        menu.main_menu_disabled = False
-        print("Main menu handler re-enabled")
+        try:
+            menu.main_menu_disabled = False
+            print("Main menu handler re-enabled")
+        except Exception as e:
+            print(f"ERROR: Failed to re-enable main menu handler: {e}")
+            import traceback
+            traceback.print_exc()
