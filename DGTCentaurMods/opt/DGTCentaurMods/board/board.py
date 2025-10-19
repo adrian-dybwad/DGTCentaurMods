@@ -918,12 +918,12 @@ def eventsThread(keycallback, fieldcallback, tout):
                                     if (resp[x] == 64):
                                         fieldHex = resp[x + 1]
                                         newsquare = rotateFieldHex(fieldHex)
-                                        fieldcallback((newsquare + 1) * -1)
+                                        fieldcallback(newsquare + 1)
                                         to = time.time() + tout
                                     if (resp[x] == 65):
                                         fieldHex = resp[x + 1]
                                         newsquare = rotateFieldHex(fieldHex)
-                                        fieldcallback(newsquare + 1)
+                                        fieldcallback((newsquare + 1) * -1)
                                         to = time.time() + tout
                     except:
                         pass
