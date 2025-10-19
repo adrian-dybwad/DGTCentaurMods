@@ -261,15 +261,6 @@ def _map_bytes_to_action(b: bytes) -> Optional[str]:
         return "OK"
     return None
 
-def poll_action_from_board() -> Optional[str]:
-    """
-    Non-blocking action poller for UI code (e.g., e-paper menus).
-    Returns one of {"UP","DOWN","LEFT","RIGHT","OK","BACK"} or None.
-    """
-    chunk = getBoardStateNonBlocking()
-    if not chunk:
-        return None
-    return _map_bytes_to_action(chunk)
 
 # Screen functions - deprecated, use epaper.py if possible
 #
@@ -516,24 +507,6 @@ def doMenu(items, fast = 0):
                             return k
                         c = c + 1
 
-            # Also allow non-blocking bytes to drive the menu if available
-            try:
-                act = poll_action_from_board()
-                if act == "UP" and selected > 1:
-                    buttonPress = 3
-                elif act == "DOWN" and selected < len(items):
-                    buttonPress = 4
-                elif act in ("OK", "RIGHT"):
-                    buttonPress = 2
-                elif act in ("BACK", "LEFT"):
-                    buttonPress = 1
-            except Exception:
-                pass
-
-            if time.time() > timeout_local:
-                epd.Clear(0xff)
-                return "BACK"
-
         sendPacket(b'\xb1\x00\x08', b'\x4c\x08')
         if (buttonPress == 2):
             # Tick, so return the key for this menu item
@@ -699,41 +672,6 @@ def waitMove():
         resp = _ser_read(10000)
         resp = bytearray(resp)
     return moves
-
-def poll():
-    # Keep polling the board to get data from it
-    _ser_read(100000)
-    sendPacket(b'\x83', b'')
-    expect = buildPacket(b'\x85\x00\x06', b'')
-    resp = _ser_read(10000)
-    resp = bytearray(resp)
-    if (bytearray(resp) != expect):
-        if (resp[0] == 133 and resp[1] == 0):
-            for x in range(0, len(resp) - 1):
-                if (resp[x] == 64):
-                    fieldHex = resp[x + 1]
-                    newsquare = rotateFieldHex(fieldHex)
-                if (resp[x] == 65):
-                    fieldHex = resp[x + 1]
-                    newsquare = rotateFieldHex(fieldHex)
-    sendPacket(b'\x94', b'')
-    expect = buildPacket(b'\xb1\x00\x06', b'')
-    resp = _ser_read(10000)
-    resp = bytearray(resp)
-    if (resp != expect):
-        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0501000000007d47"):
-            logging.debug("BACK BUTTON")
-        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0510000000007d17"):
-            logging.debug("TICK BUTTON")
-        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0508000000007d3c"):
-            logging.debug("UP BUTTON")
-        if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a05020000000061"):
-            logging.debug("DOWN BUTTON")
-        if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0540000000006d"):
-            logging.debug("HELP BUTTON")
-        if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0504000000002a"):
-            logging.debug("PLAY BUTTON")
-
 
 
 def getBoardState(field=None, retries=6, sleep_between=0.12):
