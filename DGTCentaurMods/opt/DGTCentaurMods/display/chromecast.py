@@ -128,7 +128,8 @@ epaper.initEpaper()
 board.subscribeEvents(keyPressed, fieldActivity)
 
 for cc in chromecasts[0]:
-    curmenu.append(cc.device.friendly_name)
+    if cc.device.cast_type in ['cast', 'group']:
+        curmenu.append(cc.device.friendly_name)
 
 # Let the user choose the chromecast
 result = doMenu(curmenu)
