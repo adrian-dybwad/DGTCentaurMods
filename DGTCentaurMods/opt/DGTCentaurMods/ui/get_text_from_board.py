@@ -200,21 +200,28 @@ def getText(title="Enter text"):
                                 
                         elif input_adapters.text_input_event_type == 'field':
                             field = input_adapters.text_input_field
-                            print(f"Field event received: {field}")
                             
-                            try:
-                                # Process field event for piece placement
-                                if 0 <= field < 64:
-                                    base = (charpage - 1) * 64
-                                    ch = printableascii[base + field]
-                                    typed += ch
-                                    board.beep(board.SOUND_GENERAL)
-                                    print(f"Piece placed on field {field}, added char '{ch}'")
-                                    changed = True
-                            except Exception as e:
-                                print(f"ERROR: Failed to handle field event {field}: {e}")
-                                import traceback
-                                traceback.print_exc()
+                            if field < 0:
+                                # Piece lifted - ignore for text input
+                                print(f"Ignoring piece lift event: field {field}")
+                                continue
+                            elif field > 0:
+                                # Piece placed - add character
+                                print(f"Piece placement event: field {field}")
+                                try:
+                                    # Convert to 0-based index
+                                    field_idx = field - 1
+                                    if 0 <= field_idx < 64:
+                                        base = (charpage - 1) * 64
+                                        ch = printableascii[base + field_idx]
+                                        typed += ch
+                                        board.beep(board.SOUND_GENERAL)
+                                        print(f"Piece placed on field {field}, added char '{ch}'")
+                                        changed = True
+                                except Exception as e:
+                                    print(f"ERROR: Failed to handle field event {field}: {e}")
+                                    import traceback
+                                    traceback.print_exc()
 
                         if changed:
                             try:

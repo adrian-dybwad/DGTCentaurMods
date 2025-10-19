@@ -147,7 +147,7 @@ def keycallback(keypressed):
             inmenu = 0
 
 def fieldcallback(field):
-    # Receives field events. Positive is a field lift, negative is a field place. Numbering 0 = a1, 63 = h8
+    # Receives field events. Positive is a field place, negative is a field lift. Numbering 1-64 (1 = a1, 64 = h8)
     # Use this to calculate moves
     global cboard
     global curturn
@@ -165,11 +165,11 @@ def fieldcallback(field):
     global showingpromotion
     lift = 0
     place = 0
-    if field >= 0:
+    if field < 0:
         lift = 1
+        field = field * -1  # Make positive for indexing
     else:
         place = 1
-        field = field * -1
     field = field - 1
     # Check the piece colour against the current turn
     pc = cboard.color_at(field)

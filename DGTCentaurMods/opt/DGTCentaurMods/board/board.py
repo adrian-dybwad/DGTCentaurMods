@@ -682,18 +682,13 @@ def waitMove():
         resp = _ser_read(10000)
         resp = bytearray(resp)
         if (bytearray(resp) != expect):
-            if (resp[0] == 133 and resp[1] == 0):
-                for x in range(0, len(resp) - 1):
-                    if (resp[x] == 64):
-                        fieldHex = resp[x + 1]
-                        newsquare = rotateFieldHex(fieldHex)
-                        lifted = newsquare
-                        moves.append((newsquare+1) * -1)
-                    if (resp[x] == 65):
-                        fieldHex = resp[x + 1]
-                        newsquare = rotateFieldHex(fieldHex)
-                        placed = newsquare
-                        moves.append(newsquare + 1)
+            events = parseFieldEvents(resp)
+            for field in events:
+                if field < 0:  # Lift
+                    lifted = abs(field) - 1
+                else:  # Place
+                    placed = field - 1
+                moves.append(field)
         sendPacket(b'\x94', b'')
         expect = buildPacket(b'\xb1\x00\x06', b'')
         resp = _ser_read(10000)
@@ -708,14 +703,9 @@ def poll():
     resp = _ser_read(10000)
     resp = bytearray(resp)
     if (bytearray(resp) != expect):
-        if (resp[0] == 133 and resp[1] == 0):
-            for x in range(0, len(resp) - 1):
-                if (resp[x] == 64):
-                    fieldHex = resp[x + 1]
-                    newsquare = rotateFieldHex(fieldHex)
-                if (resp[x] == 65):
-                    fieldHex = resp[x + 1]
-                    newsquare = rotateFieldHex(fieldHex)
+        events = parseFieldEvents(resp)
+        # Note: poll() currently doesn't use these events, 
+        # but now they're parsed consistently if needed in future
     sendPacket(b'\x94', b'')
     expect = buildPacket(b'\xb1\x00\x06', b'')
     resp = _ser_read(10000)
@@ -862,6 +852,37 @@ def convertField(field):
     square = chr((ord('a') + (field % 8))) + chr(ord('1') + (field // 8))
     return square
 
+def parseFieldEvents(resp):
+    """
+    Parse field events from board response packet.
+    
+    Board event codes:
+    - Code 64 (0x40): Piece lifted from square
+    - Code 65 (0x41): Piece placed on square
+    
+    Args:
+        resp: Response bytearray from board (packet 0x83 response)
+        
+    Returns:
+        List of field numbers where:
+        - Positive (1-64): piece placed on that square
+        - Negative (-1 to -64): piece lifted from that square
+        
+    Note: Field numbering is 1-based after rotation (0 = a1, 63 = h8 before +1)
+    """
+    events = []
+    if len(resp) > 1 and resp[0] == 133 and resp[1] == 0:
+        for x in range(0, len(resp) - 1):
+            if resp[x] == 64:  # Piece lifted
+                fieldHex = resp[x + 1]
+                newsquare = rotateFieldHex(fieldHex)
+                events.append((newsquare + 1) * -1)  # Negative for lift
+            elif resp[x] == 65:  # Piece placed
+                fieldHex = resp[x + 1]
+                newsquare = rotateFieldHex(fieldHex)
+                events.append(newsquare + 1)  # Positive for place
+    return events
+
 # Start of event-driven helpers
 import threading
 eventsthreadpointer = ""
@@ -913,18 +934,10 @@ def eventsThread(keycallback, fieldcallback, tout):
                         resp = _ser_read(10000)
                         resp = bytearray(resp)
                         if (bytearray(resp) != expect):
-                            if (resp[0] == 133 and resp[1] == 0):
-                                for x in range(0, len(resp) - 1):
-                                    if (resp[x] == 64):
-                                        fieldHex = resp[x + 1]
-                                        newsquare = rotateFieldHex(fieldHex)
-                                        fieldcallback(newsquare + 1)
-                                        to = time.time() + tout
-                                    if (resp[x] == 65):
-                                        fieldHex = resp[x + 1]
-                                        newsquare = rotateFieldHex(fieldHex)
-                                        fieldcallback((newsquare + 1) * -1)
-                                        to = time.time() + tout
+                            events = parseFieldEvents(resp)
+                            for field in events:
+                                fieldcallback(field)
+                                to = time.time() + tout
                     except:
                         pass
 
