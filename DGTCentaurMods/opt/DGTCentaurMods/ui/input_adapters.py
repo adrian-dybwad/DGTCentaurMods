@@ -15,6 +15,16 @@ text_input_field = -1
 def text_input_button_callback(button_id):
     """Callback for text input button events"""
     global text_input_button, text_input_event, text_input_event_type
+    
+    print(f"DEBUG: text_input_button_callback called with button_id: {button_id}")
+    print(f"DEBUG: text_input_button: {text_input_button}")
+    print(f"DEBUG: text_input_event_type: {text_input_event_type}")
+    print(f"DEBUG: text_input_event: {text_input_event}")
+    print(f"DEBUG: text_input_event.set(): {text_input_event.set()}")
+    print(f"DEBUG: logging.debug(f\"Text input button callback: {button_id}\")")
+    print(f"DEBUG: b.subscribeEvents(text_input_button_callback, text_input_field_callback, timeout=3600)")
+    print(f"DEBUG: logging.debug(\"Started text input event subscription\")")
+
     text_input_button = button_id
     text_input_event_type = 'button'
     text_input_event.set()
@@ -23,6 +33,15 @@ def text_input_button_callback(button_id):
 def text_input_field_callback(field):
     """Callback for text input field events"""
     global text_input_field, text_input_event, text_input_event_type
+
+    print(f"DEBUG: text_input_field_callback called with field: {field}")
+    print(f"DEBUG: text_input_field: {text_input_field}")
+    print(f"DEBUG: text_input_event_type: {text_input_event_type}")
+    print(f"DEBUG: text_input_event: {text_input_event}")
+    print(f"DEBUG: text_input_event.set(): {text_input_event.set()}")
+    print(f"DEBUG: logging.debug(f\"Text input field callback: {field}\")")
+    print(f"DEBUG: b.subscribeEvents(text_input_button_callback, text_input_field_callback, timeout=3600)")
+    print(f"DEBUG: logging.debug(\"Started text input event subscription\")")
     text_input_field = field
     text_input_event_type = 'field'
     text_input_event.set()
