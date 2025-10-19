@@ -58,12 +58,11 @@ def keyPressed(id):
     global curmenu
     global selection
     global event_key
-    global main_menu_disabled
-    
-    if main_menu_disabled:
-        return  # Ignore events when disabled
     global idle
+    global main_menu_disabled
     epaper.epapermode = 1    
+    if main_menu_disabled:
+        return
     if idle:
         if id == board.BTNTICK:
             event_key.set()
@@ -505,15 +504,13 @@ while True:
                                     if selected_network and selected_network != "BACK":
                                         # Get password using getText
                                         from DGTCentaurMods.ui.get_text_from_board import getText
-                                        
                                         # Disable main menu handler
                                         main_menu_disabled = True
-                                        
+
                                         password = getText("Enter WiFi password", manage_events=True)
-                                        
+
                                         # Re-enable main menu handler
                                         main_menu_disabled = False
-                                        # board.unPauseEvents()
                                         if password:
                                             epaper.writeText(0, f"Connecting to")
                                             epaper.writeText(1, selected_network)
