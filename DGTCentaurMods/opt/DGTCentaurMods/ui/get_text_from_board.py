@@ -49,8 +49,8 @@ def getText(title="Enter text"):
         print("Imported input_adapters successfully")
         from DGTCentaurMods.board import board
         print("Imported board successfully")
-        from DGTCentaurMods.game import menu
-        print("Imported menu successfully")
+        from DGTCentaurMods.ui.shared_state import main_menu_disabled
+        print("Imported main_menu_disabled successfully")
     except ImportError as e:
         print(f"ERROR: Import failed: {e}")
         import traceback
@@ -65,7 +65,7 @@ def getText(title="Enter text"):
     try:
         # Disable main menu handler
         try:
-            menu.main_menu_disabled = True
+            main_menu_disabled = True
             print("Main menu handler disabled")
         except Exception as e:
             print(f"ERROR: Failed to disable main menu handler: {e}")
@@ -263,7 +263,7 @@ def getText(title="Enter text"):
     finally:
         # Always re-enable main menu handler
         try:
-            menu.main_menu_disabled = False
+            main_menu_disabled = False
             print("Main menu handler re-enabled")
         except Exception as e:
             print(f"ERROR: Failed to re-enable main menu handler: {e}")

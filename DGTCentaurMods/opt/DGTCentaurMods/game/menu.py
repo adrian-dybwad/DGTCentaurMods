@@ -45,7 +45,7 @@ from PIL import Image, ImageDraw, ImageFont
 menuitem = 1
 curmenu = None
 selection = ""
-main_menu_disabled = False
+from DGTCentaurMods.ui.shared_state import main_menu_disabled
 centaur_software = "/home/pi/centaur/centaur"
 
 event_key = threading.Event()
@@ -59,7 +59,6 @@ def keyPressed(id):
     global selection
     global event_key
     global idle
-    global main_menu_disabled
     epaper.epapermode = 1    
     if main_menu_disabled:
         return
