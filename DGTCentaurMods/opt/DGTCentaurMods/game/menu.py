@@ -507,17 +507,31 @@ while True:
                                         # Disable main menu handler
                                         main_menu_disabled = True
 
-                                        password = getText("Enter WiFi password", manage_events=True)
+                                        try:
+                                            print("DEBUG: Starting password input...")
+                                            password = getText("Enter WiFi password", manage_events=True)
+                                            print(f"DEBUG: Password input completed, result: {password}")
+                                            
+                                            if password:
+                                                epaper.writeText(0, f"Connecting to")
+                                                epaper.writeText(1, selected_network)
+                                                # TODO: Implement actual WiFi connection logic here
+                                                time.sleep(2)
+                                                epaper.writeText(3, "Connected!")
+                                                time.sleep(2)
+                                            else:
+                                                print("DEBUG: No password provided")
+                                                
+                                        except Exception as e:
+                                            print(f"DEBUG: Error during password input: {e}")
+                                            import traceback
+                                            traceback.print_exc()
+                                            
+                                        finally:
+                                            # Always re-enable main menu handler
+                                            print("DEBUG: Re-enabling main menu handler")
+                                            main_menu_disabled = False
 
-                                        # Re-enable main menu handler
-                                        main_menu_disabled = False
-                                        if password:
-                                            epaper.writeText(0, f"Connecting to")
-                                            epaper.writeText(1, selected_network)
-                                            # TODO: Implement actual WiFi connection logic here
-                                            time.sleep(2)
-                                            epaper.writeText(3, "Connected!")
-                                            time.sleep(2)
                                 else:
                                     epaper.writeText(0, "No networks found")
                                     time.sleep(2)
