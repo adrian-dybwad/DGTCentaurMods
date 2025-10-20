@@ -492,10 +492,20 @@ def detectBoardAddress():
     sendPrint("[ADDR] Starting address detection sequence...")
     sendCommand(b'\x4d', addressDetectionCallback, 1.0, "Version command (RAW)")
     
-    # Wait for completion (simplified - in real implementation you'd use proper synchronization)
-    time.sleep(35)  # Wait for address detection to complete
+    # Wait for completion with proper synchronization
+    # Since monitor thread is now running, we need to wait for the state machine to complete
+    max_wait_time = 35  # Maximum wait time in seconds
+    start_wait = time.time()
     
-    return detection_state['step'] == 3
+    while detection_state['step'] < 3 and (time.time() - start_wait) < max_wait_time:
+        time.sleep(0.1)  # Check every 100ms
+    
+    if detection_state['step'] == 3:
+        sendPrint("[ADDR] ✓ Address detection completed successfully")
+        return True
+    else:
+        sendPrint("[ADDR] ✗ Address detection timed out")
+        return False
 
 def checkBoardStatus():
     """
@@ -738,16 +748,15 @@ def closeSerial():
 if __name__ == "__main__":
     sendPrint("Starting DGT Centaur serial helper...")
     
-    # Step 1: Detect board address FIRST (REQUIRED before LED/sound commands work)
-    # Address detection runs with exclusive serial port access (no monitor thread yet)
+    # Step 1: Start monitor thread FIRST (needed for state machine responses)
+    sendPrint("Starting serial monitor thread...")
+    startMonitor()
+    time.sleep(0.5)  # Give monitor thread time to start
+    
+    # Step 2: Detect board address using state machine (now monitor thread is running)
     if detectBoardAddress():
         sendPrint("✓ Board address detection successful!")
         sendPrint(f"✓ Using detected address: {hex(addr1)} {hex(addr2)}")
-        
-        # Step 2: NOW start monitoring to see all subsequent responses
-        sendPrint("Starting serial monitor for command testing...")
-        startMonitor()
-        time.sleep(0.5)  # Give monitor thread time to start
         
         # Step 3: Run comprehensive command/response testing with proper sendPacket()
         testResponsesWithSendPacket()
@@ -765,8 +774,6 @@ if __name__ == "__main__":
         sendPrint("✗ Board address detection failed!")
         sendPrint("✗ LED and sound commands will not work")
         sendPrint("✗ Starting monitor thread anyway for debugging...")
-        startMonitor()
-        time.sleep(0.5)
     
     try:
         sendPrint("Serial monitor running. Press Ctrl+C to stop.")
