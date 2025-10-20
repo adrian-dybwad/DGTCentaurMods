@@ -523,6 +523,7 @@ def detectBoardAddress():
     
     def addressDetectionCallback(success, responses, description):
         nonlocal detection_state
+        global addr1, addr2
         
         if success:
             sendPrint(f"[ADDR] ✓ {description} completed")
