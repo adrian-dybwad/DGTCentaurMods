@@ -173,8 +173,10 @@ def sendCommand(command, callback=None, timeout=2.0, description=""):
     
     request = CommandRequest(command_id, command, callback, timeout, description)
     
-    # Determine if this is a raw write (for address detection) or packet write
-    is_raw_write = "(RAW)" in description
+    # Determine if this is a raw write or packet write
+    is_raw_write = (command == b'\x4d' or command == b'\x4e' or 
+                    command == bytearray(b'\x87\x00\x00\x07') or
+                    command == b'\x83' or command == b'\x94')
     
     sendPrint(f"[SEND] Command ID {command_id}: {description} (raw={is_raw_write})")
     
