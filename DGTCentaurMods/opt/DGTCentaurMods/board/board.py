@@ -597,6 +597,7 @@ def waitMove():
         expect = buildPacket(b'\xb1\x00\x06', b'')
         resp = ser.read(10000)
         resp = bytearray(resp)
+    printBoardState()
     return moves
 
 def poll():
@@ -1020,6 +1021,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 resp = ser.read(10000)
                 resp = bytearray(resp)
                 if not standby:
+                    print("standby is false")
                     #Disable these buttons on standby
                     if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0501000000007d47"):
                         to = time.time() + tout
