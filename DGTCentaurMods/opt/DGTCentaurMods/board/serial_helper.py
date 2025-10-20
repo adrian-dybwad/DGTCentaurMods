@@ -196,6 +196,9 @@ def _transitionToCompleted(command_id, response_data):
     4. Call callback
     5. Remove from pending requests
     """
+    callback_to_call = None
+    callback_args = None
+    
     with _command_lock:
         if command_id not in _command_requests:
             sendPrint(f"[TRANSITION] Command ID {command_id} not found in requests")
@@ -209,17 +212,28 @@ def _transitionToCompleted(command_id, response_data):
         
         sendPrint(f"[TRANSITION] → {request.description} COMPLETED")
         
-        # Call callback
+        # Prepare callback to be called outside the lock
         if request.callback:
             hex_str = ' '.join(f'{b:02x}' for b in response_data)
             sendPrint(f"[TRANSITION]   Response: {hex_str}")
-            sendPrint(f"[TRANSITION]   Calling callback for: {request.description}")
-            request.callback(True, request.responses, request.description)
+            sendPrint(f"[TRANSITION]   Preparing callback for: {request.description}")
+            callback_to_call = request.callback
+            callback_args = (True, request.responses, request.description)
         else:
             sendPrint(f"[TRANSITION]   No callback registered for: {request.description}")
         
         # Remove from pending requests
         del _command_requests[command_id]
+    
+    # Call callback outside the lock to avoid deadlock
+    if callback_to_call:
+        sendPrint(f"[TRANSITION]   Calling callback for: {request.description}")
+        try:
+            callback_to_call(*callback_args)
+        except Exception as e:
+            sendPrint(f"[TRANSITION]   ERROR in callback: {e}")
+            import traceback
+            traceback.print_exc()
 
 def _transitionToTimeout(command_id):
     """
