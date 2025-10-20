@@ -185,7 +185,11 @@ def sendCommand(command, callback=None, timeout=2.0, description=""):
         sendPrint(f"[SEND] Raw write result: {success}")
     else:
         # Packet write for normal commands
-        success = sendPacket(command, b'')
+        # Special handling for LED off command
+        if command == b'\xb0\x00\x07\x00':
+            success = sendPacket(b'\xb0\x00\x07', b'\x00')
+        else:
+            success = sendPacket(command, b'')
         sendPrint(f"[SEND] Packet write result: {success}")
     
     if not success:
@@ -642,7 +646,7 @@ def checkBoardStatus():
     # Create test sequence for board status check
     test_sequence = [
         (b'\x4d', "Testing version command...", 1.0),
-        (b'\xb0\x00\x07', "Testing LED off command...", 1.0),
+        (b'\xb0\x00\x07\x00', "Testing LED off command...", 2.0),
         (b'\xb1\x00\x0a', "Testing beep command...", 1.0),
         (b'\x83', "Testing field changes command...", 1.0),
         (b'\x94', "Testing button status command...", 1.0)
