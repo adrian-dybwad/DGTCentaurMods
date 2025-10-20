@@ -376,29 +376,31 @@ def detectBoardAddress():
     sendPrint("[ADDR] Detecting board address...")
     sendPrint("[ADDR] This is required before LED/sound commands will work")
     
-    # Step 1: Send 0x4d (version command) - same as board.py line 95
-    sendPrint("[ADDR] Sending version command (0x4d)...")
-    if sendPacket(b'\x4d', b''):
-        sendPrint("[ADDR] ✓ Version command sent")
-        responses = collectCommandResponses(1.0)
-        if responses:
-            sendPrint("[ADDR] ✓ Version command got response")
-        else:
-            sendPrint("[ADDR] ⚠ Version command got no response")
+    # Step 1: Send 0x4d (version command) - RAW write like board.py line 95-96
+    sendPrint("[ADDR] Sending version command (0x4d) - RAW...")
+    if SERIAL_AVAILABLE and ser:
+        try:
+            ser.write(b'\x4d')  # Raw write, no packet construction
+            sendPrint("[ADDR] ✓ Version command sent (RAW)")
+            time.sleep(0.1)
+            ser.read(1000)  # Clear any response
+        except Exception as e:
+            sendPrint(f"[ADDR] ✗ Version command failed: {e}")
     else:
-        sendPrint("[ADDR] ✗ Version command failed")
+        sendPrint("[ADDR] ✓ Version command sent (SIMULATION)")
     
-    # Step 2: Send 0x4e (bootloader command) - same as board.py line 102
-    sendPrint("[ADDR] Sending bootloader command (0x4e)...")
-    if sendPacket(b'\x4e', b''):
-        sendPrint("[ADDR] ✓ Bootloader command sent")
-        responses = collectCommandResponses(1.0)
-        if responses:
-            sendPrint("[ADDR] ✓ Bootloader command got response")
-        else:
-            sendPrint("[ADDR] ⚠ Bootloader command got no response")
+    # Step 2: Send 0x4e (bootloader command) - RAW write like board.py line 102-103
+    sendPrint("[ADDR] Sending bootloader command (0x4e) - RAW...")
+    if SERIAL_AVAILABLE and ser:
+        try:
+            ser.write(b'\x4e')  # Raw write, no packet construction
+            sendPrint("[ADDR] ✓ Bootloader command sent (RAW)")
+            time.sleep(0.1)
+            ser.read(1000)  # Clear any response
+        except Exception as e:
+            sendPrint(f"[ADDR] ✗ Bootloader command failed: {e}")
     else:
-        sendPrint("[ADDR] ✗ Bootloader command failed")
+        sendPrint("[ADDR] ✓ Bootloader command sent (SIMULATION)")
     
     # Step 3: Send 0x87 00 00 07 (bus ping) repeatedly until we get address - same as board.py lines 118-128
     sendPrint("[ADDR] Sending bus ping commands to detect address...")
@@ -409,57 +411,39 @@ def detectBoardAddress():
         attempts += 1
         sendPrint(f"[ADDR] Bus ping attempt {attempts}...")
         
-        if sendPacket(b'\x87\x00\x00\x07', b''):
-            responses = collectCommandResponses(1.0)
-            if responses:
-                for timestamp, data in responses:
-                    hex_str = ' '.join(f'{b:02x}' for b in data)
+        # Send bus ping command - RAW write like board.py line 118-119
+        if SERIAL_AVAILABLE and ser:
+            try:
+                ser.write(b'\x87\x00\x00\x07')  # Raw write, no packet construction
+                time.sleep(0.1)
+                resp = ser.read(1000)  # Read response directly
+                
+                if len(resp) > 3:
+                    hex_str = ' '.join(f'{b:02x}' for b in resp)
                     sendPrint(f"[ADDR] Bus ping response: {hex_str}")
                     
-                    # Check if response contains address (same as board.py lines 124-128)
-                    # Response format: 87 00 06 06 50 63
-                    # Where: 87=cmd, 00=addr1, 06=addr2, 06=len, 50=actual_addr1, 63=actual_addr2
-                    if len(data) > 5:
-                        addr1 = data[4]  # 5th byte is actual addr1
-                        addr2 = data[5]  # 6th byte is actual addr2
-                        sendPrint(f"[ADDR] ✓ Board address detected: {hex(addr1)} {hex(addr2)}")
-                        sendPrint(f"[ADDR] ✓ Address detection complete!")
-                        
-                        # Clear serial buffer after address detection (same as board.py)
-                        sendPrint("[ADDR] Clearing serial buffer after address detection...")
-                        time.sleep(0.5)  # Give board time to stabilize
-                        if SERIAL_AVAILABLE and ser:
-                            try:
-                                ser.read(1000)  # Clear any remaining data
-                                sendPrint("[ADDR] ✓ Serial buffer cleared")
-                            except Exception as e:
-                                sendPrint(f"[ADDR] ⚠ Serial buffer clear failed: {e}")
-                        
-                        return True
-                    elif len(data) > 4:
-                        # Fallback to original parsing
-                        addr1 = data[3]
-                        addr2 = data[4]
-                        sendPrint(f"[ADDR] ✓ Board address detected (fallback): {hex(addr1)} {hex(addr2)}")
-                        sendPrint(f"[ADDR] ✓ Address detection complete!")
-                        
-                        # Clear serial buffer after address detection (same as board.py)
-                        sendPrint("[ADDR] Clearing serial buffer after address detection...")
-                        time.sleep(0.5)  # Give board time to stabilize
-                        if SERIAL_AVAILABLE and ser:
-                            try:
-                                ser.read(1000)  # Clear any remaining data
-                                sendPrint("[ADDR] ✓ Serial buffer cleared")
-                            except Exception as e:
-                                sendPrint(f"[ADDR] ⚠ Serial buffer clear failed: {e}")
-                        
-                        return True
-                    else:
-                        sendPrint(f"[ADDR] ⚠ Incomplete address response")
-            else:
-                sendPrint(f"[ADDR] ⚠ Bus ping got no response")
+                    # Parse address (same as board.py lines 124-128)
+                    addr1 = resp[3]
+                    addr2 = resp[4]
+                    sendPrint(f"[ADDR] ✓ Board address detected: {hex(addr1)} {hex(addr2)}")
+                    sendPrint(f"[ADDR] ✓ Address detection complete!")
+                    
+                    # Clear serial buffer after address detection (same as board.py)
+                    sendPrint("[ADDR] Clearing serial buffer after address detection...")
+                    time.sleep(0.5)  # Give board time to stabilize
+                    try:
+                        ser.read(1000)  # Clear any remaining data
+                        sendPrint("[ADDR] ✓ Serial buffer cleared")
+                    except Exception as e:
+                        sendPrint(f"[ADDR] ⚠ Serial buffer clear failed: {e}")
+                    
+                    return True
+                else:
+                    sendPrint(f"[ADDR] ⚠ Bus ping got incomplete response")
+            except Exception as e:
+                sendPrint(f"[ADDR] ✗ Bus ping command failed: {e}")
         else:
-            sendPrint(f"[ADDR] ✗ Bus ping command failed")
+            sendPrint("[ADDR] ✓ Bus ping command sent (SIMULATION)")
         
         time.sleep(0.5)  # Wait before next attempt
     
