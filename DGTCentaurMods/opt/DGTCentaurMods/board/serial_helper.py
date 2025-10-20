@@ -187,18 +187,8 @@ def sendCommand(command, callback=None, timeout=2.0, description=""):
         # Packet write for normal commands
         # Special handling for specific commands
         if command == b'\xb0\x00\x07\x00':
-            # LED off command - fire and forget, no response expected
+            # LED off command - expects response 0x93
             success = sendPacket(b'\xb0\x00\x07', b'\x00')
-            if success:
-                # Immediately complete the command since LED commands don't respond
-                sendPrint("[SEND] LED command sent - treating as fire-and-forget")
-                # Find the current command and mark it as completed
-                with _command_lock:
-                    for cmd_id, request in _command_requests.items():
-                        if request.state == CommandState.PENDING and request.description == "Turning LEDs off...":
-                            sendPrint(f"[SEND] Immediately completing LED command {cmd_id}")
-                            _transitionToCompleted(cmd_id, bytearray([0x93, 0x00, 0x05, 0x05, 0x07]))
-                            break
         elif command == b'\xb1\x00\x0a':
             success = sendPacket(b'\xb1\x00\x0a', b'\x48\x08\x4c\x08')
         else:
@@ -681,7 +671,7 @@ def initializeBoard():
     
     # Create initialization sequence (same as menu.py lines 176-179)
     init_sequence = [
-        (b'\xb0\x00\x07\x00', "Turning LEDs off...", 0.1),
+        (b'\xb0\x00\x07\x00', "Turning LEDs off...", 5.0),
         (b'\xb1\x00\x0a', "Sending power-on beep...", 2.0),
         (b'\x83', "Clearing serial buffer (field changes)...", 1.0),
         (b'\x94', "Clearing serial buffer (button status)...", 1.0)
