@@ -399,6 +399,10 @@ def _serial_monitor():
     
     sendPrint("Serial monitor thread stopped")
 
+def startMonitor():
+    """Start the serial monitor thread"""
+    global _monitor_running, _monitor_thread, _timeout_running, _timeout_thread
+    
     if _monitor_running:
         sendPrint("Monitor already running")
         return
