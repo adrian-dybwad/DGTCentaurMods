@@ -249,6 +249,9 @@ def _transitionToTimeout(command_id):
     3. Call callback with failure
     4. Remove from pending requests
     """
+    callback_to_call = None
+    callback_args = None
+    
     with _command_lock:
         if command_id not in _command_requests:
             return
@@ -260,12 +263,26 @@ def _transitionToTimeout(command_id):
         
         sendPrint(f"[STATE] → {request.description} TIMEOUT")
         
-        # Call callback with failure
+        # Prepare callback to be called outside the lock
         if request.callback:
-            request.callback(False, [], request.description)
+            sendPrint(f"[TRANSITION]   Preparing timeout callback for: {request.description}")
+            callback_to_call = request.callback
+            callback_args = (False, [], request.description)
+        else:
+            sendPrint(f"[TRANSITION]   No callback registered for timeout: {request.description}")
         
         # Remove from pending requests
         del _command_requests[command_id]
+    
+    # Call callback outside the lock to avoid deadlock
+    if callback_to_call:
+        sendPrint(f"[TRANSITION]   Calling timeout callback for: {request.description}")
+        try:
+            callback_to_call(*callback_args)
+        except Exception as e:
+            sendPrint(f"[TRANSITION]   ERROR in timeout callback: {e}")
+            import traceback
+            traceback.print_exc()
 
 def _processResponse(data):
     """
