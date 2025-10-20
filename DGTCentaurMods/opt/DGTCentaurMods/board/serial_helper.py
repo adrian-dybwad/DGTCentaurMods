@@ -462,7 +462,7 @@ def stopMonitor():
     
     sendPrint("Serial monitor stopped")
 
-def runSequentialCommands(command_sequence):
+def runSequentialCommands(command_sequence, completion_callback=None):
     """
     STATE MACHINE: Run a sequence of commands where each callback triggers the next command.
     
@@ -495,6 +495,8 @@ def runSequentialCommands(command_sequence):
                 sendCommand(next_command, nextCommandCallback, next_timeout, next_desc)
             else:
                 sendPrint("[SEQ] ✓ All commands completed successfully!")
+                if completion_callback:
+                    completion_callback(True, [], "All commands completed")
         else:
             sendPrint(f"[SEQ] ✗ {description} failed - stopping sequence")
     
@@ -651,8 +653,8 @@ def checkBoardStatus():
         (b'\x4d', "Testing version command...", 1.0)
     ]
     
-    # Run the test sequence
-    runSequentialCommands(test_sequence)
+    # Run the test sequence with callback
+    runSequentialCommands(test_sequence, statusTestCallback)
 
 def initializeBoard():
     """
