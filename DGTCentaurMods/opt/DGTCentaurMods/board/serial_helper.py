@@ -497,10 +497,6 @@ def runSequentialCommands(command_sequence):
     sendPrint(f"[SEQ] Starting command sequence: {first_desc}")
     sendCommand(first_command, nextCommandCallback, first_timeout, first_desc)
 
-    
-    # Run the sequential command chain
-    runSequentialCommands(command_sequence)
-
 def detectBoardAddress():
     """
     STATE MACHINE: Detect board address using sequential command chain with raw serial writes.
