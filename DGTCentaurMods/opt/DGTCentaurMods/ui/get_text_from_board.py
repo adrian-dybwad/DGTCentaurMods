@@ -49,8 +49,8 @@ def getText(title="Enter text"):
         print("Imported input_adapters successfully")
         from DGTCentaurMods.board import board
         print("Imported board successfully")
-        from DGTCentaurMods.ui.shared_state import main_menu_disabled
-        print("Imported main_menu_disabled successfully")
+        #from DGTCentaurMods.ui.shared_state import main_menu_disabled
+        #print("Imported main_menu_disabled successfully")
     except ImportError as e:
         print(f"ERROR: Import failed: {e}")
         import traceback
@@ -64,14 +64,14 @@ def getText(title="Enter text"):
     
     try:
         # Disable main menu handler
-        try:
-            main_menu_disabled = True
-            print("Main menu handler disabled")
-        except Exception as e:
-            print(f"ERROR: Failed to disable main menu handler: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+        #try:
+        #    main_menu_disabled = True
+        #    print("Main menu handler disabled")
+        #except Exception as e:
+        #    print(f"ERROR: Failed to disable main menu handler: {e}")
+        #    import traceback
+        #    traceback.print_exc()
+        #    return None
         
         try:
             # Start event subscription
@@ -262,10 +262,10 @@ def getText(title="Enter text"):
             
     finally:
         # Always re-enable main menu handler
-        try:
-            main_menu_disabled = False
-            print("Main menu handler re-enabled")
-        except Exception as e:
-            print(f"ERROR: Failed to re-enable main menu handler: {e}")
-            import traceback
-            traceback.print_exc()
+        # try:
+        #     main_menu_disabled = False
+        #     print("Main menu handler re-enabled")
+        # except Exception as e:
+        #     print(f"ERROR: Failed to re-enable main menu handler: {e}")
+        #     import traceback
+        #     traceback.print_exc()
