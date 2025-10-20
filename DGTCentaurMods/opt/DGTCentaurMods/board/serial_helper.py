@@ -32,6 +32,7 @@ ser.isOpen()
 # Serial monitor thread control
 _monitor_running = False
 _monitor_thread = None
+start_monitor()
 
 def _serial_monitor():
     """Background thread that monitors serial port and prints data"""
@@ -78,12 +79,6 @@ def stop_monitor():
 def sendPacket(packet):
     ser.write(packet)
 
-def readPacket():
-    try:
-        return ser.read(1000)
-    except:
-        return None
-
-def close():
+def closeSerial():
     stop_monitor()
     ser.close()
