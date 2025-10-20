@@ -164,6 +164,10 @@ def testResponsesWithSendPacket():
             for timestamp, data in responses:
                 hex_str = ' '.join(f'{b:02x}' for b in data)
                 sendPrint(f"[TEST]   Response: {hex_str}")
+                # Analyze the specific response pattern
+                if len(data) == 5 and data[0] == 0x93:
+                    sendPrint("[TEST]   Analyzing LED response...")
+                    analyzeResponse93(data)
         else:
             sendPrint("[TEST] ✗ LED off command got no response")
     else:
@@ -358,7 +362,79 @@ def testResponses():
     sendPrint("[TEST] === Command/Response Testing Complete ===")
     sendPrint("[TEST] Review the results above to see which commands work")
 
-def checkBoardStatus():
+def detectBoardAddress():
+    """
+    Detect the board address using the exact sequence from board.py lines 89-131.
+    This must be done before any LED or sound commands will work.
+    """
+    if not SERIAL_AVAILABLE:
+        sendPrint("[ADDR] Simulation mode - using default address")
+        return True
+    
+    global addr1, addr2
+    
+    sendPrint("[ADDR] Detecting board address...")
+    sendPrint("[ADDR] This is required before LED/sound commands will work")
+    
+    # Step 1: Send 0x4d (version command) - same as board.py line 95
+    sendPrint("[ADDR] Sending version command (0x4d)...")
+    if sendPacket(b'\x4d', b''):
+        sendPrint("[ADDR] ✓ Version command sent")
+        responses = collectCommandResponses(1.0)
+        if responses:
+            sendPrint("[ADDR] ✓ Version command got response")
+        else:
+            sendPrint("[ADDR] ⚠ Version command got no response")
+    else:
+        sendPrint("[ADDR] ✗ Version command failed")
+    
+    # Step 2: Send 0x4e (bootloader command) - same as board.py line 102
+    sendPrint("[ADDR] Sending bootloader command (0x4e)...")
+    if sendPacket(b'\x4e', b''):
+        sendPrint("[ADDR] ✓ Bootloader command sent")
+        responses = collectCommandResponses(1.0)
+        if responses:
+            sendPrint("[ADDR] ✓ Bootloader command got response")
+        else:
+            sendPrint("[ADDR] ⚠ Bootloader command got no response")
+    else:
+        sendPrint("[ADDR] ✗ Bootloader command failed")
+    
+    # Step 3: Send 0x87 00 00 07 (bus ping) repeatedly until we get address - same as board.py lines 118-128
+    sendPrint("[ADDR] Sending bus ping commands to detect address...")
+    timeout = time.time() + 30  # 30 second timeout
+    attempts = 0
+    
+    while time.time() < timeout:
+        attempts += 1
+        sendPrint(f"[ADDR] Bus ping attempt {attempts}...")
+        
+        if sendPacket(b'\x87\x00\x00\x07', b''):
+            responses = collectCommandResponses(1.0)
+            if responses:
+                for timestamp, data in responses:
+                    hex_str = ' '.join(f'{b:02x}' for b in data)
+                    sendPrint(f"[ADDR] Bus ping response: {hex_str}")
+                    
+                    # Check if response contains address (same as board.py lines 124-128)
+                    if len(data) > 4:
+                        addr1 = data[3]
+                        addr2 = data[4]
+                        sendPrint(f"[ADDR] ✓ Board address detected: {hex(addr1)} {hex(addr2)}")
+                        sendPrint(f"[ADDR] ✓ Address detection complete!")
+                        return True
+                    else:
+                        sendPrint(f"[ADDR] ⚠ Incomplete address response")
+            else:
+                sendPrint(f"[ADDR] ⚠ Bus ping got no response")
+        else:
+            sendPrint(f"[ADDR] ✗ Bus ping command failed")
+        
+        time.sleep(0.5)  # Wait before next attempt
+    
+    sendPrint("[ADDR] ✗ Address detection failed after 30 seconds")
+    sendPrint("[ADDR] ✗ LED and sound commands will not work without proper address")
+    return False
     """
     Check if the board is already properly initialized by testing the menu.py initialization sequence.
     Returns True if board is already initialized, False if it needs initialization.
@@ -551,7 +627,45 @@ def sendCommandAndWait(packet, timeout=2.0, description=""):
         sendPrint(f"[INIT] Failed to send {description}")
         return False, []
 
-def analyzeResponse(command, responses, response_type):
+def analyzeResponse93(response_data):
+    """
+    Analyze the response 93 00 05 05 07 which appears to be a successful LED off response.
+    This follows the DGT Centaur response pattern.
+    """
+    if len(response_data) != 5:
+        sendPrint(f"[ANALYZE] Response length {len(response_data)} is not 5 bytes")
+        return False
+    
+    # Break down the response: 93 00 05 05 07
+    cmd_byte = response_data[0]  # 0x93 = 147
+    addr1_resp = response_data[1]  # 0x00
+    addr2_resp = response_data[2]  # 0x05  
+    data_byte = response_data[3]  # 0x05
+    checksum = response_data[4]   # 0x07
+    
+    sendPrint(f"[ANALYZE] LED Response Analysis:")
+    sendPrint(f"[ANALYZE]   Command byte: 0x{cmd_byte:02x} ({cmd_byte})")
+    sendPrint(f"[ANALYZE]   Address 1: 0x{addr1_resp:02x} ({addr1_resp})")
+    sendPrint(f"[ANALYZE]   Address 2: 0x{addr2_resp:02x} ({addr2_resp})")
+    sendPrint(f"[ANALYZE]   Data byte: 0x{data_byte:02x} ({data_byte})")
+    sendPrint(f"[ANALYZE]   Checksum: 0x{checksum:02x} ({checksum})")
+    
+    # Verify checksum
+    calculated_checksum = 0
+    for i in range(4):  # First 4 bytes
+        calculated_checksum = calculated_checksum ^ response_data[i]
+    
+    sendPrint(f"[ANALYZE]   Calculated checksum: 0x{calculated_checksum:02x}")
+    sendPrint(f"[ANALYZE]   Checksum valid: {calculated_checksum == checksum}")
+    
+    # Analyze command byte
+    if cmd_byte == 0x93:
+        sendPrint(f"[ANALYZE]   ✓ This is a successful LED command response!")
+        sendPrint(f"[ANALYZE]   ✓ LED off command (0xb0) was acknowledged")
+        return True
+    else:
+        sendPrint(f"[ANALYZE]   ✗ Unexpected command byte: 0x{cmd_byte:02x}")
+        return False
     """
     Analyze responses against expected patterns from board.py and menu.py.
     Returns True if response looks valid, False otherwise.
@@ -661,18 +775,27 @@ if __name__ == "__main__":
     # Give the monitor a moment to start
     time.sleep(0.5)
     
-    # Run comprehensive command/response testing with proper sendPacket()
-    testResponsesWithSendPacket()
-    
-    # Check if board is already initialized
-    if checkBoardStatus():
-        sendPrint("Board is already initialized - skipping initialization sequence")
-    else:
-        # Initialize the board (we'll see all responses in the monitor)
-        if initializeBoard():
-            sendPrint("Board initialization successful!")
+    # Step 1: Detect board address (REQUIRED before LED/sound commands work)
+    if detectBoardAddress():
+        sendPrint("✓ Board address detection successful!")
+        sendPrint(f"✓ Using detected address: {hex(addr1)} {hex(addr2)}")
+        
+        # Step 2: Run comprehensive command/response testing with proper sendPacket()
+        testResponsesWithSendPacket()
+        
+        # Step 3: Check if board is already initialized
+        if checkBoardStatus():
+            sendPrint("Board is already initialized - skipping initialization sequence")
         else:
-            sendPrint("Board initialization failed!")
+            # Initialize the board (we'll see all responses in the monitor)
+            if initializeBoard():
+                sendPrint("Board initialization successful!")
+            else:
+                sendPrint("Board initialization failed!")
+    else:
+        sendPrint("✗ Board address detection failed!")
+        sendPrint("✗ LED and sound commands will not work")
+        sendPrint("✗ Skipping further testing")
     
     try:
         sendPrint("Serial monitor running. Press Ctrl+C to stop.")
