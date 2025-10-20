@@ -185,9 +185,11 @@ def sendCommand(command, callback=None, timeout=2.0, description=""):
         sendPrint(f"[SEND] Raw write result: {success}")
     else:
         # Packet write for normal commands
-        # Special handling for LED off command
+        # Special handling for specific commands
         if command == b'\xb0\x00\x07\x00':
             success = sendPacket(b'\xb0\x00\x07', b'\x00')
+        elif command == b'\xb1\x00\x0a':
+            success = sendPacket(b'\xb1\x00\x0a', b'\x48\x08\x4c\x08')
         else:
             success = sendPacket(command, b'')
         sendPrint(f"[SEND] Packet write result: {success}")
@@ -669,8 +671,8 @@ def initializeBoard():
     
     # Create initialization sequence (same as menu.py lines 176-179)
     init_sequence = [
-        (b'\xb0\x00\x07', "Turning LEDs off...", 1.0),
-        (b'\xb1\x00\x0a', "Sending power-on beep...", 1.0),
+        (b'\xb0\x00\x07\x00', "Turning LEDs off...", 2.0),
+        (b'\xb1\x00\x0a', "Sending power-on beep...", 2.0),
         (b'\x83', "Clearing serial buffer (field changes)...", 1.0),
         (b'\x94', "Clearing serial buffer (button status)...", 1.0)
     ]
