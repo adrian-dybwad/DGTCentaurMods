@@ -671,10 +671,10 @@ def initializeBoard():
     
     # Create initialization sequence (same as menu.py lines 176-179)
     init_sequence = [
+        (b'\x83', "Clearing serial buffer (field changes)...", 2.0),
+        (b'\x94', "Clearing serial buffer (button status)...", 2.0),
         (b'\xb0\x00\x07\x00', "Turning LEDs off...", 5.0),
-        (b'\xb1\x00\x0a', "Sending power-on beep...", 2.0),
-        (b'\x83', "Clearing serial buffer (field changes)...", 1.0),
-        (b'\x94', "Clearing serial buffer (button status)...", 1.0)
+        (b'\xb1\x00\x0a', "Sending power-on beep...", 2.0)
     ]
     
     # Run the initialization sequence using state machine
