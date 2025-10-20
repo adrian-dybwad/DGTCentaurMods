@@ -649,34 +649,34 @@ def getText(title="Enter text"):
     charpage = 1
     typed = ""
     
-"""     # First we need a clear board
-    try:
-        res = getBoardState()
-    except Exception as e:
-        logging.error(f"Failed to get board state: {e}")
-        return None
+    # # First we need a clear board
+    # try:
+    #     res = getBoardState()
+    # except Exception as e:
+    #     logging.error(f"Failed to get board state: {e}")
+    #     return None
         
-    if bytearray(res) != clearstate:
-        try:
-            writeTextToBuffer(0,'Remove board')
-            writeText(1,'pieces')
-        except Exception as e:
-            logging.error(f"Failed to write instructions: {e}")
-            return None
+    # if bytearray(res) != clearstate:
+    #     try:
+    #         writeTextToBuffer(0,'Remove board')
+    #         writeText(1,'pieces')
+    #     except Exception as e:
+    #         logging.error(f"Failed to write instructions: {e}")
+    #         return None
             
-        time.sleep(10)
-        timeout = time.time() + 60  # 60 second timeout
-        while bytearray(res) != clearstate:
-            if time.time() > timeout:
-                logging.error("Timeout waiting for board to be cleared")
-                return None
-            time.sleep(0.5)
-            try:
-                res = getBoardState()
-            except Exception as e:
-                logging.error(f"Failed to get board state: {e}")
-                return None
- """                
+    #     time.sleep(10)
+    #     timeout = time.time() + 60  # 60 second timeout
+    #     while bytearray(res) != clearstate:
+    #         if time.time() > timeout:
+    #             logging.error("Timeout waiting for board to be cleared")
+    #             return None
+    #         time.sleep(0.5)
+    #         try:
+    #             res = getBoardState()
+    #         except Exception as e:
+    #             logging.error(f"Failed to get board state: {e}")
+    #             return None
+                
     changed = 1
     try:
         clearBoardData()
