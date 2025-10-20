@@ -417,11 +417,42 @@ def detectBoardAddress():
                     sendPrint(f"[ADDR] Bus ping response: {hex_str}")
                     
                     # Check if response contains address (same as board.py lines 124-128)
-                    if len(data) > 4:
-                        addr1 = data[3]
-                        addr2 = data[4]
+                    # Response format: 87 00 06 06 50 63
+                    # Where: 87=cmd, 00=addr1, 06=addr2, 06=len, 50=actual_addr1, 63=actual_addr2
+                    if len(data) > 5:
+                        addr1 = data[4]  # 5th byte is actual addr1
+                        addr2 = data[5]  # 6th byte is actual addr2
                         sendPrint(f"[ADDR] ✓ Board address detected: {hex(addr1)} {hex(addr2)}")
                         sendPrint(f"[ADDR] ✓ Address detection complete!")
+                        
+                        # Clear serial buffer after address detection (same as board.py)
+                        sendPrint("[ADDR] Clearing serial buffer after address detection...")
+                        time.sleep(0.5)  # Give board time to stabilize
+                        if SERIAL_AVAILABLE and ser:
+                            try:
+                                ser.read(1000)  # Clear any remaining data
+                                sendPrint("[ADDR] ✓ Serial buffer cleared")
+                            except Exception as e:
+                                sendPrint(f"[ADDR] ⚠ Serial buffer clear failed: {e}")
+                        
+                        return True
+                    elif len(data) > 4:
+                        # Fallback to original parsing
+                        addr1 = data[3]
+                        addr2 = data[4]
+                        sendPrint(f"[ADDR] ✓ Board address detected (fallback): {hex(addr1)} {hex(addr2)}")
+                        sendPrint(f"[ADDR] ✓ Address detection complete!")
+                        
+                        # Clear serial buffer after address detection (same as board.py)
+                        sendPrint("[ADDR] Clearing serial buffer after address detection...")
+                        time.sleep(0.5)  # Give board time to stabilize
+                        if SERIAL_AVAILABLE and ser:
+                            try:
+                                ser.read(1000)  # Clear any remaining data
+                                sendPrint("[ADDR] ✓ Serial buffer cleared")
+                            except Exception as e:
+                                sendPrint(f"[ADDR] ⚠ Serial buffer clear failed: {e}")
+                        
                         return True
                     else:
                         sendPrint(f"[ADDR] ⚠ Incomplete address response")
@@ -435,6 +466,8 @@ def detectBoardAddress():
     sendPrint("[ADDR] ✗ Address detection failed after 30 seconds")
     sendPrint("[ADDR] ✗ LED and sound commands will not work without proper address")
     return False
+
+def checkBoardStatus():
     """
     Check if the board is already properly initialized by testing the menu.py initialization sequence.
     Returns True if board is already initialized, False if it needs initialization.
@@ -446,29 +479,42 @@ def detectBoardAddress():
     sendPrint("[STATUS] Checking if board is already properly initialized...")
     
     # Test if board responds to basic commands (version check)
-    success, responses = sendCommandAndWait(DGT_SEND_VERSION, 1.0, "Version check")
-    if not success or not responses:
-        sendPrint("[STATUS] Board not responding - needs initialization")
+    sendPrint("[STATUS] Testing version command...")
+    if sendPacket(b'\x4d', b''):
+        responses = collectCommandResponses(1.0)
+        if not responses:
+            sendPrint("[STATUS] Board not responding to version command - needs initialization")
+            return False
+    else:
+        sendPrint("[STATUS] Failed to send version command - needs initialization")
         return False
     
     # Test if board responds to LED off command (part of menu.py initialization)
     sendPrint("[STATUS] Testing LED off command...")
-    success, responses = sendCommandAndWait(DGT_LEDS_OFF, 1.0, "LED off test")
-    if not success or not responses:
-        sendPrint("[STATUS] Board LED commands not working - needs initialization")
+    if sendPacket(b'\xb0\x00\x07', b'\x00'):
+        responses = collectCommandResponses(1.0)
+        if not responses:
+            sendPrint("[STATUS] Board LED commands not working - needs initialization")
+            return False
+    else:
+        sendPrint("[STATUS] Failed to send LED off command - needs initialization")
         return False
     
     # Test if board responds to beep command (part of menu.py initialization)
     sendPrint("[STATUS] Testing beep command...")
-    success, responses = sendCommandAndWait(DGT_POWER_ON_BEEP, 1.0, "Beep test")
-    if not success or not responses:
-        sendPrint("[STATUS] Board beep commands not working - needs initialization")
+    if sendPacket(b'\xb1\x00\x0a', b'\x48\x08\x4c\x08'):
+        responses = collectCommandResponses(1.0)
+        if not responses:
+            sendPrint("[STATUS] Board beep commands not working - needs initialization")
+            return False
+    else:
+        sendPrint("[STATUS] Failed to send beep command - needs initialization")
         return False
     
     # Test if board serial buffer is clear (part of menu.py initialization)
     sendPrint("[STATUS] Testing serial buffer state...")
-    success1, responses1 = sendCommandAndWait(DGT_BUS_SEND_CHANGES, 0.5, "Field changes test")
-    success2, responses2 = sendCommandAndWait(DGT_BUTTON_STATUS, 0.5, "Button status test")
+    success1 = sendPacket(b'\x83', b'')
+    success2 = sendPacket(b'\x94', b'')
     
     if not success1 or not success2:
         sendPrint("[STATUS] Board serial commands not working properly - needs initialization")
