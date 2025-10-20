@@ -76,6 +76,10 @@ _monitor_thread = None
 _response_queue = []  # Shared queue for responses
 _response_lock = threading.Lock()  # Thread safety
 
+# Timeout checking thread
+_timeout_thread = None
+_timeout_running = False
+
 # Async State Machine for Command/Response Handling
 class CommandState:
     PENDING = "pending"      # Command sent, waiting for response
@@ -317,6 +321,34 @@ def _processResponse(data):
             sendPrint(f"[PROCESS] ERROR in _transitionToCompleted: {e}")
             import traceback
             traceback.print_exc()
+
+def _timeout_checker():
+    """Background thread that checks for timed-out commands"""
+    global _timeout_running
+    sendPrint("[TIMEOUT] Timeout checker thread started")
+    
+    while _timeout_running:
+        try:
+            current_time = time.time()
+            timed_out_commands = []
+            
+            with _command_lock:
+                for command_id, request in _command_requests.items():
+                    if (request.state == CommandState.PENDING and 
+                        current_time - request.sent_time > request.timeout):
+                        timed_out_commands.append(command_id)
+            
+            # Process timeouts outside the lock
+            for command_id in timed_out_commands:
+                sendPrint(f"[TIMEOUT] Command {command_id} timed out")
+                _transitionToTimeout(command_id)
+            
+            time.sleep(0.1)  # Check every 100ms
+        except Exception as e:
+            sendPrint(f"[TIMEOUT] Error in timeout checker: {e}")
+            time.sleep(1)
+    
+    sendPrint("[TIMEOUT] Timeout checker thread stopped")
 
 def _serial_monitor():
     """Background thread that monitors serial port and processes responses"""
@@ -660,8 +692,8 @@ def clearSerialUntilIdleWithSendPacket():
     return True
 
 def startMonitor():
-    """Start the serial monitor thread"""
-    global _monitor_running, _monitor_thread
+    """Start the serial monitor thread and timeout checker"""
+    global _monitor_running, _monitor_thread, _timeout_running, _timeout_thread
     
     if _monitor_running:
         sendPrint("Serial monitor already running")
@@ -671,15 +703,27 @@ def startMonitor():
     _monitor_thread = threading.Thread(target=_serial_monitor, daemon=True)
     _monitor_thread.start()
     sendPrint("Serial monitor started")
+    
+    # Start timeout checker
+    _timeout_running = True
+    _timeout_thread = threading.Thread(target=_timeout_checker, daemon=True)
+    _timeout_thread.start()
+    sendPrint("Timeout checker started")
 
 def stopMonitor():
-    """Stop the serial monitor thread"""
-    global _monitor_running, _monitor_thread
+    """Stop the serial monitor thread and timeout checker"""
+    global _monitor_running, _monitor_thread, _timeout_running, _timeout_thread
     
     if not _monitor_running:
         sendPrint("Serial monitor not running")
         return
     
+    # Stop timeout checker first
+    _timeout_running = False
+    if _timeout_thread:
+        _timeout_thread.join(timeout=1)
+    
+    # Stop serial monitor
     _monitor_running = False
     if _monitor_thread:
         _monitor_thread.join(timeout=2.0)
