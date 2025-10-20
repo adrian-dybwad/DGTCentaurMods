@@ -125,6 +125,21 @@ def sendPacket(command, data):
     tosend = buildPacket(command, data)
     return serialWrite(tosend)
 
+def serialWrite(data):
+    """Write data to serial port with error handling"""
+    if not SERIAL_AVAILABLE or ser is None:
+        sendPrint(f"[WRITE] Simulation mode - would send {len(data)} bytes: {data.hex()}")
+        return True
+    
+    try:
+        ser.write(data)
+        hex_str = ' '.join(f'{b:02x}' for b in data)
+        sendPrint(f"[WRITE] Sent {len(data)} bytes: {hex_str}")
+        return True
+    except Exception as e:
+        sendPrint(f"[WRITE] Error writing to serial: {e}")
+        return False
+
 def sendCommand(command, callback=None, timeout=2.0, description=""):
     """
     STATE MACHINE: Send command and transition to PENDING state
