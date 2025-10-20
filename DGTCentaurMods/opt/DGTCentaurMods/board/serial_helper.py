@@ -143,9 +143,14 @@ def sendCommand(command, callback=None, timeout=2.0, description=""):
         return 0
     
     # Create command request object
+    sendPrint(f"[SEND] About to acquire _command_lock")
     with _command_lock:
+        sendPrint(f"[SEND] Acquired _command_lock")
         _command_counter += 1
         command_id = _command_counter
+        sendPrint(f"[SEND] Updated command_id to {command_id}")
+    
+    sendPrint(f"[SEND] Released _command_lock for command ID {command_id}")
     
     request = CommandRequest(command_id, command, callback, timeout, description)
     
