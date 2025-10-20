@@ -187,6 +187,7 @@ def _transitionToCompleted(command_id, response_data):
     """
     with _command_lock:
         if command_id not in _command_requests:
+            sendPrint(f"[TRANSITION] Command ID {command_id} not found in requests")
             return
         
         request = _command_requests[command_id]
@@ -195,13 +196,16 @@ def _transitionToCompleted(command_id, response_data):
         request.state = CommandState.COMPLETED
         request.responses.append((time.time(), response_data))
         
-        sendPrint(f"[STATE] → {request.description} COMPLETED")
+        sendPrint(f"[TRANSITION] → {request.description} COMPLETED")
         
         # Call callback
         if request.callback:
             hex_str = ' '.join(f'{b:02x}' for b in response_data)
-            sendPrint(f"[STATE]   Response: {hex_str}")
+            sendPrint(f"[TRANSITION]   Response: {hex_str}")
+            sendPrint(f"[TRANSITION]   Calling callback for: {request.description}")
             request.callback(True, request.responses, request.description)
+        else:
+            sendPrint(f"[TRANSITION]   No callback registered for: {request.description}")
         
         # Remove from pending requests
         del _command_requests[command_id]
@@ -243,15 +247,25 @@ def _processResponse(data):
     2. Transition it to COMPLETED state
     3. Clean up any timed out commands
     """
+    hex_str = ' '.join(f'{b:02x}' for b in data)
+    sendPrint(f"[PROCESS] Processing response: {hex_str}")
+    
     with _command_lock:
+        # Debug: Show all pending commands
+        pending_count = sum(1 for req in _command_requests.values() if req.state == CommandState.PENDING)
+        sendPrint(f"[PROCESS] Found {pending_count} pending commands")
+        
         # Find first PENDING command to match this response
         for command_id, request in _command_requests.items():
             if request.state == CommandState.PENDING:
+                sendPrint(f"[PROCESS] Matching response to command ID {command_id}: {request.description}")
                 # Check if command has timed out
                 if time.time() - request.sent_time > request.timeout:
+                    sendPrint(f"[PROCESS] Command {command_id} timed out")
                     _transitionToTimeout(command_id)
                 else:
                     # Match this response to this command
+                    sendPrint(f"[PROCESS] Command {command_id} completed successfully")
                     _transitionToCompleted(command_id, data)
                 break
         
