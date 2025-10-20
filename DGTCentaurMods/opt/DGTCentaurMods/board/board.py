@@ -649,7 +649,7 @@ def getText(title="Enter text"):
     charpage = 1
     typed = ""
     
-    # First we need a clear board
+"""     # First we need a clear board
     try:
         res = getBoardState()
     except Exception as e:
@@ -676,7 +676,7 @@ def getText(title="Enter text"):
             except Exception as e:
                 logging.error(f"Failed to get board state: {e}")
                 return None
-                
+ """                
     changed = 1
     try:
         clearBoardData()
