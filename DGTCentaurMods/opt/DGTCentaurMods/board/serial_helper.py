@@ -60,8 +60,8 @@ def sendPrint(message):
 
 # Try to open serial port, but handle the case where it's not available
 try:
-    ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
-    ser.isOpen()
+ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
+ser.isOpen()
     SERIAL_AVAILABLE = True
     sendPrint("[SERIAL] Connected to /dev/serial0")
 except Exception as e:
@@ -376,6 +376,9 @@ def detectBoardAddress():
     sendPrint("[ADDR] Detecting board address...")
     sendPrint("[ADDR] This is required before LED/sound commands will work")
     
+    # Address detection needs exclusive access to serial port (no monitor thread running yet)
+    sendPrint("[ADDR] Address detection will run with exclusive serial port access...")
+    
     # Step 1: Send 0x4d (version command) - RAW write like board.py line 95-96
     sendPrint("[ADDR] Sending version command (0x4d) - RAW...")
     if SERIAL_AVAILABLE and ser:
@@ -423,8 +426,10 @@ def detectBoardAddress():
                     sendPrint(f"[ADDR] Bus ping response: {hex_str}")
                     
                     # Parse address (same as board.py lines 124-128)
-                    addr1 = resp[3]
-                    addr2 = resp[4]
+                    # Response format: 87 00 06 06 50 63
+                    # Where: 87=cmd, 00=addr1, 06=addr2, 06=len, 50=actual_addr1, 63=actual_addr2
+                    addr1 = resp[4]  # 5th byte is actual addr1
+                    addr2 = resp[5]  # 6th byte is actual addr2
                     sendPrint(f"[ADDR] ✓ Board address detected: {hex(addr1)} {hex(addr2)}")
                     sendPrint(f"[ADDR] ✓ Address detection complete!")
                     
@@ -436,6 +441,9 @@ def detectBoardAddress():
                         sendPrint("[ADDR] ✓ Serial buffer cleared")
                     except Exception as e:
                         sendPrint(f"[ADDR] ⚠ Serial buffer clear failed: {e}")
+                    
+                    # Monitor thread will be started after address detection is complete
+                    sendPrint("[ADDR] Address detection complete - monitor thread will start next")
                     
                     return True
                 else:
@@ -449,6 +457,10 @@ def detectBoardAddress():
     
     sendPrint("[ADDR] ✗ Address detection failed after 30 seconds")
     sendPrint("[ADDR] ✗ LED and sound commands will not work without proper address")
+    
+    # Monitor thread will be started even if address detection failed
+    sendPrint("[ADDR] Monitor thread will start next for debugging")
+    
     return False
 
 def checkBoardStatus():
@@ -590,7 +602,7 @@ def serialWrite(packet):
         return True
     
     try:
-        ser.write(packet)
+    ser.write(packet)
         hex_str = ' '.join(f'{b:02x}' for b in packet)
         sendPrint(f"[WRITE] Sent {len(packet)} bytes: {hex_str}")
         return True
@@ -794,26 +806,26 @@ def clearSerialUntilIdleWithSendPacket():
 def closeSerial():
     stopMonitor()
     if SERIAL_AVAILABLE and ser:
-        ser.close()
+    ser.close()
 
 if __name__ == "__main__":
-    sendPrint("Starting serial monitor...")
+    sendPrint("Starting DGT Centaur serial helper...")
     
-    # Start monitoring first to see all responses
-    startMonitor()
-    
-    # Give the monitor a moment to start
-    time.sleep(0.5)
-    
-    # Step 1: Detect board address (REQUIRED before LED/sound commands work)
+    # Step 1: Detect board address FIRST (REQUIRED before LED/sound commands work)
+    # Address detection runs with exclusive serial port access (no monitor thread yet)
     if detectBoardAddress():
         sendPrint("✓ Board address detection successful!")
         sendPrint(f"✓ Using detected address: {hex(addr1)} {hex(addr2)}")
         
-        # Step 2: Run comprehensive command/response testing with proper sendPacket()
+        # Step 2: NOW start monitoring to see all subsequent responses
+        sendPrint("Starting serial monitor for command testing...")
+        startMonitor()
+        time.sleep(0.5)  # Give monitor thread time to start
+        
+        # Step 3: Run comprehensive command/response testing with proper sendPacket()
         testResponsesWithSendPacket()
         
-        # Step 3: Check if board is already initialized
+        # Step 4: Check if board is already initialized
         if checkBoardStatus():
             sendPrint("Board is already initialized - skipping initialization sequence")
         else:
@@ -825,7 +837,9 @@ if __name__ == "__main__":
     else:
         sendPrint("✗ Board address detection failed!")
         sendPrint("✗ LED and sound commands will not work")
-        sendPrint("✗ Skipping further testing")
+        sendPrint("✗ Starting monitor thread anyway for debugging...")
+        startMonitor()
+        time.sleep(0.5)
     
     try:
         sendPrint("Serial monitor running. Press Ctrl+C to stop.")
