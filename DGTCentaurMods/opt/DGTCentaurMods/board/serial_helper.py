@@ -250,6 +250,10 @@ def _processResponse(data):
     hex_str = ' '.join(f'{b:02x}' for b in data)
     sendPrint(f"[PROCESS] Processing response: {hex_str}")
     
+    # Decide actions while holding the lock, but perform transitions after releasing it
+    to_complete = None
+    to_timeout = []
+
     with _command_lock:
         # Debug: Show all pending commands
         pending_count = sum(1 for req in _command_requests.values() if req.state == CommandState.PENDING)
@@ -262,31 +266,32 @@ def _processResponse(data):
                 # Check if command has timed out
                 if time.time() - request.sent_time > request.timeout:
                     sendPrint(f"[PROCESS] Command {command_id} timed out")
-                    _transitionToTimeout(command_id)
+                    to_timeout.append(command_id)
                 else:
                     # Match this response to this command
                     sendPrint(f"[PROCESS] Command {command_id} completed successfully")
-                    sendPrint(f"[PROCESS] About to call _transitionToCompleted for command {command_id}")
-                    try:
-                        _transitionToCompleted(command_id, data)
-                        sendPrint(f"[PROCESS] _transitionToCompleted call completed for command {command_id}")
-                    except Exception as e:
-                        sendPrint(f"[PROCESS] ERROR in _transitionToCompleted: {e}")
-                        import traceback
-                        traceback.print_exc()
+                    to_complete = command_id
                 break
         
-        # Clean up any timed out commands
+        # Mark any other timed out commands
         current_time = time.time()
-        timed_out_commands = []
-        
         for command_id, request in _command_requests.items():
             if (request.state == CommandState.PENDING and 
                 current_time - request.sent_time > request.timeout):
-                timed_out_commands.append(command_id)
-        
-        for command_id in timed_out_commands:
-            _transitionToTimeout(command_id)
+                to_timeout.append(command_id)
+
+    # Perform transitions outside the lock to avoid deadlocks
+    for command_id in to_timeout:
+        _transitionToTimeout(command_id)
+    if to_complete is not None:
+        sendPrint(f"[PROCESS] About to call _transitionToCompleted for command {to_complete}")
+        try:
+            _transitionToCompleted(to_complete, data)
+            sendPrint(f"[PROCESS] _transitionToCompleted call completed for command {to_complete}")
+        except Exception as e:
+            sendPrint(f"[PROCESS] ERROR in _transitionToCompleted: {e}")
+            import traceback
+            traceback.print_exc()
 
 def _serial_monitor():
     """Background thread that monitors serial port and processes responses"""
