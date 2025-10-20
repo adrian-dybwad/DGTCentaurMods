@@ -399,6 +399,44 @@ def _serial_monitor():
     
     sendPrint("Serial monitor thread stopped")
 
+    if _monitor_running:
+        sendPrint("Monitor already running")
+        return
+    
+    sendPrint("Starting serial monitor thread...")
+    _monitor_running = True
+    _monitor_thread = threading.Thread(target=_serial_monitor, daemon=True)
+    _monitor_thread.start()
+    
+    # Start timeout checker thread
+    _timeout_running = True
+    _timeout_thread = threading.Thread(target=_timeout_checker, daemon=True)
+    _timeout_thread.start()
+    sendPrint("Timeout checker started")
+    
+    time.sleep(0.5)  # Give threads time to start
+    sendPrint("Serial monitor started")
+
+def stopMonitor():
+    """Stop the serial monitor thread"""
+    global _monitor_running, _monitor_thread, _timeout_running, _timeout_thread
+    
+    if not _monitor_running:
+        sendPrint("Monitor not running")
+        return
+    
+    sendPrint("Stopping serial monitor thread...")
+    _monitor_running = False
+    _timeout_running = False
+    
+    if _monitor_thread and _monitor_thread.is_alive():
+        _monitor_thread.join(timeout=2)
+    
+    if _timeout_thread and _timeout_thread.is_alive():
+        _timeout_thread.join(timeout=2)
+    
+    sendPrint("Serial monitor stopped")
+
 def runSequentialCommands(command_sequence):
     """
     STATE MACHINE: Run a sequence of commands where each callback triggers the next command.
@@ -440,55 +478,6 @@ def runSequentialCommands(command_sequence):
     sendPrint(f"[SEQ] Starting command sequence: {first_desc}")
     sendCommand(first_command, nextCommandCallback, first_timeout, first_desc)
 
-def testResponsesWithSendPacket():
-    """
-    STATE MACHINE: Test DGT Centaur commands using sequential callback chain.
-    Each successful response triggers the next command in the sequence.
-    """
-    if not SERIAL_AVAILABLE:
-        sendPrint("[TEST] Simulation mode - cannot test actual hardware")
-        return
-    
-    sendPrint("[TEST] Starting sequential command testing...")
-    sendPrint(f"[TEST] Using board address: {hex(addr1)} {hex(addr2)}")
-    
-    # Define command sequence: (command, description, timeout)
-    command_sequence = [
-        (b'\x4d', "Test 1: Version Command (0x4d)", 2.0),
-        (b'\xb0\x00\x07', "Test 2: LED Off Command (0xb0)", 2.0),
-        (b'\xb1\x00\x0a', "Test 3: Power-on Beep Command (0xb1)", 2.0),
-        (b'\x83', "Test 4: Field Changes Command (0x83)", 2.0),
-        (b'\x94', "Test 5: Button Status Command (0x94)", 2.0),
-        (b'\xf0\x00\x07', "Test 6: Board State Command (0xf0)", 2.0),
-    ]
-    
-    # Run the sequential command chain
-    runSequentialCommands(command_sequence)
-
-def testResponses():
-    """
-    STATE MACHINE: Comprehensive command testing using sequential callback chain.
-    """
-    if not SERIAL_AVAILABLE:
-        sendPrint("[TEST] Simulation mode - cannot test actual hardware")
-        return
-    
-    sendPrint("[TEST] Starting comprehensive sequential command testing...")
-    sendPrint("[TEST] This will test all available DGT Centaur commands in sequence")
-    
-    # Define comprehensive command sequence
-    command_sequence = [
-        (DGT_SEND_VERSION, "Test 1: Version Command (0x4d)", 2.0),
-        (DGT_STARTBOOTLOADER, "Test 2: Bootloader Command (0x4e)", 2.0),
-        (DGT_BUS_PING, "Test 3: Bus Ping Command (0x87)", 2.0),
-        (DGT_LEDS_OFF, "Test 4: LED Off Command (0xb0) - Current Format", 2.0),
-        (bytearray(b'\xb0\x00\x07\x00'), "Test 5: LED Off Command (0xb0) - Alternative Format", 2.0),
-        (DGT_POWER_ON_BEEP, "Test 6: Power-on Beep Command (0xb1)", 2.0),
-        (DGT_BUS_SEND_CHANGES, "Test 7: Field Changes Command (0x83)", 2.0),
-        (DGT_BUTTON_STATUS, "Test 8: Button Status Command (0x94)", 2.0),
-        (bytearray(b'\xb2\x00\x07\x0a'), "Test 9: Sleep Command (0xb2)", 2.0),
-        (bytearray(b'\xf0\x00\x07\x7f'), "Test 10: Board State Command (0xf0)", 2.0),
-    ]
     
     # Run the sequential command chain
     runSequentialCommands(command_sequence)
@@ -626,9 +615,14 @@ def checkBoardStatus():
     def statusTestCallback(success, responses, description):
         if success:
             sendPrint(f"[STATUS] ✓ {description} works")
+            # If this is the last command in the sequence, board is initialized
+            if "button status" in description:
+                sendPrint("[STATUS] ✓ Board is already initialized!")
         else:
             sendPrint(f"[STATUS] ✗ {description} failed - board needs initialization")
-            test_results[0] = False
+            sendPrint("[STATUS] → Starting initialization sequence...")
+            # Start initialization sequence
+            initializeBoard()
     
     # Create test sequence for board status check
     test_sequence = [
@@ -641,10 +635,6 @@ def checkBoardStatus():
     
     # Run the test sequence
     runSequentialCommands(test_sequence)
-    
-    # Check if all tests passed (simplified - in real implementation you'd track each result)
-    sendPrint("[STATUS] Board status check completed")
-    return True  # Simplified for now - would need proper result tracking
 
 def initializeBoard():
     """
@@ -672,98 +662,6 @@ def initializeBoard():
     sendPrint("[INIT] Board initialization sequence completed")
     return True
 
-def clearSerialUntilIdleWithSendPacket():
-    """
-    STATE MACHINE: Clear serial buffer until board is idle using sequential command chain.
-    This implements the same logic as board.clearSerial() but using the new state machine.
-    
-    Flow:
-    1. Send field changes command (0x83)
-    2. Send button status command (0x94) 
-    3. If responses received: board not idle, repeat sequence
-    4. If no responses: board is idle, stop
-    """
-    sendPrint("[CLEAR] Starting serial buffer clearing sequence...")
-    
-    # Track clearing attempts
-    clear_attempts = [0]
-    max_attempts = 10  # Prevent infinite loops
-    
-    def clearSequenceCallback(success, responses, description):
-        if success:
-            sendPrint(f"[CLEAR] ✓ {description} got response - board not idle yet")
-            
-            # Board is not idle, continue clearing
-            clear_attempts[0] += 1
-            if clear_attempts[0] < max_attempts:
-                sendPrint(f"[CLEAR] → Board not idle, continuing clear sequence (attempt {clear_attempts[0]})")
-                # Send clearing commands again
-                sendCommand(b'\x83', clearSequenceCallback, 1.0, "Field changes command")
-            else:
-                sendPrint(f"[CLEAR] ⚠ Max attempts reached, assuming board is idle")
-        else:
-            # No response means board is idle
-            sendPrint(f"[CLEAR] ✓ {description} got no response - board is idle!")
-    
-    # Start the clearing sequence with first command
-    sendCommand(b'\x83', clearSequenceCallback, 1.0, "Field changes command")
-    return True
-
-def startMonitor():
-    """Start the serial monitor thread and timeout checker"""
-    global _monitor_running, _monitor_thread, _timeout_running, _timeout_thread
-    
-    if _monitor_running:
-        sendPrint("Serial monitor already running")
-        return
-    
-    _monitor_running = True
-    _monitor_thread = threading.Thread(target=_serial_monitor, daemon=True)
-    _monitor_thread.start()
-    sendPrint("Serial monitor started")
-    
-    # Start timeout checker
-    _timeout_running = True
-    _timeout_thread = threading.Thread(target=_timeout_checker, daemon=True)
-    _timeout_thread.start()
-    sendPrint("Timeout checker started")
-
-def stopMonitor():
-    """Stop the serial monitor thread and timeout checker"""
-    global _monitor_running, _monitor_thread, _timeout_running, _timeout_thread
-    
-    if not _monitor_running:
-        sendPrint("Serial monitor not running")
-        return
-    
-    # Stop timeout checker first
-    _timeout_running = False
-    if _timeout_thread:
-        _timeout_thread.join(timeout=1)
-    
-    # Stop serial monitor
-    _monitor_running = False
-    if _monitor_thread:
-        _monitor_thread.join(timeout=2.0)
-    sendPrint("Serial monitor stopped")
-
-def serialWrite(packet):
-    """Write data to serial port with error handling"""
-    if not SERIAL_AVAILABLE:
-        hex_str = ' '.join(f'{b:02x}' for b in packet)
-        sendPrint(f"[WRITE] SIMULATION: Would send {len(packet)} bytes: {hex_str}")
-        return True
-    
-    try:
-        ser.write(packet)
-        hex_str = ' '.join(f'{b:02x}' for b in packet)
-        sendPrint(f"[WRITE] Sent {len(packet)} bytes: {hex_str}")
-        return True
-    except Exception as e:
-        sendPrint(f"[WRITE] Error writing to serial: {e}")
-        return False
-
-def analyzeResponse93(response_data):
     """
     Analyze the response 93 00 05 05 07 which appears to be a successful LED off response.
     This follows the DGT Centaur response pattern.
@@ -871,15 +769,8 @@ if __name__ == "__main__":
         sendPrint("✓ Board address detection successful!")
         sendPrint(f"✓ Using detected address: {hex(addr1)} {hex(addr2)}")
         
-        # Step 3: Check if board is already initialized FIRST
-        if checkBoardStatus():
-            sendPrint("Board is already initialized - skipping initialization sequence")
-        else:
-            # Initialize the board (we'll see all responses in the monitor)
-            if initializeBoard():
-                sendPrint("Board initialization successful!")
-            else:
-                sendPrint("Board initialization failed!")
+        # Step 3: Check if board is already initialized, initialize if needed
+        checkBoardStatus()
     else:
         sendPrint("✗ Board address detection failed!")
         sendPrint("✗ LED and sound commands will not work")
