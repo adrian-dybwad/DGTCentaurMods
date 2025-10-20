@@ -82,4 +82,16 @@ def closeSerial():
     stop_monitor()
     ser.close()
 
-start_monitor()
+if __name__ == "__main__":
+    print("Starting serial monitor...")
+    start_monitor()
+    
+    try:
+        print("Serial monitor running. Press Ctrl+C to stop.")
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nStopping serial monitor...")
+        stop_monitor()
+        closeSerial()
+        print("Serial monitor stopped.")
