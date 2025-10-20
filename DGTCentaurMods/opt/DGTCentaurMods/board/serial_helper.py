@@ -266,7 +266,14 @@ def _processResponse(data):
                 else:
                     # Match this response to this command
                     sendPrint(f"[PROCESS] Command {command_id} completed successfully")
-                    _transitionToCompleted(command_id, data)
+                    sendPrint(f"[PROCESS] About to call _transitionToCompleted for command {command_id}")
+                    try:
+                        _transitionToCompleted(command_id, data)
+                        sendPrint(f"[PROCESS] _transitionToCompleted call completed for command {command_id}")
+                    except Exception as e:
+                        sendPrint(f"[PROCESS] ERROR in _transitionToCompleted: {e}")
+                        import traceback
+                        traceback.print_exc()
                 break
         
         # Clean up any timed out commands
