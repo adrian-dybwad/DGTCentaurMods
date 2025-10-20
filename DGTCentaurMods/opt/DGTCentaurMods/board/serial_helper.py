@@ -84,7 +84,9 @@ def _serial_monitor():
         try:
             data = ser.read(1000)
             if data:
-                print(f"[SERIAL] Received {len(data)} bytes: {data.hex()}")
+                # Show hex representation more clearly
+                hex_str = ' '.join(f'{b:02x}' for b in data)
+                print(f"[SERIAL] Received {len(data)} bytes: {hex_str}")
         except Exception as e:
             print(f"[SERIAL] Error reading: {e}")
             time.sleep(0.1)
@@ -112,12 +114,16 @@ def initialize_board():
     print("[INIT] Sending address detection commands...")
     
     # Command 0x4d - Request board version information
-    if not sendCommandAndWait(DGT_SEND_VERSION, 2.0, "Request board version"):
+    success, responses = sendCommandAndWait(DGT_SEND_VERSION, 2.0, "Request board version")
+    if not success:
         return False
+    analyzeResponse(DGT_SEND_VERSION, responses, "Version Response")
     
     # Command 0x4e - Hard reboot/reset command  
-    if not sendCommandAndWait(DGT_STARTBOOTLOADER, 2.0, "Hard reboot/reset"):
+    success, responses = sendCommandAndWait(DGT_STARTBOOTLOADER, 2.0, "Hard reboot/reset")
+    if not success:
         return False
+    analyzeResponse(DGT_STARTBOOTLOADER, responses, "Reboot Response")
     
     # Command 0x87 - Bus mode ping to detect board address (loop until address found)
     print("[INIT] Detecting board address...")
@@ -125,13 +131,13 @@ def initialize_board():
     address_found = False
     
     while time.time() < timeout and not address_found:
-        if not sendCommandAndWait(DGT_BUS_PING, 1.0, "Bus ping - detect address"):
+        success, responses = sendCommandAndWait(DGT_BUS_PING, 1.0, "Bus ping - detect address")
+        if not success:
             return False
         
-        # Check if we got a response with address (similar to board.py logic)
-        # Note: In a real implementation, we'd parse the response to extract addr1, addr2
-        # For now, we'll assume success after a few attempts
-        address_found = True  # Simplified for this implementation
+        # Analyze the response to see if we got an address
+        if analyzeResponse(DGT_BUS_PING, responses, "Address Response"):
+            address_found = True
     
     if not address_found:
         print("[INIT] Failed to detect board address")
@@ -142,13 +148,17 @@ def initialize_board():
     
     # Turn LEDs off (same as ledsOff() in board.py)
     print("[INIT] Turning LEDs off...")
-    if not sendCommandAndWait(DGT_LEDS_OFF, 1.0, "LED off command"):
+    success, responses = sendCommandAndWait(DGT_LEDS_OFF, 1.0, "LED off command")
+    if not success:
         return False
+    analyzeResponse(DGT_LEDS_OFF, responses, "LED Response")
     
     # Send power-on beep (same as beep(SOUND_POWER_ON))
     print("[INIT] Sending power-on beep...")
-    if not sendCommandAndWait(DGT_POWER_ON_BEEP, 1.0, "Power-on beep"):
+    success, responses = sendCommandAndWait(DGT_POWER_ON_BEEP, 1.0, "Power-on beep")
+    if not success:
         return False
+    analyzeResponse(DGT_POWER_ON_BEEP, responses, "Beep Response")
     
     # Clear serial buffer (same as clearSerial() in board.py)
     print("[INIT] Clearing serial buffer until board is idle...")
@@ -191,12 +201,14 @@ def stop_monitor():
 def serialWrite(packet):
     """Write data to serial port with error handling"""
     if not SERIAL_AVAILABLE:
-        print(f"[WRITE] SIMULATION: Would send {len(packet)} bytes: {packet.hex()}")
+        hex_str = ' '.join(f'{b:02x}' for b in packet)
+        print(f"[WRITE] SIMULATION: Would send {len(packet)} bytes: {hex_str}")
         return True
     
     try:
         ser.write(packet)
-        print(f"[WRITE] Sent {len(packet)} bytes: {packet.hex()}")
+        hex_str = ' '.join(f'{b:02x}' for b in packet)
+        print(f"[WRITE] Sent {len(packet)} bytes: {hex_str}")
         return True
     except Exception as e:
         print(f"[WRITE] Error writing to serial: {e}")
@@ -218,16 +230,29 @@ def collectCommandResponses(timeout=5.0):
     
     print(f"[COLLECT] Starting to collect responses for {timeout} seconds...")
     
-    while time.time() - start_time < timeout:
-        try:
-            data = ser.read(1000)
-            if data:
-                timestamp = time.time() - start_time
-                responses.append((timestamp, data))
-                print(f"[COLLECT] Received {len(data)} bytes at {timestamp:.2f}s: {data.hex()}")
-        except Exception as e:
-            print(f"[COLLECT] Error reading: {e}")
-            time.sleep(0.01)
+    # Temporarily stop the monitor thread to avoid conflicts
+    monitor_was_running = _monitor_running
+    if monitor_was_running:
+        stop_monitor()
+        time.sleep(0.1)  # Give it time to stop
+    
+    try:
+        while time.time() - start_time < timeout:
+            try:
+                data = ser.read(1000)
+                if data:
+                    timestamp = time.time() - start_time
+                    responses.append((timestamp, data))
+                    # Show hex representation more clearly
+                    hex_str = ' '.join(f'{b:02x}' for b in data)
+                    print(f"[COLLECT] Received {len(data)} bytes at {timestamp:.2f}s: {hex_str}")
+            except Exception as e:
+                print(f"[COLLECT] Error reading: {e}")
+                time.sleep(0.01)
+    finally:
+        # Restart monitor if it was running before
+        if monitor_was_running:
+            start_monitor()
     
     print(f"[COLLECT] Collected {len(responses)} responses")
     return responses
@@ -235,20 +260,72 @@ def collectCommandResponses(timeout=5.0):
 def sendCommandAndWait(packet, timeout=2.0, description=""):
     """
     Send a command and wait for responses.
-    Returns True if command was sent successfully, False otherwise.
+    Returns (success, responses) tuple where success is bool and responses is list of (timestamp, data).
     """
     if serialWrite(packet):
         print(f"[INIT] Sent {packet.hex()} ({description})")
         responses = collectCommandResponses(timeout)
         if responses:
             print(f"[INIT] Received {len(responses)} responses to {description}")
-            return True
+            return True, responses
         else:
             print(f"[INIT] No response to {description}")
-            return False
+            return False, []
     else:
         print(f"[INIT] Failed to send {description}")
+        return False, []
+
+def analyzeResponse(command, responses, response_type):
+    """
+    Analyze responses against expected patterns from board.py and menu.py.
+    Returns True if response looks valid, False otherwise.
+    """
+    if not responses:
+        print(f"[ANALYZE] {response_type}: No responses received")
         return False
+    
+    for timestamp, data in responses:
+        hex_str = ' '.join(f'{b:02x}' for b in data)
+        print(f"[ANALYZE] {response_type}: {len(data)} bytes at {timestamp:.2f}s: {hex_str}")
+        
+        # Analyze based on command type
+        if command == DGT_SEND_VERSION:
+            # Expected: Version response (from board.py analysis)
+            if len(data) >= 3 and data[0] == 0x93:
+                print(f"[ANALYZE] {response_type}: Valid version response format")
+                return True
+            else:
+                print(f"[ANALYZE] {response_type}: Unexpected version response format")
+                
+        elif command == DGT_STARTBOOTLOADER:
+            # Expected: Reboot acknowledgment
+            if len(data) >= 1:
+                print(f"[ANALYZE] {response_type}: Reboot response received")
+                return True
+            else:
+                print(f"[ANALYZE] {response_type}: Unexpected reboot response")
+                
+        elif command == DGT_BUS_PING:
+            # Expected: Address response (from board.py lines 124-128)
+            if len(data) > 4:
+                addr1 = data[3] if len(data) > 3 else 0
+                addr2 = data[4] if len(data) > 4 else 0
+                print(f"[ANALYZE] {response_type}: Board address detected: {hex(addr1)} {hex(addr2)}")
+                return True
+            else:
+                print(f"[ANALYZE] {response_type}: Incomplete address response")
+                
+        elif command == DGT_LEDS_OFF:
+            # Expected: LED command acknowledgment
+            print(f"[ANALYZE] {response_type}: LED command response")
+            return True
+            
+        elif command == DGT_POWER_ON_BEEP:
+            # Expected: Beep command acknowledgment
+            print(f"[ANALYZE] {response_type}: Beep command response")
+            return True
+    
+    return False
 
 def clearSerialUntilIdle():
     """
@@ -269,11 +346,13 @@ def clearSerialUntilIdle():
         print(f"[CLEAR] Attempt {attempts}/{max_attempts}")
         
         # Send 0x83 command and collect response
-        if not sendCommandAndWait(DGT_BUS_SEND_CHANGES, 1.0, "Request field changes"):
+        success, responses = sendCommandAndWait(DGT_BUS_SEND_CHANGES, 1.0, "Request field changes")
+        if not success:
             return False
         
         # Send 0x94 command and collect response  
-        if not sendCommandAndWait(DGT_BUTTON_STATUS, 1.0, "Check button states"):
+        success, responses = sendCommandAndWait(DGT_BUTTON_STATUS, 1.0, "Check button states")
+        if not success:
             return False
         
         # In a real implementation, we would check if responses match expected idle responses
