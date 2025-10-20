@@ -107,101 +107,82 @@ def _serial_monitor():
 
 def checkBoardStatus():
     """
-    Check if the board is already initialized by sending a simple command.
-    Returns True if board responds properly, False otherwise.
+    Check if the board is already properly initialized by testing the menu.py initialization sequence.
+    Returns True if board is already initialized, False if it needs initialization.
     """
     if not SERIAL_AVAILABLE:
-        sendPrint("[STATUS] Simulation mode - assuming board is ready")
-        return True
-    
-    sendPrint("[STATUS] Checking if board is already initialized...")
-    
-    # Send a simple command to check if board responds
-    success, responses = sendCommandAndWait(DGT_SEND_VERSION, 1.0, "Check board status")
-    if success and responses:
-        sendPrint("[STATUS] Board appears to be already initialized")
-        return True
-    else:
-        sendPrint("[STATUS] Board needs initialization")
+        sendPrint("[STATUS] Simulation mode - assuming board needs initialization")
         return False
+    
+    sendPrint("[STATUS] Checking if board is already properly initialized...")
+    
+    # Test if board responds to basic commands (version check)
+    success, responses = sendCommandAndWait(DGT_SEND_VERSION, 1.0, "Version check")
+    if not success or not responses:
+        sendPrint("[STATUS] Board not responding - needs initialization")
+        return False
+    
+    # Test if board responds to LED off command (part of menu.py initialization)
+    sendPrint("[STATUS] Testing LED off command...")
+    success, responses = sendCommandAndWait(DGT_LEDS_OFF, 1.0, "LED off test")
+    if not success or not responses:
+        sendPrint("[STATUS] Board LED commands not working - needs initialization")
+        return False
+    
+    # Test if board responds to beep command (part of menu.py initialization)
+    sendPrint("[STATUS] Testing beep command...")
+    success, responses = sendCommandAndWait(DGT_POWER_ON_BEEP, 1.0, "Beep test")
+    if not success or not responses:
+        sendPrint("[STATUS] Board beep commands not working - needs initialization")
+        return False
+    
+    # Test if board serial buffer is clear (part of menu.py initialization)
+    sendPrint("[STATUS] Testing serial buffer state...")
+    success1, responses1 = sendCommandAndWait(DGT_BUS_SEND_CHANGES, 0.5, "Field changes test")
+    success2, responses2 = sendCommandAndWait(DGT_BUTTON_STATUS, 0.5, "Button status test")
+    
+    if not success1 or not success2:
+        sendPrint("[STATUS] Board serial commands not working properly - needs initialization")
+        return False
+    
+    sendPrint("[STATUS] Board appears to be properly initialized")
+    return True
 
 def initializeBoard():
     """
-    Initialize the board with the standard DGT Centaur initialization sequence.
-    Sends commands in the same order as board.py and menu.py initialization.
+    Initialize the board with the exact sequence from menu.py lines 176-179.
+    This is the actual initialization sequence used by the main application.
     """
-    sendPrint("[INIT] Starting board initialization...")
+    sendPrint("[INIT] Starting board initialization (menu.py sequence)...")
     
     if not SERIAL_AVAILABLE:
         sendPrint("[INIT] Running in simulation mode - no actual hardware")
+        return True
     
-    # Clear any existing data
-    if SERIAL_AVAILABLE:
-        try:
-            ser.read(1000)
-        except:
-            pass
-    
-    # Step 1: Address Detection (same as board.py initialization)
-    sendPrint("[INIT] Sending address detection commands...")
-    
-    # Command 0x4d - Request board version information
-    success, responses = sendCommandAndWait(DGT_SEND_VERSION, 2.0, "Request board version")
-    if not success:
-        return False
-    analyzeResponse(DGT_SEND_VERSION, responses, "Version Response")
-    
-    # Command 0x4e - Hard reboot/reset command  
-    success, responses = sendCommandAndWait(DGT_STARTBOOTLOADER, 2.0, "Hard reboot/reset")
-    if not success:
-        return False
-    analyzeResponse(DGT_STARTBOOTLOADER, responses, "Reboot Response")
-    
-    # Command 0x87 - Bus mode ping to detect board address (loop until address found)
-    sendPrint("[INIT] Detecting board address...")
-    timeout = time.time() + 60  # 60 second timeout like board.py
-    address_found = False
-    
-    while time.time() < timeout and not address_found:
-        success, responses = sendCommandAndWait(DGT_BUS_PING, 1.0, "Bus ping - detect address")
-        if not success:
-            return False
-        
-        # Analyze the response to see if we got an address
-        if analyzeResponse(DGT_BUS_PING, responses, "Address Response"):
-            address_found = True
-    
-    if not address_found:
-        sendPrint("[INIT] Failed to detect board address")
-        return False
-    
-    # Step 2: Menu Initialization (same as menu.py lines 173-179)
-    sendPrint("[INIT] Performing menu initialization...")
-    
-    # Turn LEDs off (same as ledsOff() in board.py)
+    # Step 1: Turn LEDs off (same as board.ledsOff() in menu.py line 176)
     sendPrint("[INIT] Turning LEDs off...")
     success, responses = sendCommandAndWait(DGT_LEDS_OFF, 1.0, "LED off command")
     if not success:
+        sendPrint("[INIT] Failed to turn LEDs off")
         return False
     analyzeResponse(DGT_LEDS_OFF, responses, "LED Response")
     
-    # Send power-on beep (same as beep(SOUND_POWER_ON))
+    # Step 2: Send power-on beep (same as board.beep(board.SOUND_POWER_ON) in menu.py line 177)
     sendPrint("[INIT] Sending power-on beep...")
     success, responses = sendCommandAndWait(DGT_POWER_ON_BEEP, 1.0, "Power-on beep")
     if not success:
+        sendPrint("[INIT] Failed to send power-on beep")
         return False
     analyzeResponse(DGT_POWER_ON_BEEP, responses, "Beep Response")
     
-    # Clear serial buffer (same as clearSerial() in board.py)
+    # Step 3: Clear serial buffer until idle (same as board.clearSerial() in menu.py line 179)
     sendPrint("[INIT] Clearing serial buffer until board is idle...")
     if not clearSerialUntilIdle():
+        sendPrint("[INIT] Failed to clear serial buffer")
         return False
     
     sendPrint("[INIT] Board initialization complete!")
-    if SERIAL_AVAILABLE:
-        sendPrint("[INIT] Watch the serial monitor above for board responses...")
-    else:
-        sendPrint("[INIT] Simulation completed successfully!")
+    sendPrint("[INIT] Board is now ready for menu.py to continue")
     return True
 
 def startMonitor():
