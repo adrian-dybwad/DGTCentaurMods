@@ -52,8 +52,17 @@ DGT_POWER_ON_BEEP = bytearray(b'\xb1\x00\x08\x48\x08') # Power-on beep sound (be
 # SOUND_WRONG: 0xb1 0x00 0x0a 0x4e 0x0c 0x48 0x10
 # SOUND_WRONG_MOVE: 0xb1 0x00 0x08 0x48 0x08
 
-ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
-ser.isOpen()
+# Try to open serial port, but handle the case where it's not available
+try:
+    ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
+    ser.isOpen()
+    SERIAL_AVAILABLE = True
+    print("[SERIAL] Connected to /dev/serial0")
+except Exception as e:
+    print(f"[SERIAL] Could not connect to /dev/serial0: {e}")
+    print("[SERIAL] Running in simulation mode (no actual hardware)")
+    ser = None
+    SERIAL_AVAILABLE = False
 
 # Serial monitor thread control
 _monitor_running = False
@@ -63,6 +72,13 @@ def _serial_monitor():
     """Background thread that monitors serial port and prints data"""
     global _monitor_running
     print("Serial monitor thread started")
+    
+    if not SERIAL_AVAILABLE:
+        print("[SERIAL] Monitor running in simulation mode")
+        while _monitor_running:
+            time.sleep(1)
+        print("Serial monitor thread stopped")
+        return
     
     while _monitor_running:
         try:
@@ -82,11 +98,15 @@ def initialize_board():
     """
     print("[INIT] Starting board initialization...")
     
+    if not SERIAL_AVAILABLE:
+        print("[INIT] Running in simulation mode - no actual hardware")
+    
     # Clear any existing data
-    try:
-        ser.read(1000)
-    except:
-        pass
+    if SERIAL_AVAILABLE:
+        try:
+            ser.read(1000)
+        except:
+            pass
     
     # Step 1: Address Detection (same as board.py initialization)
     print("[INIT] Sending address detection commands...")
@@ -136,7 +156,10 @@ def initialize_board():
         return False
     
     print("[INIT] Board initialization complete!")
-    print("[INIT] Watch the serial monitor above for board responses...")
+    if SERIAL_AVAILABLE:
+        print("[INIT] Watch the serial monitor above for board responses...")
+    else:
+        print("[INIT] Simulation completed successfully!")
     return True
 
 def start_monitor():
@@ -167,12 +190,64 @@ def stop_monitor():
 
 def serialWrite(packet):
     """Write data to serial port with error handling"""
+    if not SERIAL_AVAILABLE:
+        print(f"[WRITE] SIMULATION: Would send {len(packet)} bytes: {packet.hex()}")
+        return True
+    
     try:
         ser.write(packet)
         print(f"[WRITE] Sent {len(packet)} bytes: {packet.hex()}")
         return True
     except Exception as e:
         print(f"[WRITE] Error writing to serial: {e}")
+        return False
+
+def collectCommandResponses(timeout=5.0):
+    """
+    Collect all responses from the board within the timeout period.
+    Returns a list of (timestamp, data) tuples.
+    """
+    if not SERIAL_AVAILABLE:
+        print(f"[COLLECT] SIMULATION: Would collect responses for {timeout} seconds...")
+        time.sleep(0.1)  # Brief pause to simulate response time
+        print(f"[COLLECT] SIMULATION: Collected 1 simulated responses")
+        return [(0.1, b'simulated_response')]  # Return simulated response
+    
+    responses = []
+    start_time = time.time()
+    
+    print(f"[COLLECT] Starting to collect responses for {timeout} seconds...")
+    
+    while time.time() - start_time < timeout:
+        try:
+            data = ser.read(1000)
+            if data:
+                timestamp = time.time() - start_time
+                responses.append((timestamp, data))
+                print(f"[COLLECT] Received {len(data)} bytes at {timestamp:.2f}s: {data.hex()}")
+        except Exception as e:
+            print(f"[COLLECT] Error reading: {e}")
+            time.sleep(0.01)
+    
+    print(f"[COLLECT] Collected {len(responses)} responses")
+    return responses
+
+def sendCommandAndWait(packet, timeout=2.0, description=""):
+    """
+    Send a command and wait for responses.
+    Returns True if command was sent successfully, False otherwise.
+    """
+    if serialWrite(packet):
+        print(f"[INIT] Sent {packet.hex()} ({description})")
+        responses = collectCommandResponses(timeout)
+        if responses:
+            print(f"[INIT] Received {len(responses)} responses to {description}")
+            return True
+        else:
+            print(f"[INIT] No response to {description}")
+            return False
+    else:
+        print(f"[INIT] Failed to send {description}")
         return False
 
 def clearSerialUntilIdle():
@@ -212,7 +287,8 @@ def clearSerialUntilIdle():
 
 def closeSerial():
     stop_monitor()
-    ser.close()
+    if SERIAL_AVAILABLE and ser:
+        ser.close()
 
 if __name__ == "__main__":
     print("Starting serial monitor...")
