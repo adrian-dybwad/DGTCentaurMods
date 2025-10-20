@@ -60,8 +60,8 @@ def sendPrint(message):
 
 # Try to open serial port, but handle the case where it's not available
 try:
-    ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
-    ser.isOpen()
+ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
+ser.isOpen()
     SERIAL_AVAILABLE = True
     sendPrint("[SERIAL] Connected to /dev/serial0")
 except Exception as e:
@@ -755,7 +755,7 @@ def serialWrite(packet):
         return True
     
     try:
-        ser.write(packet)
+    ser.write(packet)
         hex_str = ' '.join(f'{b:02x}' for b in packet)
         sendPrint(f"[WRITE] Sent {len(packet)} bytes: {hex_str}")
         return True
@@ -856,7 +856,7 @@ def analyzeResponse93(response_data):
 def closeSerial():
     stopMonitor()
     if SERIAL_AVAILABLE and ser:
-        ser.close()
+    ser.close()
 
 if __name__ == "__main__":
     sendPrint("Starting DGT Centaur serial helper...")
@@ -871,10 +871,7 @@ if __name__ == "__main__":
         sendPrint("✓ Board address detection successful!")
         sendPrint(f"✓ Using detected address: {hex(addr1)} {hex(addr2)}")
         
-        # Step 3: Run comprehensive command/response testing with proper sendPacket()
-        testResponsesWithSendPacket()
-        
-        # Step 4: Check if board is already initialized
+        # Step 3: Check if board is already initialized FIRST
         if checkBoardStatus():
             sendPrint("Board is already initialized - skipping initialization sequence")
         else:
@@ -883,6 +880,9 @@ if __name__ == "__main__":
                 sendPrint("Board initialization successful!")
             else:
                 sendPrint("Board initialization failed!")
+        
+        # Step 4: Run comprehensive command/response testing AFTER initialization check
+        testResponsesWithSendPacket()
     else:
         sendPrint("✗ Board address detection failed!")
         sendPrint("✗ LED and sound commands will not work")
