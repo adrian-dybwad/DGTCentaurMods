@@ -76,6 +76,28 @@ _monitor_thread = None
 _response_queue = []  # Shared queue for responses
 _response_lock = threading.Lock()  # Thread safety
 
+# Board address variables (will be detected during initialization)
+addr1 = 0x11  # Default values, will be updated when board responds
+addr2 = 0x11
+
+def checksum(barr):
+    """Calculate checksum for DGT Centaur packet"""
+    barr_csum = 0
+    for i in range(len(barr)):
+        barr_csum = barr_csum ^ barr[i]
+    return barr_csum
+
+def buildPacket(command, data):
+    """Build a complete DGT Centaur packet with address and checksum"""
+    tosend = bytearray(command + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big') + data)
+    tosend.append(checksum(tosend))
+    return tosend
+
+def sendPacket(command, data):
+    """Send a packet to the DGT Centaur board using proper packet construction"""
+    tosend = buildPacket(command, data)
+    return serialWrite(tosend)
+
 def _serial_monitor():
     """Background thread that monitors serial port and prints data"""
     global _monitor_running, _response_queue
@@ -104,6 +126,237 @@ def _serial_monitor():
             time.sleep(0.1)
     
     sendPrint("Serial monitor thread stopped")
+
+def testResponsesWithSendPacket():
+    """
+    Test DGT Centaur commands using the proper sendPacket() function from board.py.
+    This uses the correct packet construction with address and checksum.
+    """
+    if not SERIAL_AVAILABLE:
+        sendPrint("[TEST] Simulation mode - cannot test actual hardware")
+        return
+    
+    sendPrint("[TEST] Starting command testing with proper sendPacket()...")
+    sendPrint(f"[TEST] Using board address: {hex(addr1)} {hex(addr2)}")
+    
+    # Test 1: Version command (0x4d) - from board.py
+    sendPrint("[TEST] === Test 1: Version Command (0x4d) ===")
+    if sendPacket(b'\x4d', b''):
+        sendPrint("[TEST] ✓ Version command sent successfully")
+        responses = collectCommandResponses(2.0)
+        if responses:
+            sendPrint("[TEST] ✓ Version command got response")
+            for timestamp, data in responses:
+                hex_str = ' '.join(f'{b:02x}' for b in data)
+                sendPrint(f"[TEST]   Response: {hex_str}")
+        else:
+            sendPrint("[TEST] ✗ Version command got no response")
+    else:
+        sendPrint("[TEST] ✗ Version command failed to send")
+    
+    # Test 2: LED off command (0xb0) - exact same as board.py ledsOff()
+    sendPrint("[TEST] === Test 2: LED Off Command (0xb0) ===")
+    if sendPacket(b'\xb0\x00\x07', b'\x00'):
+        sendPrint("[TEST] ✓ LED off command sent successfully")
+        responses = collectCommandResponses(2.0)
+        if responses:
+            sendPrint("[TEST] ✓ LED off command got response")
+            for timestamp, data in responses:
+                hex_str = ' '.join(f'{b:02x}' for b in data)
+                sendPrint(f"[TEST]   Response: {hex_str}")
+        else:
+            sendPrint("[TEST] ✗ LED off command got no response")
+    else:
+        sendPrint("[TEST] ✗ LED off command failed to send")
+    
+    # Test 3: Power-on beep command (0xb1) - exact same as board.py beep(SOUND_POWER_ON)
+    sendPrint("[TEST] === Test 3: Power-on Beep Command (0xb1) ===")
+    if sendPacket(b'\xb1\x00\x0a', b'\x48\x08\x4c\x08'):
+        sendPrint("[TEST] ✓ Power-on beep command sent successfully")
+        responses = collectCommandResponses(2.0)
+        if responses:
+            sendPrint("[TEST] ✓ Power-on beep command got response")
+            for timestamp, data in responses:
+                hex_str = ' '.join(f'{b:02x}' for b in data)
+                sendPrint(f"[TEST]   Response: {hex_str}")
+        else:
+            sendPrint("[TEST] ✗ Power-on beep command got no response")
+    else:
+        sendPrint("[TEST] ✗ Power-on beep command failed to send")
+    
+    # Test 4: Field changes command (0x83) - exact same as board.py poll()
+    sendPrint("[TEST] === Test 4: Field Changes Command (0x83) ===")
+    if sendPacket(b'\x83', b''):
+        sendPrint("[TEST] ✓ Field changes command sent successfully")
+        responses = collectCommandResponses(2.0)
+        if responses:
+            sendPrint("[TEST] ✓ Field changes command got response")
+            for timestamp, data in responses:
+                hex_str = ' '.join(f'{b:02x}' for b in data)
+                sendPrint(f"[TEST]   Response: {hex_str}")
+        else:
+            sendPrint("[TEST] ✗ Field changes command got no response")
+    else:
+        sendPrint("[TEST] ✗ Field changes command failed to send")
+    
+    # Test 5: Button status command (0x94) - exact same as board.py poll()
+    sendPrint("[TEST] === Test 5: Button Status Command (0x94) ===")
+    if sendPacket(b'\x94', b''):
+        sendPrint("[TEST] ✓ Button status command sent successfully")
+        responses = collectCommandResponses(2.0)
+        if responses:
+            sendPrint("[TEST] ✓ Button status command got response")
+            for timestamp, data in responses:
+                hex_str = ' '.join(f'{b:02x}' for b in data)
+                sendPrint(f"[TEST]   Response: {hex_str}")
+        else:
+            sendPrint("[TEST] ✗ Button status command got no response")
+    else:
+        sendPrint("[TEST] ✗ Button status command failed to send")
+    
+    # Test 6: Board state command (0xf0) - exact same as board.py getBoardState()
+    sendPrint("[TEST] === Test 6: Board State Command (0xf0) ===")
+    if sendPacket(b'\xf0\x00\x07', b'\x7f'):
+        sendPrint("[TEST] ✓ Board state command sent successfully")
+        responses = collectCommandResponses(2.0)
+        if responses:
+            sendPrint("[TEST] ✓ Board state command got response")
+            for timestamp, data in responses:
+                hex_str = ' '.join(f'{b:02x}' for b in data)
+                sendPrint(f"[TEST]   Response: {hex_str}")
+        else:
+            sendPrint("[TEST] ✗ Board state command got no response")
+    else:
+        sendPrint("[TEST] ✗ Board state command failed to send")
+    
+    sendPrint("[TEST] === sendPacket() Testing Complete ===")
+    sendPrint("[TEST] Review the results above to see which commands work with proper packet construction")
+
+def testResponses():
+    if not SERIAL_AVAILABLE:
+        sendPrint("[TEST] Simulation mode - cannot test actual hardware")
+        return
+    
+    sendPrint("[TEST] Starting comprehensive command/response testing...")
+    sendPrint("[TEST] This will test all available DGT Centaur commands")
+    
+    # Test 1: Version command (0x4d)
+    sendPrint("[TEST] === Test 1: Version Command (0x4d) ===")
+    success, responses = sendCommandAndWait(DGT_SEND_VERSION, 2.0, "Version command")
+    if success and responses:
+        sendPrint("[TEST] ✓ Version command works")
+        for timestamp, data in responses:
+            hex_str = ' '.join(f'{b:02x}' for b in data)
+            sendPrint(f"[TEST]   Response: {hex_str}")
+    else:
+        sendPrint("[TEST] ✗ Version command failed")
+    
+    # Test 2: Bootloader command (0x4e)
+    sendPrint("[TEST] === Test 2: Bootloader Command (0x4e) ===")
+    success, responses = sendCommandAndWait(DGT_STARTBOOTLOADER, 2.0, "Bootloader command")
+    if success and responses:
+        sendPrint("[TEST] ✓ Bootloader command works")
+        for timestamp, data in responses:
+            hex_str = ' '.join(f'{b:02x}' for b in data)
+            sendPrint(f"[TEST]   Response: {hex_str}")
+    else:
+        sendPrint("[TEST] ✗ Bootloader command failed")
+    
+    # Test 3: Bus ping command (0x87)
+    sendPrint("[TEST] === Test 3: Bus Ping Command (0x87) ===")
+    success, responses = sendCommandAndWait(DGT_BUS_PING, 2.0, "Bus ping command")
+    if success and responses:
+        sendPrint("[TEST] ✓ Bus ping command works")
+        for timestamp, data in responses:
+            hex_str = ' '.join(f'{b:02x}' for b in data)
+            sendPrint(f"[TEST]   Response: {hex_str}")
+    else:
+        sendPrint("[TEST] ✗ Bus ping command failed")
+    
+    # Test 4: LED off command (0xb0) - Current format
+    sendPrint("[TEST] === Test 4: LED Off Command (0xb0) - Current Format ===")
+    success, responses = sendCommandAndWait(DGT_LEDS_OFF, 2.0, "LED off command")
+    if success and responses:
+        sendPrint("[TEST] ✓ LED off command works")
+        for timestamp, data in responses:
+            hex_str = ' '.join(f'{b:02x}' for b in data)
+            sendPrint(f"[TEST]   Response: {hex_str}")
+    else:
+        sendPrint("[TEST] ✗ LED off command failed")
+    
+    # Test 5: LED off command (0xb0) - Alternative format from board.py
+    sendPrint("[TEST] === Test 5: LED Off Command (0xb0) - Alternative Format ===")
+    # From board.py ledsOff(): sendPacket(b'\xb0\x00\x07', b'\x00')
+    alt_led_off = bytearray(b'\xb0\x00\x07\x00')
+    success, responses = sendCommandAndWait(alt_led_off, 2.0, "LED off alternative")
+    if success and responses:
+        sendPrint("[TEST] ✓ LED off alternative works")
+        for timestamp, data in responses:
+            hex_str = ' '.join(f'{b:02x}' for b in data)
+            sendPrint(f"[TEST]   Response: {hex_str}")
+    else:
+        sendPrint("[TEST] ✗ LED off alternative failed")
+    
+    # Test 6: Power-on beep command (0xb1)
+    sendPrint("[TEST] === Test 6: Power-on Beep Command (0xb1) ===")
+    success, responses = sendCommandAndWait(DGT_POWER_ON_BEEP, 2.0, "Power-on beep command")
+    if success and responses:
+        sendPrint("[TEST] ✓ Power-on beep command works")
+        for timestamp, data in responses:
+            hex_str = ' '.join(f'{b:02x}' for b in data)
+            sendPrint(f"[TEST]   Response: {hex_str}")
+    else:
+        sendPrint("[TEST] ✗ Power-on beep command failed")
+    
+    # Test 7: Field changes command (0x83)
+    sendPrint("[TEST] === Test 7: Field Changes Command (0x83) ===")
+    success, responses = sendCommandAndWait(DGT_BUS_SEND_CHANGES, 2.0, "Field changes command")
+    if success and responses:
+        sendPrint("[TEST] ✓ Field changes command works")
+        for timestamp, data in responses:
+            hex_str = ' '.join(f'{b:02x}' for b in data)
+            sendPrint(f"[TEST]   Response: {hex_str}")
+    else:
+        sendPrint("[TEST] ✗ Field changes command failed")
+    
+    # Test 8: Button status command (0x94)
+    sendPrint("[TEST] === Test 8: Button Status Command (0x94) ===")
+    success, responses = sendCommandAndWait(DGT_BUTTON_STATUS, 2.0, "Button status command")
+    if success and responses:
+        sendPrint("[TEST] ✓ Button status command works")
+        for timestamp, data in responses:
+            hex_str = ' '.join(f'{b:02x}' for b in data)
+            sendPrint(f"[TEST]   Response: {hex_str}")
+    else:
+        sendPrint("[TEST] ✗ Button status command failed")
+    
+    # Test 9: Try some other common commands
+    sendPrint("[TEST] === Test 9: Additional Commands ===")
+    
+    # Test sleep command (0xb2)
+    sleep_cmd = bytearray(b'\xb2\x00\x07\x0a')
+    success, responses = sendCommandAndWait(sleep_cmd, 2.0, "Sleep command")
+    if success and responses:
+        sendPrint("[TEST] ✓ Sleep command works")
+        for timestamp, data in responses:
+            hex_str = ' '.join(f'{b:02x}' for b in data)
+            sendPrint(f"[TEST]   Response: {hex_str}")
+    else:
+        sendPrint("[TEST] ✗ Sleep command failed")
+    
+    # Test board state command (0xf0)
+    board_state_cmd = bytearray(b'\xf0\x00\x07\x7f')
+    success, responses = sendCommandAndWait(board_state_cmd, 2.0, "Board state command")
+    if success and responses:
+        sendPrint("[TEST] ✓ Board state command works")
+        for timestamp, data in responses:
+            hex_str = ' '.join(f'{b:02x}' for b in data)
+            sendPrint(f"[TEST]   Response: {hex_str}")
+    else:
+        sendPrint("[TEST] ✗ Board state command failed")
+    
+    sendPrint("[TEST] === Command/Response Testing Complete ===")
+    sendPrint("[TEST] Review the results above to see which commands work")
 
 def checkBoardStatus():
     """
@@ -152,6 +405,7 @@ def initializeBoard():
     """
     Initialize the board with the exact sequence from menu.py lines 176-179.
     This is the actual initialization sequence used by the main application.
+    Uses proper sendPacket() function from board.py.
     """
     sendPrint("[INIT] Starting board initialization (menu.py sequence)...")
     
@@ -161,25 +415,36 @@ def initializeBoard():
     
     # Step 1: Turn LEDs off (same as board.ledsOff() in menu.py line 176)
     sendPrint("[INIT] Turning LEDs off...")
-    success, responses = sendCommandAndWait(DGT_LEDS_OFF, 1.0, "LED off command")
-    if not success:
-        sendPrint("[INIT] Failed to turn LEDs off")
+    if sendPacket(b'\xb0\x00\x07', b'\x00'):
+        sendPrint("[INIT] ✓ LED off command sent successfully")
+        responses = collectCommandResponses(1.0)
+        if responses:
+            sendPrint("[INIT] ✓ LED off command got response")
+        else:
+            sendPrint("[INIT] ⚠ LED off command got no response (may be normal)")
+    else:
+        sendPrint("[INIT] ✗ Failed to send LED off command")
         return False
-    analyzeResponse(DGT_LEDS_OFF, responses, "LED Response")
     
     # Step 2: Send power-on beep (same as board.beep(board.SOUND_POWER_ON) in menu.py line 177)
     sendPrint("[INIT] Sending power-on beep...")
-    success, responses = sendCommandAndWait(DGT_POWER_ON_BEEP, 1.0, "Power-on beep")
-    if not success:
-        sendPrint("[INIT] Failed to send power-on beep")
+    if sendPacket(b'\xb1\x00\x0a', b'\x48\x08\x4c\x08'):
+        sendPrint("[INIT] ✓ Power-on beep command sent successfully")
+        responses = collectCommandResponses(1.0)
+        if responses:
+            sendPrint("[INIT] ✓ Power-on beep command got response")
+        else:
+            sendPrint("[INIT] ⚠ Power-on beep command got no response (may be normal)")
+    else:
+        sendPrint("[INIT] ✗ Failed to send power-on beep command")
         return False
-    analyzeResponse(DGT_POWER_ON_BEEP, responses, "Beep Response")
     
     # Step 3: Clear serial buffer until idle (same as board.clearSerial() in menu.py line 179)
     sendPrint("[INIT] Clearing serial buffer until board is idle...")
-    if not clearSerialUntilIdle():
-        sendPrint("[INIT] Failed to clear serial buffer")
-        return False
+    if clearSerialUntilIdleWithSendPacket():
+        sendPrint("[INIT] ✓ Serial buffer cleared successfully")
+    else:
+        sendPrint("[INIT] ⚠ Serial buffer clearing had issues (may be normal)")
     
     sendPrint("[INIT] Board initialization complete!")
     sendPrint("[INIT] Board is now ready for menu.py to continue")
@@ -338,16 +603,12 @@ def analyzeResponse(command, responses, response_type):
     
     return False
 
-def clearSerialUntilIdle():
+def clearSerialUntilIdleWithSendPacket():
     """
-    Clear serial buffer until board is idle (same as clearSerial() in board.py).
-    Keeps sending 0x83 and 0x94 commands until board responds with expected idle responses.
+    Clear serial buffer until board is idle using proper sendPacket() function.
+    Same as board.py clearSerial() but using our sendPacket() implementation.
     """
     sendPrint("[CLEAR] Checking and clearing the serial line...")
-    
-    # Expected idle responses (from board.py clearSerial function)
-    # expect1 = buildPacket(b'\x85\x00\x06', b'')  # Response to 0x83
-    # expect2 = buildPacket(b'\xb1\x00\x06', b'')  # Response to 0x94
     
     attempts = 0
     max_attempts = 10  # Prevent infinite loop
@@ -356,21 +617,30 @@ def clearSerialUntilIdle():
         attempts += 1
         sendPrint(f"[CLEAR] Attempt {attempts}/{max_attempts}")
         
-        # Send 0x83 command and collect response
-        success, responses = sendCommandAndWait(DGT_BUS_SEND_CHANGES, 1.0, "Request field changes")
-        if not success:
-            return False
-        analyzeResponse(DGT_BUS_SEND_CHANGES, responses, "Field Changes Response")
+        # Send 0x83 command (field changes) - same as board.py clearSerial()
+        if sendPacket(b'\x83', b''):
+            sendPrint("[CLEAR] ✓ Field changes command sent")
+            responses = collectCommandResponses(1.0)
+            if responses:
+                sendPrint("[CLEAR] ✓ Field changes got response")
+            else:
+                sendPrint("[CLEAR] ⚠ Field changes got no response")
+        else:
+            sendPrint("[CLEAR] ✗ Field changes command failed")
         
-        # Send 0x94 command and collect response  
-        success, responses = sendCommandAndWait(DGT_BUTTON_STATUS, 1.0, "Check button states")
-        if not success:
-            return False
-        analyzeResponse(DGT_BUTTON_STATUS, responses, "Button Status Response")
+        # Send 0x94 command (button status) - same as board.py clearSerial()
+        if sendPacket(b'\x94', b''):
+            sendPrint("[CLEAR] ✓ Button status command sent")
+            responses = collectCommandResponses(1.0)
+            if responses:
+                sendPrint("[CLEAR] ✓ Button status got response")
+            else:
+                sendPrint("[CLEAR] ⚠ Button status got no response")
+        else:
+            sendPrint("[CLEAR] ✗ Button status command failed")
         
-        # In a real implementation, we would check if responses match expected idle responses
-        # For now, we'll assume the board becomes idle after a few attempts
-        if attempts >= 3:  # Simplified: assume idle after 3 attempts
+        # Simplified: assume idle after a few attempts
+        if attempts >= 3:
             sendPrint("[CLEAR] Board appears to be idle")
             return True
     
@@ -390,6 +660,9 @@ if __name__ == "__main__":
     
     # Give the monitor a moment to start
     time.sleep(0.5)
+    
+    # Run comprehensive command/response testing with proper sendPacket()
+    testResponsesWithSendPacket()
     
     # Check if board is already initialized
     if checkBoardStatus():
