@@ -134,8 +134,10 @@ def sendCommand(command, callback=None, timeout=2.0, description=""):
     """
     global _command_counter
     
+    sendPrint(f"[SEND] sendCommand called: {description}")
+    
     if not SERIAL_AVAILABLE:
-        sendPrint(f"[STATE] Simulation mode - would send command {command.hex()}")
+        sendPrint(f"[SEND] Simulation mode - would send command {command.hex()}")
         if callback:
             callback(True, [], description)
         return 0
@@ -150,18 +152,22 @@ def sendCommand(command, callback=None, timeout=2.0, description=""):
     # Determine if this is a raw write (for address detection) or packet write
     is_raw_write = "(RAW)" in description
     
+    sendPrint(f"[SEND] Command ID {command_id}: {description} (raw={is_raw_write})")
+    
     # Try to send command
     if is_raw_write:
         # Raw write for address detection commands
         success = serialWrite(command)
+        sendPrint(f"[SEND] Raw write result: {success}")
     else:
         # Packet write for normal commands
         success = sendPacket(command, b'')
+        sendPrint(f"[SEND] Packet write result: {success}")
     
     if not success:
         # Transition to FAILED state
         request.state = CommandState.FAILED
-        sendPrint(f"[STATE] ✗ {description} FAILED to send")
+        sendPrint(f"[SEND] ✗ {description} FAILED to send")
         if callback:
             callback(False, [], description)
         return command_id
@@ -171,7 +177,7 @@ def sendCommand(command, callback=None, timeout=2.0, description=""):
     with _command_lock:
         _command_requests[command_id] = request
     
-    sendPrint(f"[STATE] → {description} PENDING (ID: {command_id})")
+    sendPrint(f"[SEND] → {description} PENDING (ID: {command_id})")
     return command_id
 
 def _transitionToCompleted(command_id, response_data):
