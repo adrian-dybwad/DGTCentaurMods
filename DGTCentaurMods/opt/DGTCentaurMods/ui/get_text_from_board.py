@@ -260,7 +260,7 @@ def getText(title="Enter text"):
         traceback.print_exc()
         return None
             
-    finally:
+    #finally:
         # Always re-enable main menu handler
         # try:
         #     main_menu_disabled = False
