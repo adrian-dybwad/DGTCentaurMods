@@ -880,9 +880,6 @@ if __name__ == "__main__":
                 sendPrint("Board initialization successful!")
             else:
                 sendPrint("Board initialization failed!")
-        
-        # Step 4: Run comprehensive command/response testing AFTER initialization check
-        testResponsesWithSendPacket()
     else:
         sendPrint("✗ Board address detection failed!")
         sendPrint("✗ LED and sound commands will not work")
