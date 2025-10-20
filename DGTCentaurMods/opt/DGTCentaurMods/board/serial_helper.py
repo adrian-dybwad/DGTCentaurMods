@@ -636,22 +636,19 @@ def checkBoardStatus():
     def statusTestCallback(success, responses, description):
         if success:
             sendPrint(f"[STATUS] ✓ {description} works")
-            # If this is the last command in the sequence, board is initialized
-            if "button status" in description:
-                sendPrint("[STATUS] ✓ Board is already initialized!")
+            # Since we only test version command, if it works, assume board needs initialization anyway
+            sendPrint("[STATUS] Version command works, but board still needs full initialization")
+            sendPrint("[STATUS] → Starting initialization sequence...")
+            initializeBoard()
         else:
             sendPrint(f"[STATUS] ✗ {description} failed - board needs initialization")
             sendPrint("[STATUS] → Starting initialization sequence...")
             # Start initialization sequence
             initializeBoard()
     
-    # Create test sequence for board status check
+    # Create test sequence for board status check (simplified - just test version)
     test_sequence = [
-        (b'\x4d', "Testing version command...", 1.0),
-        (b'\xb0\x00\x07\x00', "Testing LED off command...", 2.0),
-        (b'\xb1\x00\x0a', "Testing beep command...", 1.0),
-        (b'\x83', "Testing field changes command...", 1.0),
-        (b'\x94', "Testing button status command...", 1.0)
+        (b'\x4d', "Testing version command...", 1.0)
     ]
     
     # Run the test sequence
