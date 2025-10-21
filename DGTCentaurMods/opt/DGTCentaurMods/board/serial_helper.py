@@ -464,7 +464,7 @@ class SerialHelper:
         field = (7 - squarerow) * 8 + squarecol
         return field
 
-    def convertField(field):
+    def convertField(self, field):
         square = chr((ord('a') + (field % 8))) + chr(ord('1') + (field // 8))
         return square
 
