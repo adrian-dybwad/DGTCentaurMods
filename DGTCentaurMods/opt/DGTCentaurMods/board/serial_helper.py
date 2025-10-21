@@ -286,19 +286,22 @@ class SerialHelper:
     def _format_time_display(self, time_signals):
         """
         Format time signals as human-readable time string.
-        Time format: [subsec_component][seconds]
+        Time format can be:
+        - 2 bytes: [subsec_component][seconds] → "X.XXs"
+        - 1 byte: [subsec_component] only → "0.XXs"
+        - 0 bytes: No time signal
         
         Args:
-            time_signals: bytearray with at least 2 bytes [subsec_component, seconds]
+            time_signals: bytearray with 0, 1, or 2 bytes
             
         Returns:
-            str: Formatted time like "6.19s" or empty string if invalid
+            str: Formatted time like "6.19s" or "0.19s" or empty string if no signals
         """
-        if len(time_signals) < 2:
+        if len(time_signals) == 0:
             return ""
         
         subsec = time_signals[0]  # 0x00-0xFF, represents subsecond component
-        seconds = time_signals[1]  # Seconds
+        seconds = time_signals[1] if len(time_signals) >= 2 else 0
         
         # Convert subsec component to decimal hundredths
         subsec_decimal = subsec / 256.0 * 100  # Normalize to 0-100
