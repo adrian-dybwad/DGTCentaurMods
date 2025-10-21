@@ -13,7 +13,7 @@ if __name__ == "__main__":
     
     print("\nInitializing device...")
     helper.initialize_device()
-    
+    helper.ledsOff()
     print("\nTest complete. Closing serial connection...")
     helper.close()
     print("Done.")
