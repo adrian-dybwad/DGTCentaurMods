@@ -213,6 +213,13 @@ class SerialHelper:
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
         self.collected_packets.append(packet)
+        
+        # Skip printing "no piece" packets (85 00 06 06 50 61)
+        if len(packet) == 6 and packet == bytearray(b'\x85\x00\x06\x06\x50\x61'):
+            if self.ready:
+                self.sendPacket(b'\x83', b'')
+            return
+        
         packet_num = len(self.collected_packets)
         
         # Display as single row of hex bytes
