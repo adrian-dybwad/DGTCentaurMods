@@ -177,6 +177,7 @@ class SerialHelper:
         Any byte that equals checksum(all_previous_bytes) mod 128 marks a packet boundary.
         When a boundary is detected, print the packet and request more data.
         """
+        print(f"Processing byte: {byte}")
         self.response_buffer.append(byte)
         
         # Check if this byte is a checksum boundary
