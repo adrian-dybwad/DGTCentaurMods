@@ -133,8 +133,6 @@ class SerialHelper:
                     #if self.ready:
                     #    #self.sendPacket(b'\x94', b'') #Key detection enabled
                     #    self.sendPacket(b'\x83', b'') #Piece detection enabled
-                else:
-                    print(f"\r{next(self.spinner)}", end='', flush=True)
 
             except Exception as e:
                 logging.error(f"Listener error: {e}")
@@ -198,6 +196,7 @@ class SerialHelper:
         # Add your packet processing logic here
         # Request next packet if ready
         if self.ready:
+            print(f"\r{next(self.spinner)}", end='', flush=True)
             self.sendPacket(b'\x83', b'')
 
     def checksum(self, barr):
