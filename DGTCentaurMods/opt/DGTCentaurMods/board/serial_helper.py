@@ -286,27 +286,34 @@ class SerialHelper:
     def _format_time_display(self, time_signals):
         """
         Format time signals as human-readable time string.
-        Time format can be:
-        - 2 bytes: [subsec_component][seconds] → "X.XXs"
-        - 1 byte: [subsec_component] only → "0.XXs"
-        - 0 bytes: No time signal
+        Time format: .ss ss mm [hh]
+        - Byte 0: Subseconds (0x00-0xFF = 0.00-0.99)
+        - Byte 1: Seconds (0-59)
+        - Byte 2: Minutes (0-59)
+        - Byte 3: Hours (optional, for times > 59:59)
         
         Args:
-            time_signals: bytearray with 0, 1, or 2 bytes
+            time_signals: bytearray with 1-4 bytes
             
         Returns:
-            str: Formatted time like "6.19s" or "0.19s" or empty string if no signals
+            str: Formatted time like "5:03.42" or "1:05:03.42" or empty string if no signals
         """
         if len(time_signals) == 0:
             return ""
         
-        subsec = time_signals[0]  # 0x00-0xFF, represents subsecond component
+        subsec = time_signals[0]
         seconds = time_signals[1] if len(time_signals) >= 2 else 0
+        minutes = time_signals[2] if len(time_signals) >= 3 else 0
+        hours = time_signals[3] if len(time_signals) >= 4 else 0
         
-        # Convert subsec component to decimal hundredths
-        subsec_decimal = subsec / 256.0 * 100  # Normalize to 0-100
+        # Convert subsec to hundredths
+        subsec_decimal = subsec / 256.0 * 100
         
-        return f"{seconds}.{int(subsec_decimal):02d}s"
+        # Format based on highest unit
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{seconds:02d}.{int(subsec_decimal):02d}"
+        else:
+            return f"{minutes}:{seconds:02d}.{int(subsec_decimal):02d}"
 
     def _draw_piece_events(self, packet, hex_row, packet_num):
         """
