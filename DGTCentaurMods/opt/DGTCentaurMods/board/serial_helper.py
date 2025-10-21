@@ -108,7 +108,7 @@ class SerialHelper:
                         print(f"Received: {data}")
                     if self.ready:
                         self.sendPacket(b'\x94', b'')
-                        sendPacket(b'\x83', b'')
+                        self.sendPacket(b'\x83', b'')
                         #expect1 = self.buildPacket(b'\x85\x00\x06', b'')
 
             except:
