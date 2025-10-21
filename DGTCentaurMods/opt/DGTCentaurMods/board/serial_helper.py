@@ -112,13 +112,14 @@ class SerialHelper:
                     if data != self.buildPacket(b'\x85\x00\x06', b'') and self.ready: #Response to x83                         
                         print(f"PIECE: {data}")
                         print(f"{self.buildPacket(b'\x85\x00\x06', b'')}")
-                    else:
-                        print(f"\r{next(self.spinner)}", end='', flush=True)
 
                     print(f"READY: {self.ready}")
                     if self.ready:
                         #self.sendPacket(b'\x94', b'') #Key detection enabled
                         self.sendPacket(b'\x83', b'') #Piece detection enabled
+                else:
+                    print(f"\r{next(self.spinner)}", end='', flush=True)
+                    
             except Exception as e:
                 logging.error(f"Listener error: {e}")
                 if self.listener_running:
