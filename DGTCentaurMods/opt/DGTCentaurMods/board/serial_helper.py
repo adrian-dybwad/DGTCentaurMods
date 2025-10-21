@@ -77,6 +77,7 @@ class SerialHelper:
         self.listener_thread = threading.Thread(target=self._listener_thread, daemon=True)
         self.listener_thread.start()
         self.ready = True
+        self.sendPacket(b'\x94', b'')
         logging.debug("SerialHelper initialization complete and ready")
     
     def wait_ready(self, timeout=60):
@@ -104,7 +105,7 @@ class SerialHelper:
                 data = self.ser.read(1000)
                 if data:
                     print(f"Received: {data}")
-                    if data != self.buildPacket(b'\xb1\x00\x06', b''):
+                    if data != self.buildPacket(b'\xb1\x00\x06', b'') and self.ready:
                         self.sendPacket(b'\x94', b'')
             except:
                 if self.listener_running:
@@ -237,7 +238,6 @@ class SerialHelper:
                 self.addr1 = resp[3]
                 self.addr2 = resp[4]
                 logging.debug("Discovered board address: %s%s", hex(self.addr1), hex(self.addr2))
-                self.sendPacket(b'\x94', b'')
                 break
         else:
             if not self.developer_mode:
