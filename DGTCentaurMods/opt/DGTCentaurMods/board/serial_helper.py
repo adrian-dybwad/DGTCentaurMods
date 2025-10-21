@@ -188,7 +188,7 @@ class SerialHelper:
         self.response_buffer.append(byte)
         
         # Detect new packet start (85 00) and request more data
-        if len(self.response_buffer) == 1 and byte == 0x85:
+        if byte == 0x00 and self.response_buffer[-2] == 0x85:
             print(f"\n{'='*80}")
             print(f"[NEW PACKET START] 0x85 detected - requesting more data via sendPacket(b'\\x83', b'')")
             self.sendPacket(b'\x83', b'')
@@ -238,15 +238,9 @@ class SerialHelper:
                         self.parse_state = "READ_EXTRA_COUNT"
         
         elif self.parse_state == "READ_EXTRA_COUNT":
-            self.extra_data_count = byte
-            print(f"[READ_EXTRA_COUNT] Extra data count: {self.extra_data_count}")
-            if self.extra_data_count == 0:
-                print(f"[NEW_FORMAT] Valid packet (no extra data): {self.response_buffer.hex()}")
-                self.on_packet_complete(self.response_buffer)
-                self.response_buffer = bytearray()
-                self.parse_state = "SEEKING_START"
-            else:
-                self.parse_state = "COLLECTING_EXTRA_DATA"
+            self.extra_data_count = 14
+            print(f"[READ_EXTRA_COUNT] Using fixed extra data count: {self.extra_data_count}")
+            self.parse_state = "COLLECTING_EXTRA_DATA"
         
         elif self.parse_state == "COLLECTING_EXTRA_DATA":
             extra_collected = len(self.response_buffer) - len(bytearray(self.response_buffer[:-self.extra_data_count]))
