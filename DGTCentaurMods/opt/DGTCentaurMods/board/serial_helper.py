@@ -239,15 +239,62 @@ class SerialHelper:
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
         self.packet_count += 1
+        # Skip printing "no piece" packet
         if packet != self.buildPacket(b'\x85\x00\x06', b''):
-            #Do not print if it is a no pieces packet
             hex_row = ' '.join(f'{b:02x}' for b in packet)
             print(f"\r[P{self.packet_count:03d}] {hex_row}")
-        # Add your packet processing logic here
+            
+            # Draw piece events with arrow indicators
+            self._draw_piece_events(packet, hex_row, self.packet_count)
+        
         # Request next packet if ready
         if self.ready:
             print(f"\r{next(self.spinner)}", end='', flush=True)
             self.sendPacket(b'\x83', b'')
+
+    def _draw_piece_events(self, packet, hex_row, packet_num):
+        """
+        Find and display piece events (lifts and places) with visual arrow indicators.
+        
+        Args:
+            packet: The complete packet bytearray
+            hex_row: The hex string representation already printed
+            packet_num: The packet number for reference
+        """
+        # Find piece events (0x40=lift, 0x41=place) starting after addr2 (byte 5)
+        events_to_draw = []
+        for i in range(5, len(packet) - 1):
+            if packet[i] == 0x40 or packet[i] == 0x41:
+                fieldHex = packet[i + 1]
+                square = self.rotateFieldHex(fieldHex)
+                field_name = self.convertField(square)
+                arrow = "↑" if packet[i] == 0x40 else "↓"
+                
+                # Calculate position of fieldHex byte in hex_row
+                # Each byte "XX " = 3 chars, so byte N starts at N*3
+                hex_col = (i + 1) * 3
+                events_to_draw.append((hex_col, arrow, field_name))
+        
+        # Print arrow line if events found
+        if events_to_draw:
+            prefix = f"[P{packet_num:03d}] "
+            # Create line with proper spacing
+            line = " " * (len(prefix) + len(hex_row))
+            line_list = list(line)
+            
+            for hex_col, arrow, field_name in events_to_draw:
+                abs_pos = len(prefix) + hex_col
+                # Place arrow at this position
+                if abs_pos < len(line_list):
+                    line_list[abs_pos] = arrow
+                # Place field name after arrow with space
+                annotation = f" {field_name}"
+                for j, char in enumerate(annotation):
+                    pos = abs_pos + 1 + j
+                    if pos < len(line_list):
+                        line_list[pos] = char
+            
+            print("".join(line_list).rstrip())
 
     def checksum(self, barr):
         """
