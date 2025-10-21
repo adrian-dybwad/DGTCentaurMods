@@ -184,14 +184,12 @@ class SerialHelper:
         
         Both have [addr1][addr2][checksum] pattern, but new format may have extra data following.
         """
-        print(f"[PROCESS_RESPONSE] Processing byte: {byte}")
         self.response_buffer.append(byte)
         
         # Detect new packet start (85 00) and request more data
-        if len(self.response_buffer) == 1 and byte == 0x85:
-            print(f"\n{'='*80}")
-            print(f"[NEW PACKET START] 0x85 detected - requesting more data via sendPacket(b'\\x83', b'')")
-            self.sendPacket(b'\x83', b'')
+        if byte == 0x85:
+            if self.ready:
+                self.sendPacket(b'\x83', b'')
         
         # Check old format only when NOT collecting new format packet
         if self.parse_state == "SEEKING_START" and len(self.response_buffer) >= 3:
@@ -199,7 +197,6 @@ class SerialHelper:
                 self.response_buffer[-2] == self.addr2):
                 calculated_checksum = self.checksum(self.response_buffer[:-1])
                 if self.response_buffer[-1] == calculated_checksum:
-                    print(f"[OLD_FORMAT] Valid packet: {self.response_buffer.hex()}")
                     self.on_packet_complete(self.response_buffer)
                     self.response_buffer = bytearray()
                     return
@@ -207,7 +204,6 @@ class SerialHelper:
         # Check for new format with 0x85 start
         if self.parse_state == "SEEKING_START":
             if byte == 0x85:
-                print(f"[STATE] Found packet start (0x85)")
                 self.response_buffer = bytearray([byte])
                 self.parse_state = "VERIFY_ZERO"
             else:
@@ -217,31 +213,22 @@ class SerialHelper:
         
         elif self.parse_state == "VERIFY_ZERO":
             if byte == 0x00:
-                print(f"[STATE] Verified second byte (0x00)")
                 self.parse_state = "COLLECTING_UNTIL_END"
             else:
-                print(f"[VERIFY_ZERO] Invalid second byte: {byte}, resetting")
                 self.parse_state = "SEEKING_START"
                 self.response_buffer = bytearray()
         
         elif self.parse_state == "COLLECTING_UNTIL_END":
-            # Keep collecting until we find [addr1][addr2][valid_checksum] at the end
-            bytes_collected = len(self.response_buffer) - 2
-            print(f"[COLLECTING_UNTIL_END] Collected {bytes_collected} bytes (buffer: {self.response_buffer.hex()})")
-            
             if len(self.response_buffer) >= 5:
                 if (self.response_buffer[-3] == self.addr1 and 
                     self.response_buffer[-2] == self.addr2):
                     calculated_checksum = self.checksum(self.response_buffer[:-1])
                     if self.response_buffer[-1] == calculated_checksum:
-                        print(f"[NEW_FORMAT] Found end pattern, checking for extra data...")
                         self.parse_state = "READ_EXTRA_COUNT"
         
         elif self.parse_state == "READ_EXTRA_COUNT":
             self.extra_data_count = byte
-            print(f"[READ_EXTRA_COUNT] Extra data count: {self.extra_data_count}")
             if self.extra_data_count == 0:
-                print(f"[NEW_FORMAT] Valid packet (no extra data): {self.response_buffer.hex()}")
                 self.on_packet_complete(self.response_buffer)
                 self.response_buffer = bytearray()
                 self.parse_state = "SEEKING_START"
@@ -250,9 +237,7 @@ class SerialHelper:
         
         elif self.parse_state == "COLLECTING_EXTRA_DATA":
             extra_collected = len(self.response_buffer) - len(bytearray(self.response_buffer[:-self.extra_data_count]))
-            print(f"[COLLECTING_EXTRA_DATA] Collected {extra_collected}/{self.extra_data_count} extra bytes")
             if extra_collected >= self.extra_data_count:
-                print(f"[NEW_FORMAT] Valid packet (with extra data): {self.response_buffer.hex()}")
                 self.on_packet_complete(self.response_buffer)
                 self.response_buffer = bytearray()
                 self.parse_state = "SEEKING_START"
@@ -298,36 +283,33 @@ class SerialHelper:
         self.collected_packets.append(packet)
         packet_num = len(self.collected_packets)
         
-        print(f"\n[PACKET #{packet_num}]")
-        print(f"HEX: {packet.hex()}")
-        print(f"BYTES: {' '.join(f'{b:02x}' for b in packet)}")
-        print(f"LENGTH: {len(packet)}")
+        # Display as single row of hex bytes
+        hex_row = ' '.join(f'{b:02x}' for b in packet)
+        print(f"[P{packet_num:02d}] {hex_row}")
         
         self.extract_piece_events_detailed(packet)
+        print(f"{'='*80}")
         
-        print(f"{'='*80}\n")
-        
-        self.sendPacket(b'\x83', b'')
+        if self.ready:
+            self.sendPacket(b'\x83', b'')
 
     def extract_piece_events_detailed(self, packet):
         """Extract and display piece events in detail"""
-        print("[EVENTS]")
-        events_found = False
+        events = []
         for x in range(len(packet)-1):
             if packet[x] == 0x40:
                 fieldHex = packet[x + 1]
                 square = self.rotateFieldHex(fieldHex)
                 field_name = self.convertField(square)
-                print(f"  Position {x}: LIFTED from {field_name} (hex: {fieldHex:02x}, decimal: {fieldHex})")
-                events_found = True
+                events.append(f"LIFT:{field_name}")
             elif packet[x] == 0x41:
                 fieldHex = packet[x + 1]
                 square = self.rotateFieldHex(fieldHex)
                 field_name = self.convertField(square)
-                print(f"  Position {x}: PLACED on {field_name} (hex: {fieldHex:02x}, decimal: {fieldHex})")
-                events_found = True
-        if not events_found:
-            print("  (No piece events found)")
+                events.append(f"PLACE:{field_name}")
+        
+        if events:
+            print(f"        Events: {', '.join(events)}")
     
     def checksum(self, barr):
         """
