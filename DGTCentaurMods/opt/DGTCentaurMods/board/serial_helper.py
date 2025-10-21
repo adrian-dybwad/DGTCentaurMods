@@ -245,7 +245,7 @@ class SerialHelper:
             print(f"\r[P{self.packet_count:03d}] {hex_row}")
             
             # Draw piece events with arrow indicators
-            #self._draw_piece_events(packet, hex_row, self.packet_count)
+            self._draw_piece_events(packet, hex_row, self.packet_count)
 
             # Add your packet processing logic here
             
