@@ -186,7 +186,7 @@ class SerialHelper:
                     self.on_packet_complete(packet)
                 else:
                     # Pattern detected but checksum invalid - log and clear
-                    logging.warning(f"Invalid checksum detected. Expected {calculated_checksum}, got {self.response_buffer[-1]}")
+                    print(f"Invalid checksum detected. Expected {calculated_checksum}, got {self.response_buffer[-1]}")
                 
                 # Clear buffer in both cases (valid or invalid checksum)
                 self.response_buffer = bytearray()
