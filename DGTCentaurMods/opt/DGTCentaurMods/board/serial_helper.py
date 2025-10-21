@@ -273,10 +273,10 @@ class SerialHelper:
                     try:
                         square = self.rotateFieldHex(fieldHex)
                         if 0 <= square <= 63:  # Validate square range
-                            #field_name = self.convertField(square)
+                            field_name = self.convertField(square)
                             arrow = "↑" if packet[i] == 0x40 else "↓"
                             hex_col = (i + 1) * 3
-                            events_to_draw.append((hex_col, arrow, square))
+                            events_to_draw.append((hex_col, arrow, field_name))
                     except Exception as e:
                         print(f"Error processing fieldHex {fieldHex}: {e}")
                         continue
