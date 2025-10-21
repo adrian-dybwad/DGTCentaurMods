@@ -105,9 +105,9 @@ class SerialHelper:
                 data = self.ser.read(1000)
                 if data:
 
-                    if data != self.buildPacket(b'\xb1\x00\x06', b'') and self.ready: #Response to x94
-                        print(f"KEY: {data}")
-                    elif data != self.buildPacket(b'\x85\x00\x06', b'P') and self.ready: #Response to x83                         
+                    #if data != self.buildPacket(b'\xb1\x00\x06', b'') and self.ready: #Response to x94
+                    #    print(f"KEY: {data}")
+                    if data != self.buildPacket(b'\x85\x00\x06', b'P') and self.ready: #Response to x83                         
                         print(f"PIECE: {data}")
                     else:
                         print(f"\r{next(self.spinner)}", end='', flush=True)
