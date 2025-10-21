@@ -264,40 +264,42 @@ class SerialHelper:
             hex_row: The hex string representation already printed
             packet_num: The packet number for reference
         """
-        # Find piece events (0x40=lift, 0x41=place) starting after addr2 (byte 5)
-        events_to_draw = []
-        for i in range(5, len(packet) - 1):
-            if packet[i] == 0x40 or packet[i] == 0x41:
-                fieldHex = packet[i + 1]
-                square = self.rotateFieldHex(fieldHex)
-                field_name = self.convertField(square)
-                arrow = "↑" if packet[i] == 0x40 else "↓"
+        try:
+            # Find piece events (0x40=lift, 0x41=place) starting after addr2 (byte 5)
+            events_to_draw = []
+            for i in range(5, len(packet) - 1):
+                if packet[i] == 0x40 or packet[i] == 0x41:
+                    fieldHex = packet[i + 1]
+                    try:
+                        square = self.rotateFieldHex(fieldHex)
+                        if 0 <= square <= 63:  # Validate square range
+                            field_name = self.convertField(square)
+                            arrow = "↑" if packet[i] == 0x40 else "↓"
+                            hex_col = (i + 1) * 3
+                            events_to_draw.append((hex_col, arrow, field_name))
+                    except Exception as e:
+                        print(f"Error processing fieldHex {fieldHex}: {e}")
+                        continue
+            
+            # Print arrow line if events found
+            if events_to_draw:
+                prefix = f"[P{packet_num:03d}] "
+                line = " " * (len(prefix) + len(hex_row))
+                line_list = list(line)
                 
-                # Calculate position of fieldHex byte in hex_row
-                # Each byte "XX " = 3 chars, so byte N starts at N*3
-                hex_col = (i + 1) * 3
-                events_to_draw.append((hex_col, arrow, field_name))
-        
-        # Print arrow line if events found
-        if events_to_draw:
-            prefix = f"[P{packet_num:03d}] "
-            # Create line with proper spacing
-            line = " " * (len(prefix) + len(hex_row))
-            line_list = list(line)
-            
-            for hex_col, arrow, field_name in events_to_draw:
-                abs_pos = len(prefix) + hex_col
-                # Place arrow at this position
-                if abs_pos < len(line_list):
-                    line_list[abs_pos] = arrow
-                # Place field name after arrow with space
-                annotation = f" {field_name}"
-                for j, char in enumerate(annotation):
-                    pos = abs_pos + 1 + j
-                    if pos < len(line_list):
-                        line_list[pos] = char
-            
-            print("".join(line_list).rstrip())
+                for hex_col, arrow, field_name in events_to_draw:
+                    abs_pos = len(prefix) + hex_col
+                    if abs_pos < len(line_list):
+                        line_list[abs_pos] = arrow
+                        annotation = f" {field_name}"
+                        for j, char in enumerate(annotation):
+                            pos = abs_pos + 1 + j
+                            if pos < len(line_list):
+                                line_list[pos] = char
+                
+                print("".join(line_list).rstrip())
+        except Exception as e:
+            print(f"Error in _draw_piece_events: {e}")
 
     def checksum(self, barr):
         """
