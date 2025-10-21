@@ -186,10 +186,10 @@ class SerialHelper:
             logging.debug("Developer mode enabled - setting up virtual serial port")
             os.system("socat -d -d pty,raw,echo=0 pty,raw,echo=0 &")
             time.sleep(10)
-            self.ser = serial.Serial("/dev/pts/2", baudrate=1000000, timeout=0.2)
+            self.ser = serial.Serial("/dev/pts/2", baudrate=1000000, timeout=5.0)
         else:
             try:
-                self.ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
+                self.ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=5.0)
                 self.ser.isOpen()
             except:
                 self.ser.close()
