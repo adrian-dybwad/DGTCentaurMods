@@ -426,25 +426,11 @@ class SerialHelper:
         """
         logging.debug("Detecting board address")
         
-        try:
-            self.readSerial(1000)
-        except:
-            self.readSerial(1000)
-        
         tosend = bytearray(b'\x4d')
         self.ser.write(tosend)
-        try:
-            self.readSerial(1000)
-        except:
-            self.readSerial(1000)
         logging.debug('Sent payload 1 (0x4d)')
-        
         tosend = bytearray(b'\x4e')
         self.ser.write(tosend)
-        try:
-            self.readSerial(1000)
-        except:
-            self.readSerial(1000)
         logging.debug('Sent payload 2 (0x4e)')
         
         logging.debug('Serial is open. Waiting for response.')
@@ -457,10 +443,6 @@ class SerialHelper:
             
             tosend = bytearray(b'\x87\x00\x00\x07')
             self.ser.write(tosend)
-            try:
-                resp = self.ser.read(1000)
-            except:
-                resp = self.ser.read(1000)
             
             if len(resp) > 3:
                 self.addr1 = resp[3]
