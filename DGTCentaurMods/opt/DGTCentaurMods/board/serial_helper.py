@@ -197,7 +197,7 @@ class SerialHelper:
         print(f"Packet: {packet.hex()}")
         # if self.ready:
         #     #self.sendPacket(b'\x94', b'') #Key detection enabled
-        #     self.sendPacket(b'\x83', b'') #Piece detection enabled
+        self.sendPacket(b'\x83', b'') #Piece detection enabled
         # Add your packet processing logic here
 
     def checksum(self, barr):
