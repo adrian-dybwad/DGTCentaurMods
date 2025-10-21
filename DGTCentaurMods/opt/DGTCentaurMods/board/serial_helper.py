@@ -113,7 +113,7 @@ class SerialHelper:
                         print(f"\r{next(self.spinner)}", end='', flush=True)
 
                     if self.ready:
-                        self.sendPacket(b'\x94', b'') #Key detection enabled
+                        #self.sendPacket(b'\x94', b'') #Key detection enabled
                         self.sendPacket(b'\x83', b'') #Piece detection enabled
             except:
                 if self.listener_running:
