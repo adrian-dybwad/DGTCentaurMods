@@ -71,6 +71,7 @@ class SerialHelper:
         self.parse_state = "SEEKING_START"
         self.packet_length = 0
         self.extra_data_count = 0
+        self.collected_packets = []
         
         if auto_init:
             init_thread = threading.Thread(target=self._init_background, daemon=False)
@@ -165,18 +166,32 @@ class SerialHelper:
         
         logging.debug("Serial port opened successfully")
     
+# PACKET 1 (trimmed before next 85 00):
+# 85 00 0e 06 50 16 3a 40 28 18 01 41 30 2b 93 00 05 05 07
+# PACKET 2 (trimmed before next 85 00):
+# 85 00 13 06 50 2d 2c 0d 40 30 1a 01 41 30 11 09 7c 03 69
+# PACKET 3 (incomplete, stops at):
+# 85 00 13 06 50 28 16 01 40 28 1e 01 41 20 13 04 7c 03 2b
+
+
     def processResponse(self, byte):
         """
         Process incoming byte and construct packets.
         Supports two packet formats:
         
         Format 1 (old): [data...][addr1][addr2][checksum]
-        Format 2 (new): [0x85][0x00][data...][addr1][addr2][checksum][extra_count][extra_data...]
+        Format 2 (new): [0x85][0x00][data...][addr1][addr2][checksum]
         
         Both have [addr1][addr2][checksum] pattern, but new format may have extra data following.
         """
         print(f"[PROCESS_RESPONSE] Processing byte: {byte}")
         self.response_buffer.append(byte)
+        
+        # Detect new packet start (85 00) and request more data
+        if len(self.response_buffer) == 1 and byte == 0x85:
+            print(f"\n{'='*80}")
+            print(f"[NEW PACKET START] 0x85 detected - requesting more data via sendPacket(b'\\x83', b'')")
+            self.sendPacket(b'\x83', b'')
         
         # Check old format only when NOT collecting new format packet
         if self.parse_state == "SEEKING_START" and len(self.response_buffer) >= 3:
@@ -186,7 +201,6 @@ class SerialHelper:
                 if self.response_buffer[-1] == calculated_checksum:
                     print(f"[OLD_FORMAT] Valid packet: {self.response_buffer.hex()}")
                     self.on_packet_complete(self.response_buffer)
-                    self._parse_piece_events(self.response_buffer)
                     self.response_buffer = bytearray()
                     return
         
@@ -215,7 +229,7 @@ class SerialHelper:
             bytes_collected = len(self.response_buffer) - 2
             print(f"[COLLECTING_UNTIL_END] Collected {bytes_collected} bytes (buffer: {self.response_buffer.hex()})")
             
-            if len(self.response_buffer) >= 5:  # Min: 85 00 + data(1) + addr1 + addr2 + checksum
+            if len(self.response_buffer) >= 5:
                 if (self.response_buffer[-3] == self.addr1 and 
                     self.response_buffer[-2] == self.addr2):
                     calculated_checksum = self.checksum(self.response_buffer[:-1])
@@ -229,7 +243,6 @@ class SerialHelper:
             if self.extra_data_count == 0:
                 print(f"[NEW_FORMAT] Valid packet (no extra data): {self.response_buffer.hex()}")
                 self.on_packet_complete(self.response_buffer)
-                self._parse_piece_events(self.response_buffer)
                 self.response_buffer = bytearray()
                 self.parse_state = "SEEKING_START"
             else:
@@ -241,7 +254,6 @@ class SerialHelper:
             if extra_collected >= self.extra_data_count:
                 print(f"[NEW_FORMAT] Valid packet (with extra data): {self.response_buffer.hex()}")
                 self.on_packet_complete(self.response_buffer)
-                self._parse_piece_events(self.response_buffer)
                 self.response_buffer = bytearray()
                 self.parse_state = "SEEKING_START"
                 self.extra_data_count = 0
@@ -280,55 +292,43 @@ class SerialHelper:
                 field_name = self.convertField(square)
                 print(f"[EVENT] PIECE PLACED on {field_name} (hex: {fieldHex})")
     
-    def test_packet_permutations(self, packet):
-        """
-        Test various checksum and structure permutations on a packet.
-        packet: bytearray to analyze
-        """
-        packet_hex = packet.hex()
-        addr1 = self.addr1
-        addr2 = self.addr2
-        
-        print(f"\n[TEST] ===== TESTING PACKET: {packet_hex} =====")
-        print(f"[TEST] addr1={hex(addr1)}, addr2={hex(addr2)}")
-        
-        # Test 1: Full packet checksum (all except last byte)
-        csum1 = self.checksum(packet[:-1])
-        print(f"[TEST] Test 1 - Full packet checksum: {csum1}, last byte: {packet[-1]}, MATCH: {csum1 == packet[-1]}")
-        
-        # Test 2: Checksum without first 2 bytes (85 00)
-        if len(packet) > 2:
-            csum2 = self.checksum(packet[2:-1])
-            print(f"[TEST] Test 2 - Without 85 00 checksum: {csum2}, last byte: {packet[-1]}, MATCH: {csum2 == packet[-1]}")
-        
-        # Test 3: Find all occurrences of addr1/addr2 pattern
-        print(f"[TEST] Test 3 - Looking for addr1/addr2 patterns:")
-        for i in range(len(packet)-2):
-            if packet[i] == addr1 and packet[i+1] == addr2:
-                print(f"[TEST]   Found at position {i}: {hex(packet[i])}{hex(packet[i+1])}")
-                if i+2 < len(packet):
-                    print(f"[TEST]     Following byte: {hex(packet[i+2])}")
-                    # Calculate checksum up to this point (excluding the byte after addr2)
-                    csum_up_to = self.checksum(packet[:i+2])
-                    print(f"[TEST]     Checksum of bytes 0-{i+1}: {csum_up_to} vs following byte: {packet[i+2]}, MATCH: {csum_up_to == packet[i+2]}")
-        
-        # Test 4: Try checksums excluding different starting positions
-        print(f"[TEST] Test 4 - Checksums excluding first N bytes:")
-        for skip in range(min(5, len(packet))):
-            if len(packet) > skip + 1:
-                csum = self.checksum(packet[skip:-1])
-                print(f"[TEST]   Skip first {skip} bytes: checksum={csum}, last byte={packet[-1]}, MATCH: {csum == packet[-1]}")
-        
-        print(f"[TEST] ===== END TEST =====\n")
 
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
-        print(f"Packet: {packet.hex()}")
-        self.sendPacket(b'\x83', b'') #Piece detection enabled
-        # Run permutation test for debugging
-        self.test_packet_permutations(packet)
-        # Add your packet processing logic here
+        self.collected_packets.append(packet)
+        packet_num = len(self.collected_packets)
+        
+        print(f"\n[PACKET #{packet_num}]")
+        print(f"HEX: {packet.hex()}")
+        print(f"BYTES: {' '.join(f'{b:02x}' for b in packet)}")
+        print(f"LENGTH: {len(packet)}")
+        
+        self.extract_piece_events_detailed(packet)
+        
+        print(f"{'='*80}\n")
+        
+        self.sendPacket(b'\x83', b'')
 
+    def extract_piece_events_detailed(self, packet):
+        """Extract and display piece events in detail"""
+        print("[EVENTS]")
+        events_found = False
+        for x in range(len(packet)-1):
+            if packet[x] == 0x40:
+                fieldHex = packet[x + 1]
+                square = self.rotateFieldHex(fieldHex)
+                field_name = self.convertField(square)
+                print(f"  Position {x}: LIFTED from {field_name} (hex: {fieldHex:02x}, decimal: {fieldHex})")
+                events_found = True
+            elif packet[x] == 0x41:
+                fieldHex = packet[x + 1]
+                square = self.rotateFieldHex(fieldHex)
+                field_name = self.convertField(square)
+                print(f"  Position {x}: PLACED on {field_name} (hex: {fieldHex:02x}, decimal: {fieldHex})")
+                events_found = True
+        if not events_found:
+            print("  (No piece events found)")
+    
     def checksum(self, barr):
         """
         Calculate checksum for packet (sum of all bytes mod 128).
