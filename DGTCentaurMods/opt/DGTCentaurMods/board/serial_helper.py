@@ -221,7 +221,7 @@ class SerialHelper:
             bytes_collected = len(self.response_buffer) - 3
             bytes_needed = self.packet_length + 1
             print(f"[COLLECTING_DATA] Collected {bytes_collected}/{bytes_needed} bytes (buffer: {self.response_buffer.hex()})")
-            if len(self.response_buffer) >= (self.packet_length + 4):
+            if len(self.response_buffer) >= (self.packet_length + 3):
                 print(f"[STATE] Packet complete, validating...")
                 self.parse_state = "VALIDATE"
                 self._validate_packet()
