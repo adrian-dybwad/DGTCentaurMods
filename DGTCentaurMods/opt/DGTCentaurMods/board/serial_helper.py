@@ -185,13 +185,12 @@ class SerialHelper:
             calculated_checksum = self.checksum(self.response_buffer[:-1])
             if byte == calculated_checksum:
                 # Packet boundary detected
-                self.packet_count += 1
-                hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer)
-                self.response_buffer = bytearray()
                 self.on_packet_complete(self.response_buffer)
+                self.response_buffer = bytearray()
     
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
+        self.packet_count += 1
         hex_row = ' '.join(f'{b:02x}' for b in packet)
         print(f"[P{self.packet_count:03d}] {hex_row}")
         # Add your packet processing logic here
