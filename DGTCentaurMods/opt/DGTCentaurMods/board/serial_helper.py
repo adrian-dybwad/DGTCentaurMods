@@ -190,7 +190,7 @@ class SerialHelper:
         self.response_buffer.append(byte)
         
         # Detect new packet start (85 00) on first byte
-        if byte == 0x85 and len(self.response_buffer) == 1:
+        if self.response_buffer[-2] == 0x85 and byte == 0x00:
             if self.ready:
                 self.sendPacket(b'\x83', b'')
         
