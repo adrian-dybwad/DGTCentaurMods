@@ -212,6 +212,6 @@ class SerialHelper:
             self.ser.close()
             logging.debug("Serial port closed")
 
-    def ledsOff():
+    def ledsOff(self):
         # Switch the LEDs off on the centaur
-        sendPacket(b'\xb0\x00\x07', b'\x00')
+        sendPacket(selt, b'\xb0\x00\x07', b'\x00')
