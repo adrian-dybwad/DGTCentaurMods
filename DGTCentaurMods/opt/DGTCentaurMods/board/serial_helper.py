@@ -237,6 +237,7 @@ class SerialHelper:
                 self.addr1 = resp[3]
                 self.addr2 = resp[4]
                 logging.debug("Discovered board address: %s%s", hex(self.addr1), hex(self.addr2))
+                self.sendPacket(b'\x94', b'')
                 break
         else:
             if not self.developer_mode:
