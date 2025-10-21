@@ -202,7 +202,7 @@ class SerialHelper:
         if packet != self.buildPacket(b'\x85\x00\x06', b''):
             #Do not print if it is a no pieces packet
             hex_row = ' '.join(f'{b:02x}' for b in packet)
-            print(f"[P{self.packet_count:03d}] {hex_row}")
+            print(f"\r[P{self.packet_count:03d}] {hex_row}")
         # Add your packet processing logic here
         # Request next packet if ready
         if self.ready:
