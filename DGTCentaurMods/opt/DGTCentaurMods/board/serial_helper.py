@@ -117,16 +117,15 @@ class SerialHelper:
                                     # Calculate the square to 0(a1)-63(h8) so that
                                     # all functions match
                                     fieldHex = resp[x + 1]
-                                    newsquare = self.rotateFieldHex(fieldHex)
-                                    self.lifted = newsquare
-                                    print(f"LIFTED: {self.convertField(self.lifted)}")
+                                    lifted = self.rotateFieldHex(fieldHex)
+                                    print(f"LIFTED: {lifted}")
                                 if (resp[x] == 65):
                                     # Calculate the square to 0(a1)-63(h8) so that
                                     # all functions match
                                     fieldHex = resp[x + 1]
-                                    newsquare = self.rotateFieldHex(fieldHex)
-                                    self.placed = newsquare
-                                    print(f"PLACED: {self.convertField(self.placed)}")
+                                    print(f"FIELD HEX: {fieldHex}")
+                                    placed = self.rotateFieldHex(fieldHex)
+                                    print(f"PLACED: {placed}")
                     #print(f"READY: {self.ready}")
                     if self.ready:
                         #self.sendPacket(b'\x94', b'') #Key detection enabled
@@ -312,19 +311,15 @@ class SerialHelper:
         self.sendPacket(b'\xb0\x00\x07', b'\x00')
         self.sendPacket(b'\xb0\x00\x07', b'\x01')
 
-    def rotateField(field):
+    def rotateField(self, field):
         lrow = (field // 8)
         lcol = (field % 8)
         newField = (7 - lrow) * 8 + lcol
         return newField
 
-    def rotateFieldHex(fieldHex):
+    def rotateFieldHex(self, fieldHex):
         squarerow = (fieldHex // 8)
         squarecol = (fieldHex % 8)
         field = (7 - squarerow) * 8 + squarecol
         return field
-
-    def convertField(field):
-        square = chr((ord('a') + (field % 8))) + chr(ord('1') + (field // 8))
-        return square
 
