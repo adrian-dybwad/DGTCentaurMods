@@ -35,6 +35,42 @@ except:
     logging.basicConfig(level=logging.DEBUG)
 
 
+"""
+DGT Centaur Serial Protocol - Packet Structure
+
+All packets follow this structure:
+    <type1> <type2> <length> <addr1> <addr2> <data...> <checksum>
+
+Where:
+    type1, type2 (bytes 0-1): Protocol type identifier, typically 0x85 0x00 for new format
+    length (byte 2): Total packet length in bytes, including all fields up to and including checksum
+    addr1 (byte 3): Board address 1 (e.g., 0x06)
+    addr2 (byte 4): Board address 2 (e.g., 0x50)
+    data (bytes 5 to n-1): Variable-length payload (piece events, responses, etc.)
+    checksum (byte n): Last byte = sum of all previous bytes mod 128
+
+Examples:
+    "No piece" response: 85 00 06 06 50 61
+        - Length = 6 bytes (entire packet)
+        - No data payload
+        - Checksum: (0x85 + 0x00 + 0x06 + 0x06 + 0x50) % 128 = 0x61
+    
+    Piece event: 85 00 0a 06 50 18 0c 40 30 79
+        - Length = 10 bytes
+        - Data = 18 0c 40 30 (4 bytes of piece event info)
+        - Checksum: (0x85 + 0x00 + 0x0a + 0x06 + 0x50 + 0x18 + 0x0c + 0x40 + 0x30) % 128 = 0x79
+
+Parsing Algorithm:
+    1. Accumulate bytes into a buffer
+    2. For each new byte, calculate checksum of all previous bytes (mod 128)
+    3. If incoming byte equals that checksum:
+        a. Extract length from buffer[2]
+        b. If len(buffer) == declared_length: valid packet found, emit it
+        c. Otherwise: false positive, continue accumulating
+    4. When 0x85 0x00 sequence detected while buffer has data: log as orphaned, discard
+"""
+
+
 class SerialHelper:
     """Helper class for managing serial communication with DGT Centaur board
     
@@ -161,13 +197,6 @@ class SerialHelper:
         
         logging.debug("Serial port opened successfully")
     
-# PACKET 1 (trimmed before next 85 00):
-# 85 00 0e 06 50 16 3a 40 28 18 01 41 30 2b 93 00 05 05 07
-# PACKET 2 (trimmed before next 85 00):
-# 85 00 13 06 50 2d 2c 0d 40 30 1a 01 41 30 11 09 7c 03 69
-# PACKET 3 (incomplete, stops at):
-# 85 00 13 06 50 28 16 01 40 28 1e 01 41 20 13 04 7c 03 2b
-
 
     def processResponse(self, byte):
         """
@@ -192,9 +221,20 @@ class SerialHelper:
         if len(self.response_buffer) >= 2:
             calculated_checksum = self.checksum(self.response_buffer[:-1])
             if byte == calculated_checksum:
-                # Packet boundary detected
-                self.on_packet_complete(self.response_buffer)
-                self.response_buffer = bytearray()
+                # Verify packet length matches declared length
+                if len(self.response_buffer) >= 3:
+                    declared_length = self.response_buffer[2]  # Byte 2 is length field
+                    actual_length = len(self.response_buffer)
+                    
+                    if actual_length == declared_length:
+                        # Valid packet - length matches
+                        self.on_packet_complete(self.response_buffer)
+                        self.response_buffer = bytearray()
+                    # else: false positive, continue accumulating
+                else:
+                    # Buffer too short to check length field, emit anyway
+                    self.on_packet_complete(self.response_buffer)
+                    self.response_buffer = bytearray()
     
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
