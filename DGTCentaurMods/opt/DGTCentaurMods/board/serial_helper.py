@@ -104,15 +104,29 @@ class SerialHelper:
         logging.debug("Serial listener thread started")
         while self.listener_running:
             try:
-                data = self.ser.read(1000)
-                if data:
-
+                resp = self.ser.read(1000)
+                if resp:
+                    resp = bytearray(resp)
                     #if data != self.buildPacket(b'\xb1\x00\x06', b'') and self.ready: #Response to x94
                     #    print(f"KEY: {data}")
-                    if data != self.buildPacket(b'\x85\x00\x06', b'') and self.ready: #Response to x83                         
-                        print(f"PIECE: {data}")
-                        print(f"{self.buildPacket(b'\x85\x00\x06', b'')}")
-
+                    if resp != self.buildPacket(b'\x85\x00\x06', b'') and self.ready: #Response to x83                         
+                        print(f"PIECE: {resp}")
+                        if (resp[0] == 133 and resp[1] == 0):
+                            for x in range(0, len(resp) - 1):
+                                if (resp[x] == 64):
+                                    # Calculate the square to 0(a1)-63(h8) so that
+                                    # all functions match
+                                    fieldHex = resp[x + 1]
+                                    newsquare = self.rotateFieldHex(fieldHex)
+                                    self.lifted = newsquare
+                                    print(f"LIFTED: {self.convertField(self.lifted)}")
+                                if (resp[x] == 65):
+                                    # Calculate the square to 0(a1)-63(h8) so that
+                                    # all functions match
+                                    fieldHex = resp[x + 1]
+                                    newsquare = self.rotateFieldHex(fieldHex)
+                                    self.placed = newsquare
+                                    print(f"PLACED: {self.convertField(self.placed)}")
                     #print(f"READY: {self.ready}")
                     if self.ready:
                         #self.sendPacket(b'\x94', b'') #Key detection enabled
@@ -297,3 +311,20 @@ class SerialHelper:
         # Switch the LEDs off on the centaur
         self.sendPacket(b'\xb0\x00\x07', b'\x00')
         self.sendPacket(b'\xb0\x00\x07', b'\x01')
+
+    def rotateField(field):
+        lrow = (field // 8)
+        lcol = (field % 8)
+        newField = (7 - lrow) * 8 + lcol
+        return newField
+
+    def rotateFieldHex(fieldHex):
+        squarerow = (fieldHex // 8)
+        squarecol = (fieldHex % 8)
+        field = (7 - squarerow) * 8 + squarecol
+        return field
+
+    def convertField(field):
+        square = chr((ord('a') + (field % 8))) + chr(ord('1') + (field // 8))
+        return square
+
