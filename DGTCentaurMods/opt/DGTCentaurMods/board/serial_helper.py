@@ -67,6 +67,7 @@ class SerialHelper:
         self.listener_running = True
         self.listener_thread = None
         self.spinner = itertools.cycle(['|', '/', '-', '\\'])
+        self.response_buffer = bytearray()
         
         if auto_init:
             init_thread = threading.Thread(target=self._init_background, daemon=False)
@@ -172,7 +173,7 @@ class SerialHelper:
         self.response_buffer.append(byte)
         
         # Need at least 3 bytes minimum: addr1, addr2, checksum
-        if len(self.response_buffer) >= 3:
+        if len(self.response_buffer) > 3:
             # Check if last 3 bytes match pattern: addr1, addr2, checksum
             if (self.response_buffer[-3] == self.addr1 and 
                 self.response_buffer[-2] == self.addr2):
