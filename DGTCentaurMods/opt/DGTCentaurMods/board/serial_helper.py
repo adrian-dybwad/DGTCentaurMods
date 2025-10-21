@@ -79,7 +79,6 @@ class SerialHelper:
         self.listener_thread = threading.Thread(target=self._listener_thread, daemon=True)
         self.listener_thread.start()
         self.ready = True
-        self.sendPacket(b'\x94', b'')
         logging.debug("SerialHelper initialization complete and ready")
     
     def wait_ready(self, timeout=60):
@@ -187,8 +186,9 @@ class SerialHelper:
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
         print(f"Packet: {packet.hex()}")
-        if self.ready:
-            self.sendPacket(b'\x83', b'') #Piece detection enabled
+        # if self.ready:
+        #     #self.sendPacket(b'\x94', b'') #Key detection enabled
+        #     self.sendPacket(b'\x83', b'') #Piece detection enabled
         # Add your packet processing logic here
 
     def checksum(self, barr):
