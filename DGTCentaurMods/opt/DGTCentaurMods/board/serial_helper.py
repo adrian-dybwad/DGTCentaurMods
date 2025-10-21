@@ -104,7 +104,8 @@ class SerialHelper:
                 data = self.ser.read(1000)
                 if data:
                     print(f"Received: {data}")
-                    self.sendPacket(b'\x94', b'')
+                    if data != self.buildPacket(b'\xb1\x00\x06', b''):
+                        self.sendPacket(b'\x94', b'')
             except:
                 if self.listener_running:
                     time.sleep(0.1)
