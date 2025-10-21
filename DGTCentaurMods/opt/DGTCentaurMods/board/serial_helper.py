@@ -104,12 +104,13 @@ class SerialHelper:
             try:
                 data = self.ser.read(1000)
                 if data:
-                    if data != self.buildPacket(b'\xb1\x00\x06', b''):
-                        print(f"Received: {data}")
+                    if data != self.buildPacket(b'\xb1\x00\x06', b''): #Response to x94
+                        print(f"KEY: {data}")
+                    if data != self.buildPacket(b'\x85\x00\x06', b''): #Response to x83                         
+                        print(f"PIECE: {data}")
                     if self.ready:
-                        self.sendPacket(b'\x94', b'')
-                        self.sendPacket(b'\x83', b'')
-                        #expect1 = self.buildPacket(b'\x85\x00\x06', b'')
+                        self.sendPacket(b'\x94', b'') #Key detection enabled
+                        self.sendPacket(b'\x83', b'') #Piece detection enabled
 
             except:
                 if self.listener_running:
