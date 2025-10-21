@@ -180,7 +180,7 @@ class SerialHelper:
         self.response_buffer.append(byte)
         
         # First, check if we can complete old format [addr1][addr2][checksum] at end
-        if len(self.response_buffer) >= 3:
+        if self.parse_state == "SEEKING_START" and len(self.response_buffer) >= 3:
             if (self.response_buffer[-3] == self.addr1 and 
                 self.response_buffer[-2] == self.addr2):
                 calculated_checksum = self.checksum(self.response_buffer[:-1])
