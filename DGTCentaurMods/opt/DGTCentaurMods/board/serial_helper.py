@@ -110,20 +110,21 @@ class SerialHelper:
                     #if data != self.buildPacket(b'\xb1\x00\x06', b'') and self.ready: #Response to x94
                     #    print(f"KEY: {data}")
                     if resp != self.buildPacket(b'\x85\x00\x06', b'') and self.ready: #Response to x83                         
-                        print(f"PIECE: {resp}")
+                        #print(f"PIECE: {resp}")
                         if (resp[0] == 133 and resp[1] == 0):
                             for x in range(0, len(resp) - 1):
                                 if (resp[x] == 64):
                                     # Calculate the square to 0(a1)-63(h8) so that
                                     # all functions match
                                     fieldHex = resp[x + 1]
+                                    #print(f"FIELD HEX: {fieldHex}")
                                     lifted = self.rotateFieldHex(fieldHex)
                                     print(f"LIFTED: {lifted}")
                                 if (resp[x] == 65):
                                     # Calculate the square to 0(a1)-63(h8) so that
                                     # all functions match
                                     fieldHex = resp[x + 1]
-                                    print(f"FIELD HEX: {fieldHex}")
+                                    #print(f"FIELD HEX: {fieldHex}")
                                     placed = self.rotateFieldHex(fieldHex)
                                     print(f"PLACED: {placed}")
                     #print(f"READY: {self.ready}")
