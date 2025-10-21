@@ -27,6 +27,7 @@ import logging
 import sys
 import os
 import threading
+import itertools
 
 try:
     logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log", filemode="w")
@@ -65,6 +66,7 @@ class SerialHelper:
         self.ready = False
         self.listener_running = True
         self.listener_thread = None
+        self.spinner = itertools.cycle(['|', '/', '-', '\\'])
         
         if auto_init:
             init_thread = threading.Thread(target=self._init_background, daemon=False)
@@ -112,11 +114,13 @@ class SerialHelper:
                         print(f"{self.buildPacket(b'\x85\x00\x06', b'')}")
                     else:
                         print(f"\r{next(self.spinner)}", end='', flush=True)
-                    print(f"{self.ready}")
+
+                    print(f"READY: {self.ready}")
                     if self.ready:
                         #self.sendPacket(b'\x94', b'') #Key detection enabled
                         self.sendPacket(b'\x83', b'') #Piece detection enabled
-            except:
+            except Exception as e:
+                logging.error(f"Listener error: {e}")
                 if self.listener_running:
                     time.sleep(0.1)
     
