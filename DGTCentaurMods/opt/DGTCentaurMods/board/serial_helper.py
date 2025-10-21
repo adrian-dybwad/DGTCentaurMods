@@ -189,10 +189,10 @@ class SerialHelper:
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
         self.packet_count += 1
-        if packet != self.buildPacket(b'\x85\x00\x06', b''):
+        #if packet != self.buildPacket(b'\x85\x00\x06', b''):
             #Do not print if it is a no pieces packet
-            hex_row = ' '.join(f'{b:02x}' for b in packet)
-            print(f"[P{self.packet_count:03d}] {hex_row}")
+        hex_row = ' '.join(f'{b:02x}' for b in packet)
+        print(f"[P{self.packet_count:03d}] {hex_row}")
         # Add your packet processing logic here
         # Request next packet if ready
         if self.ready:
