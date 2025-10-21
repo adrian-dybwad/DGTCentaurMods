@@ -104,33 +104,34 @@ class SerialHelper:
         logging.debug("Serial listener thread started")
         while self.listener_running:
             try:
-                resp = self.ser.read(1000)
-                if resp:
-                    resp = bytearray(resp)
+                byte = self.ser.read(1)
+                if byte:
+                    #resp = bytearray(resp)
+                    self.processResponse(byte[0])
                     #if data != self.buildPacket(b'\xb1\x00\x06', b'') and self.ready: #Response to x94
                     #    print(f"KEY: {data}")
-                    if resp != self.buildPacket(b'\x85\x00\x06', b'') and self.ready: #Response to x83                         
-                        #print(f"PIECE: {resp}")
-                        if (resp[0] == 133 and resp[1] == 0):
-                            for x in range(0, len(resp) - 1):
-                                if (resp[x] == 64):
-                                    # Calculate the square to 0(a1)-63(h8) so that
-                                    # all functions match
-                                    fieldHex = resp[x + 1]
-                                    #print(f"FIELD HEX: {fieldHex}")
-                                    lifted = self.rotateFieldHex(fieldHex)
-                                    print(f"LIFTED: {lifted}")
-                                if (resp[x] == 65):
-                                    # Calculate the square to 0(a1)-63(h8) so that
-                                    # all functions match
-                                    fieldHex = resp[x + 1]
-                                    #print(f"FIELD HEX: {fieldHex}")
-                                    placed = self.rotateFieldHex(fieldHex)
-                                    print(f"PLACED: {placed}")
+                    # if resp != self.buildPacket(b'\x85\x00\x06', b'') and self.ready: #Response to x83                         
+                    #     #print(f"PIECE: {resp}")
+                    #     if (resp[0] == 133 and resp[1] == 0):
+                    #         for x in range(0, len(resp) - 1):
+                    #             if (resp[x] == 64):
+                    #                 # Calculate the square to 0(a1)-63(h8) so that
+                    #                 # all functions match
+                    #                 fieldHex = resp[x + 1]
+                    #                 #print(f"FIELD HEX: {fieldHex}")
+                    #                 lifted = self.rotateFieldHex(fieldHex)
+                    #                 print(f"LIFTED: {lifted}")
+                    #             if (resp[x] == 65):
+                    #                 # Calculate the square to 0(a1)-63(h8) so that
+                    #                 # all functions match
+                    #                 fieldHex = resp[x + 1]
+                    #                 #print(f"FIELD HEX: {fieldHex}")
+                    #                 placed = self.rotateFieldHex(fieldHex)
+                    #                 print(f"PLACED: {placed}")
                     #print(f"READY: {self.ready}")
-                    if self.ready:
-                        #self.sendPacket(b'\x94', b'') #Key detection enabled
-                        self.sendPacket(b'\x83', b'') #Piece detection enabled
+                    #if self.ready:
+                    #    #self.sendPacket(b'\x94', b'') #Key detection enabled
+                    #    self.sendPacket(b'\x83', b'') #Piece detection enabled
                 else:
                     print(f"\r{next(self.spinner)}", end='', flush=True)
 
@@ -161,6 +162,35 @@ class SerialHelper:
         
         logging.debug("Serial port opened successfully")
     
+    def processResponse(self, byte):
+        """
+        Process incoming byte and construct packets.
+        Resets buffer when valid checksum is detected.
+        
+        Packet format: [command][0x00][addr1][addr2][data...][checksum]
+        Checksum resets when: last_byte == checksum(all_previous_bytes)
+        """
+        self.response_buffer.append(byte)
+        
+        # Need at least 4 bytes minimum for a valid packet
+        if len(self.response_buffer) >= 4:
+            # Calculate checksum of all bytes except the last one
+            calculated_checksum = self.checksum(self.response_buffer[:-1])
+            
+            # Check if current byte matches the calculated checksum
+            if self.response_buffer[-1] == calculated_checksum:
+                # Valid packet complete
+                packet = self.response_buffer.copy()
+                self.on_packet_complete(packet)
+                self.response_buffer = bytearray()  # Reset for next packet
+
+    def on_packet_complete(self, packet):
+        """Called when a complete valid packet is received"""
+        print(f"Packet: {packet.hex()}")
+        if self.ready:
+            self.sendPacket(b'\x83', b'') #Piece detection enabled
+        # Add your packet processing logic here
+
     def checksum(self, barr):
         """
         Calculate checksum for packet (sum of all bytes mod 128).
