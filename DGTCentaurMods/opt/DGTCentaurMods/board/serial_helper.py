@@ -176,28 +176,38 @@ class SerialHelper:
         - COLLECTING_DATA: Collect remaining bytes
         - VALIDATE: Check checksum and process complete packet
         """
+        print(f"[PROCESS_RESPONSE] Processing byte: {byte}")
         if self.parse_state == "SEEKING_START":
             if byte == 0x85:
+                print(f"[STATE] Found packet start (0x85)")
                 self.response_buffer = bytearray([byte])
                 self.parse_state = "VERIFY_ZERO"
+            else:
+                print(f"[SEEKING_START] Skipping byte: {byte}")
         
         elif self.parse_state == "VERIFY_ZERO":
             if byte == 0x00:
+                print(f"[STATE] Verified second byte (0x00)")
                 self.response_buffer.append(byte)
                 self.parse_state = "READ_LENGTH"
             else:
-                # Invalid sequence, reset
+                print(f"[VERIFY_ZERO] Invalid second byte: {byte}, resetting")
                 self.parse_state = "SEEKING_START"
         
         elif self.parse_state == "READ_LENGTH":
+            print(f"[STATE] Read length field: {byte}")
             self.response_buffer.append(byte)
             self.packet_length = byte
             self.parse_state = "COLLECTING_DATA"
         
         elif self.parse_state == "COLLECTING_DATA":
             self.response_buffer.append(byte)
+            bytes_collected = len(self.response_buffer) - 3
+            bytes_needed = self.packet_length + 1
+            print(f"[COLLECTING_DATA] Collected {bytes_collected}/{bytes_needed} bytes (buffer: {self.response_buffer.hex()})")
             # We need length + 2 (for 0x85 and 0x00) + 1 (for checksum at end)
             if len(self.response_buffer) >= (self.packet_length + 4):
+                print(f"[STATE] Packet complete, validating...")
                 self.parse_state = "VALIDATE"
                 self._validate_packet()
                 self.parse_state = "SEEKING_START"
@@ -208,11 +218,14 @@ class SerialHelper:
         calculated_checksum = self.checksum(self.response_buffer[:-1])
         received_checksum = self.response_buffer[-1]
         
+        print(f"[VALIDATE] Checksum - Expected: {calculated_checksum}, Received: {received_checksum}")
+        
         if calculated_checksum == received_checksum:
-            print(f"Valid packet: {self.response_buffer.hex()}")
+            print(f"[VALIDATE] VALID PACKET: {self.response_buffer.hex()}")
             self.on_packet_complete(self.response_buffer)
             self._parse_piece_events(self.response_buffer)
         else:
+            print(f"[VALIDATE] INVALID CHECKSUM")
             logging.warning(f"Invalid checksum. Expected {calculated_checksum}, got {received_checksum}")
     
     def _parse_piece_events(self, packet):
@@ -220,15 +233,18 @@ class SerialHelper:
         Parse piece events from a complete packet.
         Looks for piece lift (0x40) and piece placed (0x41) codes.
         """
+        print(f"[PARSE_EVENTS] Parsing packet for piece events")
         for x in range(0, len(packet) - 1):
             if packet[x] == 0x40:
                 fieldHex = packet[x + 1]
                 square = self.rotateFieldHex(fieldHex)
-                print(f"PIECE LIFTED: {self.convertField(square)}")
+                field_name = self.convertField(square)
+                print(f"[EVENT] PIECE LIFTED from {field_name} (hex: {fieldHex})")
             elif packet[x] == 0x41:
                 fieldHex = packet[x + 1]
                 square = self.rotateFieldHex(fieldHex)
-                print(f"PIECE PLACED: {self.convertField(square)}")
+                field_name = self.convertField(square)
+                print(f"[EVENT] PIECE PLACED on {field_name} (hex: {fieldHex})")
 
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
