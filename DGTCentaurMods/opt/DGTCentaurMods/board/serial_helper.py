@@ -164,25 +164,25 @@ class SerialHelper:
     def processResponse(self, byte):
         """
         Process incoming byte and construct packets.
-        Resets buffer when valid checksum is detected.
-        
-        Packet format: [command][0x00][addr1][addr2][data...][checksum]
-        Checksum resets when: last_byte == checksum(all_previous_bytes)
+        Looks for pattern: [data...][addr1][addr2][checksum]
+        Resets buffer when this pattern is detected with valid checksum.
         """
-        print(f"Processing byte: {byte} {chr(byte)}")
         self.response_buffer.append(byte)
         
-        # Need at least 4 bytes minimum for a valid packet
-        if len(self.response_buffer) >= 4:
-            # Calculate checksum of all bytes except the last one
-            calculated_checksum = self.checksum(self.response_buffer[:-1])
-            
-            # Check if current byte matches the calculated checksum
-            if self.response_buffer[-1] == calculated_checksum:
-                # Valid packet complete
-                packet = self.response_buffer.copy()
-                self.on_packet_complete(packet)
-                self.response_buffer = bytearray()  # Reset for next packet
+        # Need at least 3 bytes minimum: addr1, addr2, checksum
+        if len(self.response_buffer) >= 3:
+            # Check if last 3 bytes match pattern: addr1, addr2, checksum
+            if (self.response_buffer[-3] == self.addr1 and 
+                self.response_buffer[-2] == self.addr2):
+                
+                # Verify checksum - should equal sum of all bytes except last one
+                calculated_checksum = self.checksum(self.response_buffer[:-1])
+                
+                if self.response_buffer[-1] == calculated_checksum:
+                    # Valid packet complete
+                    packet = self.response_buffer.copy()
+                    self.on_packet_complete(packet)
+                    self.response_buffer = bytearray()  # Reset for next packet
 
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
