@@ -173,8 +173,18 @@ class SerialHelper:
         """
         Process incoming byte using universal checksum boundary detection.
         Any byte that equals checksum(all_previous_bytes) mod 128 marks a packet boundary.
-        When a boundary is detected, print the packet and request more data.
+        When a new packet start (85 00) is detected, log and discard orphaned buffer.
         """
+        # Detect new packet start sequence (85 00) while buffer has data
+        if (len(self.response_buffer) >= 1 and 
+            self.response_buffer[-1] == 0x85 and 
+            byte == 0x00 and 
+            len(self.response_buffer) > 1):
+            # Log orphaned data (everything except the 85)
+            hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
+            print(f"[ORPHANED] {hex_row}")
+            self.response_buffer = bytearray([0x85])  # Keep the 85, add the 00 below
+        
         print(f"Processing byte: 0x{byte:02x}")
         self.response_buffer.append(byte)
         
