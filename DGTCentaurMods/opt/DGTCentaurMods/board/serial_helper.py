@@ -185,7 +185,7 @@ class SerialHelper:
             print(f"[ORPHANED] {hex_row}")
             self.response_buffer = bytearray([0x85])  # Keep the 85, add the 00 below
         
-        print(f"Processing byte: 0x{byte:02x}")
+        #print(f"Processing byte: 0x{byte:02x}")
         self.response_buffer.append(byte)
         
         # Check if this byte is a checksum boundary
