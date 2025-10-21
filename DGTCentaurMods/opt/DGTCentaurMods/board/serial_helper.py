@@ -112,7 +112,7 @@ class SerialHelper:
                         print(f"{self.buildPacket(b'\x85\x00\x06', b'')}")
                     else:
                         print(f"\r{next(self.spinner)}", end='', flush=True)
-
+                    print(f"{self.ready}")
                     if self.ready:
                         #self.sendPacket(b'\x94', b'') #Key detection enabled
                         self.sendPacket(b'\x83', b'') #Piece detection enabled
