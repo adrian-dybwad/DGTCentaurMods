@@ -109,7 +109,7 @@ class SerialHelper:
                     #    print(f"KEY: {data}")
                     if data != self.buildPacket(b'\x85', b'\x06P') and self.ready: #Response to x83                         
                         print(f"PIECE: {data}")
-                        print(self.buildPacket(b'\x85', b'\x06P'))
+                        print(f"{self.buildPacket(b'\x85', b'\x06P')}")
                     else:
                         print(f"\r{next(self.spinner)}", end='', flush=True)
 
