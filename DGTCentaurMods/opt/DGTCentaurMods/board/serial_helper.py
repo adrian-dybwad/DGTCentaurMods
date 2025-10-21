@@ -169,6 +169,7 @@ class SerialHelper:
         Packet format: [command][0x00][addr1][addr2][data...][checksum]
         Checksum resets when: last_byte == checksum(all_previous_bytes)
         """
+        print(f"Processing byte: {byte}")
         self.response_buffer.append(byte)
         
         # Need at least 4 bytes minimum for a valid packet
