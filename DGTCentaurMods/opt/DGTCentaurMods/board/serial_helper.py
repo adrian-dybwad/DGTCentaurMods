@@ -194,7 +194,7 @@ class SerialHelper:
             self.sendPacket(b'\x83', b'')
         
         # Check old format only when NOT collecting new format packet
-        if self.parse_state == "SEEKING_START" and len(self.response_buffer) >= 3:
+        if len(self.response_buffer) >= 3:
             if (self.response_buffer[-3] == self.addr1 and 
                 self.response_buffer[-2] == self.addr2):
                 calculated_checksum = self.checksum(self.response_buffer[:-1])
@@ -202,6 +202,7 @@ class SerialHelper:
                     print(f"[OLD_FORMAT] Valid packet: {self.response_buffer.hex()}")
                     self.on_packet_complete(self.response_buffer)
                     self.response_buffer = bytearray()
+                    self.parse_state = "SEEKING_START"
                     return
         
         # Check for new format with 0x85 start
@@ -241,7 +242,7 @@ class SerialHelper:
             self.extra_data_count = 14
             print(f"[READ_EXTRA_COUNT] Using fixed extra data count: {self.extra_data_count}")
             self.parse_state = "COLLECTING_EXTRA_DATA"
-        
+        #85 00 0a 06 50 11 02 41 29 62 85 00 06 06 50 61
         elif self.parse_state == "COLLECTING_EXTRA_DATA":
             extra_collected = len(self.response_buffer) - len(bytearray(self.response_buffer[:-self.extra_data_count]))
             print(f"[COLLECTING_EXTRA_DATA] Collected {extra_collected}/{self.extra_data_count} extra bytes")
