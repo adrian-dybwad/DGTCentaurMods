@@ -68,6 +68,8 @@ class SerialHelper:
         self.listener_thread = None
         self.spinner = itertools.cycle(['|', '/', '-', '\\'])
         self.response_buffer = bytearray()
+        self.parse_state = "SEEKING_START"
+        self.packet_length = 0
         
         if auto_init:
             init_thread = threading.Thread(target=self._init_background, daemon=False)
@@ -165,32 +167,68 @@ class SerialHelper:
     def processResponse(self, byte):
         """
         Process incoming byte and construct packets.
-        Looks for pattern: [data...][addr1][addr2][checksum]
-        Resets buffer when valid pattern with correct checksum is detected.
-        Clears buffer if pattern is detected but checksum is invalid.
-        """
-        print(f"Processing byte: {byte}")
-        self.response_buffer.append(byte)
+        Packet format: [0x85][0x00][length][addr1][addr2][data...][checksum]
         
-        # Need at least 3 bytes minimum: addr1, addr2, checksum
-        if len(self.response_buffer) > 3:
-            # Check if last 3 bytes match pattern: addr1, addr2, checksum
-            if (self.response_buffer[-3] == self.addr1 and 
-                self.response_buffer[-2] == self.addr2):
-                
-                # Verify checksum - should equal sum of all bytes except last one
-                calculated_checksum = self.checksum(self.response_buffer[:-1])
-                
-                if self.response_buffer[-1] == calculated_checksum:
-                    # Valid packet complete
-                    packet = self.response_buffer.copy()
-                    self.on_packet_complete(packet)
-                else:
-                    # Pattern detected but checksum invalid - log and clear
-                    print(f"Invalid checksum detected. Expected {calculated_checksum}, got {self.response_buffer[-1]}")
-                
-                # Clear buffer in both cases (valid or invalid checksum)
-                self.response_buffer = bytearray()
+        State machine:
+        - SEEKING_START: Look for 0x85
+        - VERIFY_ZERO: Verify next byte is 0x00
+        - READ_LENGTH: Read the length field
+        - COLLECTING_DATA: Collect remaining bytes
+        - VALIDATE: Check checksum and process complete packet
+        """
+        if self.parse_state == "SEEKING_START":
+            if byte == 0x85:
+                self.response_buffer = bytearray([byte])
+                self.parse_state = "VERIFY_ZERO"
+        
+        elif self.parse_state == "VERIFY_ZERO":
+            if byte == 0x00:
+                self.response_buffer.append(byte)
+                self.parse_state = "READ_LENGTH"
+            else:
+                # Invalid sequence, reset
+                self.parse_state = "SEEKING_START"
+        
+        elif self.parse_state == "READ_LENGTH":
+            self.response_buffer.append(byte)
+            self.packet_length = byte
+            self.parse_state = "COLLECTING_DATA"
+        
+        elif self.parse_state == "COLLECTING_DATA":
+            self.response_buffer.append(byte)
+            # We need length + 2 (for 0x85 and 0x00) + 1 (for checksum at end)
+            if len(self.response_buffer) >= (self.packet_length + 4):
+                self.parse_state = "VALIDATE"
+                self._validate_packet()
+                self.parse_state = "SEEKING_START"
+    
+    def _validate_packet(self):
+        """Validate packet checksum and process if valid"""
+        # Checksum is calculated on all bytes except the last one
+        calculated_checksum = self.checksum(self.response_buffer[:-1])
+        received_checksum = self.response_buffer[-1]
+        
+        if calculated_checksum == received_checksum:
+            print(f"Valid packet: {self.response_buffer.hex()}")
+            self.on_packet_complete(self.response_buffer)
+            self._parse_piece_events(self.response_buffer)
+        else:
+            logging.warning(f"Invalid checksum. Expected {calculated_checksum}, got {received_checksum}")
+    
+    def _parse_piece_events(self, packet):
+        """
+        Parse piece events from a complete packet.
+        Looks for piece lift (0x40) and piece placed (0x41) codes.
+        """
+        for x in range(0, len(packet) - 1):
+            if packet[x] == 0x40:
+                fieldHex = packet[x + 1]
+                square = self.rotateFieldHex(fieldHex)
+                print(f"PIECE LIFTED: {self.convertField(square)}")
+            elif packet[x] == 0x41:
+                fieldHex = packet[x + 1]
+                square = self.rotateFieldHex(fieldHex)
+                print(f"PIECE PLACED: {self.convertField(square)}")
 
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
