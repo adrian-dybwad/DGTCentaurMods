@@ -215,3 +215,4 @@ class SerialHelper:
     def ledsOff(self):
         # Switch the LEDs off on the centaur
         self.sendPacket(b'\xb0\x00\x07', b'\x00')
+        self.sendPacket(b'\xb0\x00\x07', b'\x01')
