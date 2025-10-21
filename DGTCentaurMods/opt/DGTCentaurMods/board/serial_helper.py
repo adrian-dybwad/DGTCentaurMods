@@ -167,50 +167,66 @@ class SerialHelper:
     def processResponse(self, byte):
         """
         Process incoming byte and construct packets.
-        Packet format: [0x85][0x00][length][addr1][addr2][data...][checksum]
+        Supports two packet formats:
         
-        State machine:
-        - SEEKING_START: Look for 0x85
-        - VERIFY_ZERO: Verify next byte is 0x00
-        - READ_LENGTH: Read the length field
-        - COLLECTING_DATA: Collect remaining bytes
-        - VALIDATE: Check checksum and process complete packet
+        Format 1 (new): [0x85][0x00][length][addr1][addr2][data...][checksum]
+        Format 2 (old): [data...][addr1][addr2][checksum]
+        
+        State machine for Format 1, with concurrent check for Format 2 pattern.
         """
         print(f"[PROCESS_RESPONSE] Processing byte: {byte}")
+        
+        # Always buffer the byte
+        self.response_buffer.append(byte)
+        
+        # First, check if we can complete old format [addr1][addr2][checksum] at end
+        if len(self.response_buffer) >= 3:
+            if (self.response_buffer[-3] == self.addr1 and 
+                self.response_buffer[-2] == self.addr2):
+                calculated_checksum = self.checksum(self.response_buffer[:-1])
+                if self.response_buffer[-1] == calculated_checksum:
+                    print(f"[OLD_FORMAT] Valid packet (old format): {self.response_buffer.hex()}")
+                    self.on_packet_complete(self.response_buffer)
+                    self._parse_piece_events(self.response_buffer)
+                    self.response_buffer = bytearray()
+                    self.parse_state = "SEEKING_START"
+                    return
+        
+        # Check for new format with 0x85 start
         if self.parse_state == "SEEKING_START":
             if byte == 0x85:
                 print(f"[STATE] Found packet start (0x85)")
                 self.response_buffer = bytearray([byte])
                 self.parse_state = "VERIFY_ZERO"
             else:
-                print(f"[SEEKING_START] Skipping byte: {byte}")
+                # If buffer gets too large and no match, trim old bytes
+                if len(self.response_buffer) > 100:
+                    self.response_buffer.pop(0)
         
         elif self.parse_state == "VERIFY_ZERO":
             if byte == 0x00:
                 print(f"[STATE] Verified second byte (0x00)")
-                self.response_buffer.append(byte)
                 self.parse_state = "READ_LENGTH"
             else:
                 print(f"[VERIFY_ZERO] Invalid second byte: {byte}, resetting")
                 self.parse_state = "SEEKING_START"
+                self.response_buffer = bytearray()
         
         elif self.parse_state == "READ_LENGTH":
             print(f"[STATE] Read length field: {byte}")
-            self.response_buffer.append(byte)
             self.packet_length = byte
             self.parse_state = "COLLECTING_DATA"
         
         elif self.parse_state == "COLLECTING_DATA":
-            self.response_buffer.append(byte)
             bytes_collected = len(self.response_buffer) - 3
             bytes_needed = self.packet_length + 1
             print(f"[COLLECTING_DATA] Collected {bytes_collected}/{bytes_needed} bytes (buffer: {self.response_buffer.hex()})")
-            # We need length + 2 (for 0x85 and 0x00) + 1 (for checksum at end)
             if len(self.response_buffer) >= (self.packet_length + 4):
                 print(f"[STATE] Packet complete, validating...")
                 self.parse_state = "VALIDATE"
                 self._validate_packet()
                 self.parse_state = "SEEKING_START"
+                self.response_buffer = bytearray()
     
     def _validate_packet(self):
         """Validate packet checksum and process if valid"""
