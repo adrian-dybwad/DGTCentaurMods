@@ -26,6 +26,7 @@ import time
 import logging
 import sys
 import os
+import threading
 
 try:
     logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log", filemode="w")
@@ -34,21 +35,83 @@ except:
 
 
 class SerialHelper:
-    """Helper class for managing serial communication with DGT Centaur board"""
+    """Helper class for managing serial communication with DGT Centaur board
     
-    def __init__(self, developer_mode=False):
+    Examples:
+        
+         Non-blocking initialization (returns immediately):
+            helper = SerialHelper(developer_mode=False)
+            helper.wait_ready()
+            helper.sendPacket(b'\x83', b'')
+        
+        Blocking initialization:
+            helper = SerialHelper(developer_mode=False, auto_init=False)
+            helper._init_background()
+            helper.sendPacket(b'\x83', b'')
+    """
+    
+    def __init__(self, developer_mode=False, auto_init=True):
         """
         Initialize serial connection to the board.
         
         Args:
             developer_mode (bool): If True, use virtual serial ports via socat
+            auto_init (bool): If True, initialize in background thread (non-blocking)
         """
         self.ser = None
         self.addr1 = 0x00
         self.addr2 = 0x00
         self.developer_mode = developer_mode
+        self.ready = False
+        self.listener_running = True
+        self.listener_thread = None
+        
+        if auto_init:
+            init_thread = threading.Thread(target=self._init_background, daemon=False)
+            init_thread.start()
+    
+    def _init_background(self):
+        """Initialize in background thread"""
         self._initialize_serial()
         self._discover_board_address()
+        self.listener_thread = threading.Thread(target=self._listener_thread, daemon=True)
+        self.listener_thread.start()
+        self.ready = True
+        logging.debug("SerialHelper initialization complete and ready")
+    
+    def wait_ready(self, timeout=60):
+        """
+        Wait for initialization to complete.
+        
+        Args:
+            timeout (int): Maximum time to wait in seconds
+            
+        Returns:
+            bool: True if ready, False if timeout
+        """
+        start = time.time()
+        while not self.ready and time.time() - start < timeout:
+            time.sleep(0.1)
+        if not self.ready:
+            logging.warning(f"Timeout waiting for SerialHelper initialization (waited {timeout}s)")
+        return self.ready
+    
+    def _listener_thread(self):
+        """Continuously listen for data on the serial port and print it"""
+        logging.debug("Serial listener thread started")
+        while self.listener_running:
+            try:
+                data = self.ser.read(1000)
+                if data:
+                    print(f"Received: {data}")
+            except:
+                if self.listener_running:
+                    time.sleep(0.1)
+    
+    def stop_listener(self):
+        """Stop the serial listener thread"""
+        self.listener_running = False
+        logging.debug("Serial listener thread stopped")
     
     def _initialize_serial(self):
         """Open serial connection based on mode"""
@@ -208,6 +271,7 @@ class SerialHelper:
     
     def close(self):
         """Close the serial connection"""
+        self.stop_listener()
         if self.ser:
             self.ser.close()
             logging.debug("Serial port closed")
