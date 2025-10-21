@@ -135,8 +135,8 @@ class SerialHelper:
 
             except Exception as e:
                 logging.error(f"Listener error: {e}")
-                if self.listener_running:
-                    time.sleep(0.1)
+                #if self.listener_running:
+                #    time.sleep(0.1)
     
     def stop_listener(self):
         """Stop the serial listener thread"""
