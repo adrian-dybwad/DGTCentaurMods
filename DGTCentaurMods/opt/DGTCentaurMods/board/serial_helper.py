@@ -105,6 +105,7 @@ class SerialHelper:
             try:
                 byte = self.ser.read(1)
                 if byte:
+                    print(f"Processing byte: {byte} {chr(byte)}")
                     #resp = bytearray(resp)
                     self.processResponse(byte[0])
                     #if data != self.buildPacket(b'\xb1\x00\x06', b'') and self.ready: #Response to x94
@@ -165,7 +166,8 @@ class SerialHelper:
         """
         Process incoming byte and construct packets.
         Looks for pattern: [data...][addr1][addr2][checksum]
-        Resets buffer when this pattern is detected with valid checksum.
+        Resets buffer when valid pattern with correct checksum is detected.
+        Clears buffer if pattern is detected but checksum is invalid.
         """
         self.response_buffer.append(byte)
         
@@ -182,7 +184,12 @@ class SerialHelper:
                     # Valid packet complete
                     packet = self.response_buffer.copy()
                     self.on_packet_complete(packet)
-                    self.response_buffer = bytearray()  # Reset for next packet
+                else:
+                    # Pattern detected but checksum invalid - log and clear
+                    logging.warning(f"Invalid checksum detected. Expected {calculated_checksum}, got {self.response_buffer[-1]}")
+                
+                # Clear buffer in both cases (valid or invalid checksum)
+                self.response_buffer = bytearray()
 
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
