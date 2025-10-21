@@ -68,10 +68,7 @@ class SerialHelper:
         self.listener_thread = None
         self.spinner = itertools.cycle(['|', '/', '-', '\\'])
         self.response_buffer = bytearray()
-        self.parse_state = "SEEKING_START"
-        self.packet_length = 0
-        self.extra_data_count = 0
-        self.collected_packets = []
+        self.packet_count = 0
         
         if auto_init:
             init_thread = threading.Thread(target=self._init_background, daemon=False)
@@ -176,156 +173,30 @@ class SerialHelper:
 
     def processResponse(self, byte):
         """
-        Process incoming byte and construct packets.
-        Supports two packet formats:
-        
-        Format 1 (old): [data...][addr1][addr2][checksum]
-        Format 2 (new): [0x85][0x00][data...][addr1][addr2][checksum]
-        
-        Both have [addr1][addr2][checksum] pattern, but new format may have extra data following.
+        Process incoming byte using universal checksum boundary detection.
+        Any byte that equals checksum(all_previous_bytes) mod 128 marks a packet boundary.
+        When a boundary is detected, print the packet and request more data.
         """
-        print(f"[PROCESS_RESPONSE] Processing byte: {byte}")
         self.response_buffer.append(byte)
         
-        # Detect new packet start (85 00) and request more data
-        if byte == 0x00 and self.response_buffer[-2] == 0x85:
-            print(f"\n{'='*80}")
-            print(f"[NEW PACKET START] 0x85 detected - requesting more data via sendPacket(b'\\x83', b'')")
-            self.sendPacket(b'\x83', b'')
-        
-        # Check old format
-        if len(self.response_buffer) >= 3:
-            if (self.response_buffer[-3] == self.addr1 and 
-                self.response_buffer[-2] == self.addr2):
-                calculated_checksum = self.checksum(self.response_buffer[:-1])
-                if self.response_buffer[-1] == calculated_checksum:
-                    print(f"[OLD_FORMAT] Valid packet: {self.response_buffer.hex()}")
-                    self.on_packet_complete(self.response_buffer)
-                else:
-                    print(f"[OLD_FORMAT] Invalid checksum: {self.response_buffer.hex()}")
+        # Check if this byte is a checksum boundary
+        if len(self.response_buffer) >= 2:
+            calculated_checksum = self.checksum(self.response_buffer[:-1])
+            if byte == calculated_checksum:
+                # Packet boundary detected
+                self.packet_count += 1
+                hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer)
                 self.response_buffer = bytearray()
-                self.parse_state = "SEEKING_START"
-                return
-        
-        # Check for new format with 0x85 start
-        if self.parse_state == "SEEKING_START":
-            if byte == 0x85:
-                print(f"[STATE] Found packet start (0x85)")
-                self.response_buffer = bytearray([byte])
-                self.parse_state = "VERIFY_ZERO"
-            else:
-                # If buffer gets too large and no match, trim old bytes
-                if len(self.response_buffer) > 100:
-                    self.response_buffer.pop(0)
-        
-        elif self.parse_state == "VERIFY_ZERO":
-            if byte == 0x00:
-                print(f"[STATE] Verified second byte (0x00)")
-                self.parse_state = "COLLECTING_UNTIL_END"
-            else:
-                print(f"[VERIFY_ZERO] Invalid second byte: {byte}, resetting")
-                self.parse_state = "SEEKING_START"
-                self.response_buffer = bytearray()
-        
-        elif self.parse_state == "COLLECTING_UNTIL_END":
-            # Keep collecting until we find [addr1][addr2][valid_checksum] at the end
-            bytes_collected = len(self.response_buffer) - 2
-            print(f"[COLLECTING_UNTIL_END] Collected {bytes_collected} bytes (buffer: {self.response_buffer.hex()})")
-            
-            if len(self.response_buffer) >= 5:
-                if (self.response_buffer[-3] == self.addr1 and 
-                    self.response_buffer[-2] == self.addr2):
-                    calculated_checksum = self.checksum(self.response_buffer[:-1])
-                    if self.response_buffer[-1] == calculated_checksum:
-                        print(f"[NEW_FORMAT] Found end pattern, checking for extra data...")
-                        self.parse_state = "READ_EXTRA_COUNT"
-        
-        elif self.parse_state == "READ_EXTRA_COUNT":
-            self.extra_data_count = 14
-            print(f"[READ_EXTRA_COUNT] Using fixed extra data count: {self.extra_data_count}")
-            self.parse_state = "COLLECTING_EXTRA_DATA"
-        #85 00 0a 06 50 11 02 41 29 62 85 00 06 06 50 61
-        elif self.parse_state == "COLLECTING_EXTRA_DATA":
-            extra_collected = len(self.response_buffer) - len(bytearray(self.response_buffer[:-self.extra_data_count]))
-            print(f"[COLLECTING_EXTRA_DATA] Collected {extra_collected}/{self.extra_data_count} extra bytes")
-            if extra_collected >= self.extra_data_count:
-                print(f"[NEW_FORMAT] Valid packet (with extra data): {self.response_buffer.hex()}")
                 self.on_packet_complete(self.response_buffer)
-                self.response_buffer = bytearray()
-                self.parse_state = "SEEKING_START"
-                self.extra_data_count = 0
     
-    def _validate_packet(self):
-        """Validate packet checksum and process if valid"""
-        # Checksum is calculated on all bytes except the last one
-        calculated_checksum = self.checksum(self.response_buffer[:-1])
-        received_checksum = self.response_buffer[-1]
-        
-        print(f"[VALIDATE] Checksum - Expected: {calculated_checksum}, Received: {received_checksum}")
-        
-        if calculated_checksum == received_checksum:
-            print(f"[VALIDATE] VALID PACKET: {self.response_buffer.hex()}")
-            self.on_packet_complete(self.response_buffer)
-            self._parse_piece_events(self.response_buffer)
-        else:
-            print(f"[VALIDATE] INVALID CHECKSUM")
-            logging.warning(f"Invalid checksum. Expected {calculated_checksum}, got {received_checksum}")
-    
-    def _parse_piece_events(self, packet):
-        """
-        Parse piece events from a complete packet.
-        Looks for piece lift (0x40) and piece placed (0x41) codes.
-        """
-        print(f"[PARSE_EVENTS] Parsing packet for piece events")
-        for x in range(0, len(packet) - 1):
-            if packet[x] == 0x40:
-                fieldHex = packet[x + 1]
-                square = self.rotateFieldHex(fieldHex)
-                field_name = self.convertField(square)
-                print(f"[EVENT] PIECE LIFTED from {field_name} (hex: {fieldHex})")
-            elif packet[x] == 0x41:
-                fieldHex = packet[x + 1]
-                square = self.rotateFieldHex(fieldHex)
-                field_name = self.convertField(square)
-                print(f"[EVENT] PIECE PLACED on {field_name} (hex: {fieldHex})")
-    
-
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
-        self.collected_packets.append(packet)
-        packet_num = len(self.collected_packets)
-        
-        print(f"\n[PACKET #{packet_num}]")
-        print(f"HEX: {packet.hex()}")
-        print(f"BYTES: {' '.join(f'{b:02x}' for b in packet)}")
-        print(f"LENGTH: {len(packet)}")
-        
-        self.extract_piece_events_detailed(packet)
-        
-        print(f"{'='*80}\n")
-        
-        self.sendPacket(b'\x83', b'')
+        print(f"[P{self.packet_count:03d}] {hex_row}")
+        # Add your packet processing logic here
+        # Request next packet if ready
+        if self.ready:
+            self.sendPacket(b'\x83', b'')
 
-    def extract_piece_events_detailed(self, packet):
-        """Extract and display piece events in detail"""
-        print("[EVENTS]")
-        events_found = False
-        for x in range(len(packet)-1):
-            if packet[x] == 0x40:
-                fieldHex = packet[x + 1]
-                square = self.rotateFieldHex(fieldHex)
-                field_name = self.convertField(square)
-                print(f"  Position {x}: LIFTED from {field_name} (hex: {fieldHex:02x}, decimal: {fieldHex})")
-                events_found = True
-            elif packet[x] == 0x41:
-                fieldHex = packet[x + 1]
-                square = self.rotateFieldHex(fieldHex)
-                field_name = self.convertField(square)
-                print(f"  Position {x}: PLACED on {field_name} (hex: {fieldHex:02x}, decimal: {fieldHex})")
-                events_found = True
-        if not events_found:
-            print("  (No piece events found)")
-    
     def checksum(self, barr):
         """
         Calculate checksum for packet (sum of all bytes mod 128).
