@@ -240,12 +240,15 @@ class SerialHelper:
         """Called when a complete valid packet is received"""
         self.packet_count += 1
         # Skip printing "no piece" packet
-        if packet != self.buildPacket(b'\x85\x00\x06', b''):
+        if packet[:-1] != self.buildPacket(b'\x85\x00\x06', b'')[:-1]:
             hex_row = ' '.join(f'{b:02x}' for b in packet)
             print(f"\r[P{self.packet_count:03d}] {hex_row}")
             
             # Draw piece events with arrow indicators
             self._draw_piece_events(packet, hex_row, self.packet_count)
+
+            # Add your packet processing logic here
+            
         
         # Request next packet if ready
         if self.ready:
