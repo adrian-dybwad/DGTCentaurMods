@@ -242,18 +242,68 @@ class SerialHelper:
         # Skip printing "no piece" packet
         if packet[:-1] != self.buildPacket(b'\x85\x00\x06', b'')[:-1]:
             hex_row = ' '.join(f'{b:02x}' for b in packet)
-            print(f"\r[P{self.packet_count:03d}] {hex_row}")
+            
+            # Extract and format time signals
+            time_signals = self._extract_time_signals(packet)
+            time_str = ""
+            if time_signals:
+                time_formatted = self._format_time_display(time_signals)
+                if time_formatted:
+                    time_str = f"  [TIME: {time_formatted}]"
+            
+            print(f"\r[P{self.packet_count:03d}] {hex_row}{time_str}")
             
             # Draw piece events with arrow indicators
             self._draw_piece_events(packet, hex_row, self.packet_count)
-
-            # Add your packet processing logic here
-            
         
         # Request next packet if ready
         if self.ready:
             print(f"\r{next(self.spinner)}", end='', flush=True)
             self.sendPacket(b'\x83', b'')
+
+    def _extract_time_signals(self, packet):
+        """
+        Extract time signals from packet.
+        Time signals are any bytes between addr2 (byte 4) and the first lift/place marker (0x40/0x41).
+        
+        Args:
+            packet: The complete packet bytearray
+            
+        Returns:
+            bytearray: Time signal bytes, or empty if none found
+        """
+        time_signals = bytearray()
+        
+        # Start searching from byte 5 (after addr2 at byte 4)
+        for i in range(5, len(packet) - 1):
+            if packet[i] == 0x40 or packet[i] == 0x41:
+                # Found first lift/place marker, return time signals collected
+                return time_signals
+            time_signals.append(packet[i])
+        
+        return time_signals
+
+    def _format_time_display(self, time_signals):
+        """
+        Format time signals as human-readable time string.
+        Time format: [subsec_component][seconds]
+        
+        Args:
+            time_signals: bytearray with at least 2 bytes [subsec_component, seconds]
+            
+        Returns:
+            str: Formatted time like "6.19s" or empty string if invalid
+        """
+        if len(time_signals) < 2:
+            return ""
+        
+        subsec = time_signals[0]  # 0x00-0xFF, represents subsecond component
+        seconds = time_signals[1]  # Seconds
+        
+        # Convert subsec component to decimal hundredths
+        subsec_decimal = subsec / 256.0 * 100  # Normalize to 0-100
+        
+        return f"{seconds}.{int(subsec_decimal):02d}s"
 
     def _draw_piece_events(self, packet, hex_row, packet_num):
         """
