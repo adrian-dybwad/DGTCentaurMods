@@ -169,7 +169,7 @@ class SerialHelper:
         Resets buffer when valid pattern with correct checksum is detected.
         Clears buffer if pattern is detected but checksum is invalid.
         """
-        print(f"Processing byte: {byte} {chr(byte)}")
+        print(f"Processing byte: {byte}")
         self.response_buffer.append(byte)
         
         # Need at least 3 bytes minimum: addr1, addr2, checksum
