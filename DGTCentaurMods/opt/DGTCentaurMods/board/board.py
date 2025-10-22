@@ -272,20 +272,22 @@ def doMenu(items, fast = 0):
         # Next we wait for either the up/down/back or tick buttons to get
         # pressed
 
-        name = asyncserial.wait_for_key_up(timeout=60*15, accept='TICK')
+        code, name = asyncserial.wait_for_key_up(timeout=60*15)
         if name == 'TICK':
-            buttonPress = 2
+            buttonPress = BTNTICK
         if name == 'BACK':
-            buttonPress = 1
+            buttonPress = BTNBACK
         if name == 'UP':
-            buttonPress = 3
+            buttonPress = BTNUP
         if name == 'DOWN':
-            buttonPress = 4
+            buttonPress = BTNDOWN
         if name == 'HELP':
-            buttonPress = 5
+            buttonPress = BTNHELP
         if name == 'PLAY':
-            buttonPress = 6
+            buttonPress = BTNPLAY
 
+        print("name: " + name)
+        print("buttonPress: " + str(buttonPress))
 
         if (buttonPress == 2):
             # Tick, so return the key for this menu item
@@ -661,39 +663,41 @@ def eventsThread(keycallback, fieldcallback, tout):
                         pass
            
             try:
-                sendPacket(b'\x94', b'')
-                expect = bytearray(b'\xb1\x00\x06' + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big'))
-                expect.append(checksum(expect))
-                resp = ser.read(10000)
-                resp = bytearray(resp)
+
+                code, name = asyncserial.get_and_reset_last_button()
+                if name == 'PLAY':
+                    buttonPress = BTNPLAY
+
+                print("name: " + name)
+                print("buttonPress: " + str(buttonPress))
+
+                # sendPacket(b'\x94', b'')
+                # expect = bytearray(b'\xb1\x00\x06' + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big'))
+                # expect.append(checksum(expect))
+                # resp = ser.read(10000)
+                # resp = bytearray(resp)
                 if not standby:
                     print("standby is false")
                     #Disable these buttons on standby
-                    if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0501000000007d47"):
-                        to = time.time() + tout
-                        buttonPress = BTNBACK  # BACK
-                    if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0510000000007d17"):
-                        to = time.time() + tout
-                        buttonPress = BTNTICK  # TICK
-                    if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0508000000007d3c"):
-                        to = time.time() + tout
-                        buttonPress = BTNUP  # UP
-                    if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a05020000000061"):
-                        to = time.time() + tout
-                        buttonPress = BTNDOWN  # DOWN
-                    if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0540000000006d"):
-                        to = time.time() + tout
-                        buttonPress = BTNHELP   # HELP
-                if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0504000000002a"):
+                    if name == 'TICK':
+                        buttonPress = BTNTICK
+                    if name == 'BACK':
+                        buttonPress = BTNBACK
+                    if name == 'UP':
+                        buttonPress = BTNUP
+                    if name == 'DOWN':
+                        buttonPress = BTNDOWN
+                    if name == 'HELP':
+                        buttonPress = BTNHELP
+
+                if buttonPress == BTNPLAY:
                     breaktime = time.time() + 0.5
                     beep(SOUND_GENERAL)
                     while time.time() < breaktime:
-                        sendPacket(b'\x94', b'')
-                        expect = bytearray(b'\xb1\x00\x06' + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big'))
-                        expect.append(checksum(expect))
-                        resp = ser.read(1000)
-                        resp = bytearray(resp)
-                        if resp.hex().startswith("b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0500040"):
+                        code, name = asyncserial.get_and_reset_last_button()
+                        if name == 'PLAY':
+                            buttonPress = BTNPLAY
+                        if rbuttonPress == BTNPLAY:
                             logging.debug('Play btn pressed. Stanby is: %s', standby)
                             if standby == False:
                                 logging.debug('Calling standbyScreen()')

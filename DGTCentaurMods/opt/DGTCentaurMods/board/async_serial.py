@@ -163,6 +163,8 @@ class AsyncSerial:
         self.packet_count = 0
         # queue to signal key-up events as (code, name)
         self.key_up_queue = queue.Queue(maxsize=128)
+        # track last key-up (code, name) for non-blocking retrieval
+        self._last_button = (None, None)
 
         if auto_init:
             init_thread = threading.Thread(target=self._init_background, daemon=False)
@@ -346,9 +348,10 @@ class AsyncSerial:
                 if idx is not None:
                     # Draw visual indicator
                     self._draw_key_event(packet, hex_row, self.packet_count)
-                    # On key-up, enqueue (code, name)
+                    # On key-up, enqueue (code, name) and update last button
                     if not is_down:
                         name = BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
+                        self._last_button = (code_val, name)
                         try:
                             self.key_up_queue.put_nowait((code_val, name))
                         except queue.Full:
@@ -497,6 +500,15 @@ class AsyncSerial:
                 if code == accept or name == accept:
                     return (code, name)
             # otherwise continue waiting
+
+    def get_and_reset_last_button(self):
+        """
+        Non-blocking: return the last key-up event as (code, name) and reset it.
+        Returns (None, None) if no key-up has been recorded since last reset.
+        """
+        code, name = self._last_button
+        self._last_button = (None, None)
+        return (code, name)
 
     def _find_key_event(self, packet):
         """
