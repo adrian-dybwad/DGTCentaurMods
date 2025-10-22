@@ -427,39 +427,39 @@ class AsyncSerial:
         except Exception as e:
             print(f"Error in _draw_piece_events: {e}")
 
-    def _find_key_code(self, packet):
+    def _find_key_event(self, packet):
         """
-        Find the key code byte in a key packet.
-        Expected pattern (most common): 00 14 0a 05 <code> ...
-        Some boards insert an extra 00 after 05: 00 14 0a 05 00 <code> ...
-        Returns (code_index, code_value) or (None, None) if not found.
+        Detect key event in a key packet (b1 00 ...).
+        Pattern variants observed:
+        - Key down:  ... 00 14 0a 05 <code> 00 ...
+        - Key up:    ... 00 14 0a 05 00 <code> ...
+        Returns (code_index, code_value, is_down) or (None, None, None).
         """
         if len(packet) < 10 or not (packet[0] == 0xb1 and packet[1] == 0x00):
-            return (None, None)
+            return (None, None, None)
 
-        # Scan after addr2 for the preamble 00 14 0a 05
-        start = 5
-        for i in range(start, len(packet) - 5):
-            if (packet[i] == 0x00 and i + 3 < len(packet)
-                    and packet[i+1] == 0x14 and packet[i+2] == 0x0a and packet[i+3] == 0x05):
-                # primary guess: next byte is the code
-                if i + 4 < len(packet) and packet[i+4] != 0x00:
-                    return (i + 4, packet[i+4])
-                # fallback if an extra 00 follows 05
-                if i + 5 < len(packet):
-                    return (i + 5, packet[i+5])
+        # Look for preamble after addr1/addr2 (start scan at byte 5)
+        for i in range(5, len(packet) - 6):
+            if (packet[i] == 0x00 and packet[i+1] == 0x14 and
+                packet[i+2] == 0x0a and packet[i+3] == 0x05):
+                first = packet[i+4]
+                second = packet[i+5] if i+5 < len(packet) else 0x00
+                # Key down: code is first byte after 05
+                if first != 0x00:
+                    return (i + 4, first, True)
+                # Key up: code is second byte after 05 (first is 0x00)
+                if first == 0x00 and second != 0x00:
+                    return (i + 5, second, False)
                 break
 
-        return (None, None)
+        return (None, None, None)
 
     def _draw_key_event(self, packet, hex_row, packet_num):
         """
         Render key event with label to the left and arrow under the key-code byte.
-        Example:
-        [P####] ... 05 00 02 00 ...
-                                            <KEY>  ↑
+        Uses ↓ for key down and ↑ for key up.
         """
-        code_index, code_val = self._find_key_code(packet)
+        code_index, code_val, is_down = self._find_key_event(packet)
         if code_index is None:
             return False
 
@@ -467,9 +467,11 @@ class AsyncSerial:
         # Each byte renders as "xx " → 3 chars per byte
         arrow_abs = len(prefix) + (code_index * 3)
 
-        label = f"{BUTTON_CODES[code_val]}  "
+        base_name = BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
+        name = f"{base_name}_DOWN" if is_down else base_name
+        label = f"<{name}>  "
         label_len = len(label)
-        label_start = max(0, arrow_abs - label_len)  # ensure non-negative
+        label_start = max(0, arrow_abs - label_len)
 
         line_len = len(prefix) + len(hex_row)
         buf = [" "] * line_len
@@ -479,8 +481,8 @@ class AsyncSerial:
             pos = label_start + j
             if 0 <= pos < line_len:
                 buf[pos] = ch
-        if 0 <= arrow_abs < line_len:
-            buf[arrow_abs] = "↑"
+
+        buf[arrow_abs] = "↓" if is_down else "↑"
 
         print("".join(buf).rstrip())
         return True
