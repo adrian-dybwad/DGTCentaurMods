@@ -220,6 +220,7 @@ class SerialHelper:
         
         self.response_buffer.append(byte)
 
+        print(f"[DEBUG] Passing byte to SM: 0x{byte:02x}, State: {self.discovery_state}, Response buffer: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
         # Handle discovery state machine
         if self.discovery_state == "INITIALIZING":
             # Got a response to initial commands, now send discovery packet
