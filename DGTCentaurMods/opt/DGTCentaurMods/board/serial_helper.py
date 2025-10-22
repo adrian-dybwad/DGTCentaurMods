@@ -96,6 +96,8 @@ LED_OFF_CMD = b'\xb0\x00\x07'
 KEY_POLL_PACKET = b'\xb1\x00\x06'
 PIECE_POLL_PACKET = b'\x85\x00\x06'
 
+__all__ = ['SerialHelper', 'PIECE_POLL_CMD', 'KEY_POLL_CMD']
+
 class SerialHelper:
     """Helper class for managing serial communication with DGT Centaur board
     

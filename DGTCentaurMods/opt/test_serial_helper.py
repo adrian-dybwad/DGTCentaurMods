@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, '.')
 
-from DGTCentaurMods.board.serial_helper import SerialHelper
+from DGTCentaurMods.board.serial_helper import SerialHelper, PIECE_POLL_CMD, KEY_POLL_CMD
 
 if __name__ == "__main__":
     print("Initializing SerialHelper...")
@@ -15,7 +15,7 @@ if __name__ == "__main__":
         
         try:
             helper.ledsOff()
-            helper.sendPacket(helper.PIECE_POLL_CMD, b'') #Piece detection enabled
+            helper.sendPacket(PIECE_POLL_CMD, b'') #Piece detection enabled
             helper.ledsOff()
         except Exception as e:
             print(f"Error: {e}")
