@@ -203,6 +203,12 @@ def displayScreenBufferPartial():
     epd.DisplayPartial(epd.getbuffer(image))
     time.sleep(0.1)
 
+def close():
+    asyncserial.close()
+
+def initialize():
+    asyncserial.initialize()
+    
 def clearSerial():
     logging.debug('Checking and clear the serial line.')
     asyncserial.clearSerial()
