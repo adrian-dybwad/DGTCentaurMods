@@ -174,6 +174,7 @@ class AsyncSerial:
     def run_background(self, start_key_polling=False):
         """Initialize in background thread"""
         self.discovery_state = "STARTING"
+        self.listener_running = True
         self._initialize()
         
         # Start listener thread FIRST so it's ready to capture responses
@@ -676,7 +677,7 @@ class AsyncSerial:
         self.stop_listener()
         if self.ser:
             self.ser.close()
-            logging.debug("Serial port closed")
+            print("Serial port closed")
 
     def clearSerial(self):
         #TODO: Reset things, clear lastKey, moves that may have accumulated etc. 
