@@ -298,9 +298,9 @@ class SerialHelper:
                 # Draw piece events with arrow indicators
                 self._draw_piece_events(packet, hex_row, self.packet_count)
 
-                #We will remove this later when the next move will be queued from the game itself. 
-                #For now, we will send a piece detection packet to the board.
-                self.sendPacket(PIECE_POLL_CMD, b'')
+            #We will remove this later when the next move will be queued from the game itself. 
+            #For now, we will send a piece detection packet to the board.
+            self.sendPacket(PIECE_POLL_CMD, b'')
         except Exception as e:
             print(f"Error: {e}")
             return 
@@ -310,8 +310,8 @@ class SerialHelper:
             if packet[:-1] != self.buildPacket(KEY_POLL_PACKET, b'')[:-1]:
                 hex_row = ' '.join(f'{b:02x}' for b in packet)
                 print(f"\r[P{self.packet_count:03d}] {hex_row}")
-                #We always want to have key events, it would be unusual not to.
-                self.sendPacket(KEY_POLL_CMD, b'')
+            #We always want to have key events, it would be unusual not to.
+            self.sendPacket(KEY_POLL_CMD, b'')
         except Exception as e:
             print(f"Error: {e}")
             return 
