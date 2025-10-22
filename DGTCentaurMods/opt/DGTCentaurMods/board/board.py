@@ -217,7 +217,8 @@ close()
 print("Running background")
 run_background(start_key_polling=True)
 print("Background running")
-
+asyncserial.wait_ready()
+print("Background ready")
 
 def clearSerial():
     logging.debug('Checking and clear the serial line.')
