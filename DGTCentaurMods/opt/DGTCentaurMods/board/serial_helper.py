@@ -214,7 +214,7 @@ class SerialHelper:
         1. Buffer ends with valid [addr1][addr2][checksum], OR
         2. A new 85 00 header is detected (indicating start of next packet)
         """
-
+        print(f"Processing response: {byte}")
         # Detect packet start sequence (<PACKET_START_BYTE> 00) while buffer has data
         if (len(self.response_buffer) >= 1 and 
             self.response_buffer[-1] in self.PACKET_START_BYTES and 
