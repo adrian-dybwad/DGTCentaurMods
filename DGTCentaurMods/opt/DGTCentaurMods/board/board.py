@@ -208,6 +208,7 @@ def clearSerial():
     asyncserial.clearSerial()
 
 def doMenu(items, fast = 0):
+    print(f"doMenu: {items}, Fast: {fast}")
     # Draw a menu, let the user navigate and return the value
     # or "BACK" if the user backed out
     # pass a menu like: menu = {'Lichess': 'Lichess', 'Centaur': 'DGT
@@ -221,13 +222,22 @@ def doMenu(items, fast = 0):
     connected = 0
     if fast == 0:
         connected = checkInternetSocket()
+    print("Connected: " + str(connected))
     quickselect = 0
     quickselectpossible = -1
     res = getBoardState()
+    print("getBoardState: " + str(res))
+
     if res[32] == 0 and res[33] == 0 and res[34] == 0 and res[35] == 0 and res[36]==0 and res[37] == 0 and res[38] == 0 and res[39] == 0:
         # If the 4th rank is empty then enable quick select mode. Then we can choose a menu option by placing and releasing a piece
         quickselect = 1
     image = Image.new('1', (epd.width, epd.height), 255)
+    print("First: " + str(first))
+    print("Selected: " + str(selected))
+    print("Quickselect: " + str(quickselect))
+    print("Initialised: " + str(initialised))
+
+
     while (buttonPress != 2):
         time.sleep(0.05)
         draw = ImageDraw.Draw(image)
@@ -254,6 +264,7 @@ def doMenu(items, fast = 0):
 
             print("Drawing image")
             image = image.transpose(Image.FLIP_TOP_BOTTOM)
+            print(f"Image flipped top bottom, {Image.FLIP_TOP_BOTTOM}")
             image = image.transpose(Image.FLIP_LEFT_RIGHT)
             print("Image drawn")
 
