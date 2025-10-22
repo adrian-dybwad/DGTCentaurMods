@@ -104,6 +104,13 @@ class SerialHelper:
             helper._init_background()
             helper.sendPacket(b'\x83', b'')
     """
+    # List of valid packet start bytes
+    PACKET_START_BYTES = [0x85, 0x87, 0x93]  # Add any other start types here
+    KEY_POLL_CMD = b'\x94'
+    PIECE_POLL_CMD = b'\x83'
+    LED_OFF_CMD = b'\xb0\x00\x07'
+    KEY_POLL_PACKET = b'\xb1\x00\x06'
+    PIECE_POLL_PACKET = b'\x85\x00\x06'
     
     def __init__(self, developer_mode=False, auto_init=True):
         """
@@ -124,14 +131,6 @@ class SerialHelper:
         self.spinner = itertools.cycle(['|', '/', '-', '\\'])
         self.response_buffer = bytearray()
         self.packet_count = 0
-
-        # List of valid packet start bytes
-        PACKET_START_BYTES = [0x85, 0x87, 0x93]  # Add any other start types here
-        KEY_POLL_CMD = b'\x94'
-        PIECE_POLL_CMD = b'\x83'
-        LED_OFF_CMD = b'\xb0\x00\x07'
-        KEY_POLL_PACKET = b'\xb1\x00\x06'
-        PIECE_POLL_PACKET = b'\x85\x00\x06'
 
         if auto_init:
             init_thread = threading.Thread(target=self._init_background, daemon=False)
