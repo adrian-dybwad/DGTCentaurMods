@@ -17,6 +17,9 @@ if __name__ == "__main__":
             asyncserial.ledsOff()
             asyncserial.sendPacket(PIECE_POLL_CMD, b'') #Piece detection enabled
             asyncserial.ledsOff()
+            
+            print(asyncserial.wait_for_key_up())
+            
         except Exception as e:
             print(f"Error: {e}")
         try:
