@@ -96,7 +96,16 @@ LED_OFF_CMD = b'\xb0\x00\x07'
 KEY_POLL_PACKET = b'\xb1\x00\x06'
 PIECE_POLL_PACKET = b'\x85\x00\x06'
 
-__all__ = ['AsyncSerial', 'PIECE_POLL_CMD', 'KEY_POLL_CMD']
+BUTTON_CODES = {
+    0x01: "BACK",
+    0x10: "TICK",
+    0x08: "UP",
+    0x02: "DOWN",
+    0x40: "HELP",
+    0x04: "PLAY",
+}
+
+__all__ = ['AsyncSerial', 'PIECE_POLL_CMD', 'KEY_POLL_CMD', 'BUTTON_CODES']
 
 class AsyncSerial:
     """Helper class for managing serial communication with DGT Centaur board
@@ -310,6 +319,11 @@ class AsyncSerial:
             if packet[:-1] != self.buildPacket(KEY_POLL_PACKET, b'')[:-1]:
                 hex_row = ' '.join(f'{b:02x}' for b in packet)
                 print(f"\r[P{self.packet_count:03d}] {hex_row}")
+                if self._draw_key_event(packet, hex_row, self.packet_count):
+                    # keep button polling alive if you poll keys
+                    # self.sendPacket(KEY_POLL_CMD, b'')
+                    return
+
             #We always want to have key events, it would be unusual not to.
             self.sendPacket(KEY_POLL_CMD, b'')
         except Exception as e:
@@ -415,6 +429,64 @@ class AsyncSerial:
                 print("".join(line_list).rstrip())
         except Exception as e:
             print(f"Error in _draw_piece_events: {e}")
+
+    def _find_key_code(self, packet):
+        """
+        Find the key code byte in a key packet.
+        Expected pattern (most common): 00 14 0a 05 <code> ...
+        Some boards insert an extra 00 after 05: 00 14 0a 05 00 <code> ...
+        Returns (code_index, code_value) or (None, None) if not found.
+        """
+        if len(packet) < 10 or not (packet[0] == 0xb1 and packet[1] == 0x00):
+            return (None, None)
+
+        # Scan after addr2 for the preamble 00 14 0a 05
+        start = 5
+        for i in range(start, len(packet) - 5):
+            if (packet[i] == 0x00 and i + 3 < len(packet)
+                    and packet[i+1] == 0x14 and packet[i+2] == 0x0a and packet[i+3] == 0x05):
+                # primary guess: next byte is the code
+                if i + 4 < len(packet) and packet[i+4] != 0x00:
+                    return (i + 4, packet[i+4])
+                # fallback if an extra 00 follows 05
+                if i + 5 < len(packet):
+                    return (i + 5, packet[i+5])
+                break
+
+        return (None, None)
+
+    def _draw_key_event(self, packet, hex_row, packet_num):
+        """
+        Render key event with label to the left and arrow under the key-code byte.
+        Example:
+        [P####] ... 05 00 02 00 ...
+                                            <KEY>  ↑
+        """
+        code_index, code_val = self._find_key_code(packet)
+        if code_index is None:
+            return False
+
+        prefix = f"[P{packet_num:03d}] "
+        # Each byte renders as "xx " → 3 chars per byte
+        arrow_abs = len(prefix) + (code_index * 3)
+
+        label = "<KEY>  "
+        label_len = len(label)
+        label_start = max(0, arrow_abs - label_len)  # ensure non-negative
+
+        line_len = len(prefix) + len(hex_row)
+        buf = [" "] * line_len
+
+        # Place label first, then arrow at exact column
+        for j, ch in enumerate(label):
+            pos = label_start + j
+            if 0 <= pos < line_len:
+                buf[pos] = ch
+        if 0 <= arrow_abs < line_len:
+            buf[arrow_abs] = "↑"
+
+        print("".join(buf).rstrip())
+        return True
 
     def checksum(self, barr):
         """
