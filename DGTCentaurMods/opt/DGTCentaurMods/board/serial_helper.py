@@ -208,9 +208,12 @@ class SerialHelper:
         """
         print(f"Processing byte: 0x{byte:02x}")
 
+        # List of valid packet start bytes
+        PACKET_START_BYTES = [0x85, 0x87, 0x93]  # Add any other start types here
+
         # Detect new packet start sequence (85 00) while buffer has data
         if (len(self.response_buffer) >= 1 and 
-            self.response_buffer[-1] == 0x85 and 
+            self.response_buffer[-1] in PACKET_START_BYTES and 
             byte == 0x00 and 
             len(self.response_buffer) > 1):
             # Log orphaned data (everything except the 85)
