@@ -224,7 +224,7 @@ class SerialHelper:
         # Handle discovery state machine
         if self.discovery_state == "INITIALIZING":
             # Got a response to initial commands, now send discovery packet
-            self._discover_board_address(response_buffer)  # Transitions to AWAITING_PACKET
+            self._discover_board_address(self.response_buffer)  # Transitions to AWAITING_PACKET
 
         # Check if this byte is a checksum boundary
         if len(self.response_buffer) >= 2:
