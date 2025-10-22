@@ -13,9 +13,13 @@ if __name__ == "__main__":
     
     if helper.wait_ready():
         
-        helper.ledsOff()
-        helper.sendPacket(b'\x83', b'') #Piece detection enabled
-        print("\nListening for serial data (press Ctrl+C to stop)...")
+        try:
+            helper.ledsOff()
+            helper.sendPacket(b'\x83', b'') #Piece detection enabled
+            print("\nListening for serial data (press Ctrl+C to stop)...")
+            helper.ledsOff()
+        except Exception as e:
+            print(f"Error: {e}")
         try:
             while True:
                 pass
