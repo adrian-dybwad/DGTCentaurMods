@@ -336,7 +336,7 @@ class AsyncSerial:
                         except queue.Full:
                             pass
                     # processed a key event
-                    return
+                    #return
 
             #We always want to have key events, it would be unusual not to.
             self.sendPacket(KEY_POLL_CMD, b'')
