@@ -88,6 +88,13 @@ Parsing Algorithm:
     6. Once READY: process as normal game packets
 """
 
+# Constants
+PACKET_START_BYTES = [0x85, 0x87, 0x93]  # Add any other start types here
+KEY_POLL_CMD = b'\x94'
+PIECE_POLL_CMD = b'\x83'
+LED_OFF_CMD = b'\xb0\x00\x07'
+KEY_POLL_PACKET = b'\xb1\x00\x06'
+PIECE_POLL_PACKET = b'\x85\x00\x06'
 
 class SerialHelper:
     """Helper class for managing serial communication with DGT Centaur board
@@ -104,13 +111,6 @@ class SerialHelper:
             helper._init_background()
             helper.sendPacket(b'\x83', b'')
     """
-    # List of valid packet start bytes
-    PACKET_START_BYTES = [0x85, 0x87, 0x93]  # Add any other start types here
-    KEY_POLL_CMD = b'\x94'
-    PIECE_POLL_CMD = b'\x83'
-    LED_OFF_CMD = b'\xb0\x00\x07'
-    KEY_POLL_PACKET = b'\xb1\x00\x06'
-    PIECE_POLL_PACKET = b'\x85\x00\x06'
     
     def __init__(self, developer_mode=False, auto_init=True):
         """
