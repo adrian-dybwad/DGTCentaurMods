@@ -76,8 +76,6 @@ batterylastchecked = 0
 
 asyncserial.wait_ready()
 
-
-
 # Screen functions - deprecated, use epaper.py if possible
 #
 
@@ -211,15 +209,6 @@ def close():
 def run_background(start_key_polling=False):
     asyncserial.run_background(start_key_polling=start_key_polling)
     
-
-print("Closing board")
-close()
-print("Running background")
-run_background(start_key_polling=True)
-print("Background running")
-asyncserial.wait_ready()
-print("Background ready")
-
 def clearSerial():
     logging.debug('Checking and clear the serial line.')
     asyncserial.clearSerial()
