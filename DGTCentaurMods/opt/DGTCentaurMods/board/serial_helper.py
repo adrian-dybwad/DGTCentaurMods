@@ -305,6 +305,7 @@ class SerialHelper:
 
     def handle_button_packet(self, packet):
         if packet[:-1] != self.buildPacket(KEY_POLL_PACKET, b'')[:-1]:
+            hex_row = ' '.join(f'{b:02x}' for b in packet)
             print(f"\r[P{self.packet_count:03d}] {hex_row}")
             #We always want to have key events, it would be unusual not to.
             self.sendPacket(KEY_POLL_CMD, b'')
