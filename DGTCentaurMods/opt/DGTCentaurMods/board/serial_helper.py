@@ -261,8 +261,6 @@ class SerialHelper:
         """Called when a complete valid packet is received"""
         self.packet_count += 1
 
-        print(f"Packet: {packet}")  
-        print(f"Packet type: {packet[0]}")
         try:
             if packet[0] == 0x85:
                 self.handle_board_packet(packet)
