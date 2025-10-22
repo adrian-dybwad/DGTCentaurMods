@@ -469,7 +469,7 @@ class SerialHelper:
         if self.discovery_state == "INITIALIZING":
             self.discovery_state = "AWAITING_PACKET"
             hex_row = ' '.join(f'{b:02x}' for b in packet)
-            print(f"[INIT_RESPONSE] {hex_row}")
+            #print(f"[INIT_RESPONSE] {hex_row}")
             print("Discovery: sending discovery packet 0x87 0x00 0x00 0x07")
             tosend = bytearray(b'\x87\x00\x00\x07')
             self.ser.write(tosend)
@@ -477,72 +477,12 @@ class SerialHelper:
         elif self.discovery_state == "AWAITING_PACKET":
             #print(f"[DEBUG] AWAITING_PACKET: Got packet {' '.join(f'{b:02x}' for b in packet)}")
             if len(packet) > 4:
-                print(f"[DEBUG] Extracting addr1={packet[3]:02x}, addr2={packet[4]:02x}")
+                #print(f"[DEBUG] Extracting addr1={packet[3]:02x}, addr2={packet[4]:02x}")
                 self.addr1 = packet[3]
                 self.addr2 = packet[4]
                 self.discovery_state = "READY"
                 self.ready = True
                 print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
-    
-    def _old_discover_board_address(self):
-        """
-        Discover the board address by sending initialization commands.
-        This replicates the address discovery sequence from board.py.
-        """
-        logging.debug("Detecting board address")
-        
-        try:
-            resp = self.readSerial(1000)
-        except:
-            resp = self.readSerial(1000)
-
-        print(f"Response 0: {bytearray.fromhex(resp.hex())}")
-        
-        tosend = bytearray(b'\x4d')
-        self.ser.write(tosend)
-        try:
-            resp = self.readSerial(1000)
-        except:
-            resp = self.readSerial(1000)
-        logging.debug('Sent payload 1 (0x4d)')
-
-        print(f"Response 1: {bytearray.fromhex(resp.hex())}")
-        
-        tosend = bytearray(b'\x4e')
-        self.ser.write(tosend)
-        try:
-            resp = self.readSerial(1000)
-        except:
-            resp = self.readSerial(1000)
-        logging.debug('Sent payload 2 (0x4e)')
-        print(f"Response 2: {bytearray.fromhex(resp.hex())}")
-        
-        logging.debug('Serial is open. Waiting for response.')
-        resp = ""
-        timeout = time.time() + 60
-        
-        while len(resp) < 4 and time.time() < timeout:
-            if self.developer_mode:
-                break
-            
-            tosend = bytearray(b'\x87\x00\x00\x07')
-            self.ser.write(tosend)
-            try:
-                resp = self.ser.read(1000)
-            except:
-                resp = self.ser.read(1000)
-            
-            print(f"Response 3: {bytearray.fromhex(resp.hex())}")
-
-            if len(resp) > 3:
-                self.addr1 = resp[3]
-                self.addr2 = resp[4]
-                logging.debug("Discovered board address: %s%s", hex(self.addr1), hex(self.addr2))
-                break
-        else:
-            if not self.developer_mode:
-                logging.debug('FATAL: No response from serial')
-                sys.exit(1)
     
     def close(self):
         """Close the serial connection"""
