@@ -171,7 +171,7 @@ class AsyncSerial:
             init_thread.start()
 
     
-    def run_background(self):
+    def run_background(self, start_key_polling=False):
         """Initialize in background thread"""
         self._initialize()
         
@@ -181,6 +181,8 @@ class AsyncSerial:
 
         # THEN send discovery commands
         self._discover_board_address()
+        if start_key_polling:
+            self.sendPacket(KEY_POLL_CMD, b'')
         
     def wait_ready(self, timeout=60):
         """

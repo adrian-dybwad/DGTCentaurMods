@@ -814,7 +814,7 @@ while True:
                         + " "
                         + elo
                     )
-                    board.run_background()
+                    board.run_background(start_key_polling=True)
                     board.unPauseEvents()
                     statusbar.start()
         else:
