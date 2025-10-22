@@ -263,12 +263,16 @@ class SerialHelper:
 
         print(f"Packet: {packet}")  
         print(f"Packet type: {packet[0]}")
-        if packet[0] == 0x85:
-            self.handle_board_packet(packet)
-        elif packet[0] == 0xb1:
-            self.handle_button_packet(packet)
-        else:
-            print(f"Unknown packet type: {packet[0]}")
+        try:
+            if packet[0] == 0x85:
+                self.handle_board_packet(packet)
+            elif packet[0] == 0xb1:
+                self.handle_button_packet(packet)
+            else:
+                print(f"Unknown packet type: {packet[0]}")
+        except Exception as e:
+            print(f"Error: {e}")
+            return
         
         # Request next packet if ready
         if self.ready:
