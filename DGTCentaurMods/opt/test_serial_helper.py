@@ -20,7 +20,7 @@ if __name__ == "__main__":
             
             print(asyncserial.wait_for_key_up())
             print(asyncserial.wait_for_key_up())
-            print(asyncserial.wait_for_key_up())
+            print(asyncserial.wait_for_key_up(accept={'TICK'}))
 
         except Exception as e:
             print(f"Error: {e}")
