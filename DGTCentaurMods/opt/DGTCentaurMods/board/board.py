@@ -76,6 +76,13 @@ batterylastchecked = 0
 
 asyncserial.wait_ready()
 
+print("Closing board")
+board.close()
+print("Running background")
+board.run_background(start_key_polling=True)
+print("Background running")
+
+
 # Screen functions - deprecated, use epaper.py if possible
 #
 
