@@ -244,13 +244,18 @@ def doMenu(items, fast = 0):
             wifion = Image.open(AssetManager.get_resource_path("wifiontiny.bmp"))
             wifioff = Image.open(AssetManager.get_resource_path("wifiofftiny.bmp"))
             if connected == True:
+                print("Connected")
                 wifidispicon = wifion.resize((20,16))
                 image.paste(wifidispicon, (105, 5))
             else:
+                print("Not Connected")
                 wifidispicon = wifioff.resize((20, 16))
                 image.paste(wifidispicon, (105, 5))
+
+            print("Drawing image")
             image = image.transpose(Image.FLIP_TOP_BOTTOM)
             image = image.transpose(Image.FLIP_LEFT_RIGHT)
+            print("Image drawn")
 
         draw.rectangle([(110,0),(128,294)],fill=255,outline=0)
         draw.polygon([(128 - 2, 276 - (selected * 20) + 2), (128 - 2, 276 - (selected * 20) + 18),
