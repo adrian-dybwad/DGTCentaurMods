@@ -672,7 +672,7 @@ class AsyncSerial:
             self.ser.close()
             logging.debug("Serial port closed")
 
-    def clearSerial():
+    def clearSerial(self):
         #TODO: Reset things, clear lastKey, moves that may have accumulated etc. 
         #Rename this function to something like resetBoardState()
         self._last_button = (None, None)
@@ -700,7 +700,7 @@ class AsyncSerial:
     def poll_piece_detection(self):
         self.sendPacket(PIECE_POLL_CMD, b'')
 
-    def clearBoardData():
+    def clearBoardData(self):
         self.sendPacket(b'\x83', b'')
         expect = self.buildPacket(b'\x85\x00\x06', b'')
 
