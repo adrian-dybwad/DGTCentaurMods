@@ -277,36 +277,44 @@ class SerialHelper:
             print(f"\r{next(self.spinner)}", end='', flush=True)
 
     def handle_board_packet(self, packet):
-        # Skip printing "no piece" packet
-        if packet[:-1] != self.buildPacket(PIECE_POLL_PACKET, b'')[:-1]:
-            hex_row = ' '.join(f'{b:02x}' for b in packet)
-            # Check if packet has piece events (0x40=lift, 0x41=place)
-            has_events = any(packet[i] in (0x40, 0x41) for i in range(5, len(packet) - 1))
-            
-            # Only display time if there are piece events
-            time_str = ""
-            if has_events:
-                time_signals = self._extract_time_signals(packet)
-                if time_signals:
-                    time_formatted = self._format_time_display(time_signals)
-                    if time_formatted:
-                        time_str = f"  [TIME: {time_formatted}]"
-            
-            print(f"\r[P{self.packet_count:03d}] {hex_row}{time_str}")
-            
-            # Draw piece events with arrow indicators
-            self._draw_piece_events(packet, hex_row, self.packet_count)
+        try:
+            # Skip printing "no piece" packet
+            if packet[:-1] != self.buildPacket(PIECE_POLL_PACKET, b'')[:-1]:
+                hex_row = ' '.join(f'{b:02x}' for b in packet)
+                # Check if packet has piece events (0x40=lift, 0x41=place)
+                has_events = any(packet[i] in (0x40, 0x41) for i in range(5, len(packet) - 1))
+                
+                # Only display time if there are piece events
+                time_str = ""
+                if has_events:
+                    time_signals = self._extract_time_signals(packet)
+                    if time_signals:
+                        time_formatted = self._format_time_display(time_signals)
+                        if time_formatted:
+                            time_str = f"  [TIME: {time_formatted}]"
+                
+                print(f"\r[P{self.packet_count:03d}] {hex_row}{time_str}")
+                
+                # Draw piece events with arrow indicators
+                self._draw_piece_events(packet, hex_row, self.packet_count)
 
-            #We will remove this later when the next move will be queued from the game itself. 
-            #For now, we will send a piece detection packet to the board.
-            self.sendPacket(PIECE_POLL_CMD, b'')
+                #We will remove this later when the next move will be queued from the game itself. 
+                #For now, we will send a piece detection packet to the board.
+                self.sendPacket(PIECE_POLL_CMD, b'')
+        except Exception as e:
+            print(f"Error: {e}")
+            return 
 
     def handle_button_packet(self, packet):
-        if packet[:-1] != self.buildPacket(KEY_POLL_PACKET, b'')[:-1]:
-            hex_row = ' '.join(f'{b:02x}' for b in packet)
-            print(f"\r[P{self.packet_count:03d}] {hex_row}")
-            #We always want to have key events, it would be unusual not to.
-            self.sendPacket(KEY_POLL_CMD, b'')
+        try:
+            if packet[:-1] != self.buildPacket(KEY_POLL_PACKET, b'')[:-1]:
+                hex_row = ' '.join(f'{b:02x}' for b in packet)
+                print(f"\r[P{self.packet_count:03d}] {hex_row}")
+                #We always want to have key events, it would be unusual not to.
+                self.sendPacket(KEY_POLL_CMD, b'')
+        except Exception as e:
+            print(f"Error: {e}")
+            return 
 
     def _extract_time_signals(self, packet):
         """
