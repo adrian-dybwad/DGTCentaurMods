@@ -468,8 +468,7 @@ class AsyncSerial:
         arrow_abs = len(prefix) + (code_index * 3)
 
         base_name = BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
-        name = f"{base_name}_DOWN" if is_down else base_name
-        label = f"<{name}>  "
+        label = f"{base_name}  "
         label_len = len(label)
         label_start = max(0, arrow_abs - label_len)
 
