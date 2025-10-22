@@ -689,6 +689,9 @@ class AsyncSerial:
         square = chr((ord('a') + (field % 8))) + chr(ord('1') + (field // 8))
         return square
 
+    def poll_piece_detection(self):
+        self.sendPacket(PIECE_POLL_CMD, b'')
+
     def clearBoardData():
         self.sendPacket(b'\x83', b'')
         expect = self.buildPacket(b'\x85\x00\x06', b'')

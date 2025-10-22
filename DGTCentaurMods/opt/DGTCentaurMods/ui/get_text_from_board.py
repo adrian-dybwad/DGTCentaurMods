@@ -79,6 +79,7 @@ def getText(title="Enter text"):
                 print("ERROR: Failed to start text input subscription")
                 return None
             print("Event subscription started successfully")
+            board.poll_piece_detection()
 
             clearstate = [0] * 64
             printableascii = (
@@ -204,6 +205,7 @@ def getText(title="Enter text"):
                                     board.beep(board.SOUND_GENERAL)
                                     print(f"Piece placed on field {field}, added char '{ch}'")
                                     changed = True
+                                    board.poll_piece_detection()
                             except Exception as e:
                                 print(f"ERROR: Failed to handle field event {field}: {e}")
                                 import traceback
