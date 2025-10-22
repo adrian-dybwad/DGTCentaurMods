@@ -612,20 +612,20 @@ class AsyncSerial:
         tosend = self.buildPacket(command, data)
         self.ser.write(tosend)
     
-    def readSerial(self, num_bytes=1000):
-        """
-        Read data from serial port.
+    # def readSerial(self, num_bytes=1000):
+    #     """
+    #     Read data from serial port.
         
-        Args:
-            num_bytes (int): number of bytes to attempt to read
+    #     Args:
+    #         num_bytes (int): number of bytes to attempt to read
             
-        Returns:
-            bytes: data read from serial port
-        """
-        try:
-            return self.ser.read(num_bytes)
-        except:
-            return self.ser.read(num_bytes)
+    #     Returns:
+    #         bytes: data read from serial port
+    #     """
+    #     try:
+    #         return self.ser.read(num_bytes)
+    #     except:
+    #         return self.ser.read(num_bytes)
     
     def _discover_board_address(self, packet=None):
         """
