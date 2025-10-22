@@ -430,8 +430,8 @@ class SerialHelper:
             resp = self.readSerial(1000)
         except:
             resp = self.readSerial(1000)
-            
-        print(f"Response 0: {bytes(resp).hex()}")
+
+        print(f"Response 0: {bytearray.fromhex(resp.hex())}")
         
         tosend = bytearray(b'\x4d')
         self.ser.write(tosend)
@@ -441,7 +441,7 @@ class SerialHelper:
             resp = self.readSerial(1000)
         logging.debug('Sent payload 1 (0x4d)')
 
-        print(f"Response 1: {bytes(resp).hex()}")
+        print(f"Response 1: {bytearray.fromhex(resp.hex())}")
         
         tosend = bytearray(b'\x4e')
         self.ser.write(tosend)
@@ -450,7 +450,7 @@ class SerialHelper:
         except:
             resp = self.readSerial(1000)
         logging.debug('Sent payload 2 (0x4e)')
-        print(f"Response 2: {bytes(resp).hex()}")
+        print(f"Response 2: {bytearray.fromhex(resp.hex())}")
         
         logging.debug('Serial is open. Waiting for response.')
         resp = ""
