@@ -8,7 +8,7 @@ from DGTCentaurMods.board.async_serial import AsyncSerial, PIECE_POLL_CMD
 
 if __name__ == "__main__":
     print("Initializing AsyncSerial...")
-    asyncserial = async_serial(developer_mode=False)
+    asyncserial = AsyncSerial(developer_mode=False)
     print("Waiting for AsyncSerial initialization...")
     
     if asyncserial.wait_ready():
