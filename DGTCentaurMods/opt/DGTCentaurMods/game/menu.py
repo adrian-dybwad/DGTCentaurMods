@@ -48,16 +48,17 @@ selection = ""
 centaur_software = "/home/pi/centaur/centaur"
 
 event_key = threading.Event()
+idle = False # ensure defined before keyPressed can be called
 
 
 def keyPressed(id):
     # This functiion receives key presses
+    print("in menu.py keyPressed: " + str(id))
     global shift
     global menuitem
     global curmenu
     global selection
     global event_key
-    global idle
     epaper.epapermode = 1    
     if idle:
         if id == board.BTNTICK:
