@@ -211,7 +211,7 @@ class SerialHelper:
         # Handle discovery state machine
         if self.discovery_state == "INITIALIZING":
             # Got a response to initial commands, now send discovery packet
-            self._discover_board_address()  # Transitions to AWAITING_PACKET
+            self._discover_board_address(bytearray([byte]))  # Transitions to AWAITING_PACKET
         
         # Detect new packet start sequence (85 00) while buffer has data
         if (len(self.response_buffer) >= 1 and 
@@ -240,6 +240,7 @@ class SerialHelper:
                         if self.discovery_state == "READY":
                             self.on_packet_complete(self.response_buffer)
                         else:
+                            print(f"[DEBUG] Passing packet to discovery SM. State: {self.discovery_state}, Packet: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                             self._discover_board_address(self.response_buffer)
                         
                         self.response_buffer = bytearray()
@@ -469,7 +470,9 @@ class SerialHelper:
             self.discovery_state = "AWAITING_PACKET"
         
         elif self.discovery_state == "AWAITING_PACKET":
+            print(f"[DEBUG] AWAITING_PACKET: Got packet {' '.join(f'{b:02x}' for b in packet)}")
             if len(packet) > 4:
+                print(f"[DEBUG] Extracting addr1={packet[3]:02x}, addr2={packet[4]:02x}")
                 self.addr1 = packet[3]
                 self.addr2 = packet[4]
                 self.discovery_state = "READY"
