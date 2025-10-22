@@ -113,7 +113,7 @@ class SerialHelper:
     def _init_background(self):
         """Initialize in background thread"""
         self._initialize_serial()
-        self._discover_board_address()
+        self._old_discover_board_address()
         self.listener_thread = threading.Thread(target=self._listener_thread, daemon=True)
         self.listener_thread.start()
         self.ready = True
@@ -423,7 +423,7 @@ class SerialHelper:
         except:
             return self.ser.read(num_bytes)
     
-    def _discover_board_address(self):
+    def _old_discover_board_address(self):
         """
         Discover the board address by sending initialization commands.
         This replicates the address discovery sequence from board.py.
@@ -482,34 +482,6 @@ class SerialHelper:
             if not self.developer_mode:
                 logging.debug('FATAL: No response from serial')
                 sys.exit(1)
-    
-    def initialize_device(self):
-        """
-        Send initialization commands to prepare the device.
-        Uses the same packet construction as board.py initialization.
-        """
-        logging.debug("Initializing device with discovered addresses")
-        
-        try:
-            self.readSerial(1000)
-        except:
-            self.readSerial(1000)
-        
-        self.sendPacket(b'\x4d', b'')
-        try:
-            self.readSerial(1000)
-        except:
-            self.readSerial(1000)
-        logging.debug('Sent initialization payload 1')
-        
-        self.sendPacket(b'\x4e', b'')
-        try:
-            self.readSerial(1000)
-        except:
-            self.readSerial(1000)
-        logging.debug('Sent initialization payload 2')
-        
-        logging.debug('Device initialization complete')
     
     def close(self):
         """Close the serial connection"""
