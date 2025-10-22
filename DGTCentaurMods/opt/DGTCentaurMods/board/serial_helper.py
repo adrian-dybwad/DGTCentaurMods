@@ -206,7 +206,7 @@ class SerialHelper:
         1. Buffer ends with valid [addr1][addr2][checksum], OR
         2. A new 85 00 header is detected (indicating start of next packet)
         """
-        print(f"Processing byte: 0x{byte:02x}")
+        #print(f"Processing byte: 0x{byte:02x}")
 
         # List of valid packet start bytes
         PACKET_START_BYTES = [0x85, 0x87, 0x93]  # Add any other start types here
@@ -223,7 +223,7 @@ class SerialHelper:
         
         self.response_buffer.append(byte)
 
-        print(f"[DEBUG] Passing byte to SM: 0x{byte:02x}, State: {self.discovery_state}, Response buffer: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+        #print(f"[DEBUG] Passing byte to SM: 0x{byte:02x}, State: {self.discovery_state}, Response buffer: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
         # Handle discovery state machine
         if self.discovery_state == "INITIALIZING":
             # Got a response to initial commands, now send discovery packet
@@ -243,7 +243,7 @@ class SerialHelper:
                         if self.discovery_state == "READY":
                             self.on_packet_complete(self.response_buffer)
                         else:
-                            print(f"[DEBUG] Passing packet to discovery SM. State: {self.discovery_state}, Packet: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                            #print(f"[DEBUG] Passing packet to discovery SM. State: {self.discovery_state}, Packet: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                             self._discover_board_address(self.response_buffer)
                         
                         self.response_buffer = bytearray()
@@ -463,7 +463,7 @@ class SerialHelper:
                 self.ser.write(tosend)
             return
 
-        print(f"[DEBUG] _discover_board_address: State: {self.discovery_state}, Packet: {' '.join(f'{b:02x}' for b in packet)}")
+        #print(f"[DEBUG] _discover_board_address: State: {self.discovery_state}, Packet: {' '.join(f'{b:02x}' for b in packet)}")
 
         # Called from processResponse() with a complete packet
         if self.discovery_state == "INITIALIZING":
@@ -475,7 +475,7 @@ class SerialHelper:
             self.ser.write(tosend)
         
         elif self.discovery_state == "AWAITING_PACKET":
-            print(f"[DEBUG] AWAITING_PACKET: Got packet {' '.join(f'{b:02x}' for b in packet)}")
+            #print(f"[DEBUG] AWAITING_PACKET: Got packet {' '.join(f'{b:02x}' for b in packet)}")
             if len(packet) > 4:
                 print(f"[DEBUG] Extracting addr1={packet[3]:02x}, addr2={packet[4]:02x}")
                 self.addr1 = packet[3]
