@@ -138,7 +138,7 @@ class AsyncSerial:
         
         Blocking initialization:
             helper = AsyncSerial(developer_mode=False, auto_init=False)
-            helper._init_background()
+            helper.run_background()
             helper.sendPacket(b'\x83', b'')
     """
     
@@ -167,13 +167,13 @@ class AsyncSerial:
         self._last_button = (None, None)
 
         if auto_init:
-            init_thread = threading.Thread(target=self._init_background, daemon=False)
+            init_thread = threading.Thread(target=self.run_background, daemon=False)
             init_thread.start()
 
     
-    def _init_background(self):
+    def run_background(self):
         """Initialize in background thread"""
-        self.initialize()
+        self._initialize()
         
         # Start listener thread FIRST so it's ready to capture responses
         self.listener_thread = threading.Thread(target=self._listener_thread, daemon=True)
@@ -215,7 +215,7 @@ class AsyncSerial:
         self.listener_running = False
         print("Serial listener thread stopped")
     
-    def initialize(self):
+    def _initialize(self):
         """Open serial connection based on mode"""
         if self.developer_mode:
             logging.debug("Developer mode enabled - setting up virtual serial port")
@@ -633,12 +633,12 @@ class AsyncSerial:
         
         Args:
             packet: Complete packet bytearray (from processResponse)
-                    None when called from _init_background()
+                    None when called from run_background()
         """
         if self.discovery_state == "READY":
             return
         
-        # Called from _init_background() with no packet
+        # Called from run_background() with no packet
         if packet is None:
             if self.discovery_state == "STARTING":
                 self.discovery_state = "INITIALIZING"
