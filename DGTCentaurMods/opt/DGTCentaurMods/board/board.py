@@ -77,9 +77,9 @@ batterylastchecked = 0
 asyncserial.wait_ready()
 
 print("Closing board")
-board.close()
+close()
 print("Running background")
-board.run_background(start_key_polling=True)
+run_background(start_key_polling=True)
 print("Background running")
 
 
