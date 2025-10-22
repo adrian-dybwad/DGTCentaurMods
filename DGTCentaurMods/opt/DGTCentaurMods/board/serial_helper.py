@@ -49,10 +49,10 @@ Where:
     time_signals (bytes 5 to n): Clock time (only present when piece events occur)
         Format: [.ss] [ss] [mm] [hh]
         - Byte 0: Subseconds (0x00-0xFF = 0.00-0.99)
-        - Byte 1: Seconds (0-59)
-        - Byte 2: Minutes (0-59)
+        - Byte 1: Seconds (optional, 0-59, only present if subseconds are > 9.99)
+        - Byte 2: Minutes (optional, 0-59, only present if seconds are > 59)
         - Byte 3: Hours (optional, for times > 59:59)
-        - Variable length: 1-4 bytes depending on time range
+        - Variable length: 1-4 bytes depending on time range (there may be more, but implemented only 4 bytes)
         - Display: "M:SS.XX" or "H:MM:SS.XX"
     data (bytes after time to n-1): Variable-length payload (piece events, etc.)
         - 0x40: Piece lifted (followed by square hex value)
@@ -136,12 +136,12 @@ class SerialHelper:
         # Start listener thread FIRST so it's ready to capture responses
         self.listener_thread = threading.Thread(target=self._listener_thread, daemon=True)
         self.listener_thread.start()
-        
+
+        print("SerialHelper initialization complete - waiting for discovery to complete")
+
         # THEN send discovery commands
         self._discover_board_address()
         
-        print("SerialHelper initialization complete - waiting for discovery to complete")
-    
     def wait_ready(self, timeout=60):
         """
         Wait for initialization to complete.
