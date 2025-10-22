@@ -22,6 +22,12 @@ if __name__ == "__main__":
             print(asyncserial.wait_for_key_up())
             print(asyncserial.wait_for_key_up(accept='TICK'))
 
+            code, name = asyncserial.wait_for_key_up(accept='PLAY')
+            print(name)
+            #Or in one line (with None-safe fallback):
+            print((asyncserial.wait_for_key_up(accept='BACK') or (None, None))[1])
+
+
         except Exception as e:
             print(f"Error: {e}")
         try:
