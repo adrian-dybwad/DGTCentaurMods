@@ -186,10 +186,10 @@ class SerialHelper:
             logging.debug("Developer mode enabled - setting up virtual serial port")
             os.system("socat -d -d pty,raw,echo=0 pty,raw,echo=0 &")
             time.sleep(10)
-            self.ser = serial.Serial("/dev/pts/2", baudrate=1000000, timeout=5.0)
+            self.ser = serial.Serial("/dev/pts/2", baudrate=1000000, timeout=0.2)
         else:
             try:
-                self.ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=5.0)
+                self.ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
                 self.ser.isOpen()
             except:
                 self.ser.close()
@@ -426,12 +426,29 @@ class SerialHelper:
         """
         logging.debug("Detecting board address")
         
+        try:
+            resp = self.readSerial(1000)
+        except:
+            resp = self.readSerial(1000)
+        
         tosend = bytearray(b'\x4d')
         self.ser.write(tosend)
+        try:
+            resp = self.readSerial(1000)
+        except:
+            resp = self.readSerial(1000)
         logging.debug('Sent payload 1 (0x4d)')
+
+        print(f"Response 1: {resp.hex()}")
+        
         tosend = bytearray(b'\x4e')
         self.ser.write(tosend)
+        try:
+            resp = self.readSerial(1000)
+        except:
+            resp = self.readSerial(1000)
         logging.debug('Sent payload 2 (0x4e)')
+        print(f"Response 2: {resp.hex()}")
         
         logging.debug('Serial is open. Waiting for response.')
         resp = ""
@@ -443,6 +460,10 @@ class SerialHelper:
             
             tosend = bytearray(b'\x87\x00\x00\x07')
             self.ser.write(tosend)
+            try:
+                resp = self.ser.read(1000)
+            except:
+                resp = self.ser.read(1000)
             
             if len(resp) > 3:
                 self.addr1 = resp[3]
