@@ -260,7 +260,7 @@ class SerialHelper:
         """Called when a complete valid packet is received"""
         self.packet_count += 1
         # Skip printing "no piece" packet
-        if packet[:-1] != self.buildPacket(b'\x85\x00\x06', b'')[:-1]:
+        if packet[:-1] != self.buildPacket(b'\x85\x00\x06', b'')[:-1] and packet[:-1] != self.buildPacket(b'\xb1\x00\x06', b'')[:-1]:
             hex_row = ' '.join(f'{b:02x}' for b in packet)
             
             # Check if packet has piece events (0x40=lift, 0x41=place)
