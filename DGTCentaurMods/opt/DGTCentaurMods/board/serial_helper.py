@@ -99,6 +99,7 @@ class SerialHelper:
         self.addr1 = 0x00
         self.addr2 = 0x00
         self.developer_mode = developer_mode
+        self.discovery_state = "STARTING"
         self.ready = False
         self.listener_running = True
         self.listener_thread = None
@@ -113,11 +114,10 @@ class SerialHelper:
     def _init_background(self):
         """Initialize in background thread"""
         self._initialize_serial()
-        self._old_discover_board_address()
+        self._discover_board_address()
         self.listener_thread = threading.Thread(target=self._listener_thread, daemon=True)
         self.listener_thread.start()
-        self.ready = True
-        logging.debug("SerialHelper initialization complete and ready")
+        print("SerialHelper initialization complete - waiting for discovery to complete")
     
     def wait_ready(self, timeout=60):
         """
@@ -200,10 +200,22 @@ class SerialHelper:
 
     def processResponse(self, byte):
         """
-        Process incoming byte using universal checksum boundary detection.
-        Any byte that equals checksum(all_previous_bytes) mod 128 marks a packet boundary.
-        When a new packet start (85 00) is detected, log and discard orphaned buffer.
+        Process incoming byte - handle discovery state machine first, then normal parsing.
+        Supports two packet formats:
+        
+        Format 1 (old): [data...][addr1][addr2][checksum]
+        Format 2 (new): [0x85][0x00][data...][addr1][addr2][checksum]
+        
+        Both have [addr1][addr2][checksum] pattern at the end.
+        Packet boundary is detected when:
+        1. Buffer ends with valid [addr1][addr2][checksum], OR
+        2. A new 85 00 header is detected (indicating start of next packet)
         """
+        # Handle discovery state machine
+        if self.discovery_state == "INITIALIZING":
+            # Got a response to initial commands, now send discovery packet
+            self._discover_board_address()  # Transitions to AWAITING_PACKET
+        
         # Detect new packet start sequence (85 00) while buffer has data
         if (len(self.response_buffer) >= 1 and 
             self.response_buffer[-1] == 0x85 and 
@@ -223,18 +235,30 @@ class SerialHelper:
             if byte == calculated_checksum:
                 # Verify packet length matches declared length
                 if len(self.response_buffer) >= 3:
-                    declared_length = self.response_buffer[2]  # Byte 2 is length field
+                    declared_length = self.response_buffer[2]
                     actual_length = len(self.response_buffer)
                     
                     if actual_length == declared_length:
-                        # Valid packet - length matches
+                        # If we're awaiting discovery packet, extract addr1/addr2
+                        if self.discovery_state == "AWAITING_PACKET":
+                            if len(self.response_buffer) > 4:
+                                self.addr1 = self.response_buffer[3]
+                                self.addr2 = self.response_buffer[4]
+                                self.discovery_state = "READY"
+                                self.ready = True
+                                print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
+                        
+                        # Normal packet processing
                         self.on_packet_complete(self.response_buffer)
                         self.response_buffer = bytearray()
-                    # else: false positive, continue accumulating
+                        return
                 else:
-                    # Buffer too short to check length field, emit anyway
                     self.on_packet_complete(self.response_buffer)
                     self.response_buffer = bytearray()
+        
+        # If buffer gets too large without finding a packet, trim old bytes
+        if len(self.response_buffer) > 1000:
+            self.response_buffer.pop(0)
     
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
@@ -422,6 +446,25 @@ class SerialHelper:
             return self.ser.read(num_bytes)
         except:
             return self.ser.read(num_bytes)
+    
+    def _discover_board_address(self):
+        """
+        State machine for non-blocking board address discovery.
+        Progresses through STARTING -> INITIALIZING -> AWAITING_PACKET -> READY
+        """
+        if self.discovery_state == "STARTING":
+            print("Discovery: STARTING - sending 0x4d and 0x4e")
+            tosend = bytearray(b'\x4d')
+            self.ser.write(tosend)
+            tosend = bytearray(b'\x4e')
+            self.ser.write(tosend)
+            self.discovery_state = "INITIALIZING"
+            
+        elif self.discovery_state == "INITIALIZING":
+            print("Discovery: INITIALIZING - sending discovery packet 0x87 0x00 0x00 0x07")
+            tosend = bytearray(b'\x87\x00\x00\x07')
+            self.ser.write(tosend)
+            self.discovery_state = "AWAITING_PACKET"
     
     def _old_discover_board_address(self):
         """
