@@ -211,6 +211,8 @@ class SerialHelper:
         1. Buffer ends with valid [addr1][addr2][checksum], OR
         2. A new 85 00 header is detected (indicating start of next packet)
         """
+        print(f"Processing byte: 0x{byte:02x}")
+
         # Handle discovery state machine
         if self.discovery_state == "INITIALIZING":
             # Got a response to initial commands, now send discovery packet
