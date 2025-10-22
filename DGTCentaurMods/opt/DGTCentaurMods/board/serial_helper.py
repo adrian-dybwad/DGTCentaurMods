@@ -261,8 +261,9 @@ class SerialHelper:
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
         self.packet_count += 1
-        # Skip printing "no piece" packet
 
+        print(f"Packet: {packet}")  
+        print(f"Packet type: {packet[0]}")
         if packet[0] == 0x85:
             self.handle_board_packet(packet)
         elif packet[0] == 0xb1:
@@ -275,6 +276,7 @@ class SerialHelper:
             print(f"\r{next(self.spinner)}", end='', flush=True)
 
     def handle_board_packet(self, packet):
+        # Skip printing "no piece" packet
         if packet[:-1] != self.buildPacket(self.PIECE_POLL_PACKET, b'')[:-1]:
             hex_row = ' '.join(f'{b:02x}' for b in packet)
             # Check if packet has piece events (0x40=lift, 0x41=place)
