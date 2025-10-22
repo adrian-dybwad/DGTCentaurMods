@@ -447,6 +447,7 @@ class SerialHelper:
             packet: Complete packet bytearray (from processResponse)
                     None when called from _init_background()
         """
+        print(f"[DEBUG] _discover_board_address: State: {self.discovery_state}, Packet: {' '.join(f'{b:02x}' for b in packet)}")
         if self.discovery_state == "READY":
             return
         
