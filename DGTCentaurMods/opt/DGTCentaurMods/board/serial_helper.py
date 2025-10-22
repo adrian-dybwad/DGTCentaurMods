@@ -243,13 +243,17 @@ class SerialHelper:
         if packet[:-1] != self.buildPacket(b'\x85\x00\x06', b'')[:-1]:
             hex_row = ' '.join(f'{b:02x}' for b in packet)
             
-            # Extract and format time signals
-            time_signals = self._extract_time_signals(packet)
+            # Check if packet has piece events (0x40=lift, 0x41=place)
+            has_events = any(packet[i] in (0x40, 0x41) for i in range(5, len(packet) - 1))
+            
+            # Only display time if there are piece events
             time_str = ""
-            if time_signals:
-                time_formatted = self._format_time_display(time_signals)
-                if time_formatted:
-                    time_str = f"  [TIME: {time_formatted}]"
+            if has_events:
+                time_signals = self._extract_time_signals(packet)
+                if time_signals:
+                    time_formatted = self._format_time_display(time_signals)
+                    if time_formatted:
+                        time_str = f"  [TIME: {time_formatted}]"
             
             print(f"\r[P{self.packet_count:03d}] {hex_row}{time_str}")
             
