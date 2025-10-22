@@ -144,8 +144,6 @@ class SerialHelper:
         self.listener_thread = threading.Thread(target=self._listener_thread, daemon=True)
         self.listener_thread.start()
 
-        print("SerialHelper initialization complete - waiting for discovery to complete")
-
         # THEN send discovery commands
         self._discover_board_address()
         
