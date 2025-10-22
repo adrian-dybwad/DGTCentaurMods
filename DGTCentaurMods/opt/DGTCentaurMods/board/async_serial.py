@@ -173,7 +173,7 @@ class AsyncSerial:
     
     def _init_background(self):
         """Initialize in background thread"""
-        self._initialize_serial()
+        self.initialize()
         
         # Start listener thread FIRST so it's ready to capture responses
         self.listener_thread = threading.Thread(target=self._listener_thread, daemon=True)
@@ -215,7 +215,7 @@ class AsyncSerial:
         self.listener_running = False
         print("Serial listener thread stopped")
     
-    def _initialize_serial(self):
+    def initialize(self):
         """Open serial connection based on mode"""
         if self.developer_mode:
             logging.debug("Developer mode enabled - setting up virtual serial port")

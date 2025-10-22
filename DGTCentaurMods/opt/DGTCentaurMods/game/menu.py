@@ -119,6 +119,7 @@ def keyPressed(id):
 quickselect = 0
 
 def doMenu(menu, title=None):
+    print(f"doMenu: {menu}, Title: {title}")
     # Draws a menu and waits for the response in the global variable 'selection'
     global shift
     global menuitem
@@ -802,6 +803,7 @@ while True:
                 if elo != "BACK":
                     epaper.loadingScreen()
                     board.pauseEvents()
+                    board.close()
                     statusbar.stop()
                     os.system(
                         str(sys.executable)
@@ -812,6 +814,7 @@ while True:
                         + " "
                         + elo
                     )
+                    board.initialize()
                     board.unPauseEvents()
                     statusbar.start()
         else:
