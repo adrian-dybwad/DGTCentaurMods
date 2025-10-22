@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, '.')
 
-from DGTCentaurMods.board.async_serial import AsyncSerial as async_serial
+from DGTCentaurMods.board.async_serial import AsyncSerial, PIECE_POLL_CMD
 
 if __name__ == "__main__":
     print("Initializing AsyncSerial...")
@@ -15,7 +15,7 @@ if __name__ == "__main__":
         
         try:
             asyncserial.ledsOff()
-            asyncserial.sendPacket(async_serial.PIECE_POLL_CMD, b'') #Piece detection enabled
+            asyncserial.sendPacket(PIECE_POLL_CMD, b'') #Piece detection enabled
             asyncserial.ledsOff()
         except Exception as e:
             print(f"Error: {e}")
