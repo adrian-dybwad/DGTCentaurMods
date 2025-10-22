@@ -14,8 +14,8 @@ if __name__ == "__main__":
     if helper.wait_ready():
         
         helper.ledsOff()
-        helper.sendPacket(b'\x83', b'') #Piece detection enabled
-        #helper.sendPacket(b'\x94', b'') #Key detection enabled
+        #helper.sendPacket(b'\x83', b'') #Piece detection enabled
+        helper.sendPacket(b'\x94', b'') #Key detection enabled
         print("\nListening for serial data (press Ctrl+C to stop)...")
         try:
             while True:
