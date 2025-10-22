@@ -126,12 +126,12 @@ class SerialHelper:
         self.packet_count = 0
 
         # List of valid packet start bytes
-        self.PACKET_START_BYTES = [0x85, 0x87, 0x93]  # Add any other start types here
-        self.KEY_POLL_CMD = b'\x94'
-        self.PIECE_POLL_CMD = b'\x83'
-        self.LED_OFF_CMD = b'\xb0\x00\x07'
-        self.KEY_POLL_PACKET = b'\xb1\x00\x06'
-        self.PIECE_POLL_PACKET = b'\x85\x00\x06'
+        PACKET_START_BYTES = [0x85, 0x87, 0x93]  # Add any other start types here
+        KEY_POLL_CMD = b'\x94'
+        PIECE_POLL_CMD = b'\x83'
+        LED_OFF_CMD = b'\xb0\x00\x07'
+        KEY_POLL_PACKET = b'\xb1\x00\x06'
+        PIECE_POLL_PACKET = b'\x85\x00\x06'
 
         if auto_init:
             init_thread = threading.Thread(target=self._init_background, daemon=False)
@@ -217,7 +217,7 @@ class SerialHelper:
         print(f"Processing response: {byte}")
         # Detect packet start sequence (<PACKET_START_BYTE> 00) while buffer has data
         if (len(self.response_buffer) >= 1 and 
-            self.response_buffer[-1] in self.PACKET_START_BYTES and 
+            self.response_buffer[-1] in PACKET_START_BYTES and 
             byte == 0x00 and 
             len(self.response_buffer) > 1):
             # Log orphaned data (everything except the 85)
@@ -277,7 +277,7 @@ class SerialHelper:
 
     def handle_board_packet(self, packet):
         # Skip printing "no piece" packet
-        if packet[:-1] != self.buildPacket(self.PIECE_POLL_PACKET, b'')[:-1]:
+        if packet[:-1] != self.buildPacket(PIECE_POLL_PACKET, b'')[:-1]:
             hex_row = ' '.join(f'{b:02x}' for b in packet)
             # Check if packet has piece events (0x40=lift, 0x41=place)
             has_events = any(packet[i] in (0x40, 0x41) for i in range(5, len(packet) - 1))
@@ -298,13 +298,13 @@ class SerialHelper:
 
             #We will remove this later when the next move will be queued from the game itself. 
             #For now, we will send a piece detection packet to the board.
-            self.sendPacket(self.PIECE_POLL_CMD, b'')
+            self.sendPacket(PIECE_POLL_CMD, b'')
 
     def handle_button_packet(self, packet):
-        if packet[:-1] != self.buildPacket(self.KEY_POLL_PACKET, b'')[:-1]:
+        if packet[:-1] != self.buildPacket(KEY_POLL_PACKET, b'')[:-1]:
             print(f"\r[P{self.packet_count:03d}] {hex_row}")
             #We always want to have key events, it would be unusual not to.
-            self.sendPacket(self.KEY_POLL_CMD, b'')
+            self.sendPacket(KEY_POLL_CMD, b'')
 
     def _extract_time_signals(self, packet):
         """
@@ -500,7 +500,7 @@ class SerialHelper:
                 self.discovery_state = "READY"
                 self.ready = True
                 print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
-                self.sendPacket(self.KEY_POLL_CMD, b'') #Key detection enabled
+                self.sendPacket(KEY_POLL_CMD, b'') #Key detection enabled
     
     def close(self):
         """Close the serial connection"""
@@ -511,7 +511,7 @@ class SerialHelper:
 
     def ledsOff(self):
         # Switch the LEDs off on the centaur
-        self.sendPacket(self.LED_OFF_CMD, b'\x00')
+        self.sendPacket(LED_OFF_CMD, b'\x00')
 
     def rotateField(self, field):
         lrow = (field // 8)
