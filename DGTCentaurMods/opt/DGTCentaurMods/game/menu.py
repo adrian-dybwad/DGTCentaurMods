@@ -805,15 +805,15 @@ while True:
                     board.pauseEvents()
                     board.close()
                     statusbar.stop()
-                    os.system(
-                        str(sys.executable)
-                        + " "
-                        + str(pathlib.Path(__file__).parent.resolve())
-                        + "/../game/stockfish.py "
-                        + color
-                        + " "
-                        + elo
-                    )
+                    # os.system(
+                    #     str(sys.executable)
+                    #     + " "
+                    #     + str(pathlib.Path(__file__).parent.resolve())
+                    #     + "/../game/stockfish.py "
+                    #     + color
+                    #     + " "
+                    #     + elo
+                    # )
                     board.run_background(start_key_polling=True)
                     board.unPauseEvents()
                     statusbar.start()
