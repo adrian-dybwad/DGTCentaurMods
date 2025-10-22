@@ -271,61 +271,22 @@ def doMenu(items, fast = 0):
 
         # Next we wait for either the up/down/back or tick buttons to get
         # pressed
-        timeout = time.time() + 60 * 15
-        while buttonPress == 0:
-            ser.read(1000000)
-            sendPacket(b'\x83', b'')
-            expect = buildPacket(b'\x85\x00', b'')
-            resp = ser.read(10000)
-            resp = bytearray(resp)
-            sendPacket(b'\x94', b'')
-            expect = buildPacket(b'\xb1\x00', b'')
-            resp = ser.read(10000)
-            resp = bytearray(resp)
-            if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0501000000007d47"):
-                buttonPress = 1
-            if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0510000000007d17"):
-                buttonPress = 2
-            if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0508000000007d3c"):
-                buttonPress = 3
-            if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a05020000000061"):
-                buttonPress = 4
-            # check for quickselect
-            if quickselect == 1 and quickselectpossible < 1:
-                res = getBoardState()
-                if res[32] > 0:
-                    quickselectpossible = 1
-                if res[33] > 0:
-                    quickselectpossible = 2
-                if res[34] > 0:
-                    quickselectpossible = 3
-                if res[35] > 0:
-                    quickselectpossible = 4
-                if res[36] > 0:
-                    quickselectpossible = 5
-                if res[37] > 0:
-                    quickselectpossible = 6
-                if res[38] > 0:
-                    quickselectpossible = 7
-                if res[39] > 0:
-                    quickselectpossible = 8
-                if quickselectpossible > 0:
-                    beep(SOUND_GENERAL)
-            if quickselect == 1 and quickselectpossible > 0:
-                res = getBoardState()
-                if res[32] == 0 and res[33] == 0 and res[34] == 0 and res[35] == 0 and res[36] == 0 and res[37] == 0 and res[38] == 0 and res[39] == 0:
-                    # Quickselect possible has been chosen
-                    c = 1
-                    r = ""
-                    for k, v in items.items():
-                        if (c == quickselectpossible):
-                            # epd.unsetRegion()
-                            # epd.Clear(0xff)
-                            selected = 99999
-                            return k
-                        c = c + 1
 
-        sendPacket(b'\xb1\x00\x08', b'\x4c\x08')
+        name = asyncserial.wait_for_key_up(timeout=60*15, accept='TICK')
+        if name == 'TICK':
+            buttonPress = 2
+        if name == 'BACK':
+            buttonPress = 1
+        if name == 'UP':
+            buttonPress = 3
+        if name == 'DOWN':
+            buttonPress = 4
+        if name == 'HELP':
+            buttonPress = 5
+        if name == 'PLAY':
+            buttonPress = 6
+
+
         if (buttonPress == 2):
             # Tick, so return the key for this menu item
             c = 1
