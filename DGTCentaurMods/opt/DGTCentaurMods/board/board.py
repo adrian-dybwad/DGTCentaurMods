@@ -206,8 +206,8 @@ def displayScreenBufferPartial():
 def close():
     asyncserial.close()
 
-def initialize():
-    asyncserial.initialize()
+def run_background():
+    asyncserial.run_background()
     
 def clearSerial():
     logging.debug('Checking and clear the serial line.')

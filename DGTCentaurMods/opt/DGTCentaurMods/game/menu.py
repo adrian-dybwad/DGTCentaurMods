@@ -814,7 +814,7 @@ while True:
                         + " "
                         + elo
                     )
-                    board.initialize()
+                    board.run_background()
                     board.unPauseEvents()
                     statusbar.start()
         else:

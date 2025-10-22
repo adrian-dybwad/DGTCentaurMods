@@ -103,13 +103,7 @@ def getText(title="Enter text"):
                 traceback.print_exc()
                 res = [0] * 64
 
-            try:
-                board.clearSerial()
-                print("Serial cleared successfully")
-            except Exception as e:
-                print(f"ERROR: Failed to clear serial: {e}")
-                import traceback
-                traceback.print_exc()
+            board.clearSerial()
 
             def _render():
                 nonlocal typed, charpage
