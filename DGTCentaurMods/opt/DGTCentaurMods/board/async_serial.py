@@ -672,6 +672,14 @@ class AsyncSerial:
             self.ser.close()
             logging.debug("Serial port closed")
 
+    def clearSerial():
+        #TODO: Reset things, clear lastKey, moves that may have accumulated etc. 
+        #Rename this function to something like resetBoardState()
+        self._last_button = (None, None)
+        self.sendPacket(PIECE_POLL_CMD, b'')
+        #self.sendPacket(KEY_POLL_CMD, b'')
+
+        print('Board is idle. Serial is clear.')
 
     def rotateField(self, field):
         lrow = (field // 8)

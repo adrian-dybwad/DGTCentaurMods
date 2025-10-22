@@ -203,6 +203,10 @@ def displayScreenBufferPartial():
     epd.DisplayPartial(epd.getbuffer(image))
     time.sleep(0.1)
 
+def clearSerial():
+    logging.debug('Checking and clear the serial line.')
+    asyncserial.clearSerial()
+
 def doMenu(items, fast = 0):
     # Draw a menu, let the user navigate and return the value
     # or "BACK" if the user backed out
