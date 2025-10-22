@@ -124,7 +124,15 @@ class SerialHelper:
         self.spinner = itertools.cycle(['|', '/', '-', '\\'])
         self.response_buffer = bytearray()
         self.packet_count = 0
-        
+
+        # List of valid packet start bytes
+        self.PACKET_START_BYTES = [0x85, 0x87, 0x93]  # Add any other start types here
+        self.KEY_POLL_CMD = b'\x94'
+        self.PIECE_POLL_CMD = b'\x83'
+        self.LED_OFF_CMD = b'\xb0\x00\x07'
+        self.KEY_POLL_PACKET = b'\xb1\x00\x06'
+        self.PIECE_POLL_PACKET = b'\x85\x00\x06'
+
         if auto_init:
             init_thread = threading.Thread(target=self._init_background, daemon=False)
             init_thread.start()
@@ -206,14 +214,10 @@ class SerialHelper:
         1. Buffer ends with valid [addr1][addr2][checksum], OR
         2. A new 85 00 header is detected (indicating start of next packet)
         """
-        #print(f"Processing byte: 0x{byte:02x}")
 
-        # List of valid packet start bytes
-        PACKET_START_BYTES = [0x85, 0x87, 0x93]  # Add any other start types here
-
-        # Detect new packet start sequence (85 00) while buffer has data
+        # Detect packet start sequence (<PACKET_START_BYTE> 00) while buffer has data
         if (len(self.response_buffer) >= 1 and 
-            self.response_buffer[-1] in PACKET_START_BYTES and 
+            self.response_buffer[-1] in self.PACKET_START_BYTES and 
             byte == 0x00 and 
             len(self.response_buffer) > 1):
             # Log orphaned data (everything except the 85)
@@ -223,11 +227,10 @@ class SerialHelper:
         
         self.response_buffer.append(byte)
 
-        #print(f"[DEBUG] Passing byte to SM: 0x{byte:02x}, State: {self.discovery_state}, Response buffer: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
         # Handle discovery state machine
         if self.discovery_state == "INITIALIZING":
             # Got a response to initial commands, now send discovery packet
-            self._discover_board_address(self.response_buffer)  # Transitions to AWAITING_PACKET
+            self._discover_board_address(self.response_buffer)
 
         # Check if this byte is a checksum boundary
         if len(self.response_buffer) >= 2:
@@ -243,7 +246,6 @@ class SerialHelper:
                         if self.discovery_state == "READY":
                             self.on_packet_complete(self.response_buffer)
                         else:
-                            #print(f"[DEBUG] Passing packet to discovery SM. State: {self.discovery_state}, Packet: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                             self._discover_board_address(self.response_buffer)
                         
                         self.response_buffer = bytearray()
@@ -253,16 +255,28 @@ class SerialHelper:
                     self.response_buffer = bytearray()
         
         # If buffer gets too large without finding a packet, trim old bytes
-        if len(self.response_buffer) > 1000:
+        if len(self.response_buffer) > 200:
             self.response_buffer.pop(0)
     
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
         self.packet_count += 1
         # Skip printing "no piece" packet
-        if packet[:-1] != self.buildPacket(b'\x85\x00\x06', b'')[:-1] and packet[:-1] != self.buildPacket(b'\xb1\x00\x06', b'')[:-1]:
+
+        if packet[0] == 0x85:
+            self.handle_board_packet(packet)
+        elif packet[0] == 0xb1:
+            self.handle_button_packet(packet)
+        else:
+            print(f"Unknown packet type: {packet[0]}")
+        
+        # Request next packet if ready
+        if self.ready:
+            print(f"\r{next(self.spinner)}", end='', flush=True)
+
+    def handle_board_packet(self, packet):
+        if packet[:-1] != self.buildPacket(self.PIECE_POLL_PACKET, b'')[:-1]:
             hex_row = ' '.join(f'{b:02x}' for b in packet)
-            
             # Check if packet has piece events (0x40=lift, 0x41=place)
             has_events = any(packet[i] in (0x40, 0x41) for i in range(5, len(packet) - 1))
             
@@ -279,16 +293,16 @@ class SerialHelper:
             
             # Draw piece events with arrow indicators
             self._draw_piece_events(packet, hex_row, self.packet_count)
-        
-        # Request next packet if ready
-        if self.ready:
-            print(f"\r{next(self.spinner)}", end='', flush=True)
-            if packet[0] == 0x85:
-                self.sendPacket(b'\x83', b'')
-            elif packet[0] == 0xb1:
-                self.sendPacket(b'\x94', b'')
-            else:
-                print(f"Unknown packet type: {packet[0]}")
+
+            #We will remove this later when the next move will be queued from the game itself. 
+            #For now, we will send a piece detection packet to the board.
+            self.sendPacket(self.PIECE_POLL_CMD, b'')
+
+    def handle_button_packet(self, packet):
+        if packet[:-1] != self.buildPacket(self.KEY_POLL_PACKET, b'')[:-1]:
+            print(f"\r[P{self.packet_count:03d}] {hex_row}")
+            #We always want to have key events, it would be unusual not to.
+            self.sendPacket(self.KEY_POLL_CMD, b'')
 
     def _extract_time_signals(self, packet):
         """
@@ -468,8 +482,6 @@ class SerialHelper:
                 self.ser.write(tosend)
             return
 
-        #print(f"[DEBUG] _discover_board_address: State: {self.discovery_state}, Packet: {' '.join(f'{b:02x}' for b in packet)}")
-
         # Called from processResponse() with a complete packet
         if self.discovery_state == "INITIALIZING":
             self.discovery_state = "AWAITING_PACKET"
@@ -480,14 +492,13 @@ class SerialHelper:
             self.ser.write(tosend)
         
         elif self.discovery_state == "AWAITING_PACKET":
-            #print(f"[DEBUG] AWAITING_PACKET: Got packet {' '.join(f'{b:02x}' for b in packet)}")
             if len(packet) > 4:
-                #print(f"[DEBUG] Extracting addr1={packet[3]:02x}, addr2={packet[4]:02x}")
                 self.addr1 = packet[3]
                 self.addr2 = packet[4]
                 self.discovery_state = "READY"
                 self.ready = True
                 print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
+                self.sendPacket(self.KEY_POLL_CMD, b'') #Key detection enabled
     
     def close(self):
         """Close the serial connection"""
@@ -498,8 +509,7 @@ class SerialHelper:
 
     def ledsOff(self):
         # Switch the LEDs off on the centaur
-        self.sendPacket(b'\xb0\x00\x07', b'\x00')
-        self.sendPacket(b'\xb0\x00\x07', b'\x01')
+        self.sendPacket(self.LED_OFF_CMD, b'\x00')
 
     def rotateField(self, field):
         lrow = (field // 8)
