@@ -173,6 +173,7 @@ class AsyncSerial:
     
     def run_background(self, start_key_polling=False):
         """Initialize in background thread"""
+        self.discovery_state = "STARTING"
         self._initialize()
         
         # Start listener thread FIRST so it's ready to capture responses
@@ -182,10 +183,10 @@ class AsyncSerial:
         # THEN send discovery commands
         print("Sending discovery commands")
         self._discover_board_address()
-        print(f"start_key_polling: {start_key_polling}")
-        if start_key_polling:
-            self.sendPacket(KEY_POLL_CMD, b'')
-        print("Key polling started")
+        # print(f"start_key_polling: {start_key_polling}")
+        # if start_key_polling:
+        #     self.sendPacket(KEY_POLL_CMD, b'')
+        # print("Key polling started")
         
     def wait_ready(self, timeout=60):
         """
