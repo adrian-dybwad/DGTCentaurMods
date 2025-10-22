@@ -4,19 +4,19 @@ import sys
 
 sys.path.insert(0, '.')
 
-from DGTCentaurMods.board.serial_helper import SerialHelper, PIECE_POLL_CMD, KEY_POLL_CMD
+from DGTCentaurMods.board.async_serial import AsyncSerial
 
 if __name__ == "__main__":
-    print("Initializing SerialHelper...")
-    helper = SerialHelper(developer_mode=False)
-    print("Waiting for initialization...")
+    print("Initializing AsyncSerial...")
+    asyncserial = AsyncSerial(developer_mode=False)
+    print("Waiting for AsyncSerial initialization...")
     
-    if helper.wait_ready():
+    if asyncserial.wait_ready():
         
         try:
-            helper.ledsOff()
-            helper.sendPacket(PIECE_POLL_CMD, b'') #Piece detection enabled
-            helper.ledsOff()
+            asyncserial.ledsOff()
+            asyncserial.sendPacket(AsyncSerial.PIECE_POLL_CMD, b'') #Piece detection enabled
+            asyncserial.ledsOff()
         except Exception as e:
             print(f"Error: {e}")
         try:
@@ -25,9 +25,9 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             print("\nStopping...")
         finally:
-            print("Closing serial connection...")
-            helper.close()
+            print("Closing AsyncSerial connection...")
+            asyncserial.close()
             print("Done.")
     else:
-        print("Failed to initialize SerialHelper")
-        helper.close()
+        print("Failed to initialize AsyncSerial")
+        asyncserial.close()

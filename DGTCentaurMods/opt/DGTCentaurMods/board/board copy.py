@@ -21,8 +21,7 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
-#import serial
-from DGTCentaurMods.board.async_serial import AsyncSerial, PIECE_POLL_CMD, KEY_POLL_CMD
+import serial
 import sys
 import os
 from DGTCentaurMods.display import epd2in9d, epaper
@@ -60,8 +59,23 @@ BTNLONGPLAY = 7
 
 # Get the config
 dev = Settings.read('system', 'developer', 'False')
-asyncserial = AsyncSerial(developer_mode=False)
+
 # Various setup
+if dev == "True":
+    logging.debug("Developer mode is: ",dev)
+    # Enable virtual serial port
+    # TODO: setup as a service
+    os.system("socat -d -d pty,raw,echo=0 pty,raw,echo=0 &")
+    time.sleep(10)
+    # Then redirect
+    ser = serial.Serial("/dev/pts/2", baudrate=1000000, timeout=0.2)
+else:
+    try:
+        ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2) 
+        ser.isOpen()
+    except:
+        ser.close()
+        ser.open()
 
 font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
 time.sleep(2)
@@ -73,8 +87,91 @@ batterylevel = -1
 batterylastchecked = 0
 
 # But the address might not be that :( Here we send an initial 0x4d to ask the board to provide its address
+logging.debug("Detecting board adress")
+try:
+    ser.read(1000)
+except:
+    ser.read(1000)
+tosend = bytearray(b'\x4d')
+ser.write(tosend)
+try:
+    ser.read(1000)
+except:
+    ser.read(1000)
+logging.debug('Sent payload 1')
+tosend = bytearray(b'\x4e')
+ser.write(tosend)
+try:
+    ser.read(1000)
+except:
+    ser.read(1000)
+logging.debug('Sent payload 2')
+logging.debug('Serial is open. Waiting for response.')
+resp = ""
+# This is the most common address of the board
+addr1 = 00
+addr2 = 00
+timeout = time.time() + 60
+while len(resp) < 4 and time.time() < timeout:
+    if dev == "True":
+        break
+    tosend = bytearray(b'\x87\x00\x00\x07')
+    ser.write(tosend)
+    try:
+        resp = ser.read(1000)
+    except:
+        resp = ser.read(1000)
+    if len(resp) > 3:
+        addr1 = resp[3]
+        addr2 = resp[4]
+        logging.debug("Discovered new address:%s%s", hex(addr1), hex(addr2))
+        break
+else:
+    logging.debug('FATAL: No response from serial')
+    sys.exit(1)
 
-asyncserial.wait_ready()
+def checksum(barr):
+    csum = 0
+    for c in bytes(barr):
+        csum += c
+    barr_csum = (csum % 128)
+    return barr_csum
+
+def buildPacket(command, data):
+    # pass command and data as bytes
+    tosend = bytearray(command + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big') + data)
+    tosend.append(checksum(tosend))
+    return tosend
+
+def sendPacket(command, data):
+    # pass command and data as bytes
+    tosend = buildPacket(command, data)
+    ser.write(tosend)
+
+
+def clearSerial():
+    logging.debug('Checking and clear the serial line.')
+    resp1 = ""
+    resp2 = ""
+    while dev == "False" and True:
+        sendPacket(b'\x83', b'')
+        expect1 = buildPacket(b'\x85\x00\x06', b'')
+        try:
+            resp1 = ser.read(256)
+        except:
+            pass
+        sendPacket(b'\x94', b'')
+        expect2 = buildPacket(b'\xb1\x00\x06', b'')
+        try:
+            resp2 = ser.read(256)
+        except:
+            pass
+        #If board is idle, return True
+        if expect1 == resp1 and expect2 == resp2:
+            logging.debug('Board is idle. Serial is clear.')
+            return True
+        else:
+            logging.debug('  Attempting to clear serial')
 
 # Screen functions - deprecated, use epaper.py if possible
 #
@@ -352,37 +449,90 @@ def doMenu(items, fast = 0):
 #
 
 def clearBoardData():
-    asyncserial.clearBoardData()
+    ser.read(100000)
+    sendPacket(b'\x83', b'')
+    expect = buildPacket(b'\x85\x00\x06', b'')
+    ser.read(1000000)
 
 def beep(beeptype):
+    # Ask the centaur to make a beep sound
     if centaur.get_sound() == "off":
         return
-    # Ask the centaur to make a beep sound
-    asyncserial.beep(beeptype)
+    if (beeptype == SOUND_GENERAL):
+        sendPacket(b'\xb1\x00\x08',b'\x4c\x08')
+    if (beeptype == SOUND_FACTORY):
+        sendPacket(b'\xb1\x00\x08', b'\x4c\x40')
+    if (beeptype == SOUND_POWER_OFF):
+        sendPacket(b'\xb1\x00\x0a', b'\x4c\x08\x48\x08')
+    if (beeptype == SOUND_POWER_ON):
+        sendPacket(b'\xb1\x00\x0a', b'\x48\x08\x4c\x08')
+    if (beeptype == SOUND_WRONG):
+        sendPacket(b'\xb1\x00\x0a', b'\x4e\x0c\x48\x10')
+    if (beeptype == SOUND_WRONG_MOVE):
+        sendPacket(b'\xb1\x00\x08', b'\x48\x08')
 
 def ledsOff():
     # Switch the LEDs off on the centaur
-    asyncserial.ledsOff()
+    sendPacket(b'\xb0\x00\x07', b'\x00')
 
 def ledArray(inarray, speed = 3, intensity=5):
     # Lights all the leds in the given inarray with the given speed and intensity
-    asyncserial.ledArray(inarray, speed, intensity)
+    tosend = bytearray(b'\xb0\x00\x0c' + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big') + b'\x05')
+    tosend.append(speed)
+    tosend.append(0)
+    tosend.append(intensity)
+    for i in range(0, len(inarray)):
+        tosend.append(rotateField(inarray[i]))
+    tosend[2] = len(tosend) + 1
+    tosend.append(checksum(tosend))
+    ser.write(tosend)
 
 def ledFromTo(lfrom, lto, intensity=5):
     # Light up a from and to LED for move indication
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.ledFromTo(lfrom, lto, intensity)
+    tosend = bytearray(b'\xb0\x00\x0c' + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big') + b'\x05\x03\x00\x05\x3d\x31\x0d')
+    # Recalculate lfrom to the different indexing system
+    tosend[8] = intensity
+    tosend[9] = rotateField(lfrom)
+    # Same for lto
+    tosend[10] = rotateField(lto)
+    # Wipe checksum byte and append the new checksum.
+    tosend.pop()
+    tosend.append(checksum(tosend))
+    ser.write(tosend)
+    # Read off any data
+    #ser.read(100000)
 
 def led(num, intensity=5):
     # Flashes a specific led
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.led(num, intensity)
+    tcount = 0
+    success = 0
+    while tcount < 5 and success == 0:
+        try:
+            tosend = bytearray(b'\xb0\x00\x0b' + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big') + b'\x05\x0a\x01\x01\x3d\x5f')
+            # Recalculate num to the different indexing system
+            # Last bit is the checksum
+            tosend[8] = intensity
+            tosend[9] = rotateField(num)
+            # Wipe checksum byte and append the new checksum.
+            tosend.pop()
+            tosend.append(checksum(tosend))
+            ser.write(tosend)
+            success = 1
+            # Read off any data
+            #ser.read(100000)
+        except:
+            time.sleep(0.1)
+            tcount = tcount + 1
 
 def ledFlash():
     # Flashes the last led lit by led(num) above
-    asyncserial.ledFlash()
+    sendPacket(b'\xb0\x00\x0a', b'\x05\x0a\x00\x01')
+    #ser.read(100000)
+
 
 def shutdown():
     update = centaur.UpdateSystem()
@@ -408,7 +558,7 @@ def sleep():
     """
     Sleep the controller.
     """
-    asyncserial.sleep()
+    sendPacket(b'\xb2\x00\x07', b'\x0a')
 
 
 #
@@ -491,6 +641,171 @@ def poll():
         if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0504000000002a"):
             logging.debug("PLAY BUTTON")
 
+def getText(title="Enter text"):
+    # Allows text to be entered using a virtual keyboard where a chess piece
+    # is placed on the board in the correct position
+    global screenbuffer
+    clearstate = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+    printableascii = " !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~                                                                "
+    charpage = 1
+    typed = ""
+    
+    # # First we need a clear board
+    # try:
+    #     res = getBoardState()
+    # except Exception as e:
+    #     logging.error(f"Failed to get board state: {e}")
+    #     return None
+        
+    # if bytearray(res) != clearstate:
+    #     try:
+    #         writeTextToBuffer(0,'Remove board')
+    #         writeText(1,'pieces')
+    #     except Exception as e:
+    #         logging.error(f"Failed to write instructions: {e}")
+    #         return None
+            
+    #     time.sleep(10)
+    #     timeout = time.time() + 60  # 60 second timeout
+    #     while bytearray(res) != clearstate:
+    #         if time.time() > timeout:
+    #             logging.error("Timeout waiting for board to be cleared")
+    #             return None
+    #         time.sleep(0.5)
+    #         try:
+    #             res = getBoardState()
+    #         except Exception as e:
+    #             logging.error(f"Failed to get board state: {e}")
+    #             return None
+                
+    changed = 1
+    try:
+        clearBoardData()
+    except Exception as e:
+        logging.error(f"Failed to clear board data: {e}")
+        return None
+        
+    timeout = time.time() + 300  # 5 minute overall timeout
+    
+    while True:
+        # Check for timeout
+        if time.time() > timeout:
+            logging.error("getText timeout")
+            return None
+            
+        if changed == 1:
+            try:
+                # print our title and our box that the answer will go in
+                image = screenbuffer.copy()
+                draw = ImageDraw.Draw(image)
+                draw.rectangle([(0, 0), (128, 250)], fill=255)
+                draw.text((0,20),title, font=font18, fill=0)
+                draw.rectangle([(0,39),(128,61)],fill=255,outline=0)
+                tt = typed
+                if len(tt) > 10:
+                    tt = tt[-11:]
+                draw.text((0,40),tt, font=font18, fill=0)
+                # Using the current charpage display the symbols that a square would represent
+                pos = (charpage -1) * 64
+                lchars = []
+                for i in range(pos,pos+64):
+                    lchars.append(printableascii[i])
+                pos = 0
+                for i in range(0,len(lchars),8):
+                    tsts = ""
+                    for q in range(0,8):
+                        tsts = tsts + lchars[i + q]
+                        draw.text(((q*16),(pos*20)+80),lchars[i + q], font=font18, fill=0)
+                    pos = pos + 1
+                screenbuffer = image.copy()
+                image = image.transpose(Image.FLIP_TOP_BOTTOM)
+                image = image.transpose(Image.FLIP_LEFT_RIGHT)
+                epd.DisplayPartial(epd.getbuffer(image))
+                time.sleep(0.1)
+                changed = 0
+            except Exception as e:
+                logging.error(f"Failed to render display: {e}")
+                # Continue anyway, don't crash
+                changed = 0
+                
+        buttonPress = 0
+        try:
+            ser.read(1000000)
+            sendPacket(b'\x83', b'')
+            expect = buildPacket(b'\x85\x00\x06', b'')
+            resp = ser.read(10000)
+            resp = bytearray(resp)
+        except Exception as e:
+            logging.error(f"Serial communication error: {e}")
+            time.sleep(0.2)
+            continue
+            
+        # If a piece is placed it will type a character!
+        try:
+            if (bytearray(resp) != expect):
+                if len(resp) > 1 and resp[0] == 133 and resp[1] == 0:
+                    for x in range(0, len(resp) - 1):
+                        if resp[x] == 65:
+                            # Calculate the square to 0(a1)-63(h8) so that
+                            # all functions match
+                            if x + 1 < len(resp):
+                                fieldHex = resp[x + 1]
+                                if 0 <= fieldHex < len(lchars):
+                                    typed = typed + lchars[fieldHex]
+                                    beep(SOUND_GENERAL)
+                                    changed = 1
+                                else:
+                                    logging.warning(f"Field index out of range: {fieldHex}")
+        except Exception as e:
+            logging.error(f"Error processing field event: {e}")
+            # Continue anyway
+            
+        try:
+            sendPacket(b'\x94', b'')
+            expect = buildPacket(b'\xb1\x00\x06', b'')
+            resp = ser.read(10000)
+            resp = bytearray(resp)
+        except Exception as e:
+            logging.error(f"Serial communication error reading buttons: {e}")
+            time.sleep(0.2)
+            continue
+            
+        try:
+            if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0501000000007d47"):
+                buttonPress = 1 # BACK
+            if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0510000000007d17"):
+                buttonPress = 2 # TICK
+            if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0508000000007d3c"):
+                buttonPress = 3 # UP
+            if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a05020000000061"):
+                buttonPress = 4 # DOWN
+        except Exception as e:
+            logging.error(f"Error parsing button response: {e}")
+            # Continue anyway
+            
+        try:
+            if buttonPress == 1 and len(typed) > 0:
+                typed = typed[:-1]
+                beep(SOUND_GENERAL)
+                changed = 1
+            if buttonPress == 2:
+                beep(SOUND_GENERAL)
+                clearScreen()
+                time.sleep(1)
+                return typed
+            if buttonPress == 3:
+                beep(SOUND_GENERAL)
+                charpage = 1
+                changed = 1
+            if buttonPress == 4:
+                beep(SOUND_GENERAL)
+                charpage = 2
+                changed = 1
+        except Exception as e:
+            logging.error(f"Error handling button press: {e}")
+            # Continue anyway
+            
+        time.sleep(0.2)
 
 def getBoardState(field=None, retries=6, sleep_between=0.12):
     """

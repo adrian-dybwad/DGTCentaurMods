@@ -96,20 +96,20 @@ LED_OFF_CMD = b'\xb0\x00\x07'
 KEY_POLL_PACKET = b'\xb1\x00\x06'
 PIECE_POLL_PACKET = b'\x85\x00\x06'
 
-__all__ = ['SerialHelper', 'PIECE_POLL_CMD', 'KEY_POLL_CMD']
+__all__ = ['AsyncSerial', 'PIECE_POLL_CMD', 'KEY_POLL_CMD']
 
-class SerialHelper:
+class AsyncSerial:
     """Helper class for managing serial communication with DGT Centaur board
     
     Examples:
         
          Non-blocking initialization (returns immediately):
-            helper = SerialHelper(developer_mode=False)
+            helper = AsyncSerial(developer_mode=False)
             helper.wait_ready()
             helper.sendPacket(b'\x83', b'')
         
         Blocking initialization:
-            helper = SerialHelper(developer_mode=False, auto_init=False)
+            helper = AsyncSerial(developer_mode=False, auto_init=False)
             helper._init_background()
             helper.sendPacket(b'\x83', b'')
     """
@@ -163,7 +163,7 @@ class SerialHelper:
         while not self.ready and time.time() - start < timeout:
             time.sleep(0.1)
         if not self.ready:
-            logging.warning(f"Timeout waiting for SerialHelper initialization (waited {timeout}s)")
+            logging.warning(f"Timeout waiting for AsyncSerial initialization (waited {timeout}s)")
         return self.ready
     
     def _listener_thread(self):
@@ -519,9 +519,6 @@ class SerialHelper:
             self.ser.close()
             logging.debug("Serial port closed")
 
-    def ledsOff(self):
-        # Switch the LEDs off on the centaur
-        self.sendPacket(LED_OFF_CMD, b'\x00')
 
     def rotateField(self, field):
         lrow = (field // 8)
@@ -538,4 +535,91 @@ class SerialHelper:
     def convertField(self, field):
         square = chr((ord('a') + (field % 8))) + chr(ord('1') + (field // 8))
         return square
+
+    def clearBoardData():
+        self.sendPacket(b'\x83', b'')
+        expect = self.buildPacket(b'\x85\x00\x06', b'')
+
+    def beep(self, beeptype):
+        # Ask the centaur to make a beep sound
+        if (beeptype == SOUND_GENERAL):
+            self.sendPacket(b'\xb1\x00\x08',b'\x4c\x08')
+        if (beeptype == SOUND_FACTORY):
+            self.sendPacket(b'\xb1\x00\x08', b'\x4c\x40')
+        if (beeptype == SOUND_POWER_OFF):
+            self.sendPacket(b'\xb1\x00\x0a', b'\x4c\x08\x48\x08')
+        if (beeptype == SOUND_POWER_ON):
+            self.sendPacket(b'\xb1\x00\x0a', b'\x48\x08\x4c\x08')
+        if (beeptype == SOUND_WRONG):
+            self.sendPacket(b'\xb1\x00\x0a', b'\x4e\x0c\x48\x10')
+        if (beeptype == SOUND_WRONG_MOVE):
+            self.sendPacket(b'\xb1\x00\x08', b'\x48\x08')
+
+    def ledsOff(self):
+        # Switch the LEDs off on the centaur
+        self.sendPacket(LED_OFF_CMD, b'\x00')
+
+    def ledArray(self, inarray, speed = 3, intensity=5):
+        # Lights all the leds in the given inarray with the given speed and intensity
+        tosend = bytearray(b'\xb0\x00\x0c' + self.addr1.to_bytes(1, byteorder='big') + self.addr2.to_bytes(1, byteorder='big') + b'\x05')
+        tosend.append(speed)
+        tosend.append(0)
+        tosend.append(intensity)
+        for i in range(0, len(inarray)):
+            tosend.append(self.rotateField(inarray[i]))
+        tosend[2] = len(tosend) + 1
+        tosend.append(self.checksum(tosend))
+        self.ser.write(tosend)
+
+    def ledFromTo(self, lfrom, lto, intensity=5):
+        # Light up a from and to LED for move indication
+        # Note the call to this function is 0 for a1 and runs to 63 for h8
+        # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
+        tosend = bytearray(b'\xb0\x00\x0c' + self.addr1.to_bytes(1, byteorder='big') + self.addr2.to_bytes(1, byteorder='big') + b'\x05\x03\x00\x05\x3d\x31\x0d')
+        # Recalculate lfrom to the different indexing system
+        tosend[8] = intensity
+        tosend[9] = self.rotateField(lfrom)
+        # Same for lto
+        tosend[10] = self.rotateField(lto)
+        # Wipe checksum byte and append the new checksum.
+        tosend.pop()
+        tosend.append(self.checksum(tosend))
+        self.ser.write(tosend)
+        # Read off any data
+        #ser.read(100000)
+
+    def led(self, num, intensity=5):
+        # Flashes a specific led
+        # Note the call to this function is 0 for a1 and runs to 63 for h8
+        # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
+        tcount = 0
+        success = 0
+        while tcount < 5 and success == 0:
+            try:
+                tosend = bytearray(b'\xb0\x00\x0b' + self.addr1.to_bytes(1, byteorder='big') + self.addr2.to_bytes(1, byteorder='big') + b'\x05\x0a\x01\x01\x3d\x5f')
+                # Recalculate num to the different indexing system
+                # Last bit is the checksum
+                tosend[8] = intensity
+                tosend[9] = self.rotateField(num)
+                # Wipe checksum byte and append the new checksum.
+                tosend.pop()
+                tosend.append(self.checksum(tosend))
+                self.ser.write(tosend)
+                success = 1
+                # Read off any data
+                #ser.read(100000)
+            except:
+                time.sleep(0.1)
+                tcount = tcount + 1
+
+    def ledFlash(self):
+        # Flashes the last led lit by led(num) above
+        self.sendPacket(b'\xb0\x00\x0a', b'\x05\x0a\x00\x01')
+        #ser.read(100000)
+
+    def sleep(self):
+        """
+        Sleep the controller.
+        """
+        self.sendPacket(b'\xb2\x00\x07', b'\x0a')
 
