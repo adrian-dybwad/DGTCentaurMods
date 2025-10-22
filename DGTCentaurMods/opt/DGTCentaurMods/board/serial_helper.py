@@ -454,20 +454,20 @@ class SerialHelper:
         # Called from _init_background() with no packet
         if packet is None:
             if self.discovery_state == "STARTING":
+                self.discovery_state = "INITIALIZING"
                 print("Discovery: STARTING - sending 0x4d and 0x4e")
                 tosend = bytearray(b'\x4d\x4e')
                 self.ser.write(tosend)
-                self.discovery_state = "INITIALIZING"
             return
         
         # Called from processResponse() with a complete packet
         if self.discovery_state == "INITIALIZING":
+            self.discovery_state = "AWAITING_PACKET"
             hex_row = ' '.join(f'{b:02x}' for b in packet)
             print(f"[INIT_RESPONSE] {hex_row}")
             print("Discovery: sending discovery packet 0x87 0x00 0x00 0x07")
             tosend = bytearray(b'\x87\x00\x00\x07')
             self.ser.write(tosend)
-            self.discovery_state = "AWAITING_PACKET"
         
         elif self.discovery_state == "AWAITING_PACKET":
             print(f"[DEBUG] AWAITING_PACKET: Got packet {' '.join(f'{b:02x}' for b in packet)}")
