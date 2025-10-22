@@ -39,26 +39,42 @@ except:
 DGT Centaur Serial Protocol - Packet Structure
 
 All packets follow this structure:
-    <type1> <type2> <length> <addr1> <addr2> <data...> <checksum>
+    <type1> <type2> <length> <addr1> <addr2> [time_signals...] [data...] <checksum>
 
 Where:
     type1, type2 (bytes 0-1): Protocol type identifier, typically 0x85 0x00 for new format
     length (byte 2): Total packet length in bytes, including all fields up to and including checksum
     addr1 (byte 3): Board address 1 (e.g., 0x06)
     addr2 (byte 4): Board address 2 (e.g., 0x50)
-    data (bytes 5 to n-1): Variable-length payload (piece events, responses, etc.)
+    time_signals (bytes 5 to n): Clock time (only present when piece events occur)
+        Format: [.ss] [ss] [mm] [hh]
+        - Byte 0: Subseconds (0x00-0xFF = 0.00-0.99)
+        - Byte 1: Seconds (0-59)
+        - Byte 2: Minutes (0-59)
+        - Byte 3: Hours (optional, for times > 59:59)
+        - Variable length: 1-4 bytes depending on time range
+        - Display: "M:SS.XX" or "H:MM:SS.XX"
+    data (bytes after time to n-1): Variable-length payload (piece events, etc.)
+        - 0x40: Piece lifted (followed by square hex value)
+        - 0x41: Piece placed (followed by square hex value)
     checksum (byte n): Last byte = sum of all previous bytes mod 128
 
 Examples:
     "No piece" response: 85 00 06 06 50 61
         - Length = 6 bytes (entire packet)
-        - No data payload
+        - No time signals, no data payload
         - Checksum: (0x85 + 0x00 + 0x06 + 0x06 + 0x50) % 128 = 0x61
     
-    Piece event: 85 00 0a 06 50 18 0c 40 30 79
+    Piece event with time: 85 00 0a 06 50 18 0c 40 30 79
         - Length = 10 bytes
-        - Data = 18 0c 40 30 (4 bytes of piece event info)
-        - Checksum: (0x85 + 0x00 + 0x0a + 0x06 + 0x50 + 0x18 + 0x0c + 0x40 + 0x30) % 128 = 0x79
+        - Time = 18 0c (0.09s + 12s = 12.09s)
+        - Data = 40 30 (lift at square 0x30)
+        - Checksum: validates complete packet
+    
+    Multi-move game moment: 85 00 22 06 50 2a 03 05 41 30 09...
+        - Length = 34 bytes
+        - Time = 2a 03 05 (42.16s + 3s + 5min = 5:03.42)
+        - Data = multiple lift/place events
 
 Parsing Algorithm:
     1. Accumulate bytes into a buffer
@@ -68,6 +84,8 @@ Parsing Algorithm:
         b. If len(buffer) == declared_length: valid packet found, emit it
         c. Otherwise: false positive, continue accumulating
     4. When 0x85 0x00 sequence detected while buffer has data: log as orphaned, discard
+    5. During discovery (STARTING/INITIALIZING/AWAITING_PACKET states): pass to state machine
+    6. Once READY: process as normal game packets
 """
 
 
@@ -114,9 +132,14 @@ class SerialHelper:
     def _init_background(self):
         """Initialize in background thread"""
         self._initialize_serial()
-        self._discover_board_address()
+        
+        # Start listener thread FIRST so it's ready to capture responses
         self.listener_thread = threading.Thread(target=self._listener_thread, daemon=True)
         self.listener_thread.start()
+        
+        # THEN send discovery commands
+        self._discover_board_address()
+        
         print("SerialHelper initialization complete - waiting for discovery to complete")
     
     def wait_ready(self, timeout=60):
@@ -143,42 +166,14 @@ class SerialHelper:
             try:
                 byte = self.ser.read(1)
                 if byte:
-                    #resp = bytearray(resp)
                     self.processResponse(byte[0])
-                    #if data != self.buildPacket(b'\xb1\x00\x06', b'') and self.ready: #Response to x94
-                    #    print(f"KEY: {data}")
-                    # if resp != self.buildPacket(b'\x85\x00\x06', b'') and self.ready: #Response to x83                         
-                    #     #print(f"PIECE: {resp}")
-                    #     if (resp[0] == 133 and resp[1] == 0):
-                    #         for x in range(0, len(resp) - 1):
-                    #             if (resp[x] == 64):
-                    #                 # Calculate the square to 0(a1)-63(h8) so that
-                    #                 # all functions match
-                    #                 fieldHex = resp[x + 1]
-                    #                 #print(f"FIELD HEX: {fieldHex}")
-                    #                 lifted = self.rotateFieldHex(fieldHex)
-                    #                 print(f"LIFTED: {lifted}")
-                    #             if (resp[x] == 65):
-                    #                 # Calculate the square to 0(a1)-63(h8) so that
-                    #                 # all functions match
-                    #                 fieldHex = resp[x + 1]
-                    #                 #print(f"FIELD HEX: {fieldHex}")
-                    #                 placed = self.rotateFieldHex(fieldHex)
-                    #                 print(f"PLACED: {placed}")
-                    #print(f"READY: {self.ready}")
-                    #if self.ready:
-                    #    #self.sendPacket(b'\x94', b'') #Key detection enabled
-                    #    self.sendPacket(b'\x83', b'') #Piece detection enabled
-
             except Exception as e:
                 logging.error(f"Listener error: {e}")
-                #if self.listener_running:
-                #    time.sleep(0.1)
     
     def stop_listener(self):
         """Stop the serial listener thread"""
         self.listener_running = False
-        logging.debug("Serial listener thread stopped")
+        print("Serial listener thread stopped")
     
     def _initialize_serial(self):
         """Open serial connection based on mode"""
@@ -195,7 +190,7 @@ class SerialHelper:
                 self.ser.close()
                 self.ser.open()
         
-        logging.debug("Serial port opened successfully")
+        print("Serial port opened successfully")
     
 
     def processResponse(self, byte):
@@ -241,17 +236,12 @@ class SerialHelper:
                     actual_length = len(self.response_buffer)
                     
                     if actual_length == declared_length:
-                        # If we're awaiting discovery packet, extract addr1/addr2
-                        if self.discovery_state == "AWAITING_PACKET":
-                            if len(self.response_buffer) > 4:
-                                self.addr1 = self.response_buffer[3]
-                                self.addr2 = self.response_buffer[4]
-                                self.discovery_state = "READY"
-                                self.ready = True
-                                print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
+                        # We have a valid packet
+                        if self.discovery_state == "READY":
+                            self.on_packet_complete(self.response_buffer)
+                        else:
+                            self._discover_board_address(self.response_buffer)
                         
-                        # Normal packet processing
-                        self.on_packet_complete(self.response_buffer)
                         self.response_buffer = bytearray()
                         return
                 else:
@@ -449,24 +439,42 @@ class SerialHelper:
         except:
             return self.ser.read(num_bytes)
     
-    def _discover_board_address(self):
+    def _discover_board_address(self, packet=None):
         """
-        State machine for non-blocking board address discovery.
-        Progresses through STARTING -> INITIALIZING -> AWAITING_PACKET -> READY
+        Self-contained state machine for non-blocking board discovery.
+        
+        Args:
+            packet: Complete packet bytearray (from processResponse)
+                    None when called from _init_background()
         """
-        if self.discovery_state == "STARTING":
-            print("Discovery: STARTING - sending 0x4d and 0x4e")
-            tosend = bytearray(b'\x4d')
-            self.ser.write(tosend)
-            tosend = bytearray(b'\x4e')
-            self.ser.write(tosend)
-            self.discovery_state = "INITIALIZING"
-            
-        elif self.discovery_state == "INITIALIZING":
-            print("Discovery: INITIALIZING - sending discovery packet 0x87 0x00 0x00 0x07")
+        if self.discovery_state == "READY":
+            return
+        
+        # Called from _init_background() with no packet
+        if packet is None:
+            if self.discovery_state == "STARTING":
+                print("Discovery: STARTING - sending 0x4d and 0x4e")
+                tosend = bytearray(b'\x4d\x4e')
+                self.ser.write(tosend)
+                self.discovery_state = "INITIALIZING"
+            return
+        
+        # Called from processResponse() with a complete packet
+        if self.discovery_state == "INITIALIZING":
+            hex_row = ' '.join(f'{b:02x}' for b in packet)
+            print(f"[INIT_RESPONSE] {hex_row}")
+            print("Discovery: sending discovery packet 0x87 0x00 0x00 0x07")
             tosend = bytearray(b'\x87\x00\x00\x07')
             self.ser.write(tosend)
             self.discovery_state = "AWAITING_PACKET"
+        
+        elif self.discovery_state == "AWAITING_PACKET":
+            if len(packet) > 4:
+                self.addr1 = packet[3]
+                self.addr2 = packet[4]
+                self.discovery_state = "READY"
+                self.ready = True
+                print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
     
     def _old_discover_board_address(self):
         """
