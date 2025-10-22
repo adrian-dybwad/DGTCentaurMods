@@ -12,10 +12,6 @@ if __name__ == "__main__":
     print("Waiting for initialization...")
     
     if helper.wait_ready():
-        print(f"Board addresses discovered: addr1={hex(helper.addr1)}, addr2={hex(helper.addr2)}")
-        
-        print("\nInitializing device...")
-        helper.initialize_device()
         
         helper.ledsOff()
         helper.sendPacket(b'\x83', b'') #Piece detection enabled
