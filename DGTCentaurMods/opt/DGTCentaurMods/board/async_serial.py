@@ -143,7 +143,8 @@ class AsyncSerial:
         self.spinner = itertools.cycle(['|', '/', '-', '\\'])
         self.response_buffer = bytearray()
         self.packet_count = 0
-        self.keyName = None
+        # queue to signal key-up events as (code, name)
+        self.key_up_queue = queue.Queue(maxsize=128)
 
         if auto_init:
             init_thread = threading.Thread(target=self._init_background, daemon=False)
@@ -322,7 +323,20 @@ class AsyncSerial:
             if packet[:-1] != self.buildPacket(KEY_POLL_PACKET, b'')[:-1]:
                 hex_row = ' '.join(f'{b:02x}' for b in packet)
                 print(f"\r[P{self.packet_count:03d}] {hex_row}")
-                self._draw_key_event(packet, hex_row, self.packet_count)
+                # Detect key event and enqueue key-up signals
+                idx, code_val, is_down = self._find_key_event(packet)
+                if idx is not None:
+                    # Draw visual indicator
+                    self._draw_key_event(packet, hex_row, self.packet_count)
+                    # On key-up, enqueue (code, name)
+                    if not is_down:
+                        name = BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
+                        try:
+                            self.key_up_queue.put_nowait((code_val, name))
+                        except queue.Full:
+                            pass
+                    # processed a key event
+                    return
 
             #We always want to have key events, it would be unusual not to.
             self.sendPacket(KEY_POLL_CMD, b'')
@@ -436,8 +450,8 @@ class AsyncSerial:
 
         Args:
             timeout: seconds to wait, or None to wait forever
-            accept: optional filter of keys; list/set of codes or names.
-                    Examples: accept={0x10} for TICK, or {'TICK'}
+            accept: optional filter of keys; list/set/tuple of codes or names,
+                    or a single code/name. Examples: accept={0x10} or {'TICK'}
 
         Returns:
             (code, name) on success, or (None, None) on timeout.
@@ -457,15 +471,14 @@ class AsyncSerial:
             if not accept:
                 return (code, name)
 
-            # accept filter supports both numeric codes and names
+            # accept can be a single value or an iterable; support both names and numeric codes
             if isinstance(accept, (set, list, tuple)):
                 if code in accept or name in accept:
                     return (code, name)
             else:
-                # single value
                 if code == accept or name == accept:
                     return (code, name)
-            # else keep waiting
+            # otherwise continue waiting
 
     def _find_key_event(self, packet):
         """
@@ -489,8 +502,6 @@ class AsyncSerial:
                     return (i + 4, first, True)
                 # Key up: code is second byte after 05 (first is 0x00)
                 if first == 0x00 and second != 0x00:
-                    self.keyName = BUTTON_CODES.get(second, f"0x{second:02x}")
-                    print(f"Key up: {self.keyName}")
                     return (i + 5, second, False)
                 break
 

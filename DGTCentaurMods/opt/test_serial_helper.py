@@ -19,7 +19,9 @@ if __name__ == "__main__":
             asyncserial.ledsOff()
             
             print(asyncserial.wait_for_key_up())
-            
+            print(asyncserial.wait_for_key_up())
+            print(asyncserial.wait_for_key_up())
+
         except Exception as e:
             print(f"Error: {e}")
         try:
