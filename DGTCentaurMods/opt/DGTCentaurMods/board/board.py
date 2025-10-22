@@ -314,6 +314,9 @@ def doMenu(items, fast = 0):
 # Board control - functions related to making the board do something
 #
 
+def poll_piece_detection():
+    asyncserial.poll_piece_detection()
+
 def clearBoardData():
     asyncserial.clearBoardData()
 
