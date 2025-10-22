@@ -319,10 +319,7 @@ class AsyncSerial:
             if packet[:-1] != self.buildPacket(KEY_POLL_PACKET, b'')[:-1]:
                 hex_row = ' '.join(f'{b:02x}' for b in packet)
                 print(f"\r[P{self.packet_count:03d}] {hex_row}")
-                if self._draw_key_event(packet, hex_row, self.packet_count):
-                    # keep button polling alive if you poll keys
-                    # self.sendPacket(KEY_POLL_CMD, b'')
-                    return
+                self._draw_key_event(packet, hex_row, self.packet_count)
 
             #We always want to have key events, it would be unusual not to.
             self.sendPacket(KEY_POLL_CMD, b'')
@@ -470,7 +467,7 @@ class AsyncSerial:
         # Each byte renders as "xx " → 3 chars per byte
         arrow_abs = len(prefix) + (code_index * 3)
 
-        label = "<KEY>  "
+        label = f"{BUTTON_CODES[code_val]}  "
         label_len = len(label)
         label_start = max(0, arrow_abs - label_len)  # ensure non-negative
 
