@@ -15,7 +15,7 @@ if __name__ == "__main__":
         
         try:
             helper.ledsOff()
-            #helper.sendPacket(b'\x83', b'') #Piece detection enabled
+            helper.sendPacket(helper.PIECE_POLL_CMD, b'') #Piece detection enabled
             helper.ledsOff()
         except Exception as e:
             print(f"Error: {e}")
