@@ -471,6 +471,8 @@ class SerialHelper:
             except:
                 resp = self.ser.read(1000)
             
+            print(f"Response 3: {bytearray.fromhex(resp.hex())}")
+
             if len(resp) > 3:
                 self.addr1 = resp[3]
                 self.addr2 = resp[4]
