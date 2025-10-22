@@ -219,7 +219,7 @@ class SerialHelper:
             # Log orphaned data (everything except the 85)
             hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
             print(f"[ORPHANED] {hex_row}")
-            self.response_buffer = bytearray([0x85])  # Keep the 85, add the 00 below
+            self.response_buffer = bytearray(self.response_buffer[-1])  # Keep the detected start byte, add the 00 below
         
         self.response_buffer.append(byte)
 
