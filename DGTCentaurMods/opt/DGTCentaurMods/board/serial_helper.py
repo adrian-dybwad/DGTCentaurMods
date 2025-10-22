@@ -207,14 +207,7 @@ class SerialHelper:
         2. A new 85 00 header is detected (indicating start of next packet)
         """
         print(f"Processing byte: 0x{byte:02x}")
-        #print(f"Processing byte: 0x{byte:02x}")
-        self.response_buffer.append(byte)
 
-        # Handle discovery state machine
-        if self.discovery_state == "INITIALIZING":
-            # Got a response to initial commands, now send discovery packet
-            self._discover_board_address(response_buffer)  # Transitions to AWAITING_PACKET
-        
         # Detect new packet start sequence (85 00) while buffer has data
         if (len(self.response_buffer) >= 1 and 
             self.response_buffer[-1] == 0x85 and 
@@ -225,7 +218,13 @@ class SerialHelper:
             print(f"[ORPHANED] {hex_row}")
             self.response_buffer = bytearray([0x85])  # Keep the 85, add the 00 below
         
-        
+        self.response_buffer.append(byte)
+
+        # Handle discovery state machine
+        if self.discovery_state == "INITIALIZING":
+            # Got a response to initial commands, now send discovery packet
+            self._discover_board_address(response_buffer)  # Transitions to AWAITING_PACKET
+
         # Check if this byte is a checksum boundary
         if len(self.response_buffer) >= 2:
             calculated_checksum = self.checksum(self.response_buffer[:-1])
