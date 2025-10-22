@@ -283,7 +283,12 @@ class SerialHelper:
         # Request next packet if ready
         if self.ready:
             print(f"\r{next(self.spinner)}", end='', flush=True)
-            self.sendPacket(b'\x83', b'')
+            if packet[0] == 0x85:
+                self.sendPacket(b'\x83', b'')
+            elif packet[0] == 0xb1:
+                self.sendPacket(b'\x94', b'')
+            else:
+                print(f"Unknown packet type: {packet[0]}")
 
     def _extract_time_signals(self, packet):
         """
