@@ -207,128 +207,128 @@ def clearSerial():
     logging.debug('Checking and clear the serial line.')
     asyncserial.clearSerial()
 
-def doMenu(items, fast = 0):
-    print(f"doMenu: {items}, Fast: {fast}")
-    # Draw a menu, let the user navigate and return the value
-    # or "BACK" if the user backed out
-    # pass a menu like: menu = {'Lichess': 'Lichess', 'Centaur': 'DGT
-    # Centaur', 'Shutdown': 'Shutdown', 'Reboot': 'Reboot'}
-    selected = 1
-    buttonPress = 0
-    first = 1
-    global initialised
-    #if initialised == 0 and fast == 0:
-    #    epd.Clear(0xff)
-    connected = 0
-    if fast == 0:
-        connected = checkInternetSocket()
-    print("Connected: " + str(connected))
-    quickselect = 0
-    quickselectpossible = -1
-    res = getBoardState()
-    print("getBoardState: " + str(res))
+# def doMenu(items, fast = 0):
+#     print(f"doMenu: {items}, Fast: {fast}")
+#     # Draw a menu, let the user navigate and return the value
+#     # or "BACK" if the user backed out
+#     # pass a menu like: menu = {'Lichess': 'Lichess', 'Centaur': 'DGT
+#     # Centaur', 'Shutdown': 'Shutdown', 'Reboot': 'Reboot'}
+#     selected = 1
+#     buttonPress = 0
+#     first = 1
+#     global initialised
+#     #if initialised == 0 and fast == 0:
+#     #    epd.Clear(0xff)
+#     connected = 0
+#     if fast == 0:
+#         connected = checkInternetSocket()
+#     print("Connected: " + str(connected))
+#     quickselect = 0
+#     quickselectpossible = -1
+#     res = getBoardState()
+#     print("getBoardState: " + str(res))
 
-    if res[32] == 0 and res[33] == 0 and res[34] == 0 and res[35] == 0 and res[36]==0 and res[37] == 0 and res[38] == 0 and res[39] == 0:
-        # If the 4th rank is empty then enable quick select mode. Then we can choose a menu option by placing and releasing a piece
-        quickselect = 1
-    image = Image.new('1', (epd.width, epd.height), 255)
-    print("First: " + str(first))
-    print("Selected: " + str(selected))
-    print("Quickselect: " + str(quickselect))
-    print("Initialised: " + str(initialised))
+#     if res[32] == 0 and res[33] == 0 and res[34] == 0 and res[35] == 0 and res[36]==0 and res[37] == 0 and res[38] == 0 and res[39] == 0:
+#         # If the 4th rank is empty then enable quick select mode. Then we can choose a menu option by placing and releasing a piece
+#         quickselect = 1
+#     image = Image.new('1', (epd.width, epd.height), 255)
+#     print("First: " + str(first))
+#     print("Selected: " + str(selected))
+#     print("Quickselect: " + str(quickselect))
+#     print("Initialised: " + str(initialised))
 
 
-    while (buttonPress != 2):
-        time.sleep(0.05)
-        draw = ImageDraw.Draw(image)
-        if first == 1:
-            rpos = 20
-            draw.rectangle([(0,0),(127,295)], fill=255, outline=255)
-            for k, v in items.items():
-                draw.text((20, rpos), str(v), font=font18, fill=0)
-                rpos = rpos + 20
-            draw.rectangle([(-1, 0), (17, 294)], fill=255, outline=0)
-            draw.polygon([(2, (selected * 20) + 2), (2, (selected * 20) + 18),
-                          (18, (selected * 20) + 10)], fill=0)
-            # Draw an image representing internet connectivity
-            wifion = Image.open(AssetManager.get_resource_path("wifiontiny.bmp"))
-            wifioff = Image.open(AssetManager.get_resource_path("wifiofftiny.bmp"))
-            if connected == True:
-                print("Connected")
-                wifidispicon = wifion.resize((20,16))
-                image.paste(wifidispicon, (105, 5))
-            else:
-                print("Not Connected")
-                wifidispicon = wifioff.resize((20, 16))
-                image.paste(wifidispicon, (105, 5))
+#     while (buttonPress != 2):
+#         time.sleep(0.05)
+#         draw = ImageDraw.Draw(image)
+#         if first == 1:
+#             rpos = 20
+#             draw.rectangle([(0,0),(127,295)], fill=255, outline=255)
+#             for k, v in items.items():
+#                 draw.text((20, rpos), str(v), font=font18, fill=0)
+#                 rpos = rpos + 20
+#             draw.rectangle([(-1, 0), (17, 294)], fill=255, outline=0)
+#             draw.polygon([(2, (selected * 20) + 2), (2, (selected * 20) + 18),
+#                           (18, (selected * 20) + 10)], fill=0)
+#             # Draw an image representing internet connectivity
+#             wifion = Image.open(AssetManager.get_resource_path("wifiontiny.bmp"))
+#             wifioff = Image.open(AssetManager.get_resource_path("wifiofftiny.bmp"))
+#             if connected == True:
+#                 print("Connected")
+#                 wifidispicon = wifion.resize((20,16))
+#                 image.paste(wifidispicon, (105, 5))
+#             else:
+#                 print("Not Connected")
+#                 wifidispicon = wifioff.resize((20, 16))
+#                 image.paste(wifidispicon, (105, 5))
 
-            print("Drawing image")
-            image = image.transpose(Image.FLIP_TOP_BOTTOM)
-            print(f"Image flipped top bottom, {Image.FLIP_TOP_BOTTOM}")
-            image = image.transpose(Image.FLIP_LEFT_RIGHT)
-            print("Image drawn")
+#             print("Drawing image")
+#             image = image.transpose(Image.FLIP_TOP_BOTTOM)
+#             print(f"Image flipped top bottom, {Image.FLIP_TOP_BOTTOM}")
+#             image = image.transpose(Image.FLIP_LEFT_RIGHT)
+#             print("Image drawn")
 
-        draw.rectangle([(110,0),(128,294)],fill=255,outline=0)
-        draw.polygon([(128 - 2, 276 - (selected * 20) + 2), (128 - 2, 276 - (selected * 20) + 18),
-                      (128 - 18, 276 - (selected * 20) + 10)], fill=0)
+#         draw.rectangle([(110,0),(128,294)],fill=255,outline=0)
+#         draw.polygon([(128 - 2, 276 - (selected * 20) + 2), (128 - 2, 276 - (selected * 20) + 18),
+#                       (128 - 18, 276 - (selected * 20) + 10)], fill=0)
 
-        if first == 1 and initialised == 0:
-            if fast == 0:
-                epd.init()
-                epd.display(epd.getbuffer(image))
-            first = 0
-            epd.DisplayRegion(0,295,epd.getbuffer(image))
-            time.sleep(2)
-            initialised = 1
-        else:
-            if first == 1 and initialised == 1:
-                first = 0
-                epd.DisplayRegion(0, 295, epd.getbuffer(image))
-                time.sleep(2)
-            else:
-                sl = 295 - (selected * 20) - 40
-                epd.DisplayRegion(sl,sl + 60,epd.getbuffer(image.crop((0,sl,127,sl+60))))
+#         if first == 1 and initialised == 0:
+#             if fast == 0:
+#                 epd.init()
+#                 epd.display(epd.getbuffer(image))
+#             first = 0
+#             epd.DisplayRegion(0,295,epd.getbuffer(image))
+#             time.sleep(2)
+#             initialised = 1
+#         else:
+#             if first == 1 and initialised == 1:
+#                 first = 0
+#                 epd.DisplayRegion(0, 295, epd.getbuffer(image))
+#                 time.sleep(2)
+#             else:
+#                 sl = 295 - (selected * 20) - 40
+#                 epd.DisplayRegion(sl,sl + 60,epd.getbuffer(image.crop((0,sl,127,sl+60))))
 
-        # Next we wait for either the up/down/back or tick buttons to get
-        # pressed
+#         # Next we wait for either the up/down/back or tick buttons to get
+#         # pressed
 
-        code, name = asyncserial.wait_for_key_up(timeout=60*15)
-        if name == 'TICK':
-            buttonPress = BTNTICK
-        if name == 'BACK':
-            buttonPress = BTNBACK
-        if name == 'UP':
-            buttonPress = BTNUP
-        if name == 'DOWN':
-            buttonPress = BTNDOWN
-        if name == 'HELP':
-            buttonPress = BTNHELP
-        if name == 'PLAY':
-            buttonPress = BTNPLAY
+#         code, name = asyncserial.wait_for_key_up(timeout=60*15)
+#         if name == 'TICK':
+#             buttonPress = BTNTICK
+#         if name == 'BACK':
+#             buttonPress = BTNBACK
+#         if name == 'UP':
+#             buttonPress = BTNUP
+#         if name == 'DOWN':
+#             buttonPress = BTNDOWN
+#         if name == 'HELP':
+#             buttonPress = BTNHELP
+#         if name == 'PLAY':
+#             buttonPress = BTNPLAY
 
-        print("name: " + name)
-        print("buttonPress: " + str(buttonPress))
+#         print("name: " + name)
+#         print("buttonPress: " + str(buttonPress))
 
-        if (buttonPress == 2):
-            # Tick, so return the key for this menu item
-            c = 1
-            r = ""
-            for k, v in items.items():
-                if (c == selected):
-                    selected = 99999
-                    return k
-                c = c + 1
-        if (buttonPress == 4 and selected < len(items)):
-            selected = selected + 1
-        if (buttonPress == 3 and selected > 1):
-            selected = selected - 1
-        if (buttonPress == 1):
-            epd.Clear(0xff)
-            return "BACK"
-        if time.time() > timeout:
-            epd.Clear(0xff)
-            return "BACK"
-        buttonPress = 0
+#         if (buttonPress == 2):
+#             # Tick, so return the key for this menu item
+#             c = 1
+#             r = ""
+#             for k, v in items.items():
+#                 if (c == selected):
+#                     selected = 99999
+#                     return k
+#                 c = c + 1
+#         if (buttonPress == 4 and selected < len(items)):
+#             selected = selected + 1
+#         if (buttonPress == 3 and selected > 1):
+#             selected = selected - 1
+#         if (buttonPress == 1):
+#             epd.Clear(0xff)
+#             return "BACK"
+#         if time.time() > timeout:
+#             epd.Clear(0xff)
+#             return "BACK"
+#         buttonPress = 0
 
 #
 # Board control - functions related to making the board do something
