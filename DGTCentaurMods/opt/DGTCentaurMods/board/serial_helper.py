@@ -135,6 +135,7 @@ class SerialHelper:
         if auto_init:
             init_thread = threading.Thread(target=self._init_background, daemon=False)
             init_thread.start()
+            print("Listening for serial data (press Ctrl+C to stop)...")
     
     def _init_background(self):
         """Initialize in background thread"""
