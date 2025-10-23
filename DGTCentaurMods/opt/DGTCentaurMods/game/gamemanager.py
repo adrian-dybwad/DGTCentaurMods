@@ -453,7 +453,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
             else:
                 try:
                     #board.pauseEvents()
-                    cs = board.getBoardState(retries=0)
+                    cs = board.getBoardState(retries=3)
                     #board.unPauseEvents()
                     print(f"cs: {cs}")
                     print(f"bytearray(cs): {bytearray(cs)}")
