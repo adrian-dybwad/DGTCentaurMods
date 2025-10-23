@@ -75,6 +75,8 @@ batterylastchecked = 0
 # But the address might not be that :( Here we send an initial 0x4d to ask the board to provide its address
 
 asyncserial.wait_ready()
+getBatteryLevel()
+print(f"Battery level: {batterylevel}, Charger connected: {chargerconnected}")
 
 # Screen functions - deprecated, use epaper.py if possible
 #
@@ -565,13 +567,18 @@ def getChargingState():
     return - 1
 
 def getBatteryLevel():
-    # Returns a number 0 - 20 representing battery level of the board
+    # batterylevel: a number 0 - 20 representing battery level of the board
     # 20 is fully charged. The board dies somewhere around a low of 1
     # Sending the board a packet starting with 152 gives battery info
     resp = asyncserial.request_response(BATTERY_INFO_CMD)
     print(f"Battery info response: {resp}")
-    vall = resp[5] & 31
-    return vall
+    batterylastchecked = time.time()
+    batterylevel = resp[5] & 31
+    vall = (resp[5] >> 5) & 7                            
+    if vall == 1 or vall == 2:
+        chargerconnected = 1
+    else:
+        chargerconnected = 0
     
 
 #
@@ -745,20 +752,8 @@ def eventsThread(keycallback, fieldcallback, tout):
                 # Sending 152 to the controller provides us with battery information
                 # Do this every 15 seconds and fill in the globals
                 if time.time() - batterylastchecked > 15:
-                    # Every 5 seconds check the battery details
-                    resp = ""
-                    timeout = time.time() + 4
-                    while len(resp) < 7 and time.time() < timeout:
-                        # Sending the board a packet starting with 152 gives battery info
-                        resp = asyncserial.request_response(BATTERY_INFO_CMD)
-                        print(f"Battery info response: {resp}")
-                        batterylastchecked = time.time()
-                        batterylevel = resp[5] & 31
-                        vall = (resp[5] >> 5) & 7                            
-                        if vall == 1 or vall == 2:
-                            chargerconnected = 1
-                        else:
-                            chargerconnected = 0
+                    # Every 15 seconds check the battery details
+                    getBatteryLevel()
             except:
                 pass
             time.sleep(0.05)
