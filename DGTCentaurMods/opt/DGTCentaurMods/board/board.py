@@ -484,41 +484,21 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
     Robust against short reads; retries a few times and falls back to zeros.
     If 'field' is given (0..63), returns just that square.
     """
-    needed = 6 + 64 * 2  # header + 128 bytes payload
-    for _ in range(retries):
-        try:
-            # clear any junk first
-            try:
-                ser.reset_input_buffer()
-            except Exception:
-                ser.read(10000)
+    # request snapshot
+    payload = asyncserial.sendPacket(DGT_BUS_SEND_SNAPSHOT)
+    payload = bytearray(payload)
+    boarddata = [0] * 64
+    upperlimit = 32000
+    lowerlimit = 300
+    # payload is 64 words (big-endian 16-bit)
+    for i in range(0, 128, 2):
+        tval = (payload[i] << 8) | payload[i+1]
+        boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
 
-            # request snapshot
-            sendPacket(b'\xf0\x00\x07', b'\x7f')
+    if field is not None:
+        return boarddata[field]
+    return boarddata
 
-            # read at least 'needed' bytes; serial timeout keeps this bounded
-            resp = ser.read(needed)
-
-            if len(resp) < needed:
-                time.sleep(sleep_between)
-                continue
-
-            payload = resp[6:6+128]
-            boarddata = [0] * 64
-            upperlimit = 32000
-            lowerlimit = 300
-            # payload is 64 words (big-endian 16-bit)
-            for i in range(0, 128, 2):
-                tval = (payload[i] << 8) | payload[i+1]
-                boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
-
-            if field is not None:
-                return boarddata[field]
-            return boarddata
-
-        except Exception:
-            # transient read/parse error—retry
-            time.sleep(sleep_between)
 
     # Final fallback so callers (like getText) never crash
     if field is not None:
@@ -654,7 +634,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                         resp = asyncserial.request_response(DGT_BUS_SEND_CHANGES)
                         resp = bytearray(resp)
                         for x in range(0, len(resp) - 1):
-                            if (resp[x] == 64):
+                            if (resp[x] == 0x40):
                                 # Calculate the square to 0(a1)-63(h8) so that
                                 # all functions match
                                 fieldHex = resp[x + 1]
@@ -665,7 +645,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 print(f"newsquare: {newsquare}")
                                 print(f"fieldHex: {fieldHex}")
                                 print(f"to: {to}")
-                            if (resp[x] == 65):
+                            if (resp[x] == 0x41):
                                 # Calculate the square to 0(a1)-63(h8) so that
                                 # all functions match
                                 fieldHex = resp[x + 1]
@@ -676,8 +656,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 print(f"newsquare: {newsquare}")
                                 print(f"fieldHex: {fieldHex}")
                                 print(f"to: {to}")
-                    except:
-                        pass
+                    except Exception as e:
                         print("Error in piece detection")   
                         print(f"Error: {e}")
             try:
