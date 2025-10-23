@@ -92,6 +92,7 @@ Parsing Algorithm:
 # Constants
 PACKET_START_BYTES = [0x85, 0x87, 0x93]  # Add any other start types here
 KEY_POLL_CMD = b'\x94'
+BATTERY_INFO_CMD = b'\x98' # This is the command to get battery information
 PIECE_POLL_CMD = b'\x83'
 LED_OFF_CMD = b'\xb0\x00\x07'
 KEY_POLL_PACKET = b'\xb1\x00\x06'
@@ -165,6 +166,9 @@ class AsyncSerial:
         self.key_up_queue = queue.Queue(maxsize=128)
         # track last key-up (code, name) for non-blocking retrieval
         self._last_button = (None, None)
+        # single waiter for blocking request_response
+        self._waiter_lock = threading.Lock()
+        self._response_waiter = None  # dict with keys: expected_type:int, queue:Queue
 
         if auto_init:
             init_thread = threading.Thread(target=self.run_background, daemon=False)
@@ -302,13 +306,31 @@ class AsyncSerial:
         """Called when a complete valid packet is received"""
         self.packet_count += 1
 
+        # Deliver to blocking waiter first (if any)
+        try:
+            with self._waiter_lock:
+                if self._response_waiter is not None:
+                    expected_type = self._response_waiter.get('expected_type')
+                    if expected_type == packet[0]:
+                        payload = self._extract_payload(packet)
+                        q = self._response_waiter.get('queue')
+                        try:
+                            q.put_nowait(payload)
+                        except Exception:
+                            pass
+                        finally:
+                            self._response_waiter = None
+        except Exception:
+            # Do not break normal flow on waiter issues
+            pass
+
         try:
             if packet[0] == 0x85:
                 self.handle_board_packet(packet)
             elif packet[0] == 0xb1:
                 self.handle_button_packet(packet)
             else:
-                print(f"Unknown packet type: {packet[0]}")
+                print(f"Unknown packet type: {packet[0]} {packet}")
         except Exception as e:
             print(f"Error: {e}")
             return
@@ -620,6 +642,86 @@ class AsyncSerial:
         tosend = self.buildPacket(command, data)
         self.ser.write(tosend)
     
+    def request_response(self, command, data=b'', timeout=2.0):
+        """
+        Send a command and block until the matching response packet arrives, then
+        return only the payload bytes according to packet type.
+
+        Args:
+            command (bytes): command bytes to send (e.g., PIECE_POLL_CMD)
+            data (bytes): optional payload to include with command
+            timeout (float): seconds to wait for response
+
+        Returns:
+            bytes: extracted payload bytes
+
+        Raises:
+            TimeoutError: if no matching response within timeout
+            ValueError: if command is not recognized for matching
+            RuntimeError: if another blocking request is already in progress
+        """
+        expected_type = self._expected_type_for_cmd(command)
+        q = queue.Queue(maxsize=1)
+
+        with self._waiter_lock:
+            if self._response_waiter is not None:
+                raise RuntimeError("Another blocking request is already waiting for a response")
+            self._response_waiter = {'expected_type': expected_type, 'queue': q}
+
+        # Send after registering waiter to avoid race
+        self.sendPacket(command, data)
+
+        try:
+            payload = q.get(timeout=timeout)
+            return payload
+        except queue.Empty:
+            # Cleanup waiter if still set
+            with self._waiter_lock:
+                if self._response_waiter is not None and self._response_waiter.get('queue') is q:
+                    self._response_waiter = None
+            raise TimeoutError("Timed out waiting for matching response packet")
+
+    def _expected_type_for_cmd(self, command):
+        """Map an outbound command to the expected inbound packet type byte."""
+        if not command:
+            raise ValueError("Empty command")
+        cmd0 = command[0]
+        if cmd0 == PIECE_POLL_CMD[0]:
+            return 0x85
+        if cmd0 == KEY_POLL_CMD[0]:
+            return 0xb1
+        if cmd0 == BATTERY_INFO_CMD[0]:
+            return 0xb5
+        raise ValueError(f"Unsupported command for blocking match: 0x{cmd0:02x}")
+
+    def _extract_payload(self, packet):
+        """
+        Extract payload bytes from a complete packet, excluding checksum and headers.
+        - For 0x85 packets: bytes from first 0x40/0x41 marker until checksum (or empty if none)
+        - For 0xb1 packets: bytes from index 5 (after addr2) until checksum
+        """
+        if not packet or len(packet) < 2:
+            return b''
+        ptype = packet[0]
+        # Exclude checksum (last byte)
+        end = len(packet) - 1
+        if ptype == 0x85:
+            # find first lift/place marker after addr2 (start at index 5)
+            start = None
+            for i in range(5, end):
+                if packet[i] == 0x40 or packet[i] == 0x41:
+                    start = i
+                    break
+            if start is None:
+                return b''
+            return bytes(packet[start:end])
+        if ptype == 0xb1:
+            start = 5 if end > 5 else end
+            return bytes(packet[start:end])
+        # Unknown type → return without headers (best-effort): after addr2
+        start = 5 if end > 5 else end
+        return bytes(packet[start:end])
+
     # def readSerial(self, num_bytes=1000):
     #     """
     #     Read data from serial port.

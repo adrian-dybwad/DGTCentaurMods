@@ -760,22 +760,15 @@ def eventsThread(keycallback, fieldcallback, tout):
                     timeout = time.time() + 4
                     while len(resp) < 7 and time.time() < timeout:
                         # Sending the board a packet starting with 152 gives battery info
-                        sendPacket(bytearray([152]), b'')
-                        try:
-                            resp = ser.read(1000)
-                        except:
-                            pass
-                    if len(resp) < 7:
-                        pass
-                    else:        
-                        if resp[0] == 181:                            
-                            batterylastchecked = time.time()
-                            batterylevel = resp[5] & 31
-                            vall = (resp[5] >> 5) & 7                            
-                            if vall == 1 or vall == 2:
-                                chargerconnected = 1
-                            else:
-                                chargerconnected = 0
+                        resp = asyncserial.request_response(BATTERY_INFO_CMD)
+                        print(f"Battery info response: {resp}")
+                        batterylastchecked = time.time()
+                        batterylevel = resp[5] & 31
+                        vall = (resp[5] >> 5) & 7                            
+                        if vall == 1 or vall == 2:
+                            chargerconnected = 1
+                        else:
+                            chargerconnected = 0
             except:
                 pass
             time.sleep(0.05)
