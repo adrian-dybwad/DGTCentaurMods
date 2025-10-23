@@ -226,6 +226,10 @@ class AsyncCentaur:
         self._waiter_lock = threading.Lock()
         self._response_waiter = None  # dict with keys: expected_type:int, queue:Queue
 
+        # raw byte capture waiter (bypasses checksum/length parsing)
+        self._raw_waiter_lock = threading.Lock()
+        self._raw_waiter = None  # {'target_len': int, 'buf': bytearray, 'queue': Queue, 'callback': Optional[Callable]}
+
         if auto_init:
             init_thread = threading.Thread(target=self.run_background, daemon=False)
             init_thread.start()
@@ -273,8 +277,42 @@ class AsyncCentaur:
         while self.listener_running:
             try:
                 byte = self.ser.read(1)
-                if byte:
-                    self.processResponse(byte[0])
+                if not byte:
+                    continue
+
+                # RAW CAPTURE: divert bytes to raw buffer if active
+                raw_to_deliver = None
+                with self._raw_waiter_lock:
+                    if self._raw_waiter is not None:
+                        self._raw_waiter['buf'].append(byte[0])
+                        if len(self._raw_waiter['buf']) >= self._raw_waiter['target_len']:
+                            raw_bytes = bytes(self._raw_waiter['buf'])
+                            cb = self._raw_waiter.get('callback')
+                            q = self._raw_waiter.get('queue')
+                            self._raw_waiter = None
+                            if cb is not None:
+                                def _dispatch():
+                                    try:
+                                        cb(raw_bytes, None)
+                                    except Exception:
+                                        pass
+                                threading.Thread(target=_dispatch, daemon=True).start()
+                            else:
+                                raw_to_deliver = (q, raw_bytes)
+                        # Always consume while raw capture is active
+                        if raw_to_deliver is None:
+                            continue
+
+                if raw_to_deliver is not None:
+                    q, raw_bytes = raw_to_deliver
+                    try:
+                        q.put_nowait(raw_bytes)
+                    except Exception:
+                        pass
+                    continue
+
+                # Normal parsing path
+                self.processResponse(byte[0])
             except Exception as e:
                 logging.error(f"Listener error: {e}")
     
@@ -672,7 +710,7 @@ class AsyncCentaur:
         tosend = self.buildPacket(command, eff_data)
         self.ser.write(tosend)
     
-    def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None):
+    def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None):
         """
         Send a command and either block until the matching response arrives (callback=None)
         returning the payload bytes, or return immediately (callback provided) and
@@ -692,6 +730,38 @@ class AsyncCentaur:
             ValueError: if command is not recognized for matching
             RuntimeError: if another request is already in progress
         """
+        # RAW capture path
+        if raw_len is not None:
+            # ensure no packet-mode waiter is active
+            with self._waiter_lock:
+                if self._response_waiter is not None:
+                    raise RuntimeError("Another request is already waiting for a response")
+
+            q = None
+            with self._raw_waiter_lock:
+                if self._raw_waiter is not None:
+                    raise RuntimeError("Another request is already waiting for a response")
+                waiter = {'target_len': int(raw_len), 'buf': bytearray(), 'callback': callback}
+                if callback is None:
+                    q = queue.Queue(maxsize=1)
+                    waiter['queue'] = q
+                self._raw_waiter = waiter
+
+            spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
+            eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
+            self.sendPacket(command, eff_data)
+
+            if callback is not None:
+                return None
+
+            try:
+                return q.get(timeout=timeout)
+            except queue.Empty:
+                with self._raw_waiter_lock:
+                    if self._raw_waiter is not None and self._raw_waiter.get('queue') is q:
+                        self._raw_waiter = None
+                raise TimeoutError("Timed out waiting for raw response bytes")
+
         expected_type = self._expected_type_for_cmd(command)
         spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')

@@ -484,13 +484,26 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
     Robust against short reads; retries a few times and falls back to zeros.
     If 'field' is given (0..63), returns just that square.
     """
+    # Local constants for snapshot framing and a clear board fallback
+    SNAPSHOT_HEADER_LEN = 6
+    SNAPSHOT_PAYLOAD_BYTES = 64 * 2
+    SNAPSHOT_TOTAL_LEN = SNAPSHOT_HEADER_LEN + SNAPSHOT_PAYLOAD_BYTES
+    BOARD_CLEAR_STATE = [0] * 64
+
     for _ in range(retries):
         try:
-            # request snapshot
-            payload = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT, timeout=10)
-            payload = bytearray(payload)
+            # Request a raw snapshot (header + payload)
+            resp = asyncserial.request_response(
+                DGT_BUS_SEND_SNAPSHOT, timeout=2.0, raw_len=SNAPSHOT_TOTAL_LEN
+            )
+            if not resp or len(resp) < SNAPSHOT_TOTAL_LEN:
+                time.sleep(sleep_between)
+                continue
 
-            boarddata = [0] * 64
+            resp = bytearray(resp)
+            payload = resp[SNAPSHOT_HEADER_LEN:SNAPSHOT_TOTAL_LEN]
+
+            boarddata = BOARD_CLEAR_STATE.copy()
             upperlimit = 32000
             lowerlimit = 300
             # payload is 64 words (big-endian 16-bit)
@@ -509,7 +522,7 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
     # Final fallback so callers (like getText) never crash
     if field is not None:
         return 0
-    return [0] * 64
+    return BOARD_CLEAR_STATE
 
 
 
