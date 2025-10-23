@@ -111,12 +111,12 @@ COMMANDS: Dict[str, CommandSpec] = {
     "DGT_BUS_SEND_CHANGES":   CommandSpec(b"\x83", 0x85, None),
     "DGT_BUS_POLL_KEYS":      CommandSpec(b"\x94", 0xB1, None),
     "DGT_SEND_BATTERY_INFO":  CommandSpec(b"\x98", 0xB5, None),
-    "SOUND_GENERAL":          CommandSpec(b"\xb1", 0xB1, b'\x4c\x08'),
-    "SOUND_FACTORY":          CommandSpec(b"\xb1", 0xB1, b'\x4c\x40'),
-    "SOUND_POWER_OFF":        CommandSpec(b"\xb1", 0xB1, b'\x4c\x08\x48\x08'),
-    "SOUND_POWER_ON":         CommandSpec(b"\xb1", 0xB1, b'\x48\x08\x4c\x08'),
-    "SOUND_WRONG":            CommandSpec(b"\xb1", 0xB1, b'\x4e\x0c\x48\x10'),
-    "SOUND_WRONG_MOVE":       CommandSpec(b"\xb1", 0xB1, b'\x48\x08'),
+    "SOUND_GENERAL":          CommandSpec(b"\xb1\x00\x08", 0xB1, b'\x4c\x08'),
+    "SOUND_FACTORY":          CommandSpec(b"\xb1\x00\x08", 0xB1, b'\x4c\x40'),
+    "SOUND_POWER_OFF":        CommandSpec(b"\xb1\x00\x0a", 0xB1, b'\x4c\x08\x48\x08'),
+    "SOUND_POWER_ON":         CommandSpec(b"\xb1\x00\x0a", 0xB1, b'\x48\x08\x4c\x08'),
+    "SOUND_WRONG":            CommandSpec(b"\xb1\x00\x0a", 0xB1, b'\x4e\x0c\x48\x10'),
+    "SOUND_WRONG_MOVE":       CommandSpec(b"\xb1\x00\x08", 0xB1, b'\x48\x08'),
 }
 # DGT_SOUND_GENERAL = 1
 # DGT_SOUND_FACTORY = 2
@@ -686,7 +686,6 @@ class AsyncCentaur:
         spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
         tosend = self.buildPacket(command, eff_data)
-        print(f"Sending packet: {tosend}")
         self.ser.write(tosend)
     
     def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None):
