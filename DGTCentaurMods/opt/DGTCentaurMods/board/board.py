@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 #import serial
-from DGTCentaurMods.board.async_centaur import AsyncCentaur, DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS, DGT_SEND_BATTERY_INFO, SOUND_GENERAL, SOUND_FACTORY, SOUND_POWER_OFF, SOUND_POWER_ON, SOUND_WRONG, SOUND_WRONG_MOVE
+from DGTCentaurMods.board.async_centaur import AsyncCentaur, DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS, DGT_SEND_BATTERY_INFO, SOUND_GENERAL, SOUND_FACTORY, SOUND_POWER_OFF, SOUND_POWER_ON, SOUND_WRONG, SOUND_WRONG_MOVE, DGT_BUS_SEND_SNAPSHOT
 import sys
 import os
 from DGTCentaurMods.display import epd2in9d, epaper
