@@ -579,8 +579,6 @@ def getBatteryLevel():
         chargerconnected = 0
     
 
-getBatteryLevel()
-print(f"Battery level: {batterylevel}, Charger connected: {chargerconnected}")
 
 #
 # Miscellaneous functions - do they belong in this file?
@@ -755,6 +753,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 if time.time() - batterylastchecked > 15:
                     # Every 15 seconds check the battery details
                     getBatteryLevel()
+                    print(f"Battery level: {batterylevel}, Charger connected: {chargerconnected}")
             except:
                 pass
             time.sleep(0.05)
