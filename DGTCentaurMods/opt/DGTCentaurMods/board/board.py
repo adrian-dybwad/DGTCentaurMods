@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 #import serial
-from DGTCentaurMods.board.async_serial import AsyncSerial, PIECE_POLL_CMD, KEY_POLL_CMD
+from DGTCentaurMods.board.async_serial import AsyncSerial, PIECE_POLL_CMD, KEY_POLL_CMD, BATTERY_INFO_CMD
 import sys
 import os
 from DGTCentaurMods.display import epd2in9d, epaper
