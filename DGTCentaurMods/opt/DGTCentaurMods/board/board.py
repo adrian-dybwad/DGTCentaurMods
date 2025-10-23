@@ -754,6 +754,7 @@ def eventsThread(keycallback, fieldcallback, tout):
             time.sleep(0.05)
             if buttonPress != 0:
                 to = time.time() + tout
+                print(f"btn{buttonPress} pressed, sending to keycallback")
                 keycallback(buttonPress)
         else:
             # If pauseEvents() hold timeout in the thread
