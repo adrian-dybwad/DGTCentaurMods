@@ -512,6 +512,7 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
                 tval = (payload[i] << 8) | payload[i+1]
                 boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
 
+            printBoardState()
             if field is not None:
                 return boarddata[field]
             return boarddata
@@ -524,8 +525,6 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
     if field is not None:
         return 0
     return BOARD_CLEAR_STATE
-
-print(getBoardState())
 
 def printBoardState():
     # Helper to display board state
