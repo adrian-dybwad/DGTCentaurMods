@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 #import serial
-from DGTCentaurMods.board.async_centaur import AsyncCentaur, PIECE_POLL_CMD, KEY_POLL_CMD, BATTERY_INFO_CMD
+from DGTCentaurMods.board.async_centaur import AsyncCentaur, DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS, DGT_SEND_BATTERY_INFO
 import sys
 import os
 from DGTCentaurMods.display import epd2in9d, epaper
@@ -569,7 +569,7 @@ def getBatteryLevel():
     # 20 is fully charged. The board dies somewhere around a low of 1
     # Sending the board a packet starting with 152 gives battery info
     global batterylevel, chargerconnected, batterylastchecked
-    resp = asyncserial.request_response(BATTERY_INFO_CMD)
+    resp = asyncserial.request_response(DGT_SEND_BATTERY_INFO)
     batterylastchecked = time.time()
     val = resp[0]
     batterylevel = val & 0x1F

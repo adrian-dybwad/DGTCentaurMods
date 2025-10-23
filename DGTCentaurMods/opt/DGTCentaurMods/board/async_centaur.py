@@ -108,9 +108,9 @@ class CommandSpec:
     expected_resp_type: int
 
 COMMANDS: Dict[str, CommandSpec] = {
-    "PIECE_POLL_CMD":   CommandSpec(b"\x83", 0x85),
-    "KEY_POLL_CMD":     CommandSpec(b"\x94", 0xB1),
-    "BATTERY_INFO_CMD": CommandSpec(b"\x98", 0xB5),
+    "DGT_BUS_SEND_CHANGES":   CommandSpec(b"\x83", 0x85),
+    "DGT_BUS_POLL_KEYS":      CommandSpec(b"\x94", 0xB1),
+    "DGT_SEND_BATTERY_INFO":  CommandSpec(b"\x98", 0xB5),
 }
 
 # Fast lookups
@@ -124,7 +124,7 @@ globals().update({name: spec.cmd for name, spec in COMMANDS.items()})
 OTHER_START_TYPES = {0x87, 0x93}
 START_TYPE_BYTES = {spec.expected_resp_type for spec in COMMANDS.values()} | OTHER_START_TYPES
 
-BUTTON_CODES = {
+DGT_BUTTON_CODES = {
     0x01: "BACK",
     0x10: "TICK",
     0x08: "UP",
@@ -151,7 +151,7 @@ BTNPLAY = 6
 BTNLONGPLAY = 7
 
 
-__all__ = ['AsyncCentaur', 'PIECE_POLL_CMD', 'KEY_POLL_CMD', 'BATTERY_INFO_CMD', 'BUTTON_CODES']
+__all__ = ['AsyncCentaur', 'DGT_BUS_SEND_CHANGES', 'DGT_BUS_POLL_KEYS', 'DGT_SEND_BATTERY_INFO', 'DGT_BUTTON_CODES']
 
 class AsyncCentaur:
     """DGT Centaur Asynchronous Board Controller
@@ -165,7 +165,7 @@ class AsyncCentaur:
         centaur = AsyncCentaur(developer_mode=False)
         centaur.wait_ready()
         # Blocking request (returns payload bytes)
-        payload = centaur.request_response(PIECE_POLL_CMD, b"", timeout=1.5)
+        payload = centaur.request_response(DGT_BUS_SEND_CHANGES, timeout=1.5)
 
     Non-blocking:
         def on_resp(payload, err):
@@ -173,7 +173,7 @@ class AsyncCentaur:
                 print(err)
             else:
                 print(payload)
-        centaur.request_response(KEY_POLL_CMD, b"", timeout=1.5, callback=on_resp)
+        centaur.request_response(DGT_BUS_POLL_KEYS, timeout=1.5, callback=on_resp)
 
     Key APIs:
         - run_background(start_key_polling=False): init and start listener
@@ -184,8 +184,8 @@ class AsyncCentaur:
         - ledsOff(), led(), ledArray(), ledFromTo(), beep(), sleep()
 
     Notes:
-        - Commands are defined in COMMANDS; exported byte constants are available
-          (e.g., PIECE_POLL_CMD, KEY_POLL_CMD, BATTERY_INFO_CMD).
+    - Commands are defined in COMMANDS; exported byte constants are available
+      (e.g., DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS, DGT_SEND_BATTERY_INFO).
         - Payload is bytes after addr2 up to (excluding) checksum → packet[5:-1].
     """
         
@@ -237,7 +237,7 @@ class AsyncCentaur:
         self._discover_board_address()
         # print(f"start_key_polling: {start_key_polling}")
         # if start_key_polling:
-        #     self.sendPacket(KEY_POLL_CMD, b'')
+        #     self.sendPacket(DGT_BUS_POLL_KEYS)
         # print("Key polling started")
         
     def wait_ready(self, timeout=60):
@@ -428,7 +428,7 @@ class AsyncCentaur:
 
             #We will remove this later when the next move will be queued from the game itself. 
             #For now, we will send a piece detection packet to the board.
-            self.sendPacket(PIECE_POLL_CMD, b'')
+            self.sendPacket(DGT_BUS_SEND_CHANGES)
         except Exception as e:
             print(f"Error: {e}")
             return 
@@ -445,7 +445,7 @@ class AsyncCentaur:
                     self._draw_key_event(packet, hex_row, self.packet_count)
                     # On key-up, enqueue (code, name) and update last button
                     if not is_down:
-                        name = BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
+                        name = DGT_BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
                         self._last_button = (code_val, name)
                         try:
                             self.key_up_queue.put_nowait((code_val, name))
@@ -455,7 +455,7 @@ class AsyncCentaur:
                     #return
 
             #We always want to have key events, it would be unusual not to.
-            self.sendPacket(KEY_POLL_CMD, b'')
+            self.sendPacket(DGT_BUS_POLL_KEYS)
         except Exception as e:
             print(f"Error: {e}")
             return 
@@ -645,7 +645,7 @@ class AsyncCentaur:
         # Each byte renders as "xx " → 3 chars per byte
         arrow_abs = len(prefix) + (code_index * 3)
 
-        base_name = BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
+        base_name = DGT_BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
         label = f"{base_name}  "
         label_len = len(label)
         label_start = max(0, arrow_abs - label_len)
@@ -696,7 +696,7 @@ class AsyncCentaur:
         tosend.append(self.checksum(tosend))
         return tosend
     
-    def sendPacket(self, command, data):
+    def sendPacket(self, command, data=b''):
         """
         Send a packet to the board.
         
@@ -714,7 +714,7 @@ class AsyncCentaur:
         invoke callback(payload, None) on response or callback(None, TimeoutError) on timeout.
 
         Args:
-            command (bytes): command bytes to send (e.g., PIECE_POLL_CMD)
+            command (bytes): command bytes to send (e.g., DGT_BUS_SEND_CHANGES)
             data (bytes): optional payload to include with command
             timeout (float): seconds to wait for response
             callback (callable|None): function (payload: bytes|None, err: Exception|None) -> None
@@ -844,8 +844,8 @@ class AsyncCentaur:
                 self.discovery_state = "READY"
                 self.ready = True
                 print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
-                self.sendPacket(KEY_POLL_CMD, b'') #Key detection enabled
-                self.sendPacket(PIECE_POLL_CMD, b'') #Piece detection enabled
+                self.sendPacket(DGT_BUS_POLL_KEYS) #Key detection enabled
+                self.sendPacket(DGT_BUS_SEND_CHANGES) #Piece detection enabled
                 #  (No need to send this here, it will be sent in the handle_board_packet function when the board is ready  )
     
     def close(self):
@@ -859,8 +859,8 @@ class AsyncCentaur:
         #TODO: Reset things, clear lastKey, moves that may have accumulated etc. 
         #Rename this function to something like resetBoardState()
         self._last_button = (None, None)
-        #self.sendPacket(PIECE_POLL_CMD, b'')
-        #self.sendPacket(KEY_POLL_CMD, b'')
+        #self.sendPacket(DGT_BUS_SEND_CHANGES)
+        #self.sendPacket(DGT_BUS_POLL_KEYS)
 
         print('Board is idle.')
 
@@ -881,7 +881,7 @@ class AsyncCentaur:
         return square
 
     def poll_piece_detection(self):
-        self.sendPacket(PIECE_POLL_CMD, b'')
+        self.sendPacket(DGT_BUS_SEND_CHANGES)
 
     def clearBoardData(self):
         self.sendPacket(b'\x83', b'')
