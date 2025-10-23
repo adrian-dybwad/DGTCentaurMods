@@ -485,7 +485,7 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
     If 'field' is given (0..63), returns just that square.
     """
     # Local constants for snapshot framing and a clear board fallback
-    SNAPSHOT_HEADER_LEN = 6
+    SNAPSHOT_HEADER_LEN = 5
     SNAPSHOT_PAYLOAD_BYTES = 64 * 2
     SNAPSHOT_TOTAL_LEN = SNAPSHOT_HEADER_LEN + SNAPSHOT_PAYLOAD_BYTES
     BOARD_CLEAR_STATE = [0] * 64
