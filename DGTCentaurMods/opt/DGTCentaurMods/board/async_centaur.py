@@ -117,25 +117,8 @@ COMMANDS: Dict[str, CommandSpec] = {
     "SOUND_POWER_ON":         CommandSpec(b"\xb1\x00\x0a", 0xB1, b'\x48\x08\x4c\x08'),
     "SOUND_WRONG":            CommandSpec(b"\xb1\x00\x0a", 0xB1, b'\x4e\x0c\x48\x10'),
     "SOUND_WRONG_MOVE":       CommandSpec(b"\xb1\x00\x08", 0xB1, b'\x48\x08'),
+    "DGT_SLEEP":              CommandSpec(b"\xb2\x00\x07", 0xB1, b'\x0a'),
 }
-# DGT_SOUND_GENERAL = 1
-# DGT_SOUND_FACTORY = 2
-# DGT_SOUND_POWER_OFF = 3
-# DGT_SOUND_POWER_ON = 4
-# DGT_SOUND_WRONG = 5
-# DGT_SOUND_WRONG_MOVE = 6
-#         if (beeptype == SOUND_GENERAL):
-#             self.sendPacket(b'\xb1\x00\x08',b'\x4c\x08')
-#         if (beeptype == SOUND_FACTORY):
-#             self.sendPacket(b'\xb1\x00\x08', b'\x4c\x40')
-#         if (beeptype == SOUND_POWER_OFF):
-#             self.sendPacket(b'\xb1\x00\x0a', b'\x4c\x08\x48\x08')
-#         if (beeptype == SOUND_POWER_ON):
-#             self.sendPacket(b'\xb1\x00\x0a', b'\x48\x08\x4c\x08')
-#         if (beeptype == SOUND_WRONG):
-#             self.sendPacket(b'\xb1\x00\x0a', b'\x4e\x0c\x48\x10')
-#         if (beeptype == SOUND_WRONG_MOVE):
-#             self.sendPacket(b'\xb1\x00\x08', b'\x48\x08')
 
 
 # Fast lookups
@@ -828,7 +811,7 @@ class AsyncCentaur:
                 self.ready = True
                 print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
                 self.sendPacket(DGT_BUS_POLL_KEYS) #Key detection enabled
-                self.sendPacket(DGT_BUS_SEND_CHANGES) #Piece detection enabled
+                #self.sendPacket(DGT_BUS_SEND_CHANGES) #Piece detection enabled
                 #  (No need to send this here, it will be sent in the handle_board_packet function when the board is ready  )
     
     def close(self):
@@ -871,7 +854,6 @@ class AsyncCentaur:
 
     def beep(self, beeptype):
         # Ask the centaur to make a beep sound
-        print(f"Beeping: {beeptype}")
         self.sendPacket(beeptype)
 
     def ledsOff(self):
@@ -940,6 +922,5 @@ class AsyncCentaur:
         """
         Sleep the controller.
         """
-        self.sendPacket(b'\xb2\x00\x07', b'\x0a')
-
-
+        print(f"Sleeping the centaur")
+        self.sendPacket(DGT_SLEEP)
