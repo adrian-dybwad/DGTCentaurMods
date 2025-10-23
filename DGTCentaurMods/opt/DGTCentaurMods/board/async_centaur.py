@@ -776,9 +776,25 @@ class AsyncCentaur:
             try:
                 return q.get(timeout=timeout)
             except queue.Empty:
-                with self._raw_waiter_lock:
-                    if self._raw_waiter is not None and self._raw_waiter.get('queue') is q:
-                        self._raw_waiter = None
+            # Snapshot/log what we collected so far in raw mode
+            buf = None
+            with self._raw_waiter_lock:
+                if self._raw_waiter is not None and self._raw_waiter.get('queue') is q:
+                    try:
+                        buf = bytes(self._raw_waiter.get('buf', b''))
+                    except Exception:
+                        buf = None
+                    self._raw_waiter = None
+            try:
+                if buf is not None:
+                    hex_row = ' '.join(f'{b:02x}' for b in buf)
+                    print(f"raw timeout: wanted={raw_len} got={len(buf)} bytes: {hex_row}")
+                else:
+                    print(f"raw timeout: wanted={raw_len} got=unknown (waiter cleared)")
+                rb = bytes(self.response_buffer)
+                print(f"parser buffer at timeout len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}")
+            except Exception:
+                pass
                 raise TimeoutError("Timed out waiting for raw response bytes")
 
         expected_type = self._expected_type_for_cmd(command)
@@ -804,6 +820,15 @@ class AsyncCentaur:
                 with self._waiter_lock:
                     if self._response_waiter is not None and self._response_waiter.get('queue') is q:
                         self._response_waiter = None
+            # Log what the parser has buffered so far
+            try:
+                rb = bytes(self.response_buffer)
+                print(
+                    f"packet timeout: expected_type=0x{expected_type:02x} "
+                    f"parser buffer len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}"
+                )
+            except Exception:
+                pass
                 raise TimeoutError("Timed out waiting for matching response packet")
 
         # Non-blocking mode with callback
