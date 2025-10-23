@@ -525,7 +525,7 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
         return 0
     return BOARD_CLEAR_STATE
 
-
+print(getBoardState())
 
 def printBoardState():
     # Helper to display board state
