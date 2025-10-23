@@ -747,6 +747,25 @@ class AsyncCentaur:
                     waiter['queue'] = q
                 self._raw_waiter = waiter
 
+            # Drain serial input BEFORE sending the command to avoid stale bytes in raw buffer
+            try:
+                # Preferred in pyserial ≥ 3.x
+                self.ser.reset_input_buffer()
+            except Exception:
+                try:
+                    n = getattr(self.ser, 'in_waiting', 0) or 0
+                    if n:
+                        self.ser.read(n)
+                except Exception:
+                    # final bounded drain
+                    try:
+                        self.ser.read(10000)
+                    except Exception:
+                        pass
+
+            # Also clear parser buffer so header detection won't prepend stale bytes
+            self.response_buffer = bytearray()
+
             spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
             eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
             self.sendPacket(command, eff_data)
