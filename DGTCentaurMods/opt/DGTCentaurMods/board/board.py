@@ -663,6 +663,10 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 newsquare = rotateFieldHex(fieldHex)
                                 fieldcallback(newsquare + 1)
                                 to = time.time() + tout
+                                print("PIECE PLACED")
+                                print(f"newsquare: {newsquare}")
+                                print(f"fieldHex: {fieldHex}")
+                                print(f"to: {to}")
                             if (resp[x] == 65):
                                 # Calculate the square to 0(a1)-63(h8) so that
                                 # all functions match
@@ -670,10 +674,10 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 newsquare = rotateFieldHex(fieldHex)
                                 fieldcallback((newsquare + 1) * -1)
                                 to = time.time() + tout
-                            print("PIECE PLACED")
-                            print(f"newsquare: {newsquare}")
-                            print(f"fieldHex: {fieldHex}")
-                            print(f"to: {to}")
+                                print("PIECE PLACED")
+                                print(f"newsquare: {newsquare}")
+                                print(f"fieldHex: {fieldHex}")
+                                print(f"to: {to}")
                     except:
                         pass
                         print("Error in piece detection")   
