@@ -661,6 +661,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 newsquare = rotateFieldHex(fieldHex)
                                 fieldcallback(newsquare + 1)
                                 to = time.time() + tout
+                                print(f"PIECE PLACED {newsquare + 1}")
                                 print(f"newsquare: {newsquare}")
                                 print(f"fieldHex: {fieldHex}")
                                 print(f"to: {to}")
@@ -671,6 +672,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 newsquare = rotateFieldHex(fieldHex)
                                 fieldcallback((newsquare + 1) * -1)
                                 to = time.time() + tout
+                                print(f"PIECE PLACED {(newsquare + 1) * -1}")
                                 print(f"newsquare: {newsquare}")
                                 print(f"fieldHex: {fieldHex}")
                                 print(f"to: {to}")
