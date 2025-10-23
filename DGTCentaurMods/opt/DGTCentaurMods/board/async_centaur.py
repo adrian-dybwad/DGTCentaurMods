@@ -354,10 +354,12 @@ class AsyncCentaur:
         """
         #print(f"Processing response: {byte}")
         # Detect packet start sequence (<START_TYPE_BYTE> 00) while buffer has data
-        if (len(self.response_buffer) >= 1 and 
-            self.response_buffer[-1] in START_TYPE_BYTES and 
-            byte == 0x00 and 
-            len(self.response_buffer) > 1):
+        HEADER_BYTES = 5
+        if (len(self.response_buffer) >= HEADER_BYTES and 
+            self.response_buffer[0] in START_TYPE_BYTES and 
+            self.response_buffer[3] == self.addr1 and
+            byte == addr2 and 
+            len(self.response_buffer) > HEADER_BYTES):
             # Log orphaned data (everything except the 85)
             hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
             print(f"[ORPHANED] {hex_row}")
@@ -376,7 +378,8 @@ class AsyncCentaur:
             if byte == calculated_checksum:
                 # Verify packet length matches declared length
                 if len(self.response_buffer) >= 3:
-                    declared_length = self.response_buffer[2]
+                    len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
+                    declared_length = (len_hi << 7) | len_lo
                     actual_length = len(self.response_buffer)
                     
                     if actual_length == declared_length:
