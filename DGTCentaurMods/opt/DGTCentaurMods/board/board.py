@@ -499,9 +499,9 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
             if not resp or len(resp) < SNAPSHOT_TOTAL_LEN:
                 time.sleep(sleep_between)
                 continue
-            print(f"resp: {resp}")
 
             resp = bytearray(resp)
+            print(f"resp: {resp}")
             payload = resp[SNAPSHOT_HEADER_LEN:SNAPSHOT_TOTAL_LEN]
             print(f"payload: {payload}")
             boarddata = BOARD_CLEAR_STATE.copy()
