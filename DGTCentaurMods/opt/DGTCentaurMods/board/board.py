@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 #import serial
-from DGTCentaurMods.board.async_serial import AsyncSerial, PIECE_POLL_CMD, KEY_POLL_CMD, BATTERY_INFO_CMD
+from DGTCentaurMods.board.async_centaur import AsyncCentaur, PIECE_POLL_CMD, KEY_POLL_CMD, BATTERY_INFO_CMD
 import sys
 import os
 from DGTCentaurMods.display import epd2in9d, epaper
@@ -60,7 +60,7 @@ BTNLONGPLAY = 7
 
 # Get the config
 dev = Settings.read('system', 'developer', 'False')
-asyncserial = AsyncSerial(developer_mode=False)
+asyncserial = AsyncCentaur(developer_mode=False)
 # Various setup
 
 font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)

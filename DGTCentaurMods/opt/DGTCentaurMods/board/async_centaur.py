@@ -1,7 +1,12 @@
-# DGT Centaur Serial Helper Functions
+# DGT Centaur Asynchronous Board Controller
 #
 # This file is part of the DGTCentaur Mods open source software
 # ( https://github.com/EdNekebno/DGTCentaur )
+#
+# AsyncCentaur (async_centaur.py) was written by Adrian Dybwad 
+# with help from Cursor AI. The most amazing tool I've ever used.
+# https://github.com/adrian-dybwad/DGTCentaurMods 
+# Perhaps it will be merged into the main project some day!
 #
 # DGTCentaur Mods is free software: you can redistribute
 # it and/or modify it under the terms of the GNU General Public
@@ -146,24 +151,44 @@ BTNPLAY = 6
 BTNLONGPLAY = 7
 
 
-__all__ = ['AsyncSerial', 'PIECE_POLL_CMD', 'KEY_POLL_CMD', 'BATTERY_INFO_CMD', 'BUTTON_CODES']
+__all__ = ['AsyncCentaur', 'PIECE_POLL_CMD', 'KEY_POLL_CMD', 'BATTERY_INFO_CMD', 'BUTTON_CODES']
 
-class AsyncSerial:
-    """Helper class for managing serial communication with DGT Centaur board
-    
-    Examples:
-        
-         Non-blocking initialization (returns immediately):
-            helper = AsyncSerial(developer_mode=False)
-            helper.wait_ready()
-            helper.sendPacket(b'\x83', b'')
-        
-        Blocking initialization:
-            helper = AsyncSerial(developer_mode=False, auto_init=False)
-            helper.run_background()
-            helper.sendPacket(b'\x83', b'')
+class AsyncCentaur:
+    """DGT Centaur Asynchronous Board Controller
+
+    Overview:
+        AsyncCentaur manages serial communication with the DGT Centaur in a
+        background thread, handling discovery, packet parsing, and a simple
+        request/response API (blocking or callback-based).
+
+    Quick start:
+        centaur = AsyncCentaur(developer_mode=False)
+        centaur.wait_ready()
+        # Blocking request (returns payload bytes)
+        payload = centaur.request_response(PIECE_POLL_CMD, b"", timeout=1.5)
+
+    Non-blocking:
+        def on_resp(payload, err):
+            if err:
+                print(err)
+            else:
+                print(payload)
+        centaur.request_response(KEY_POLL_CMD, b"", timeout=1.5, callback=on_resp)
+
+    Key APIs:
+        - run_background(start_key_polling=False): init and start listener
+        - wait_ready(timeout=60): wait for discovery
+        - request_response(command, data=b"", timeout=2.0, callback=None)
+        - wait_for_key_up(timeout=None, accept=None)
+        - get_and_reset_last_button()
+        - ledsOff(), led(), ledArray(), ledFromTo(), beep(), sleep()
+
+    Notes:
+        - Commands are defined in COMMANDS; exported byte constants are available
+          (e.g., PIECE_POLL_CMD, KEY_POLL_CMD, BATTERY_INFO_CMD).
+        - Payload is bytes after addr2 up to (excluding) checksum → packet[5:-1].
     """
-    
+        
     def __init__(self, developer_mode=False, auto_init=True):
         """
         Initialize serial connection to the board.
@@ -229,7 +254,7 @@ class AsyncSerial:
         while not self.ready and time.time() - start < timeout:
             time.sleep(0.1)
         if not self.ready:
-            logging.warning(f"Timeout waiting for AsyncSerial initialization (waited {timeout}s)")
+            logging.warning(f"Timeout waiting for AsyncCentaur initialization (waited {timeout}s)")
         return self.ready
     
     def _listener_thread(self):
@@ -767,7 +792,7 @@ class AsyncSerial:
         if not packet or len(packet) < 6:
             return b''
         return bytes(packet[5:len(packet)-1])
-
+    
     # def readSerial(self, num_bytes=1000):
     #     """
     #     Read data from serial port.
@@ -944,4 +969,5 @@ class AsyncSerial:
         Sleep the controller.
         """
         self.sendPacket(b'\xb2\x00\x07', b'\x0a')
+
 
