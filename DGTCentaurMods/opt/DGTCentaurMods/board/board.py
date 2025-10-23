@@ -487,21 +487,23 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
     # Local constants for snapshot framing and a clear board fallback
     SNAPSHOT_HEADER_LEN = 6
     SNAPSHOT_PAYLOAD_BYTES = 64 * 2
-    SNAPSHOT_TOTAL_LEN = SNAPSHOT_HEADER_LEN + SNAPSHOT_PAYLOAD_BYTES
+    SNAPSHOT_TOTAL_LEN = 1000 #SNAPSHOT_HEADER_LEN + SNAPSHOT_PAYLOAD_BYTES
     BOARD_CLEAR_STATE = [0] * 64
 
     for _ in range(retries):
         try:
             # Request a raw snapshot (header + payload)
             resp = asyncserial.request_response(
-                DGT_BUS_SEND_SNAPSHOT, timeout=2.0, raw_len=SNAPSHOT_TOTAL_LEN
+                DGT_BUS_SEND_SNAPSHOT, timeout=2.0, raw_len=SNAPSHOT_TOTAL_LEN + 1
             )
             if not resp or len(resp) < SNAPSHOT_TOTAL_LEN:
                 time.sleep(sleep_between)
                 continue
 
             resp = bytearray(resp)
+            print(f"[RAW] {' '.join(f'{b:02x}' for b in resp)}")
             payload = resp[SNAPSHOT_HEADER_LEN:SNAPSHOT_TOTAL_LEN]
+            print(f"[PAYLOAD] {' '.join(f'{b:02x}' for b in payload)}")
             boarddata = BOARD_CLEAR_STATE.copy()
             upperlimit = 32000
             lowerlimit = 300
