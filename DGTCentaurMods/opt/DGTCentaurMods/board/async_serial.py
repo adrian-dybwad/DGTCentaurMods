@@ -724,6 +724,7 @@ class AsyncSerial:
             return bytes(packet[start:end])
         # Unknown type → return without headers (best-effort): after addr2
         start = 5 if end > 5 else end
+        print(f"start: {start}, end: {end}")
         print(f"extracting payload from packet: {packet[start:end]}")
         return bytes(packet[start:end])
 
