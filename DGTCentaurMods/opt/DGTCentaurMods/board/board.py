@@ -75,8 +75,6 @@ batterylastchecked = 0
 # But the address might not be that :( Here we send an initial 0x4d to ask the board to provide its address
 
 asyncserial.wait_ready()
-getBatteryLevel()
-print(f"Battery level: {batterylevel}, Charger connected: {chargerconnected}")
 
 # Screen functions - deprecated, use epaper.py if possible
 #
@@ -580,6 +578,9 @@ def getBatteryLevel():
     else:
         chargerconnected = 0
     
+
+getBatteryLevel()
+print(f"Battery level: {batterylevel}, Charger connected: {chargerconnected}")
 
 #
 # Miscellaneous functions - do they belong in this file?
