@@ -185,10 +185,10 @@ class AsyncSerial:
         # THEN send discovery commands
         print("Sending discovery commands")
         self._discover_board_address()
-        print(f"start_key_polling: {start_key_polling}")
-        if start_key_polling:
-            self.sendPacket(KEY_POLL_CMD, b'')
-        print("Key polling started")
+        # print(f"start_key_polling: {start_key_polling}")
+        # if start_key_polling:
+        #     self.sendPacket(KEY_POLL_CMD, b'')
+        # print("Key polling started")
         
     def wait_ready(self, timeout=60):
         """
@@ -672,6 +672,8 @@ class AsyncSerial:
                 self.ready = True
                 print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
                 self.sendPacket(KEY_POLL_CMD, b'') #Key detection enabled
+                self.sendPacket(PIECE_POLL_CMD, b'') #Piece detection enabled
+                #  (No need to send this here, it will be sent in the handle_board_packet function when the board is ready  )
     
     def close(self):
         """Close the serial connection"""
