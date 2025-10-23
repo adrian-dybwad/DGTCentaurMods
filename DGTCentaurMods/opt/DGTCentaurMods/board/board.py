@@ -568,16 +568,12 @@ def getBatteryLevel():
     # batterylevel: a number 0 - 20 representing battery level of the board
     # 20 is fully charged. The board dies somewhere around a low of 1
     # Sending the board a packet starting with 152 gives battery info
+    global batterylevel, chargerconnected, batterylastchecked
     resp = asyncserial.request_response(BATTERY_INFO_CMD)
-    print(f"Battery info response: {resp}")
     batterylastchecked = time.time()
-    batterylevel = resp[0] & 31
-    vall = (resp[0] >> 5) & 7                            
-    if vall == 1 or vall == 2:
-        chargerconnected = 1
-    else:
-        chargerconnected = 0
-    
+    val = resp[0]
+    batterylevel = val & 0x1F
+    chargerconnected = 1 if ((val >> 5) & 0x07) in (1, 2) else 0    
 
 
 #
@@ -752,6 +748,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 # Do this every 15 seconds and fill in the globals
                 if time.time() - batterylastchecked > 15:
                     # Every 15 seconds check the battery details
+                    batterylastchecked = time.time()
                     getBatteryLevel()
                     print(f"Battery level: {batterylevel}, Charger connected: {chargerconnected}")
             except:
