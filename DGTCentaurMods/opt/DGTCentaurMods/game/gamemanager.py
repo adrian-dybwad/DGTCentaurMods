@@ -28,7 +28,7 @@
 
 # TODO
 
-from DGTCentaurMods.board import *
+from DGTCentaurMods.board import board, BTNBACK, BTNTICK, BTNUP, BTNDOWN, BTNHELP, BTNPLAY
 from DGTCentaurMods.display import epaper
 from DGTCentaurMods.db import models
 from sqlalchemy.orm import sessionmaker
@@ -41,12 +41,6 @@ import inspect
 
 
 # Some useful constants
-BTNBACK = 1
-BTNTICK = 2
-BTNUP = 3
-BTNDOWN = 4
-BTNHELP = 5
-BTNPLAY = 6
 EVENT_NEW_GAME = 1
 EVENT_BLACK_TURN = 2
 EVENT_WHITE_TURN = 3
