@@ -114,7 +114,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     "SOUND_GENERAL":          CommandSpec(b"\xb1", 0xB1, b'\x4c\x08'),
     "SOUND_FACTORY":          CommandSpec(b"\xb1", 0xB1, b'\x4c\x40'),
     "SOUND_POWER_OFF":        CommandSpec(b"\xb1", 0xB1, b'\x4c\x08\x48\x08'),
-    "SOUND_POWER_ON":         CommandSpec(b"\xb1", 0xB1, b'\x48\x08\x4c\x08'),
+    "SOUND_POWER_ON":         CommandSpec(b"\xb1\x00\x0a", 0xB1, b'\x48\x08\x4c\x08'),
     "SOUND_WRONG":            CommandSpec(b"\xb1", 0xB1, b'\x4e\x0c\x48\x10'),
     "SOUND_WRONG_MOVE":       CommandSpec(b"\xb1", 0xB1, b'\x48\x08'),
 }
