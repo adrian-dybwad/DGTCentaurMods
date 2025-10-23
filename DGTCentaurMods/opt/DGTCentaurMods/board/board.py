@@ -485,7 +485,7 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
     If 'field' is given (0..63), returns just that square.
     """
     # Local constants for snapshot framing and a clear board fallback
-    SNAPSHOT_HEADER_LEN = 5
+    SNAPSHOT_HEADER_LEN = 6
     SNAPSHOT_PAYLOAD_BYTES = 64 * 2
     SNAPSHOT_TOTAL_LEN = SNAPSHOT_HEADER_LEN + SNAPSHOT_PAYLOAD_BYTES
     BOARD_CLEAR_STATE = [0] * 64
@@ -513,7 +513,7 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
                 boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
 
             print(f"boarddata: {boarddata}")
-            
+
             if field is not None:
                 return boarddata[field]
             return boarddata
