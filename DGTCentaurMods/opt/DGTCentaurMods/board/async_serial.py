@@ -306,7 +306,7 @@ class AsyncSerial:
         """Called when a complete valid packet is received"""
         self.packet_count += 1
 
-        # Deliver to blocking waiter first (if any)
+        # Deliver to blocking/non-blocking waiter first (if any)
         try:
             with self._waiter_lock:
                 if self._response_waiter is not None:
@@ -315,14 +315,30 @@ class AsyncSerial:
                     if expected_type == packet[0]:
                         #print(f"Matching packet type: {expected_type} == {packet[0]}")
                         payload = self._extract_payload(packet)
-                        q = self._response_waiter.get('queue')
-                        try:
-                            q.put_nowait(payload)
-                        except Exception:
-                            pass
-                        finally:
-                            self._response_waiter = None
-                        return
+                        cb = self._response_waiter.get('callback') if isinstance(self._response_waiter, dict) else None
+                        q = self._response_waiter.get('queue') if isinstance(self._response_waiter, dict) else None
+                        t = self._response_waiter.get('timer') if isinstance(self._response_waiter, dict) else None
+                        if t is not None:
+                            try:
+                                t.cancel()
+                            except Exception:
+                                pass
+                        # clear waiter before dispatch to avoid races
+                        self._response_waiter = None
+                        if cb is not None:
+                            def _dispatch():
+                                try:
+                                    cb(payload, None)
+                                except Exception:
+                                    pass
+                            threading.Thread(target=_dispatch, daemon=True).start()
+                            return
+                        else:
+                            try:
+                                q.put_nowait(payload)
+                            except Exception:
+                                pass
+                            return
         except Exception:
             # Do not break normal flow on waiter issues
             pass
@@ -645,44 +661,73 @@ class AsyncSerial:
         tosend = self.buildPacket(command, data)
         self.ser.write(tosend)
     
-    def request_response(self, command, data=b'', timeout=2.0):
+    def request_response(self, command, data=b'', timeout=2.0, callback=None):
         """
-        Send a command and block until the matching response packet arrives, then
-        return only the payload bytes according to packet type.
+        Send a command and either block until the matching response arrives (callback=None)
+        returning the payload bytes, or return immediately (callback provided) and
+        invoke callback(payload, None) on response or callback(None, TimeoutError) on timeout.
 
         Args:
             command (bytes): command bytes to send (e.g., PIECE_POLL_CMD)
             data (bytes): optional payload to include with command
             timeout (float): seconds to wait for response
+            callback (callable|None): function (payload: bytes|None, err: Exception|None) -> None
 
         Returns:
-            bytes: extracted payload bytes
+            bytes for blocking mode; None for non-blocking mode
 
         Raises:
-            TimeoutError: if no matching response within timeout
+            TimeoutError: if no matching response within timeout (blocking mode)
             ValueError: if command is not recognized for matching
-            RuntimeError: if another blocking request is already in progress
+            RuntimeError: if another request is already in progress
         """
         expected_type = self._expected_type_for_cmd(command)
-        q = queue.Queue(maxsize=1)
 
+        if callback is None:
+            # Blocking mode
+            q = queue.Queue(maxsize=1)
+            with self._waiter_lock:
+                if self._response_waiter is not None:
+                    raise RuntimeError("Another blocking request is already waiting for a response")
+                self._response_waiter = {'expected_type': expected_type, 'queue': q, 'callback': None, 'timer': None}
+
+            # Send after registering waiter to avoid race
+            self.sendPacket(command, data)
+
+            try:
+                payload = q.get(timeout=timeout)
+                return payload
+            except queue.Empty:
+                # Cleanup waiter if still set
+                with self._waiter_lock:
+                    if self._response_waiter is not None and self._response_waiter.get('queue') is q:
+                        self._response_waiter = None
+                raise TimeoutError("Timed out waiting for matching response packet")
+
+        # Non-blocking mode with callback
+        def _on_timeout():
+            with self._waiter_lock:
+                w = self._response_waiter
+                if w is not None and w.get('callback') is callback:
+                    self._response_waiter = None
+            # dispatch timeout callback on separate thread
+            def _dispatch_timeout():
+                try:
+                    callback(None, TimeoutError("Timed out waiting for matching response packet"))
+                except Exception:
+                    pass
+            threading.Thread(target=_dispatch_timeout, daemon=True).start()
+
+        t = threading.Timer(timeout, _on_timeout)
         with self._waiter_lock:
             if self._response_waiter is not None:
-                raise RuntimeError("Another blocking request is already waiting for a response")
-            self._response_waiter = {'expected_type': expected_type, 'queue': q}
+                raise RuntimeError("Another request is already waiting for a response")
+            self._response_waiter = {'expected_type': expected_type, 'queue': None, 'callback': callback, 'timer': t}
 
+        t.start()
         # Send after registering waiter to avoid race
         self.sendPacket(command, data)
-
-        try:
-            payload = q.get(timeout=timeout)
-            return payload
-        except queue.Empty:
-            # Cleanup waiter if still set
-            with self._waiter_lock:
-                if self._response_waiter is not None and self._response_waiter.get('queue') is q:
-                    self._response_waiter = None
-            raise TimeoutError("Timed out waiting for matching response packet")
+        return None
 
     def _expected_type_for_cmd(self, command):
         """Map an outbound command to the expected inbound packet type byte."""
