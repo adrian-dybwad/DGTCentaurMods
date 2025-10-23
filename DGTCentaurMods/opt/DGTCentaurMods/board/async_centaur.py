@@ -839,10 +839,10 @@ class AsyncCentaur:
         self.sendPacket(DGT_BUS_SEND_CHANGES)
 
     def clearBoardData(self):
-        self.sendPacket(b'\x83', b'')
-        expect = self.buildPacket(b'\x85\x00\x06', b'')
+        self.sendPacket(DGT_BUS_SEND_CHANGES)
 
     def beep(self, beeptype):
+        print(f"Beeping: {beeptype}")
         # Ask the centaur to make a beep sound
         if (beeptype == SOUND_GENERAL):
             self.sendPacket(b'\xb1\x00\x08',b'\x4c\x08')
