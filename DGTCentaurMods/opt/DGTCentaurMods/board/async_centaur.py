@@ -139,16 +139,6 @@ globals().update({f"{name}_DATA": spec.default_data for name, spec in COMMANDS.i
 # Start-of-packet type bytes derived from registry (responses) + discovery types
 OTHER_START_TYPES = {0x87, 0x93}
 START_TYPE_BYTES = {spec.expected_resp_type for spec in COMMANDS.values()} | OTHER_START_TYPES
-# For header detection: expected second byte after the type byte
-RESP_SECOND_BYTE = {
-    DGT_BUS_SEND_CHANGES_RESP:   0x00,  # 0x85 0x00 ...
-    DGT_BUS_POLL_KEYS_RESP:      0x00,  # 0xB1 0x00 ...
-    DGT_SEND_BATTERY_INFO_RESP:  0x00,  # 0xB5 0x00 ...
-    DGT_BUS_SEND_SNAPSHOT_RESP:  0x01,  # 0xF0 0x01 ... (snapshot)
-    # discovery/legacy headers
-    0x87: 0x00,
-    0x93: 0x00,
-}
 
 DGT_BUTTON_CODES = {
     0x01: "BACK",
@@ -325,18 +315,16 @@ class AsyncCentaur:
         2. A new 85 00 header is detected (indicating start of next packet)
         """
         #print(f"Processing response: {byte}")
-        # Detect packet start sequence (<START_TYPE_BYTE> <SECOND_BYTE>) while buffer has data
-        if len(self.response_buffer) >= 1 and len(self.response_buffer) > 1:
-            last_type = self.response_buffer[-1]
-            if last_type in START_TYPE_BYTES:
-                expected_second = RESP_SECOND_BYTE.get(last_type, 0x00)
-                if byte == expected_second:
-                    # Log orphaned data (everything except the last type byte)
-                    hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
-                    print(f"[ORPHANED] {hex_row}")
-                    # Keep the detected type byte; start new header with it
-                    self.response_buffer = bytearray([last_type])
-
+        # Detect packet start sequence (<START_TYPE_BYTE> 00) while buffer has data
+        if (len(self.response_buffer) >= 1 and 
+            self.response_buffer[-1] in START_TYPE_BYTES and 
+            byte == 0x00 and 
+            len(self.response_buffer) > 1):
+            # Log orphaned data (everything except the 85)
+            hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
+            print(f"[ORPHANED] {hex_row}")
+            self.response_buffer = bytearray([self.response_buffer[-1]])  # Keep the detected start byte, add the 00 below
+        
         self.response_buffer.append(byte)
 
         # Handle discovery state machine
