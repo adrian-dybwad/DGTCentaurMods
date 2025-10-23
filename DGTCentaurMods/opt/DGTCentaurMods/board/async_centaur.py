@@ -685,6 +685,7 @@ class AsyncCentaur:
         spec = CMD_BY_CMD0.get(command[0])
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
         tosend = self.buildPacket(command, eff_data)
+        print(f"Sending packet: {tosend}")
         self.ser.write(tosend)
     
     def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None):
