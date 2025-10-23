@@ -35,7 +35,7 @@ import os
 import threading
 import itertools
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Optional
 
 try:
     logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log", filemode="w")
@@ -105,12 +105,38 @@ LED_OFF_CMD = b'\xb0\x00\x07'
 class CommandSpec:
     cmd: bytes
     expected_resp_type: int
+    default_data: Optional[bytes] = None
 
 COMMANDS: Dict[str, CommandSpec] = {
-    "DGT_BUS_SEND_CHANGES":   CommandSpec(b"\x83", 0x85),
-    "DGT_BUS_POLL_KEYS":      CommandSpec(b"\x94", 0xB1),
-    "DGT_SEND_BATTERY_INFO":  CommandSpec(b"\x98", 0xB5),
+    "DGT_BUS_SEND_CHANGES":   CommandSpec(b"\x83", 0x85, None),
+    "DGT_BUS_POLL_KEYS":      CommandSpec(b"\x94", 0xB1, None),
+    "DGT_SEND_BATTERY_INFO":  CommandSpec(b"\x98", 0xB5, None),
+    "SOUND_GENERAL":          CommandSpec(b"\xb1", 0xB1, b'\x4c\x08'),
+    "SOUND_FACTORY":          CommandSpec(b"\xb1", 0xB1, b'\x4c\x40'),
+    "SOUND_POWER_OFF":        CommandSpec(b"\xb1", 0xB1, b'\x4c\x08\x48\x08'),
+    "SOUND_POWER_ON":         CommandSpec(b"\xb1", 0xB1, b'\x48\x08\x4c\x08'),
+    "SOUND_WRONG":            CommandSpec(b"\xb1", 0xB1, b'\x4e\x0c\x48\x10'),
+    "SOUND_WRONG_MOVE":       CommandSpec(b"\xb1", 0xB1, b'\x48\x08'),
 }
+# DGT_SOUND_GENERAL = 1
+# DGT_SOUND_FACTORY = 2
+# DGT_SOUND_POWER_OFF = 3
+# DGT_SOUND_POWER_ON = 4
+# DGT_SOUND_WRONG = 5
+# DGT_SOUND_WRONG_MOVE = 6
+#         if (beeptype == SOUND_GENERAL):
+#             self.sendPacket(b'\xb1\x00\x08',b'\x4c\x08')
+#         if (beeptype == SOUND_FACTORY):
+#             self.sendPacket(b'\xb1\x00\x08', b'\x4c\x40')
+#         if (beeptype == SOUND_POWER_OFF):
+#             self.sendPacket(b'\xb1\x00\x0a', b'\x4c\x08\x48\x08')
+#         if (beeptype == SOUND_POWER_ON):
+#             self.sendPacket(b'\xb1\x00\x0a', b'\x48\x08\x4c\x08')
+#         if (beeptype == SOUND_WRONG):
+#             self.sendPacket(b'\xb1\x00\x0a', b'\x4e\x0c\x48\x10')
+#         if (beeptype == SOUND_WRONG_MOVE):
+#             self.sendPacket(b'\xb1\x00\x08', b'\x48\x08')
+
 
 # Fast lookups
 CMD_BY_CMD0 = {spec.cmd[0]: spec for spec in COMMANDS.values()}
@@ -121,6 +147,9 @@ globals().update({name: spec.cmd for name, spec in COMMANDS.items()})
 
 # Export response-type constants (e.g., DGT_BUS_SEND_CHANGES_RESP)
 globals().update({f"{name}_RESP": spec.expected_resp_type for name, spec in COMMANDS.items()})
+
+# Export default data constants (e.g., DGT_BUS_SEND_CHANGES_DATA); value may be None
+globals().update({f"{name}_DATA": spec.default_data for name, spec in COMMANDS.items()})
 
 # Start-of-packet type bytes derived from registry (responses) + discovery types
 OTHER_START_TYPES = {0x87, 0x93}
@@ -138,12 +167,6 @@ DGT_BUTTON_CODES = {
 #
 # Useful constants
 #
-SOUND_GENERAL = 1
-SOUND_FACTORY = 2
-SOUND_POWER_OFF = 3
-SOUND_POWER_ON = 4
-SOUND_WRONG = 5
-SOUND_WRONG_MOVE = 6
 BTNBACK = 1
 BTNTICK = 2
 BTNUP = 3
@@ -651,18 +674,20 @@ class AsyncCentaur:
         tosend.append(self.checksum(tosend))
         return tosend
     
-    def sendPacket(self, command, data=b''):
+    def sendPacket(self, command, data: Optional[bytes] = None):
         """
         Send a packet to the board.
         
         Args:
             command: bytes for command
-            data: bytes for data payload
+            data: bytes for data payload; if None, use default_data from COMMANDS if available
         """
-        tosend = self.buildPacket(command, data)
+        spec = CMD_BY_CMD0.get(command[0])
+        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
+        tosend = self.buildPacket(command, eff_data)
         self.ser.write(tosend)
     
-    def request_response(self, command, data=b'', timeout=2.0, callback=None):
+    def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None):
         """
         Send a command and either block until the matching response arrives (callback=None)
         returning the payload bytes, or return immediately (callback provided) and
@@ -683,6 +708,8 @@ class AsyncCentaur:
             RuntimeError: if another request is already in progress
         """
         expected_type = self._expected_type_for_cmd(command)
+        spec = CMD_BY_CMD0.get(command[0])
+        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
 
         if callback is None:
             # Blocking mode
@@ -693,7 +720,7 @@ class AsyncCentaur:
                 self._response_waiter = {'expected_type': expected_type, 'queue': q, 'callback': None, 'timer': None}
 
             # Send after registering waiter to avoid race
-            self.sendPacket(command, data)
+            self.sendPacket(command, eff_data)
 
             try:
                 payload = q.get(timeout=timeout)
@@ -727,7 +754,7 @@ class AsyncCentaur:
 
         t.start()
         # Send after registering waiter to avoid race
-        self.sendPacket(command, data)
+        self.sendPacket(command, eff_data)
         return None
 
     def _expected_type_for_cmd(self, command):
@@ -842,20 +869,9 @@ class AsyncCentaur:
         self.sendPacket(DGT_BUS_SEND_CHANGES)
 
     def beep(self, beeptype):
-        print(f"Beeping: {beeptype}")
         # Ask the centaur to make a beep sound
-        if (beeptype == SOUND_GENERAL):
-            self.sendPacket(b'\xb1\x00\x08',b'\x4c\x08')
-        if (beeptype == SOUND_FACTORY):
-            self.sendPacket(b'\xb1\x00\x08', b'\x4c\x40')
-        if (beeptype == SOUND_POWER_OFF):
-            self.sendPacket(b'\xb1\x00\x0a', b'\x4c\x08\x48\x08')
-        if (beeptype == SOUND_POWER_ON):
-            self.sendPacket(b'\xb1\x00\x0a', b'\x48\x08\x4c\x08')
-        if (beeptype == SOUND_WRONG):
-            self.sendPacket(b'\xb1\x00\x0a', b'\x4e\x0c\x48\x10')
-        if (beeptype == SOUND_WRONG_MOVE):
-            self.sendPacket(b'\xb1\x00\x08', b'\x48\x08')
+        print(f"Beeping: {beeptype}")
+        self.sendPacket(beeptype)
 
     def ledsOff(self):
         # Switch the LEDs off on the centaur
