@@ -98,8 +98,7 @@ Parsing Algorithm:
 
 # Constants
 LED_OFF_CMD = b'\xb0\x00\x07'
-KEY_POLL_PACKET = b'\xb1\x00\x06'
-PIECE_POLL_PACKET = b'\x85\x00\x06'
+ # response header constants not needed; use exported *_RESP values
 
 # Unified command registry
 @dataclass(frozen=True)
@@ -119,6 +118,9 @@ RESP_TYPE_TO_SPEC = {spec.expected_resp_type: spec for spec in COMMANDS.values()
 
 # Export importable byte constants without repeating names
 globals().update({name: spec.cmd for name, spec in COMMANDS.items()})
+
+# Export response-type constants (e.g., DGT_BUS_SEND_CHANGES_RESP)
+globals().update({f"{name}_RESP": spec.expected_resp_type for name, spec in COMMANDS.items()})
 
 # Start-of-packet type bytes derived from registry (responses) + discovery types
 OTHER_START_TYPES = {0x87, 0x93}
@@ -390,10 +392,11 @@ class AsyncCentaur:
             pass
 
         try:
-            if packet[0] == 0x85:
-                self.handle_board_packet(packet)
-            elif packet[0] == 0xb1:
-                self.handle_button_packet(packet)
+            payload = self._extract_payload(packet)
+            if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
+                self.handle_board_payload(payload)
+            elif packet[0] == DGT_BUS_POLL_KEYS_RESP:
+                self.handle_key_payload(payload)
             else:
                 print(f"Unknown packet type: {packet[0]} {packet}")
         except Exception as e:
@@ -404,46 +407,33 @@ class AsyncCentaur:
         if self.ready:
             print(f"\r{next(self.spinner)}", end='', flush=True)
 
-    def handle_board_packet(self, packet):
+    def handle_board_payload(self, payload: bytes):
         try:
-            # Skip printing "no piece" packet
-            if packet[:-1] != self.buildPacket(PIECE_POLL_PACKET, b'')[:-1]:
-                hex_row = ' '.join(f'{b:02x}' for b in packet)
-                # Check if packet has piece events (0x40=lift, 0x41=place)
-                has_events = any(packet[i] in (0x40, 0x41) for i in range(5, len(packet) - 1))
-                
-                # Only display time if there are piece events
+            if len(payload) > 0:
+                # time bytes are before first event marker
+                time_bytes = self._extract_time_from_payload(payload)
                 time_str = ""
-                if has_events:
-                    time_signals = self._extract_time_signals(packet)
-                    if time_signals:
-                        time_formatted = self._format_time_display(time_signals)
-                        if time_formatted:
-                            time_str = f"  [TIME: {time_formatted}]"
-                
+                if time_bytes:
+                    time_formatted = self._format_time_display(time_bytes)
+                    if time_formatted:
+                        time_str = f"  [TIME: {time_formatted}]"
+                hex_row = ' '.join(f'{b:02x}' for b in payload)
                 print(f"\r[P{self.packet_count:03d}] {hex_row}{time_str}")
-                
-                # Draw piece events with arrow indicators
-                self._draw_piece_events(packet, hex_row, self.packet_count)
+                self._draw_piece_events_from_payload(payload)
 
-            #We will remove this later when the next move will be queued from the game itself. 
-            #For now, we will send a piece detection packet to the board.
             self.sendPacket(DGT_BUS_SEND_CHANGES)
         except Exception as e:
             print(f"Error: {e}")
             return 
 
-    def handle_button_packet(self, packet):
+    def handle_key_payload(self, payload: bytes):
         try:
-            if packet[:-1] != self.buildPacket(KEY_POLL_PACKET, b'')[:-1]:
-                hex_row = ' '.join(f'{b:02x}' for b in packet)
+            if len(payload) > 0:
+                hex_row = ' '.join(f'{b:02x}' for b in payload)
                 print(f"\r[P{self.packet_count:03d}] {hex_row}")
-                # Detect key event and enqueue key-up signals
-                idx, code_val, is_down = self._find_key_event(packet)
+                idx, code_val, is_down = self._find_key_event_in_payload(payload)
                 if idx is not None:
-                    # Draw visual indicator
-                    self._draw_key_event(packet, hex_row, self.packet_count)
-                    # On key-up, enqueue (code, name) and update last button
+                    self._draw_key_event_from_payload(payload, idx, code_val, is_down)
                     if not is_down:
                         name = DGT_BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
                         self._last_button = (code_val, name)
@@ -451,36 +441,29 @@ class AsyncCentaur:
                             self.key_up_queue.put_nowait((code_val, name))
                         except queue.Full:
                             pass
-                    # processed a key event
-                    #return
 
-            #We always want to have key events, it would be unusual not to.
             self.sendPacket(DGT_BUS_POLL_KEYS)
         except Exception as e:
             print(f"Error: {e}")
             return 
 
-    def _extract_time_signals(self, packet):
+    def _extract_time_from_payload(self, payload: bytes) -> bytes:
         """
-        Extract time signals from packet.
-        Time signals are any bytes between addr2 (byte 4) and the first lift/place marker (0x40/0x41).
-        
-        Args:
-            packet: The complete packet bytearray
-            
-        Returns:
-            bytearray: Time signal bytes, or empty if none found
+        Return the time bytes prefix from a board payload.
+
+        The board payload layout is:
+            [optional time bytes ...] [events ...]
+        where events are pairs of bytes starting with 0x40 (lift) or 0x41 (place),
+        followed by the field hex. This function returns all bytes before the
+        first event marker (0x40/0x41). If no markers are present, the entire
+        payload is treated as time bytes; if the payload is empty, returns b"".
         """
-        time_signals = bytearray()
-        
-        # Start searching from byte 5 (after addr2 at byte 4)
-        for i in range(5, len(packet) - 1):
-            if packet[i] == 0x40 or packet[i] == 0x41:
-                # Found first lift/place marker, return time signals collected
-                return time_signals
-            time_signals.append(packet[i])
-        
-        return time_signals
+        out = bytearray()
+        for b in payload:
+            if b in (0x40, 0x41):
+                break
+            out.append(b)
+        return bytes(out)
 
     def _format_time_display(self, time_signals):
         """
@@ -514,51 +497,41 @@ class AsyncCentaur:
         else:
             return f"{minutes}:{seconds:02d}.{int(subsec_decimal):02d}"
 
-    def _draw_piece_events(self, packet, hex_row, packet_num):
+    def _draw_piece_events_from_payload(self, payload: bytes):
         """
-        Find and display piece events (lifts and places) with visual arrow indicators.
-        
-        Args:
-            packet: The complete packet bytearray
-            hex_row: The hex string representation already printed
-            packet_num: The packet number for reference
+        Print a compact list of piece events extracted from the payload.
+
+        Each event in the payload is encoded as two bytes:
+          - 0x40: lift,  followed by the square byte (controller indexing)
+          - 0x41: place, followed by the square byte (controller indexing)
+
+        The square byte is converted to a chess coordinate (e.g., "e4").
+        Output is prefixed with the current packet counter, for example:
+            [P012] ↑ e2 ↓ e4
         """
         try:
-            # Find piece events (0x40=lift, 0x41=place) starting after addr2 (byte 5)
-            events_to_draw = []
-            for i in range(5, len(packet) - 1):
-                if packet[i] == 0x40 or packet[i] == 0x41:
-                    fieldHex = packet[i + 1]
+            events = []
+            i = 0
+            while i < len(payload) - 1:
+                marker = payload[i]
+                if marker in (0x40, 0x41):
+                    field_hex = payload[i + 1]
                     try:
-                        square = self.rotateFieldHex(fieldHex)
-                        if 0 <= square <= 63:  # Validate square range
+                        square = self.rotateFieldHex(field_hex)
+                        if 0 <= square <= 63:
                             field_name = self.convertField(square)
-                            arrow = "↑" if packet[i] == 0x40 else "↓"
-                            hex_col = i * 3  # Point to marker byte (0x40/0x41), not fieldHex
-                            events_to_draw.append((hex_col, arrow, field_name))
-                    except Exception as e:
-                        print(f"Error processing fieldHex {fieldHex}: {e}")
-                        continue
-            
-            # Print arrow line if events found
-            if events_to_draw:
-                prefix = f"[P{packet_num:03d}] "
-                line = " " * (len(prefix) + len(hex_row))
-                line_list = list(line)
-                
-                for hex_col, arrow, field_name in events_to_draw:
-                    abs_pos = len(prefix) + hex_col
-                    if abs_pos < len(line_list):
-                        line_list[abs_pos] = arrow
-                        annotation = f" {field_name}"
-                        for j, char in enumerate(annotation):
-                            pos = abs_pos + 1 + j
-                            if pos < len(line_list):
-                                line_list[pos] = char
-                
-                print("".join(line_list).rstrip())
+                            arrow = "↑" if marker == 0x40 else "↓"
+                            events.append(f"{arrow} {field_name}")
+                    except Exception:
+                        pass
+                    i += 2
+                else:
+                    i += 1
+            if events:
+                prefix = f"[P{self.packet_count:03d}] "
+                print(prefix + " ".join(events))
         except Exception as e:
-            print(f"Error in _draw_piece_events: {e}")
+            print(f"Error in _draw_piece_events_from_payload: {e}")
 
     def wait_for_key_up(self, timeout=None, accept=None):
         """
@@ -605,63 +578,45 @@ class AsyncCentaur:
         self._last_button = (None, None)
         return (code, name)
 
-    def _find_key_event(self, packet):
-        """
-        Detect key event in a key packet (b1 00 ...).
-        Pattern variants observed:
-        - Key down:  ... 00 14 0a 05 <code> 00 ...
-        - Key up:    ... 00 14 0a 05 00 <code> ...
-        Returns (code_index, code_value, is_down) or (None, None, None).
-        """
-        if len(packet) < 10 or not (packet[0] == 0xb1 and packet[1] == 0x00):
-            return (None, None, None)
+    
 
-        # Look for preamble after addr1/addr2 (start scan at byte 5)
-        for i in range(5, len(packet) - 6):
-            if (packet[i] == 0x00 and packet[i+1] == 0x14 and
-                packet[i+2] == 0x0a and packet[i+3] == 0x05):
-                first = packet[i+4]
-                second = packet[i+5] if i+5 < len(packet) else 0x00
-                # Key down: code is first byte after 05
+    def _find_key_event_in_payload(self, payload: bytes):
+        """
+        Detect a key event within a key payload.
+
+        Recognizes the common preamble sequence:
+            00 14 0a 05 <code> 00   (key down)
+            00 14 0a 05 00 <code>   (key up)
+
+        Returns (code_index, code_value, is_down) or (None, None, None) if not found.
+        """
+        for i in range(0, len(payload) - 5):
+            if (payload[i] == 0x00 and
+                payload[i+1] == 0x14 and
+                payload[i+2] == 0x0a and
+                payload[i+3] == 0x05):
+                first = payload[i+4]
+                second = payload[i+5] if i+5 < len(payload) else 0x00
                 if first != 0x00:
                     return (i + 4, first, True)
-                # Key up: code is second byte after 05 (first is 0x00)
                 if first == 0x00 and second != 0x00:
                     return (i + 5, second, False)
                 break
-
         return (None, None, None)
 
-    def _draw_key_event(self, packet, hex_row, packet_num):
-        """
-        Render key event with label to the left and arrow under the key-code byte.
-        Uses ↓ for key down and ↑ for key up.
-        """
-        code_index, code_val, is_down = self._find_key_event(packet)
-        if code_index is None:
-            return False
+    
 
-        prefix = f"[P{packet_num:03d}] "
-        # Each byte renders as "xx " → 3 chars per byte
-        arrow_abs = len(prefix) + (code_index * 3)
+    def _draw_key_event_from_payload(self, payload: bytes, code_index: int, code_val: int, is_down: bool):
+        """
+        Print a single-line key event indicator using only payload data.
 
+        The output is prefixed with the current packet counter and shows the
+        human-readable key name and direction arrow, for example:
+            [P034] TICK ↑
+        """
         base_name = DGT_BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
-        label = f"{base_name}  "
-        label_len = len(label)
-        label_start = max(0, arrow_abs - label_len)
-
-        line_len = len(prefix) + len(hex_row)
-        buf = [" "] * line_len
-
-        # Place label first, then arrow at exact column
-        for j, ch in enumerate(label):
-            pos = label_start + j
-            if 0 <= pos < line_len:
-                buf[pos] = ch
-
-        buf[arrow_abs] = "↓" if is_down else "↑"
-
-        print("".join(buf).rstrip())
+        prefix = f"[P{self.packet_count:03d}] "
+        print(prefix + f"{base_name} {'↓' if is_down else '↑'}")
         return True
 
     def checksum(self, barr):
