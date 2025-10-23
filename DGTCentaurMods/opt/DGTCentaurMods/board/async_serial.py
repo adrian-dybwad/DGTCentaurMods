@@ -311,9 +311,9 @@ class AsyncSerial:
             with self._waiter_lock:
                 if self._response_waiter is not None:
                     expected_type = self._response_waiter.get('expected_type')
-                    print(f"exp={expected_type!r} {type(expected_type)}, got={packet[0]!r} {type(packet[0])}")
+                    #print(f"exp={expected_type!r} {type(expected_type)}, got={packet[0]!r} {type(packet[0])}")
                     if expected_type == packet[0]:
-                        print(f"Matching packet type: {expected_type} == {packet[0]}")
+                        #print(f"Matching packet type: {expected_type} == {packet[0]}")
                         payload = self._extract_payload(packet)
                         q = self._response_waiter.get('queue')
                         try:
@@ -703,7 +703,7 @@ class AsyncSerial:
         - For 0x85 packets: bytes from first 0x40/0x41 marker until checksum (or empty if none)
         - For 0xb1 packets: bytes from index 5 (after addr2) until checksum
         """
-        print(f"extracting payload from packet: {packet}")
+        #print(f"extracting payload from packet: {packet}")
         if not packet or len(packet) < 2:
             return b''
         ptype = packet[0]
@@ -724,8 +724,8 @@ class AsyncSerial:
             return bytes(packet[start:end])
         # Unknown type → return without headers (best-effort): after addr2
         start = 5 if end > 5 else end
-        print(f"start: {start}, end: {end}")
-        print(f"extracting payload from packet: {packet[start:end]}")
+        #print(f"start: {start}, end: {end}")
+        #print(f"extracting payload from packet: {packet[start:end]}")
         return bytes(packet[start:end])
 
     # def readSerial(self, num_bytes=1000):
