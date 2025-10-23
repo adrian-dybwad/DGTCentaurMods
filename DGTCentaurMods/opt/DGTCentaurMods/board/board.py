@@ -652,6 +652,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 if fieldcallback != None:
                     try:
                         resp = asyncserial.request_response(DGT_BUS_SEND_CHANGES)
+                        print(f"Response: {resp}")
                         resp = bytearray(resp)
                         print(f"Response: {resp}")
                         for x in range(0, len(resp) - 1):
@@ -675,7 +676,8 @@ def eventsThread(keycallback, fieldcallback, tout):
                             print(f"to: {to}")
                     except:
                         pass
-           
+                        print("Error in piece detection")   
+                        print(f"Error: {e}")
             try:
 
                 code, name = asyncserial.get_and_reset_last_button()
