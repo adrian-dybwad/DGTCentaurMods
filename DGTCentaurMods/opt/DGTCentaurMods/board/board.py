@@ -571,8 +571,8 @@ def getBatteryLevel():
     resp = asyncserial.request_response(BATTERY_INFO_CMD)
     print(f"Battery info response: {resp}")
     batterylastchecked = time.time()
-    batterylevel = resp[5] & 31
-    vall = (resp[5] >> 5) & 7                            
+    batterylevel = resp[0] & 31
+    vall = (resp[0] >> 5) & 7                            
     if vall == 1 or vall == 2:
         chargerconnected = 1
     else:
