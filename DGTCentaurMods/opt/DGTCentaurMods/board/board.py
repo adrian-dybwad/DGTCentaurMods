@@ -652,7 +652,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 if fieldcallback != None:
                     try:
                         resp = asyncserial.request_response(DGT_BUS_SEND_CHANGES)
-                        resp = bytearray(resp)
+                        #resp = bytearray(resp)
                         print(f"Response: {resp}")
                         for x in range(0, len(resp) - 1):
                             if (resp[x] == 64):
