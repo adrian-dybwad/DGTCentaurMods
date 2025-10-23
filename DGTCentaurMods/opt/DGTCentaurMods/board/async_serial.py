@@ -311,6 +311,7 @@ class AsyncSerial:
             with self._waiter_lock:
                 if self._response_waiter is not None:
                     expected_type = self._response_waiter.get('expected_type')
+                    print(f"Expected type: {expected_type}, Packet type: {packet[0]}")
                     if expected_type == packet[0]:
                         payload = self._extract_payload(packet)
                         q = self._response_waiter.get('queue')
