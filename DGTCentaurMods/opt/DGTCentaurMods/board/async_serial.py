@@ -29,6 +29,8 @@ import sys
 import os
 import threading
 import itertools
+from dataclasses import dataclass
+from typing import Dict
 
 try:
     logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log", filemode="w")
@@ -90,13 +92,32 @@ Parsing Algorithm:
 """
 
 # Constants
-PACKET_START_BYTES = [0x85, 0x87, 0x93]  # Add any other start types here
-KEY_POLL_CMD = b'\x94'
-BATTERY_INFO_CMD = b'\x98' # This is the command to get battery information
-PIECE_POLL_CMD = b'\x83'
 LED_OFF_CMD = b'\xb0\x00\x07'
 KEY_POLL_PACKET = b'\xb1\x00\x06'
 PIECE_POLL_PACKET = b'\x85\x00\x06'
+
+# Unified command registry
+@dataclass(frozen=True)
+class CommandSpec:
+    cmd: bytes
+    expected_resp_type: int
+
+COMMANDS: Dict[str, CommandSpec] = {
+    "PIECE_POLL_CMD":   CommandSpec(b"\x83", 0x85),
+    "KEY_POLL_CMD":     CommandSpec(b"\x94", 0xB1),
+    "BATTERY_INFO_CMD": CommandSpec(b"\x98", 0xB5),
+}
+
+# Fast lookups
+CMD_BY_CMD0 = {spec.cmd[0]: spec for spec in COMMANDS.values()}
+RESP_TYPE_TO_SPEC = {spec.expected_resp_type: spec for spec in COMMANDS.values()}
+
+# Export importable byte constants without repeating names
+globals().update({name: spec.cmd for name, spec in COMMANDS.items()})
+
+# Start-of-packet type bytes derived from registry (responses) + discovery types
+OTHER_START_TYPES = {0x87, 0x93}
+START_TYPE_BYTES = {spec.expected_resp_type for spec in COMMANDS.values()} | OTHER_START_TYPES
 
 BUTTON_CODES = {
     0x01: "BACK",
@@ -125,7 +146,7 @@ BTNPLAY = 6
 BTNLONGPLAY = 7
 
 
-__all__ = ['AsyncSerial', 'PIECE_POLL_CMD', 'KEY_POLL_CMD', 'BUTTON_CODES']
+__all__ = ['AsyncSerial', 'PIECE_POLL_CMD', 'KEY_POLL_CMD', 'BATTERY_INFO_CMD', 'BUTTON_CODES']
 
 class AsyncSerial:
     """Helper class for managing serial communication with DGT Centaur board
@@ -259,9 +280,9 @@ class AsyncSerial:
         2. A new 85 00 header is detected (indicating start of next packet)
         """
         #print(f"Processing response: {byte}")
-        # Detect packet start sequence (<PACKET_START_BYTE> 00) while buffer has data
+        # Detect packet start sequence (<START_TYPE_BYTE> 00) while buffer has data
         if (len(self.response_buffer) >= 1 and 
-            self.response_buffer[-1] in PACKET_START_BYTES and 
+            self.response_buffer[-1] in START_TYPE_BYTES and 
             byte == 0x00 and 
             len(self.response_buffer) > 1):
             # Log orphaned data (everything except the 85)
@@ -733,45 +754,19 @@ class AsyncSerial:
         """Map an outbound command to the expected inbound packet type byte."""
         if not command:
             raise ValueError("Empty command")
-        cmd0 = command[0]
-        if cmd0 == PIECE_POLL_CMD[0]:
-            return 0x85
-        if cmd0 == KEY_POLL_CMD[0]:
-            return 0xb1
-        if cmd0 == BATTERY_INFO_CMD[0]:
-            return 0xb5
-        raise ValueError(f"Unsupported command for blocking match: 0x{cmd0:02x}")
+        spec = CMD_BY_CMD0.get(command[0])
+        if not spec:
+            raise ValueError(f"Unsupported command: 0x{command[0]:02x}")
+        return spec.expected_resp_type
 
     def _extract_payload(self, packet):
         """
-        Extract payload bytes from a complete packet, excluding checksum and headers.
-        - For 0x85 packets: bytes from first 0x40/0x41 marker until checksum (or empty if none)
-        - For 0xb1 packets: bytes from index 5 (after addr2) until checksum
+        Extract full payload bytes from a complete packet, excluding headers and checksum.
+        Returns bytes after addr2 up to (excluding) checksum for all packet types.
         """
-        #print(f"extracting payload from packet: {packet}")
-        if not packet or len(packet) < 2:
+        if not packet or len(packet) < 6:
             return b''
-        ptype = packet[0]
-        # Exclude checksum (last byte)
-        end = len(packet) - 1
-        if ptype == 0x85:
-            # find first lift/place marker after addr2 (start at index 5)
-            start = None
-            for i in range(5, end):
-                if packet[i] == 0x40 or packet[i] == 0x41:
-                    start = i
-                    break
-            if start is None:
-                return b''
-            return bytes(packet[start:end])
-        if ptype == 0xb1:
-            start = 5 if end > 5 else end
-            return bytes(packet[start:end])
-        # Unknown type → return without headers (best-effort): after addr2
-        start = 5 if end > 5 else end
-        #print(f"start: {start}, end: {end}")
-        #print(f"extracting payload from packet: {packet[start:end]}")
-        return bytes(packet[start:end])
+        return bytes(packet[5:len(packet)-1])
 
     # def readSerial(self, num_bytes=1000):
     #     """
