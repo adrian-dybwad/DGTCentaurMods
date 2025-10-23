@@ -367,7 +367,7 @@ class AsyncCentaur:
                     self.response_buffer = bytearray()
         
         # If buffer gets too large without finding a packet, trim old bytes
-        if len(self.response_buffer) > 200:
+        if len(self.response_buffer) > 1000:
             self.response_buffer.pop(0)
     
     def on_packet_complete(self, packet):
