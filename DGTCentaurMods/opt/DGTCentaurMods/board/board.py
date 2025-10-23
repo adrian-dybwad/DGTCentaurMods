@@ -652,9 +652,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 if fieldcallback != None:
                     try:
                         resp = asyncserial.request_response(DGT_BUS_SEND_CHANGES)
-                        print(f"Response: {resp}")
                         resp = bytearray(resp)
-                        print(f"Response: {resp}")
                         for x in range(0, len(resp) - 1):
                             if (resp[x] == 64):
                                 # Calculate the square to 0(a1)-63(h8) so that
@@ -663,7 +661,6 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 newsquare = rotateFieldHex(fieldHex)
                                 fieldcallback(newsquare + 1)
                                 to = time.time() + tout
-                                print("PIECE PLACED")
                                 print(f"newsquare: {newsquare}")
                                 print(f"fieldHex: {fieldHex}")
                                 print(f"to: {to}")
@@ -674,7 +671,6 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 newsquare = rotateFieldHex(fieldHex)
                                 fieldcallback((newsquare + 1) * -1)
                                 to = time.time() + tout
-                                print("PIECE PLACED")
                                 print(f"newsquare: {newsquare}")
                                 print(f"fieldHex: {fieldHex}")
                                 print(f"to: {to}")
