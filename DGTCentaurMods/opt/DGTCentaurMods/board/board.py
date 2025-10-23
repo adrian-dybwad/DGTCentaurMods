@@ -487,7 +487,7 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
     for _ in range(retries):
         try:
             # request snapshot
-            payload = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT, timeout=3)
+            payload = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT, timeout=10)
             payload = bytearray(payload)
 
             boarddata = [0] * 64
