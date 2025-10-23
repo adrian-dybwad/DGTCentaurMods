@@ -518,7 +518,9 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
                 return boarddata[field]
             return boarddata
 
-        except Exception:
+        except Exception as e:
+            print("Error getting board state")
+            print(e)
             # transient read/parse error—retry
             time.sleep(sleep_between)
 
