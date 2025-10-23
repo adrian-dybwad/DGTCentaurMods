@@ -381,6 +381,7 @@ class AsyncCentaur:
                     len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
                     declared_length = (len_hi << 7) | len_lo
                     actual_length = len(self.response_buffer)
+                    print(f"declared_length: {declared_length}, actual_length: {actual_length}")
                     
                     if actual_length == declared_length:
                         # We have a valid packet
