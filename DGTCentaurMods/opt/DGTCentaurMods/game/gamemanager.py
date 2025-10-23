@@ -452,13 +452,10 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                 t = t + 1
             else:
                 try:
-                    #board.pauseEvents()
+                    board.pauseEvents()
                     cs = board.getBoardState(retries=3)
-                    #board.unPauseEvents()
-                    print(f"cs: {cs}")
-                    print(f"bytearray(cs): {bytearray(cs)}")
-                    print(f"startstate: {startstate}")
-                    print(f"bytearray(cs) == startstate: {bytearray(cs) == startstate}")
+                    board.unPauseEvents()
+                    print(f"boardState == startstate: {bytearray(cs) == startstate}")
                     if bytearray(cs) == startstate:
                         newgame = 1
                         curturn = 1

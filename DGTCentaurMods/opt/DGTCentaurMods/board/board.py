@@ -501,9 +501,7 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
                 continue
 
             resp = bytearray(resp)
-            print(f"[RAW] {' '.join(f'{b:02x}' for b in resp)}")
             payload = resp[SNAPSHOT_HEADER_LEN:SNAPSHOT_TOTAL_LEN]
-            print(f"[PAYLOAD] {' '.join(f'{b:02x}' for b in payload)}")
             boarddata = BOARD_CLEAR_STATE.copy()
             upperlimit = 32000
             lowerlimit = 300
