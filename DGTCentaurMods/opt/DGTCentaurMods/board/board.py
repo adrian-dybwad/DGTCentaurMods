@@ -567,21 +567,11 @@ def getChargingState():
 def getBatteryLevel():
     # Returns a number 0 - 20 representing battery level of the board
     # 20 is fully charged. The board dies somewhere around a low of 1
-    resp = ""
-    timeout = time.time() + 5
-    while len(resp) < 7 and time.time() < timeout:
-        # Sending the board a packet starting with 152 gives battery info
-        sendPacket(bytearray([152]), b'')
-        try:
-            resp = ser.read(1000)
-        except:
-            pass
-    if len(resp) < 7:
-        return -1
-    else:        
-        if resp[0] == 181:
-            vall = resp[5] & 31
-            return vall
+    # Sending the board a packet starting with 152 gives battery info
+    resp = asyncserial.request_response(BATTERY_INFO_CMD)
+    print(f"Battery info response: {resp}")
+    vall = resp[5] & 31
+    return vall
     
 
 #
