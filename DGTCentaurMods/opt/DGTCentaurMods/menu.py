@@ -696,12 +696,12 @@ while True:
                         gtime = int(seek_time[0])
                         gincrement = int(seek_time[1])
                         rc = run_external_script("game/lichess.py", "New", gtime, gincrement, rated, color, start_key_polling=True)
-    # Pick up the engines from the engines folder and build the menu
-    ENGINE_PATH = "engines/"
-    enginepath = str((pathlib.Path(__file__).parent / ENGINE_PATH).resolve())
-    enginefiles = os.listdir(enginepath)
     if result == "Engines":
         enginemenu = {"stockfish": "Stockfish"}
+        # Pick up the engines from the engines folder and build the menu
+        ENGINE_PATH = "engines/"
+        enginepath = str((pathlib.Path(__file__).parent / ENGINE_PATH).resolve())
+        enginefiles = os.listdir(enginepath)
         enginefiles = list(
             filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
         )        
@@ -756,6 +756,10 @@ while True:
                         # With no uci file we just call the engine
                         rc = run_external_script("uci.py", color, result, start_key_polling=True)
     if result == "HandBrain":
+        # Pick up the engines from the engines folder and build the menu
+        enginemenu = {}
+        enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/engines/"
+        enginefiles = os.listdir(enginepath)
         enginefiles = list(
             filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
         )
