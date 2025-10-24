@@ -66,8 +66,8 @@ ENGINE_PATH_NAME = "engines/" + enginename
 print("ENGINE_PATH_NAME: " + ENGINE_PATH_NAME)
 CT_800_PATH = "engines/ct800"
 print("CT_800_PATH: " + CT_800_PATH)
-AENGINE_PATH = str(pathlib.Path(__file__).parent / CT_800_PATH).resolve() 
-PENGINE_PATH = str(pathlib.Path(__file__).parent / ENGINE_PATH_NAME).resolve()
+AENGINE_PATH = str((pathlib.Path(__file__).parent / CT_800_PATH).resolve())
+PENGINE_PATH = str((pathlib.Path(__file__).parent / ENGINE_PATH_NAME).resolve())
 UCI_FILE_PATH = PENGINE_PATH + ".uci"
 print(f"aengine: {AENGINE_PATH}")
 print(f"pengine: {PENGINE_PATH}")
