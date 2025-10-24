@@ -205,6 +205,13 @@ def eventCallback(event):
             #writeTextLocal(0, "               ")
             #writeTextLocal(1, "               ")
             print("EVENT_NEW_GAME: Resetting board to starting position")
+            # Clear any pending computer move setup from before the reset
+            print("Clearing pending computer move setup")
+            gamemanager.forcemove = 0
+            gamemanager.computermove = ""
+            gamemanager.sourcesq = -1
+            gamemanager.legalsquares = []
+            board.ledsOff()
             gamemanager.cboard.reset()  # Reset to starting position
             epaper.quickClear()            
             scorehistory = []
@@ -346,7 +353,14 @@ def moveCallback(move):
         traceback.print_exc()
 
 def takebackCallback():
-    # This function gets called when the user takes back a move   
+    # This function gets called when the user takes back a move
+    print("Takeback detected - clearing computer move setup")
+    # Clear any pending computer move setup
+    gamemanager.forcemove = 0
+    gamemanager.computermove = ""
+    gamemanager.sourcesq = -1
+    gamemanager.legalsquares = []
+    board.ledsOff()
     global curturn     
     # First the turn switches
     if curturn == 1:
