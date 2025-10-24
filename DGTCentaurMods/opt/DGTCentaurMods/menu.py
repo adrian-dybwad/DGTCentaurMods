@@ -208,7 +208,7 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         board.close()
         statusbar.stop()
 
-        script_path = str((pathlib.Path(__file__).parent.resolve()) + script_rel_path)
+        script_path = str((pathlib.Path(__file__).parent / script_rel_path).resolve())
         cmd = [sys.executable, script_path, *map(str, args)]
         result = subprocess.run(cmd, check=False)
         return result.returncode
@@ -697,7 +697,7 @@ while True:
     if result == "Engines":
         enginemenu = {"stockfish": "Stockfish"}
         # Pick up the engines from the engines folder and build the menu
-        enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/engines/"
+        enginepath = str(pathlib.Path(__file__).parent / "/engines/").resolve()
         enginefiles = os.listdir(enginepath)
         enginefiles = list(
             filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
@@ -754,7 +754,7 @@ while True:
     if result == "HandBrain":
         # Pick up the engines from the engines folder and build the menu
         enginemenu = {}
-        enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/engines/"
+        enginepath = str(pathlib.Path(__file__).parent / "/engines/").resolve()
         enginefiles = os.listdir(enginepath)
         enginefiles = list(
             filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
