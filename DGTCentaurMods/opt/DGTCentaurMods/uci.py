@@ -152,7 +152,7 @@ def eventCallback(event):
             limit = chess.engine.Limit(time=5)
             mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
             mv = mv.move
-            gamemanager.computerMove(str(mv), False)                 
+            gamemanager.computerMove(str(mv))
     if event == gamemanager.EVENT_BLACK_TURN:
         curturn = 0
         if graphson == 1:            
@@ -168,7 +168,7 @@ def eventCallback(event):
             limit = chess.engine.Limit(time=5)
             mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
             mv = mv.move
-            gamemanager.computerMove(str(mv), False)        
+            gamemanager.computerMove(str(mv))        
     if event == gamemanager.EVENT_RESIGN_GAME:
         gamemanager.resignGame(computeronturn + 1)
 
