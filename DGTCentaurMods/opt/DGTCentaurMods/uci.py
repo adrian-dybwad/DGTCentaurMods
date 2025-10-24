@@ -46,6 +46,7 @@ kill = 0
 firstmove = 1
 graphson = 0 # Default to graphs off, for pi zero w users
 scorehistory = []
+last_event = None  # Track last event to prevent duplicate NEW_GAME resets
 
 def cleanup_and_exit(signum=None, frame=None):
     """Clean up resources and exit gracefully"""
@@ -165,6 +166,9 @@ def executeComputerMove(mv):
         f = open(fenlog, "w")
         f.write(gamemanager.cboard.fen())
         f.close()
+        # Update gamemanager's board state tracking to prevent NEW_GAME false triggers
+        print("Collecting new board state for gamemanager")
+        gamemanager.collectBoardState()
         # Switch turns
         global curturn
         if curturn == 0:
@@ -194,8 +198,17 @@ def eventCallback(event):
     global eloarg
     global kill
     global scorehistory
+    global last_event
     # This function receives event callbacks about the game in play
     print(f">>> eventCallback START: event={event}")
+    if event == gamemanager.EVENT_NEW_GAME:
+        print("!!! WARNING: NEW_GAME event triggered !!!")
+        if last_event == gamemanager.EVENT_NEW_GAME:
+            print("!!! SKIPPING: Consecutive NEW_GAME events - ignoring to prevent loop !!!")
+            return
+        import traceback
+        traceback.print_stack()
+    last_event = event
     try:
         print(f"EventCallback triggered with event: {event}")
         if event == gamemanager.EVENT_NEW_GAME:        
