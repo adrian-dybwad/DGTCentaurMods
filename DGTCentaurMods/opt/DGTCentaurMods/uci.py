@@ -61,9 +61,11 @@ if computerarg == "random":
 
 # Arg2 is going to contain the name of our engine choice. We use this for database logging and to spawn the engine
 enginename = sys.argv[2]
-ENGINE_PATH_NAME = "/../engines/" + enginename
-CT_800_PATH = "/../engines/ct800"
 print("enginename: " + enginename)
+ENGINE_PATH_NAME = "engines/" + enginename
+print("ENGINE_PATH_NAME: " + ENGINE_PATH_NAME)
+CT_800_PATH = "engines/ct800"
+print("CT_800_PATH: " + CT_800_PATH)
 AENGINE_PATH = str(pathlib.Path(__file__).parent / CT_800_PATH).resolve() 
 PENGINE_PATH = str(pathlib.Path(__file__).parent / ENGINE_PATH_NAME).resolve())
 UCI_FILE_PATH = PENGINE_PATH + ".uci"
