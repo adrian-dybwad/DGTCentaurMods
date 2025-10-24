@@ -354,28 +354,13 @@ class AsyncCentaur:
         1. Buffer ends with valid [addr1][addr2][checksum], OR
         2. A new 85 00 header is detected (indicating start of next packet)
         """
-        #print(f"Processing response: {byte}")
         # Detect packet start sequence (<START_TYPE_BYTE> 00) while buffer has data
         HEADER_DATA_BYTES = 4
         if len(self.response_buffer) >= HEADER_DATA_BYTES:
-            #print(f"\n\n\nresponse_buffer longer than HEADER_DATA_BYTES: {HEADER_DATA_BYTES}")
-            #print(f"self.response_buffer[-HEADER_DATA_BYTES]: {self.response_buffer[-HEADER_DATA_BYTES]}")
-            #print(f"IN START_TYPE_BYTES: {START_TYPE_BYTES}")
-            #print(f"self.response_buffer[-HEADER_DATA_BYTES] in START_TYPE_BYTES: {self.response_buffer[-HEADER_DATA_BYTES] in START_TYPE_BYTES}")
             if self.response_buffer[-HEADER_DATA_BYTES] in START_TYPE_BYTES:
-                #print(f"IN START_TYPE_BYTES: {START_TYPE_BYTES}")
-                #print(f"self.response_buffer[-HEADER_DATA_BYTES]: {self.response_buffer[-HEADER_DATA_BYTES]}")
-                #print(f"self.response_buffer[-HEADER_DATA_BYTES+1]: {self.response_buffer[-HEADER_DATA_BYTES+1]}")
-                #print(f"self.response_buffer[-HEADER_DATA_BYTES+1] == self.addr1: {self.response_buffer[-HEADER_DATA_BYTES+1] == self.addr1}")
-                #print(f"addr1: {self.addr1}")
                 if self.response_buffer[-HEADER_DATA_BYTES+3] == self.addr1:
-                    #print(f"addr1 matches")
-                    #print(f"addr2: {self.addr2}")
-                    #print(f"byte == self.addr2: {byte == self.addr2}")
                     if byte == self.addr2: 
-                        #print(f"addr2 matches")
                         if len(self.response_buffer) > HEADER_DATA_BYTES:
-                            #print(f"len(self.response_buffer) > HEADER_DATA_BYTES (WE HAVE A PREVIOUS PARTIAL PACKET)")
                             # Log orphaned data (everything except the 85)
                             hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
                             print(f"[ORPHANED] {hex_row}")
@@ -383,35 +368,20 @@ class AsyncCentaur:
                             print(f"After trimming: self.response_buffer: {self.response_buffer}")
         
         self.response_buffer.append(byte)
-        #print(f"After appending: self.response_buffer: {self.response_buffer}")
-
         # Handle discovery state machine
         if self.discovery_state == "INITIALIZING":
             # Got a response to initial commands, now send discovery packet
             self._discover_board_address(self.response_buffer)
 
-        #print(f"response_buffer: {self.response_buffer}")
         # Check if this byte is a checksum boundary
         if len(self.response_buffer) >= 2:
-            #print(f"\nlen(self.response_buffer): {len(self.response_buffer)}")
-            #print(f"self.response_buffer: {self.response_buffer}")
-            #print(f"byte: {byte}")
             calculated_checksum = self.checksum(self.response_buffer[:-1])
-            #print(f"calculated_checksum: {calculated_checksum}")
-            #print(f"byte: {byte}")
             if byte == calculated_checksum:
                 # Verify packet length matches declared length
-                #print(f"len(self.response_buffer): {len(self.response_buffer)}")
-                #print(f"self.response_buffer: {self.response_buffer}")
-                #print(f"byte: {byte}")
-                #print(f"calculated_checksum: {calculated_checksum}")
                 if len(self.response_buffer) >= 6:
-                    #print(f"len(self.response_buffer) >= 6")
                     len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
                     declared_length = (len_hi << 7) | len_lo
                     actual_length = len(self.response_buffer)
-                    #print(f"declared_length: {declared_length}, actual_length: {actual_length}")
-                    
                     if actual_length == declared_length:
                         # We have a valid packet
                         if self.discovery_state == "READY":
@@ -432,7 +402,7 @@ class AsyncCentaur:
     def on_packet_complete(self, packet):
         """Called when a complete valid packet is received"""
         self.packet_count += 1
-
+ 
         # Deliver to blocking/non-blocking waiter first (if any)
         try:
             with self._waiter_lock:
