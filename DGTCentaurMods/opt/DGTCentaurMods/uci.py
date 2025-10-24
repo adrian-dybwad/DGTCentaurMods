@@ -320,6 +320,12 @@ def evaluationGraphs(info):
     global graphson
     global scorehistory
     global curturn
+    
+    # Check if score is available in the info
+    if "score" not in info:
+        print("evaluationGraphs: No score in info, skipping")
+        return
+    
     if graphson == 0:
         image = Image.new('1', (128, 80), 255)
         epaper.drawImagePartial(0, 209, image)         
