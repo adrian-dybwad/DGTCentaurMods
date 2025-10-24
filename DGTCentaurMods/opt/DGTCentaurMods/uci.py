@@ -159,6 +159,12 @@ def executeComputerMove(mv):
             print(f"ERROR: Move {mv} is not legal! This should not happen.")
             print(f"Legal moves: {list(gamemanager.cboard.legal_moves)}")
             raise ValueError(f"Illegal move: {mv}")
+        
+        # Light up LEDs to show the computer move to the player
+        fromnum = ((ord(mv[1:2]) - ord("1")) * 8) + (ord(mv[0:1]) - ord("a"))
+        tonum = ((ord(mv[3:4]) - ord("1")) * 8) + (ord(mv[2:3]) - ord("a"))
+        print(f"Lighting LEDs for move from {fromnum} to {tonum}")
+        board.ledFromTo(fromnum, tonum)
             
         gamemanager.cboard.push(move)
         print(f"Move pushed to board. New FEN: {gamemanager.cboard.fen()}")
