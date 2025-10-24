@@ -255,8 +255,7 @@ def eventCallback(event):
                     print(f"Engine returned: {mv}")
                     mv = mv.move
                     print(f"Move extracted: {mv}")
-                    gamemanager.computerMove(str(mv))
-                    print(f"Called computerMove with: {str(mv)}")
+                    print(f"Executing move: {str(mv)}")
                     executeComputerMove(str(mv))
                 except Exception as e:
                     print(f"Error in WHITE_TURN computer move: {e}")
@@ -284,8 +283,7 @@ def eventCallback(event):
                     print(f"Engine returned: {mv}")
                     mv = mv.move
                     print(f"Move extracted: {mv}")
-                    gamemanager.computerMove(str(mv))
-                    print(f"Called computerMove with: {str(mv)}")
+                    print(f"Executing move: {str(mv)}")
                     executeComputerMove(str(mv))
                 except Exception as e:
                     print(f"Error in BLACK_TURN computer move: {e}")
