@@ -44,6 +44,7 @@ kill = 0
 firstmove = 1
 graphson = 0 # Default to graphs off, for pi zero w users
 scorehistory = []
+pendingEvent = None
 
 
 if os.uname().machine=="armv7l":
@@ -119,30 +120,32 @@ def keyCallback(key):
 
 def executeComputerMove(mv):
     # Execute the computer move immediately without waiting for board detection
-    # This is called after gamemanager.computerMove() has been called
     gamemanager.cboard.push(chess.Move.from_uci(mv))
     fenlog = "/home/pi/centaur/fen.log"
     f = open(fenlog, "w")
     f.write(gamemanager.cboard.fen())
     f.close()
-    # Update the board display
-    drawBoardLocal(gamemanager.cboard.fen())
-    # Switch turns in the display
+    # Call moveCallback to update display
+    if moveCallback:
+        moveCallback(mv)
+    # Switch turns
     global curturn
+    global pendingEvent
     if curturn == 0:
         curturn = 1
     else:
         curturn = 0
     # Check for game outcome
+    time.sleep(0.5)
     outc = gamemanager.cboard.outcome(claim_draw=True)
     if outc != None and outc != "None" and outc != 0:
-        eventCallback(str(outc.termination))
+        pendingEvent = str(outc.termination)
     else:
-        # Trigger the next turn
+        # Schedule the next turn to be triggered in the main loop
         if curturn == 0:
-            eventCallback(gamemanager.EVENT_BLACK_TURN)
+            pendingEvent = gamemanager.EVENT_BLACK_TURN
         else:
-            eventCallback(gamemanager.EVENT_WHITE_TURN)
+            pendingEvent = gamemanager.EVENT_WHITE_TURN
 
 def eventCallback(event):
     global curturn
@@ -180,7 +183,8 @@ def eventCallback(event):
             mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
             mv = mv.move
             gamemanager.computerMove(str(mv))
-            executeComputerMove(str(mv))
+            # Schedule the next turn to be triggered in the main loop
+            gamemanager.scheduleEvent(gamemanager.EVENT_BLACK_TURN)
     if event == gamemanager.EVENT_BLACK_TURN:
         curturn = 0
         if graphson == 1:            
@@ -197,7 +201,8 @@ def eventCallback(event):
             mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
             mv = mv.move
             gamemanager.computerMove(str(mv))
-            executeComputerMove(str(mv))
+            # Schedule the next turn to be triggered in the main loop
+            gamemanager.scheduleEvent(gamemanager.EVENT_WHITE_TURN)
     if event == gamemanager.EVENT_RESIGN_GAME:
         gamemanager.resignGame(computeronturn + 1)
 
@@ -253,7 +258,7 @@ def eventCallback(event):
 def moveCallback(move):
     # This function receives valid moves made on the board
     # Note: the board state is in python-chess object gamemanager.cboard
-    pass
+    drawBoardLocal(gamemanager.cboard.fen())
 
 def takebackCallback():
     # This function gets called when the user takes back a move   
@@ -431,6 +436,9 @@ writeTextLocal(1,"Starting Pos")
 
 while kill == 0:    
     time.sleep(0.1)
+    if pendingEvent is not None:
+        eventCallback(pendingEvent)
+        pendingEvent = None
     
 
 gamemanager.unsubscribeGame()
