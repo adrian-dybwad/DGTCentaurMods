@@ -61,21 +61,27 @@ if computerarg == "random":
 
 # Arg2 is going to contain the name of our engine choice. We use this for database logging and to spawn the engine
 enginename = sys.argv[2]
+ENGINE_PATH_NAME = "/../engines/" + enginename
+CT_800_PATH = "/../engines/ct800"
 print("enginename: " + enginename)
-aengine = chess.engine.SimpleEngine.popen_uci(str(pathlib.Path(__file__).parent.resolve()) + "/../engines/ct800", timeout = None)
-pengine = chess.engine.SimpleEngine.popen_uci(str(pathlib.Path(__file__).parent.resolve()) + "/../engines/" + enginename)
-print("aengine: " + aengine)
-print("pengine: " + pengine)
+AENGINE_PATH = str(pathlib.Path(__file__).parent / CT_800_PATH).resolve() 
+PENGINE_PATH = str(pathlib.Path(__file__).parent / ENGINE_PATH_NAME).resolve())
+UCI_FILE_PATH = PENGINE_PATH + ".uci"
+print(f"aengine: {AENGINE_PATH}")
+print(f"pengine: {PENGINE_PATH}")
+aengine = chess.engine.SimpleEngine.popen_uci(AENGINE_PATH, timeout = None)
+pengine = chess.engine.SimpleEngine.popen_uci(PENGINE_PATH)
+print(f"aengine: {aengine}")
+print(f"pengine: {pengine}")
 ucioptionsdesc = "Default"
 ucioptions = {}
 if len(sys.argv) > 3:
     # This also has an options string...but what is actually passed in 3 is the desc which is the section name
     ucioptionsdesc = sys.argv[3]
-    # These options we should derive form the uci file
-    ucifile = str(pathlib.Path(__file__).parent.resolve()) + "/../engines/" + enginename + ".uci"
+    # These options we should derive form the uci file and read it from the UCI_FILE_PATH
     config = configparser.ConfigParser()
     config.optionxform = str
-    config.read(ucifile)
+    config.read(UCI_FILE_PATH)
     print(config.items(ucioptionsdesc))
     for item in config.items(ucioptionsdesc):
         ucioptions[item[0]] = item[1]
