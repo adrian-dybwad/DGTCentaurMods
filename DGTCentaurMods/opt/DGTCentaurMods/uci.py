@@ -149,7 +149,17 @@ def executeComputerMove(mv):
     # Execute the computer move immediately without waiting for board detection
     try:
         print(f"Executing computer move: {mv}")
-        gamemanager.cboard.push(chess.Move.from_uci(mv))
+        print(f"Current FEN before move: {gamemanager.cboard.fen()}")
+        print(f"Legal moves: {[str(m) for m in list(gamemanager.cboard.legal_moves)[:5]]}...")
+        
+        # Validate the move is legal
+        move = chess.Move.from_uci(mv)
+        if move not in gamemanager.cboard.legal_moves:
+            print(f"ERROR: Move {mv} is not legal! This should not happen.")
+            print(f"Legal moves: {list(gamemanager.cboard.legal_moves)}")
+            raise ValueError(f"Illegal move: {mv}")
+            
+        gamemanager.cboard.push(move)
         print(f"Move pushed to board. New FEN: {gamemanager.cboard.fen()}")
         fenlog = "/home/pi/centaur/fen.log"
         f = open(fenlog, "w")
@@ -190,13 +200,16 @@ def eventCallback(event):
         print(f"EventCallback triggered with event: {event}")
         if event == gamemanager.EVENT_NEW_GAME:        
             #writeTextLocal(0, "               ")
-            #writeTextLocal(1, "               ")        
+            #writeTextLocal(1, "               ")
+            print("EVENT_NEW_GAME: Resetting board to starting position")
+            gamemanager.cboard.reset()  # Reset to starting position
             epaper.quickClear()            
             scorehistory = []
             curturn = 1
             firstmove = 1   
             epaper.pauseEpaper() 
             drawBoardLocal(gamemanager.cboard.fen())
+            print(f"Board reset. FEN: {gamemanager.cboard.fen()}")
             if graphson == 1:
                 info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.1))        
                 evaluationGraphs(info) 
@@ -534,10 +547,23 @@ else:
     print("Computer is black, triggering black turn")
     eventCallback(gamemanager.EVENT_BLACK_TURN)
 
-while kill == 0:    
-    time.sleep(0.1)
-    
-
-gamemanager.unsubscribeGame()
-aengine.quit()
-pengine.quit()
+try:
+    while kill == 0:    
+        time.sleep(0.1)
+except KeyboardInterrupt:
+    print("\n>>> Caught KeyboardInterrupt, cleaning up...")
+    cleanup_and_exit()
+finally:
+    print(">>> Final cleanup")
+    try:
+        gamemanager.unsubscribeGame()
+    except:
+        pass
+    try:
+        aengine.quit()
+    except:
+        pass
+    try:
+        pengine.quit()
+    except:
+        pass
