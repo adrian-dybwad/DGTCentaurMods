@@ -147,10 +147,11 @@ def keyCallback(key):
         evaluationGraphs(info)
 
 def executeComputerMove(mv):
-    # Execute the computer move immediately without waiting for board detection
+    # Execute the computer move by setting up LEDs and flags for the player to move pieces
+    # The actual move will be processed when fieldcallback detects the piece placement
     try:
-        print(f"Executing computer move: {mv}")
-        print(f"Current FEN before move: {gamemanager.cboard.fen()}")
+        print(f"Setting up computer move: {mv}")
+        print(f"Current FEN: {gamemanager.cboard.fen()}")
         print(f"Legal moves: {[str(m) for m in list(gamemanager.cboard.legal_moves)[:5]]}...")
         
         # Validate the move is legal
@@ -165,25 +166,16 @@ def executeComputerMove(mv):
         tonum = ((ord(mv[3:4]) - ord("1")) * 8) + (ord(mv[2:3]) - ord("a"))
         print(f"Lighting LEDs for move from {fromnum} to {tonum}")
         board.ledFromTo(fromnum, tonum)
-            
-        gamemanager.cboard.push(move)
-        print(f"Move pushed to board. New FEN: {gamemanager.cboard.fen()}")
-        fenlog = "/home/pi/centaur/fen.log"
-        f = open(fenlog, "w")
-        f.write(gamemanager.cboard.fen())
-        f.close()
-        # Call moveCallback to update the display with the new position
-        print(f"Calling moveCallback to display the move")
-        moveCallback(mv)
-        # Reset gamemanager's move flags (normally done by fieldcallback)
-        print("Resetting gamemanager move flags")
-        gamemanager.forcemove = 0
-        gamemanager.computermove = ""
-        gamemanager.sourcesq = -1
-        gamemanager.legalsquares = []
-        # DO NOT turn off LEDs or call eventCallback recursively
-        # Let the normal board detection and gamemanager flow continue
-        print("Computer move complete. Waiting for player move on board.")
+        
+        # Set gamemanager's forcemove flags so fieldcallback will process this move
+        print(f"Setting up gamemanager for forced move")
+        gamemanager.forcemove = 1
+        gamemanager.computermove = mv
+        
+        # DO NOT push the move here - let fieldcallback handle it when pieces are moved
+        # DO NOT call moveCallback or reset flags here
+        # DO NOT turn off LEDs
+        print("Computer move setup complete. Waiting for player to move pieces on board.")
         return
     except Exception as e:
         print(f"Error in executeComputerMove: {e}")
