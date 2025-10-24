@@ -735,6 +735,7 @@ while True:
                 ucifile = enginepath + result + ".uci"
                 color = doMenu(COLOR_MENU, result)
                 # Current game will launch the screen for the current
+                print("ucifile: " + ucifile)
                 if color != "BACK":
                     if os.path.exists(ucifile):
                         # Read the uci file and build a menu
@@ -746,10 +747,10 @@ while True:
                             smenu[sect] = sect
                         sec = doMenu(smenu, result)
                         if sec != "BACK":
-                            rc = run_external_script(sys.executable, "game/uci.py", color, result, sec, start_key_polling=True)
+                            rc = run_external_script("game/uci.py", color, result, sec, start_key_polling=True)
                     else:
                         # With no uci file we just call the engine
-                        rc = run_external_script(sys.executable, "game/uci.py", color, result, start_key_polling=True)
+                        rc = run_external_script("game/uci.py", color, result, start_key_polling=True)
     if result == "HandBrain":
         # Pick up the engines from the engines folder and build the menu
         enginemenu = {}

@@ -61,10 +61,11 @@ if computerarg == "random":
 
 # Arg2 is going to contain the name of our engine choice. We use this for database logging and to spawn the engine
 enginename = sys.argv[2]
-
+print("enginename: " + enginename)
 aengine = chess.engine.SimpleEngine.popen_uci(str(pathlib.Path(__file__).parent.resolve()) + "/../engines/ct800", timeout = None)
 pengine = chess.engine.SimpleEngine.popen_uci(str(pathlib.Path(__file__).parent.resolve()) + "/../engines/" + enginename)
-
+print("aengine: " + aengine)
+print("pengine: " + pengine)
 ucioptionsdesc = "Default"
 ucioptions = {}
 if len(sys.argv) > 3:
