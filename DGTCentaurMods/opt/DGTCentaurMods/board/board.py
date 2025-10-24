@@ -401,41 +401,6 @@ def sleep():
 # Board response - functions related to get something from the board
 #
 
-def waitMove():
-    # Wait for a player to lift a piece and set it down somewhere different
-    lifted = -1
-    placed = -1
-    moves = []
-    while placed == -1:
-        ser.read(100000)
-        sendPacket(b'\x83', b'')
-        expect = buildPacket(b'\x85\x00\x06', b'')
-        resp = ser.read(10000)
-        resp = bytearray(resp)
-        if (bytearray(resp) != expect):
-            if (resp[0] == 133 and resp[1] == 0):
-                for x in range(0, len(resp) - 1):
-                    if (resp[x] == 64):
-                        # Calculate the square to 0(a1)-63(h8) so that
-                        # all functions match
-                        fieldHex = resp[x + 1]
-                        newsquare = rotateFieldHex(fieldHex)
-                        lifted = newsquare
-                        moves.append((newsquare+1) * -1)
-                    if (resp[x] == 65):
-                        # Calculate the square to 0(a1)-63(h8) so that
-                        # all functions match
-                        fieldHex = resp[x + 1]
-                        newsquare = rotateFieldHex(fieldHex)
-                        placed = newsquare
-                        moves.append(newsquare + 1)
-        sendPacket(b'\x94', b'')
-        expect = buildPacket(b'\xb1\x00\x06', b'')
-        resp = ser.read(10000)
-        resp = bytearray(resp)
-    printBoardState()
-    return moves
-
 def poll():
     # We need to continue poll the board to get data from it
     # Perhaps there's a packet length in here somewhere but
@@ -657,10 +622,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 newsquare = rotateFieldHex(fieldHex)
                                 fieldcallback(newsquare + 1)
                                 to = time.time() + tout
-                                print(f"PIECE PLACED {newsquare + 1}")
-                                print(f"newsquare: {newsquare}")
-                                print(f"fieldHex: {fieldHex}")
-                                print(f"to: {to}")
+                                
                             if (resp[x] == 0x41):
                                 # Calculate the square to 0(a1)-63(h8) so that
                                 # all functions match
@@ -668,10 +630,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 newsquare = rotateFieldHex(fieldHex)
                                 fieldcallback((newsquare + 1) * -1)
                                 to = time.time() + tout
-                                print(f"PIECE PLACED {(newsquare + 1) * -1}")
-                                print(f"newsquare: {newsquare}")
-                                print(f"fieldHex: {fieldHex}")
-                                print(f"to: {to}")
+                                
                     except Exception as e:
                         print("Error in piece detection")   
                         print(f"Error: {e}")
@@ -684,11 +643,6 @@ def eventsThread(keycallback, fieldcallback, tout):
                 print("name: " + name)
                 print("buttonPress: " + str(buttonPress))
 
-                # sendPacket(b'\x94', b'')
-                # expect = bytearray(b'\xb1\x00\x06' + addr1.to_bytes(1, byteorder='big') + addr2.to_bytes(1, byteorder='big'))
-                # expect.append(checksum(expect))
-                # resp = ser.read(10000)
-                # resp = bytearray(resp)
                 if not standby:
                     print("standby is false")
                     #Disable these buttons on standby
