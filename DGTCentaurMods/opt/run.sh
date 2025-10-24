@@ -23,9 +23,9 @@ source DGTCentaurMods/.venv/bin/activate
 export PYTHONPATH="$PWD:$PYTHONPATH"
 
 # Launch the game
-python -m DGTCentaurMods.game.menu "$@"
+python -m DGTCentaurMods.menu "$@"
 # or if you restructured into a package, replace the above with:
-# python -m DGTCentaurMods.game.menu "$@"
+# python -m DGTCentaurMods.menu "$@"
 
 # Deactivate when done
 deactivate
