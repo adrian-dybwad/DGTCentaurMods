@@ -172,6 +172,12 @@ def executeComputerMove(mv):
         # Call moveCallback to update the display with the new position
         print(f"Calling moveCallback to display the move")
         moveCallback(mv)
+        # Reset gamemanager's move flags (normally done by fieldcallback)
+        print("Resetting gamemanager move flags")
+        gamemanager.forcemove = 0
+        gamemanager.computermove = ""
+        gamemanager.sourcesq = -1
+        gamemanager.legalsquares = []
         # Switch turns
         global curturn
         if curturn == 0:
