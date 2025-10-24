@@ -377,7 +377,10 @@ def evaluationGraphs(info):
                     col = 255
                 else:
                     col = 0
-                draw.rectangle([(baroffset,50),(baroffset+barwidth,50 - (scorehistory[i]*2))],fill=col,outline='black')
+                y_calc = 50 - (scorehistory[i]*2)
+                y0 = min(50, y_calc)
+                y1 = max(50, y_calc)
+                draw.rectangle([(baroffset,y0),(baroffset+barwidth,y1)],fill=col,outline='black')
                 baroffset = baroffset + barwidth  
         tmp = image.copy()
         dr2 = ImageDraw.Draw(tmp)
