@@ -360,6 +360,13 @@ class AsyncCentaur:
             self.response_buffer[-HEADER_DATA_BYTES+1] == self.addr1 and
             byte == addr2 and 
             len(self.response_buffer) > HEADER_DATA_BYTES):
+            print(f"Packet start detected: {self.response_buffer[-HEADER_DATA_BYTES:]}")
+            print(f"addr1: {self.addr1}, addr2: {self.addr2}")
+            print(f"byte: {byte}")
+            print(f"len(self.response_buffer): {len(self.response_buffer)}")
+            print(f"START_TYPE_BYTES: {START_TYPE_BYTES}")
+            print(f"HEADER_DATA_BYTES: {HEADER_DATA_BYTES}")
+            print(f"self.response_buffer: {self.response_buffer}")
             # Log orphaned data (everything except the 85)
             hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
             print(f"[ORPHANED] {hex_row}")
@@ -372,6 +379,7 @@ class AsyncCentaur:
             # Got a response to initial commands, now send discovery packet
             self._discover_board_address(self.response_buffer)
 
+        print(f"response_buffer: {self.response_buffer}")
         # Check if this byte is a checksum boundary
         if len(self.response_buffer) >= 2:
             calculated_checksum = self.checksum(self.response_buffer[:-1])
