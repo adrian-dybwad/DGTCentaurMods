@@ -385,7 +385,12 @@ class AsyncCentaur:
             calculated_checksum = self.checksum(self.response_buffer[:-1])
             if byte == calculated_checksum:
                 # Verify packet length matches declared length
+                print(f"len(self.response_buffer): {len(self.response_buffer)}")
+                print(f"self.response_buffer: {self.response_buffer}")
+                print(f"byte: {byte}")
+                print(f"calculated_checksum: {calculated_checksum}")
                 if len(self.response_buffer) >= 6:
+                    print(f"len(self.response_buffer) >= 6")
                     len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
                     declared_length = (len_hi << 7) | len_lo
                     actual_length = len(self.response_buffer)
