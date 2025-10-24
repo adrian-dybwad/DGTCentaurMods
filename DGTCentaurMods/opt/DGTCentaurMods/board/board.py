@@ -694,7 +694,6 @@ def eventsThread(keycallback, fieldcallback, tout):
                     # Every 15 seconds check the battery details
                     batterylastchecked = time.time()
                     getBatteryLevel()
-                    print(f"Battery level: {batterylevel}, Charger connected: {chargerconnected}")
             except:
                 pass
             time.sleep(0.05)
