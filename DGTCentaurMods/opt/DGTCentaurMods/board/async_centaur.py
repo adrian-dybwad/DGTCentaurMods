@@ -410,7 +410,7 @@ class AsyncCentaur:
                     len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
                     declared_length = (len_hi << 7) | len_lo
                     actual_length = len(self.response_buffer)
-                    print(f"declared_length: {declared_length}, actual_length: {actual_length}")
+                    #print(f"declared_length: {declared_length}, actual_length: {actual_length}")
                     
                     if actual_length == declared_length:
                         # We have a valid packet
@@ -741,7 +741,7 @@ class AsyncCentaur:
         spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
         tosend = self.buildPacket(command, eff_data)
-        print(f"tosend: {' '.join(f'{b:02x}' for b in tosend)}")
+        #print(f"tosend: {' '.join(f'{b:02x}' for b in tosend)}")
         self.ser.write(tosend)
     
     def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None):
