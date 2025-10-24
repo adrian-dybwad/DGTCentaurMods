@@ -44,7 +44,6 @@ kill = 0
 firstmove = 1
 graphson = 0 # Default to graphs off, for pi zero w users
 scorehistory = []
-pendingEvent = None
 
 
 if os.uname().machine=="armv7l":
@@ -128,32 +127,21 @@ def executeComputerMove(mv):
         f = open(fenlog, "w")
         f.write(gamemanager.cboard.fen())
         f.close()
-        # Call moveCallback to update display
-        print("Calling moveCallback to update display")
-        if moveCallback:
-            moveCallback(mv)
         # Switch turns
         global curturn
-        global pendingEvent
         if curturn == 0:
             curturn = 1
         else:
             curturn = 0
         print(f"Turn switched to: {curturn}")
-        # Check for game outcome
-        time.sleep(0.5)
-        outc = gamemanager.cboard.outcome(claim_draw=True)
-        if outc != None and outc != "None" and outc != 0:
-            print(f"Game over: {outc.termination}")
-            pendingEvent = str(outc.termination)
+        time.sleep(0.3)
+        # Immediately trigger the next turn callback
+        if curturn == 0:
+            print("Triggering BLACK_TURN event")
+            eventCallback(gamemanager.EVENT_BLACK_TURN)
         else:
-            # Schedule the next turn to be triggered in the main loop
-            if curturn == 0:
-                print("Scheduling BLACK_TURN event")
-                pendingEvent = gamemanager.EVENT_BLACK_TURN
-            else:
-                print("Scheduling WHITE_TURN event")
-                pendingEvent = gamemanager.EVENT_WHITE_TURN
+            print("Triggering WHITE_TURN event")
+            eventCallback(gamemanager.EVENT_WHITE_TURN)
     except Exception as e:
         print(f"Error in executeComputerMove: {e}")
         import traceback
@@ -166,109 +154,126 @@ def eventCallback(event):
     global kill
     global scorehistory
     # This function receives event callbacks about the game in play
-    if event == gamemanager.EVENT_NEW_GAME:        
-        #writeTextLocal(0, "               ")
-        #writeTextLocal(1, "               ")        
-        epaper.quickClear()            
-        scorehistory = []
-        curturn = 1
-        firstmove = 1   
-        epaper.pauseEpaper() 
-        drawBoardLocal(gamemanager.cboard.fen())
-        if graphson == 1:
-            info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.1))        
-            evaluationGraphs(info) 
-        epaper.unPauseEpaper()
-    if event == gamemanager.EVENT_WHITE_TURN:
-        curturn = 1
-        if graphson == 1:            
-            info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))
-            epaper.pauseEpaper()
-            evaluationGraphs(info)                                  
-            epaper.unPauseEpaper()
-        drawBoardLocal(gamemanager.cboard.fen())  
-        if curturn == computeronturn:            
-            if ucioptions != {}:
-                options = (ucioptions)
-                pengine.configure(options)
-            limit = chess.engine.Limit(time=5)
-            mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
-            mv = mv.move
-            gamemanager.computerMove(str(mv))
-            executeComputerMove(str(mv))
-    if event == gamemanager.EVENT_BLACK_TURN:
-        curturn = 0
-        if graphson == 1:            
-            info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))    
-            epaper.pauseEpaper()    
-            evaluationGraphs(info)                                                       
-            epaper.unPauseEpaper()
-        drawBoardLocal(gamemanager.cboard.fen())    
-        if curturn == computeronturn:            
-            if ucioptions != {}:
-                options = (ucioptions)
-                pengine.configure(options)
-            limit = chess.engine.Limit(time=5)
-            mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
-            mv = mv.move
-            gamemanager.computerMove(str(mv))
-            executeComputerMove(str(mv))
-    if event == gamemanager.EVENT_RESIGN_GAME:
-        gamemanager.resignGame(computeronturn + 1)
-
-    if type(event) == str:
-        # Termination.CHECKMATE
-        # Termination.STALEMATE
-        # Termination.INSUFFICIENT_MATERIAL
-        # Termination.SEVENTYFIVE_MOVES
-        # Termination.FIVEFOLD_REPETITION
-        # Termination.FIFTY_MOVES
-        # Termination.THREEFOLD_REPETITION
-        # Termination.VARIANT_WIN
-        # Termination.VARIANT_LOSS
-        # Termination.VARIANT_DRAW
-        if event.startswith("Termination."):
-            image = Image.new('1', (128, 12), 255)
-            draw = ImageDraw.Draw(image)
-            font12 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 12)
-            txt = event[12:]
-            draw.text((30, 0), txt, font=font12, fill=0)
-            epaper.drawImagePartial(0, 221, image)
-            time.sleep(0.3)
-            image = image.transpose(Image.FLIP_TOP_BOTTOM)
-            image = image.transpose(Image.FLIP_LEFT_RIGHT)    
-            epaper.drawImagePartial(0, 57, image)            
+    try:
+        print(f"EventCallback triggered with event: {event}")
+        if event == gamemanager.EVENT_NEW_GAME:        
+            #writeTextLocal(0, "               ")
+            #writeTextLocal(1, "               ")        
             epaper.quickClear()            
-            # Let's display an end screen
-            print("displaying end screen")
-            image = Image.new('1', (128,292), 255)
-            draw = ImageDraw.Draw(image)
-            font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
-            draw.text((0,0), "   GAME OVER", font=font18, fill = 0)
-            draw.text((0,20), "          " + gamemanager.getResult(), font=font18, fill = 0)            
-            if len(scorehistory) > 0:
-                print("there be history")
-                draw.line([(0,114),(128,114)], fill = 0, width = 1)
-                barwidth = 128/len(scorehistory)
-                if barwidth > 8:
-                    barwidth = 8
-                baroffset = 0        
-                for i in range(0, len(scorehistory)):
-                    if scorehistory[i] >= 0:
-                        col = 255
-                    else:
-                        col = 0
-                    draw.rectangle([(baroffset,114),(baroffset+barwidth,114 - (scorehistory[i]*4))],fill=col,outline='black')
-                    baroffset = baroffset + barwidth
-            print("drawing")
-            epaper.drawImagePartial(0, 0, image)
-            time.sleep(10)            
-            kill = 1
+            scorehistory = []
+            curturn = 1
+            firstmove = 1   
+            epaper.pauseEpaper() 
+            drawBoardLocal(gamemanager.cboard.fen())
+            if graphson == 1:
+                info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.1))        
+                evaluationGraphs(info) 
+            epaper.unPauseEpaper()
+        if event == gamemanager.EVENT_WHITE_TURN:
+            curturn = 1
+            if graphson == 1:            
+                info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))
+                epaper.pauseEpaper()
+                evaluationGraphs(info)                                  
+                epaper.unPauseEpaper()
+            drawBoardLocal(gamemanager.cboard.fen())  
+            if curturn == computeronturn:            
+                if ucioptions != {}:
+                    options = (ucioptions)
+                    pengine.configure(options)
+                limit = chess.engine.Limit(time=5)
+                mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
+                mv = mv.move
+                gamemanager.computerMove(str(mv))
+                executeComputerMove(str(mv))
+        if event == gamemanager.EVENT_BLACK_TURN:
+            curturn = 0
+            if graphson == 1:            
+                info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))    
+                epaper.pauseEpaper()    
+                evaluationGraphs(info)                                                       
+                epaper.unPauseEpaper()
+            drawBoardLocal(gamemanager.cboard.fen())    
+            if curturn == computeronturn:            
+                if ucioptions != {}:
+                    options = (ucioptions)
+                    pengine.configure(options)
+                limit = chess.engine.Limit(time=5)
+                mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
+                mv = mv.move
+                gamemanager.computerMove(str(mv))
+                executeComputerMove(str(mv))
+        if event == gamemanager.EVENT_RESIGN_GAME:
+            gamemanager.resignGame(computeronturn + 1)
+
+        if type(event) == str:
+            # Termination.CHECKMATE
+            # Termination.STALEMATE
+            # Termination.INSUFFICIENT_MATERIAL
+            # Termination.SEVENTYFIVE_MOVES
+            # Termination.FIVEFOLD_REPETITION
+            # Termination.FIFTY_MOVES
+            # Termination.THREEFOLD_REPETITION
+            # Termination.VARIANT_WIN
+            # Termination.VARIANT_LOSS
+            # Termination.VARIANT_DRAW
+            if event.startswith("Termination."):
+                image = Image.new('1', (128, 12), 255)
+                draw = ImageDraw.Draw(image)
+                font12 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 12)
+                txt = event[12:]
+                draw.text((30, 0), txt, font=font12, fill=0)
+                epaper.drawImagePartial(0, 221, image)
+                time.sleep(0.3)
+                image = image.transpose(Image.FLIP_TOP_BOTTOM)
+                image = image.transpose(Image.FLIP_LEFT_RIGHT)    
+                epaper.drawImagePartial(0, 57, image)            
+                epaper.quickClear()            
+                # Let's display an end screen
+                print("displaying end screen")
+                image = Image.new('1', (128,292), 255)
+                draw = ImageDraw.Draw(image)
+                font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
+                draw.text((0,0), "   GAME OVER", font=font18, fill = 0)
+                draw.text((0,20), "          " + gamemanager.getResult(), font=font18, fill = 0)            
+                if len(scorehistory) > 0:
+                    print("there be history")
+                    draw.line([(0,114),(128,114)], fill = 0, width = 1)
+                    barwidth = 128/len(scorehistory)
+                    if barwidth > 8:
+                        barwidth = 8
+                    baroffset = 0        
+                    for i in range(0, len(scorehistory)):
+                        if scorehistory[i] >= 0:
+                            col = 255
+                        else:
+                            col = 0
+                        draw.rectangle([(baroffset,114),(baroffset+barwidth,114 - (scorehistory[i]*4))],fill=col,outline='black')
+                        baroffset = baroffset + barwidth
+                print("drawing")
+                epaper.drawImagePartial(0, 0, image)
+                time.sleep(10)            
+                kill = 1
+    except Exception as e:
+        print(f"Error in eventCallback: {e}")
+        import traceback
+        traceback.print_exc()
+        try:
+            epaper.unPauseEpaper()
+        except:
+            pass
 
 def moveCallback(move):
     # This function receives valid moves made on the board
     # Note: the board state is in python-chess object gamemanager.cboard
-    drawBoardLocal(gamemanager.cboard.fen())
+    try:
+        print(f"moveCallback: Drawing board for move {move}")
+        drawBoardLocal(gamemanager.cboard.fen())
+        print("moveCallback: Board drawn successfully")
+    except Exception as e:
+        print(f"Error in moveCallback while drawing board: {e}")
+        import traceback
+        traceback.print_exc()
 
 def takebackCallback():
     # This function gets called when the user takes back a move   
@@ -371,67 +376,73 @@ def writeTextLocal(row,txt):
 def drawBoardLocal(fen):
     # This local version of drawboard - we draw into a 64x64 image and then
     # use epaper.drawWindow to write that to the screen
-    global computeronturn
-    curfen = str(fen)
-    curfen = curfen.replace("/", "")
-    curfen = curfen.replace("1", " ")
-    curfen = curfen.replace("2", "  ")
-    curfen = curfen.replace("3", "   ")
-    curfen = curfen.replace("4", "    ")
-    curfen = curfen.replace("5", "     ")
-    curfen = curfen.replace("6", "      ")
-    curfen = curfen.replace("7", "       ")
-    curfen = curfen.replace("8", "        ")
-    nfen = ""
-    for a in range(8, 0, -1):
-        for b in range(0, 8):
-            nfen = nfen + curfen[((a - 1) * 8) + b]
-    lboard = Image.new('1', (128, 128), 255)
-    draw = ImageDraw.Draw(lboard)
-    chessfont = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
-    for x in range(0,64):
-        pos = (x - 63) * -1
-        row = (16 * (pos // 8))
-        col = (x % 8) * 16
-        px = 0
-        r = x // 8
-        c = x % 8
-        py = 0
-        if (r // 2 == r / 2 and c // 2 == c / 2):
-            py = py + 16
-        if (r //2 != r / 2 and c // 2 != c / 2):
-            py = py + 16
-        if nfen[x] == "P":
-            px = 16
-        if nfen[x] == "R":
-            px = 32
-        if nfen[x] == "N":
-            px = 48
-        if nfen[x] == "B":
-            px = 64
-        if nfen[x] == "Q":
-            px = 80
-        if nfen[x] == "K":
-            px = 96
-        if nfen[x] == "p":
-            px = 112
-        if nfen[x] == "r":
-            px = 128
-        if nfen[x] == "n":
-            px = 144
-        if nfen[x] == "b":
-            px = 160
-        if nfen[x] == "q":
-            px = 176
-        if nfen[x] == "k":
-            px = 192
-        piece = chessfont.crop((px, py, px+16, py+16))
-        if computeronturn == 1:
-            piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
-            piece = piece.transpose(Image.FLIP_LEFT_RIGHT)                    
-        lboard.paste(piece,(col, row))
-    draw.rectangle([(0,0),(127,127)],fill=None,outline='black')
-    epaper.drawImagePartial(0, 81, lboard)    
+    try:
+        print(f"drawBoardLocal: Starting to draw board with FEN: {fen[:20]}...")
+        global computeronturn
+        curfen = str(fen)
+        curfen = curfen.replace("/", "")
+        curfen = curfen.replace("1", " ")
+        curfen = curfen.replace("2", "  ")
+        curfen = curfen.replace("3", "   ")
+        curfen = curfen.replace("4", "    ")
+        curfen = curfen.replace("5", "     ")
+        curfen = curfen.replace("6", "      ")
+        curfen = curfen.replace("7", "       ")
+        curfen = curfen.replace("8", "        ")
+        nfen = ""
+        for a in range(8, 0, -1):
+            for b in range(0, 8):
+                nfen = nfen + curfen[((a - 1) * 8) + b]
+        lboard = Image.new('1', (128, 128), 255)
+        draw = ImageDraw.Draw(lboard)
+        chessfont = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
+        for x in range(0,64):
+            pos = (x - 63) * -1
+            row = (16 * (pos // 8))
+            col = (x % 8) * 16
+            px = 0
+            r = x // 8
+            c = x % 8
+            py = 0
+            if (r // 2 == r / 2 and c // 2 == c / 2):
+                py = py + 16
+            if (r //2 != r / 2 and c // 2 != c / 2):
+                py = py + 16
+            if nfen[x] == "P":
+                px = 16
+            if nfen[x] == "R":
+                px = 32
+            if nfen[x] == "N":
+                px = 48
+            if nfen[x] == "B":
+                px = 64
+            if nfen[x] == "Q":
+                px = 80
+            if nfen[x] == "K":
+                px = 96
+            if nfen[x] == "p":
+                px = 112
+            if nfen[x] == "r":
+                px = 128
+            if nfen[x] == "n":
+                px = 144
+            if nfen[x] == "b":
+                px = 160
+            if nfen[x] == "q":
+                px = 176
+            if nfen[x] == "k":
+                px = 192
+            piece = chessfont.crop((px, py, px+16, py+16))
+            if computeronturn == 1:
+                piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
+                piece = piece.transpose(Image.FLIP_LEFT_RIGHT)                    
+            lboard.paste(piece,(col, row))
+        draw.rectangle([(0,0),(127,127)],fill=None,outline='black')
+        epaper.drawImagePartial(0, 81, lboard)    
+    except Exception as e:
+        print(f"Error in drawBoardLocal: {e}")
+        import traceback
+        traceback.print_exc()
     
 # Activate the epaper
 epaper.initEpaper()
@@ -460,10 +471,6 @@ else:
 
 while kill == 0:    
     time.sleep(0.1)
-    if pendingEvent is not None:
-        print(f"Processing pending event: {pendingEvent}")
-        eventCallback(pendingEvent)
-        pendingEvent = None
     
 
 gamemanager.unsubscribeGame()
