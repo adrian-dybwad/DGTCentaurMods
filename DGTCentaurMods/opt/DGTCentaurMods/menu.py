@@ -489,7 +489,7 @@ while True:
                     cmd = (
                         'sudo sh -c "'
                         + str(pathlib.Path(__file__).parent.resolve())
-                        + 'scripts/wifi_backup.sh backup"'
+                        + '/scripts/wifi_backup.sh backup"'
                     )                    
                     centaur.shell_run(cmd)
                 result = doMenu(wifimenu, "Wifi Setup")
@@ -573,7 +573,7 @@ while True:
                         cmd = (
                             'sudo sh -c "'
                             + str(pathlib.Path(__file__).parent.resolve())
-                            + 'scripts/wifi_backup.sh restore"'
+                            + '/scripts/wifi_backup.sh restore"'
                         )
                         centaur.shell_run(cmd)                    
                         timeout = time.time() + 20
@@ -697,7 +697,7 @@ while True:
     if result == "Engines":
         enginemenu = {"stockfish": "Stockfish"}
         # Pick up the engines from the engines folder and build the menu
-        enginepath = str(pathlib.Path(__file__).parent.resolve()) + "engines/"
+        enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/engines/"
         enginefiles = os.listdir(enginepath)
         enginefiles = list(
             filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
