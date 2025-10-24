@@ -495,15 +495,12 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
             # Request a raw snapshot (header + payload)
             resp = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT)
 
-            resp = bytearray(resp)
-            print(f"[RESP] {' '.join(f'{b:02x}' for b in resp)}")
-            payload = resp[1:]
-            print(f"[PAYLOAD] {' '.join(f'{b:02x}' for b in payload)}")
+            payload = bytearray(resp)
             boarddata = BOARD_CLEAR_STATE.copy()
             upperlimit = 32000
             lowerlimit = 300
             # payload is 64 words (big-endian 16-bit)
-            for i in range(0, 128, 2):
+            for i in range(1, 128, 2):
                 tval = (payload[i] << 8) | payload[i+1]
                 boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
 
