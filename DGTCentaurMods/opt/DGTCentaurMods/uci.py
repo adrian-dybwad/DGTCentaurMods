@@ -169,6 +169,9 @@ def executeComputerMove(mv):
         # Update gamemanager's board state tracking to prevent NEW_GAME false triggers
         print("Collecting new board state for gamemanager")
         gamemanager.collectBoardState()
+        # Call moveCallback to update the display with the new position
+        print(f"Calling moveCallback to display the move")
+        moveCallback(mv)
         # Switch turns
         global curturn
         if curturn == 0:
