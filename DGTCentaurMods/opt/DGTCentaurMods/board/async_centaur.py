@@ -383,14 +383,14 @@ class AsyncCentaur:
                             print(f"After trimming: self.response_buffer: {self.response_buffer}")
         
         self.response_buffer.append(byte)
-        print(f"After appending: self.response_buffer: {self.response_buffer}")
+        #print(f"After appending: self.response_buffer: {self.response_buffer}")
 
         # Handle discovery state machine
         if self.discovery_state == "INITIALIZING":
             # Got a response to initial commands, now send discovery packet
             self._discover_board_address(self.response_buffer)
 
-        print(f"response_buffer: {self.response_buffer}")
+        #print(f"response_buffer: {self.response_buffer}")
         # Check if this byte is a checksum boundary
         if len(self.response_buffer) >= 2:
             #print(f"\nlen(self.response_buffer): {len(self.response_buffer)}")
