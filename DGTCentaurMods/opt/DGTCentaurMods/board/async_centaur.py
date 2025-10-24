@@ -109,7 +109,8 @@ class CommandSpec:
 
 COMMANDS: Dict[str, CommandSpec] = {
     "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(b"\xf0\x00\x07", 0xF0, b'\x7f'),
-    "DGT_DISCOVERY":          CommandSpec(b"\x4d\x4e", 0x93, None),
+    "DGT_DISCOVERY_REQ":          CommandSpec(b"\x4d\x4e", 0x93, None),
+    "DGT_DISCOVERY_ACK":          CommandSpec(b"\x87", 0x87, None),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(b"\x83", 0x85, None),
     "DGT_BUS_POLL_KEYS":      CommandSpec(b"\x94", 0xB1, None),
     "DGT_SEND_BATTERY_INFO":  CommandSpec(b"\x98", 0xB5, None),
@@ -937,11 +938,10 @@ class AsyncCentaur:
         if packet is None:
             if self.discovery_state == "STARTING":
                 self.discovery_state = "INITIALIZING"
-                self.discovery_state = "AWAITING_PACKET"
                 print("Discovery: STARTING - sending 0x4d and 0x4e")
                 #tosend = bytearray(b'\x4d\x4e')
                 #self.ser.write(tosend)
-                self.sendPacket(DGT_DISCOVERY)
+                self.sendPacket(DGT_DISCOVERY_REQ)
 
             return
 
@@ -951,8 +951,9 @@ class AsyncCentaur:
             hex_row = ' '.join(f'{b:02x}' for b in packet)
             #print(f"[INIT_RESPONSE] {hex_row}")
             print("Discovery: sending discovery packet 0x87 0x00 0x00 0x07")
-            tosend = bytearray(b'\x87\x00\x00\x07')
-            self.ser.write(tosend)
+            #tosend = bytearray(DGT_DISCOVERY_ACK)
+            #self.ser.write(tosend)
+            self.sendPacket(DGT_DISCOVERY_ACK)
         
         elif self.discovery_state == "AWAITING_PACKET":
             if len(packet) > 4:
