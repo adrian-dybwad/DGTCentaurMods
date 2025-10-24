@@ -540,12 +540,9 @@ time.sleep(1)
 eventCallback(gamemanager.EVENT_NEW_GAME)
 time.sleep(1)
 print("Game started, triggering initial turn")
-if computeronturn == 1:
-    print("Computer is white, triggering white turn")
-    eventCallback(gamemanager.EVENT_WHITE_TURN)
-else:
-    print("Computer is black, triggering black turn")
-    eventCallback(gamemanager.EVENT_BLACK_TURN)
+# Always start with WHITE_TURN since white moves first in chess
+print("Triggering initial white turn")
+eventCallback(gamemanager.EVENT_WHITE_TURN)
 
 try:
     while kill == 0:    
