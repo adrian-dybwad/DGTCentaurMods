@@ -355,14 +355,14 @@ class AsyncCentaur:
         print(f"Processing response: {byte}")
         # Detect packet start sequence (<START_TYPE_BYTE> 00) while buffer has data
         HEADER_DATA_BYTES = 4
-        if (len(self.response_buffer) >= HEADER_DATA_BYTES:
+        if len(self.response_buffer) >= HEADER_DATA_BYTES:
             if self.response_buffer[-HEADER_DATA_BYTES] in START_TYPE_BYTES:
                 print(f"START_TYPE_BYTES: {self.response_buffer[-HEADER_DATA_BYTES]}")
                 if self.response_buffer[-HEADER_DATA_BYTES+1] == self.addr1:
                     print(f"addr1: {self.addr1}")
                     if byte == self.addr2: 
                         print(f"addr2: {self.addr2}")
-                        if len(self.response_buffer) > HEADER_DATA_BYTES):
+                        if len(self.response_buffer) > HEADER_DATA_BYTES:
                             print(f"Packet start detected: {self.response_buffer[-HEADER_DATA_BYTES:]}")
                             print(f"addr1: {self.addr1}, addr2: {self.addr2}")
                             print(f"byte: {byte}")
