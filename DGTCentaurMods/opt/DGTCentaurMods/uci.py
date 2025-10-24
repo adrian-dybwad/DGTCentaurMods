@@ -166,9 +166,6 @@ def executeComputerMove(mv):
         f = open(fenlog, "w")
         f.write(gamemanager.cboard.fen())
         f.close()
-        # Update gamemanager's board state tracking to prevent NEW_GAME false triggers
-        print("Collecting new board state for gamemanager")
-        gamemanager.collectBoardState()
         # Call moveCallback to update the display with the new position
         print(f"Calling moveCallback to display the move")
         moveCallback(mv)
