@@ -387,7 +387,7 @@ class AsyncCentaur:
         print(f"response_buffer: {self.response_buffer}")
         # Check if this byte is a checksum boundary
         if len(self.response_buffer) >= 2:
-            print(f"len(self.response_buffer): {len(self.response_buffer)}")
+            print(f"\nlen(self.response_buffer): {len(self.response_buffer)}")
             print(f"self.response_buffer: {self.response_buffer}")
             print(f"byte: {byte}")
             calculated_checksum = self.checksum(self.response_buffer[:-1])
