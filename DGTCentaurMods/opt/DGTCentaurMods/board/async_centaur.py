@@ -947,14 +947,14 @@ class AsyncCentaur:
 
         # Called from processResponse() with a complete packet
         if self.discovery_state == "INITIALIZING":
-            self.discovery_state = "AWAITING_PACKET"
             hex_row = ' '.join(f'{b:02x}' for b in packet)
             #print(f"[INIT_RESPONSE] {hex_row}")
-            print("Discovery: sending discovery packet 0x87 0x00 0x00 0x07")
+            #print("Discovery: sending discovery packet 0x87 0x00 0x00 0x07")
             #tosend = bytearray(DGT_DISCOVERY_ACK)
             #self.ser.write(tosend)
             if len(packet) == 5 and packet[0] == 0x93:
                 print(f"Discovery: ACK received")
+                self.discovery_state = "AWAITING_PACKET"
                 # Also clear parser buffer so header detection won't prepend stale bytes
                 self.response_buffer = bytearray()
                 self.sendPacket(DGT_DISCOVERY_ACK)
