@@ -81,9 +81,9 @@ if os.uname().machine=="armv7l":
 # Expect the first argument to be 'white' 'black' or 'random' for what the player is playing
 computerarg = sys.argv[1]
 if computerarg == "white":
-    computeronturn = 0
+    computeronturn = 1  # 1 = white's turn (matches curturn encoding)
 if computerarg == "black":
-    computeronturn = 1
+    computeronturn = 0  # 0 = black's turn (matches curturn encoding)
 if computerarg == "random":
     computeronturn = randint(0,1)
 
