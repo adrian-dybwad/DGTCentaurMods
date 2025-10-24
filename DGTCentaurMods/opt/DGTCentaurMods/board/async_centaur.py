@@ -358,12 +358,20 @@ class AsyncCentaur:
         if len(self.response_buffer) >= HEADER_DATA_BYTES:
             print(f"response_buffer longer than HEADER_DATA_BYTES: {HEADER_DATA_BYTES}")
             if self.response_buffer[-HEADER_DATA_BYTES] in START_TYPE_BYTES:
-                print(f"START_TYPE_BYTES: {self.response_buffer[-HEADER_DATA_BYTES]}")
+                print(f"IS : {self.response_buffer[-HEADER_DATA_BYTES]}")
+                print(f"IN START_TYPE_BYTES: {START_TYPE_BYTES}")
+                print(f"self.response_buffer[-HEADER_DATA_BYTES]: {self.response_buffer[-HEADER_DATA_BYTES]}")
+                print(f"self.response_buffer[-HEADER_DATA_BYTES+1]: {self.response_buffer[-HEADER_DATA_BYTES+1]}")
+                print(f"self.response_buffer[-HEADER_DATA_BYTES+1] == self.addr1: {self.response_buffer[-HEADER_DATA_BYTES+1] == self.addr1}")
+                print(f"addr1: {self.addr1}")
                 if self.response_buffer[-HEADER_DATA_BYTES+1] == self.addr1:
-                    print(f"addr1: {self.addr1}")
+                    print(f"addr1 matches")
+                    print(f"addr2: {self.addr2}")
+                    print(f"byte == self.addr2: {byte == self.addr2}")
                     if byte == self.addr2: 
-                        print(f"addr2: {self.addr2}")
+                        print(f"addr2 matches")
                         if len(self.response_buffer) > HEADER_DATA_BYTES:
+                            print(f"len(self.response_buffer) > HEADER_DATA_BYTES (WE HAVE A PREVIOUS PARTIAL PACKET)")
                             print(f"Packet start detected: {self.response_buffer[-HEADER_DATA_BYTES:]}")
                             print(f"addr1: {self.addr1}, addr2: {self.addr2}")
                             print(f"byte: {byte}")
