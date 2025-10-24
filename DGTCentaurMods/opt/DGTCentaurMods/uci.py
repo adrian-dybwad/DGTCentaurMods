@@ -154,6 +154,7 @@ def eventCallback(event):
     global kill
     global scorehistory
     # This function receives event callbacks about the game in play
+    print(f">>> eventCallback START: event={event}")
     try:
         print(f"EventCallback triggered with event: {event}")
         if event == gamemanager.EVENT_NEW_GAME:        
@@ -171,6 +172,7 @@ def eventCallback(event):
             epaper.unPauseEpaper()
         if event == gamemanager.EVENT_WHITE_TURN:
             curturn = 1
+            print(f"WHITE_TURN event: curturn={curturn}, computeronturn={computeronturn}")
             if graphson == 1:            
                 info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))
                 epaper.pauseEpaper()
@@ -178,16 +180,28 @@ def eventCallback(event):
                 epaper.unPauseEpaper()
             drawBoardLocal(gamemanager.cboard.fen())  
             if curturn == computeronturn:            
+                print(f"Computer's turn! Current FEN: {gamemanager.cboard.fen()}")
                 if ucioptions != {}:
+                    print(f"Configuring engine with options: {ucioptions}")
                     options = (ucioptions)
                     pengine.configure(options)
                 limit = chess.engine.Limit(time=5)
-                mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
-                mv = mv.move
-                gamemanager.computerMove(str(mv))
-                executeComputerMove(str(mv))
+                print(f"Asking engine to play from FEN: {gamemanager.cboard.fen()}")
+                try:
+                    mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
+                    print(f"Engine returned: {mv}")
+                    mv = mv.move
+                    print(f"Move extracted: {mv}")
+                    gamemanager.computerMove(str(mv))
+                    print(f"Called computerMove with: {str(mv)}")
+                    executeComputerMove(str(mv))
+                except Exception as e:
+                    print(f"Error in WHITE_TURN computer move: {e}")
+                    import traceback
+                    traceback.print_exc()
         if event == gamemanager.EVENT_BLACK_TURN:
             curturn = 0
+            print(f"BLACK_TURN event: curturn={curturn}, computeronturn={computeronturn}")
             if graphson == 1:            
                 info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))    
                 epaper.pauseEpaper()    
@@ -195,14 +209,25 @@ def eventCallback(event):
                 epaper.unPauseEpaper()
             drawBoardLocal(gamemanager.cboard.fen())    
             if curturn == computeronturn:            
+                print(f"Computer's turn! Current FEN: {gamemanager.cboard.fen()}")
                 if ucioptions != {}:
+                    print(f"Configuring engine with options: {ucioptions}")
                     options = (ucioptions)
                     pengine.configure(options)
                 limit = chess.engine.Limit(time=5)
-                mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
-                mv = mv.move
-                gamemanager.computerMove(str(mv))
-                executeComputerMove(str(mv))
+                print(f"Asking engine to play from FEN: {gamemanager.cboard.fen()}")
+                try:
+                    mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
+                    print(f"Engine returned: {mv}")
+                    mv = mv.move
+                    print(f"Move extracted: {mv}")
+                    gamemanager.computerMove(str(mv))
+                    print(f"Called computerMove with: {str(mv)}")
+                    executeComputerMove(str(mv))
+                except Exception as e:
+                    print(f"Error in BLACK_TURN computer move: {e}")
+                    import traceback
+                    traceback.print_exc()
         if event == gamemanager.EVENT_RESIGN_GAME:
             gamemanager.resignGame(computeronturn + 1)
 
