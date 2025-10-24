@@ -197,16 +197,13 @@ def displayScreenBufferPartial():
     epd.DisplayPartial(epd.getbuffer(image))
     time.sleep(0.1)
 
-def close():
-    asyncserial.close()
+def cleanup(leds_off: bool = True):
+    asyncserial.cleanup(leds_off=True)
+
 
 def run_background(start_key_polling=False):
     asyncserial.run_background(start_key_polling=start_key_polling)
     
-def clearSerial():
-    logging.debug('Checking and clear the serial line.')
-    asyncserial.clearSerial()
-
 # def doMenu(items, fast = 0):
 #     print(f"doMenu: {items}, Fast: {fast}")
 #     # Draw a menu, let the user navigate and return the value
@@ -674,7 +671,6 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 to = time.time() + 100000
                                 break
                             else:
-                                clearSerial()
                                 epaper.standbyScreen(False)
                                 logging.debug('Cancel shutdown')
                                 sd.cancel()
@@ -718,7 +714,6 @@ def eventsThread(keycallback, fieldcallback, tout):
 def subscribeEvents(keycallback, fieldcallback, timeout=100000):
     # Called by any program wanting to subscribe to events
     # Arguments are firstly the callback function for key presses, secondly for piece lifts and places
-    clearSerial()
     eventsthreadpointer = threading.Thread(target=eventsThread, args=([keycallback, fieldcallback, timeout]))
     eventsthreadpointer.daemon = True
     eventsthreadpointer.start()

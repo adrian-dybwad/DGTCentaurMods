@@ -177,7 +177,7 @@ def doMenu(menu, title=None):
 board.ledsOff()
 board.beep(board.SOUND_POWER_ON)
 epaper.initEpaper(1)
-board.clearSerial()
+board.cleanup(leds_off=True)
 statusbar = epaper.statusBar()
 statusbar.start()
 update = centaur.UpdateSystem()
@@ -205,7 +205,7 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
     try:
         epaper.loadingScreen()
         board.pauseEvents()
-        board.close()
+        board.cleanup(leds_off=True)
         statusbar.stop()
 
         script_path = str((pathlib.Path(__file__).parent / script_rel_path).resolve())
@@ -344,8 +344,8 @@ while True:
         epaper.loadingScreen()
         #time.sleep(1)
         board.pauseEvents()
+        board.cleanup(leds_off=True)
         statusbar.stop()
-        board.ser.close()
         time.sleep(1)
         os.chdir("/home/pi/centaur")
         os.system("sudo ./centaur")
@@ -603,6 +603,7 @@ while True:
                 epaper.stopEpaper()
                 time.sleep(2)
                 board.pauseEvents()
+                board.cleanup(leds_off=True)
                 os.system("/sbin/shutdown -r now &")
                 sys.exit()
             if result == "reverseshell":

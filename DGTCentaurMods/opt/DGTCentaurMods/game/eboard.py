@@ -993,7 +993,6 @@ def pieceMoveDetectionThread():
 					startstateflag = 1
 					castlemode = 0
 					liftedthisturn = 0
-					board.clearSerial()
 					# Log a new game in the db
 					game = models.Game(
 						source=source

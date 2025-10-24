@@ -593,7 +593,6 @@ def subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback = N
     Session = sessionmaker(bind=models.engine)
     session = Session()
 
-    board.clearSerial()    
     gamethread = threading.Thread(target=gameThread, args=([eventCallback, moveCallback, keyCallback, takebackCallback]))
     gamethread.daemon = True
     gamethread.start()

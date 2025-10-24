@@ -103,8 +103,6 @@ def getText(title="Enter text"):
                 traceback.print_exc()
                 res = [0] * 64
 
-            board.clearSerial()
-
             def _render():
                 nonlocal typed, charpage
                 try:

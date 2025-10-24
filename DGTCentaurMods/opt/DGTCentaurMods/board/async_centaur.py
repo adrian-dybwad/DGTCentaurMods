@@ -220,6 +220,7 @@ class AsyncCentaur:
         self.spinner = itertools.cycle(['|', '/', '-', '\\'])
         self.response_buffer = bytearray()
         self.packet_count = 0
+        self._closed = False
         # queue to signal key-up events as (code, name)
         self.key_up_queue = queue.Queue(maxsize=128)
         # track last key-up (code, name) for non-blocking retrieval
@@ -940,21 +941,87 @@ class AsyncCentaur:
                 #self.sendPacket(DGT_BUS_SEND_CHANGES) #Piece detection enabled
                 #  (No need to send this here, it will be sent in the handle_board_packet function when the board is ready  )
     
-    def close(self):
-        """Close the serial connection"""
-        self.stop_listener()
-        if self.ser:
-            self.ser.close()
-            print("Serial port closed")
+    def cleanup(self, leds_off: bool = True):
+        """Idempotent cleanup: stop threads, clear waiters/buffers, LEDs off, close serial."""
+        if getattr(self, "_closed", False):
+            return
+        # Stop listener and join thread
+        try:
+            self.listener_running = False
+            t = getattr(self, "listener_thread", None)
+            if t and t.is_alive():
+                t.join(timeout=1.0)
+        except Exception:
+            pass
 
-    def clearSerial(self):
-        #TODO: Reset things, clear lastKey, moves that may have accumulated etc. 
-        #Rename this function to something like resetBoardState()
+        # Best-effort LEDs off
+        if leds_off:
+            try:
+                self.ledsOff()
+            except Exception:
+                pass
+
+        # Clear outstanding waiter (packet mode)
+        try:
+            with self._waiter_lock:
+                w = self._response_waiter
+                if isinstance(w, dict):
+                    try:
+                        timer = w.get('timer')
+                        if timer:
+                            try:
+                                timer.cancel()
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                self._response_waiter = None
+        except Exception:
+            pass
+
+        # Clear raw waiter
+        try:
+            with self._raw_waiter_lock:
+                self._raw_waiter = None
+        except Exception:
+            pass
+
+        # Reset parser buffer and drain serial
+        try:
+            self.response_buffer = bytearray()
+        except Exception:
+            pass
+        try:
+            if self.ser:
+                try:
+                    self.ser.reset_input_buffer()
+                    self.ser.reset_output_buffer()
+                except Exception:
+                    try:
+                        n = getattr(self.ser, 'in_waiting', 0) or 0
+                        if n:
+                            self.ser.read(n)
+                    except Exception:
+                        try:
+                            self.ser.read(10000)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+        # Mark not-ready and close serial
+        self.ready = False
+        try:
+            if self.ser:
+                self.ser.close()
+        except Exception:
+            pass
+        self._closed = True
+
         self._last_button = (None, None)
-        #self.sendPacket(DGT_BUS_SEND_CHANGES)
-        #self.sendPacket(DGT_BUS_POLL_KEYS)
+        
+        print("AsyncCentaur cleaned up")
 
-        print('Board is idle.')
 
     def rotateField(self, field):
         lrow = (field // 8)

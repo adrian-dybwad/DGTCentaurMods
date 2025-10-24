@@ -75,6 +75,11 @@ def do_cleanup():
     except:
         pass
     try:
+        # Ensure async driver is cleaned up too
+        board.cleanup(leds_off=True)
+    except Exception:
+        pass
+    try:
         aengine.quit()
     except:
         pass

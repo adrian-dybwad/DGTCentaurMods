@@ -121,7 +121,6 @@ def doMenu(menu):
 # image epaper.epaperbuffer to change the screen.
 os.system("ps -ef | grep 'cchandler.py' | grep -v grep | awk '{print $2}' | xargs -r kill -9")
 board.ledsOff()
-board.clearSerial()
 epaper.initEpaper()
 # Subscribe to board events. First parameter is the function for key presses. The second is the function for
 # field activity

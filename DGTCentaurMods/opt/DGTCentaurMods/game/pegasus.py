@@ -309,7 +309,6 @@ class UARTTXCharacteristic(Characteristic):
         print("started notifying")
         epaper.writeText(13, "              ")
         epaper.writeText(13, "Connected")
-        board.clearSerial()
         board.clearBoardData()
         board.beep(board.SOUND_GENERAL)
         UARTService.tx_obj = self
