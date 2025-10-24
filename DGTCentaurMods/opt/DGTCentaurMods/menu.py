@@ -177,7 +177,6 @@ def doMenu(menu, title=None):
 board.ledsOff()
 board.beep(board.SOUND_POWER_ON)
 epaper.initEpaper(1)
-board.cleanup(leds_off=True)
 statusbar = epaper.statusBar()
 statusbar.start()
 update = centaur.UpdateSystem()
