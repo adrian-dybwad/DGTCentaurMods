@@ -181,24 +181,10 @@ def executeComputerMove(mv):
         gamemanager.computermove = ""
         gamemanager.sourcesq = -1
         gamemanager.legalsquares = []
-        # Switch turns
-        global curturn
-        if curturn == 0:
-            curturn = 1
-        else:
-            curturn = 0
-        print(f"Turn switched to: {curturn}")
-        time.sleep(0.3)
-        # Turn off the LEDs since we've executed the move in code (fieldcallback won't be called)
-        print("Turning off LEDs")
-        board.ledsOff()
-        # Immediately trigger the next turn callback
-        if curturn == 0:
-            print("Triggering BLACK_TURN event")
-            eventCallback(gamemanager.EVENT_BLACK_TURN)
-        else:
-            print("Triggering WHITE_TURN event")
-            eventCallback(gamemanager.EVENT_WHITE_TURN)
+        # DO NOT turn off LEDs or call eventCallback recursively
+        # Let the normal board detection and gamemanager flow continue
+        print("Computer move complete. Waiting for player move on board.")
+        return
     except Exception as e:
         print(f"Error in executeComputerMove: {e}")
         import traceback
