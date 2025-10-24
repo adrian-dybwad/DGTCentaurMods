@@ -215,7 +215,6 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
     finally:
         epaper.quickClear()
         board.run_background(start_key_polling=start_key_polling)
-        board.wait_ready(timeout=10)
         board.unPauseEvents()
         statusbar.start()
 
