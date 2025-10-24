@@ -540,7 +540,7 @@ time.sleep(1)
 eventCallback(gamemanager.EVENT_NEW_GAME)
 time.sleep(1)
 print("Game started, triggering initial turn")
-if computeronturn == 0:
+if computeronturn == 1:
     print("Computer is white, triggering white turn")
     eventCallback(gamemanager.EVENT_WHITE_TURN)
 else:
