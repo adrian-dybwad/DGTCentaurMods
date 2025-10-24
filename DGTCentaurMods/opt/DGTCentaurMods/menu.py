@@ -699,8 +699,7 @@ while True:
     if result == "Engines":
         enginemenu = {"stockfish": "Stockfish"}
         # Pick up the engines from the engines folder and build the menu
-        ENGINE_PATH = "engines"
-        enginepath = str((pathlib.Path(__file__).parent / ENGINE_PATH).resolve())
+        enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/engines/"
         enginefiles = os.listdir(enginepath)
         enginefiles = list(
             filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
