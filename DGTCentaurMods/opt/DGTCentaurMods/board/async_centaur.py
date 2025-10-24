@@ -355,23 +355,26 @@ class AsyncCentaur:
         print(f"Processing response: {byte}")
         # Detect packet start sequence (<START_TYPE_BYTE> 00) while buffer has data
         HEADER_DATA_BYTES = 4
-        if (len(self.response_buffer) >= HEADER_DATA_BYTES and 
-            self.response_buffer[-HEADER_DATA_BYTES] in START_TYPE_BYTES and 
-            self.response_buffer[-HEADER_DATA_BYTES+1] == self.addr1 and
-            byte == self.addr2 and 
-            len(self.response_buffer) > HEADER_DATA_BYTES):
-            print(f"Packet start detected: {self.response_buffer[-HEADER_DATA_BYTES:]}")
-            print(f"addr1: {self.addr1}, addr2: {self.addr2}")
-            print(f"byte: {byte}")
-            print(f"len(self.response_buffer): {len(self.response_buffer)}")
-            print(f"START_TYPE_BYTES: {START_TYPE_BYTES}")
-            print(f"HEADER_DATA_BYTES: {HEADER_DATA_BYTES}")
-            print(f"self.response_buffer: {self.response_buffer}")
-            # Log orphaned data (everything except the 85)
-            hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
-            print(f"[ORPHANED] {hex_row}")
-            self.response_buffer = bytearray([self.response_buffer[-HEADER_DATA_BYTES]])  # Keep the detected start byte, add the 00 below
-            print(f"After trimming: self.response_buffer: {self.response_buffer}")
+        if (len(self.response_buffer) >= HEADER_DATA_BYTES:
+            if self.response_buffer[-HEADER_DATA_BYTES] in START_TYPE_BYTES:
+                print(f"START_TYPE_BYTES: {self.response_buffer[-HEADER_DATA_BYTES]}")
+                if self.response_buffer[-HEADER_DATA_BYTES+1] == self.addr1:
+                    print(f"addr1: {self.addr1}")
+                    if byte == self.addr2: 
+                        print(f"addr2: {self.addr2}")
+                        if len(self.response_buffer) > HEADER_DATA_BYTES):
+                            print(f"Packet start detected: {self.response_buffer[-HEADER_DATA_BYTES:]}")
+                            print(f"addr1: {self.addr1}, addr2: {self.addr2}")
+                            print(f"byte: {byte}")
+                            print(f"len(self.response_buffer): {len(self.response_buffer)}")
+                            print(f"START_TYPE_BYTES: {START_TYPE_BYTES}")
+                            print(f"HEADER_DATA_BYTES: {HEADER_DATA_BYTES}")
+                            print(f"self.response_buffer: {self.response_buffer}")
+                            # Log orphaned data (everything except the 85)
+                            hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
+                            print(f"[ORPHANED] {hex_row}")
+                            self.response_buffer = bytearray([self.response_buffer[-HEADER_DATA_BYTES]])  # Keep the detected start byte, add the 00 below
+                            print(f"After trimming: self.response_buffer: {self.response_buffer}")
         
         self.response_buffer.append(byte)
         print(f"After appending: self.response_buffer: {self.response_buffer}")
