@@ -47,33 +47,58 @@ firstmove = 1
 graphson = 0 # Default to graphs off, for pi zero w users
 scorehistory = []
 last_event = None  # Track last event to prevent duplicate NEW_GAME resets
+cleaned_up = False
+
+def do_cleanup():
+    global cleaned_up
+    if cleaned_up:
+        return
+    cleaned_up = True
+    try:
+        board.ledsOff()
+    except:
+        pass
+    try:
+        # resume hardware event flow in case we paused for promotion/graphs
+        board.unPauseEvents()
+    except:
+        pass
+    try:
+        gamemanager.forcemove = 0
+        gamemanager.computermove = ""
+        gamemanager.sourcesq = -1
+        gamemanager.legalsquares = []
+    except:
+        pass
+    try:
+        gamemanager.unsubscribeGame()
+    except:
+        pass
+    try:
+        aengine.quit()
+    except:
+        pass
+    try:
+        pengine.quit()
+    except:
+        pass
 
 def cleanup_and_exit(signum=None, frame=None):
     """Clean up resources and exit gracefully"""
     global kill
     print("\n>>> Cleaning up and exiting...")
     kill = 1
-    try:
-        print("Turning off LEDs...")
-        board.ledsOff()
-    except:
-        pass
-    try:
-        print("Quitting engines...")
-        aengine.quit()
-        pengine.quit()
-    except:
-        pass
-    try:
-        print("Unsubscribing from gamemanager...")
-        gamemanager.unsubscribeGame()
-    except:
-        pass
+    do_cleanup()
     print("Goodbye!")
     sys.exit(0)
 
 # Register signal handler for Ctrl+C
 signal.signal(signal.SIGINT, cleanup_and_exit)
+# Also handle SIGTERM for robustness
+try:
+    signal.signal(signal.SIGTERM, cleanup_and_exit)
+except Exception:
+    pass
 
 if os.uname().machine=="armv7l":
     # The pi zero 2 w is armv71, so turn it on if we detect that
@@ -567,15 +592,4 @@ except KeyboardInterrupt:
     cleanup_and_exit()
 finally:
     print(">>> Final cleanup")
-    try:
-        gamemanager.unsubscribeGame()
-    except:
-        pass
-    try:
-        aengine.quit()
-    except:
-        pass
-    try:
-        pengine.quit()
-    except:
-        pass
+    do_cleanup()
