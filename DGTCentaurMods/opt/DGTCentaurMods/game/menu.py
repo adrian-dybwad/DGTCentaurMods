@@ -118,6 +118,8 @@ def keyPressed(id):
 
 quickselect = 0
 
+COLOR_MENU = {"white": "White", "black": "Black", "random": "Random"}
+
 def doMenu(menu, title=None):
     print(f"doMenu: {menu}, Title: {title}")
     # Draws a menu and waits for the response in the global variable 'selection'
@@ -197,6 +199,25 @@ def show_welcome():
 
 show_welcome()
 epaper.quickClear()
+
+
+def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:
+    try:
+        epaper.loadingScreen()
+        board.pauseEvents()
+        board.close()
+        statusbar.stop()
+
+        script_path = str((pathlib.Path(__file__).parent / script_rel_path).resolve())
+        cmd = [sys.executable, script_path, *map(str, args)]
+        result = subprocess.run(cmd, check=False)
+        return result.returncode
+    finally:
+        epaper.quickClear()
+        board.run_background(start_key_polling=start_key_polling)
+        board.wait_ready(timeout=10)
+        board.unPauseEvents()
+        statusbar.start()
 
 
 def connect_to_wifi(ssid, password):
@@ -317,17 +338,7 @@ while True:
         board.beep(board.SOUND_POWER_OFF)
         show_welcome()
     if result == "Cast":
-        epaper.loadingScreen()
-        board.pauseEvents()
-        statusbar.stop()
-        os.system(
-            str(sys.executable)
-            + " "
-            + str(pathlib.Path(__file__).parent.resolve())
-            + "/../display/chromecast.py"
-        )
-        board.unPauseEvents()
-        statusbar.start()
+        rc = run_external_script("../display/chromecast.py", start_key_polling=True)
     if result == "Centaur":
         epaper.loadingScreen()
         #time.sleep(1)
@@ -342,62 +353,16 @@ while True:
         os.system("sudo systemctl stop DGTCentaurMods.service")
         sys.exit()
     if result == "pegasus":
-        epaper.loadingScreen()
-        statusbar.stop()
-        board.pauseEvents()
-        os.system(
-            str(sys.executable)
-            + " "
-            + str(pathlib.Path(__file__).parent.resolve())
-            + "/pegasus.py"
-        )
-        statusbar.start()
-        board.unPauseEvents()
+        rc = run_external_script("../pegasus.py", start_key_polling=True)
     if result == "EmulateEB":
-        boardmenu = {
-            "dgtclassic": "DGT REVII",
-            "millennium": "Millennium",
-        }
+        boardmenu = {"dgtclassic": "DGT REVII", "millennium": "Millennium"}
         result = doMenu(boardmenu, "e-Board")
         if result == "dgtclassic":
-            epaper.loadingScreen()
-            board.pauseEvents()
-            statusbar.stop()
-            os.system(
-                "sudo "
-                + str(sys.executable)
-                + " "
-                + str(pathlib.Path(__file__).parent.resolve())
-                + "/eboard.py"
-            )
-            board.unPauseEvents()
-            statusbar.start()
+            rc = run_external_script("../eboard.py", start_key_polling=True)
         if result == "millennium":
-            epaper.loadingScreen()
-            board.pauseEvents()
-            statusbar.stop()
-            os.system(
-                "sudo "
-                + str(sys.executable)
-                + " "
-                + str(pathlib.Path(__file__).parent.resolve())
-                + "/millenium.py"
-            )
-            board.unPauseEvents()
-            statusbar.start()
+            rc = run_external_script("../millenium.py", start_key_polling=True)
     if result == "1v1Analysis":
-        epaper.loadingScreen()
-        board.pauseEvents()
-        statusbar.stop()
-        os.system(
-            "sudo "
-            + str(sys.executable)
-            + " "
-            + str(pathlib.Path(__file__).parent.resolve())
-            + "/1v1Analysis.py"
-        )
-        epaper.quickClear()
-        board.unPauseEvents()
+        rc = run_external_script("../1v1Analysis.py", start_key_polling=True)
     if result == "settings":
         setmenu = {
             "WiFi": "Wifi Setup",
@@ -622,29 +587,9 @@ while True:
                             time.sleep(4)
 
             if result == "Pairing":
-                board.pauseEvents()
-                statusbar.stop()
-                epaper.loadingScreen()
-                os.system(
-                    str(sys.executable)
-                    + " "
-                    + str(pathlib.Path(__file__).parent.resolve())
-                    + "/../config/pair.py"
-                )
-                board.unPauseEvents()
-                statusbar.start()
+                rc = run_external_script("../config/pair.py", start_key_polling=True)
             if result == "LichessAPI":
-                board.pauseEvents()
-                statusbar.stop()
-                epaper.loadingScreen()
-                os.system(
-                    str(sys.executable)
-                    + " "
-                    + str(pathlib.Path(__file__).parent.resolve())
-                    + "/../config/lichesstoken.py"
-                )
-                board.unPauseEvents()
-                statusbar.start()
+                rc = run_external_script("../config/lichesstoken.py", start_key_polling=True)
             if result == "Shutdown":
                 statusbar.stop()
                 board.shutdown()
@@ -698,13 +643,8 @@ while True:
                     if result != "BACK":
                         logging.debug(f"menu current games")
                         game_id = result
-                        epaper.loadingScreen()
-                        board.pauseEvents()
                         logging.debug(f"staring lichess")
-                        os.system(f"{sys.executable} {pathlib.Path(__file__).parent.resolve()}"
-                                  f"/../game/lichess.py Ongoing {game_id}"
-                                  )
-                        board.unPauseEvents()
+                        rc = run_external_script("../game/lichess.py", "Ongoing", game_id, start_key_polling=True)
                 else:
                     logging.warning("No ongoing games!")
                     epaper.writeText(1, "No ongoing games!")
@@ -725,13 +665,7 @@ while True:
                 if result != "BACK":
                     logging.debug('menu active: Challenge')
                     game_id, challenge_direction = result.split(":")
-                    epaper.loadingScreen()
-                    board.pauseEvents()
-                    logging.debug(f"staring lichess")
-                    os.system(f"{sys.executable} {pathlib.Path(__file__).parent.resolve()}"
-                              f"/../game/lichess.py Challenge {game_id} {challenge_direction}"
-                              )
-                    board.unPauseEvents()
+                    rc = run_external_script("../game/lichess.py", "Challenge", game_id, challenge_direction, start_key_polling=True)
 
             else:  # new Rated or Unrated
                 if result == "Rated":
@@ -739,8 +673,7 @@ while True:
                 else:
                     assert result == "Unrated", "Wrong game type"  #nie można rzucać wyjątków, bo cała aplikacja się sypie
                     rated = False
-                colormenu = {"random": "Random", "white": "White", "black": "Black"}
-                result = doMenu(colormenu, "Color")
+                result = doMenu(COLOR_MENU, "Color")
                 if result != "BACK":
                     color = result
                     timemenu = {
@@ -760,16 +693,11 @@ while True:
                         seek_time = result.split(",")
                         gtime = int(seek_time[0])
                         gincrement = int(seek_time[1])
-                        epaper.loadingScreen()
-                        board.pauseEvents()
-                        os.system(f"{sys.executable} {pathlib.Path(__file__).parent.resolve()}/../game/lichess.py "
-                                  f"New {gtime} {gincrement} {rated} {color}"
-                                  )
-                        board.unPauseEvents()
+                        rc = run_external_script("../game/lichess.py", "New", gtime, gincrement, rated, color, start_key_polling=True)
     if result == "Engines":
         enginemenu = {"stockfish": "Stockfish"}
         # Pick up the engines from the engines folder and build the menu
-        enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/../engines/"
+        enginepath = str(pathlib.Path(__file__).parent.resolve()) + "../engines/"
         enginefiles = os.listdir(enginepath)
         enginefiles = list(
             filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
@@ -783,8 +711,7 @@ while True:
         logging.debug("Engines")
         logging.debug(result)
         if result == "stockfish":
-            sfmenu = {"white": "White", "black": "Black", "random": "Random"}
-            color = doMenu(sfmenu, "Color")
+            color = doMenu(COLOR_MENU, "Color")
             logging.debug(color)
             # Current game will launch the screen for the current
             if color != "BACK":
@@ -801,29 +728,13 @@ while True:
                 }
                 elo = doMenu(ratingmenu, "ELO")
                 if elo != "BACK":
-                    epaper.loadingScreen()
-                    board.pauseEvents()
-                    board.close()
-                    statusbar.stop()
-                    os.system(
-                        str(sys.executable)
-                        + " "
-                        + str(pathlib.Path(__file__).parent.resolve())
-                        + "/../game/stockfish.py "
-                        + color
-                        + " "
-                        + elo
-                    )
-                    board.run_background(start_key_polling=True)
-                    board.unPauseEvents()
-                    statusbar.start()
+                    rc = run_external_script("../game/stockfish.py", color, elo, start_key_polling=True)
         else:
             if result != "BACK":
                 # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
                 enginefile = enginepath + result
                 ucifile = enginepath + result + ".uci"
-                cmenu = {"white": "White", "black": "Black", "random": "Random"}
-                color = doMenu(cmenu, result)
+                color = doMenu(COLOR_MENU, result)
                 # Current game will launch the screen for the current
                 if color != "BACK":
                     if os.path.exists(ucifile):
@@ -836,66 +747,14 @@ while True:
                             smenu[sect] = sect
                         sec = doMenu(smenu, result)
                         if sec != "BACK":
-                            epaper.loadingScreen()
-                            board.pauseEvents()
-                            statusbar.stop()
-                            logging.debug(
-                                str(pathlib.Path(__file__).parent.resolve())
-                                + "/../game/uci.py "
-                                + color
-                                + ' "'
-                                + result
-                                + '"'
-                                + ' "'
-                                + sec
-                                + '"'
-                            )
-                            os.system(
-                                str(sys.executable)
-                                + " "
-                                + str(pathlib.Path(__file__).parent.resolve())
-                                + "/../game/uci.py "
-                                + color
-                                + ' "'
-                                + result
-                                + '"'
-                                + ' "'
-                                + sec
-                                + '"'
-                            )
-                            board.unPauseEvents()
-                            epaper.quickClear()
-                            statusbar.start()
+                            rc = run_external_script("../game/uci.py", color, result, sec, start_key_polling=True)
                     else:
                         # With no uci file we just call the engine
-                        epaper.loadingScreen()
-                        board.pauseEvents()
-                        statusbar.stop()
-                        logging.debug(
-                            str(pathlib.Path(__file__).parent.resolve())
-                            + "/../game/uci.py "
-                            + color
-                            + ' "'
-                            + result
-                            + '"'
-                        )
-                        os.system(
-                            str(sys.executable)
-                            + " "
-                            + str(pathlib.Path(__file__).parent.resolve())
-                            + "/../game/uci.py "
-                            + color
-                            + ' "'
-                            + result
-                            + '"'
-                        )
-                        board.unPauseEvents()
-                        epaper.quickClear()
-                        statusbar.start()
+                        rc = run_external_script("../game/uci.py", color, result, start_key_polling=True)
     if result == "HandBrain":
         # Pick up the engines from the engines folder and build the menu
         enginemenu = {}
-        enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/../engines/"
+        enginepath = str(pathlib.Path(__file__).parent.resolve()) + "../engines/"
         enginefiles = os.listdir(enginepath)
         enginefiles = list(
             filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
@@ -912,8 +771,7 @@ while True:
             # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
             enginefile = enginepath + result
             ucifile = enginepath + result + ".uci"
-            cmenu = {"white": "White", "black": "Black", "random": "Random"}
-            color = doMenu(cmenu, result)
+            color = doMenu(COLOR_MENU, result)
             # Current game will launch the screen for the current
             if color != "BACK":
                 if os.path.exists(ucifile):
@@ -926,60 +784,10 @@ while True:
                         smenu[sect] = sect
                     sec = doMenu(smenu, result)
                     if sec != "BACK":
-                        epaper.loadingScreen()
-                        board.pauseEvents()
-                        statusbar.stop()
-                        logging.debug(
-                            str(pathlib.Path(__file__).parent.resolve())
-                            + "/../game/uci.py "
-                            + color
-                            + ' "'
-                            + result
-                            + '"'
-                            + ' "'
-                            + sec
-                            + '"'
-                        )
-                        os.system(
-                            str(sys.executable)
-                            + " "
-                            + str(pathlib.Path(__file__).parent.resolve())
-                            + "/../game/handbrain.py "
-                            + color
-                            + ' "'
-                            + result
-                            + '"'
-                            + ' "'
-                            + sec
-                            + '"'
-                        )
-                        board.unPauseEvents()
-                        statusbar.start()
+                        rc = run_external_script("../game/handbrain.py", color, result, sec, start_key_polling=True)
                 else:
                     # With no uci file we just call the engine
-                    epaper.loadingScreen()
-                    board.pauseEvents()
-                    statusbar.stop()
-                    logging.debug(
-                        str(pathlib.Path(__file__).parent.resolve())
-                        + "/../game/uci.py "
-                        + color
-                        + ' "'
-                        + result
-                        + '"'
-                    )
-                    os.system(
-                        str(sys.executable)
-                        + " "
-                        + str(pathlib.Path(__file__).parent.resolve())
-                        + "/../game/handbrain.py "
-                        + color
-                        + ' "'
-                        + result
-                        + '"'
-                    )
-                    board.unPauseEvents()
-                    statusbar.start()
+                    rc = run_external_script("../game/handbrain.py", color, result, start_key_polling=True)
     if result == "Custom":
         pyfiles = os.listdir("/home/pi")
         menuitems = {}
