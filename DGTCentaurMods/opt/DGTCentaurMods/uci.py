@@ -120,32 +120,44 @@ def keyCallback(key):
 
 def executeComputerMove(mv):
     # Execute the computer move immediately without waiting for board detection
-    gamemanager.cboard.push(chess.Move.from_uci(mv))
-    fenlog = "/home/pi/centaur/fen.log"
-    f = open(fenlog, "w")
-    f.write(gamemanager.cboard.fen())
-    f.close()
-    # Call moveCallback to update display
-    if moveCallback:
-        moveCallback(mv)
-    # Switch turns
-    global curturn
-    global pendingEvent
-    if curturn == 0:
-        curturn = 1
-    else:
-        curturn = 0
-    # Check for game outcome
-    time.sleep(0.5)
-    outc = gamemanager.cboard.outcome(claim_draw=True)
-    if outc != None and outc != "None" and outc != 0:
-        pendingEvent = str(outc.termination)
-    else:
-        # Schedule the next turn to be triggered in the main loop
+    try:
+        print(f"Executing computer move: {mv}")
+        gamemanager.cboard.push(chess.Move.from_uci(mv))
+        print(f"Move pushed to board. New FEN: {gamemanager.cboard.fen()}")
+        fenlog = "/home/pi/centaur/fen.log"
+        f = open(fenlog, "w")
+        f.write(gamemanager.cboard.fen())
+        f.close()
+        # Call moveCallback to update display
+        print("Calling moveCallback to update display")
+        if moveCallback:
+            moveCallback(mv)
+        # Switch turns
+        global curturn
+        global pendingEvent
         if curturn == 0:
-            pendingEvent = gamemanager.EVENT_BLACK_TURN
+            curturn = 1
         else:
-            pendingEvent = gamemanager.EVENT_WHITE_TURN
+            curturn = 0
+        print(f"Turn switched to: {curturn}")
+        # Check for game outcome
+        time.sleep(0.5)
+        outc = gamemanager.cboard.outcome(claim_draw=True)
+        if outc != None and outc != "None" and outc != 0:
+            print(f"Game over: {outc.termination}")
+            pendingEvent = str(outc.termination)
+        else:
+            # Schedule the next turn to be triggered in the main loop
+            if curturn == 0:
+                print("Scheduling BLACK_TURN event")
+                pendingEvent = gamemanager.EVENT_BLACK_TURN
+            else:
+                print("Scheduling WHITE_TURN event")
+                pendingEvent = gamemanager.EVENT_WHITE_TURN
+    except Exception as e:
+        print(f"Error in executeComputerMove: {e}")
+        import traceback
+        traceback.print_exc()
 
 def eventCallback(event):
     global curturn
@@ -183,8 +195,7 @@ def eventCallback(event):
             mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
             mv = mv.move
             gamemanager.computerMove(str(mv))
-            # Schedule the next turn to be triggered in the main loop
-            gamemanager.scheduleEvent(gamemanager.EVENT_BLACK_TURN)
+            executeComputerMove(str(mv))
     if event == gamemanager.EVENT_BLACK_TURN:
         curturn = 0
         if graphson == 1:            
@@ -201,8 +212,7 @@ def eventCallback(event):
             mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
             mv = mv.move
             gamemanager.computerMove(str(mv))
-            # Schedule the next turn to be triggered in the main loop
-            gamemanager.scheduleEvent(gamemanager.EVENT_WHITE_TURN)
+            executeComputerMove(str(mv))
     if event == gamemanager.EVENT_RESIGN_GAME:
         gamemanager.resignGame(computeronturn + 1)
 
@@ -431,12 +441,27 @@ curturn = 1
 
 # Subscribe to the game manager to activate the previous functions
 gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback)
-writeTextLocal(0,"Place pieces in")
-writeTextLocal(1,"Starting Pos")
+print("Game manager subscribed")
+
+# Manually trigger game start for UCI mode (no physical board to detect starting position)
+print("Triggering NEW_GAME event")
+writeTextLocal(0,"Starting game...")
+writeTextLocal(1,"              ")
+time.sleep(1)
+eventCallback(gamemanager.EVENT_NEW_GAME)
+time.sleep(1)
+print("Game started, triggering initial turn")
+if computeronturn == 0:
+    print("Computer is white, triggering white turn")
+    eventCallback(gamemanager.EVENT_WHITE_TURN)
+else:
+    print("Computer is black, triggering black turn")
+    eventCallback(gamemanager.EVENT_BLACK_TURN)
 
 while kill == 0:    
     time.sleep(0.1)
     if pendingEvent is not None:
+        print(f"Processing pending event: {pendingEvent}")
         eventCallback(pendingEvent)
         pendingEvent = None
     
