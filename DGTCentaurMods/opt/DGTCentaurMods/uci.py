@@ -115,7 +115,34 @@ def keyCallback(key):
         firstmove = 1
         #engine = chess.engine.SimpleEngine.popen_uci("/home/pi/centaur/engines/stockfish_pi")
         info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))
-        evaluationGraphs(info)            
+        evaluationGraphs(info)
+
+def executeComputerMove(mv):
+    # Execute the computer move immediately without waiting for board detection
+    # This is called after gamemanager.computerMove() has been called
+    gamemanager.cboard.push(chess.Move.from_uci(mv))
+    fenlog = "/home/pi/centaur/fen.log"
+    f = open(fenlog, "w")
+    f.write(gamemanager.cboard.fen())
+    f.close()
+    # Update the board display
+    drawBoardLocal(gamemanager.cboard.fen())
+    # Switch turns in the display
+    global curturn
+    if curturn == 0:
+        curturn = 1
+    else:
+        curturn = 0
+    # Check for game outcome
+    outc = gamemanager.cboard.outcome(claim_draw=True)
+    if outc != None and outc != "None" and outc != 0:
+        eventCallback(str(outc.termination))
+    else:
+        # Trigger the next turn
+        if curturn == 0:
+            eventCallback(gamemanager.EVENT_BLACK_TURN)
+        else:
+            eventCallback(gamemanager.EVENT_WHITE_TURN)
 
 def eventCallback(event):
     global curturn
@@ -153,6 +180,7 @@ def eventCallback(event):
             mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
             mv = mv.move
             gamemanager.computerMove(str(mv))
+            executeComputerMove(str(mv))
     if event == gamemanager.EVENT_BLACK_TURN:
         curturn = 0
         if graphson == 1:            
@@ -168,7 +196,8 @@ def eventCallback(event):
             limit = chess.engine.Limit(time=5)
             mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
             mv = mv.move
-            gamemanager.computerMove(str(mv))        
+            gamemanager.computerMove(str(mv))
+            executeComputerMove(str(mv))
     if event == gamemanager.EVENT_RESIGN_GAME:
         gamemanager.resignGame(computeronturn + 1)
 
