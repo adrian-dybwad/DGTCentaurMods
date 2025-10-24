@@ -56,6 +56,7 @@ EVENT_RESIGN_GAME = 5
 kill = 0
 startstate = bytearray(b'\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01')
 newgame = 0
+last_new_game_time = 0
 keycallbackfunction = None
 movecallbackfunction = None
 eventcallbackfunction = None
@@ -85,7 +86,21 @@ boardstates = []
 def collectBoardState():
     # Append the board state to boardstates
     global boardstates
-    boardstates.append(board.getBoardState())    
+    boardstates.append(board.getBoardState())
+
+def waitForPromotionChoice():
+    """Wait for user to select promotion piece via button press"""
+    code, name = board.wait_for_key_up(timeout=60)
+    if name == 'BACK':
+        return "n"  # Knight
+    elif name == 'TICK':
+        return "b"  # Bishop
+    elif name == 'UP':
+        return "q"  # Queen
+    elif name == 'DOWN':
+        return "r"  # Rook
+    else:
+        return "q"  # Default to queen on timeout/other    
 
 def checkLastBoardState():
     # If the current board state is the state of the board from the move before
@@ -250,84 +265,26 @@ def fieldcallback(field):
             if (field // 8) == 7 and pname == "P":
                 screenback = epaper.epaperbuffer.copy()
                 #Beep
-                tosend = bytearray(b'\xb1\x00\x08' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big') + b'\x50\x08\x00\x08\x59\x08\x00')
-                tosend[2] = len(tosend)
-                tosend[len(tosend) - 1] = board.checksum(tosend)
-                board.ser.write(tosend)
+                board.beep(board.SOUND_GENERAL)
                 if forcemove == 0:
                     showingpromotion = True
                     epaper.promotionOptions(13)
                     pausekeys = 1
                     time.sleep(1)
-                    buttonPress = 0
-                    while buttonPress == 0:
-                        board.sendPacket(b'\x83', b'')
-                        try:
-                            resp = board.ser.read(1000)
-                        except:
-                            board.sendPacket(b'\xb1', b'')
-                        resp = bytearray(resp)
-                        board.sendPacket(b'\x94', b'')
-                        try:
-                            resp = board.ser.read(1000)
-                        except:
-                            board.sendPacket(b'\x94', b'')
-                        resp = bytearray(resp)
-                        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0501000000007d47"):
-                            buttonPress = 1  # BACK
-                            pr = "n"
-                        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0510000000007d17"):
-                            buttonPress = 2  # TICK
-                            pr = "b"
-                        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0508000000007d3c"):
-                            buttonPress = 3  # UP
-                            pr = "q"
-                        if (resp.hex()[:-2] == "b10010" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a05020000000061"):
-                            buttonPress = 4  # DOWN
-                            pr = "r"
-                        time.sleep(0.1)
+                    pr = waitForPromotionChoice()
                     epaper.epaperbuffer = screenback.copy()
                     showingpromotion = False
                     pausekeys = 2
             if (field // 8) == 0 and pname == "p":
                 screenback = epaper.epaperbuffer.copy()
                 #Beep
-                tosend = bytearray(b'\xb1\x00\x08' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big') + b'\x50\x08\x00\x08\x59\x08\x00')
-                tosend[2] = len(tosend)
-                tosend[len(tosend) - 1] = board.checksum(tosend)
-                board.ser.write(tosend)
+                board.beep(board.SOUND_GENERAL)
                 if forcemove == 0:
                     showingpromotion = True
                     epaper.promotionOptions(13)
                     pausekeys = 1
                     time.sleep(1)
-                    buttonPress = 0
-                    while buttonPress == 0:
-                        board.sendPacket(b'\x83', b'')
-                        try:
-                            resp = board.ser.read(1000)
-                        except:
-                            board.sendPacket(b'\x83', b'')
-                        resp = bytearray(resp)
-                        board.sendPacket(b'\x94', b'')
-                        try:
-                            resp = board.ser.read(1000)
-                        except:
-                            board.sendPacket(b'\x94', b'')
-                        resp = bytearray(resp)
-                        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0501000000007d47"):
-                            buttonPress = 1  # BACK
-                            pr = "n"
-                        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0510000000007d17"):
-                            buttonPress = 2  # TICK
-                            pr = "b"
-                        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0508000000007d3c"):
-                            buttonPress = 3  # UP
-                            pr = "q"
-                        if (resp.hex()[:-2] == "b10010" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a05020000000061"):
-                            buttonPress = 4  # DOWN
-                            pr = "r"
-                        time.sleep(0.1)
+                    pr = waitForPromotionChoice()
                     showingpromotion = False
                     epaper.epaperbuffer = screenback.copy()
                     pausekeys = 2
@@ -372,10 +329,7 @@ def fieldcallback(field):
                     if eventcallbackfunction != None:
                         eventcallbackfunction(EVENT_BLACK_TURN)
             else:
-                tosend = bytearray(b'\xb1\x00\x08' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big') + b'\x50\x08\x00\x08\x59\x08\x00');
-                tosend[2] = len(tosend)
-                tosend[len(tosend) - 1] = board.checksum(tosend)
-                board.ser.write(tosend)
+                board.beep(board.SOUND_GENERAL)
                 # Depending on the outcome we can update the game information for the result
                 resultstr = str(cboard.result())
                 tg = session.query(models.Game).filter(models.Game.id == gamedbid).first()
@@ -447,15 +401,29 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     pausekeys = 0
     while kill == 0:
         # Detect if a new game has begun
-        if newgame == 0:
+        # Only check for new game if no moves have been made yet (game just started)
+        if newgame == 0 and len(cboard.move_stack) == 0:
             if t < 5:
                 t = t + 1
             else:
                 try:
                     board.pauseEvents()
-                    cs = board.getBoardState(retries=3)
+                    # Use a shorter timeout and fewer retries to avoid blocking other operations
+                    cs = board.getBoardState(retries=1)
                     board.unPauseEvents()
+                    # Debug: Log board state comparison
+                    print(f"DEBUG: Board state check - cs length: {len(cs)}, startstate length: {len(startstate)}")
+                    print(f"DEBUG: cs[:16]: {cs[:16]}")
+                    print(f"DEBUG: startstate[:16]: {startstate[:16]}")
+                    print(f"DEBUG: States equal: {bytearray(cs) == startstate}")
                     if bytearray(cs) == startstate:
+                        current_time = time.time()
+                        # Prevent rapid consecutive NEW_GAME events (minimum 5 seconds between)
+                        if current_time - last_new_game_time < 5.0:
+                            print(f"DEBUG: Skipping NEW_GAME - too soon (last: {current_time - last_new_game_time:.1f}s ago)")
+                            continue
+                        print("DEBUG: Detected starting position - triggering NEW_GAME")
+                        last_new_game_time = current_time
                         newgame = 1
                         curturn = 1
                         cboard = chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
@@ -494,7 +462,11 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                         boardstates = []
                         collectBoardState()
                     t = 0
-                except:
+                except Exception as e:
+                    print(f"DEBUG: Error in board state check: {e}")
+                    # If it's a concurrency error, skip this check cycle
+                    if "Another blocking request" in str(e):
+                        print("DEBUG: Skipping board state check due to concurrent request")
                     pass
         if pausekeys == 1:
             board.pauseEvents()

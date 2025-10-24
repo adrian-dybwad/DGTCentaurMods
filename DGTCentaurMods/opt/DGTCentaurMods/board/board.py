@@ -200,6 +200,10 @@ def displayScreenBufferPartial():
 def cleanup(leds_off: bool = True):
     asyncserial.cleanup(leds_off=True)
 
+def wait_for_key_up(timeout=None, accept=None):
+    """Wait for a key up event from the board"""
+    return asyncserial.wait_for_key_up(timeout=timeout, accept=accept)
+
 
 def run_background(start_key_polling=False):
     asyncserial.run_background(start_key_polling=start_key_polling)
