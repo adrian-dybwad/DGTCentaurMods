@@ -36,6 +36,7 @@ from random import randint
 import configparser
 from PIL import Image, ImageDraw, ImageFont
 import pathlib
+import signal
 
 curturn = 1
 computeronturn = 0
@@ -46,6 +47,32 @@ firstmove = 1
 graphson = 0 # Default to graphs off, for pi zero w users
 scorehistory = []
 
+def cleanup_and_exit(signum=None, frame=None):
+    """Clean up resources and exit gracefully"""
+    global kill
+    print("\n>>> Cleaning up and exiting...")
+    kill = 1
+    try:
+        print("Turning off LEDs...")
+        board.ledsOff()
+    except:
+        pass
+    try:
+        print("Quitting engines...")
+        aengine.quit()
+        pengine.quit()
+    except:
+        pass
+    try:
+        print("Unsubscribing from gamemanager...")
+        gamemanager.unsubscribeGame()
+    except:
+        pass
+    print("Goodbye!")
+    sys.exit(0)
+
+# Register signal handler for Ctrl+C
+signal.signal(signal.SIGINT, cleanup_and_exit)
 
 if os.uname().machine=="armv7l":
     # The pi zero 2 w is armv71, so turn it on if we detect that
