@@ -358,7 +358,7 @@ class AsyncCentaur:
         if (len(self.response_buffer) >= HEADER_DATA_BYTES and 
             self.response_buffer[-HEADER_DATA_BYTES] in START_TYPE_BYTES and 
             self.response_buffer[-HEADER_DATA_BYTES+1] == self.addr1 and
-            byte == addr2 and 
+            byte == self.addr2 and 
             len(self.response_buffer) > HEADER_DATA_BYTES):
             print(f"Packet start detected: {self.response_buffer[-HEADER_DATA_BYTES:]}")
             print(f"addr1: {self.addr1}, addr2: {self.addr2}")
