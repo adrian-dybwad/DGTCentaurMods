@@ -207,12 +207,14 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         board.pauseEvents()
         board.close()
         statusbar.stop()
+        epaper.stopEpaper()
 
         script_path = str((pathlib.Path(__file__).parent / script_rel_path).resolve())
         cmd = [sys.executable, script_path, *map(str, args)]
         result = subprocess.run(cmd, check=False)
         return result.returncode
     finally:
+        epaper.initEpaper()
         epaper.quickClear()
         board.run_background(start_key_polling=start_key_polling)
         board.unPauseEvents()
