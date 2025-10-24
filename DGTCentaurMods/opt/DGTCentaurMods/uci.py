@@ -24,6 +24,7 @@
 from DGTCentaurMods.game import gamemanager
 from DGTCentaurMods.display import epaper
 from DGTCentaurMods.display.ui_components import AssetManager
+from DGTCentaurMods.board import board
 
 import time
 import chess
@@ -135,6 +136,9 @@ def executeComputerMove(mv):
             curturn = 0
         print(f"Turn switched to: {curturn}")
         time.sleep(0.3)
+        # Turn off the LEDs since we've executed the move in code (fieldcallback won't be called)
+        print("Turning off LEDs")
+        board.ledsOff()
         # Immediately trigger the next turn callback
         if curturn == 0:
             print("Triggering BLACK_TURN event")
