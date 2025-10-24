@@ -371,8 +371,10 @@ class AsyncCentaur:
             hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
             print(f"[ORPHANED] {hex_row}")
             self.response_buffer = bytearray([self.response_buffer[-HEADER_DATA_BYTES]])  # Keep the detected start byte, add the 00 below
+            print(f"After trimming: self.response_buffer: {self.response_buffer}")
         
         self.response_buffer.append(byte)
+        print(f"After appending: self.response_buffer: {self.response_buffer}")
 
         # Handle discovery state machine
         if self.discovery_state == "INITIALIZING":
