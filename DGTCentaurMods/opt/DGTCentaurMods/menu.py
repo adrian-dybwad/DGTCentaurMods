@@ -743,7 +743,7 @@ while True:
                 ucifile = enginepath + result + ".uci"
                 
                 # Get engine description from .uci file if it exists
-                engine_title = result
+                engine_desc = None
                 # Check both engines/ and defaults/engines/ directories for .uci files
                 ucifile_paths = [
                     enginepath + result + ".uci",  # engines/ directory
@@ -755,10 +755,14 @@ while True:
                         config.read(ucifile_path)
                         if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
                             engine_desc = config['DEFAULT']['Description']
-                            engine_title = f"{result}: {engine_desc}"
                         break
                 
-                color = doMenu(COLOR_MENU, engine_title)
+                # Create title with description if available
+                menu_title = result
+                if engine_desc:
+                    menu_title = f"{result} - {engine_desc}"
+                
+                color = doMenu(COLOR_MENU, menu_title)
                 # Current game will launch the screen for the current
                 print("ucifile: " + ucifile)
                 if color != "BACK":
@@ -798,7 +802,7 @@ while True:
             ucifile = enginepath + result + ".uci"
             
             # Get engine description from .uci file if it exists
-            engine_title = result
+            engine_desc = None
             # Check both engines/ and defaults/engines/ directories for .uci files
             ucifile_paths = [
                 enginepath + result + ".uci",  # engines/ directory
@@ -810,10 +814,14 @@ while True:
                     config.read(ucifile_path)
                     if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
                         engine_desc = config['DEFAULT']['Description']
-                        engine_title = f"{result}: {engine_desc}"
                     break
             
-            color = doMenu(COLOR_MENU, engine_title)
+            # Create title with description if available
+            menu_title = result
+            if engine_desc:
+                menu_title = f"{result} - {engine_desc}"
+            
+            color = doMenu(COLOR_MENU, menu_title)
             # Current game will launch the screen for the current
             if color != "BACK":
                 if os.path.exists(ucifile):
