@@ -6,7 +6,6 @@ epdmine.py
 push.sh
 test.py
 __pycache__
-**/tests
 epaper.jpg
 **/epaper.jpg
 DGTCentaurMods/db/centaur.db
