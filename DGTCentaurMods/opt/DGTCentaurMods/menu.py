@@ -120,8 +120,8 @@ quickselect = 0
 
 COLOR_MENU = {"white": "White", "black": "Black", "random": "Random"}
 
-def doMenu(menu, title=None):
-    print(f"doMenu: {menu}, Title: {title}")
+def doMenu(menu, title=None, description=None):
+    print(f"doMenu: {menu}, Title: {title}, Description: {description}")
     # Draws a menu and waits for the response in the global variable 'selection'
     global shift
     global menuitem
@@ -152,6 +152,14 @@ def doMenu(menu, title=None):
     for k, v in menu.items():
         epaper.writeText(row, "    " + str(v))
         row = row + 1
+    
+    # Display description if provided
+    if description:
+        epaper.writeText(row, "")
+        row = row + 1
+        epaper.writeText(row, description)
+        row = row + 1
+    
     epaper.unPauseEpaper()    
     time.sleep(0.1)
     epaper.clearArea(0, 20 + shift, 17, 295)
@@ -718,7 +726,7 @@ while True:
         logging.debug("Engines")
         logging.debug(result)
         if result == "stockfish":
-            color = doMenu(COLOR_MENU, "Stockfish: World's strongest open-source engine")
+            color = doMenu(COLOR_MENU, "Stockfish", "World's strongest open-source engine")
             logging.debug(color)
             # Current game will launch the screen for the current
             if color != "BACK":
@@ -757,12 +765,7 @@ while True:
                             engine_desc = config['DEFAULT']['Description']
                         break
                 
-                # Create title with description if available
-                menu_title = result
-                if engine_desc:
-                    menu_title = f"{result} - {engine_desc}"
-                
-                color = doMenu(COLOR_MENU, menu_title)
+                color = doMenu(COLOR_MENU, result, engine_desc)
                 # Current game will launch the screen for the current
                 print("ucifile: " + ucifile)
                 if color != "BACK":
@@ -816,12 +819,7 @@ while True:
                         engine_desc = config['DEFAULT']['Description']
                     break
             
-            # Create title with description if available
-            menu_title = result
-            if engine_desc:
-                menu_title = f"{result} - {engine_desc}"
-            
-            color = doMenu(COLOR_MENU, menu_title)
+            color = doMenu(COLOR_MENU, result, engine_desc)
             # Current game will launch the screen for the current
             if color != "BACK":
                 if os.path.exists(ucifile):
