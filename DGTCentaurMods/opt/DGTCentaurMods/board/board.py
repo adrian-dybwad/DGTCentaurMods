@@ -444,11 +444,17 @@ def poll():
             logging.debug("PLAY BUTTON")
 
 
-def getBoardState(field=None, retries=6, sleep_between=0.12):
+def getBoardState(field=None, retries=3, sleep_between=0.12, timeout=3.0, protocol_retries=1):
     """
     Query the board and return a 64-length list of 0/1 occupancy flags.
-    Robust against short reads; retries a few times and falls back to zeros.
-    If 'field' is given (0..63), returns just that square.
+    Robust against short reads; retries at both application and protocol level.
+    
+    Args:
+        field: Optional square index (0-63) to query specific square
+        retries: Number of application-level retry attempts
+        sleep_between: Delay between application-level retries
+        timeout: Timeout in seconds for each request (default 3.0)
+        protocol_retries: Number of protocol-level retries (default 1)
     """
     # Local constants for snapshot framing and a clear board fallback
     SNAPSHOT_HEADER_LEN = 6
@@ -459,7 +465,14 @@ def getBoardState(field=None, retries=6, sleep_between=0.12):
     for _ in range(retries):
         try:
             # Request a raw snapshot (header + payload)
-            resp = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT)
+            resp = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT, timeout=timeout, retries=protocol_retries)
+            
+            # Check if request timed out
+            if resp is None:
+                print("Error getting board state")
+                print("Request timeout - no response from board")
+                time.sleep(sleep_between)
+                continue
 
             payload = bytearray(resp)
             boarddata = BOARD_CLEAR_STATE.copy()

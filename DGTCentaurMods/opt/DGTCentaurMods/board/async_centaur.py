@@ -356,7 +356,6 @@ class AsyncCentaur:
         2. A new 85 00 header is detected (indicating start of next packet)
         """
         # Detect packet start sequence (<START_TYPE_BYTE> 00) while buffer has data
-        print(f"processResponse: byte={byte}")
         HEADER_DATA_BYTES = 4
         if len(self.response_buffer) >= HEADER_DATA_BYTES:
             if self.response_buffer[-HEADER_DATA_BYTES] in START_TYPE_BYTES:
@@ -370,10 +369,6 @@ class AsyncCentaur:
                             print(f"After trimming: self.response_buffer: {self.response_buffer}")
         
         self.response_buffer.append(byte)
-        # Handle discovery state machine
-        if self.discovery_state == "INITIALIZING":
-            # Got a response to initial commands, now send discovery packet
-            self._discover_board_address(self.response_buffer)
 
         # Check if this byte is a checksum boundary
         if len(self.response_buffer) >= 2:
@@ -437,6 +432,11 @@ class AsyncCentaur:
         except Exception:
             # Do not break normal flow on waiter issues
             pass
+
+        # Handle discovery packets during initialization
+        if not self.ready:
+            self._discover_board_address(packet)
+            return
 
         try:
             payload = self._extract_payload(packet)
@@ -712,7 +712,7 @@ class AsyncCentaur:
         #print(f"tosend: {' '.join(f'{b:02x}' for b in tosend)}")
         self.ser.write(tosend)
     
-    def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None):
+    def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
         """
         Send a command and either block until the matching response arrives (callback=None)
         returning the payload bytes, or return immediately (callback provided) and
@@ -721,8 +721,10 @@ class AsyncCentaur:
         Args:
             command (bytes): command bytes to send (e.g., DGT_BUS_SEND_CHANGES)
             data (bytes): optional payload to include with command
-            timeout (float): seconds to wait for response
+            timeout (float): seconds to wait for response per attempt
             callback (callable|None): function (payload: bytes|None, err: Exception|None) -> None
+            raw_len (int|None): if set, use raw byte capture mode
+            retries (int): number of retry attempts on timeout (default 0)
 
         Returns:
             bytes for blocking mode; None for non-blocking mode
@@ -804,34 +806,46 @@ class AsyncCentaur:
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
 
         if callback is None:
-            # Blocking mode
-            q = queue.Queue(maxsize=1)
-            with self._waiter_lock:
-                if self._response_waiter is not None:
-                    raise RuntimeError("Another blocking request is already waiting for a response")
-                self._response_waiter = {'expected_type': expected_type, 'queue': q, 'callback': None, 'timer': None}
-
-            # Send after registering waiter to avoid race
-            self.sendPacket(command, eff_data)
-
-            try:
-                payload = q.get(timeout=timeout)
-                return payload
-            except queue.Empty:
-                # Cleanup waiter if still set
+            # Blocking mode with retry support
+            attempt = 0
+            max_attempts = retries + 1
+            
+            while attempt < max_attempts:
+                attempt += 1
+                q = queue.Queue(maxsize=1)
                 with self._waiter_lock:
-                    if self._response_waiter is not None and self._response_waiter.get('queue') is q:
-                        self._response_waiter = None
-                # Log what the parser has buffered so far
+                    if self._response_waiter is not None:
+                        raise RuntimeError("Another blocking request is already waiting for a response")
+                    self._response_waiter = {'expected_type': expected_type, 'queue': q, 'callback': None, 'timer': None}
+
+                self.sendPacket(command, eff_data)
+
                 try:
-                    rb = bytes(self.response_buffer)
-                    print(
-                        f"packet timeout: expected_type=0x{expected_type:02x} "
-                        f"parser buffer len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}"
-                    )
-                except Exception:
-                    pass
-                raise TimeoutError("Timed out waiting for matching response packet")
+                    payload = q.get(timeout=timeout)
+                    return payload
+                except queue.Empty:
+                    # Cleanup waiter
+                    with self._waiter_lock:
+                        if self._response_waiter is not None and self._response_waiter.get('queue') is q:
+                            self._response_waiter = None
+                    
+                    # If last attempt, log and return None
+                    if attempt >= max_attempts:
+                        try:
+                            rb = bytes(self.response_buffer)
+                            print(
+                                f"packet timeout after {max_attempts} attempt(s): expected_type=0x{expected_type:02x} "
+                                f"parser buffer len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}"
+                            )
+                        except Exception:
+                            pass
+                        return None
+                    
+                    # Retry after small delay
+                    print(f"Retry {attempt}/{max_attempts} after timeout...")
+                    time.sleep(0.1)
+            
+            return None
 
         # Non-blocking mode with callback
         def _on_timeout():
@@ -925,7 +939,7 @@ class AsyncCentaur:
                 self.discovery_state = "AWAITING_PACKET"
                 # Also clear parser buffer so header detection won't prepend stale bytes
                 self.response_buffer = bytearray()
-                self.request_response(DGT_DISCOVERY_ACK, timeout=2.0, callback=self._discover_board_address)
+                self.sendPacket(DGT_DISCOVERY_ACK)
         
         elif self.discovery_state == "AWAITING_PACKET":
             if len(packet) > 4:
