@@ -908,7 +908,7 @@ class AsyncCentaur:
                 print("Discovery: STARTING - sending 0x4d and 0x4e")
                 #tosend = bytearray(b'\x4d\x4e')
                 #self.ser.write(tosend)
-                self.request_response(DGT_DISCOVERY_REQ, timeout=2.0, callback=self._discover_board_address)
+                self.sendPacket(DGT_DISCOVERY_REQ)
 
             return
 
