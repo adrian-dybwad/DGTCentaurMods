@@ -216,7 +216,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         row = row + 1
     
     # Display description if provided
-    if actual_description:
+    if actual_description and actual_description.strip():
         # Create background rectangle covering the right side area
         description_y = (row * 20) + 2 + shift
         description_height = 108  # Height for description area (allows 9 lines: 9 * 12px)
@@ -234,7 +234,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         
         # Wrap text to fit within the available width
         max_width = 127 - description_x - 2  # Available width minus margins (now 103px)
-        words = description.split()
+        words = actual_description.split()
         lines = []
         current_line = ""
         
