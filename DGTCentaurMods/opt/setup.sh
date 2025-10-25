@@ -7,14 +7,20 @@ echo "Setting up resource paths for AssetManager..."
 # Create the directories AssetManager expects
 sudo mkdir -p /home/pi/resources
 sudo mkdir -p /opt/DGTCentaurMods/resources
-sudo mkdir -p /opt/DGTCentaurMods/config
-sudo mkdir -p /opt/DGTCentaurMods/defaults/config
 
-# Create symlinks to the actual resources
-sudo ln -sf /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/resources/* /home/pi/resources/
-sudo ln -sf /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/resources/* /opt/DGTCentaurMods/resources/
-sudo ln -sf /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/config/* /opt/DGTCentaurMods/config/
-sudo ln -sf /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/defaults/config/* /opt/DGTCentaurMods/defaults/config/
+# Copy the config file from your development environment
+sudo mkdir -p /opt/DGTCentaurMods/config
+sudo cp /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/config/centaur.ini /opt/DGTCentaurMods/config/
+
+# Copy the default config
+sudo mkdir -p /opt/DGTCentaurMods/defaults/config
+sudo cp /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/config/centaur.ini /opt/DGTCentaurMods/defaults/config/
+
+echo "Setting up resource paths for AssetManager..."
+
+sudo mkdir -p /opt/DGTCentaurMods/resources
+sudo cp -r /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/resources/* /opt/DGTCentaurMods/resources/
+
 
 echo "Resource setup complete!"
 echo ""
