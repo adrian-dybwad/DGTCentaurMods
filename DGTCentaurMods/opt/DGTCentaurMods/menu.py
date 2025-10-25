@@ -155,10 +155,12 @@ def doMenu(menu, title=None, description=None):
     
     # Display description if provided
     if description:
-        epaper.writeText(row, "")
-        row = row + 1
-        epaper.writeText(row, description)
-        row = row + 1
+        # Position description to the right of the vertical line with margin
+        description_x = 20  # Start after the vertical line (17) with small margin
+        description_y = (row * 20) + 2 + shift
+        # Use PIL ImageDraw to position text at specific coordinates
+        draw = ImageDraw.Draw(epaper.epaperbuffer)
+        draw.text((description_x, description_y), description, font=epaper.font18, fill=0)
     
     epaper.unPauseEpaper()    
     time.sleep(0.1)
