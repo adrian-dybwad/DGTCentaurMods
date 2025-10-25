@@ -68,6 +68,7 @@ Note: when installing Raspbian please select Bullseye (legacy) and not the new "
   - Ensure `/opt/DGTCentaurMods/config/centaur.ini` exists, copying from `defaults/config/centaur.ini` if missing.
   - Copy resources to `/opt/DGTCentaurMods/resources/`.
 - The SQLite database is created at runtime at `/opt/DGTCentaurMods/db/centaur.db` on first run; it is not tracked in git.
+ - The current FEN position is written to `/opt/DGTCentaurMods/tmp/fen.log` by runtime services.
 
 ## Support
 
