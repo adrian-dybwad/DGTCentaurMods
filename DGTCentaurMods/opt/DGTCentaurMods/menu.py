@@ -213,11 +213,17 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         result = subprocess.run(cmd, check=False)
         return result.returncode
     finally:
+        print(">>> Reinitializing after external script...")
         epaper.initEpaper()
+        print(">>> epaper.initEpaper() complete")
         epaper.quickClear()
+        print(">>> epaper.quickClear() complete")
         board.run_background(start_key_polling=start_key_polling)
+        print(">>> board.run_background() complete")
         board.unPauseEvents()
+        print(">>> board.unPauseEvents() complete")
         statusbar.start()
+        print(">>> statusbar.start() complete")
 
 
 def connect_to_wifi(ssid, password):

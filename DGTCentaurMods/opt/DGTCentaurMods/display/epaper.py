@@ -81,6 +81,7 @@ def epaperUpdate():
         if epaperprocesschange == 1:
             tepaperbytes = im.tobytes()
         if lastepaperbytes != tepaperbytes and epaperprocesschange == 1:
+            logging.debug("epaperUpdate: Display change detected, updating screen")
             sleepcount = 0
             if screensleep == 1:
                 driver.reset()
@@ -91,9 +92,11 @@ def epaperUpdate():
                 im = im.transpose(Image.FLIP_TOP_BOTTOM)
                 im = im.transpose(Image.FLIP_LEFT_RIGHT)                        
             if epapermode == 0 or first == 1:                
+                logging.debug("epaperUpdate: Using DisplayPartial")
                 driver.DisplayPartial(im)
                 first = 0
             else:
+                logging.debug("epaperUpdate: Using DisplayRegion")
                 rs = 0
                 re = 295
                 for x in range(0, len(tepaperbytes)):
@@ -185,7 +188,16 @@ def initEpaper(mode = 0):
     # Set the screen to a known start state and start the epaperUpdate thread
     global epaperbuffer
     global epaperUpd
-    global epapermode    
+    global epapermode
+    global kill
+    
+    # Stop existing thread if running
+    if epaperUpd and epaperUpd.is_alive():
+        logging.debug("Stopping existing epaper thread...")
+        kill = 1
+        epaperUpd.join(timeout=2.0)
+        kill = 0
+    
     epapermode = mode
     epaperbuffer = Image.new('1', (128, 296), 255)
     logging.debug("init epaper")
@@ -194,6 +206,7 @@ def initEpaper(mode = 0):
     epaperUpd = threading.Thread(target=epaperUpdate, args=())
     epaperUpd.daemon = True
     epaperUpd.start()
+    logging.debug("epaper thread started")
 
 def pauseEpaper():
     # Pause epaper updates (for example if you know you will be making a lot of changes in quick succession
