@@ -65,11 +65,10 @@ class PromotionTestSetup:
         gamemanager.cboard = chess.Board(fen_string)
         
         # Update the FEN log file (as the system expects)
-        fenlog = "/home/pi/centaur/fen.log"
+        from DGTCentaurMods.config import paths
         try:
-            with open(fenlog, "w") as f:
-                f.write(gamemanager.cboard.fen())
-            print(f"PASS: FEN written to {fenlog}")
+            paths.write_fen_log(gamemanager.cboard.fen())
+            print(f"PASS: FEN written")
         except Exception as e:
             print(f"WARNING: Could not write FEN log: {e}")
     

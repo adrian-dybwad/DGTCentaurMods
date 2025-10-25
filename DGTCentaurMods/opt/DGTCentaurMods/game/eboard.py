@@ -100,6 +100,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.display import epd2in9d
 import pathlib
+from DGTCentaurMods.config import paths
 import select
 import bluetooth
 import subprocess
@@ -387,10 +388,7 @@ def drawCurrentBoard():
 
 boardtoscreen = 0
 
-fenlog = "/home/pi/centaur/fen.log"
-f = open(fenlog, "w")
-f.write("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
-f.close()
+paths.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
 
 def screenUpdate():
 	# Separate thread to display the screen/pieces should improve
@@ -843,10 +841,7 @@ def pieceMoveDetectionThread():
 			if lastcurturn != curturn:
 				lastcurturn = curturn
 				print("--------------")
-				fenlog = "/home/pi/centaur/fen.log"
-				f = open(fenlog,"w")
-				f.write(cb.fen())
-				f.close()
+				paths.write_fen_log(cb.fen())
 				if curturn == 1:
 					print("White turn")
 					epaper.writeText(10,"White turn")
@@ -860,10 +855,7 @@ def pieceMoveDetectionThread():
 				if bytearray(r) == startstate and startstateflag == 0:
 					print("start state detected")
 					clockpaused = 1
-					fenlog = "/home/pi/centaur/fen.log"
-					f = open(fenlog, "w")
-					f.write("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
-					f.close()
+					paths.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
 					tosend = bytearray(
 						b'\xb1\x00\x08' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big') + b'\x50\x08\x00\x08\x50\x08\x00\x08\x59\x08\x00\x08\x50\x08\x00\x08\x00');
 					tosend[2] = len(tosend)
@@ -1583,10 +1575,7 @@ while True and dodie == 0:
 				if debugcmds == 1:
 					print("DGT_BUS_SET_START_GAME " + dump.hex())
 				print("Bus set start game")
-				fenlog = "/home/pi/centaur/fen.log"
-				f = open(fenlog, "w")
-				f.write("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
-				f.close()
+				paths.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
 				# Write EE_START_TAG to EEPROM
 				# Followed by piece positions
 				# Return DGT_MSG_BUS_START_GAME_WRITTEN message

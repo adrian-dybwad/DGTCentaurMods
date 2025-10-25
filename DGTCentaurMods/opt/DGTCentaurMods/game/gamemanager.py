@@ -38,6 +38,7 @@ import time
 import chess
 import sys
 import inspect
+from DGTCentaurMods.config import paths
 
 
 # Some useful constants
@@ -122,10 +123,7 @@ def checkLastBoardState():
             session.delete(lastmovemade)
             session.commit()
             cboard.pop()
-            fenlog = "/home/pi/centaur/fen.log"
-            f = open(fenlog, "w")
-            f.write(cboard.fen())
-            f.close()            
+            paths.write_fen_log(cboard.fen())            
             if curturn == 0:
                 curturn = 1
             else:
@@ -427,10 +425,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                         newgame = 1
                         curturn = 1
                         cboard = chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-                        fenlog = "/home/pi/centaur/fen.log"
-                        f = open(fenlog, "w")
-                        f.write(cboard.fen())
-                        f.close()
+                        paths.write_fen_log(cboard.fen())
                         board.beep(board.SOUND_GENERAL)
                         time.sleep(0.3)
                         board.beep(board.SOUND_GENERAL)

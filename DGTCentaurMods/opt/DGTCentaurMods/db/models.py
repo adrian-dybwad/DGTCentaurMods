@@ -23,7 +23,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, T
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-import pathlib
+from DGTCentaurMods.config import paths
 
 Base = declarative_base()
 
@@ -58,6 +58,5 @@ class GameMove(Base):
     def __repr__(self):
         return "<GameMove(id='%s', move_at='%s', move='%s', fen='%s')>" % (str(self.id), str(self.move_at), self.move, self.fen)
 
-dbloc = str(pathlib.Path(__file__).parent.resolve()) + "/centaur.db"
-engine = create_engine("sqlite:///" + dbloc)
+engine = create_engine(paths.get_database_uri())
 Base.metadata.create_all(bind=engine)

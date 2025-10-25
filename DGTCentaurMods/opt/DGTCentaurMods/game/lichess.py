@@ -42,6 +42,7 @@ from DGTCentaurMods.game import gamemanager
 
 import logging
 logging.basicConfig(level=logging.INFO)
+from DGTCentaurMods.config import paths
 
 logging.info("loaded lichess.py")
 curturn = 1
@@ -391,10 +392,7 @@ blackclock = 0
 whiteincrement = 0
 blackincrement = 0
 winner= ''
-fenlog = "/home/pi/centaur/fen.log"
-f = open(fenlog, "w")
-f.write("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
-f.close()
+paths.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
 starttime = -1
 
 # This thread keeps track of the move, etc, data coming back from lichess
