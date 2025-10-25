@@ -120,9 +120,71 @@ quickselect = 0
 
 COLOR_MENU = {"white": "White", "black": "Black", "random": "Random"}
 
-def doMenu(menu, title=None, description=None):
-    print(f"doMenu: {menu}, Title: {title}, Description: {description}")
-    # Draws a menu and waits for the response in the global variable 'selection'
+MENU_CONFIG = {
+    "EmulateEB": {
+        "title": "e-Board",
+        "description": "Emulate DGT Classic or Millennium electronic boards for compatibility",
+        "items": {"dgtclassic": "DGT REVII", "millennium": "Millennium"}
+    },
+    "settings": {
+        "title": "Settings",
+        "description": "Configure WiFi, Bluetooth, sound, updates, and system settings",
+        "items": None  # Built dynamically
+    },
+    "Lichess": {
+        "title": "Lichess",
+        "description": "Play online games and challenges on Lichess.org with your account",
+        "items": {"Rated": "Rated", "Unrated": "Unrated", "Ongoing": "Ongoing", "Challenges": "Challenges"}
+    },
+    "Engines": {
+        "title": "Engines",
+        "description": "Play against computer opponents with various difficulty levels",
+        "items": None  # Built dynamically
+    },
+    "HandBrain": {
+        "title": "Hand + Brain",
+        "description": "Two-player cooperative mode where one sees the board and the other calls moves",
+        "items": None  # Built dynamically (uses enginemenu)
+    }
+}
+
+def doMenu(menu_or_key, title_or_key=None, description=None):
+    """
+    Display a menu and wait for user selection.
+    
+    Args:
+        menu_or_key: Either a menu dict {"key": "Display"} or a config key string
+        title_or_key: Either a title string, a config key, or None
+        description: Menu description (optional, can be looked up from config)
+    
+    Returns:
+        Selected menu key or "BACK"
+    """
+    actual_menu = None
+    actual_title = None
+    actual_description = None
+    
+    # Case 1: menu_or_key is a config key (e.g., "EmulateEB" or "Lichess")
+    if isinstance(menu_or_key, str) and menu_or_key in MENU_CONFIG:
+        config = MENU_CONFIG[menu_or_key]
+        actual_menu = config.get("items")
+        actual_title = config.get("title")
+        actual_description = config.get("description")
+    
+    # Case 2: menu_or_key is a dict and title_or_key is a config key (e.g., enginemenu, "Engines")
+    elif isinstance(menu_or_key, dict) and isinstance(title_or_key, str) and title_or_key in MENU_CONFIG:
+        config = MENU_CONFIG[title_or_key]
+        actual_menu = menu_or_key
+        actual_title = config.get("title")
+        actual_description = config.get("description")
+    
+    # Case 3: Explicit parameters (backward compatible)
+    else:
+        actual_menu = menu_or_key
+        actual_title = title_or_key
+        actual_description = description
+    
+    print(f"doMenu: {actual_menu}, Title: {actual_title}, Description: {actual_description}")
     global shift
     global menuitem
     global curmenu
@@ -133,28 +195,28 @@ def doMenu(menu, title=None, description=None):
     epaper.clearScreen()  
     
     selection = ""
-    curmenu = menu
+    curmenu = actual_menu
     # Display the given menu
     menuitem = 1
     quickselect = 0    
 
     quickselect = 1    
-    if title:
+    if actual_title:
         row = 2
         shift = 20
-        epaper.writeMenuTitle("[ " + title + " ]")
+        epaper.writeMenuTitle("[ " + actual_title + " ]")
     else:
         shift = 0
         row = 1
     # Print a fresh status bar.
     statusbar.print()
     epaper.pauseEpaper()
-    for k, v in menu.items():
+    for k, v in actual_menu.items():
         epaper.writeText(row, "    " + str(v))
         row = row + 1
     
     # Display description if provided
-    if description:
+    if actual_description:
         # Create background rectangle covering the right side area
         description_y = (row * 20) + 2 + shift
         description_height = 108  # Height for description area (allows 9 lines: 9 * 12px)
@@ -407,8 +469,7 @@ while True:
     if result == "pegasus":
         rc = run_external_script("game/pegasus.py", start_key_polling=True)
     if result == "EmulateEB":
-        boardmenu = {"dgtclassic": "DGT REVII", "millennium": "Millennium"}
-        result = doMenu(boardmenu, "e-Board")
+        result = doMenu("EmulateEB")
         if result == "dgtclassic":
             rc = run_external_script("game/eboard.py", start_key_polling=True)
         if result == "millennium":
@@ -428,7 +489,7 @@ while True:
         }
         topmenu = False
         while topmenu == False:
-            result = doMenu(setmenu, "Settings")
+            result = doMenu(setmenu, "settings")
             logging.debug(result)
             if result == "update":
                 topmenu = False
@@ -672,8 +733,7 @@ while True:
                 os.dup2(conn.fileno(),2)
                 p=subprocess.call(["/bin/bash","-i"])
     if result == "Lichess":
-        livemenu = {"Rated": "Rated", "Unrated": "Unrated", "Ongoing": "Ongoing", 'Challenges': 'Challenges'}
-        result = doMenu(livemenu, "Lichess")
+        result = doMenu("Lichess")
         logging.debug('menu active: lichess')
         if result != "BACK":
             if result == "Ongoing":
@@ -835,7 +895,7 @@ while True:
             if ".uci" not in fn:
                 # If this file is not .uci then assume it is an engine
                 enginemenu[fn] = fn
-        result = doMenu(enginemenu, "Engines")
+        result = doMenu(enginemenu, "HandBrain")
         logging.debug(result)
         if result != "BACK":
             # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
