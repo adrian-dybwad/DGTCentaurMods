@@ -161,17 +161,17 @@ def doMenu(menu, title=None, description=None):
         draw = ImageDraw.Draw(epaper.epaperbuffer)
         
         # Draw background rectangle covering right side (from vertical line to screen edge)
-        draw.rectangle([17, description_y, 127, description_y + description_height], fill=255, outline=0)
+        draw.rectangle([17, description_y, 127, description_y + description_height], fill=255)
         
-        # Position text close to vertical line
-        description_x = 18  # Start just after vertical line (17) with 1px margin
+        # Position text with more space from vertical line
+        description_x = 22  # Start after vertical line (17) with 5px margin
         description_text_y = description_y + 2  # Small margin from top
         
-        # Use smaller font (14px instead of 18px)
-        small_font = ImageFont.truetype(epaper.AssetManager.get_resource_path("Font.ttc"), 14)
+        # Use 16px font for description
+        small_font = ImageFont.truetype(epaper.AssetManager.get_resource_path("Font.ttc"), 16)
         
         # Wrap text to fit within the available width
-        max_width = 127 - description_x - 2  # Available width minus margins (now 107px)
+        max_width = 127 - description_x - 2  # Available width minus margins (now 103px)
         words = description.split()
         lines = []
         current_line = ""
