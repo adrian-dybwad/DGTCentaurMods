@@ -195,7 +195,7 @@ def doMenu(menu, title=None, description=None):
         
         # Draw each line
         for i, line in enumerate(lines[:9]):  # Limit to 9 lines max (fits in 108px height)
-            y_pos = description_text_y + (i * 14)  # 14px line spacing
+            y_pos = description_text_y + (i * 16)  # 16px line spacing
             draw.text((description_x, y_pos), line, font=small_font, fill=0)
     
     epaper.unPauseEpaper()    
