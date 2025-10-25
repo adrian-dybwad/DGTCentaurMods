@@ -338,7 +338,7 @@ class AsyncCentaur:
 
     def processResponse(self, byte):
         """
-        Process incoming byte - handle discovery state machine first, then normal parsing.
+        Process incoming byte - detect packet boundaries
         Supports two packet formats:
         
         Format 1 (old): [data...][addr1][addr2][checksum]
@@ -349,6 +349,21 @@ class AsyncCentaur:
         1. Buffer ends with valid [addr1][addr2][checksum], OR
         2. A new 85 00 header is detected (indicating start of next packet)
         """
+        self._handle_orphaned_data_detection(byte)
+        self.response_buffer.append(byte)
+        
+        # Try special handlers first
+        if self._try_discovery_packet_detection():
+            return
+        if self._try_checksum_packet_detection(byte):
+            return
+        
+        # Prevent buffer overflow
+        if len(self.response_buffer) > 1000:
+            self.response_buffer.pop(0)
+
+    def _handle_orphaned_data_detection(self, byte):
+        """Detect and log orphaned data when new packet starts"""
         # Detect packet start sequence (<START_TYPE_BYTE> 00) while buffer has data
         HEADER_DATA_BYTES = 4
         if len(self.response_buffer) >= HEADER_DATA_BYTES:
@@ -361,9 +376,9 @@ class AsyncCentaur:
                             print(f"[ORPHANED] {hex_row}")
                             self.response_buffer = bytearray(self.response_buffer[-(1+HEADER_DATA_BYTES):])  # last 5 bytes
                             print(f"After trimming: self.response_buffer: {self.response_buffer}")
-        
-        self.response_buffer.append(byte)
-        
+
+    def _try_discovery_packet_detection(self):
+        """Handle 0x93 packets without checksum, returns True if packet complete"""
         # Special handling for 0x93 discovery packets (no checksum, use declared length)
         if not self.ready and len(self.response_buffer) >= 3:
             if self.response_buffer[0] == 0x93:
@@ -373,8 +388,11 @@ class AsyncCentaur:
                     # Complete 0x93 packet received
                     self.on_packet_complete(self.response_buffer)
                     self.response_buffer = bytearray()
-                    return
+                    return True
+        return False
 
+    def _try_checksum_packet_detection(self, byte):
+        """Handle checksum-validated packets, returns True if packet complete"""
         # Check if this byte is a checksum boundary
         if len(self.response_buffer) >= 2:
             calculated_checksum = self.checksum(self.response_buffer[:-1])
@@ -388,19 +406,30 @@ class AsyncCentaur:
                         # We have a valid packet
                         self.on_packet_complete(self.response_buffer)
                         self.response_buffer = bytearray()
-                        return
+                        return True
                 else:
                     self.on_packet_complete(self.response_buffer)
                     self.response_buffer = bytearray()
-        
-        # If buffer gets too large without finding a packet, trim old bytes
-        if len(self.response_buffer) > 1000:
-            self.response_buffer.pop(0)
+                    return True
+        return False
     
     def on_packet_complete(self, packet):
-        """Called when a complete valid packet is received"""
+        """Called when complete packet received"""
         self.packet_count += 1
- 
+        
+        # Try delivering to waiter first
+        if self._try_deliver_to_waiter(packet):
+            return
+        
+        # Handle discovery or route to handler
+        if not self.ready:
+            self._discover_board_address(packet)
+            return
+        
+        self._route_packet_to_handler(packet)
+
+    def _try_deliver_to_waiter(self, packet):
+        """Try to deliver packet to waiting request, returns True if delivered"""
         # Deliver to blocking/non-blocking waiter first (if any)
         try:
             with self._waiter_lock:
@@ -427,22 +456,20 @@ class AsyncCentaur:
                                 except Exception:
                                     pass
                             threading.Thread(target=_dispatch, daemon=True).start()
-                            return
+                            return True
                         else:
                             try:
                                 q.put_nowait(payload)
                             except Exception:
                                 pass
-                            return
+                            return True
         except Exception:
             # Do not break normal flow on waiter issues
             pass
+        return False
 
-        # Handle discovery packets during initialization
-        if not self.ready:
-            self._discover_board_address(packet)
-            return
-
+    def _route_packet_to_handler(self, packet):
+        """Route packet to appropriate handler based on type"""
         try:
             payload = self._extract_payload(packet)
             if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
@@ -737,122 +764,133 @@ class AsyncCentaur:
         Raises:
             TimeoutError: if no matching response within timeout (blocking mode)
             ValueError: if command is not recognized for matching
-            RuntimeError: if another request is already in progress
+            RuntimeError: if another request is already waiting for a response
         """
-        # RAW capture path
         if raw_len is not None:
-            # ensure no packet-mode waiter is active
-            with self._waiter_lock:
-                if self._response_waiter is not None:
-                    raise RuntimeError("Another request is already waiting for a response")
+            return self._request_response_raw(command, data, timeout, callback, raw_len)
+        elif callback is None:
+            return self._request_response_blocking(command, data, timeout, retries)
+        else:
+            return self._request_response_async(command, data, timeout, callback)
+    def _request_response_raw(self, command, data, timeout, callback, raw_len):
+        """Handle raw byte capture mode"""
+        # ensure no packet-mode waiter is active
+        with self._waiter_lock:
+            if self._response_waiter is not None:
+                raise RuntimeError("Another request is already waiting for a response")
 
-            q = None
-            with self._raw_waiter_lock:
-                if self._raw_waiter is not None:
-                    raise RuntimeError("Another request is already waiting for a response")
-                waiter = {'target_len': int(raw_len), 'buf': bytearray(), 'callback': callback}
-                if callback is None:
-                    q = queue.Queue(maxsize=1)
-                    waiter['queue'] = q
-                self._raw_waiter = waiter
+        q = None
+        with self._raw_waiter_lock:
+            if self._raw_waiter is not None:
+                raise RuntimeError("Another request is already waiting for a response")
+            waiter = {'target_len': int(raw_len), 'buf': bytearray(), 'callback': callback}
+            if callback is None:
+                q = queue.Queue(maxsize=1)
+                waiter['queue'] = q
+            self._raw_waiter = waiter
 
-            # Drain serial input BEFORE sending the command to avoid stale bytes in raw buffer
+        # Drain serial input BEFORE sending the command to avoid stale bytes in raw buffer
+        try:
+            # Preferred in pyserial ≥ 3.x
+            self.ser.reset_input_buffer()
+        except Exception:
             try:
-                # Preferred in pyserial ≥ 3.x
-                self.ser.reset_input_buffer()
+                n = getattr(self.ser, 'in_waiting', 0) or 0
+                if n:
+                    self.ser.read(n)
             except Exception:
+                # final bounded drain
                 try:
-                    n = getattr(self.ser, 'in_waiting', 0) or 0
-                    if n:
-                        self.ser.read(n)
-                except Exception:
-                    # final bounded drain
-                    try:
-                        self.ser.read(10000)
-                    except Exception:
-                        pass
-
-            # Also clear parser buffer so header detection won't prepend stale bytes
-            self.response_buffer = bytearray()
-
-            spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
-            eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
-            self.sendPacket(command, eff_data)
-
-            if callback is not None:
-                return None
-
-            try:
-                return q.get(timeout=timeout)
-            except queue.Empty:
-                # Snapshot/log what we collected so far in raw mode
-                buf = None
-                with self._raw_waiter_lock:
-                    if self._raw_waiter is not None and self._raw_waiter.get('queue') is q:
-                        try:
-                            buf = bytes(self._raw_waiter.get('buf', b''))
-                        except Exception:
-                            buf = None
-                        self._raw_waiter = None
-                try:
-                    if buf is not None:
-                        hex_row = ' '.join(f'{b:02x}' for b in buf)
-                        print(f"raw timeout: wanted={raw_len} got={len(buf)} bytes: {hex_row}")
-                    else:
-                        print(f"raw timeout: wanted={raw_len} got=unknown (waiter cleared)")
-                    rb = bytes(self.response_buffer)
-                    print(f"parser buffer at timeout len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}")
+                    self.ser.read(10000)
                 except Exception:
                     pass
-                raise TimeoutError("Timed out waiting for raw response bytes")
 
+        # Also clear parser buffer so header detection won't prepend stale bytes
+        self.response_buffer = bytearray()
+
+        spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
+        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
+        self.sendPacket(command, eff_data)
+
+        if callback is not None:
+            return None
+
+        try:
+            return q.get(timeout=timeout)
+        except queue.Empty:
+            # Snapshot/log what we collected so far in raw mode
+            buf = None
+            with self._raw_waiter_lock:
+                if self._raw_waiter is not None and self._raw_waiter.get('queue') is q:
+                    try:
+                        buf = bytes(self._raw_waiter.get('buf', b''))
+                    except Exception:
+                        buf = None
+                    self._raw_waiter = None
+            try:
+                if buf is not None:
+                    hex_row = ' '.join(f'{b:02x}' for b in buf)
+                    print(f"raw timeout: wanted={raw_len} got={len(buf)} bytes: {hex_row}")
+                else:
+                    print(f"raw timeout: wanted={raw_len} got=unknown (waiter cleared)")
+                rb = bytes(self.response_buffer)
+                print(f"parser buffer at timeout len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}")
+            except Exception:
+                pass
+            raise TimeoutError("Timed out waiting for raw response bytes")
+
+    def _request_response_blocking(self, command, data, timeout, retries):
+        """Handle blocking mode with retry support"""
         expected_type = self._expected_type_for_cmd(command)
         spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
 
-        if callback is None:
-            # Blocking mode with retry support
-            attempt = 0
-            max_attempts = retries + 1
-            
-            while attempt < max_attempts:
-                attempt += 1
-                q = queue.Queue(maxsize=1)
+        attempt = 0
+        max_attempts = retries + 1
+        
+        while attempt < max_attempts:
+            attempt += 1
+            q = queue.Queue(maxsize=1)
+            with self._waiter_lock:
+                if self._response_waiter is not None:
+                    raise RuntimeError("Another blocking request is already waiting for a response")
+                self._response_waiter = {'expected_type': expected_type, 'queue': q, 'callback': None, 'timer': None}
+
+            self.sendPacket(command, eff_data)
+
+            try:
+                payload = q.get(timeout=timeout)
+                return payload
+            except queue.Empty:
+                # Cleanup waiter
                 with self._waiter_lock:
-                    if self._response_waiter is not None:
-                        raise RuntimeError("Another blocking request is already waiting for a response")
-                    self._response_waiter = {'expected_type': expected_type, 'queue': q, 'callback': None, 'timer': None}
+                    if self._response_waiter is not None and self._response_waiter.get('queue') is q:
+                        self._response_waiter = None
+                
+                # If last attempt, log and return None
+                if attempt >= max_attempts:
+                    try:
+                        rb = bytes(self.response_buffer)
+                        print(
+                            f"packet timeout after {max_attempts} attempt(s): expected_type=0x{expected_type:02x} "
+                            f"parser buffer len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}"
+                        )
+                    except Exception:
+                        pass
+                    return None
+                
+                # Retry after small delay
+                print(f"Retry {attempt}/{max_attempts} after timeout...")
+                time.sleep(0.1)
+        
+        return None
 
-                self.sendPacket(command, eff_data)
+    def _request_response_async(self, command, data, timeout, callback):
+        """Handle non-blocking callback mode"""
+        expected_type = self._expected_type_for_cmd(command)
+        spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
+        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
 
-                try:
-                    payload = q.get(timeout=timeout)
-                    return payload
-                except queue.Empty:
-                    # Cleanup waiter
-                    with self._waiter_lock:
-                        if self._response_waiter is not None and self._response_waiter.get('queue') is q:
-                            self._response_waiter = None
-                    
-                    # If last attempt, log and return None
-                    if attempt >= max_attempts:
-                        try:
-                            rb = bytes(self.response_buffer)
-                            print(
-                                f"packet timeout after {max_attempts} attempt(s): expected_type=0x{expected_type:02x} "
-                                f"parser buffer len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}"
-                            )
-                        except Exception:
-                            pass
-                        return None
-                    
-                    # Retry after small delay
-                    print(f"Retry {attempt}/{max_attempts} after timeout...")
-                    time.sleep(0.1)
-            
-            return None
-
-        # Non-blocking mode with callback
         def _on_timeout():
             with self._waiter_lock:
                 w = self._response_waiter
@@ -939,10 +977,19 @@ class AsyncCentaur:
             self.sendPacket(DGT_BUS_POLL_KEYS) #Key detection enabled
     
     def cleanup(self, leds_off: bool = True):
-        """Idempotent cleanup: stop threads, clear waiters/buffers, LEDs off, close serial."""
+        """Idempotent cleanup coordinator"""
         if getattr(self, "_closed", False):
             return
-        # Stop listener and join thread
+        self._cleanup_listener()
+        if leds_off:
+            self._cleanup_leds()
+        self._cleanup_waiters()
+        self._cleanup_serial()
+        self._closed = True
+        print("AsyncCentaur cleaned up")
+
+    def _cleanup_listener(self):
+        """Stop and join listener thread"""
         try:
             self.listener_running = False
             t = getattr(self, "listener_thread", None)
@@ -951,13 +998,15 @@ class AsyncCentaur:
         except Exception:
             pass
 
-        # Best-effort LEDs off
-        if leds_off:
-            try:
-                self.ledsOff()
-            except Exception:
-                pass
+    def _cleanup_leds(self):
+        """Turn off LEDs"""
+        try:
+            self.ledsOff()
+        except Exception:
+            pass
 
+    def _cleanup_waiters(self):
+        """Clear outstanding waiters"""
         # Clear outstanding waiter (packet mode)
         try:
             with self._waiter_lock:
@@ -983,6 +1032,8 @@ class AsyncCentaur:
         except Exception:
             pass
 
+    def _cleanup_serial(self):
+        """Clear buffers and close serial port"""
         # Reset parser buffer and drain serial
         try:
             self.response_buffer = bytearray()
@@ -1013,11 +1064,8 @@ class AsyncCentaur:
                 self.ser.close()
         except Exception:
             pass
-        self._closed = True
 
         self._last_button = (None, None)
-        
-        print("AsyncCentaur cleaned up")
 
 
     def rotateField(self, field):
