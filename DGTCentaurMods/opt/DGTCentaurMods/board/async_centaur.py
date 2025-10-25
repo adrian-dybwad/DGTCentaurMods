@@ -825,15 +825,15 @@ class AsyncCentaur:
                 with self._waiter_lock:
                     if self._response_waiter is not None and self._response_waiter.get('queue') is q:
                         self._response_waiter = None
-            # Log what the parser has buffered so far
-            try:
-                rb = bytes(self.response_buffer)
-                print(
-                    f"packet timeout: expected_type=0x{expected_type:02x} "
-                    f"parser buffer len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}"
-                )
-            except Exception:
-                pass
+                # Log what the parser has buffered so far
+                try:
+                    rb = bytes(self.response_buffer)
+                    print(
+                        f"packet timeout: expected_type=0x{expected_type:02x} "
+                        f"parser buffer len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}"
+                    )
+                except Exception:
+                    pass
                 raise TimeoutError("Timed out waiting for matching response packet")
 
         # Non-blocking mode with callback
