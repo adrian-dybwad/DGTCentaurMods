@@ -65,7 +65,7 @@ BT_MAIN="/etc/bluetooth/main.conf"
 BT_PINCONF="/etc/bluetooth/pin.conf"
 MACHINE_INFO="/etc/machine-info"
 ENGINES_DIR="/home/pi/centaur/engines"
-FEN_LOG="/home/pi/centaur/fen.log"
+FEN_LOG="/opt/DGTCentaurMods/tmp/fen.log"
 
 # Detect firmware mount (fallback for older releases)
 if [ ! -f "$CONFIG_TXT" ] && [ -f "/boot/config.txt" ]; then
