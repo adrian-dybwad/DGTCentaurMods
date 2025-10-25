@@ -10,7 +10,7 @@ import os
 import time
 import argparse
 
-# Add the DGTCentaurMods path
+# Add the DGTCentaurMods path (when run from opt folder)
 sys.path.append('/home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods')
 
 try:
@@ -65,7 +65,7 @@ class SimplePromotionTester:
         """Test that no direct serial access remains"""
         print("\nTesting for direct serial access patterns...")
         
-        gamemanager_path = "/home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/game/gamemanager.py"
+        gamemanager_path = "DGTCentaurMods/game/gamemanager.py"
         
         try:
             with open(gamemanager_path, 'r') as f:
