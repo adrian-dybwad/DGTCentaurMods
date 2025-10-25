@@ -1,4 +1,5 @@
 [DEFAULT]
+Description = Configurable personalities with human-like play
 Hash = 16
 Threads = 2
 UCI_LimitStrength = true

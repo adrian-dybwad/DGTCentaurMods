@@ -718,7 +718,7 @@ while True:
         logging.debug("Engines")
         logging.debug(result)
         if result == "stockfish":
-            color = doMenu(COLOR_MENU, "Color")
+            color = doMenu(COLOR_MENU, "Stockfish: World's strongest open-source engine")
             logging.debug(color)
             # Current game will launch the screen for the current
             if color != "BACK":
@@ -741,7 +741,17 @@ while True:
                 # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
                 enginefile = enginepath + result
                 ucifile = enginepath + result + ".uci"
-                color = doMenu(COLOR_MENU, result)
+                
+                # Get engine description from .uci file if it exists
+                engine_title = result
+                if os.path.exists(ucifile):
+                    config = configparser.ConfigParser()
+                    config.read(ucifile)
+                    if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
+                        engine_desc = config['DEFAULT']['Description']
+                        engine_title = f"{result}: {engine_desc}"
+                
+                color = doMenu(COLOR_MENU, engine_title)
                 # Current game will launch the screen for the current
                 print("ucifile: " + ucifile)
                 if color != "BACK":
@@ -779,7 +789,17 @@ while True:
             # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
             enginefile = enginepath + result
             ucifile = enginepath + result + ".uci"
-            color = doMenu(COLOR_MENU, result)
+            
+            # Get engine description from .uci file if it exists
+            engine_title = result
+            if os.path.exists(ucifile):
+                config = configparser.ConfigParser()
+                config.read(ucifile)
+                if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
+                    engine_desc = config['DEFAULT']['Description']
+                    engine_title = f"{result}: {engine_desc}"
+            
+            color = doMenu(COLOR_MENU, engine_title)
             # Current game will launch the screen for the current
             if color != "BACK":
                 if os.path.exists(ucifile):

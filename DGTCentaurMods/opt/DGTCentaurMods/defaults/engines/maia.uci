@@ -1,4 +1,5 @@
 [DEFAULT]
+Description = Neural network trained on human games
 Threads = 1
 WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1100.pb.gz
 ;SyzygyPath = /opt/picochess/tablebases/syzygy

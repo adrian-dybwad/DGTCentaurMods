@@ -27,3 +27,5 @@ DGTCentaurMods/web/static/epaper.jpg
 **/build/dgtcentaurmods*
 **/build/Stockfish*
 **/.toggled
+maia_weights/
+tmp/
