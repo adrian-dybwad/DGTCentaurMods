@@ -146,20 +146,25 @@ class UpdateSystem:
         logging.debug('Current channel: '+curr_channel)
         
         local_version = self.getInstalledVersion()
-        local_major = self.getInstalledVersion().split('.')[0]
-        local_minor = self.getInstalledVersion().split('.')[1]
         try:
-            local_minor = self.getInstalledVersion().split('.')[1]
+            local_major = local_version.split('.')[0]
+        except:
+            local_major = '0'
+        try:
+            local_minor = local_version.split('.')[1]
         except:
             local_minor = '0'
 
         if curr_channel == 'stable':
             try:
-                local_revision = self.getInstalledVersion().split('.')[2]
+                local_revision = local_version.split('.')[2]
             except:
                 local_revision = '0'
         else:
-            local_revision = self.getInstalledVersion().rsplit('.',1)[1].rsplit('-',1)[0]
+            try:
+                local_revision = local_version.rsplit('.',1)[1].rsplit('-',1)[0]
+            except:
+                local_revision = '0'
         #Dpkg is skipping 0 if last in version number. e.g: 1.1.0 will be 1.1
         #We need to rebuild the version
         local_version = '{}.{}.{}'.format(local_major,local_minor,local_revision)
