@@ -10,6 +10,11 @@ epaper.jpg
 **/epaper.jpg
 DGTCentaurMods/db/centaur.db
 DGTCentaurMods/config/centaur.ini
+DGTCentaurMods/opt/DGTCentaurMods/db/centaur.db
+DGTCentaurMods/opt/DGTCentaurMods/db/*.db
+DGTCentaurMods/opt/DGTCentaurMods/config/centaur.ini
+DGTCentaurMods/opt/DGTCentaurMods/.venv/
+DGTCentaurMods/opt/DGTCentaurMods/tmp/
 web/static/epaper.jpg
 DGTCentaurMods/web/static/epaper.jpg
 /DGTCentaurMods/web/static/epaper.jpg
