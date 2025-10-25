@@ -374,6 +374,77 @@ def bluetooth_pairing():
     return paired
 
 
+def chromecast_menu():
+    """
+    Select and start Chromecast display.
+    
+    Discovers available Chromecasts, presents menu for selection,
+    and launches background cchandler process to stream board display.
+    """
+    import pychromecast
+    
+    # Kill any existing cchandler processes
+    os.system("ps -ef | grep 'cchandler.py' | grep -v grep | awk '{print $2}' | xargs -r kill -9")
+    
+    # Discover Chromecasts
+    epaper.clearScreen()
+    epaper.writeText(0, "Discovering...")
+    epaper.writeText(1, "Chromecasts...")
+    time.sleep(1)
+    
+    try:
+        chromecasts = pychromecast.get_chromecasts()
+    except Exception as e:
+        epaper.clearScreen()
+        epaper.writeText(0, "Discovery failed")
+        epaper.writeText(1, str(e)[:20])
+        time.sleep(2)
+        return
+    
+    # Build menu of available Chromecasts (cast type only, not audio devices)
+    cc_menu = {}
+    cc_mapping = {}  # Map menu keys to actual Chromecast objects
+    
+    for idx, cc in enumerate(chromecasts[0]):
+        if cc.device.cast_type == 'cast':
+            friendly_name = cc.device.friendly_name
+            # Use friendly name as both key and display value
+            cc_menu[friendly_name] = friendly_name
+            cc_mapping[friendly_name] = cc
+    
+    if not cc_menu:
+        epaper.clearScreen()
+        epaper.writeText(0, "No Chromecasts")
+        epaper.writeText(1, "found")
+        time.sleep(2)
+        return
+    
+    # Let user select Chromecast using main menu system
+    result = doMenu(cc_menu, "Chromecast")
+    
+    if result == "BACK":
+        return
+    
+    # Launch cchandler in background for selected Chromecast
+    cchandler_path = str(pathlib.Path(__file__).parent / 'display' / 'cchandler.py')
+    cmd = f'{sys.executable} "{cchandler_path}" "{result}" &'
+    os.system(cmd)
+    
+    # Show feedback
+    epaper.clearScreen()
+    epaper.writeText(0, "Streaming to:")
+    # Truncate long names to fit on screen (20 chars per line)
+    if len(result) > 20:
+        epaper.writeText(1, result[:20])
+        if len(result) > 40:
+            epaper.writeText(2, result[20:40])
+        else:
+            epaper.writeText(2, result[20:])
+    else:
+        epaper.writeText(1, result)
+    time.sleep(2)
+
+
 def connect_to_wifi(ssid, password):
     """
     Connect to a WiFi network by configuring wpa_supplicant.
@@ -492,7 +563,7 @@ while True:
         board.beep(board.SOUND_POWER_OFF)
         show_welcome()
     if result == "Cast":
-        rc = run_external_script("display/chromecast.py", start_key_polling=True)
+        chromecast_menu()
     if result == "Centaur":
         epaper.loadingScreen()
         #time.sleep(1)
