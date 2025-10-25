@@ -163,8 +163,8 @@ def doMenu(menu, title=None, description=None):
         # Draw background rectangle (white background to cover vertical line area)
         draw.rectangle([0, description_y, 16, description_y + description_height], fill=255, outline=0)
         
-        # Position text with margins
-        description_x = 2  # Small margin from left edge
+        # Position text after vertical line with small margin
+        description_x = 19  # Start after vertical line (17) with 2px margin
         description_text_y = description_y + 2  # Small margin from top
         
         # Use smaller font (14px instead of 18px)
