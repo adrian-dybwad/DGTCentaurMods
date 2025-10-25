@@ -7,6 +7,13 @@ set -e  # Exit on error
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DGTCM_PATH="/opt/DGTCentaurMods"
 TMP_DIR="${DGTCM_PATH}/tmp"
+
+# Ensure /opt/DGTCentaurMods directory structure exists
+if [ ! -d "$DGTCM_PATH" ]; then
+    echo "Creating $DGTCM_PATH directory structure..."
+    sudo mkdir -p "$DGTCM_PATH"
+    sudo chown pi:pi "$DGTCM_PATH"
+fi
 MAIA_REPO="https://github.com/CSSLab/maia-chess.git"
 ENGINES_PATH="${DGTCM_PATH}/engines"
 WEIGHTS_PATH="${ENGINES_PATH}/maia_weights"
@@ -38,7 +45,8 @@ fi
 
 # Create tmp directory if it doesn't exist
 echo "Creating temporary directory..."
-mkdir -p "$TMP_DIR"
+sudo mkdir -p "$TMP_DIR"
+sudo chown pi:pi "$TMP_DIR"
 
 # Check if weights already exist
 if [ -d "$WEIGHTS_PATH" ] && [ "$(ls -A $WEIGHTS_PATH)" ]; then
@@ -88,18 +96,20 @@ echo "Found $weight_count weight files"
 # Copy weight files to engines directory
 echo ""
 echo "Installing weight files to $WEIGHTS_PATH..."
-mkdir -p "$WEIGHTS_PATH"
-cp -r "$TMP_DIR/maia-chess/maia_weights/"* "$WEIGHTS_PATH/"
+sudo mkdir -p "$WEIGHTS_PATH"
+sudo cp -r "$TMP_DIR/maia-chess/maia_weights/"* "$WEIGHTS_PATH/"
+sudo chown -R pi:pi "$WEIGHTS_PATH"
 
 # Also copy the highest-rated weight file to engines root (as per postinst)
 echo "Copying maia-1900.pb.gz to engines directory..."
-cp "$WEIGHTS_PATH/maia-1900.pb.gz" "$ENGINES_PATH/"
+sudo cp "$WEIGHTS_PATH/maia-1900.pb.gz" "$ENGINES_PATH/"
+sudo chown pi:pi "$ENGINES_PATH/maia-1900.pb.gz"
 
 # Set proper permissions
 echo "Setting permissions..."
-chmod 755 "$ENGINES_PATH/maia" 2>/dev/null || true
-chmod 644 "$WEIGHTS_PATH"/*.pb.gz
-chmod 644 "$ENGINES_PATH/maia-1900.pb.gz"
+sudo chmod 755 "$ENGINES_PATH/maia" 2>/dev/null || true
+sudo chmod 644 "$WEIGHTS_PATH"/*.pb.gz
+sudo chmod 644 "$ENGINES_PATH/maia-1900.pb.gz"
 
 # Clean up temporary files
 echo ""
