@@ -155,21 +155,48 @@ def doMenu(menu, title=None, description=None):
     
     # Display description if provided
     if description:
-        # Create background rectangle covering width up to vertical line
+        # Create background rectangle covering the right side area
         description_y = (row * 20) + 2 + shift
-        description_height = 16  # Height for description area
+        description_height = 108  # Height for description area (allows 9 lines: 9 * 12px)
         draw = ImageDraw.Draw(epaper.epaperbuffer)
         
-        # Draw background rectangle (white background to cover vertical line area)
-        draw.rectangle([0, description_y, 16, description_y + description_height], fill=255, outline=0)
+        # Draw background rectangle covering right side (from vertical line to screen edge)
+        draw.rectangle([17, description_y, 127, description_y + description_height], fill=255, outline=0)
         
-        # Position text after vertical line with small margin
-        description_x = 19  # Start after vertical line (17) with 2px margin
+        # Position text close to vertical line
+        description_x = 18  # Start just after vertical line (17) with 1px margin
         description_text_y = description_y + 2  # Small margin from top
         
         # Use smaller font (14px instead of 18px)
         small_font = ImageFont.truetype(epaper.AssetManager.get_resource_path("Font.ttc"), 14)
-        draw.text((description_x, description_text_y), description, font=small_font, fill=0)
+        
+        # Wrap text to fit within the available width
+        max_width = 127 - description_x - 2  # Available width minus margins (now 107px)
+        words = description.split()
+        lines = []
+        current_line = ""
+        
+        for word in words:
+            test_line = current_line + (" " if current_line else "") + word
+            bbox = draw.textbbox((0, 0), test_line, font=small_font)
+            text_width = bbox[2] - bbox[0]
+            
+            if text_width <= max_width:
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append(current_line)
+                    current_line = word
+                else:
+                    lines.append(word)  # Single word too long, add anyway
+        
+        if current_line:
+            lines.append(current_line)
+        
+        # Draw each line
+        for i, line in enumerate(lines[:9]):  # Limit to 9 lines max (fits in 108px height)
+            y_pos = description_text_y + (i * 12)  # 12px line spacing
+            draw.text((description_x, y_pos), line, font=small_font, fill=0)
     
     epaper.unPauseEpaper()    
     time.sleep(0.1)
