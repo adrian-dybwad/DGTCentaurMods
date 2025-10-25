@@ -68,10 +68,26 @@ if [ "$HARDWARE" = true ]; then
     echo "Running hardware-in-the-loop tests..."
     echo "Position: $POSITION"
     echo ""
+    
+    # First run minimal test to avoid import issues
+    echo "1. Running minimal test (no imports)..."
+    python3 DGTCentaurMods/tests/test_promotion_minimal.py
+    echo ""
+    
+    # Then run hardware tests
+    echo "2. Running hardware tests..."
     python3 DGTCentaurMods/tests/test_promotion_simple_hardware.py --hardware --position "$POSITION"
 else
     echo "Running simple tests..."
     echo ""
+    
+    # First run minimal test to avoid import issues
+    echo "1. Running minimal test (no imports)..."
+    python3 DGTCentaurMods/tests/test_promotion_minimal.py
+    echo ""
+    
+    # Then run simple tests
+    echo "2. Running simple tests..."
     python3 DGTCentaurMods/tests/test_promotion_simple.py
 fi
 
