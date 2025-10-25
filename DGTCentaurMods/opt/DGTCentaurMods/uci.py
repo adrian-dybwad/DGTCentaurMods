@@ -146,6 +146,9 @@ if len(sys.argv) > 3:
     print(config.items(ucioptionsdesc))
     for item in config.items(ucioptionsdesc):
         ucioptions[item[0]] = item[1]
+    # Filter out non-UCI metadata fields that shouldn't be sent to the engine
+    NON_UCI_FIELDS = ['Description']
+    ucioptions = {k: v for k, v in ucioptions.items() if k not in NON_UCI_FIELDS}
     print(ucioptions)
 
 if computeronturn == 0:

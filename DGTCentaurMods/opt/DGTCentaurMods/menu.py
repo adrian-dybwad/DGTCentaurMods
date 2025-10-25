@@ -744,12 +744,19 @@ while True:
                 
                 # Get engine description from .uci file if it exists
                 engine_title = result
-                if os.path.exists(ucifile):
-                    config = configparser.ConfigParser()
-                    config.read(ucifile)
-                    if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
-                        engine_desc = config['DEFAULT']['Description']
-                        engine_title = f"{result}: {engine_desc}"
+                # Check both engines/ and defaults/engines/ directories for .uci files
+                ucifile_paths = [
+                    enginepath + result + ".uci",  # engines/ directory
+                    str(pathlib.Path(__file__).parent.resolve()) + "/defaults/engines/" + result + ".uci"  # defaults/engines/ directory
+                ]
+                for ucifile_path in ucifile_paths:
+                    if os.path.exists(ucifile_path):
+                        config = configparser.ConfigParser()
+                        config.read(ucifile_path)
+                        if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
+                            engine_desc = config['DEFAULT']['Description']
+                            engine_title = f"{result}: {engine_desc}"
+                        break
                 
                 color = doMenu(COLOR_MENU, engine_title)
                 # Current game will launch the screen for the current
@@ -792,12 +799,19 @@ while True:
             
             # Get engine description from .uci file if it exists
             engine_title = result
-            if os.path.exists(ucifile):
-                config = configparser.ConfigParser()
-                config.read(ucifile)
-                if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
-                    engine_desc = config['DEFAULT']['Description']
-                    engine_title = f"{result}: {engine_desc}"
+            # Check both engines/ and defaults/engines/ directories for .uci files
+            ucifile_paths = [
+                enginepath + result + ".uci",  # engines/ directory
+                str(pathlib.Path(__file__).parent.resolve()) + "/defaults/engines/" + result + ".uci"  # defaults/engines/ directory
+            ]
+            for ucifile_path in ucifile_paths:
+                if os.path.exists(ucifile_path):
+                    config = configparser.ConfigParser()
+                    config.read(ucifile_path)
+                    if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
+                        engine_desc = config['DEFAULT']['Description']
+                        engine_title = f"{result}: {engine_desc}"
+                    break
             
             color = doMenu(COLOR_MENU, engine_title)
             # Current game will launch the screen for the current
