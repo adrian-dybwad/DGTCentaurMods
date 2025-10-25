@@ -21,6 +21,10 @@ echo "Setting up resource paths for AssetManager..."
 sudo mkdir -p /opt/DGTCentaurMods/resources
 sudo cp -r /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/resources/* /opt/DGTCentaurMods/resources/
 
+sudo chown -R pi:pi /opt/DGTCentaurMods
+sudo chown -R pi:pi /opt/DGTCentaurMods/resources
+sudo chown -R pi:pi /opt/DGTCentaurMods/config
+sudo chown -R pi:pi /opt/DGTCentaurMods/defaults/config
 
 echo "Resource setup complete!"
 echo ""
