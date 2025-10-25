@@ -227,6 +227,7 @@ class AsyncCentaur:
         # single waiter for blocking request_response
         self._waiter_lock = threading.Lock()
         self._response_waiter = None  # dict with keys: expected_type:int, queue:Queue
+        self._request_lock = threading.Lock()  # Serialize blocking requests
 
         # raw byte capture waiter (bypasses checksum/length parsing)
         self._raw_waiter_lock = threading.Lock()
@@ -845,27 +846,46 @@ class AsyncCentaur:
         spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
 
-        attempt = 0
-        max_attempts = retries + 1
-        
-        while attempt < max_attempts:
-            attempt += 1
-            q = queue.Queue(maxsize=1)
-            with self._waiter_lock:
-                if self._response_waiter is not None:
-                    raise RuntimeError("Another blocking request is already waiting for a response")
-                self._response_waiter = {'expected_type': expected_type, 'queue': q, 'callback': None, 'timer': None}
+        # Try to acquire request lock with timeout (prevent concurrent requests)
+        lock_timeout = timeout * (retries + 1)  # Total time for all attempts
+        if not self._request_lock.acquire(blocking=True, timeout=lock_timeout):
+            print(f"Request queue busy, timed out after {lock_timeout}s")
+            return None
 
-            self.sendPacket(command, eff_data)
+        try:
+            attempt = 0
+            max_attempts = retries + 1
+            
+            while attempt < max_attempts:
+                attempt += 1
+                q = queue.Queue(maxsize=1)
+                
+                # Use try/finally to ensure waiter is always cleared
+                waiter_set = False
+                try:
+                    with self._waiter_lock:
+                        if self._response_waiter is not None:
+                            # Should not happen with request lock, but check anyway
+                            print("Warning: waiter still set despite request lock")
+                            self._response_waiter = None
+                        self._response_waiter = {'expected_type': expected_type, 'queue': q, 'callback': None, 'timer': None}
+                        waiter_set = True
 
-            try:
-                payload = q.get(timeout=timeout)
-                return payload
-            except queue.Empty:
-                # Cleanup waiter
-                with self._waiter_lock:
-                    if self._response_waiter is not None and self._response_waiter.get('queue') is q:
-                        self._response_waiter = None
+                    self.sendPacket(command, eff_data)
+
+                    try:
+                        payload = q.get(timeout=timeout)
+                        return payload
+                    except queue.Empty:
+                        # Timeout, will retry or return None
+                        pass
+                        
+                finally:
+                    # Always cleanup waiter, even if exception
+                    if waiter_set:
+                        with self._waiter_lock:
+                            if self._response_waiter is not None and self._response_waiter.get('queue') is q:
+                                self._response_waiter = None
                 
                 # If last attempt, log and return None
                 if attempt >= max_attempts:
@@ -882,8 +902,11 @@ class AsyncCentaur:
                 # Retry after small delay
                 print(f"Retry {attempt}/{max_attempts} after timeout...")
                 time.sleep(0.1)
-        
-        return None
+            
+            return None
+        finally:
+            # Always release request lock
+            self._request_lock.release()
 
     def _request_response_async(self, command, data, timeout, callback):
         """Handle non-blocking callback mode"""
