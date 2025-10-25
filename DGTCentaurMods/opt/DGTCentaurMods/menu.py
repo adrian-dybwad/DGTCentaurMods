@@ -334,6 +334,46 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         print(">>> statusbar.start() complete")
 
 
+def bluetooth_pairing():
+    """
+    Run Bluetooth pairing mode with timeout.
+    Displays pairing instructions on e-paper screen.
+    
+    Returns:
+        bool: True if device paired successfully, False on timeout
+    """
+    from DGTCentaurMods.board.bluetooth_utils import BluetoothManager
+    
+    epaper.clearScreen()
+    epaper.writeText(0, "Pair Now use")
+    epaper.writeText(1, "any passcode if")
+    epaper.writeText(2, "prompted.")
+    epaper.writeText(4, "Times out in")
+    epaper.writeText(5, "one minute.")
+    
+    def on_device_detected():
+        """Callback when pairing device is detected"""
+        epaper.writeText(8, "Pairing...")
+    
+    # Start pairing with 60 second timeout
+    paired = BluetoothManager.start_pairing(
+        timeout=60, 
+        on_device_detected=on_device_detected
+    )
+    
+    # Show result
+    epaper.clearScreen()
+    if paired:
+        epaper.writeText(0, "Paired!")
+        time.sleep(2)
+    else:
+        epaper.writeText(0, "Pairing timeout")
+        time.sleep(2)
+    epaper.clearScreen()
+    
+    return paired
+
+
 def connect_to_wifi(ssid, password):
     """
     Connect to a WiFi network by configuring wpa_supplicant.
@@ -700,7 +740,7 @@ while True:
                             time.sleep(4)
 
             if result == "Pairing":
-                rc = run_external_script("config/pair.py", start_key_polling=True)
+                bluetooth_pairing()
             if result == "LichessAPI":
                 rc = run_external_script("config/lichesstoken.py", start_key_polling=True)
             if result == "Shutdown":

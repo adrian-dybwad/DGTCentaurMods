@@ -75,10 +75,42 @@ then
         echo -e "$REPLY" > $CMDLINEFILE
 fi
 
-    # Setting up Bluetooth
-    #echo -e "::: Setting up bluetooth."
-    #    echo -e "$BTPIN" > /etc/bluetooth/pin.conf
-    #    echo -e "$BTMACHINEINFO" > /etc/machine-info
+    # Setting up Bluetooth configuration
+    echo -e "::: Setting up Bluetooth configuration"
+
+    # Unblock Bluetooth hardware
+    sudo rfkill unblock bluetooth || true
+
+    # Install Bluetooth configuration files
+    sudo mkdir -p /etc/bluetooth
+    sudo mkdir -p /etc/systemd/system/bluetooth.service.d
+
+    # Copy pin.conf if it doesn't exist
+    if [ ! -f /etc/bluetooth/pin.conf ]; then
+        echo "* *" | sudo tee /etc/bluetooth/pin.conf > /dev/null
+    fi
+
+    # Copy machine-info for Bluetooth name
+    if [ ! -f /etc/machine-info ]; then
+        echo "PRETTY_HOSTNAME=PCS-REVII-081500" | sudo tee /etc/machine-info > /dev/null
+    fi
+
+    # Install systemd service overrides (but NOT rfcomm.service)
+    sudo cp ${DGTCM_PATH}/../etc/systemd/system/bluetooth.service.d/*.conf /etc/systemd/system/bluetooth.service.d/ 2>/dev/null || true
+    sudo cp ${DGTCM_PATH}/../etc/systemd/system/var-run-sdp.* /etc/systemd/system/ 2>/dev/null || true
+    sudo cp ${DGTCM_PATH}/../etc/systemd/system/bthelper@.service.d/*.conf /etc/systemd/system/bthelper@.service.d/ 2>/dev/null || true
+
+    # Set correct permissions
+    sudo chmod 644 /etc/bluetooth/pin.conf
+    sudo chmod 644 /etc/machine-info
+
+    echo -e "::: Enabling Bluetooth services"
+    systemctl daemon-reload
+    systemctl enable bluetooth.service || true
+    systemctl enable var-run-sdp.path || true
+
+    # Start Bluetooth
+    systemctl start bluetooth || true
 
 
 #Make DGTCM available to all users
@@ -97,7 +129,9 @@ sudo usermod -a -G kmem pi
 ##### Enable systemd services.
 echo -e "::: Setup services"
     systemctl daemon-reload
-    systemctl enable rfcomm.service
+    echo -e "::: Disabling rfcomm.service (application manages RFCOMM in Python)"
+    systemctl disable rfcomm.service 2>/dev/null || true
+    systemctl stop rfcomm.service 2>/dev/null || true
     systemctl enable centaurmods-web.service
     systemctl enable DGTCentaurMods.service
 #    systemctl enable ntp

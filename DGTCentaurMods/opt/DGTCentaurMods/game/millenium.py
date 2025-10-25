@@ -162,54 +162,8 @@ def moveCallback(move):
 	print("sending status on change")
 	sendMilleniumCommand(resp)
 
-def pairThread():
-	# Emulate bluetooth pairing by providing pairing in a separate thread too
-	# First kill any running bt-agent, it may have been started from the menu
-	for p in psutil.process_iter(attrs=['pid', 'name']):
-		if "bt-agent" in p.info["name"]:
-			p.kill()
-			time.sleep(3)
-	while True:
-		print('running pair thread')
-		# In case something has gone wrong we actually call bluetoothctl first to make it discoverable and pairable.
-		p = subprocess.Popen(['/usr/bin/bluetoothctl'],stdout=subprocess.PIPE, stdin=subprocess.PIPE, universal_newlines=True, shell=True)
-		poll_obj = select.poll()
-		poll_obj.register(p.stdout, select.POLLIN)
-		p.stdin.write("power on\n")
-		p.stdin.flush()
-		p.stdin.write("discoverable on\n")
-		p.stdin.flush()
-		p.stdin.write("pairable on\n")
-		p.stdin.flush()
-		time.sleep(4)
-		p.terminate()
-		p = subprocess.Popen(['/usr/bin/bt-agent --capability=NoInputNoOutput -p /etc/bluetooth/pin.conf'],stdout=subprocess.PIPE, stdin=subprocess.PIPE, shell=True)
-		poll_obj = select.poll()
-		poll_obj.register(p.stdout, select.POLLIN)
-		running = 1
-		spamyes = 0
-		spamtime = 0;
-		while running == 1:
-			poll_result = poll_obj.poll(0)
-			if spamyes == 1:
-				if time.time() - spamtime < 3:
-					print("spamming yes!")
-					p.stdin.write(b'yes\n')
-					time.sleep(1)
-				else:
-					p.terminate()
-					running = 0
-			if poll_result and spamyes == 0:
-				line = p.stdout.readline()
-				if b'Device:' in line:
-					print("detected device")
-					p.stdin.write(b'yes\n')
-					spamyes = 1
-					spamtime = time.time()
-			r = p.poll()
-			if r is not None:
-				running = 0
-		time.sleep(0.1)
+# Import shared Bluetooth manager
+from DGTCentaurMods.board.bluetooth_utils import BluetoothManager
 
 # Activate the epaper
 epaper.initEpaper()
@@ -218,9 +172,8 @@ epaper.writeText(0,'Connect remote')
 epaper.writeText(1,'Device Now')
 start = time.time()
 
-pairThread = threading.Thread(target=pairThread, args=())
-pairThread.daemon = True
-pairThread.start()
+# Start pairing thread using shared BluetoothManager
+pairThread = BluetoothManager.start_pairing_thread()
 
 # Kill rfcomm if it is started
 os.system('sudo service rfcomm stop')
