@@ -79,7 +79,7 @@ stop_services() {
   log_info "Stopping DGTCentaurMods-related services (ignore errors)"
   local units=(
     rfcomm.service
-    centaurmods-web.service
+    DGTCentaurModsWeb.service
     DGTCentaurMods.service
     var-run-sdp.path
     var-run-sdp.service
@@ -93,7 +93,7 @@ stop_services() {
 remove_units_and_overrides() {
   log_info "Disabling and removing lingering systemd units/overrides"
   local files=(
-    /etc/systemd/system/centaurmods-web.service
+    /etc/systemd/system/DGTCentaurModsWeb.service
     /etc/systemd/system/DGTCentaurMods.service
     /etc/systemd/system/var-run-sdp.path
     /etc/systemd/system/var-run-sdp.service
@@ -114,6 +114,12 @@ remove_units_and_overrides() {
     fi
   done
   run "systemctl daemon-reload"
+  # Remove deprecated old web service unit if still present
+  if [ -e "/etc/systemd/system/centaurmods-web.service" ]; then
+    run "systemctl disable centaurmods-web.service" || true
+    run "rm -f /etc/systemd/system/centaurmods-web.service"
+    run "systemctl daemon-reload"
+  fi
 }
 
 revert_nginx() {

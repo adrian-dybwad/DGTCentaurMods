@@ -6,7 +6,7 @@ LINK_PATH=$(pwd)
 
 PCK_NAME="DGTCentaurMods"
 INSTALL_DIR=/opt
-SERVICES=(DGTCentaurMods.service centaurmods-web.service)
+SERVICES=(DGTCentaurMods.service DGTCentaurModsWeb.service)
 
 function restartServices {
     echo -e "Restarting services"

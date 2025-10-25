@@ -6,7 +6,7 @@ The web service runs Flask on port 5000 (non-privileged) and uses nginx to proxy
 ## Files Modified/Created
 
 ### 1. Service Configuration
-- **File**: `DGTCentaurMods/etc/systemd/system/centaurmods-web.service`
+- **File**: `DGTCentaurMods/etc/systemd/system/DGTCentaurModsWeb.service`
 - **Changes**: Updated to run Flask on port 5000 instead of port 80
 
 ### 2. Nginx Configuration
@@ -21,7 +21,7 @@ The web service runs Flask on port 5000 (non-privileged) and uses nginx to proxy
 
 1. **Copy service file**:
    ```bash
-   sudo cp DGTCentaurMods/etc/systemd/system/centaurmods-web.service /etc/systemd/system/
+   sudo cp DGTCentaurMods/etc/systemd/system/DGTCentaurModsWeb.service /etc/systemd/system/
    ```
 
 2. **Copy nginx configuration**:
@@ -38,8 +38,8 @@ The web service runs Flask on port 5000 (non-privileged) and uses nginx to proxy
 4. **Reload systemd and start services**:
    ```bash
    sudo systemctl daemon-reload
-   sudo systemctl enable centaurmods-web.service
-   sudo systemctl start centaurmods-web.service
+   sudo systemctl enable DGTCentaurModsWeb.service
+   sudo systemctl start DGTCentaurModsWeb.service
    ```
 
 ## Benefits
@@ -59,7 +59,7 @@ The web service runs Flask on port 5000 (non-privileged) and uses nginx to proxy
 
 ```bash
 # Check service status
-sudo systemctl status centaurmods-web.service
+sudo systemctl status DGTCentaurModsWeb.service
 
 # View Flask logs
 sudo tail -f /var/log/centaurmods-web.log
@@ -69,6 +69,6 @@ sudo tail -f /var/log/nginx/access.log
 sudo tail -f /var/log/nginx/error.log
 
 # Restart services
-sudo systemctl restart centaurmods-web.service
+sudo systemctl restart DGTCentaurModsWeb.service
 sudo systemctl restart nginx
 ```

@@ -68,7 +68,7 @@ restart_ci() {
 
 log "7/8 Restarting services (case-insensitive, specific then wildcard)"
 restart_ci DGTCentaurMods
-restart_ci centaurmods-web
+restart_ci DGTCentaurModsWeb
 
 # Fallback: restart any service whose name starts with 'dgt' (case-insensitive)
 mapfile -t dgt_units < <(systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -i '^dgt.*\\.service' || true)

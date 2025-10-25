@@ -15,7 +15,7 @@ APP_HELPER="$APP_DIR/centaurflask.py"
 DB_FILE="/opt/DGTCentaurMods/db/centaur.db"
 NGINX_SITE_AVAILABLE="/etc/nginx/sites-available/centaurmods-web"
 NGINX_SITE_ENABLED="/etc/nginx/sites-enabled/centaurmods-web"
-WEB_SERVICE="centaurmods-web.service"
+WEB_SERVICE="DGTCentaurModsWeb.service"
 CORE_SERVICE="DGTCentaurMods.service"
 
 # Preflight: required files and Python env

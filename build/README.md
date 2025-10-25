@@ -31,7 +31,7 @@ Usage:
 
 The script performs:
 
-- Preflight checks for required install paths, venv `python`, Flask import, systemd units, and nginx site config (best-effort).
+- Preflight checks for required install paths, venv `python`, Flask import, systemd units (DGTCentaurMods.service and DGTCentaurModsWeb.service), and nginx site config (best-effort).
 - Endpoint checks for `/`, `/fen`, and `/engines` with retries.
 
 ## Rebuild on Centaur (one command)
@@ -50,5 +50,5 @@ chmod +x rebuild.sh  # first time only
 Notes:
 
 - Runs on the Centaur device (Debian/apt environment).
-- Service restarts are case-insensitive; explicitly attempts `DGTCentaurMods` and `centaurmods-web`, then restarts all `dgt*` services if present.
+- Service restarts are case-insensitive; explicitly attempts `DGTCentaurMods` and `DGTCentaurModsWeb`, then restarts all `dgt*` services if present.
 - Leaves a copy of the built `.deb` in `/tmp/`.

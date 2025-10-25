@@ -132,7 +132,16 @@ echo -e "::: Setup services"
     echo -e "::: Disabling rfcomm.service (application manages RFCOMM in Python)"
     systemctl disable rfcomm.service 2>/dev/null || true
     systemctl stop rfcomm.service 2>/dev/null || true
-    systemctl enable centaurmods-web.service
+    # Migrate web service name: stop/disable old unit, remove file if present
+    if systemctl list-unit-files | grep -q '^centaurmods-web.service'; then
+        systemctl stop centaurmods-web.service 2>/dev/null || true
+        systemctl disable centaurmods-web.service 2>/dev/null || true
+    fi
+    if [ -e /etc/systemd/system/centaurmods-web.service ]; then
+        rm -f /etc/systemd/system/centaurmods-web.service
+        systemctl daemon-reload
+    fi
+    systemctl enable DGTCentaurModsWeb.service
     systemctl enable DGTCentaurMods.service
 #    systemctl enable ntp
     systemctl enable var-run-sdp.path

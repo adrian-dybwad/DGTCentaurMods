@@ -33,10 +33,10 @@ Edit code → rebuild .deb (fast) → reinstall → reboot services.
 ```
 sudo apt purge --auto-remove dgtcentaurmods
 
-sudo systemctl disable centaurmods-web.service
+sudo systemctl disable DGTCentaurModsWeb.service
 sudo systemctl disable DGTCentaurMods.service
 
-sudo systemctl enable centaurmods-web.service
+sudo systemctl enable DGTCentaurModsWeb.service
 sudo systemctl enable DGTCentaurMods.service
 
 
