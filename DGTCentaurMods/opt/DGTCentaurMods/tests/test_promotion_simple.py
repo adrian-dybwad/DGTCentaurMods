@@ -57,7 +57,7 @@ def test_no_direct_serial_patterns():
     print("\nTesting for direct serial access patterns...")
     
     # Read the gamemanager.py file and check for forbidden patterns
-    gamemanager_path = "/Users/adriandybwad/Documents/GitHub/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/game/gamemanager.py"
+    gamemanager_path = "DGTCentaurMods/game/gamemanager.py"
     
     try:
         with open(gamemanager_path, 'r') as f:
@@ -92,7 +92,7 @@ def test_board_wrapper_exists():
     """Test that the board.py wrapper function exists"""
     print("\nTesting board.py wrapper function...")
     
-    board_path = "/Users/adriandybwad/Documents/GitHub/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/board/board.py"
+    board_path = "DGTCentaurMods/board/board.py"
     
     try:
         with open(board_path, 'r') as f:
@@ -113,7 +113,7 @@ def test_gamemanager_uses_wrapper():
     """Test that gamemanager.py uses the wrapper function"""
     print("\nTesting gamemanager.py uses wrapper function...")
     
-    gamemanager_path = "/Users/adriandybwad/Documents/GitHub/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/game/gamemanager.py"
+    gamemanager_path = "DGTCentaurMods/game/gamemanager.py"
     
     try:
         with open(gamemanager_path, 'r') as f:
@@ -134,7 +134,7 @@ def test_gamemanager_uses_board_beep():
     """Test that gamemanager.py uses board.beep() instead of direct serial"""
     print("\nTesting gamemanager.py uses board.beep()...")
     
-    gamemanager_path = "/Users/adriandybwad/Documents/GitHub/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/game/gamemanager.py"
+    gamemanager_path = "DGTCentaurMods/game/gamemanager.py"
     
     try:
         with open(gamemanager_path, 'r') as f:

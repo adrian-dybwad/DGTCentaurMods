@@ -11,7 +11,7 @@ import time
 import argparse
 
 # Add the DGTCentaurMods path (when run from opt folder)
-sys.path.append('/home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods')
+sys.path.append('DGTCentaurMods')
 
 try:
     import chess

@@ -5,15 +5,18 @@ Hardware-in-the-Loop Test for Promotion Button Handling
 This test creates specific chess positions that trigger promotion scenarios
 and tests the refactored button handling logic with real hardware.
 
+
+# Navigate to opt folder
+cd /home/pi/DGTCentaurMods/DGTCentaurMods/opt
+
+# Run any test - all paths are now relative
+python3 DGTCentaurMods/tests/test_promotion_simple_hardware.py --hardware --position white
+python3 DGTCentaurMods/tests/test_promotion_hardware.py --hardware
+python3 DGTCentaurMods/tests/test_promotion_simple.py
+
+
 # Run unit tests only
-python test_promotion_hardware.py
-
-# Run with hardware testing
-python test_promotion_hardware.py --hardware
-
-# Test specific promotion scenarios
-python test_promotion_hardware.py --hardware --position white
-python test_promotion_hardware.py --hardware --position black
+python DGTCentaurMods/tests/test_promotion_hardware.py
 
 Usage:
     python test_promotion_hardware.py [--position white|black|both]
@@ -25,8 +28,8 @@ import time
 import argparse
 from unittest.mock import patch, MagicMock
 
-# Add the DGTCentaurMods path
-sys.path.append('/Users/adriandybwad/Documents/GitHub/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods')
+# Add the DGTCentaurMods path (when run from opt folder)
+sys.path.append('DGTCentaurMods')
 
 try:
     import chess
@@ -182,7 +185,7 @@ class PromotionButtonTester:
         print("\nChecking for direct serial access patterns...")
         
         # Read the gamemanager.py file directly instead of importing
-        gamemanager_path = "/Users/adriandybwad/Documents/GitHub/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/game/gamemanager.py"
+        gamemanager_path = "DGTCentaurMods/game/gamemanager.py"
         
         try:
             with open(gamemanager_path, 'r') as f:
