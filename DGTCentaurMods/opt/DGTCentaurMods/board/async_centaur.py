@@ -213,7 +213,6 @@ class AsyncCentaur:
         self.addr1 = 0x00
         self.addr2 = 0x00
         self.developer_mode = developer_mode
-        self.discovery_state = "STARTING"
         self.ready = False
         self.listener_running = True
         self.listener_thread = None
@@ -240,7 +239,6 @@ class AsyncCentaur:
     
     def run_background(self, start_key_polling=False):
         """Initialize in background thread"""
-        self.discovery_state = "STARTING"
         self.listener_running = True
         self.ready = False
         self._initialize()
@@ -250,12 +248,8 @@ class AsyncCentaur:
         self.listener_thread.start()
 
         # THEN send discovery commands
-        print("Sending discovery commands")
+        print("Starting discovery...")
         self._discover_board_address()
-        # print(f"start_key_polling: {start_key_polling}")
-        # if start_key_polling:
-        #     self.sendPacket(DGT_BUS_POLL_KEYS)
-        # print("Key polling started")
         
     def wait_ready(self, timeout=60):
         """
@@ -924,44 +918,25 @@ class AsyncCentaur:
             packet: Complete packet bytearray (from processResponse)
                     None when called from run_background()
         """
-        if self.discovery_state == "READY":
+        if self.ready:
             return
         
         # Called from run_background() with no packet
         if packet is None:
-            if self.discovery_state == "STARTING":
-                self.discovery_state = "INITIALIZING"
-                print("Discovery: STARTING - sending 0x4d and 0x4e")
-                #tosend = bytearray(b'\x4d\x4e')
-                #self.ser.write(tosend)
-                self.sendPacket(DGT_DISCOVERY_REQ)
-
+            print("Discovery: STARTING - sending 0x4d and 0x4e")
+            self.sendPacket(DGT_DISCOVERY_REQ)
             return
 
         # Called from processResponse() with a complete packet
-        if self.discovery_state == "INITIALIZING":
-            hex_row = ' '.join(f'{b:02x}' for b in packet)
-            #print(f"[INIT_RESPONSE] {hex_row}")
-            #print("Discovery: sending discovery packet 0x87 0x00 0x00 0x07")
-            #tosend = bytearray(DGT_DISCOVERY_ACK)
-            #self.ser.write(tosend)
-            if len(packet) == 5 and packet[0] == 0x93:
-                print(f"Discovery: ACK received")
-                self.discovery_state = "AWAITING_PACKET"
-                # Also clear parser buffer so header detection won't prepend stale bytes
-                self.response_buffer = bytearray()
-                self.sendPacket(DGT_DISCOVERY_ACK)
-        
-        elif self.discovery_state == "AWAITING_PACKET":
-            if len(packet) > 4:
-                self.addr1 = packet[3]
-                self.addr2 = packet[4]
-                self.discovery_state = "READY"
-                self.ready = True
-                print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
-                self.sendPacket(DGT_BUS_POLL_KEYS) #Key detection enabled
-                #self.sendPacket(DGT_BUS_SEND_CHANGES) #Piece detection enabled
-                #  (No need to send this here, it will be sent in the handle_board_packet function when the board is ready  )
+        if packet[0] == 0x93:
+            print(f"Discovery: ACK received")
+            self.sendPacket(DGT_DISCOVERY_ACK)
+        elif packet[0] == 0x87:
+            self.addr1 = packet[3]
+            self.addr2 = packet[4]
+            self.ready = True
+            print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
+            self.sendPacket(DGT_BUS_POLL_KEYS) #Key detection enabled
     
     def cleanup(self, leds_off: bool = True):
         """Idempotent cleanup: stop threads, clear waiters/buffers, LEDs off, close serial."""
