@@ -17,3 +17,19 @@ Run the reset script on the target Pi to purge any previous DGTCentaurMods insta
   - `sudo bash build/reset.sh --yes`
 - Dry-run (print actions without executing):
   - `sudo bash build/reset.sh --dry-run`
+
+## Web smoke test
+
+- Quick check that the Centaur web UI is up and serving expected endpoints.
+- Defaults to `http://127.0.0.1` and falls back to port `5000` if port `80` is unavailable.
+
+Usage:
+
+- `build/test-web.sh`
+- `build/test-web.sh http://host[:port]`
+- `BASE_URL=http://host[:port] build/test-web.sh`
+
+The script performs:
+
+- Preflight checks for required install paths, venv `python`, Flask import, systemd units, and nginx site config (best-effort).
+- Endpoint checks for `/`, `/fen`, and `/engines` with retries.
