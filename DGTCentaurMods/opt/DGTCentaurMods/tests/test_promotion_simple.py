@@ -5,8 +5,15 @@ Simple Unit Test for Promotion Button Handling
 This test focuses on testing the refactored button handling logic
 without requiring the full DGTCentaurMods environment.
 
-Usage:
-    python3 test_promotion_simple.py
+USAGE:
+    # Navigate to opt folder
+    cd /home/pi/DGTCentaurMods/DGTCentaurMods/opt
+    
+    # Activate virtual environment (optional for this test)
+    source DGTCentaurMods/.venv/bin/activate
+    
+    # Run test
+    python3 DGTCentaurMods/tests/test_promotion_simple.py
 """
 
 import sys

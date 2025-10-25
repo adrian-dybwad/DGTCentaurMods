@@ -5,18 +5,17 @@ Hardware-in-the-Loop Test for Promotion Button Handling
 This test creates specific chess positions that trigger promotion scenarios
 and tests the refactored button handling logic with real hardware.
 
-
-# Navigate to opt folder
-cd /home/pi/DGTCentaurMods/DGTCentaurMods/opt
-
-# Run any test - all paths are now relative
-python3 DGTCentaurMods/tests/test_promotion_simple_hardware.py --hardware --position white
-python3 DGTCentaurMods/tests/test_promotion_hardware.py --hardware
-python3 DGTCentaurMods/tests/test_promotion_simple.py
-
-
-# Run unit tests only
-python DGTCentaurMods/tests/test_promotion_hardware.py
+USAGE:
+    # Navigate to opt folder
+    cd /home/pi/DGTCentaurMods/DGTCentaurMods/opt
+    
+    # Activate virtual environment
+    source DGTCentaurMods/.venv/bin/activate
+    
+    # Run tests
+    python3 DGTCentaurMods/tests/test_promotion_hardware.py --hardware --position white
+    python3 DGTCentaurMods/tests/test_promotion_hardware.py --hardware
+    python3 DGTCentaurMods/tests/test_promotion_simple.py
 
 Usage:
     python test_promotion_hardware.py [--position white|black|both]

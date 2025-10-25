@@ -3,6 +3,16 @@
 Simple Hardware Test for Promotion Button Handling
 
 This test works with the actual hardware without mocking.
+
+USAGE:
+    # Navigate to opt folder
+    cd /home/pi/DGTCentaurMods/DGTCentaurMods/opt
+    
+    # Activate virtual environment
+    source DGTCentaurMods/.venv/bin/activate
+    
+    # Run tests
+    python3 DGTCentaurMods/tests/test_promotion_simple_hardware.py --hardware --position white
 """
 
 import sys
