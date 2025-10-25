@@ -356,6 +356,7 @@ class AsyncCentaur:
         2. A new 85 00 header is detected (indicating start of next packet)
         """
         # Detect packet start sequence (<START_TYPE_BYTE> 00) while buffer has data
+        print(f"processResponse: byte={byte}")
         HEADER_DATA_BYTES = 4
         if len(self.response_buffer) >= HEADER_DATA_BYTES:
             if self.response_buffer[-HEADER_DATA_BYTES] in START_TYPE_BYTES:
