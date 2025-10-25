@@ -385,11 +385,7 @@ class AsyncCentaur:
                     actual_length = len(self.response_buffer)
                     if actual_length == declared_length:
                         # We have a valid packet
-                        if self.discovery_state == "READY":
-                            self.on_packet_complete(self.response_buffer)
-                        else:
-                            self._discover_board_address(self.response_buffer)
-                        
+                        self._discover_board_address(self.response_buffer)
                         self.response_buffer = bytearray()
                         return
                 else:
@@ -912,7 +908,7 @@ class AsyncCentaur:
                 print("Discovery: STARTING - sending 0x4d and 0x4e")
                 #tosend = bytearray(b'\x4d\x4e')
                 #self.ser.write(tosend)
-                self.sendPacket(DGT_DISCOVERY_REQ)
+                self.request_response(DGT_DISCOVERY_REQ, timeout=2.0, callback=self._discover_board_address)
 
             return
 
@@ -928,7 +924,7 @@ class AsyncCentaur:
                 self.discovery_state = "AWAITING_PACKET"
                 # Also clear parser buffer so header detection won't prepend stale bytes
                 self.response_buffer = bytearray()
-                self.sendPacket(DGT_DISCOVERY_ACK)
+                self.request_response(DGT_DISCOVERY_ACK, timeout=2.0, callback=self._discover_board_address)
         
         elif self.discovery_state == "AWAITING_PACKET":
             if len(packet) > 4:
