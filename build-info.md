@@ -45,7 +45,7 @@ cd ~
 cd DGTCentaurMods
 git pull
 cd ~/DGTCentaurMods/build
-./build.sh master          # or a branch/tag you’re working on
+./build.sh AsyncController          # or a branch/tag you’re working on
 sudo cp ./releases/dgtcentaurmods_1.3.3_armhf.deb /tmp/
 sudo apt -y install /tmp/dgtcentaurmods_1.3.3_armhf.deb
 cp ~/DGTCentaurMods/tools/card-setup-tool/lib/font/Font.ttc /opt/DGTCentaurMods/resources/
