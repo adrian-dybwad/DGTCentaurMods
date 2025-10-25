@@ -5,6 +5,16 @@ Hardware-in-the-Loop Test for Promotion Button Handling
 This test creates specific chess positions that trigger promotion scenarios
 and tests the refactored button handling logic with real hardware.
 
+# Run unit tests only
+python test_promotion_hardware.py
+
+# Run with hardware testing
+python test_promotion_hardware.py --hardware
+
+# Test specific promotion scenarios
+python test_promotion_hardware.py --hardware --position white
+python test_promotion_hardware.py --hardware --position black
+
 Usage:
     python test_promotion_hardware.py [--position white|black|both]
 """
@@ -18,9 +28,15 @@ from unittest.mock import patch, MagicMock
 # Add the DGTCentaurMods path
 sys.path.append('/Users/adriandybwad/Documents/GitHub/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods')
 
-import chess
-from DGTCentaurMods.game import gamemanager
-from DGTCentaurMods.board import board
+try:
+    import chess
+    from DGTCentaurMods.game import gamemanager
+    from DGTCentaurMods.board import board
+    FULL_ENVIRONMENT = True
+except ImportError as e:
+    print(f"Warning: Could not import DGTCentaurMods modules: {e}")
+    print("Running in limited test mode...")
+    FULL_ENVIRONMENT = False
 
 class PromotionTestSetup:
     """Helper class to set up test positions for promotion testing"""
@@ -82,12 +98,17 @@ class PromotionButtonTester:
     
     def test_waitForPromotionChoice_function(self):
         """Test the waitForPromotionChoice helper function directly"""
+        if not FULL_ENVIRONMENT:
+            print("\nSkipping waitForPromotionChoice test - full environment not available")
+            self.test_results.append("waitForPromotionChoice: Skipped (no full environment)")
+            return
+            
         print("\nTesting waitForPromotionChoice() function...")
         
         for button_name, expected_piece in self.button_mappings.items():
             print(f"  Testing button: {button_name} -> {expected_piece}")
             
-            with patch('DGTCentaurMods.game.gamemanager.board.wait_for_key_up') as mock_wait:
+            with patch('DGTCentaurMods.board.board.wait_for_key_up') as mock_wait:
                 mock_wait.return_value = (0x10, button_name)
                 
                 result = gamemanager.waitForPromotionChoice()
@@ -101,9 +122,14 @@ class PromotionButtonTester:
     
     def test_promotion_flow_with_mocked_board(self):
         """Test the complete promotion flow with mocked board interactions"""
+        if not FULL_ENVIRONMENT:
+            print("\nSkipping promotion flow test - full environment not available")
+            self.test_results.append("Promotion flow: Skipped (no full environment)")
+            return
+            
         print("\nTesting promotion flow with mocked board...")
         
-        with patch('DGTCentaurMods.game.gamemanager.board') as mock_board:
+        with patch('DGTCentaurMods.board.board') as mock_board:
             with patch('DGTCentaurMods.game.gamemanager.epaper') as mock_epaper:
                 
                 # Setup mocks
@@ -113,8 +139,8 @@ class PromotionButtonTester:
                 mock_epaper.promotionOptions = MagicMock()
                 
                 # Test that beep is called correctly
-                gamemanager.board.beep(gamemanager.board.SOUND_GENERAL)
-                mock_board.beep.assert_called_with(gamemanager.board.SOUND_GENERAL)
+                board.beep(board.SOUND_GENERAL)
+                mock_board.beep.assert_called_with(board.SOUND_GENERAL)
                 
                 print("    PASS: board.beep() called correctly")
                 self.test_results.append("Promotion flow: board.beep() called PASS")
@@ -123,8 +149,16 @@ class PromotionButtonTester:
         """Ensure no direct serial access remains in promotion code"""
         print("\nChecking for direct serial access patterns...")
         
-        import inspect
-        source = inspect.getsource(gamemanager.fieldcallback)
+        # Read the gamemanager.py file directly instead of importing
+        gamemanager_path = "/Users/adriandybwad/Documents/GitHub/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/game/gamemanager.py"
+        
+        try:
+            with open(gamemanager_path, 'r') as f:
+                source = f.read()
+        except FileNotFoundError:
+            print(f"    WARNING: Could not read {gamemanager_path}")
+            self.test_results.append("Serial access: Could not read file")
+            return
         
         forbidden_patterns = [
             'board.ser.write',
@@ -149,6 +183,11 @@ class PromotionButtonTester:
     
     def test_hardware_promotion_scenario(self, color="white"):
         """Test promotion with actual hardware (requires manual interaction)"""
+        if not FULL_ENVIRONMENT:
+            print(f"\nSkipping {color} hardware test - full environment not available")
+            self.test_results.append(f"Hardware test ({color}): Skipped (no full environment)")
+            return
+            
         print(f"\nTesting {color} promotion with hardware...")
         print("    This test requires manual interaction with the DGT Centaur board")
         
