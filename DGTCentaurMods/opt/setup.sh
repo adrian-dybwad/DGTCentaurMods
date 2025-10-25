@@ -2,6 +2,8 @@
 # Quick resource setup for Pi environment
 # Run this from: /home/pi/DGTCentaurMods/DGTCentaurMods/opt
 
+echo "Setting up dev-resources.sh..."
+
 echo "Setting up resource paths for AssetManager..."
 
 # Create the directories AssetManager expects
@@ -15,8 +17,6 @@ sudo cp /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/config/centaur
 # Copy the default config
 sudo mkdir -p /opt/DGTCentaurMods/defaults/config
 sudo cp /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/config/centaur.ini /opt/DGTCentaurMods/defaults/config/
-
-echo "Setting up resource paths for AssetManager..."
 
 sudo mkdir -p /opt/DGTCentaurMods/resources
 sudo cp -r /home/pi/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/resources/* /opt/DGTCentaurMods/resources/
