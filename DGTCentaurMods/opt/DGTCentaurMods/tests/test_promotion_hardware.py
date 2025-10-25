@@ -28,8 +28,8 @@ import time
 import argparse
 from unittest.mock import patch, MagicMock
 
-# Add the DGTCentaurMods path (when run from opt folder)
-sys.path.append('DGTCentaurMods')
+# Add the opt folder to Python path (so DGTCentaurMods can be imported)
+sys.path.insert(0, os.path.abspath('.'))
 
 try:
     import chess
