@@ -372,23 +372,106 @@ def ledFlash():
     asyncserial.ledFlash()
 
 def shutdown():
+    """
+    Shutdown the Raspberry Pi with proper cleanup and visual feedback.
+    
+    If a pending update exists, installs it instead of shutting down.
+    Otherwise performs clean shutdown with LED cascade pattern.
+    
+    Visual feedback:
+    - Update install: All LEDs solid
+    - Normal shutdown: Sequential LED cascade h8→h1
+    """
     update = centaur.UpdateSystem()
-    beep(SOUND_POWER_OFF)
     package = '/tmp/dgtcentaurmods_armhf.deb'
+    
+    # Check for pending update
     if os.path.exists(package):
-        ledArray([0,1,2,3,4,5,6,7],6)
+        logging.debug('Update package found - installing instead of shutdown')
+        beep(SOUND_POWER_OFF)
         epaper.clearScreen()
+        epaper.writeText(3, "   Installing")
+        epaper.writeText(4, "     update")
+        
+        # All LEDs for update install
+        try:
+            ledArray([0,1,2,3,4,5,6,7], intensity=6)
+        except Exception:
+            pass
+        
+        time.sleep(2)
         update.updateInstall()
         return
-    logging.debug('Normal shutdown')
+    
+    # Normal shutdown sequence
+    logging.debug('Normal shutdown sequence starting')
+    
+    # Beep power off sound
+    try:
+        beep(SOUND_POWER_OFF)
+    except Exception:
+        pass
+    
+    # Display shutdown message
     epaper.clearScreen()
-    time.sleep(1)
-    ledFromTo(7,7)
     epaper.writeText(3, "     Shutting")
     epaper.writeText(4, "       down")
-    time.sleep(3)
-    epaper.stopEpaper()
+    
+    # LED cascade pattern h8→h1 (squares 7 down to 0)
+    try:
+        for i in range(7, -1, -1):
+            led(i, intensity=5)
+            time.sleep(0.2)
+        # All LEDs off at end
+        ledsOff()
+    except Exception as e:
+        logging.debug(f"LED pattern failed during shutdown: {e}")
+    
+    time.sleep(2)
+    
+    # Properly stop e-paper
+    try:
+        epaper.stopEpaper()
+    except Exception as e:
+        logging.debug(f"E-paper stop failed: {e}")
+    
+    time.sleep(1)
+    
+    # Send sleep to controller before system poweroff
+    try:
+        sleep_controller()
+    except Exception as e:
+        logging.debug(f"Controller sleep failed: {e}")
+    
+    # Execute system poweroff
+    logging.debug('Executing system poweroff')
     os.system("sudo poweroff")
+
+
+def sleep_controller():
+    """
+    Send sleep command to DGT Centaur controller.
+    
+    Called during system shutdown to properly power down the controller
+    before the Raspberry Pi powers off. This prevents the controller
+    from remaining powered when the Pi shuts down.
+    
+    Visual feedback: Single LED at h8 position (square 7)
+    """
+    logging.debug("Sending sleep command to DGT Centaur controller")
+    
+    # Visual feedback - single LED at h8
+    try:
+        ledFromTo(7, 7)
+    except Exception as e:
+        logging.debug(f"LED failed during controller sleep: {e}")
+    
+    # Send sleep command to controller
+    try:
+        sleep()
+        logging.debug("Controller sleep command sent successfully")
+    except Exception as e:
+        logging.debug(f"Failed to send sleep command: {e}")
 
 
 def sleep():

@@ -815,9 +815,18 @@ while True:
             if result == "LichessAPI":
                 rc = run_external_script("config/lichesstoken.py", start_key_polling=True)
             if result == "Shutdown":
+                # Stop statusbar
                 statusbar.stop()
+                
+                # Pause events and cleanup board
+                board.pauseEvents()
+                board.cleanup(leds_off=False)  # LEDs handled by shutdown()
+                
+                # Execute shutdown (handles LEDs, e-paper, controller sleep)
                 board.shutdown()
-                input()
+                
+                # Exit cleanly
+                sys.exit()
             if result == "Reboot":
                 board.beep(board.SOUND_POWER_OFF)
                 epaper.epd.init()
@@ -825,6 +834,15 @@ while True:
                 time.sleep(5)
                 epaper.stopEpaper()
                 time.sleep(2)
+                
+                # LED cascade pattern h1→h8 (squares 0 to 7) for reboot
+                try:
+                    for i in range(0, 8):
+                        board.led(i, intensity=5)
+                        time.sleep(0.2)
+                except Exception:
+                    pass
+                
                 board.pauseEvents()
                 board.cleanup(leds_off=True)
                 os.system("/sbin/shutdown -r now &")
