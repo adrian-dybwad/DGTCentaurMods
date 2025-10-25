@@ -33,3 +33,22 @@ The script performs:
 
 - Preflight checks for required install paths, venv `python`, Flask import, systemd units, and nginx site config (best-effort).
 - Endpoint checks for `/`, `/fen`, and `/engines` with retries.
+
+## Rebuild on Centaur (one command)
+
+- Non-interactive end-to-end rebuild and redeploy on the Centaur device. Purges existing package, updates the repo, builds the `.deb`, installs it, and restarts services.
+
+Usage:
+
+```bash
+cd ~/DGTCentaurMods/build
+chmod +x rebuild.sh  # first time only
+./rebuild.sh               # builds from AsyncController
+./rebuild.sh my-feature    # builds from branch/tag my-feature
+```
+
+Notes:
+
+- Runs on the Centaur device (Debian/apt environment).
+- Service restarts are case-insensitive; explicitly attempts `DGTCentaurMods` and `centaurmods-web`, then restarts all `dgt*` services if present.
+- Leaves a copy of the built `.deb` in `/tmp/`.
