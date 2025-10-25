@@ -155,12 +155,21 @@ def doMenu(menu, title=None, description=None):
     
     # Display description if provided
     if description:
-        # Position description to the right of the vertical line with margin
-        description_x = 20  # Start after the vertical line (17) with small margin
+        # Create background rectangle covering width up to vertical line
         description_y = (row * 20) + 2 + shift
-        # Use PIL ImageDraw to position text at specific coordinates
+        description_height = 16  # Height for description area
         draw = ImageDraw.Draw(epaper.epaperbuffer)
-        draw.text((description_x, description_y), description, font=epaper.font18, fill=0)
+        
+        # Draw background rectangle (white background to cover vertical line area)
+        draw.rectangle([0, description_y, 16, description_y + description_height], fill=255, outline=0)
+        
+        # Position text with margins
+        description_x = 2  # Small margin from left edge
+        description_text_y = description_y + 2  # Small margin from top
+        
+        # Use smaller font (14px instead of 18px)
+        small_font = ImageFont.truetype(epaper.AssetManager.get_resource_path("Font.ttc"), 14)
+        draw.text((description_x, description_text_y), description, font=small_font, fill=0)
     
     epaper.unPauseEpaper()    
     time.sleep(0.1)
