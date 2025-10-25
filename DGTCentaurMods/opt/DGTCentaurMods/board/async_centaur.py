@@ -369,6 +369,17 @@ class AsyncCentaur:
                             print(f"After trimming: self.response_buffer: {self.response_buffer}")
         
         self.response_buffer.append(byte)
+        
+        # Special handling for 0x93 discovery packets (no checksum, use declared length)
+        if not self.ready and len(self.response_buffer) >= 3:
+            if self.response_buffer[0] == 0x93:
+                len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
+                declared_length = (len_hi << 7) | len_lo
+                if len(self.response_buffer) == declared_length:
+                    # Complete 0x93 packet received
+                    self.on_packet_complete(self.response_buffer)
+                    self.response_buffer = bytearray()
+                    return
 
         # Check if this byte is a checksum boundary
         if len(self.response_buffer) >= 2:
