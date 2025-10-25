@@ -26,6 +26,11 @@ fi
 echo "Virtual environment activated"
 echo ""
 
+# Set up resources for AssetManager
+echo "Setting up resources..."
+./setup_resources.sh
+echo ""
+
 # Parse command line arguments
 TEST_TYPE="simple"
 POSITION="both"
