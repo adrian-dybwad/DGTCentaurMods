@@ -38,15 +38,7 @@ kill = 0
 
 epaper.initEpaper()
 
-for x in range(0,10):
-    board.sendPacket(b'\x83', b'')
-    expect = board.buildPacket(b'\x85\x00\x06', b'')
-    resp = board.ser.read(10000)
-    resp = bytearray(resp)
-    board.sendPacket(b'\x94', b'')
-    expect = board.buildPacket(b'\xb1\x00\x06', b'')
-    resp = board.ser.read(10000)
-    resp = bytearray(resp)
+# Initialization handled by async_centaur.py - no manual polling needed
 
 statusbar = epaper.statusBar()
 statusbar.start()
@@ -242,55 +234,22 @@ class UARTTXCharacteristic(Characteristic):
                 self, self.UARTTX_CHARACTERISTIC_UUID,
                 ["read", "notify"], service)
         self.notifying = False
-        print("setting timeout")
-        self.add_timeout(300, self.checkBoard)
 
-    def checkBoard(self):
-        if self.notifying == True:
-            board.sendPacket(b'\x83', b'')
-            expect = board.buildPacket(b'\x85\x00\x06', b'')
-            resp = board.ser.read(10000)
-            resp = bytearray(resp)
-            if (bytearray(resp) != expect):
-                if (resp[0] == 133 and resp[1] == 0):
-                    for x in range(0, len(resp) - 1):
-                        if (resp[x] == 64):
-                            fieldHex = resp[x + 1]
-                            msg = bytearray()
-                            msg.append(fieldHex)
-                            msg.append(0)
-                            self.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
-                            #msg = b'\x58'
-                            #self.sendMessage(DGT_MSG_BATTERY_STATUS, msg)
-                        if (resp[x] == 65):
-                            fieldHex = resp[x + 1]
-                            msg = bytearray()
-                            msg.append(fieldHex)
-                            msg.append(1)
-                            self.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
-                            #msg = b'\x58'
-                            #self.sendMessage(DGT_MSG_BATTERY_STATUS, msg)
-            board.sendPacket(b'\x94', b'')
-            expect = board.buildPacket(b'\xb1\x00\x06', b'')
-            resp = board.ser.read(10000)
-            resp = bytearray(resp)
-            if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0501000000007d47"):
-                print("Back button pressed")
-                # os.system('sudo service bluetooth restart')
-                app.quit()
-        else:
-            board.sendPacket(b'\x83', b'')
-            expect = board.buildPacket(b'\x85\x00\x06', b'')
-            resp = board.ser.read(10000)
-            board.sendPacket(b'\x94', b'')
-            expect = board.buildPacket(b'\xb1\x00\x06', b'')
-            resp = board.ser.read(10000)
-            resp = bytearray(resp)
-            if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0501000000007d47"):
-                print("Back button pressed")
-                # os.system('sudo service bluetooth restart')
-                app.quit()
-        return True
+    def on_key_event(self, keycode, keyname):
+        """Callback when key is pressed"""
+        if keyname == 'BACK':
+            print("Back button pressed")
+            app.quit()
+
+    def on_field_event(self, field, piece_event):
+        """Callback when piece is lifted (0x40) or placed (0x41)"""
+        if self.notifying:
+            msg = bytearray()
+            msg.append(field)
+            # piece_event is 0x40 for lift, 0x41 for place
+            # Pegasus protocol uses 0 for lift, 1 for place
+            msg.append(0 if piece_event == 0x40 else 1)
+            self.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
 
     def sendMessage(self, msgtype, data):
         # Send a message of the given type
@@ -314,6 +273,10 @@ class UARTTXCharacteristic(Characteristic):
         UARTService.tx_obj = self
         self.notifying = True
         board.ledsOff()
+        
+        # Register event callbacks using board.subscribeEvents
+        board.subscribeEvents(self.on_key_event, self.on_field_event, timeout=100000)
+        
         # Let's report the battery status here - 0x58 (or presumably higher as there is rounding) = 100%
         # As I can't read centaur battery percentage here - fake it
         #msg = b'\x58'
@@ -324,6 +287,10 @@ class UARTTXCharacteristic(Characteristic):
         if not self.notifying:
             return
         self.notifying = False
+        
+        # Note: board.subscribeEvents creates a daemon thread that will be cleaned up
+        # automatically when the process exits. No explicit cleanup needed.
+        
         return self.notifying
 
     def updateValue(self,value):
