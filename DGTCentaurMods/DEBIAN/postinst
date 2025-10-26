@@ -322,6 +322,18 @@ case $1 in
     fi
 
     setPermissions
+    
+    # Guarded reboot (fresh installs and upgrades)
+    if [ -z "${DGTCM_SKIP_REBOOT:-}" ]; then
+        echo "Rebooting to complete DGTCentaurMods installation..."
+        if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+            nohup /bin/sh -c "sleep 3; systemctl reboot" >/dev/null 2>&1 &
+        else
+            nohup /bin/sh -c "sleep 3; /sbin/shutdown -r now" >/dev/null 2>&1 &
+        fi
+    else
+        echo "DGTCM_SKIP_REBOOT set; skipping automatic reboot."
+    fi
     ;;
 esac
 
