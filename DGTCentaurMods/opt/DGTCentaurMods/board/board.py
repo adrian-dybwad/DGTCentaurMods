@@ -448,6 +448,11 @@ def shutdown():
     rc = os.system("systemctl poweroff")
     if rc != 0:
         logging.error(f"systemctl poweroff failed with rc={rc}")
+        # Fallback attempts in case policy kit denies systemctl for user 'pi'
+        try:
+            os.system("/sbin/poweroff -f || /sbin/shutdown -h now || /bin/systemctl poweroff -i")
+        except Exception as e:
+            logging.error(f"Fallback poweroff command failed: {e}")
 
 
 def sleep_controller():
@@ -684,6 +689,7 @@ def eventsThread(keycallback, fieldcallback, tout):
     global batterylastchecked
     global chargerconnected
     standby = False
+    sd = None
     hold_timeout = False
     events_paused = False
     to = time.time() + tout
@@ -755,34 +761,55 @@ def eventsThread(keycallback, fieldcallback, tout):
                         buttonPress = BTNHELP
 
                 if buttonPress == BTNPLAY:
-                    breaktime = time.time() + 0.5
-                    beep(SOUND_GENERAL)
-                    while time.time() < breaktime:
-                        code, name = asyncserial.get_and_reset_last_button()
-                        if name == 'PLAY':
-                            buttonPress = BTNPLAY
-                        if rbuttonPress == BTNPLAY:
-                            logging.debug('Play btn pressed. Stanby is: %s', standby)
-                            if standby == False:
-                                logging.debug('Calling standbyScreen()')
-                                epaper.standbyScreen(True)
-                                standby = True
-                                logging.debug('Starting shutdown countdown')
-                                sd = threading.Timer(600,shutdown)
-                                sd.start()
-                                to = time.time() + 100000
-                                break
-                            else:
-                                epaper.standbyScreen(False)
-                                logging.debug('Cancel shutdown')
-                                sd.cancel()
-                                standby = False
-                                to = time.time() + tout
-                                break
-                            break
-                    else:
-                        beep(SOUND_POWER_OFF)
+                    # Determine if PLAY was a long-press or short-press
+                    press_duration = 0.0
+                    try:
+                        press_duration = float(asyncserial.get_and_reset_last_button_duration('PLAY'))
+                    except Exception:
+                        press_duration = 0.0
+
+                    logging.debug('PLAY press duration: %.3fs (standby=%s)', press_duration, standby)
+
+                    # Long press (>= 1.0s): shutdown immediately
+                    if press_duration >= 1.0:
+                        try:
+                            beep(SOUND_POWER_OFF)
+                        except Exception:
+                            pass
                         shutdown()
+                    else:
+                        # Short press: toggle standby
+                        try:
+                            beep(SOUND_GENERAL)
+                        except Exception:
+                            pass
+                        logging.debug('Play btn short press. Standby is: %s', standby)
+                        if not standby:
+                            logging.debug('Entering standbyScreen()')
+                            epaper.standbyScreen(True)
+                            standby = True
+                            # Start a delayed shutdown timer while in standby
+                            logging.debug('Starting standby shutdown countdown (600s)')
+                            try:
+                                if sd is not None:
+                                    sd.cancel()
+                            except Exception:
+                                pass
+                            sd = threading.Timer(600, shutdown)
+                            sd.daemon = True
+                            sd.start()
+                            to = time.time() + 100000
+                        else:
+                            # Exit standby and cancel any pending shutdown timer
+                            epaper.standbyScreen(False)
+                            logging.debug('Cancel standby shutdown timer')
+                            try:
+                                if sd is not None:
+                                    sd.cancel()
+                            except Exception:
+                                pass
+                            standby = False
+                            to = time.time() + tout
             except:
                 pass
             try:
