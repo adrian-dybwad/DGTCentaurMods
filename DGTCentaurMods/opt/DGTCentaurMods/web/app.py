@@ -19,11 +19,11 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
-from flask import Flask, render_template, Response, request, redirect, send_file
+from flask import Flask, render_template, Response, request, redirect, send_file, abort
 from DGTCentaurMods.db import models
 from DGTCentaurMods.display.ui_components import AssetManager
-from chessboard import LiveBoard
-import centaurflask
+from .chessboard import LiveBoard
+from . import centaurflask
 from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, MetaData
