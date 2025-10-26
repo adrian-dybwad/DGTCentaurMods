@@ -487,6 +487,28 @@ def iterate_hex_range(ser: serial.Serial, reader: PacketReader, addr1: int, addr
             print("no packets observed")
 
 # -----------------------------
+# Update-BRD push-listen helper
+# -----------------------------
+
+def send_update_brd_and_listen(ser: serial.Serial, reader: PacketReader, addr1: int, addr2: int, seconds: float):
+    print("\n=== Send DGT_SEND_UPDATE_BRD (0x44) and listen ===")
+    pkt = build_packet(b"\x44", addr1, addr2, b"", False)
+    print(f"send: {hexrow(pkt)}")
+    t0 = now_monotonic()
+    try:
+        ser.write(pkt)
+    except Exception as e:
+        print(f"send error: {e}")
+        return
+    # Listen for unsolicited updates while user moves pieces
+    time.sleep(max(0.0, seconds))
+    seen = reader.get_all_since(t0)
+    print(f"observed {len(seen)} packet(s) after 0x44:")
+    for _, pkt in seen:
+        payload = pkt[5:-1] if len(pkt) >= 6 else b""
+        print(f"  pkt=0x{pkt[0]:02x} payload={hexrow(payload)}")
+
+# -----------------------------
 # Main
 # -----------------------------
 
@@ -530,6 +552,11 @@ def main():
             print("\nReady. Move pieces and press keys during the idle window to test for unsolicited packets.")
             idle_listen(reader, args.idle)
             iterate_commands(ser, reader, addr1, addr2, per_cmd_timeout=args.timeout, ack_wait=args.ack_wait, post_wait=args.post_wait, include_disruptive=args.include_disruptive)
+            # Convenience: give an option to immediately test update-brd push
+            try:
+                send_update_brd_and_listen(ser, reader, addr1, addr2, seconds=max(args.post_wait, 1.0))
+            except Exception:
+                pass
         print("\nDone.")
     finally:
         try:
