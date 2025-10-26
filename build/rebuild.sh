@@ -20,7 +20,7 @@ fi
 
 log "1/8 Purging existing dgtcentaurmods (if installed)"
 sudo apt-get -y purge dgtcentaurmods || true
-sudo apt-get -y autoremove --purge || true
+#sudo apt-get -y autoremove --purge || true
 
 log "2/8 Updating repository and switching to '$BRANCH_OR_TAG'"
 cd "$REPO_DIR"
