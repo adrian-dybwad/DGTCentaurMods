@@ -24,6 +24,11 @@ source DGTCentaurMods/.venv/bin/activate
 # Add project root to Python path (for flat layout)
 export PYTHONPATH="$PWD:$PYTHONPATH"
 
+# Stop web service if it exists
+if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "DGTCentaurMods.service"; then
+	sudo systemctl stop DGTCentaurMods 2>/dev/null || true
+fi
+
 # Launch the game
 python -m DGTCentaurMods.menu "$@"
 # or if you restructured into a package, replace the above with:
@@ -31,3 +36,8 @@ python -m DGTCentaurMods.menu "$@"
 
 # Deactivate when done
 deactivate
+
+# Start web service if it exists
+if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "DGTCentaurMods.service"; then
+	sudo systemctl start DGTCentaurMods 2>/dev/null || true
+fi
