@@ -249,28 +249,46 @@ def drain_serial(ser: serial.Serial):
 
 def send_discovery(ser: serial.Serial, reader: PacketReader, timeout: float = 5.0) -> Tuple[int, int]:
     """
-    Perform minimal discovery:
-      1) send 0x4d 0x4e and wait for a 0x93 packet
-      2) send 0x87 and wait for a 0x87 packet; parse addr1, addr2
+    Perform robust discovery using two strategies:
+      Preferred:
+        1) send 0x4d 0x4e and wait up to timeout/2 for a 0x93 packet
+        2) send 0x87 and wait up to timeout/2 for a 0x87 packet; parse addr1, addr2
+
+      Fallback (mirrors tools/dev-tools/serial/poll-board.py behavior):
+        - Repeatedly send 0x87 00 00 07 and wait for a 0x87 packet
+
     Returns (addr1, addr2) on success; raises RuntimeError on failure.
     """
     drain_serial(ser)
 
-    # Step 1: discovery request
-    ser.write(DGT_DISCOVERY_REQ)
-    pkt93 = reader.wait_for_type(0x93, timeout)
-    if pkt93 is None:
-        raise RuntimeError("Discovery step 1 failed: no 0x93 ack received")
+    # Attempt standard discovery sequence
+    try:
+        # Step 1: discovery request
+        ser.write(DGT_DISCOVERY_REQ)
+        time.sleep(0.01)
+        pkt93 = reader.wait_for_type(0x93, max(0.1, timeout * 0.5))
+        if pkt93 is not None:
+            # Step 2: discovery ack
+            ser.write(DGT_DISCOVERY_ACK)
+            pkt87 = reader.wait_for_type(0x87, max(0.1, timeout * 0.5))
+            if pkt87 is not None and len(pkt87) >= 6:
+                return (pkt87[3], pkt87[4])
+    except Exception:
+        # Fall through to fallback
+        pass
 
-    # Step 2: discovery ack
-    ser.write(DGT_DISCOVERY_ACK)
-    pkt87 = reader.wait_for_type(0x87, timeout)
-    if pkt87 is None or len(pkt87) < 6:
-        raise RuntimeError("Discovery step 2 failed: no 0x87 address frame received")
+    # Fallback: spam 0x87 00 00 07 and look for 0x87 address frame
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            ser.write(b"\x87\x00\x00\x07")
+        except Exception:
+            pass
+        pkt87 = reader.wait_for_type(0x87, 0.3)
+        if pkt87 is not None and len(pkt87) >= 6:
+            return (pkt87[3], pkt87[4])
 
-    addr1 = pkt87[3]
-    addr2 = pkt87[4]
-    return (addr1, addr2)
+    raise RuntimeError("Discovery failed: no 0x93/0x87 response received")
 
 
 def build_packet(cmd: bytes, addr1: int, addr2: int, data: Optional[bytes], full_header: bool) -> bytes:
