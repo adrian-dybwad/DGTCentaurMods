@@ -97,12 +97,13 @@ PROBE_COMMANDS: List[CommandSpec] = [
     CommandSpec("DGT_SEND_BATTERY_INFO", b"\x98", 0xB5, None, False, False),
 
     # Sound commands (full headers)
-    CommandSpec("SOUND_GENERAL",    b"\xb1\x00\x08", 0xB1, b"\x4c\x08", False, True),
-    CommandSpec("SOUND_FACTORY",    b"\xb1\x00\x08", 0xB1, b"\x4c\x40", False, True),
-    CommandSpec("SOUND_POWER_OFF",  b"\xb1\x00\x0a", 0xB1, b"\x4c\x08\x48\x08", False, True),
-    CommandSpec("SOUND_POWER_ON",   b"\xb1\x00\x0a", 0xB1, b"\x48\x08\x4c\x08", False, True),
-    CommandSpec("SOUND_WRONG",      b"\xb1\x00\x0a", 0xB1, b"\x4e\x0c\x48\x10", False, True),
-    CommandSpec("SOUND_WRONG_MOVE", b"\xb1\x00\x08", 0xB1, b"\x48\x08", False, True),
+    # Treat sound as fire-and-forget (no guaranteed ack observed on Centaur)
+    CommandSpec("SOUND_GENERAL",    b"\xb1\x00\x08", None, b"\x4c\x08", False, True),
+    CommandSpec("SOUND_FACTORY",    b"\xb1\x00\x08", None, b"\x4c\x40", False, True),
+    CommandSpec("SOUND_POWER_OFF",  b"\xb1\x00\x0a", None, b"\x4c\x08\x48\x08", False, True),
+    CommandSpec("SOUND_POWER_ON",   b"\xb1\x00\x0a", None, b"\x48\x08\x4c\x08", False, True),
+    CommandSpec("SOUND_WRONG",      b"\xb1\x00\x0a", None, b"\x4e\x0c\x48\x10", False, True),
+    CommandSpec("SOUND_WRONG_MOVE", b"\xb1\x00\x08", None, b"\x48\x08", False, True),
 
     # Sleep (disruptive) - requires explicit flag to include
     CommandSpec("DGT_SLEEP", b"\xb2\x00\x07", 0xB1, b"\x0a", True, True),
@@ -156,6 +157,11 @@ class PacketReader:
                 b = self.ser.read(1)
                 if not b:
                     continue
+                # Print every byte as it is received
+                try:
+                    print(f"raw byte: {b[0]:02x}")
+                except Exception:
+                    pass
                 self._append_byte(b[0])
             except Exception:
                 # Keep trying unless asked to stop
@@ -202,6 +208,11 @@ class PacketReader:
                 self.log.append((ts, pkt))
                 self._inbox.append((ts, pkt))
                 self._cv.notify_all()
+            # Print raw packet bytes as received
+            try:
+                print(f"raw packet: {hexrow(pkt)}")
+            except Exception:
+                pass
 
             # Drop consumed bytes up to total_needed
             del self._buf[:total_needed]
@@ -358,7 +369,7 @@ def idle_listen(reader: PacketReader, seconds: float):
         print("no packets observed during idle window")
 
 
-def iterate_commands(ser: serial.Serial, reader: PacketReader, addr1: int, addr2: int, per_cmd_timeout: float, post_wait: float, include_disruptive: bool):
+def iterate_commands(ser: serial.Serial, reader: PacketReader, addr1: int, addr2: int, per_cmd_timeout: float, ack_wait: float, post_wait: float, include_disruptive: bool):
     print("\n=== Command Sweep ===")
     # Deterministic order: by command bytes then by name
     cmds = sorted(PROBE_COMMANDS, key=lambda s: (s.cmd, s.name))
@@ -382,16 +393,29 @@ def iterate_commands(ser: serial.Serial, reader: PacketReader, addr1: int, addr2
         except Exception as e:
             print(f"resp: ERROR {e}")
 
-        # Post-wait extras
-        time.sleep(post_wait)
-        extras = [pkt for (_ts, pkt) in reader.get_all_since(t0) if (spec.expected_resp_type is None or pkt[0] != spec.expected_resp_type)]
+        # Ack window: print ANY packets observed shortly after send
+        time.sleep(max(0.0, ack_wait))
+        ack_end = now_monotonic()
+        observed = reader.get_all_since(t0)
+        acks = [pkt for (ts, pkt) in observed if ts <= ack_end]
+        if acks:
+            print(f"ack window packets ({len(acks)}):")
+            for pkt in acks:
+                payload = pkt[5:-1] if len(pkt) >= 6 else b""
+                print(f"  pkt=0x{pkt[0]:02x} payload={hexrow(payload)}")
+        else:
+            print("ack window: none")
+
+        # Post-wait: any packets after ack window
+        time.sleep(max(0.0, post_wait))
+        extras = [pkt for (ts, pkt) in reader.get_all_since(ack_end)]
         if extras:
-            print(f"extra packets ({len(extras)}):")
+            print(f"post window packets ({len(extras)}):")
             for pkt in extras:
                 payload = pkt[5:-1] if len(pkt) >= 6 else b""
                 print(f"  pkt=0x{pkt[0]:02x} payload={hexrow(payload)}")
         else:
-            print("extra packets: none")
+            print("post window: none")
 
 
 # -----------------------------
@@ -437,6 +461,7 @@ def main():
     ap.add_argument("--baud", type=int, default=1000000, help="Baud rate")
     ap.add_argument("--idle", type=float, default=10.0, help="Seconds to listen idle before command sweep")
     ap.add_argument("--timeout", type=float, default=1.5, help="Per-command response timeout (seconds)")
+    ap.add_argument("--ack-wait", type=float, default=0.15, help="Immediate ack capture window (seconds)")
     ap.add_argument("--post-wait", type=float, default=0.3, help="Post-command extra capture window (seconds)")
     ap.add_argument("--include-disruptive", action="store_true", help="Include disruptive commands (e.g., reset, sleep)")
     ap.add_argument("--sweep-4055", action="store_true", help="Sweep raw command codes 0x40..0x55 as short bus commands")
@@ -458,7 +483,7 @@ def main():
 
         print("\nReady. Move pieces and press keys during the idle window to test for unsolicited packets.")
         idle_listen(reader, args.idle)
-        iterate_commands(ser, reader, addr1, addr2, per_cmd_timeout=args.timeout, post_wait=args.post_wait, include_disruptive=args.include_disruptive)
+        iterate_commands(ser, reader, addr1, addr2, per_cmd_timeout=args.timeout, ack_wait=args.ack_wait, post_wait=args.post_wait, include_disruptive=args.include_disruptive)
         if args.sweep_4055:
             iterate_hex_range(ser, reader, addr1, addr2, 0x40, 0x55, post_wait=args.post_wait, include_disruptive=args.include_disruptive)
         print("\nDone.")
