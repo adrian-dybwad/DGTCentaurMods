@@ -136,3 +136,31 @@ def write_fen_log(text: str) -> None:
         f.write(text)
 
 
+def get_current_fen() -> str:
+    """Read one line from fen.log and close before returning."""
+    with open_fen_log("r") as f:
+        curfen = f.readline()
+        if curfen:
+            return curfen
+        else:
+            return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+def get_current_placement() -> str:
+    """Read the placement from the current fen."""
+    return get_current_fen().split(" ")[0]
+
+def get_current_turn() -> str:
+    """Read the turn from the current fen."""
+    return get_current_fen().split(" ")[1]
+
+def get_current_castling() -> str:
+    """Read the castling from the current fen."""
+    return get_current_fen().split(" ")[2]
+
+def get_current_en_passant() -> str:
+    """Read the en passant from the current fen."""
+    return get_current_fen().split(" ")[3]
+
+def get_current_halfmove_clock() -> str:
+    """Read the halfmove clock from the current fen."""
+    return get_current_fen().split(" ")[4]
