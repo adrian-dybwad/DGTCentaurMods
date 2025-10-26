@@ -474,6 +474,24 @@ def iterate_hex_range(ser: serial.Serial, reader: PacketReader, addr1: int, addr
             for pkt in pkts[1:]:
                 payload = pkt[5:-1] if len(pkt) >= 6 else b""
                 print(f"  extra: type=0x{pkt[0]:02x} payload={hexrow(payload)}")
+            # If any NOTICE (0x8e) observed, poll 0x43 once to fetch update-mode changes
+            if any(p[0] == 0x8E for p in pkts):
+                try:
+                    print("  notice detected -> polling 0x43 once")
+                    pollpkt = build_packet(b"\x43", addr1, addr2, b"", False)
+                    t_poll = now_monotonic()
+                    ser.write(pollpkt)
+                    time.sleep(max(0.1, post_wait))
+                    polled = [pkt for (_ts, pkt) in reader.get_all_since(t_poll)]
+                    if polled:
+                        print(f"  poll(0x43) packets ({len(polled)}):")
+                        for pkt in polled:
+                            payload = pkt[5:-1] if len(pkt) >= 6 else b""
+                            print(f"    pkt=0x{pkt[0]:02x} payload={hexrow(payload)}")
+                    else:
+                        print("  poll(0x43): no packets observed")
+                except Exception as e:
+                    print(f"  poll error: {e}")
         else:
             print("no packets observed")
 
@@ -498,6 +516,24 @@ def send_update_brd_and_listen(ser: serial.Serial, reader: PacketReader, addr1: 
     for _, pkt in seen:
         payload = pkt[5:-1] if len(pkt) >= 6 else b""
         print(f"  pkt=0x{pkt[0]:02x} payload={hexrow(payload)}")
+    # If notices seen, fetch once via 0x83
+    if any(pkt[0] == 0x8E for _, pkt in seen):
+        try:
+            print("  notice detected -> polling 0x43 once")
+            pollpkt = build_packet(b"\x43", addr1, addr2, b"", False)
+            t_poll = now_monotonic()
+            ser.write(pollpkt)
+            time.sleep(max(0.1, seconds))
+            polled = [pkt for (_ts, pkt) in reader.get_all_since(t_poll)]
+            if polled:
+                print(f"  poll(0x43) packets ({len(polled)}):")
+                for pkt in polled:
+                    payload = pkt[5:-1] if len(pkt) >= 6 else b""
+                    print(f"    pkt=0x{pkt[0]:02x} payload={hexrow(payload)}")
+            else:
+                print("  poll(0x43): no packets observed")
+        except Exception as e:
+            print(f"  poll error: {e}")
 
 # -----------------------------
 # Main
