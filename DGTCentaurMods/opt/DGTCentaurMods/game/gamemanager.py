@@ -293,10 +293,7 @@ def fieldcallback(field):
                 mv = fromname + toname + pr
             # Make the move and update fen.log
             cboard.push(chess.Move.from_uci(mv))
-            fenlog = "/home/pi/centaur/fen.log"
-            f = open(fenlog, "w")
-            f.write(cboard.fen())
-            f.close()
+            paths.write_fen_log(cboard.fen())
             gamemove = models.GameMove(
                 gameid=gamedbid,
                 move=mv,
