@@ -499,7 +499,7 @@ def main():
     ap.add_argument("--ack-wait", type=float, default=0.15, help="Immediate ack capture window (seconds)")
     ap.add_argument("--post-wait", type=float, default=0.3, help="Post-command extra capture window (seconds)")
     ap.add_argument("--include-disruptive", action="store_true", help="Include disruptive commands (e.g., reset, sleep)")
-    ap.add_argument("--sweep-4055", action="store_true", help="Sweep raw command codes 0x40..0x55 as short bus commands")
+    ap.add_argument("--sweep", help="Hex sweep range as 4 hex digits, e.g., 4055 for 0x40..0x55")
     args = ap.parse_args()
 
     try:
@@ -519,8 +519,16 @@ def main():
         print("\nReady. Move pieces and press keys during the idle window to test for unsolicited packets.")
         idle_listen(reader, args.idle)
         iterate_commands(ser, reader, addr1, addr2, per_cmd_timeout=args.timeout, ack_wait=args.ack_wait, post_wait=args.post_wait, include_disruptive=args.include_disruptive)
-        if args.sweep_4055:
-            iterate_hex_range(ser, reader, addr1, addr2, 0x40, 0x55, post_wait=args.post_wait, include_disruptive=args.include_disruptive)
+        if args.sweep:
+            rng = args.sweep.strip().lower()
+            if len(rng) != 4 or any(c not in '0123456789abcdef' for c in rng):
+                print(f"Invalid --sweep value '{args.sweep}'. Expected 4 hex digits like 4055.")
+            else:
+                start = int(rng[:2], 16)
+                end = int(rng[2:], 16)
+                if start > end:
+                    start, end = end, start
+                iterate_hex_range(ser, reader, addr1, addr2, start, end, post_wait=args.post_wait, include_disruptive=args.include_disruptive)
         print("\nDone.")
     finally:
         try:
