@@ -76,7 +76,7 @@ def handle_preflight():
             response = response + '</D:creationdate>\n'
             response = response + '<D:lastmodified>'
             response = response + time.strftime('%a, %d %b %Y %H:%M:%S %Z',time.localtime(os.path.getctime("/home/pi")));
-            response = response + '</D:lastmodified>\m'
+            response = response + '</D:lastmodified>\n'
             response = response + '</D:prop>\n'
             response = response + '<D:status>HTTP/1.1 200 OK</D:status>\n'
             response = response + '</D:propstat>\n'
@@ -279,7 +279,7 @@ def handle_preflight():
                 response = response + '</D:creationdate>\n'
                 response = response + '<D:lastmodified>'
                 response = response + time.strftime('%a, %d %b %Y %H:%M:%S %Z',time.localtime(os.path.getmtime("/home/pi" + thispath)))
-                response = response + '</D:lastmodified>\m'
+                response = response + '</D:lastmodified>\n'
                 response = response + '</D:prop>\n'
                 response = response + '<D:status>HTTP/1.1 200 OK</D:status>\n'
                 response = response + '</D:propstat>\n'
