@@ -197,12 +197,14 @@ def main():
     ap = argparse.ArgumentParser(description="Minimal Centaur probe: one command + optional notice-triggered poll")
     ap.add_argument("--port", default="/dev/serial0", help="Serial device (e.g., /dev/serial0)")
     ap.add_argument("--baud", type=int, default=1000000, help="Baud rate")
-    ap.add_argument("--send", required=True, help="HEXHEX: send byte + expected type (e.g., 4387)")
+    ap.add_argument("--send", help="HEXHEX: send byte + expected type (e.g., 4387). Optional in --interactive mode")
     ap.add_argument("--on-notice", help="HEXHEX: unsolicited type + poll byte to send (e.g., 8e43)")
     ap.add_argument("--timeout", type=float, default=2.0, help="Timeout waiting for expected response")
     ap.add_argument("--listen", type=float, default=0.0, help="Remain listening this many seconds after initial exchange")
     ap.add_argument("--interactive", action="store_true", help="Interactive mode: read commands from stdin while printing incoming bytes/packets")
     args = ap.parse_args()
+    if not args.interactive and not args.send:
+        ap.error("--send is required unless --interactive is provided")
 
     try:
         ser = serial.Serial(args.port, baudrate=args.baud, timeout=0.2)
@@ -296,8 +298,9 @@ def main():
                 # Default: treat as send+expect hex4
                 do_send_expect(line)
         else:
-            # Send initial command and wait for expected response
-            do_send_expect(args.send)
+            # Send initial command and wait for expected response (if provided)
+            if args.send:
+                do_send_expect(args.send)
 
             # Optional listen window
             if args.listen and args.listen > 0.0:
