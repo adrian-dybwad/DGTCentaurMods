@@ -395,6 +395,39 @@ def iterate_commands(ser: serial.Serial, reader: PacketReader, addr1: int, addr2
 
 
 # -----------------------------
+# Hex range sweep (0x40 - 0x55)
+# -----------------------------
+
+DISRUPTIVE_CODES = {0x40}  # DGT_SEND_RESET
+
+def iterate_hex_range(ser: serial.Serial, reader: PacketReader, addr1: int, addr2: int, start_code: int, end_code: int, post_wait: float, include_disruptive: bool):
+    print(f"\n=== Hex Range Sweep 0x{start_code:02x}..0x{end_code:02x} ===")
+    for code in range(start_code, end_code + 1):
+        if code in DISRUPTIVE_CODES and not include_disruptive:
+            continue
+        name = f"CMD_0x{code:02x}"
+        cmd = bytes([code])
+        pkt = build_packet(cmd, addr1, addr2, b"", False)
+        print(f"\n-- {name} --")
+        print(f"send: {hexrow(pkt)}")
+        t0 = now_monotonic()
+        try:
+            ser.write(pkt)
+        except Exception as e:
+            print(f"send error: {e}")
+            continue
+        # No specific expected response type; just capture whatever arrives shortly after
+        time.sleep(post_wait)
+        extras = [pkt for (_ts, pkt) in reader.get_all_since(t0)]
+        if extras:
+            print(f"observed {len(extras)} packet(s):")
+            for pkt in extras:
+                payload = pkt[5:-1] if len(pkt) >= 6 else b""
+                print(f"  pkt=0x{pkt[0]:02x} payload={hexrow(payload)}")
+        else:
+            print("no packets observed")
+
+# -----------------------------
 # Main
 # -----------------------------
 
@@ -405,7 +438,8 @@ def main():
     ap.add_argument("--idle", type=float, default=10.0, help="Seconds to listen idle before command sweep")
     ap.add_argument("--timeout", type=float, default=1.5, help="Per-command response timeout (seconds)")
     ap.add_argument("--post-wait", type=float, default=0.3, help="Post-command extra capture window (seconds)")
-    ap.add_argument("--include-disruptive", action="store_true", help="Include disruptive commands (e.g., sleep)")
+    ap.add_argument("--include-disruptive", action="store_true", help="Include disruptive commands (e.g., reset, sleep)")
+    ap.add_argument("--sweep-4055", action="store_true", help="Sweep raw command codes 0x40..0x55 as short bus commands")
     args = ap.parse_args()
 
     try:
@@ -425,6 +459,8 @@ def main():
         print("\nReady. Move pieces and press keys during the idle window to test for unsolicited packets.")
         idle_listen(reader, args.idle)
         iterate_commands(ser, reader, addr1, addr2, per_cmd_timeout=args.timeout, post_wait=args.post_wait, include_disruptive=args.include_disruptive)
+        if args.sweep_4055:
+            iterate_hex_range(ser, reader, addr1, addr2, 0x40, 0x55, post_wait=args.post_wait, include_disruptive=args.include_disruptive)
         print("\nDone.")
     finally:
         try:
