@@ -237,6 +237,23 @@ class PacketReader:
                         return pkt
                 self._cv.wait(timeout=min(0.1, max(0.0, remaining)))
 
+    def wait_for_any_since(self, t0: float, timeout: float) -> Optional[bytes]:
+        """
+        Wait for the first packet whose timestamp is >= t0. Returns the packet bytes or None on timeout.
+        """
+        deadline = time.time() + timeout
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return None
+            with self._cv:
+                # Find first packet at/after t0
+                for idx, (ts, pkt) in enumerate(self._inbox):
+                    if ts >= t0:
+                        self._inbox.pop(idx)
+                        return pkt
+                self._cv.wait(timeout=min(0.1, max(0.0, remaining)))
+
 
 # -----------------------------
 # Serial utilities
@@ -339,15 +356,22 @@ def send_and_wait(ser: serial.Serial, reader: PacketReader, spec: CommandSpec, a
     ser.write(pkt)
 
     payload = None
+    # Prefer matching type when known; otherwise accept any first packet
+    resp = None
     if spec.expected_resp_type is not None:
         resp = reader.wait_for_type(spec.expected_resp_type, timeout)
-        if resp is not None:
-            # payload is after addr2 up to checksum
-            if len(resp) >= 6:
-                payload = resp[5:-1]
-            else:
-                payload = b""
-    return (payload, [])
+        if resp is None:
+            resp = reader.wait_for_any_since(t0, max(0.0, timeout))
+    else:
+        resp = reader.wait_for_any_since(t0, max(0.0, timeout))
+
+    if resp is not None:
+        # payload is after addr2 up to checksum
+        if len(resp) >= 6:
+            payload = resp[5:-1]
+        else:
+            payload = b""
+    return (payload, [resp] if resp is not None else [])
 
 
 # -----------------------------
@@ -383,13 +407,19 @@ def iterate_commands(ser: serial.Serial, reader: PacketReader, addr1: int, addr2
 
         t0 = now_monotonic()
         try:
-            payload, _ = send_and_wait(ser, reader, spec, addr1, addr2, per_cmd_timeout)
+            payload, primaries = send_and_wait(ser, reader, spec, addr1, addr2, per_cmd_timeout)
             if spec.expected_resp_type is None:
                 print("resp: (no expected type)")
             elif payload is None:
                 print(f"resp: TIMEOUT (expected type=0x{spec.expected_resp_type:02x})")
             else:
-                print(f"resp: type=0x{spec.expected_resp_type:02x} payload={hexrow(payload)}")
+                # If we received a primary packet, label it as EXPECTED/UNEXPECTED
+                if primaries:
+                    pkt = primaries[0]
+                    label = "EXPECTED" if pkt[0] == spec.expected_resp_type else "UNEXPECTED"
+                    print(f"resp: {label} type=0x{pkt[0]:02x} payload={hexrow(payload)}")
+                else:
+                    print(f"resp: type=0x{spec.expected_resp_type:02x} payload={hexrow(payload)}")
         except Exception as e:
             print(f"resp: ERROR {e}")
 
@@ -440,14 +470,19 @@ def iterate_hex_range(ser: serial.Serial, reader: PacketReader, addr1: int, addr
         except Exception as e:
             print(f"send error: {e}")
             continue
-        # No specific expected response type; just capture whatever arrives shortly after
-        time.sleep(post_wait)
-        extras = [pkt for (_ts, pkt) in reader.get_all_since(t0)]
-        if extras:
-            print(f"observed {len(extras)} packet(s):")
+        # Wait for first packet after send and label EXPECTED/UNEXPECTED
+        first = reader.wait_for_any_since(t0, max(0.0, post_wait))
+        if first is not None:
+            # No expected type for sweep; treat all as UNEXPECTED to highlight
+            payload = first[5:-1] if len(first) >= 6 else b""
+            print(f"resp: UNEXPECTED type=0x{first[0]:02x} payload={hexrow(payload)}")
+            # Print any additional packets also
+            extras = [pkt for (_ts, pkt) in reader.get_all_since(t0)]
             for pkt in extras:
+                if pkt is first:
+                    continue
                 payload = pkt[5:-1] if len(pkt) >= 6 else b""
-                print(f"  pkt=0x{pkt[0]:02x} payload={hexrow(payload)}")
+                print(f"  extra: type=0x{pkt[0]:02x} payload={hexrow(payload)}")
         else:
             print("no packets observed")
 
