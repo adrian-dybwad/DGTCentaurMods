@@ -138,6 +138,15 @@ class PacketReader:
         # Queue-like list for consumers; consumed by pop(0)
         self._inbox: List[Tuple[float, bytes]] = []
         self._cv = threading.Condition()
+        # Optional handler invoked when a NOTICE (0x8E) is observed
+        self._notice_handler = None
+
+    def set_notice_handler(self, handler):
+        """
+        Set a callable handler(packet_bytes) that will be invoked asynchronously
+        whenever a NOTICE (0x8E) framed packet is parsed.
+        """
+        self._notice_handler = handler
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -205,6 +214,14 @@ class PacketReader:
                     print(f"raw packet (BAD_CSUM): {hexrow(pkt)}")
                 else:
                     print(f"raw packet: {hexrow(pkt)}")
+                # If a NOTICE is observed and a handler is set, invoke asynchronously
+                if pkt and pkt[0] == 0x8E and self._notice_handler is not None:
+                    def _dispatch_notice(p=pkt):
+                        try:
+                            self._notice_handler(p)
+                        except Exception:
+                            pass
+                    threading.Thread(target=_dispatch_notice, daemon=True).start()
             except Exception:
                 pass
             # Drop consumed bytes up to total_needed and restart from buffer head
@@ -481,7 +498,8 @@ def iterate_hex_range(ser: serial.Serial, reader: PacketReader, addr1: int, addr
                     pollpkt = build_packet(b"\x43", addr1, addr2, b"", False)
                     t_poll = now_monotonic()
                     ser.write(pollpkt)
-                    time.sleep(max(0.1, post_wait))
+                    # wait same post_wait to aggregate results
+                    time.sleep(max(0.0, post_wait))
                     polled = [pkt for (_ts, pkt) in reader.get_all_since(t_poll)]
                     if polled:
                         print(f"  poll(0x43) packets ({len(polled)}):")
@@ -509,21 +527,15 @@ def send_update_brd_and_listen(ser: serial.Serial, reader: PacketReader, addr1: 
     except Exception as e:
         print(f"send error: {e}")
         return
-    # Listen for unsolicited updates while user moves pieces
-    time.sleep(max(0.0, seconds))
-    seen = reader.get_all_since(t0)
-    print(f"observed {len(seen)} packet(s) after 0x44:")
-    for _, pkt in seen:
-        payload = pkt[5:-1] if len(pkt) >= 6 else b""
-        print(f"  pkt=0x{pkt[0]:02x} payload={hexrow(payload)}")
-    # If notices seen, fetch once via 0x83
-    if any(pkt[0] == 0x8E for _, pkt in seen):
+    # Install a notice handler: on 0x8E, poll once with 0x43
+    def on_notice(_pkt):
         try:
             print("  notice detected -> polling 0x43 once")
             pollpkt = build_packet(b"\x43", addr1, addr2, b"", False)
             t_poll = now_monotonic()
             ser.write(pollpkt)
-            time.sleep(max(0.1, seconds))
+            # small wait to gather any frames produced by poll
+            time.sleep(0.2)
             polled = [pkt for (_ts, pkt) in reader.get_all_since(t_poll)]
             if polled:
                 print(f"  poll(0x43) packets ({len(polled)}):")
@@ -534,6 +546,18 @@ def send_update_brd_and_listen(ser: serial.Serial, reader: PacketReader, addr1: 
                 print("  poll(0x43): no packets observed")
         except Exception as e:
             print(f"  poll error: {e}")
+
+    reader.set_notice_handler(on_notice)
+
+    # Listen for unsolicited updates while user moves pieces
+    time.sleep(max(0.0, seconds))
+    seen = reader.get_all_since(t0)
+    print(f"observed {len(seen)} packet(s) after 0x44:")
+    for _, pkt in seen:
+        payload = pkt[5:-1] if len(pkt) >= 6 else b""
+        print(f"  pkt=0x{pkt[0]:02x} payload={hexrow(payload)}")
+    # Remove notice handler
+    reader.set_notice_handler(None)
 
 # -----------------------------
 # Main
