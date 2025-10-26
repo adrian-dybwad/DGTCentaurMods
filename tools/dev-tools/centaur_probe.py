@@ -64,7 +64,8 @@ def now_monotonic() -> float:
 # - 0xF0: snapshot response
 # - 0x87: discovery address frame
 # - 0x93: discovery ack frame
-KNOWN_START_TYPES = {0x85, 0xB1, 0xB5, 0xF0, 0x87, 0x93}
+# Include known response types and common MESSAGE_BIT frames (e.g., 0x8e = 0x0e|0x80)
+KNOWN_START_TYPES = {0x85, 0xB1, 0xB5, 0xF0, 0x87, 0x93, 0x8E}
 
 
 # Discovery raw bytes (no addr/checksum framing)
@@ -174,49 +175,40 @@ class PacketReader:
             self._scan_for_packets()
 
     def _scan_for_packets(self):
-        # Attempt parsing from each candidate start index where type is known
+        # Attempt parsing from each candidate start index; accept unknown types if framed with 0x00 and len
         i = 0
         while i < len(self._buf):
-            t = self._buf[i]
-            if t not in KNOWN_START_TYPES:
-                i += 1
-                continue
-
-            # Need at least 3 bytes for type, 0x00, length
             if i + 3 > len(self._buf):
                 break
-
-            # Length is at i+2; require there is a 0x00 at i+1 for framed packets
-            # Some types may not strictly require 0x00, but Centaur responses observed do.
+            t = self._buf[i]
+            type2 = self._buf[i + 1]
             pkt_len = self._buf[i + 2]
-            total_needed = i + pkt_len
-            if total_needed > len(self._buf):
-                # Not enough bytes yet
-                break
-
-            # Verify checksum: sum of all bytes except last mod 128 equals last byte
-            pkt = bytes(self._buf[i:total_needed])
-            calc = checksum(pkt[:-1])
-            if calc != pkt[-1]:
-                # Not a valid packet at this offset; advance 1
+            # Require 0x00 in second position and plausible length
+            if type2 != 0x00 or pkt_len < 5:
                 i += 1
                 continue
-
-            # Valid packet: commit it
+            total_needed = i + pkt_len
+            if total_needed > len(self._buf):
+                break
+            pkt = bytes(self._buf[i:total_needed])
+            calc = checksum(pkt[:-1])
+            bad_csum = (calc != pkt[-1])
+            # Commit packet (even with bad checksum) to not lose frames like 0x8e
             ts = now_monotonic()
             with self._cv:
                 self.log.append((ts, pkt))
                 self._inbox.append((ts, pkt))
                 self._cv.notify_all()
-            # Print raw packet bytes as received
+            # Print raw packet bytes (label if checksum mismatch)
             try:
-                print(f"raw packet: {hexrow(pkt)}")
+                if bad_csum:
+                    print(f"raw packet (BAD_CSUM): {hexrow(pkt)}")
+                else:
+                    print(f"raw packet: {hexrow(pkt)}")
             except Exception:
                 pass
-
-            # Drop consumed bytes up to total_needed
+            # Drop consumed bytes up to total_needed and restart from buffer head
             del self._buf[:total_needed]
-            # Restart from buffer head
             i = 0
 
     def get_all_since(self, t0: float) -> List[Tuple[float, bytes]]:
