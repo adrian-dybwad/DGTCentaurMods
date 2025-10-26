@@ -562,7 +562,7 @@ def return2dgtcentaurmods():
 @app.route("/shutdownboard")
 def shutdownboard():
     os.system("pkill centaur")
-    os.system("sudo poweroff")
+    os.system("systemctl poweroff")
     return "ok"
 
 @app.route("/lichesskey/<key>")
