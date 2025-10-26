@@ -112,9 +112,13 @@ fi
     systemctl start bluetooth || true
 
 
-#Make DGTCM available to all users
-rm /usr/lib/python3/dist-packages/DGTCentaurMods
-cd /usr/lib/python3/dist-packages && sudo ln -s ${DGTCM_PATH} DGTCentaurMods
+# Make DGTCM available to all users (idempotent)
+DISTPKG_DIR="/usr/lib/python3/dist-packages"
+TARGET_PATH="${DISTPKG_DIR}/DGTCentaurMods"
+install -d "$DISTPKG_DIR"
+# Replace any existing file/dir/symlink with a symlink to $DGTCM_PATH
+rm -rf "$TARGET_PATH"
+ln -sfnT "$DGTCM_PATH" "$TARGET_PATH"
 
 # Allow flask on port 80
 # sudo touch /etc/authbind/byport/80
