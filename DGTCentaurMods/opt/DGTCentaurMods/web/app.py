@@ -37,6 +37,7 @@ import io
 import chess
 import chess.pgn
 import json
+from DGTCentaurMods.config import paths
 
 app = Flask(__name__)
 app.config['UCI_UPLOAD_EXTENSIONS'] = ['.txt']
@@ -476,25 +477,11 @@ def handle_preflight():
 
 @app.route("/", methods=["GET"])
 def index():
-    fenlog = "/home/pi/centaur/fen.log"
-    if os.path.isfile(fenlog) == True:
-        with open(fenlog, "r") as f:
-            line = f.readline().split(" ")
-            fen = line[0]
-    else:
-        fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-    return render_template('index.html', fen=fen)
+    return render_template('index.html', fen=paths.get_current_placement())
 
 @app.route("/fen")
 def fen():
-    fenlog = "/home/pi/centaur/fen.log"
-    if os.path.isfile(fenlog) == True:
-        with open(fenlog, "r") as f:
-            line = f.readline().split(" ")
-            fen = line[0]
-    else:
-        fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-    return fen
+    return paths.get_current_placement()
 
 @app.route("/rodentivtuner")
 def tuner():
@@ -771,10 +758,7 @@ if os.path.isfile(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static
 def generateVideoFrame():
     global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo, sc, moddate
     while True:
-        fenlog = "/home/pi/centaur/fen.log"
-        f = open(fenlog, "r")
-        curfen = f.readline()
-        f.close()
+        curfen = paths.get_current_fen()
         curfen = curfen.replace("/", "")
         curfen = curfen.replace("1", " ")
         curfen = curfen.replace("2", "  ")
