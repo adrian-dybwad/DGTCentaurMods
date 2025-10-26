@@ -154,7 +154,7 @@ def get_current_fen() -> str:
         with open_fen_log("r") as f:
             curfen = f.readline().strip()
     except FileNotFoundError:
-        pass
+        return DEFAULT_START_FEN
 
     return curfen or DEFAULT_START_FEN
 
