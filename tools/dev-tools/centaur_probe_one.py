@@ -155,23 +155,29 @@ def drain_serial(ser: serial.Serial):
 
 def discovery(ser: serial.Serial, reader: PacketReader, timeout: float = 5.0):
     drain_serial(ser)
-    # Send 0x4d 0x4e, wait for 0x93
-    ser.write(b"\x4d\x4e")
-    if reader.wait_for_type(0x93, timeout * 0.5) is None:
-        # fallback: spam 0x87 00 00 07
-        end = time.time() + timeout
-        while time.time() < end:
+    # Step 1: Send 0x4d 0x4e (ignore whether 0x93 is fully framed/valid)
+    try:
+        ser.write(b"\x4d\x4e")
+    except Exception:
+        pass
+    # Wait a short time for any 0x93 to arrive, but proceed regardless
+    reader.wait_for_type(0x93, max(0.1, timeout * 0.3))
+
+    # Step 2: Repeatedly send 0x87 00 00 07 until we receive 0x87 with addr
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
             ser.write(b"\x87\x00\x00\x07")
-            pkt = reader.wait_for_type(0x87, 0.3)
-            if pkt is not None and len(pkt) >= 6:
-                return pkt[3], pkt[4]
-        raise RuntimeError("discovery failed: no 0x93/0x87")
-    # Send 0x87, expect 0x87 addr frame
-    ser.write(b"\x87")
-    pkt87 = reader.wait_for_type(0x87, timeout * 0.5)
-    if pkt87 is None or len(pkt87) < 6:
-        raise RuntimeError("discovery failed at 0x87")
-    return pkt87[3], pkt87[4]
+        except Exception:
+            pass
+        pkt87 = reader.wait_for_type(0x87, 0.3)
+        if pkt87 is not None and len(pkt87) >= 5:
+            # Some boards may send minimal frames; guard indexing
+            a1 = pkt87[3] if len(pkt87) > 3 else 0
+            a2 = pkt87[4] if len(pkt87) > 4 else 0
+            if a1 != 0 or a2 != 0:
+                return a1, a2
+    raise RuntimeError("discovery failed: no 0x87 address frame")
 
 
 def build_short(cmd: int, addr1: int, addr2: int) -> bytes:
