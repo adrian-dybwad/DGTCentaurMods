@@ -14,6 +14,8 @@ if [ ! -d "DGTCentaurMods/.venv" ]; then
   exit 1
 fi
 
+cd ~/DGTCentaurMods/DGTCentaurMods/opt
+
 git pull
 
 # Activate the virtual environment
