@@ -443,9 +443,11 @@ def shutdown():
     except Exception as e:
         logging.debug(f"Controller sleep failed: {e}")
     
-    # Execute system poweroff
-    logging.debug('Executing system poweroff')
-    os.system("sudo poweroff")
+    # Execute system poweroff via systemd (ensures shutdown hooks run as root)
+    logging.debug('Requesting system poweroff via systemd')
+    rc = os.system("systemctl poweroff")
+    if rc != 0:
+        logging.error(f"systemctl poweroff failed with rc={rc}")
 
 
 def sleep_controller():
