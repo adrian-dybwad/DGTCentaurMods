@@ -470,17 +470,16 @@ def iterate_hex_range(ser: serial.Serial, reader: PacketReader, addr1: int, addr
         except Exception as e:
             print(f"send error: {e}")
             continue
-        # Wait for first packet after send and label EXPECTED/UNEXPECTED
-        first = reader.wait_for_any_since(t0, max(0.0, post_wait))
-        if first is not None:
-            # No expected type for sweep; treat all as UNEXPECTED to highlight
-            payload = first[5:-1] if len(first) >= 6 else b""
-            print(f"resp: UNEXPECTED type=0x{first[0]:02x} payload={hexrow(payload)}")
-            # Print any additional packets also
-            extras = [pkt for (_ts, pkt) in reader.get_all_since(t0)]
-            for pkt in extras:
-                if pkt is first:
-                    continue
+        # Always wait full post_wait and then print everything observed
+        time.sleep(max(0.0, post_wait))
+        observed = reader.get_all_since(t0)
+        pkts = [pkt for (_ts, pkt) in observed]
+        if pkts:
+            # No expected type for sweep; label first as UNEXPECTED response
+            first = pkts[0]
+            fpay = first[5:-1] if len(first) >= 6 else b""
+            print(f"resp: UNEXPECTED type=0x{first[0]:02x} payload={hexrow(fpay)}")
+            for pkt in pkts[1:]:
                 payload = pkt[5:-1] if len(pkt) >= 6 else b""
                 print(f"  extra: type=0x{pkt[0]:02x} payload={hexrow(payload)}")
         else:
