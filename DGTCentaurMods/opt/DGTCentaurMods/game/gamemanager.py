@@ -374,6 +374,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     global kill
     global startstate
     global newgame
+    global last_new_game_time
     global cboard
     global curturn
     global keycallbackfunction
