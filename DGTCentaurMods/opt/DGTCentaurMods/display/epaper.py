@@ -29,6 +29,7 @@ from DGTCentaurMods.board import centaur,board
 from DGTCentaurMods.display import epd2in9d
 from DGTCentaurMods.display.epaper_driver import epaperDriver
 from DGTCentaurMods.display.ui_components import AssetManager
+from DGTCentaurMods.config import paths
 import os, time
 from PIL import Image, ImageDraw, ImageFont
 import pathlib
@@ -86,8 +87,7 @@ def epaperUpdate():
             if screensleep == 1:
                 driver.reset()
                 screensleep = 0
-            filename = str(AssetManager.get_resource_path("epaper.jpg"))
-            epaperbuffer.save(filename)
+            paths.write_epaper_static_jpg(epaperbuffer)
             if screeninverted == 0:
                 im = im.transpose(Image.FLIP_TOP_BOTTOM)
                 im = im.transpose(Image.FLIP_LEFT_RIGHT)                        
@@ -470,8 +470,7 @@ def drawWindow(x, y, w, data):
         if tw >= dw:
             tw = 0
             dyoff = dyoff + 1
-    filename = str(AssetManager.get_resource_path("epaper.jpg"))
-    epaperbuffer.save(filename)    
+    paths.write_epaper_static_jpg(epaperbuffer)    
 
 def drawImagePartial(x, y, img):
     # For backwards compatibility we just paste into the image here
@@ -565,8 +564,7 @@ class MenuDraw:
             im = im.transpose(Image.FLIP_TOP_BOTTOM)
             im = im.transpose(Image.FLIP_LEFT_RIGHT)
         bytes = im.tobytes()
-        filename = str(AssetManager.get_resource_path("epaper.jpg"))
-        epaperbuffer.save(filename)
+        paths.write_epaper_static_jpg(epaperbuffer)
         epd.send_command(0x91)
         epd.send_command(0x90)
         epd.send_data(0)
@@ -608,8 +606,7 @@ class MenuDraw:
         draw = ImageDraw.Draw(epaperbuffer)
         draw.rectangle([(0, 40), (8, 191)], fill = 255, outline = 255)
         draw.rectangle([(2,((index + 2) * 20) + 5), (8, ((index+2) * 20) + 14)], fill = 0, outline = 0)
-        filename = str(AssetManager.get_resource_path("epaper.jpg"))
-        epaperbuffer.save(filename)
+        paths.write_epaper_static_jpg(epaperbuffer)
         epd.send_command(0x91) # Enter partial mode
         epd.send_command(0x90) # Set resolution
         epd.send_data(120) #x start

@@ -751,9 +751,10 @@ kw = Image.open(AssetManager.get_resource_path("kw.png")).convert("RGBA")
 logo = Image.open(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/logo_mods_web.png")
 moddate = -1
 sc = None
-if os.path.isfile(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/epaper.jpg"):
-    sc = Image.open(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/epaper.jpg")
-    moddate = os.stat(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/epaper.jpg")[8]
+epaper_path = paths.get_epaper_static_jpg_path()
+if os.path.isfile(epaper_path):
+    sc = Image.open(epaper_path)
+    moddate = os.stat(epaper_path)[8]
 
 def generateVideoFrame():
     global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo, sc, moddate
@@ -823,9 +824,9 @@ def generateVideoFrame():
             if col == 8:
                 col = 0
                 row = row + 1
-        newmoddate = os.stat(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/epaper.jpg")[8]
+        newmoddate = os.stat(paths.get_epaper_static_jpg_path())[8]
         if newmoddate != moddate:
-            sc = Image.open(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/epaper.jpg")
+            sc = Image.open(paths.get_epaper_static_jpg_path())
             moddate = newmoddate
         image.paste(sc, (345 + 1216 - 130, 635))
         image.paste(logo, (345 + 1216 - 130, 0), logo)

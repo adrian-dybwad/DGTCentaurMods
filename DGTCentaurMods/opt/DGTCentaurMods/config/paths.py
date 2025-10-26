@@ -18,10 +18,13 @@ BASE_DIR = "/opt/DGTCentaurMods"
 DB_DIR = f"{BASE_DIR}/db"
 CONFIG_DIR = f"{BASE_DIR}/config"
 TMP_DIR = f"{BASE_DIR}/tmp"
+WEB_DIR = f"{BASE_DIR}/web"
+WEB_STATIC_DIR = f"{WEB_DIR}/static"
 
 # Files
 FEN_LOG = f"{TMP_DIR}/fen.log"
 DEFAULT_DB_FILE = f"{DB_DIR}/centaur.db"
+EPAPER_STATIC_JPG = f"{WEB_STATIC_DIR}/epaper.jpg"
 
 # Defaults
 DEFAULT_START_FEN = (
@@ -177,3 +180,35 @@ def get_current_en_passant() -> str:
 def get_current_halfmove_clock() -> str:
     """Read the halfmove clock from the current fen."""
     return get_current_fen().split(" ")[4]
+
+
+def get_web_static_dir() -> str:
+    """Return absolute path to the web static directory under /opt."""
+    return WEB_STATIC_DIR
+
+
+def get_epaper_static_jpg_path(ensure_parent: bool = False) -> str:
+    """Return absolute path to web/static/epaper.jpg.
+
+    If ensure_parent is True, the parent directory is created if missing.
+    """
+    if ensure_parent:
+        ensure_parent_dir(EPAPER_STATIC_JPG)
+    return EPAPER_STATIC_JPG
+
+
+def write_epaper_static_jpg(image) -> str:
+    """Write the provided Pillow Image to web/static/epaper.jpg and return the path.
+
+    The image will be converted to a JPEG-compatible mode if needed.
+    """
+    path = get_epaper_static_jpg_path(ensure_parent=True)
+    # Local import to avoid global dependency at module import time
+    from PIL import Image  # type: ignore
+    img = image
+    if not isinstance(img, Image.Image):
+        raise TypeError("write_epaper_static_jpg expects a PIL Image")
+    if img.mode not in ("L", "RGB"):
+        img = img.convert("L")
+    img.save(path, format="JPEG")
+    return path
