@@ -516,9 +516,6 @@ def main():
         addr1, addr2 = send_discovery(ser, reader, timeout=5.0)
         print(f"discovered addr1={hex(addr1)} addr2={hex(addr2)}")
 
-        print("\nReady. Move pieces and press keys during the idle window to test for unsolicited packets.")
-        idle_listen(reader, args.idle)
-        iterate_commands(ser, reader, addr1, addr2, per_cmd_timeout=args.timeout, ack_wait=args.ack_wait, post_wait=args.post_wait, include_disruptive=args.include_disruptive)
         if args.sweep:
             rng = args.sweep.strip().lower()
             if len(rng) != 4 or any(c not in '0123456789abcdef' for c in rng):
@@ -529,6 +526,10 @@ def main():
                 if start > end:
                     start, end = end, start
                 iterate_hex_range(ser, reader, addr1, addr2, start, end, post_wait=args.post_wait, include_disruptive=args.include_disruptive)
+        else:
+            print("\nReady. Move pieces and press keys during the idle window to test for unsolicited packets.")
+            idle_listen(reader, args.idle)
+            iterate_commands(ser, reader, addr1, addr2, per_cmd_timeout=args.timeout, ack_wait=args.ack_wait, post_wait=args.post_wait, include_disruptive=args.include_disruptive)
         print("\nDone.")
     finally:
         try:
