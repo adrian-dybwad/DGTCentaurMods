@@ -7,6 +7,10 @@
 # Always run from the project root
 cd "$(dirname "$0")" || exit 1
 
+cd ~/DGTCentaurMods/DGTCentaurMods/opt
+
+git pull
+
 # Ensure virtualenv exists
 if [ ! -d "DGTCentaurMods/.venv" ]; then
   echo "No .venv found! Create one with:"
@@ -14,9 +18,7 @@ if [ ! -d "DGTCentaurMods/.venv" ]; then
   exit 1
 fi
 
-cd ~/DGTCentaurMods/DGTCentaurMods/opt
 
-git pull
 
 # Activate the virtual environment
 source DGTCentaurMods/.venv/bin/activate
