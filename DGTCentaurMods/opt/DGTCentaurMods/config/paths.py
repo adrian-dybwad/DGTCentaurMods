@@ -23,6 +23,11 @@ TMP_DIR = f"{BASE_DIR}/tmp"
 FEN_LOG = f"{TMP_DIR}/fen.log"
 DEFAULT_DB_FILE = f"{DB_DIR}/centaur.db"
 
+# Defaults
+DEFAULT_START_FEN = (
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+)
+
 
 def ensure_parent_dir(path: str) -> None:
     """Ensure the parent directory of the given path exists."""
@@ -137,13 +142,21 @@ def write_fen_log(text: str) -> None:
 
 
 def get_current_fen() -> str:
-    """Read one line from fen.log and close before returning."""
-    with open_fen_log("r") as f:
-        curfen = f.readline()
-        if curfen:
-            return curfen
-        else:
-            return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    """Return the current FEN from fen.log.
+
+    Behavior:
+    - If fen.log exists and has content, return its first line as-is.
+    - If fen.log is missing, return the starting FEN.
+    - If fen.log is empty, return the starting FEN.
+
+    """
+    try:
+        with open_fen_log("r") as f:
+            curfen = f.readline().strip()
+    except FileNotFoundError:
+        pass
+
+    return curfen or DEFAULT_START_FEN
 
 def get_current_placement() -> str:
     """Read the placement from the current fen."""
