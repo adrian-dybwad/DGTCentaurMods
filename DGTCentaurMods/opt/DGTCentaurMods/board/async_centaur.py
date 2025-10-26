@@ -514,23 +514,9 @@ class AsyncCentaur:
                 idx, code_val, is_down = self._find_key_event_in_payload(payload)
                 if idx is not None:
                     self._draw_key_event_from_payload(payload, idx, code_val, is_down)
-                    # Track press durations for long-press detection
-                    if is_down:
-                        try:
-                            self._button_down_times[code_val] = time.time()
-                        except Exception:
-                            pass
-                    else:
+                    if not is_down:
                         name = DGT_BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
                         self._last_button = (code_val, name)
-                        # Calculate and store last button press duration
-                        try:
-                            start = self._button_down_times.pop(code_val, None)
-                            if start is not None:
-                                duration = max(0.0, time.time() - start)
-                                self._last_button_durations[code_val] = duration
-                        except Exception:
-                            pass
                         try:
                             self.key_up_queue.put_nowait((code_val, name))
                         except queue.Full:
@@ -540,42 +526,6 @@ class AsyncCentaur:
         except Exception as e:
             print(f"Error: {e}")
             return 
-
-    # --- Long-press support state ---
-    # Map of code_val -> last key-down timestamp
-    _button_down_times = {}
-    # Map of code_val -> last measured press duration (seconds)
-    _last_button_durations = {}
-
-    def get_and_reset_last_button_duration(self, name_or_code):
-        """
-        Return and reset the last measured press duration for the given button.
-
-        Args:
-            name_or_code: Button name (e.g., 'PLAY') or numeric code (e.g., 0x04)
-
-        Returns:
-            float duration in seconds, or 0.0 if unknown.
-        """
-        code = None
-        if isinstance(name_or_code, str):
-            # reverse-lookup code by name
-            try:
-                code = next((k for k, v in DGT_BUTTON_CODES.items() if v == name_or_code), None)
-            except Exception:
-                code = None
-        else:
-            code = name_or_code
-
-        try:
-            if code in self._last_button_durations:
-                d = float(self._last_button_durations.get(code, 0.0))
-                # reset after read
-                self._last_button_durations.pop(code, None)
-                return d
-        except Exception:
-            pass
-        return 0.0
 
     def _extract_time_from_payload(self, payload: bytes) -> bytes:
         """
