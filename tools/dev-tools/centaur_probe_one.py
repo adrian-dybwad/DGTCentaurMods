@@ -201,6 +201,7 @@ def main():
     ap.add_argument("--on-notice", help="HEXHEX: unsolicited type + poll byte to send (e.g., 8e43)")
     ap.add_argument("--timeout", type=float, default=2.0, help="Timeout waiting for expected response")
     ap.add_argument("--listen", type=float, default=0.0, help="Remain listening this many seconds after initial exchange")
+    ap.add_argument("--interactive", action="store_true", help="Interactive mode: read commands from stdin while printing incoming bytes/packets")
     args = ap.parse_args()
 
     try:
@@ -234,24 +235,76 @@ def main():
 
             reader.set_notice_handler(on_notice)
 
-        # Send initial command and wait for expected response
-        send_cmd, expect_type = parse_hex4(args.send)
-        pkt = build_short(send_cmd, addr1, addr2)
-        print(f"send: {send_cmd:02x} -> {hexrow(pkt)} (expect 0x{expect_type:02x})")
-        ser.write(pkt)
-        resp = reader.wait_for_type(expect_type, args.timeout)
-        if resp is None:
-            print(f"resp: TIMEOUT (expected 0x{expect_type:02x})")
-        else:
-            payload = resp[5:-1] if len(resp) >= 6 else b""
-            print(f"resp: type=0x{resp[0]:02x} payload={hexrow(payload)}")
+        # Helper: perform one send/expect cycle
+        def do_send_expect(spec: str):
+            try:
+                sc, et = parse_hex4(spec)
+            except Exception:
+                print("input error: expected HEXHEX like 4387")
+                return
+            pkt = build_short(sc, addr1, addr2)
+            print(f"send: {sc:02x} -> {hexrow(pkt)} (expect 0x{et:02x})")
+            try:
+                ser.write(pkt)
+            except Exception as e:
+                print(f"send error: {e}")
+                return
+            resp = reader.wait_for_type(et, args.timeout)
+            if resp is None:
+                print(f"resp: TIMEOUT (expected 0x{et:02x})")
+            else:
+                payload = resp[5:-1] if len(resp) >= 6 else b""
+                print(f"resp: type=0x{resp[0]:02x} payload={hexrow(payload)}")
 
-        # Optional listen window
-        if args.listen and args.listen > 0.0:
-            print(f"listening for {args.listen:.2f}s (Ctrl+C to stop)...")
-            t0 = time.monotonic()
-            while time.monotonic() - t0 < args.listen:
-                time.sleep(0.05)
+        # Interactive mode: read commands while printing bytes/packets
+        if args.interactive:
+            print("interactive mode. commands:")
+            print("  <hex2><hex2>   -> send+expect, e.g., 4387")
+            print("  on <hex4>      -> set on-notice rule, e.g., on 8e43")
+            print("  off            -> clear on-notice rule")
+            print("  q              -> quit")
+            while True:
+                try:
+                    line = input("> ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    break
+                if not line:
+                    continue
+                if line.lower() in ("q", "quit", "exit"):
+                    break
+                if line.lower().startswith("on "):
+                    try:
+                        nt, np = parse_hex4(line[3:].strip())
+                        notice_type, notice_poll = nt, np
+                        def on_notice2(_pkt):
+                            if _pkt and _pkt[0] == notice_type:
+                                try:
+                                    pkt = build_short(notice_poll, addr1, addr2)
+                                    print(f"on-notice: send {notice_poll:02x} -> {hexrow(pkt)}")
+                                    ser.write(pkt)
+                                except Exception as e:
+                                    print(f"on-notice error: {e}")
+                        reader.set_notice_handler(on_notice2)
+                        print(f"on-notice set: 0x{notice_type:02x} -> send 0x{notice_poll:02x}")
+                    except Exception as e:
+                        print(f"input error: {e}")
+                    continue
+                if line.lower() == "off":
+                    reader.set_notice_handler(None)
+                    print("on-notice cleared")
+                    continue
+                # Default: treat as send+expect hex4
+                do_send_expect(line)
+        else:
+            # Send initial command and wait for expected response
+            do_send_expect(args.send)
+
+            # Optional listen window
+            if args.listen and args.listen > 0.0:
+                print(f"listening for {args.listen:.2f}s (Ctrl+C to stop)...")
+                t0 = time.monotonic()
+                while time.monotonic() - t0 < args.listen:
+                    time.sleep(0.05)
 
     finally:
         try:
