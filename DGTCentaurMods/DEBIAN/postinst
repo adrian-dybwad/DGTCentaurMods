@@ -181,22 +181,14 @@ fi
 }
 
 # Install Stockfish if in build
-if [[ -e ${DGTCM_PATH}/engines/$STOCKFISH ]]
-then
+if [[ -e "${DGTCM_PATH}/engines/${STOCKFISH}" ]]; then
     echo -e "::: Installing Stockfish engine"
-    if [[ -d $CENTAUR_ENGINE ]]
-    then
-        mv ${CENTAUR_ENGINE}/$STOCKFISH ${CENTAUR_ENGINE}/$STOCKFISH.bak
-        mv ${DGTCM_PATH}/engines/$STOCKFISH $CENTAUR_ENGINE/$STOCKFISH
-        chown -R pi:root $CENTAUR_ENGINE
-    else
-        mkdir -p $CENTAUR_ENGINE
-        mv ${DGTCM_PATH}/engines/$STOCKFISH $CENTAUR_ENGINE
-        chown -R pi:root $CENTAUR_ENGINE
+    mkdir -p "${CENTAUR_ENGINE}"
+    if [[ -f "${CENTAUR_ENGINE}/${STOCKFISH}" ]]; then
+        mv "${CENTAUR_ENGINE}/${STOCKFISH}" "${CENTAUR_ENGINE}/${STOCKFISH}.bak"
     fi
-#else
-#    echo -e "Downloading Stockfish..."
-    # TODO: find a way to download.
+    mv "${DGTCM_PATH}/engines/${STOCKFISH}" "${CENTAUR_ENGINE}/${STOCKFISH}"
+    chown -R pi:root "${CENTAUR_ENGINE}"
 fi
 
 #
@@ -280,7 +272,9 @@ insertZahak
 # Setting final permissions
 function setPermissions {
     chown -R pi:pi ${DGTCM_PATH}
-    chown -R pi:root $CENTAUR
+    if [[ -d "${CENTAUR}" ]]; then
+        chown -R pi:root ${CENTAUR}
+    fi
 
 }
 
