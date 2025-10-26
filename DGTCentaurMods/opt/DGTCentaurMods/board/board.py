@@ -809,7 +809,7 @@ def eventsThread(keycallback, fieldcallback, tout):
         time.sleep(0.05)
     else:
         # Timeout reached, while loop breaks. Shutdown.
-        logging.debug('Timeout. Shutting doen')
+        logging.debug('Timeout. Shutting down board')
         shutdown()
 
 
