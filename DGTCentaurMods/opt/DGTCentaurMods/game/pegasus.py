@@ -238,7 +238,7 @@ class UARTTXCharacteristic(Characteristic):
     def on_key_event(self, keycode):
         """Callback when key is pressed"""
         print(f"Key event: {keycode}")
-        if keycode == BTNBACK:
+        if keycode == board.BTNBACK:
             print("Back button pressed")
             app.quit()
 
@@ -246,7 +246,12 @@ class UARTTXCharacteristic(Characteristic):
         """Callback when piece is lifted (0x40) or placed (0x41)"""
         print(f"Field event: {field}")
         piece_event = 0x40 if field >= 0 else 0x41
-        field = field - 1 if field >= 0 else field * -1
+        # Convert legacy signed value to 0..63 index
+        field = abs(field) - 1
+        if field < 0:
+            field = 0
+        if field > 63:
+            field = 63
         print(f"Field: {field}")
         print(f"Piece event: {piece_event}")
         if self.notifying:
