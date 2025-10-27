@@ -705,6 +705,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 events_paused = False
 
             buttonPress = 0
+            buttonName = ""
             if not standby:
                 #Hold fields activity on standby
                 if fieldcallback != None:
@@ -717,7 +718,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 # all functions match
                                 fieldHex = resp[x + 1]
                                 newsquare = rotateFieldHex(fieldHex)
-                                fieldcallback(newsquare + 1)
+                                fieldcallback(newsquare + 1, resp[x])
                                 to = time.time() + tout
                                 
                             if (resp[x] == 0x41):
@@ -725,7 +726,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 # all functions match
                                 fieldHex = resp[x + 1]
                                 newsquare = rotateFieldHex(fieldHex)
-                                fieldcallback((newsquare + 1) * -1)
+                                fieldcallback((newsquare + 1) * -1, resp[x])
                                 to = time.time() + tout
                                 
                     except Exception as e:
@@ -736,6 +737,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 code, name = asyncserial.get_and_reset_last_button()
                 if name == 'PLAY':
                     buttonPress = BTNPLAY
+                    buttonName = name
 
                 print("name: " + name)
                 print("buttonPress: " + str(buttonPress))
@@ -753,6 +755,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                         buttonPress = BTNDOWN
                     if name == 'HELP':
                         buttonPress = BTNHELP
+                    buttonName = name
 
                 if buttonPress == BTNPLAY:
                     breaktime = time.time() + 0.5
@@ -798,7 +801,7 @@ def eventsThread(keycallback, fieldcallback, tout):
             if buttonPress != 0:
                 to = time.time() + tout
                 print(f"btn{buttonPress} pressed, sending to keycallback")
-                keycallback(buttonPress)
+                keycallback(buttonPress, buttonName)
         else:
             # If pauseEvents() hold timeout in the thread
             to = time.time() + 100000
