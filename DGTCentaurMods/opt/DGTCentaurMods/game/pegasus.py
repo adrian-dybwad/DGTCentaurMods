@@ -35,6 +35,7 @@ from DGTCentaurMods.display import epaper
 from PIL import Image, ImageDraw
 
 kill = 0
+bt_connected = False
 
 epaper.initEpaper()
 
@@ -117,8 +118,18 @@ class UARTRXCharacteristic(Characteristic):
 
     def WriteValue(self, value, options):
         # When the remote device writes data, it comes here
+        global bt_connected
         print("Received")
         print(value)
+        # Consider any write as an active connection from the client
+        if not bt_connected:
+            bt_connected = True
+            epaper.writeText(13, "              ")
+            epaper.writeText(13, "Connected")
+            try:
+                board.beep(board.SOUND_GENERAL)
+            except Exception:
+                pass
         bytes = bytearray()
         for i in range(0,len(value)):
             bytes.append(value[i])
