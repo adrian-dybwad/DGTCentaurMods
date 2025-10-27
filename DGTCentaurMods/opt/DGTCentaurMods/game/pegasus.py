@@ -36,6 +36,7 @@ from PIL import Image, ImageDraw
 
 kill = 0
 bt_connected = False
+events_resubscribed = False
  
 
 
@@ -373,6 +374,15 @@ class UARTTXCharacteristic(Characteristic):
             print("[Pegasus] Events unpaused")
         except Exception as e:
             print(f"[Pegasus] unPauseEvents failed: {e}")
+        # Re-subscribe after notify to guarantee active callbacks in this process
+        global events_resubscribed
+        try:
+            if not events_resubscribed:
+                board.subscribeEvents(pegasus_key_callback, pegasus_field_callback, timeout=100000)
+                events_resubscribed = True
+                print("[Pegasus] Events re-subscribed post-notify")
+        except Exception as e:
+            print(f"[Pegasus] post-notify subscribe failed: {e}")
         # Send initial board dump so client can sync
         try:
             bs = board.getBoardState()
