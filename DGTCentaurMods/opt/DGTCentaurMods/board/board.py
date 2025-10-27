@@ -31,6 +31,7 @@ from DGTCentaurMods.board.settings import Settings
 from DGTCentaurMods.board import centaur
 import time
 from PIL import Image, ImageDraw, ImageFont
+import inspect
 import pathlib
 import socket
 import queue
@@ -688,6 +689,19 @@ def eventsThread(keycallback, fieldcallback, tout):
     events_paused = False
     to = time.time() + tout
     logging.debug('Timeout at %s seconds', str(tout))
+    # Determine callback arity once to bridge different signatures
+    key_arity = None
+    field_arity = None
+    try:
+        if keycallback is not None:
+            key_arity = len(inspect.signature(keycallback).parameters)
+    except Exception:
+        key_arity = None
+    try:
+        if fieldcallback is not None:
+            field_arity = len(inspect.signature(fieldcallback).parameters)
+    except Exception:
+        field_arity = None
     while time.time() < to:
         loopstart = time.time()
         if eventsrunning == 1:
@@ -717,7 +731,16 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 # all functions match
                                 fieldHex = resp[x + 1]
                                 newsquare = rotateFieldHex(fieldHex)
-                                fieldcallback(newsquare + 1)
+                                # Bridge callbacks: two-arg expects (field, 0x40),
+                                # one-arg expects signed 1..64 for lift
+                                try:
+                                    if field_arity is not None and field_arity >= 2:
+                                        fieldcallback(newsquare, 0x40)
+                                    else:
+                                        fieldcallback(newsquare + 1)
+                                except Exception:
+                                    # Fallback to legacy single-arg style
+                                    fieldcallback(newsquare + 1)
                                 to = time.time() + tout
                                 
                             if (resp[x] == 0x41):
@@ -725,7 +748,16 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 # all functions match
                                 fieldHex = resp[x + 1]
                                 newsquare = rotateFieldHex(fieldHex)
-                                fieldcallback((newsquare + 1) * -1)
+                                # Bridge callbacks: two-arg expects (field, 0x41),
+                                # one-arg expects signed -1..-64 for place
+                                try:
+                                    if field_arity is not None and field_arity >= 2:
+                                        fieldcallback(newsquare, 0x41)
+                                    else:
+                                        fieldcallback((newsquare + 1) * -1)
+                                except Exception:
+                                    # Fallback to legacy single-arg style
+                                    fieldcallback((newsquare + 1) * -1)
                                 to = time.time() + tout
                                 
                     except Exception as e:
@@ -761,7 +793,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                         code, name = asyncserial.get_and_reset_last_button()
                         if name == 'PLAY':
                             buttonPress = BTNPLAY
-                        if rbuttonPress == BTNPLAY:
+                        if buttonPress == BTNPLAY:
                             logging.debug('Play btn pressed. Stanby is: %s', standby)
                             if standby == False:
                                 logging.debug('Calling standbyScreen()')
@@ -798,7 +830,15 @@ def eventsThread(keycallback, fieldcallback, tout):
             if buttonPress != 0:
                 to = time.time() + tout
                 print(f"btn{buttonPress} pressed, sending to keycallback")
-                keycallback(buttonPress)
+                # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
+                try:
+                    if key_arity is not None and key_arity >= 2:
+                        keycallback(buttonPress, name)
+                    else:
+                        keycallback(buttonPress)
+                except Exception:
+                    # Fallback to legacy single-arg style
+                    keycallback(buttonPress)
         else:
             # If pauseEvents() hold timeout in the thread
             to = time.time() + 100000
@@ -816,7 +856,7 @@ def eventsThread(keycallback, fieldcallback, tout):
 def subscribeEvents(keycallback, fieldcallback, timeout=100000):
     # Called by any program wanting to subscribe to events
     # Arguments are firstly the callback function for key presses, secondly for piece lifts and places
-    eventsthreadpointer = threading.Thread(target=eventsThread, args=([keycallback, fieldcallback, timeout]))
+    eventsthreadpointer = threading.Thread(target=eventsThread, args=(keycallback, fieldcallback, timeout))
     eventsthreadpointer.daemon = True
     eventsthreadpointer.start()
 
@@ -828,3 +868,8 @@ def pauseEvents():
 def unPauseEvents():
     global eventsrunning
     eventsrunning = 1
+    
+def unsubscribeEvents(keycallback=None, fieldcallback=None):
+    # Minimal compatibility wrapper for callers expecting an unsubscribe API
+    # Current implementation pauses events; resume via unPauseEvents()
+    pauseEvents()
