@@ -96,8 +96,6 @@ Parsing Algorithm:
     6. Once READY: process as normal game packets
 """
 
-# Constants
-LED_OFF_CMD = b'\xb0\x00\x07'
  # response header constants not needed; use exported *_RESP values
 
 # Unified command registry
@@ -121,6 +119,21 @@ COMMANDS: Dict[str, CommandSpec] = {
     "SOUND_WRONG":            CommandSpec(b"\xb1\x00\x0a", 0xB1, b'\x4e\x0c\x48\x10'),
     "SOUND_WRONG_MOVE":       CommandSpec(b"\xb1\x00\x08", 0xB1, b'\x48\x08'),
     "DGT_SLEEP":              CommandSpec(b"\xb2\x00\x07", 0xB1, b'\x0a'),
+
+    "LED_OFF_CMD":            CommandSpec(b"\xb0\x00\x07", 0xB1, b'\x00'),
+
+    # Returns the addr1 and addr2 values. If current addr1 and addr2 = 0x00, 
+    # then response is 0x90 packet twice
+    "DGT_RETURN_BUSADRES":    CommandSpec(b"\x46", 0x90, None),
+    # Returns the trademark
+    "DGT_SEND_TRADEMARK":     CommandSpec(b"\x47", 0x92, None),
+
+    # Changes the addr1 and addr2 values, no response
+    "DGT_BUS_RANDOMIZE_PIN":  CommandSpec(b"\x92", None, None),
+
+    "DGT_SEND_UPDATE":        CommandSpec(b"\x43", None, None), # Will cause unsolicited packets with 8e message type till 83 is called.
+    "DGT_SEND_UPDATE_BRD":    CommandSpec(b"\x44", None, None), # Will cause unsolicited packets with 8e message type till 83 is called.
+
 }
 
 
@@ -1119,7 +1132,7 @@ class AsyncCentaur:
 
     def ledsOff(self):
         # Switch the LEDs off on the centaur
-        self.sendPacket(LED_OFF_CMD, b'\x00')
+        self.sendPacket(LED_OFF_CMD)
 
     def ledArray(self, inarray, speed = 3, intensity=5):
         # Lights all the leds in the given inarray with the given speed and intensity
