@@ -28,6 +28,11 @@ except Exception:
     print("pyserial is required. pip install pyserial")
     raise
 
+# Optional import of command registry from async controller for named sends
+try:
+    from DGTCentaurMods.board.async_centaur import COMMANDS as AC_COMMANDS
+except Exception:
+    AC_COMMANDS = None
 
 NOTICE_TYPES = {0x93, 0x8E}
 
@@ -150,6 +155,46 @@ def build_short(cmd: int, addr1: int, addr2: int) -> bytes:
     return bytes(tosend)
 
 
+def build_full_from_type0(type0: int, addr1: int, addr2: int, data: bytes) -> bytes:
+    # Build [type0][len_hi][len_lo][addr1][addr2][data...] + checksum
+    base = bytearray([type0, 0x00, 0x00, addr1 & 0xFF, addr2 & 0xFF])
+    if data:
+        base.extend(data)
+    total_len = len(base) + 1  # include checksum byte
+    len_hi = (total_len >> 7) & 0x7F
+    len_lo = total_len & 0x7F
+    base[1] = len_hi
+    base[2] = len_lo
+    base.append(checksum(base))
+    return bytes(base)
+
+
+def build_from_command_name(name: str, addr1: int, addr2: int) -> Optional[bytes]:
+    if AC_COMMANDS is None:
+        return None
+    # Case-insensitive lookup
+    key = None
+    if name in AC_COMMANDS:
+        key = name
+    else:
+        # try case-insensitive
+        for k in AC_COMMANDS.keys():
+            if k.lower() == name.lower():
+                key = k
+                break
+    if not key:
+        return None
+    spec = AC_COMMANDS[key]
+    cmd_bytes = getattr(spec, 'cmd', None)
+    default_data = getattr(spec, 'default_data', None)
+    if not cmd_bytes:
+        return None
+    if len(cmd_bytes) == 1:
+        return build_short(cmd_bytes[0], addr1, addr2)
+    # Full-header command: first byte is type, rest contains old len we recompute
+    return build_full_from_type0(cmd_bytes[0], addr1, addr2, default_data or b'')
+
+
 def parse_hex_byte(s: str) -> Optional[int]:
     s = s.strip().lower()
     if s.startswith("0x"):
@@ -197,6 +242,8 @@ def main():
     print("commands:")
     print("  addr 0102  -> set addr1=0x01 addr2=0x02")
     print("  43         -> send short packet [43][addr1][addr2][checksum]")
+    if AC_COMMANDS is not None:
+        print("  <NAME>     -> send named command from COMMANDS (e.g., DGT_SLEEP)")
     print("  q          -> quit")
 
     while True:
@@ -217,12 +264,17 @@ def main():
             addr1, addr2 = parsed
             print(f"addr set to: {addr1:02x} {addr2:02x}")
             continue
-        # Otherwise treat as one-byte command
-        b = parse_hex_byte(line)
-        if b is None:
-            print("error: expected hex byte like 43")
-            continue
-        pkt = build_short(b, addr1, addr2)
+        # Named command from COMMANDS registry
+        pkt = None
+        if AC_COMMANDS is not None:
+            pkt = build_from_command_name(line, addr1, addr2)
+        if pkt is None:
+            # Otherwise treat as one-byte command
+            b = parse_hex_byte(line)
+            if b is None:
+                print("error: expected hex byte like 43 or a COMMANDS name (e.g., DGT_SLEEP)")
+                continue
+            pkt = build_short(b, addr1, addr2)
         print(f"send: {hexrow(pkt)}")
         try:
             ser.write(pkt)
