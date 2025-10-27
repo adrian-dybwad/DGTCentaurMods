@@ -163,6 +163,11 @@ class UARTRXCharacteristic(Characteristic):
         tosend.append(lo)
         for x in range(0, len(data)):
             tosend.append(data[x])
+        try:
+            preview = ' '.join(f'{b:02x}' for b in tosend[:16])
+            print(f"[Pegasus TX] type={msgtype} len={len(data)} total={len(tosend)} {preview}...")
+        except Exception:
+            pass
         UARTService.tx_obj.updateValue(tosend)
 
     def WriteValue(self, value, options):
@@ -350,6 +355,13 @@ class UARTTXCharacteristic(Characteristic):
         UARTService.tx_obj = self
         self.notifying = True
         board.ledsOff()
+        # Send initial board dump so client can sync
+        try:
+            bs = board.getBoardState()
+            self.sendMessage(DGT_MSG_BOARD_DUMP, bs)
+            print(f"[Pegasus] Sent BOARD_DUMP len={len(bs)}")
+        except Exception as e:
+            print(f"[Pegasus] BOARD_DUMP failed: {e}")
         
         
         # TODO: Let's report the battery status here - 0x58 (or presumably higher as there is rounding) = 100%
@@ -371,6 +383,11 @@ class UARTTXCharacteristic(Characteristic):
     def updateValue(self,value):
         if not self.notifying:
             return
+        try:
+            preview = ' '.join(f'{int(b):02x}' for b in value[:16])
+            print(f"[Pegasus TX] GATT notify len={len(value)} {preview}...")
+        except Exception:
+            pass
         send = dbus.Array(signature=dbus.Signature('y'))
         for i in range(0,len(value)):
             send.append(dbus.Byte(value[i]))
