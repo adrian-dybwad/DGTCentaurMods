@@ -73,7 +73,11 @@ class PacketReader:
                 if not b:
                     continue
                 try:
-                    print(f"raw byte: {b[0]:02x}")
+                    v = b[0]
+                    if 32 <= v < 127:
+                        print(f"raw byte: {v:02x} '{chr(v)}'")
+                    else:
+                        print(f"raw byte: {v:02x}")
                 except Exception:
                     pass
                 self._append(b[0])
