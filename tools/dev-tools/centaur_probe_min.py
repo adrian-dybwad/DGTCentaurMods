@@ -89,9 +89,11 @@ class PacketReader:
         i = 0
         while i + 3 <= len(self._buf):
             t = self._buf[i]
-            t2 = self._buf[i + 1]
-            ln = self._buf[i + 2]
-            if t2 != 0x00 or ln < 5:
+            len_hi = self._buf[i + 1]
+            len_lo = self._buf[i + 2]
+            # Length is 14-bit: (hi << 7) | lo
+            ln = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
+            if ln <= 0:
                 i += 1
                 continue
             end = i + ln
