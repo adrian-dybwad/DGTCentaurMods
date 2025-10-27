@@ -237,6 +237,7 @@ class UARTTXCharacteristic(Characteristic):
 
     def on_key_event(self, keycode, keyname):
         """Callback when key is pressed"""
+        print(f"Key event: {keycode} {keyname}")
         if keyname == 'BACK':
             print("Back button pressed")
             app.quit()
