@@ -21,7 +21,6 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
-from DGTCentaurMods.opt.DGTCentaurMods.board.board import BTNBACK
 import dbus
 from DGTCentaurMods.thirdparty.advertisement import Advertisement
 from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic, Descriptor
