@@ -21,6 +21,7 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
+from DGTCentaurMods.opt.DGTCentaurMods.board.board import BTNBACK
 import dbus
 from DGTCentaurMods.thirdparty.advertisement import Advertisement
 from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic, Descriptor
@@ -235,15 +236,20 @@ class UARTTXCharacteristic(Characteristic):
                 ["read", "notify"], service)
         self.notifying = False
 
-    def on_key_event(self, keycode, keyname):
+    def on_key_event(self, keycode):
         """Callback when key is pressed"""
-        print(f"Key event: {keycode} {keyname}")
-        if keyname == 'BACK':
+        print(f"Key event: {keycode}")
+        if keycode == BTNBACK:
             print("Back button pressed")
             app.quit()
 
-    def on_field_event(self, field, piece_event):
+    def on_field_event(self, field):
         """Callback when piece is lifted (0x40) or placed (0x41)"""
+        print(f"Field event: {field}")
+        piece_event = 0x40 if field >= 0 else 0x41
+        field = field - 1 if field >= 0 else field * -1
+        print(f"Field: {field}")
+        print(f"Piece event: {piece_event}")
         if self.notifying:
             msg = bytearray()
             msg.append(field)
