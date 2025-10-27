@@ -20,6 +20,7 @@ import sys
 import time
 import threading
 import argparse
+import os
 from typing import List, Tuple, Optional
 
 try:
@@ -27,6 +28,14 @@ try:
 except Exception:
     print("pyserial is required. pip install pyserial")
     raise
+
+# Ensure we import the repo package first (not a system-installed copy)
+try:
+    REPO_OPT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'DGTCentaurMods', 'opt'))
+    if REPO_OPT not in sys.path:
+        sys.path.insert(0, REPO_OPT)
+except Exception:
+    pass
 
 # Optional import of command registry from async controller for named sends
 try:
