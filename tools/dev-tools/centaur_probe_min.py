@@ -75,9 +75,9 @@ class PacketReader:
                 try:
                     v = b[0]
                     if 32 <= v < 127:
-                        print(f"raw byte: {v:02x} {chr(v)}")
+                        print(f"{v:02x} {chr(v)}")
                     else:
-                        print(f"raw byte: {v:02x}")
+                        print(f"{v:02x}")
                 except Exception:
                     pass
                 self._append(b[0])
@@ -125,18 +125,18 @@ class PacketReader:
                         cs_present = True
                         cs_b = pkt[-1]
 
-                    print(f"raw byte (type): {type_b:02x}")
-                    print(f"raw byte (len_hi): {len_hi_b:02x}")
-                    print(f"raw byte (len_lo): {len_lo_b:02x}")
-                    print(f"raw byte (addr1): {addr1_b:02x}")
-                    print(f"raw byte (addr2): {addr2_b:02x}")
+                    print(f"{type_b:02x} (type)")
+                    print(f"{len_hi_b:02x} (len_hi)")
+                    print(f"{len_lo_b:02x} (len_lo)")
+                    print(f"{addr1_b:02x} (addr1)")
+                    print(f"{addr2_b:02x} (addr2)")
                     for x in payload_bytes:
                         if 32 <= x < 127:
-                            print(f"raw byte (payload): {x:02x} '{chr(x)}'")
+                            print(f"{x:02x} {chr(x)}")
                         else:
-                            print(f"raw byte (payload): {x:02x}")
+                            print(f"{x:02x} (payload)")
                     if cs_present and cs_b is not None:
-                        print(f"raw byte (cs): {cs_b:02x}")
+                        print(f"{cs_b:02x} (cs)")
                 except Exception:
                     pass
             # drop this frame regardless (valid or not), advance
