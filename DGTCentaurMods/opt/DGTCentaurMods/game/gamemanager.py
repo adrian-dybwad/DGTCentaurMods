@@ -133,7 +133,7 @@ def checkLastBoardState():
             return True    
     return False    
 
-def keycallback(keypressed):
+def keycallback(keypressed, name):
     # Receives the key pressed and passes back to the script calling game manager
     # Here we make an exception though and takeover control of the ? key. We can use this
     # key to present a menu for draw offers or resigning.
@@ -142,7 +142,7 @@ def keycallback(keypressed):
     global inmenu
     if keycallbackfunction != None:
         if inmenu == 0 and keypressed != BTNHELP:
-            keycallbackfunction(keypressed)
+            keycallbackfunction(keypressed, name)
         if inmenu == 0 and keypressed == BTNHELP:
             # If we're not already in the menu and the user presses the question mark
             # key then let's bring up the menu
@@ -159,7 +159,7 @@ def keycallback(keypressed):
             eventcallbackfunction(EVENT_RESIGN_GAME)
             inmenu = 0
 
-def fieldcallback(field):
+def fieldcallback(field, type):
     # Receives field events. Positive is a field lift, negative is a field place. Numbering 0 = a1, 63 = h8
     # Use this to calculate moves
     global cboard
@@ -307,7 +307,7 @@ def fieldcallback(field):
             board.ledsOff()
             forcemove = 0
             if movecallbackfunction != None:
-                movecallbackfunction(mv)
+                movecallbackfunction(mv, type)
             board.beep(board.SOUND_GENERAL)
             # Also light up the square moved to
             board.led(field)

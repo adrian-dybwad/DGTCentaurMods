@@ -156,7 +156,7 @@ if computeronturn == 0:
 else:
     gamemanager.setGameInfo(ucioptionsdesc, "", "", enginename, "Player")
 
-def keyCallback(key):
+def keyCallback(key, name):
     # This function will receive any keys presses on the keys
     # under the display. Possibles:
     # gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
@@ -373,7 +373,7 @@ def eventCallback(event):
         except:
             pass
 
-def moveCallback(move):
+def moveCallback(move, type):
     # This function receives valid moves made on the board
     # Note: the board state is in python-chess object gamemanager.cboard
     try:

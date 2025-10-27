@@ -43,7 +43,7 @@ scorehistory = []
 
 gamemanager.setGameInfo("1v1 Analysis", "", "", "Player White", "Player Black")
 
-def keyCallback(key):
+def keyCallback(key, name):
     # This function will receive any keys presses on the keys
     # under the display. Possibles:
     # gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
@@ -52,7 +52,7 @@ def keyCallback(key):
     global engine
     global graphson
     global firstmove
-    print("Key event received: " + str(key))
+    print("Key event received: " + str(key) + " " + name)
     if key == gamemanager.BTNBACK:        
         kill = 1
         engine.quit()
@@ -67,7 +67,7 @@ def keyCallback(key):
         info = engine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))
         evaluationGraphs(info)        
 
-def eventCallback(event):
+def eventCallback(event, type):
     global curturn
     global engine
     global eloarg
@@ -146,12 +146,12 @@ def eventCallback(event):
             engine.quit()
             kill = 1
 
-def moveCallback(move):
+def moveCallback(move, type):
     # This function receives valid moves made on the board
     # Note: the board state is in python-chess object gamemanager.board
     pass
 
-def takebackCallback():
+def takebackCallback(type):
     # This function gets called when the user takes back a move   
     global curturn     
     # First the turn switches
@@ -161,9 +161,9 @@ def takebackCallback():
         curturn = 1    
     # Now call eventCallback from the new state
     if curturn == 0:
-        eventCallback(gamemanager.EVENT_BLACK_TURN)    
+        eventCallback(gamemanager.EVENT_BLACK_TURN, type)    
     else:
-        eventCallback(gamemanager.EVENT_WHITE_TURN)
+        eventCallback(gamemanager.EVENT_WHITE_TURN, type)
     
 def evaluationGraphs(info):
     # Draw the evaluation graphs to the screen
