@@ -355,6 +355,12 @@ class UARTTXCharacteristic(Characteristic):
         UARTService.tx_obj = self
         self.notifying = True
         board.ledsOff()
+        # Ensure event thread is running in case it was paused earlier
+        try:
+            board.unPauseEvents()
+            print("[Pegasus] Events unpaused")
+        except Exception as e:
+            print(f"[Pegasus] unPauseEvents failed: {e}")
         # Send initial board dump so client can sync
         try:
             bs = board.getBoardState()
