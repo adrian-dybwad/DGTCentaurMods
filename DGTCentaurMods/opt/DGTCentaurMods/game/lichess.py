@@ -54,13 +54,13 @@ remotemoves = ""
 lastremotemoves = "1234"
 lastmove = "1234"
 
-def keyCallback(key, name):
+def keyCallback(key):
 	# This function will receive any keys presses on the keys
 	# under the display. Possibles:
 	# gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
 	# gamemanager.BTNDOWN  gamemanager.BTNHELP  gamemanager.BTNPLAY
 	global kill
-	print("Key event received: " + str(key) + " " + name)
+	print("Key event received: " + str(key))
 	if key == gamemanager.BTNBACK:
 		kill = 1
 
@@ -79,7 +79,7 @@ def makeAPIMove():
 	lastremotemoves = remotemoves
 	lastmove = curmove
 
-def eventCallback(event, type):
+def eventCallback(event):
 	global curturn
 	global engine
 	global eloarg
@@ -146,7 +146,7 @@ def eventCallback(event, type):
 			time.sleep(10)
 			kill = 1
 
-def moveCallback(move, type):
+def moveCallback(move):
 	# This function receives valid moves made on the board
 	# Note: the board state is in python-chess object gamemanager.cboard
 	global whiteplayer

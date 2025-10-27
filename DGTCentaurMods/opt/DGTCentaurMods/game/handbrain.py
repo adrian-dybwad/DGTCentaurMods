@@ -69,17 +69,17 @@ if computeronturn == 0:
 else:
 	gamemanager.setGameInfo(ucioptionsdesc, "", "", enginename, "Player")
 
-def keyCallback(key, name):
+def keyCallback(key):
 	# This function will receive any keys presses on the keys
 	# under the display. Possibles:
 	# gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
 	# gamemanager.BTNDOWN  gamemanager.BTNHELP  gamemanager.BTNPLAY
 	global kill
-	print("Key event received: " + str(key) + " " + name)
+	print("Key event received: " + str(key))
 	if key == gamemanager.BTNBACK:
 		kill = 1
 
-def eventCallback(event, type):
+def eventCallback(event):
 	global curturn
 	global engine
 	global eloarg

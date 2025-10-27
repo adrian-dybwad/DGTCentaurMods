@@ -45,14 +45,14 @@ curturn = 1
 kill = 0
 E2ROM = bytearray([0] * 256)
 
-def keyCallback(key, name):
+def keyCallback(key):
 	# This function will receive any keys presses on the keys
 	# under the display. Possibles:
 	# gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
 	# gamemanager.BTNDOWN  gamemanager.BTNHELP  gamemanager.BTNPLAY
 	global kill
 	global server_sock
-	print("Key event received: " + str(key) + " " + name)
+	print("Key event received: " + str(key))
 	if key == gamemanager.BTNBACK:
 		print("setting kill")
 		kill = 1
@@ -82,7 +82,7 @@ def keyCallback(key, name):
 
 sendstatewithoutrequest = 1
 
-def eventCallback(event, type):
+def eventCallback(event):
 	global curturn
 	global engine
 	global eloarg
@@ -138,7 +138,7 @@ def eventCallback(event, type):
 			time.sleep(10)
 			kill = 1
 
-def moveCallback(move, type):
+def moveCallback(move):
 	# This function receives valid moves made on the board
 	# Note: the board state is in python-chess object gamemanager.cboard
 	global client_sock
