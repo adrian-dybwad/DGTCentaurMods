@@ -51,9 +51,9 @@ event_key = threading.Event()
 idle = False # ensure defined before keyPressed can be called
 
 
-def keyPressed(id, name):
+def keyPressed(id):
     # This functiion receives key presses
-    print("in menu.py keyPressed: " + str(id) + " " + name)
+    print("in menu.py keyPressed: " + str(id))
     global shift
     global menuitem
     global curmenu
