@@ -731,15 +731,19 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 # all functions match
                                 fieldHex = resp[x + 1]
                                 newsquare = rotateFieldHex(fieldHex)
+                                print(f"[board.events] LIFT raw=0x{fieldHex:02x} -> idx={newsquare} dispatch={newsquare+1}")
                                 # Bridge callbacks: two-arg expects (field, 0x40),
                                 # one-arg expects signed 1..64 for lift
                                 try:
                                     if field_arity is not None and field_arity >= 2:
+                                        print("[board.events] calling fieldcallback(idx,0x40)")
                                         fieldcallback(newsquare, 0x40)
                                     else:
+                                        print("[board.events] calling fieldcallback(+idx+1)")
                                         fieldcallback(newsquare + 1)
                                 except Exception:
                                     # Fallback to legacy single-arg style
+                                    print("[board.events] fallback fieldcallback(+idx+1)")
                                     fieldcallback(newsquare + 1)
                                 to = time.time() + tout
                                 
@@ -748,15 +752,19 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 # all functions match
                                 fieldHex = resp[x + 1]
                                 newsquare = rotateFieldHex(fieldHex)
+                                print(f"[board.events] PLACE raw=0x{fieldHex:02x} -> idx={newsquare} dispatch={-(newsquare+1)}")
                                 # Bridge callbacks: two-arg expects (field, 0x41),
                                 # one-arg expects signed -1..-64 for place
                                 try:
                                     if field_arity is not None and field_arity >= 2:
+                                        print("[board.events] calling fieldcallback(idx,0x41)")
                                         fieldcallback(newsquare, 0x41)
                                     else:
+                                        print("[board.events] calling fieldcallback(-(idx+1))")
                                         fieldcallback((newsquare + 1) * -1)
                                 except Exception:
                                     # Fallback to legacy single-arg style
+                                    print("[board.events] fallback fieldcallback(-(idx+1))")
                                     fieldcallback((newsquare + 1) * -1)
                                 to = time.time() + tout
                                 
@@ -829,7 +837,7 @@ def eventsThread(keycallback, fieldcallback, tout):
             time.sleep(0.05)
             if buttonPress != 0:
                 to = time.time() + tout
-                print(f"btn{buttonPress} pressed, sending to keycallback")
+                print(f"[board.events] btn{buttonPress} pressed, sending to keycallback")
                 # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
                 try:
                     if key_arity is not None and key_arity >= 2:
