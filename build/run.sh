@@ -14,7 +14,7 @@ git pull
 # Ensure virtualenv exists
 if [ ! -d "DGTCentaurMods/.venv" ]; then
   echo "No .venv found! Create one with:"
-  echo "   python3 -m venv DGTCentaurMods/.venv && source DGTCentaurMods/.venv/bin/activate && pip install -r DGTCentaurMods/setup/requirements.txt"
+  echo "   python3 -m venv --system-site-packages DGTCentaurMods/.venv && source DGTCentaurMods/.venv/bin/activate && pip install -r DGTCentaurMods/setup/requirements.txt"
   exit 1
 fi
 
