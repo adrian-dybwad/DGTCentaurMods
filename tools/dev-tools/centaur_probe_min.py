@@ -75,7 +75,7 @@ class PacketReader:
                 try:
                     v = b[0]
                     if 32 <= v < 127:
-                        print(f"raw byte: {v:02x} '{chr(v)}'")
+                        print(f"raw byte: {v:02x} {chr(v)}")
                     else:
                         print(f"raw byte: {v:02x}")
                 except Exception:
@@ -110,10 +110,33 @@ class PacketReader:
                 ts = time.monotonic()
                 self.log.append((ts, pkt))
                 try:
+                    # Labeled raw byte dump: add ASCII only for payload bytes
+                    type_b = pkt[0]
+                    len_hi_b = pkt[1] if len(pkt) > 1 else 0
+                    len_lo_b = pkt[2] if len(pkt) > 2 else 0
+                    addr1_b = pkt[3] if len(pkt) > 3 else 0
+                    addr2_b = pkt[4] if len(pkt) > 4 else 0
                     if is_notice:
-                        print(f"notice packet: {hexrow(pkt)}")
+                        payload_bytes = list(pkt[5:]) if len(pkt) > 5 else []
+                        cs_present = False
+                        cs_b = None
                     else:
-                        print(f"packet: {hexrow(pkt)}")
+                        payload_bytes = list(pkt[5:-1]) if len(pkt) > 6 else []
+                        cs_present = True
+                        cs_b = pkt[-1]
+
+                    print(f"raw byte (type): {type_b:02x}")
+                    print(f"raw byte (len_hi): {len_hi_b:02x}")
+                    print(f"raw byte (len_lo): {len_lo_b:02x}")
+                    print(f"raw byte (addr1): {addr1_b:02x}")
+                    print(f"raw byte (addr2): {addr2_b:02x}")
+                    for x in payload_bytes:
+                        if 32 <= x < 127:
+                            print(f"raw byte (payload): {x:02x} '{chr(x)}'")
+                        else:
+                            print(f"raw byte (payload): {x:02x}")
+                    if cs_present and cs_b is not None:
+                        print(f"raw byte (cs): {cs_b:02x}")
                 except Exception:
                     pass
             # drop this frame regardless (valid or not), advance
