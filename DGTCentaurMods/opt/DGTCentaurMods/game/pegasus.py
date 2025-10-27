@@ -112,8 +112,20 @@ def pegasus_field_callback(*args):
         print(f"[Pegasus] Field event idx={idx} evt={hex(piece_event)}")
         tx = UARTService.tx_obj
         if tx is not None and getattr(tx, 'notifying', False):
-            msg = bytearray([idx, 0 if piece_event == 0x40 else 1])
-            tx.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
+            try:
+                # Convert our 0..63 (a1..h8) to controller/pegasus index (row flipped)
+                hw_idx = (7 - (idx // 8)) * 8 + (idx % 8)
+                msg = bytearray([hw_idx, 0 if piece_event == 0x40 else 1])
+                print(f"[Pegasus] FIELD_UPDATE hw_idx={hw_idx} event={(0 if piece_event==0x40 else 1)}")
+                tx.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
+                # Flash LED on place to mirror app feedback
+                if piece_event == 0x41:
+                    try:
+                        board.led(idx)
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"[Pegasus] field send error: {e}")
     except Exception as e:
         print(f"[Pegasus] field callback error: {e}")
 
