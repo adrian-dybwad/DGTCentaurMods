@@ -246,10 +246,16 @@ class UARTTXCharacteristic(Characteristic):
                 ["read", "notify"], service)
         self.notifying = False
 
-    def on_key_event(self, keycode):
-        """Callback when key is pressed"""
-        print(f"Key event: {keycode}")
-        if keycode == board.BTNBACK:
+    def on_key_event(self, *args):
+        """Callback when key is pressed (supports 1-arg id or 2-arg id,name)"""
+        keycode = None
+        keyname = None
+        if len(args) == 1:
+            keycode = args[0]
+        elif len(args) >= 2:
+            keycode, keyname = args[0], args[1]
+        print(f"Key event: code={keycode} name={keyname}")
+        if (keyname == 'BACK') or (keycode == board.BTNBACK):
             print("Back button pressed")
             app.quit()
 
