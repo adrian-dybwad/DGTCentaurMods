@@ -36,6 +36,8 @@ from PIL import Image, ImageDraw
 
 kill = 0
 bt_connected = False
+ 
+
 
 epaper.initEpaper()
 
@@ -114,6 +116,13 @@ def pegasus_field_callback(*args):
             tx.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
     except Exception as e:
         print(f"[Pegasus] field callback error: {e}")
+
+# Subscribe immediately so key/back works even before BLE notifications are enabled
+try:
+    board.subscribeEvents(pegasus_key_callback, pegasus_field_callback, timeout=100000)
+    print("[Pegasus] Subscribed to board events")
+except Exception as e:
+    print(f"[Pegasus] Failed to subscribe events: {e}")
 
 class UARTAdvertisement(Advertisement):
     def __init__(self, index):
@@ -342,10 +351,8 @@ class UARTTXCharacteristic(Characteristic):
         self.notifying = True
         board.ledsOff()
         
-        # Register event callbacks using board.subscribeEvents
-        board.subscribeEvents(pegasus_key_callback, pegasus_field_callback, timeout=100000)
         
-        # Let's report the battery status here - 0x58 (or presumably higher as there is rounding) = 100%
+        # TODO: Let's report the battery status here - 0x58 (or presumably higher as there is rounding) = 100%
         # As I can't read centaur battery percentage here - fake it
         #msg = b'\x58'
         #self.sendMessage(DGT_MSG_BATTERY_STATUS, msg)
