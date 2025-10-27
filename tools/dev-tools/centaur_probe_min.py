@@ -218,6 +218,7 @@ def main():
     ap.add_argument("--port", default="/dev/serial0", help="Serial device (e.g., /dev/serial0)")
     ap.add_argument("--baud", type=int, default=1000000, help="Baud rate")
     ap.add_argument("--addr", help="Initial addr1addr2 hex (e.g., 0650)")
+    ap.add_argument("--no-input", action="store_true", help="Run without reading stdin; just monitor serial")
     args = ap.parse_args()
 
     try:
@@ -239,6 +240,14 @@ def main():
     reader = PacketReader(ser)
     reader.start()
 
+    if args.no_input:
+        print("monitoring (no-input mode). Ctrl+C to stop.", flush=True)
+        try:
+            while True:
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            return
+
     print("commands:")
     print("  addr 0102  -> set addr1=0x01 addr2=0x02")
     print("  43         -> send short packet [43][addr1][addr2][checksum]")
@@ -249,7 +258,14 @@ def main():
     while True:
         try:
             line = input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
+            print("stdin closed; monitoring. Ctrl+C to stop.", flush=True)
+            try:
+                while True:
+                    time.sleep(0.1)
+            except KeyboardInterrupt:
+                break
+        except KeyboardInterrupt:
             break
         if not line:
             continue
