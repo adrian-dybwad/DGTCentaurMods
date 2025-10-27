@@ -75,6 +75,46 @@ DGT_MSG_UNKNOWN_163 = 163
 DGT_MSG_LOCK_STATE = 164
 DGT_MSG_DEVKEY_STATE = 165
 
+# Global event callbacks so we can subscribe even before notifications are enabled
+def pegasus_key_callback(*args):
+    """Handle key events regardless of notification state."""
+    try:
+        keycode = None
+        keyname = None
+        if len(args) == 1:
+            keycode = args[0]
+        elif len(args) >= 2:
+            keycode, keyname = args[0], args[1]
+        print(f"[Pegasus] Key event: code={keycode} name={keyname}")
+        if (keyname == 'BACK') or (keycode == board.BTNBACK):
+            print("[Pegasus] Back button pressed -> exit")
+            app.quit()
+    except Exception as e:
+        print(f"[Pegasus] key callback error: {e}")
+
+def pegasus_field_callback(*args):
+    """Handle field events; forward to client only if TX notifications are on."""
+    try:
+        # Accept either signed int or (field, piece_event)
+        if len(args) == 1:
+            signed_field = int(args[0])
+            piece_event = 0x40 if signed_field >= 0 else 0x41
+            idx = abs(signed_field) - 1
+        else:
+            idx = int(args[0])
+            piece_event = int(args[1])
+        if idx < 0:
+            idx = 0
+        if idx > 63:
+            idx = 63
+        print(f"[Pegasus] Field event idx={idx} evt={hex(piece_event)}")
+        tx = UARTService.tx_obj
+        if tx is not None and getattr(tx, 'notifying', False):
+            msg = bytearray([idx, 0 if piece_event == 0x40 else 1])
+            tx.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
+    except Exception as e:
+        print(f"[Pegasus] field callback error: {e}")
+
 class UARTAdvertisement(Advertisement):
     def __init__(self, index):
         Advertisement.__init__(self, index, "peripheral")
@@ -303,7 +343,7 @@ class UARTTXCharacteristic(Characteristic):
         board.ledsOff()
         
         # Register event callbacks using board.subscribeEvents
-        board.subscribeEvents(self.on_key_event, self.on_field_event, timeout=100000)
+        board.subscribeEvents(pegasus_key_callback, pegasus_field_callback, timeout=100000)
         
         # Let's report the battery status here - 0x58 (or presumably higher as there is rounding) = 100%
         # As I can't read centaur battery percentage here - fake it
