@@ -147,6 +147,7 @@ def keycallback(keypressed):
             inmenu = 0
 
 def fieldcallback(field):
+    print(f"[gamemanager.fieldcallback] Field: {field}")
     # Receives field events. Positive is a field lift, negative is a field place. Numbering 0 = a1, 63 = h8
     # Use this to calculate moves
     global cboard
@@ -171,6 +172,7 @@ def fieldcallback(field):
         place = 1
         field = field * -1
     field = field - 1
+    print(f"[gamemanager.fieldcallback] Field: {field}")
     # Check the piece colour against the current turn
     pc = cboard.color_at(field)
     vpiece = 0

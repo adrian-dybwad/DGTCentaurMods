@@ -69,6 +69,7 @@ def eventCallback(event):
 	global engine
 	global eloarg
 	global kill
+	print(f"[eventCallback] Event: {event}")
 	# This function receives event callbacks about the game in play
 	if event == gamemanager.EVENT_NEW_GAME:
 		epaper.writeText(0,"New Game")
