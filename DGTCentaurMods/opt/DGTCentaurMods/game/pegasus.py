@@ -349,10 +349,12 @@ class UARTTXCharacteristic(Characteristic):
         print(f"Field: {field}")
         print(f"Piece event: {piece_event}")
         if self.notifying:
-            # Protocol: send [idx, 0] for lift and [idx, 1] for place
+            # Protocol: send [squareIndex, 0|1]; squareIndex must match BOARD_DUMP indexing.
+            # Use controller/firmware mapping (hardware index) to align with dump: hw = (7-row)*8+col
             evt = 0 if piece_event == 0x40 else 1
-            msg = bytearray([field, evt])
-            print(f"[Pegasus] FIELD_UPDATE idx={field} event={evt}")
+            hw_idx = (7 - (field // 8)) * 8 + (field % 8)
+            msg = bytearray([hw_idx, evt])
+            print(f"[Pegasus] FIELD_UPDATE idx={field} hw_idx={hw_idx} event={evt}")
             self.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
 
     def sendMessage(self, msgtype, data):
