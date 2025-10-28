@@ -98,17 +98,16 @@ def _key_callback(*args):
 def _field_callback(piece_event, field_hex, square, time_in_seconds):
     """Handle field events; forward to client only if TX notifications are on."""
     try:
-        print(f"[Pegasus] piece_event={piece_event==0x40 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={time_in_seconds}")
+        print(f"[Pegasus] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={time_in_seconds}")
         tx = UARTService.tx_obj
         if tx is not None and getattr(tx, 'notifying', False):
             try:
                 # Send unrotated idx to match board dump indexing expected by app
-                evt = 0 if piece_event == 0x40 else 1
-                msg = bytearray([field_hex, evt])
-                print(f"[Pegasus] FIELD_UPDATE field_hex={field_hex} event={evt}")
+                msg = bytearray([field_hex, piece_event])
+                print(f"[Pegasus] FIELD_UPDATE msg={' '.join(f'{b:02x}' for b in msg)}")
                 tx.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
                 # Flash LED on place to mirror app feedback
-                if piece_event == 0x41:
+                if piece_event == 1:
                     try:
                         board.led(square)
                     except Exception:
