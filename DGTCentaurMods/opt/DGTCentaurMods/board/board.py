@@ -427,6 +427,9 @@ def getBoardState(field=None, retries=3, sleep_between=0.12, timeout=3.0, protoc
 
             resp = bytearray(resp)
             payload = resp[SNAPSHOT_HEADER_LEN:SNAPSHOT_TOTAL_LEN]
+
+            print(f"DEBUG: resp: {resp}")
+            print(f"DEBUG: payload: {payload}")
             # resp = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT, timeout=timeout, retries=protocol_retries)
             # Check if request timed out
             # if resp is None:
