@@ -268,37 +268,41 @@ class UARTRXCharacteristic(Characteristic):
                 self.sendMessage(DGT_MSG_BATTERY_STATUS, [0x58,0,0,0,0,0,0,0,2])
                 processed=1
         if processed == 0 and bytes[0] == 96:
-            # LEDS stuff
-            # 96, [Packet data length - 2], 5(light leds), LedSpeed, 0 or 1 is 0 except in moveLed or checkLed, Intensity, ...field ids, 0
-            print("Received LED command")
+            # LEDS control from mobile app
+            # Format: 96, [len-2], 5, speed, mode, intensity, fields..., 0
+            print(f"[Pegasus RX LED] raw: {' '.join(f'{b:02x}' for b in bytes)}")
             if bytes[2] == 5:
-                ledspeed = bytes[3]
-                intensity = bytes[5]
-                data = bytearray()
-                data.append(5)
-                data.append(ledspeed)
-                data.append(0)
-                data.append(intensity)
-                print(data.hex())
-                for x in range(6,len(bytes)-1):
-                    # This is looping through the leds to light
-                    data.append(bytes[x])
-                head = bytearray()
-                head.append(176)
-                head.append(0)
-                head.append(len(data)+6)
-                print(head.hex())
-                print(data.hex())
-                board.ledsOff()
-                board.sendPacket(head,data)
-                if bytes[4] == 1:
-                    time.sleep(0.5)
-                    board.ledsOff()
-                # Let's report the battery status here - 0x58 (or presumably higher as there is rounding) = 100%
-                # As I can't read centaur battery percentage here - fake it
-                #msg = b'\x58'
-                #self.sendMessage(DGT_MSG_BATTERY_STATUS, msg)
-                processed=1
+                ledspeed = int(bytes[3])
+                mode = int(bytes[4])
+                intensity_in = int(bytes[5])
+                fields_hw = []
+                for x in range(6, len(bytes)-1):
+                    fields_hw.append(int(bytes[x]))
+                # Map Pegasus/firmware index to board API index
+                def hw_to_board(i):
+                    return (7 - (i // 8)) * 8 + (i % 8)
+                fields_board = [hw_to_board(f) for f in fields_hw]
+                print(f"[Pegasus RX LED] speed={ledspeed} mode={mode} intensity={intensity_in} hw={fields_hw} -> board={fields_board}")
+                # Normalize intensity to 1..10 for board.* helpers
+                intensity = max(1, min(10, intensity_in))
+                try:
+                    if len(fields_board) == 0:
+                        board.ledsOff()
+                        print("[Pegasus RX LED] ledsOff()")
+                    elif len(fields_board) == 1:
+                        board.led(fields_board[0], intensity=intensity)
+                        print(f"[Pegasus RX LED] led({fields_board[0]}, intensity={intensity})")
+                    else:
+                        # Use first two as from/to; extras are ignored for now
+                        fb, tb = fields_board[0], fields_board[1]
+                        board.ledFromTo(fb, tb, intensity=intensity)
+                        print(f"[Pegasus RX LED] ledFromTo({fb},{tb}, intensity={intensity})")
+                        if mode == 1:
+                            time.sleep(0.5)
+                            board.ledsOff()
+                except Exception as e:
+                    print(f"[Pegasus RX LED] error driving LEDs: {e}")
+                processed = 1
         if processed==0:
             print("Un-coded command")
             UARTService.tx_obj.updateValue(bytes)
