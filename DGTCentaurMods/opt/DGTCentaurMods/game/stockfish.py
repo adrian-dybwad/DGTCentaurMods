@@ -59,7 +59,7 @@ def keyCallback(key):
 	global kill
 	global engine
 	print("Key event received: " + str(key))
-	if key == gamemanager.BTNBACK:
+	if key == gamemanager.board.Key.BACK:
 		print("kill hit")
 		kill = 1
 		engine.quit()
