@@ -127,7 +127,9 @@ def checkLastBoardState():
                 curturn = 0
             board.beep(board.SOUND_GENERAL)
             takebackcallbackfunction()
-            return True    
+            return True   
+    else:
+        print(f"[gamemanager.checkLastBoardState] No takeback detected")
     return False    
 
 def keycallback(key_pressed):
