@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 #import serial
-from DGTCentaurMods.board.async_centaur import AsyncCentaur, DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS, DGT_SEND_BATTERY_INFO, SOUND_GENERAL, SOUND_FACTORY, SOUND_POWER_OFF, SOUND_POWER_ON, SOUND_WRONG, SOUND_WRONG_MOVE, DGT_BUS_SEND_SNAPSHOT
+from DGTCentaurMods.board.async_centaur import AsyncCentaur, DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS, DGT_SEND_BATTERY_INFO, SOUND_GENERAL, SOUND_FACTORY, SOUND_POWER_OFF, SOUND_POWER_ON, SOUND_WRONG, SOUND_WRONG_MOVE, DGT_BUS_SEND_SNAPSHOT, Key
 import sys
 import os
 from DGTCentaurMods.display import epd2in9d, epaper
@@ -42,16 +42,6 @@ try:
 except:
     logging.basicConfig(level=logging.DEBUG)
 
-#
-# Useful constants
-#
-BTNBACK = 1
-BTNTICK = 2
-BTNUP = 3
-BTNDOWN = 4
-BTNHELP = 5
-BTNPLAY = 6
-BTNLONGPLAY = 7
 
 # Get the config
 dev = Settings.read('system', 'developer', 'False')
@@ -715,7 +705,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                             def _listener(piece_event, field_hex, square, time_in_seconds):
                                 nonlocal to
                                 try:
-                                    print(f"[board.events.push] piece_event={piece_event==0x40 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={time_in_seconds}")
+                                    print(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} field_hex={field_hex} square={square} time_in_seconds={time_in_seconds}")
                                     fieldcallback(piece_event, field_hex, square, time_in_seconds)
                                     to = time.time() + tout
                                 except Exception as e:
@@ -726,35 +716,17 @@ def eventsThread(keycallback, fieldcallback, tout):
                         print(f"Error: {e}")
             try:
 
-                code, name = asyncserial.get_and_reset_last_button()
-                if name == 'PLAY':
-                    buttonPress = BTNPLAY
+                key_pressed = asyncserial.get_and_reset_last_button()
 
-                print("name: " + name)
-                print("buttonPress: " + str(buttonPress))
+                print("name: " + key_pressed.name)
+                print("value: " + str(key_pressed.value))
 
-                if not standby:
-                    print("standby is false")
-                    #Disable these buttons on standby
-                    if name == 'TICK':
-                        buttonPress = BTNTICK
-                    if name == 'BACK':
-                        buttonPress = BTNBACK
-                    if name == 'UP':
-                        buttonPress = BTNUP
-                    if name == 'DOWN':
-                        buttonPress = BTNDOWN
-                    if name == 'HELP':
-                        buttonPress = BTNHELP
-
-                if buttonPress == BTNPLAY:
+                if key_pressed == Key.PLAY:
                     breaktime = time.time() + 0.5
                     beep(SOUND_GENERAL)
                     while time.time() < breaktime:
-                        code, name = asyncserial.get_and_reset_last_button()
-                        if name == 'PLAY':
-                            buttonPress = BTNPLAY
-                        if buttonPress == BTNPLAY:
+                        key_pressed = asyncserial.get_and_reset_last_button()
+                        if key_pressed == Key.PLAY:
                             logging.debug('Play btn pressed. Stanby is: %s', standby)
                             if standby == False:
                                 logging.debug('Calling standbyScreen()')
@@ -788,18 +760,14 @@ def eventsThread(keycallback, fieldcallback, tout):
             except:
                 pass
             time.sleep(0.05)
-            if buttonPress != 0:
+            if standby != True:
                 to = time.time() + tout
                 print(f"[board.events] btn{buttonPress} pressed, sending to keycallback")
                 # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
                 try:
-                    if key_arity is not None and key_arity >= 2:
-                        keycallback(buttonPress, name)
-                    else:
-                        keycallback(buttonPress)
-                except Exception:
-                    # Fallback to legacy single-arg style
-                    keycallback(buttonPress)
+                    keycallback(key_pressed)
+                except Exception as e:
+                    print(f"[board.events] keycallback error: {sys.exc_info()[1]}")
         else:
             # If pauseEvents() hold timeout in the thread
             to = time.time() + 100000

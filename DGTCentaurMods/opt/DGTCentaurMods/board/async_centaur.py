@@ -164,16 +164,13 @@ DGT_BUTTON_CODES = {
     0x04: "PLAY",
 }
 
-#
-# Useful constants
-#
-# BTNBACK = 1
-# BTNTICK = 2
-# BTNUP = 3
-# BTNDOWN = 4
-# BTNHELP = 5
-# BTNPLAY = 6
-# BTNLONGPLAY = 7
+from enum import IntEnum
+# Convenient maps
+KEY_NAME_BY_CODE = dict(DGT_BUTTON_CODES)                 # {0x01: 'BACK', 0x10: 'TICK', ...}
+KEY_CODE_BY_NAME = {v: k for k, v in KEY_NAME_BY_CODE.items()}  # {'BACK': 0x01, 'TICK': 0x10, ...}
+
+# Typed enum using the raw controller codes as values
+Key = IntEnum('Key', {name: code for name, code in KEY_CODE_BY_NAME.items()})
 
 
 __all__ = ['AsyncCentaur', 'DGT_BUS_SEND_CHANGES', 'DGT_BUS_POLL_KEYS', 'DGT_SEND_BATTERY_INFO', 'DGT_BUTTON_CODES']
@@ -205,7 +202,7 @@ class AsyncCentaur:
         - wait_ready(timeout=60): wait for discovery
         - request_response(command, data=b"", timeout=2.0, callback=None)
         - wait_for_key_up(timeout=None, accept=None)
-        - get_and_reset_last_button()
+        - get_and_reset_last_key()
         - ledsOff(), led(), ledArray(), ledFromTo(), beep(), sleep()
 
     Notes:
@@ -236,7 +233,7 @@ class AsyncCentaur:
         # queue to signal key-up events as (code, name)
         self.key_up_queue = queue.Queue(maxsize=128)
         # track last key-up (code, name) for non-blocking retrieval
-        self._last_button = (None, None)
+        self._last_key = None
         # single waiter for blocking request_response
         self._waiter_lock = threading.Lock()
         self._response_waiter = None  # dict with keys: expected_type:int, queue:Queue
@@ -562,9 +559,13 @@ class AsyncCentaur:
                     self._draw_key_event_from_payload(payload, idx, code_val, is_down)
                     if not is_down:
                         name = DGT_BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
-                        self._last_button = (code_val, name)
+                        key = Key(code_val)
+                        print(f"key: {key}")
+                        print(f"key name: {key.name}")
+                        print(f"key value: {key.value}")
+                        self._last_key = key
                         try:
-                            self.key_up_queue.put_nowait((code_val, name))
+                            self.key_up_queue.put_nowait(key)
                         except queue.Full:
                             pass
 
@@ -711,14 +712,14 @@ class AsyncCentaur:
                     return (code, name)
             # otherwise continue waiting
 
-    def get_and_reset_last_button(self):
+    def get_and_reset_last_key(self):
         """
-        Non-blocking: return the last key-up event as (code, name) and reset it.
-        Returns (None, None) if no key-up has been recorded since last reset.
+        Non-blocking: return the last key-up event as Key and reset it.
+        Returns None if no key-up has been recorded since last call.
         """
-        code, name = self._last_button
-        self._last_button = (None, None)
-        return (code, name)
+        last_key_pressed = self._last_key
+        self._last_key = None
+        return last_key_pressed
 
     
 
@@ -1150,7 +1151,7 @@ class AsyncCentaur:
         except Exception:
             pass
 
-        self._last_button = (None, None)
+        self._last_key = None
 
 
     def rotateField(self, field):

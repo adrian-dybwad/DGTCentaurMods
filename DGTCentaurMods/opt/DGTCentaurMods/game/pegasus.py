@@ -79,17 +79,11 @@ DGT_MSG_LOCK_STATE = 164
 DGT_MSG_DEVKEY_STATE = 165
 
 # Global event callbacks so we can subscribe even before notifications are enabled
-def _key_callback(*args):
+def _key_callback(key):
     """Handle key events regardless of notification state."""
     try:
-        keycode = None
-        keyname = None
-        if len(args) == 1:
-            keycode = args[0]
-        elif len(args) >= 2:
-            keycode, keyname = args[0], args[1]
-        print(f"[Pegasus] Key event: code={keycode} name={keyname}")
-        if (keyname == 'BACK') or (keycode == board.BTNBACK):
+        print(f"[Pegasus] Key event: {key}")
+        if (key == board.Key.BACK):
             print("[Pegasus] Back button pressed -> exit")
             app.quit()
     except Exception as e:
