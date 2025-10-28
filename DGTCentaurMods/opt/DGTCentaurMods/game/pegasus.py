@@ -161,9 +161,10 @@ class UARTRXCharacteristic(Characteristic):
 
     def __init__(self, service):
 
+        # Accept both write and write-without-response; some clients use the latter
         Characteristic.__init__(
                 self, self.UARTRX_CHARACTERISTIC_UUID,
-                ["write"], service)
+                ["write", "write-without-response"], service)
 
     def sendMessage(self, msgtype, data):
         # Send a message of the given type
@@ -207,7 +208,7 @@ class UARTRXCharacteristic(Characteristic):
         print(len(bytes))
         print(bytes)
         processed = 0
-        if len(bytes) == 1 and bytes[0] == ord('B'):
+        if len(bytes) == 1 and (bytes[0] == ord('B') or bytes[0] == ord('b')):
             print("[Pegasus RX] 'B' (board dump) -> TX 0x86 BOARD_DUMP")
             bs = board.getBoardState()
             self.sendMessage(DGT_MSG_BOARD_DUMP, bs)
