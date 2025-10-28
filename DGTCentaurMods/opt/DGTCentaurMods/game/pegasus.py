@@ -316,6 +316,44 @@ class UARTTXCharacteristic(Characteristic):
                 self, self.UARTTX_CHARACTERISTIC_UUID,
                 ["read", "notify"], service)
         self.notifying = False
+        # DGT piece codes expected by Pegasus app
+        self.EMPTY = 0x00
+        self.WPAWN = 0x01
+        self.WROOK = 0x02
+        self.WKNIGHT = 0x03
+        self.WBISHOP = 0x04
+        self.WKING = 0x05
+        self.WQUEEN = 0x06
+        self.BPAWN = 0x07
+        self.BROOK = 0x08
+        self.BKNIGHT = 0x09
+        self.BBISHOP = 0x0a
+        self.BKING = 0x0b
+        self.BQUEEN = 0x0c
+        # Track a simple piece map for the current board
+        self.board_codes = [self.EMPTY] * 64
+        # Initial chess position (a1=0 .. h8=63)
+        self.board_codes[0] = self.WROOK
+        self.board_codes[1] = self.WKNIGHT
+        self.board_codes[2] = self.WBISHOP
+        self.board_codes[3] = self.WQUEEN
+        self.board_codes[4] = self.WKING
+        self.board_codes[5] = self.WBISHOP
+        self.board_codes[6] = self.WKNIGHT
+        self.board_codes[7] = self.WROOK
+        for i in range(8, 16):
+            self.board_codes[i] = self.WPAWN
+        for i in range(48, 56):
+            self.board_codes[i] = self.BPAWN
+        self.board_codes[56] = self.BROOK
+        self.board_codes[57] = self.BKNIGHT
+        self.board_codes[58] = self.BBISHOP
+        self.board_codes[59] = self.BQUEEN
+        self.board_codes[60] = self.BKING
+        self.board_codes[61] = self.BBISHOP
+        self.board_codes[62] = self.BKNIGHT
+        self.board_codes[63] = self.BROOK
+        self.lifted_piece_code = self.EMPTY
 
     def on_key_event(self, *args):
         """Callback when key is pressed (supports 1-arg id or 2-arg id,name)"""
@@ -343,12 +381,23 @@ class UARTTXCharacteristic(Characteristic):
         print(f"Field: {field}")
         print(f"Piece event: {piece_event}")
         if self.notifying:
-            msg = bytearray()
-            msg.append(field)
-            # piece_event is 0x40 for lift, 0x41 for place
-            # Pegasus protocol uses 0 for lift, 1 for place
-            msg.append(0 if piece_event == 0x40 else 1)
-            self.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
+            try:
+                if piece_event == 0x40:
+                    # Lift: capture piece code from current board, then clear it
+                    self.lifted_piece_code = self.board_codes[field]
+                    self.board_codes[field] = self.EMPTY
+                    msg = bytearray([field, self.EMPTY])
+                    print(f"[Pegasus] FIELD_UPDATE idx={field} piece=0x00 (LIFT)")
+                else:
+                    # Place: use last lifted code (default to white pawn if unknown)
+                    code = self.lifted_piece_code if self.lifted_piece_code != 0 else self.WPAWN
+                    self.board_codes[field] = code
+                    self.lifted_piece_code = self.EMPTY
+                    msg = bytearray([field, code])
+                    print(f"[Pegasus] FIELD_UPDATE idx={field} piece=0x{code:02x} (PLACE)")
+                self.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
+            except Exception as e:
+                print(f"[Pegasus] field send error: {e}")
 
     def sendMessage(self, msgtype, data):
         # Send a message of the given type
