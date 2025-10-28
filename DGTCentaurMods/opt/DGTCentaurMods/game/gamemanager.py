@@ -107,7 +107,10 @@ def checkLastBoardState():
     global takebackcallbackfunction
     global curturn
     if takebackcallbackfunction != None:
+        print(f"[gamemanager.checkLastBoardState] Checking last board state")
         c = board.getBoardState()
+        print(f"[gamemanager.checkLastBoardState] Current board state: {c}")
+        print(f"[gamemanager.checkLastBoardState] Last board state: {boardstates[len(boardstates) - 2]}")
         if c == boardstates[len(boardstates) - 2]:    
             board.ledsOff()            
             boardstates = boardstates[:-1] 
@@ -237,6 +240,7 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
             legalsquares.append(tsq)
     if place == 1 and field not in legalsquares:
         board.beep(board.SOUND_WRONG_MOVE)
+        print(f"[gamemanager.fieldcallback] Piece placed on illegal square {field}")
         checkLastBoardState()
     if place == 1 and field in legalsquares:
         newgame = 0
