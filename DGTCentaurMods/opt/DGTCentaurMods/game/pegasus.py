@@ -95,21 +95,10 @@ def pegasus_key_callback(*args):
     except Exception as e:
         print(f"[Pegasus] key callback error: {e}")
 
-def pegasus_field_callback(*args):
+def pegasus_field_callback(idx, piece_event):
     """Handle field events; forward to client only if TX notifications are on."""
     try:
         # Accept either signed int or (field, piece_event)
-        if len(args) == 1:
-            signed_field = int(args[0])
-            piece_event = 0x40 if signed_field >= 0 else 0x41
-            idx = abs(signed_field) - 1
-        else:
-            idx = int(args[0])
-            piece_event = int(args[1])
-        if idx < 0:
-            idx = 0
-        if idx > 63:
-            idx = 63
         print(f"[Pegasus] Field event idx={idx} evt={hex(piece_event)}")
         tx = UARTService.tx_obj
         if tx is not None and getattr(tx, 'notifying', False):
@@ -322,39 +311,6 @@ class UARTTXCharacteristic(Characteristic):
                 self, self.UARTTX_CHARACTERISTIC_UUID,
                 ["read", "notify"], service)
         self.notifying = False
-
-    def on_key_event(self, *args):
-        """Callback when key is pressed (supports 1-arg id or 2-arg id,name)"""
-        keycode = None
-        keyname = None
-        if len(args) == 1:
-            keycode = args[0]
-        elif len(args) >= 2:
-            keycode, keyname = args[0], args[1]
-        print(f"Key event: code={keycode} name={keyname}")
-        if (keyname == 'BACK') or (keycode == board.BTNBACK):
-            print("Back button pressed")
-            app.quit()
-
-    def on_field_event(self, field):
-        """Callback when piece is lifted (0x40) or placed (0x41)"""
-        print(f"Field event: {field}")
-        piece_event = 0x40 if field >= 0 else 0x41
-        # Convert legacy signed value to 0..63 index
-        field = abs(field) - 1
-        if field < 0:
-            field = 0
-        if field > 63:
-            field = 63
-        print(f"Field: {field}")
-        print(f"Piece event: {piece_event}")
-        if self.notifying:
-            # Protocol: send [squareIndex, 0|1] where squareIndex EXACTLY matches BOARD_DUMP indexing.
-            # Use the unrotated index we already computed from events.
-            evt = 0 if piece_event == 0x40 else 1
-            msg = bytearray([field, evt])
-            print(f"[Pegasus] FIELD_UPDATE idx={field} event={evt}")
-            self.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
 
     def sendMessage(self, msgtype, data):
         # Send a message of the given type
