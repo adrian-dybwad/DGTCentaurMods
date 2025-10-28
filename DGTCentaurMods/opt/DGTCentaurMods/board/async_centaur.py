@@ -420,12 +420,10 @@ class AsyncCentaur:
                     if actual_length == declared_length:
                         # We have a valid packet
                         self.on_packet_complete(self.response_buffer)
-                        print(f"Clearing response buffer in _try_checksum_packet_detection")
                         self.response_buffer = bytearray()
                         return True
                 else:
                     self.on_packet_complete(self.response_buffer)
-                    print(f"Clearing response buffer in _try_checksum_packet_detection")
                     self.response_buffer = bytearray()
                     return True
         return False
