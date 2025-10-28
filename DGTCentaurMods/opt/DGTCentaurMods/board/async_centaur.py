@@ -805,7 +805,8 @@ class AsyncCentaur:
         spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
         tosend = self.buildPacket(command, eff_data)
-        print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
+        if command != DGT_BUS_POLL_KEYS:
+            print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
         self.ser.write(tosend)
     
     def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
