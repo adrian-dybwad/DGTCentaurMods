@@ -114,11 +114,10 @@ def pegasus_field_callback(*args):
         tx = UARTService.tx_obj
         if tx is not None and getattr(tx, 'notifying', False):
             try:
-                # Convert our 0..63 (a1..h8) to controller/pegasus index (row flipped)
-                hw_idx = (7 - (idx // 8)) * 8 + (idx % 8)
+                # Send unrotated idx to match board dump indexing expected by app
                 evt = 0 if piece_event == 0x40 else 1
-                msg = bytearray([hw_idx, evt])
-                print(f"[Pegasus] FIELD_UPDATE hw_idx={hw_idx} event={evt} raw_idx={idx}")
+                msg = bytearray([idx, evt])
+                print(f"[Pegasus] FIELD_UPDATE idx={idx} event={evt}")
                 tx.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
                 # Flash LED on place to mirror app feedback
                 if piece_event == 0x41:
