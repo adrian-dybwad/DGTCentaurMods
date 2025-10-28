@@ -695,7 +695,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 to = time.time() + tout
                 events_paused = False
 
-            buttonPress = 0
+            key_pressed = None
             if not standby:
                 #Hold fields activity on standby
                 if fieldcallback != None:
@@ -715,7 +715,6 @@ def eventsThread(keycallback, fieldcallback, tout):
                         print("Error in piece detection")   
                         print(f"Error: {e}")
 
-            key_pressed = None
             try:
 
                 key_pressed = asyncserial.get_and_reset_last_button()
@@ -750,8 +749,9 @@ def eventsThread(keycallback, fieldcallback, tout):
                     else:
                         beep(SOUND_POWER_OFF)
                         shutdown()
-            except:
-                pass
+            except Exception as e:
+                print(f"[board.events] error: {e}")
+                print(f"[board.events] error: {sys.exc_info()[1]}")
             try:
                 # Sending 152 to the controller provides us with battery information
                 # Do this every 15 seconds and fill in the globals
@@ -762,9 +762,9 @@ def eventsThread(keycallback, fieldcallback, tout):
             except:
                 pass
             time.sleep(0.05)
-            if standby != True:
+            if standby != True and key_pressed is not None:
                 to = time.time() + tout
-                print(f"[board.events] btn{buttonPress} pressed, sending to keycallback")
+                print(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
                 # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
                 try:
                     keycallback(key_pressed)
