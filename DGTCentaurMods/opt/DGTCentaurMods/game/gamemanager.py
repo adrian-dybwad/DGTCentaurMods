@@ -178,7 +178,7 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
         lift = 1
     else:
         place = 1
-    field = field_hex
+    field = square
     # Check the piece colour against the current turn
     pc = cboard.color_at(field)
     vpiece = 0
