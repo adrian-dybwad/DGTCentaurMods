@@ -554,7 +554,7 @@ def subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback = N
     session = Session()
 
     # TODO: This is a hack to clear the serial buffer. It should be done in the board thread.
-    board.clearSerial()
+    #board.clearSerial()
     gamethread = threading.Thread(target=gameThread, args=([eventCallback, moveCallback, keyCallback, takebackCallback]))
     gamethread.daemon = True
     gamethread.start()
