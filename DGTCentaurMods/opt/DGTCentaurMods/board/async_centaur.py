@@ -162,6 +162,7 @@ DGT_BUTTON_CODES = {
     0x02: "DOWN",
     0x40: "HELP",
     0x04: "PLAY",
+    0x06: "LONG_PLAY",
 }
 
 from enum import IntEnum

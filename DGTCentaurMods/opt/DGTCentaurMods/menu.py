@@ -61,11 +61,11 @@ def keyPressed(id):
     global event_key
     epaper.epapermode = 1    
     if idle:
-        if id == board.BTNTICK:
+        if id == board.Key.TICK:
             event_key.set()
             return
     else:
-        if id == board.BTNTICK:
+        if id == board.Key.TICK:
             if not curmenu:
                 selection = "BTNTICK"
                 #print(selection)
@@ -82,18 +82,18 @@ def keyPressed(id):
                     return
                 c = c + 1
 
-        if id == board.BTNLONGPLAY:
+        if id == board.Key.LONG_PLAY:
             board.shutdown()
             return
-        if id == board.BTNDOWN:
+        if id == board.Key.DOWN:
             menuitem = menuitem + 1
-        if id == board.BTNUP:
+        if id == board.Key.UP:
             menuitem = menuitem - 1
-        if id == board.BTNBACK:
+        if id == board.Key.BACK:
             selection = "BACK"
             event_key.set()
             return
-        if id == board.BTNHELP:
+        if id == board.Key.HELP:
             selection = "BTNHELP"
             event_key.set()
             return
