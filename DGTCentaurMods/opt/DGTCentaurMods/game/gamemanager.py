@@ -153,9 +153,10 @@ def keycallback(key_pressed):
             eventcallbackfunction(EVENT_RESIGN_GAME)
             inmenu = 0
 
-def fieldcallback(field):
+def fieldcallback(piece_event, field_hex, square, time_in_seconds):
     # Receives field events. Positive is a field lift, negative is a field place. Numbering 0 = a1, 63 = h8
     # Use this to calculate moves
+
     global cboard
     global curturn
     global movecallbackfunction
@@ -172,12 +173,11 @@ def fieldcallback(field):
     global showingpromotion
     lift = 0
     place = 0
-    if field >= 0:
+    if piece_event == 0:
         lift = 1
     else:
         place = 1
-        field = field * -1
-    field = field - 1
+    field = field_hex
     # Check the piece colour against the current turn
     pc = cboard.color_at(field)
     vpiece = 0
