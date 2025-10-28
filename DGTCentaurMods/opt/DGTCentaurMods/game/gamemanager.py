@@ -189,6 +189,7 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
         field = field * -1
     field = field - 1
     # Check the piece colour against the current turn
+    print(f"[gamemanager.fieldcallback] Field: {field}")
     pc = cboard.color_at(field)
     vpiece = 0
     if curturn == 0 and pc == False:
