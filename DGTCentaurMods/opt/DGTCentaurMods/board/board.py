@@ -659,8 +659,11 @@ def eventsThread(keycallback, fieldcallback, tout):
         time.sleep(0.05)
     else:
         # Timeout reached, while loop breaks. Shutdown.
+        print("----------------------------------------")
+        print("Timeout. Shutting down board DISABLED FOR NOW")
+        print("----------------------------------------")
         logging.debug('Timeout. Shutting down board')
-        shutdown()
+        #shutdown()
 
 
 def subscribeEvents(keycallback, fieldcallback, timeout=100000):
