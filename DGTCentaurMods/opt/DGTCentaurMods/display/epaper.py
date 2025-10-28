@@ -52,10 +52,43 @@ epd = epd2in9d.EPD()
 epaperUpd = ""
 kill = 0
 epapermode = 0
-lastepaperbytes = bytearray(b'')
+lastepaperbytes = b''
 first = 1
 event_refresh = threading.Event()
 screeninverted = 0
+
+def compute_changed_region(prev_bytes: bytes, curr_bytes: bytes) -> tuple[int, int]:
+    """
+    Returns (rs, re) row indices [0, 295] that bound the changed region.
+    Falls back to full update if buffers are empty or lengths differ.
+    """
+    if not prev_bytes or not curr_bytes or len(prev_bytes) != len(curr_bytes):
+        return 0, 295
+
+    total = len(curr_bytes)
+    rs, re = 0, 295
+
+    # Find first differing byte
+    for i in range(total):
+        if prev_bytes[i] != curr_bytes[i]:
+            rs = (i // 16) - 1
+            break
+
+    # Find last differing byte
+    for i in range(total - 1, -1, -1):
+        if prev_bytes[i] != curr_bytes[i]:
+            re = (i // 16) + 1
+            break
+
+    # Clamp and sanity checks
+    if rs < 0:
+        rs = 0
+    if re > 295:
+        re = 295
+    if rs >= re:
+        return 0, 295
+
+    return rs, re
 
 def epaperUpdate():
     # This is used as a thread to update the e-paper if the image has changed
@@ -73,14 +106,15 @@ def epaperUpdate():
     logging.debug("started epaper update thread")    
     driver.display(epaperbuffer)    
     logging.debug("epaper init image sent")
-    tepaperbytes = ""
+    tepaperbytes = b''
     screensleep = 0
     sleepcount = 0
     while True and kill == 0:
         im = epaperbuffer.copy()
         im2 = im.copy()
         if epaperprocesschange == 1:
-            tepaperbytes = im.tobytes()
+            # Use driver buffer format to keep buffer size consistent across frames
+            tepaperbytes = driver.getbuffer(im)
         if lastepaperbytes != tepaperbytes and epaperprocesschange == 1:
             logging.debug("epaperUpdate: Display change detected, updating screen")
             sleepcount = 0
@@ -96,24 +130,8 @@ def epaperUpdate():
                 driver.DisplayPartial(im)
                 first = 0
             else:
-                logging.debug("epaperUpdate: Using DisplayRegion")
-                rs = 0
-                re = 295
-                for x in range(0, len(tepaperbytes)):
-                    if lastepaperbytes[x] != tepaperbytes[x]:
-                        rs = (x // 16) - 1
-                        break;
-                for x in range(len(tepaperbytes) - 1, 0, -1):
-                    if lastepaperbytes[x] != tepaperbytes[x]:
-                        re = (x // 16) + 1
-                        break;
-                if rs < 0:
-                    rs = 0
-                if re > 295:
-                    re = 295
-                if rs >= re:
-                    rs = 0
-                    re = 295
+                rs, re = compute_changed_region(lastepaperbytes, tepaperbytes)
+                print(f"epaperUpdate: Using DisplayRegion rs={rs}, re={re}")
                 bb = im2.crop((0, rs + 1, 128, re))
                 bb = bb.transpose(Image.FLIP_TOP_BOTTOM)
                 bb = bb.transpose(Image.FLIP_LEFT_RIGHT)                
