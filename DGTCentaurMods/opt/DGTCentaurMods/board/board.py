@@ -722,52 +722,67 @@ def eventsThread(keycallback, fieldcallback, tout):
             if not standby:
                 #Hold fields activity on standby
                 if fieldcallback != None:
+                    dispatched = False
                     try:
-                        resp = asyncserial.request_response(DGT_BUS_SEND_CHANGES)
-                        resp = bytearray(resp)
-                        for x in range(0, len(resp) - 1):
-                            if (resp[x] == 0x40):
-                                # Calculate the square to 0(a1)-63(h8) so that
-                                # all functions match
-                                fieldHex = resp[x + 1]
-                                newsquare = rotateFieldHex(fieldHex)
-                                print(f"[board.events] LIFT raw=0x{fieldHex:02x} -> idx={newsquare} dispatch={newsquare+1}")
-                                # Bridge callbacks: two-arg expects (field, 0x40),
-                                # one-arg expects signed 1..64 for lift
-                                try:
+                        # Prefer push model via asyncserial piece listeners
+                        def _listener(marker, square):
+                            nonlocal dispatched
+                            try:
+                                if marker == 0x40:
+                                    print(f"[board.events.push] LIFT idx={square} dispatch={square+1}")
                                     if field_arity is not None and field_arity >= 2:
-                                        print("[board.events] calling fieldcallback(idx,0x40)")
-                                        fieldcallback(newsquare, 0x40)
+                                        fieldcallback(square, 0x40)
                                     else:
-                                        print("[board.events] calling fieldcallback(+idx+1)")
+                                        fieldcallback(square + 1)
+                                else:
+                                    print(f"[board.events.push] PLACE idx={square} dispatch={-(square+1)}")
+                                    if field_arity is not None and field_arity >= 2:
+                                        fieldcallback(square, 0x41)
+                                    else:
+                                        fieldcallback((square + 1) * -1)
+                                dispatched = True
+                            except Exception as e:
+                                print(f"[board.events.push] error: {e}")
+
+                        asyncserial._piece_listeners.append(_listener)
+                        # Fallback poll only if nothing arrives in a short window
+                        start_wait = time.time()
+                        while time.time() - start_wait < 0.2 and not dispatched:
+                            time.sleep(0.02)
+                        if not dispatched:
+                            resp = asyncserial.request_response(DGT_BUS_SEND_CHANGES)
+                            resp = bytearray(resp)
+                            for x in range(0, len(resp) - 1):
+                                if (resp[x] == 0x40):
+                                    fieldHex = resp[x + 1]
+                                    newsquare = rotateFieldHex(fieldHex)
+                                    print(f"[board.events] LIFT raw=0x{fieldHex:02x} -> idx={newsquare} dispatch={newsquare+1}")
+                                    try:
+                                        if field_arity is not None and field_arity >= 2:
+                                            print("[board.events] calling fieldcallback(idx,0x40)")
+                                            fieldcallback(newsquare, 0x40)
+                                        else:
+                                            print("[board.events] calling fieldcallback(+idx+1)")
+                                            fieldcallback(newsquare + 1)
+                                    except Exception:
+                                        print("[board.events] fallback fieldcallback(+idx+1)")
                                         fieldcallback(newsquare + 1)
-                                except Exception:
-                                    # Fallback to legacy single-arg style
-                                    print("[board.events] fallback fieldcallback(+idx+1)")
-                                    fieldcallback(newsquare + 1)
-                                to = time.time() + tout
-                                
-                            if (resp[x] == 0x41):
-                                # Calculate the square to 0(a1)-63(h8) so that
-                                # all functions match
-                                fieldHex = resp[x + 1]
-                                newsquare = rotateFieldHex(fieldHex)
-                                print(f"[board.events] PLACE raw=0x{fieldHex:02x} -> idx={newsquare} dispatch={-(newsquare+1)}")
-                                # Bridge callbacks: two-arg expects (field, 0x41),
-                                # one-arg expects signed -1..-64 for place
-                                try:
-                                    if field_arity is not None and field_arity >= 2:
-                                        print("[board.events] calling fieldcallback(idx,0x41)")
-                                        fieldcallback(newsquare, 0x41)
-                                    else:
-                                        print("[board.events] calling fieldcallback(-(idx+1))")
+                                    to = time.time() + tout
+                                if (resp[x] == 0x41):
+                                    fieldHex = resp[x + 1]
+                                    newsquare = rotateFieldHex(fieldHex)
+                                    print(f"[board.events] PLACE raw=0x{fieldHex:02x} -> idx={newsquare} dispatch={-(newsquare+1)}")
+                                    try:
+                                        if field_arity is not None and field_arity >= 2:
+                                            print("[board.events] calling fieldcallback(idx,0x41)")
+                                            fieldcallback(newsquare, 0x41)
+                                        else:
+                                            print("[board.events] calling fieldcallback(-(idx+1))")
+                                            fieldcallback((newsquare + 1) * -1)
+                                    except Exception:
+                                        print("[board.events] fallback fieldcallback(-(idx+1))")
                                         fieldcallback((newsquare + 1) * -1)
-                                except Exception:
-                                    # Fallback to legacy single-arg style
-                                    print("[board.events] fallback fieldcallback(-(idx+1))")
-                                    fieldcallback((newsquare + 1) * -1)
-                                to = time.time() + tout
-                                
+                                    to = time.time() + tout
                     except Exception as e:
                         print("Error in piece detection")   
                         print(f"Error: {e}")
