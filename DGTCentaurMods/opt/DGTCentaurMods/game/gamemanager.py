@@ -42,12 +42,6 @@ from DGTCentaurMods.config import paths
 
 
 # Some useful constants
-BTNBACK = 1
-BTNTICK = 2
-BTNUP = 3
-BTNDOWN = 4
-BTNHELP = 5
-BTNPLAY = 6
 EVENT_NEW_GAME = 1
 EVENT_BLACK_TURN = 2
 EVENT_WHITE_TURN = 3
@@ -91,14 +85,14 @@ def collectBoardState():
 
 def waitForPromotionChoice():
     """Wait for user to select promotion piece via button press"""
-    code, name = board.wait_for_key_up(timeout=60)
-    if name == 'BACK':
+    key = board.wait_for_key_up(timeout=60)
+    if key == board.Key.BACK:
         return "n"  # Knight
-    elif name == 'TICK':
+    elif key == board.Key.TICK:
         return "b"  # Bishop
-    elif name == 'UP':
+    elif key == board.Key.UP:
         return "q"  # Queen
-    elif name == 'DOWN':
+    elif key == board.Key.DOWN:
         return "r"  # Rook
     else:
         return "q"  # Default to queen on timeout/other    
@@ -133,7 +127,7 @@ def checkLastBoardState():
             return True    
     return False    
 
-def keycallback(keypressed):
+def keycallback(key_pressed):
     # Receives the key pressed and passes back to the script calling game manager
     # Here we make an exception though and takeover control of the ? key. We can use this
     # key to present a menu for draw offers or resigning.
@@ -141,20 +135,20 @@ def keycallback(keypressed):
     global eventcallbackfunction
     global inmenu
     if keycallbackfunction != None:
-        if inmenu == 0 and keypressed != BTNHELP:
-            keycallbackfunction(keypressed)
-        if inmenu == 0 and keypressed == BTNHELP:
+        if inmenu == 0 and key_pressed != board.Key.HELP:
+            keycallbackfunction(key_pressed)
+        if inmenu == 0 and key_pressed == board.Key.HELP:
             # If we're not already in the menu and the user presses the question mark
             # key then let's bring up the menu
             inmenu = 1
             epaper.resignDrawMenu(14)
-        if inmenu == 1 and keypressed == BTNBACK:
+        if inmenu == 1 and key_pressed == board.Key.BACK:
             epaper.writeText(14,"                   ")
-        if inmenu == 1 and keypressed == BTNUP:
+        if inmenu == 1 and key_pressed == board.Key.UP:
             epaper.writeText(14,"                   ")
             eventcallbackfunction(EVENT_REQUEST_DRAW)
             inmenu = 0
-        if inmenu == 1 and keypressed == BTNDOWN:
+        if inmenu == 1 and key_pressed == board.Key.DOWN:
             epaper.writeText(14,"                   ")
             eventcallbackfunction(EVENT_RESIGN_GAME)
             inmenu = 0

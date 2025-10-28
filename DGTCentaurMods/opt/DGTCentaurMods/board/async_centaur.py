@@ -687,7 +687,7 @@ class AsyncCentaur:
                     or a single code/name. Examples: accept={0x10} or {'TICK'}
 
         Returns:
-            (code, name) on success, or (None, None) on timeout.
+            key object on success, or None on timeout.
         """
         deadline = (time.time() + timeout) if timeout is not None else None
         while True:
@@ -695,22 +695,22 @@ class AsyncCentaur:
             if deadline is not None:
                 remaining = max(0.0, deadline - time.time())
                 if remaining == 0.0:
-                    return (None, None)
+                    return None
             try:
-                code, name = self.key_up_queue.get(timeout=remaining)
+                key = self.key_up_queue.get(timeout=remaining)
             except queue.Empty:
-                return (None, None)
+                return None
 
             if not accept:
-                return (code, name)
+                return key
 
             # accept can be a single value or an iterable; support both names and numeric codes
             if isinstance(accept, (set, list, tuple)):
-                if code in accept or name in accept:
-                    return (code, name)
+                if key in accept:
+                    return key
             else:
-                if code == accept or name == accept:
-                    return (code, name)
+                if key == accept:
+                    return key
             # otherwise continue waiting
 
     def get_and_reset_last_key(self):
