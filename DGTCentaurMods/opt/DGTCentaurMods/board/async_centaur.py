@@ -531,13 +531,14 @@ class AsyncCentaur:
                                     self._piece_listener(piece_event, field_hex, self._get_seconds_from_time_bytes(time_bytes))
                                 else:
                                     print(f"No piece listener registered to handle event {piece_event} at field {field_hex} in {time_bytes}")
-                            except Exception:
+                            except Exception as e:
+                                print(f"Error in _draw_piece_events_from_payload: {e}")
                                 pass
                             i += 2
                         else:
                             i += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"Error in _draw_piece_events_from_payload: {e}")
 
             self.sendPacket(DGT_BUS_SEND_CHANGES)
         except Exception as e:
