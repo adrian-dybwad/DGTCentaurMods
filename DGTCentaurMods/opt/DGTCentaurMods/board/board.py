@@ -424,6 +424,9 @@ def getBoardState(field=None, retries=3, sleep_between=0.12, timeout=3.0, protoc
             if not resp or len(resp) < SNAPSHOT_TOTAL_LEN:
                 time.sleep(sleep_between)
                 continue
+
+            resp = bytearray(resp)
+            payload = resp[SNAPSHOT_HEADER_LEN:SNAPSHOT_TOTAL_LEN]
             # resp = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT, timeout=timeout, retries=protocol_retries)
             # Check if request timed out
             # if resp is None:
@@ -432,8 +435,6 @@ def getBoardState(field=None, retries=3, sleep_between=0.12, timeout=3.0, protoc
             #     time.sleep(sleep_between)
             #     continue
 
-            resp = bytearray(resp)
-            payload = bytearray(resp[1:])
             boarddata = BOARD_CLEAR_STATE.copy()
             upperlimit = 32000
             lowerlimit = 300
