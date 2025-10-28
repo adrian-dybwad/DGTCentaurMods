@@ -377,7 +377,6 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     global kill
     global startstate
     global newgame
-    global last_new_game_time
     global cboard
     global curturn
     global keycallbackfunction
@@ -403,29 +402,19 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     pausekeys = 0
     while kill == 0:
         # Detect if a new game has begun
-        # Only check for new game if no moves have been made yet (game just started)
-        if newgame == 0 and len(cboard.move_stack) == 0:
+        if newgame == 0:
             if t < 5:
                 t = t + 1
             else:
                 try:
                     board.pauseEvents()
-                    # Use a shorter timeout and fewer retries to avoid blocking other operations
-                    cs = board.getBoardState(retries=1)
+                    cs = board.getBoardState()
                     board.unPauseEvents()
                     # Debug: Log board state comparison
                     print(f"DEBUG: Board state check - cs length: {len(cs)}, startstate length: {len(startstate)}")
-                    print(f"DEBUG: cs[:16]: {cs[:16]}")
-                    print(f"DEBUG: startstate[:16]: {startstate[:16]}")
                     print(f"DEBUG: States equal: {bytearray(cs) == startstate}")
                     if bytearray(cs) == startstate:
-                        current_time = time.time()
-                        # Prevent rapid consecutive NEW_GAME events (minimum 5 seconds between)
-                        if current_time - last_new_game_time < 5.0:
-                            print(f"DEBUG: Skipping NEW_GAME - too soon (last: {current_time - last_new_game_time:.1f}s ago)")
-                            continue
                         print("DEBUG: Detected starting position - triggering NEW_GAME")
-                        last_new_game_time = current_time
                         newgame = 1
                         curturn = 1
                         cboard = chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
@@ -564,6 +553,8 @@ def subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback = N
     Session = sessionmaker(bind=models.engine)
     session = Session()
 
+    # TODO: This is a hack to clear the serial buffer. It should be done in the board thread.
+    board.clearSerial()
     gamethread = threading.Thread(target=gameThread, args=([eventCallback, moveCallback, keyCallback, takebackCallback]))
     gamethread.daemon = True
     gamethread.start()
