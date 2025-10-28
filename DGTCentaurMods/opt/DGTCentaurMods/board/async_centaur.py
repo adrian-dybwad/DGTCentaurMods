@@ -591,11 +591,19 @@ class AsyncCentaur:
         """
         Return the seconds from the time bytes.
         """
-        return time_bytes[0] / 256.0 + time_bytes[1] + time_bytes[2] * 60 + time_bytes[3] * 3600
+        if len(time_bytes) == 0:
+            return 0
+        # TODO: It should be confirmed that we see all values up to 265 in position 0
+        time_in_seconds = time_bytes[0] / 256.0
+        time_in_seconds += time_bytes[1] if len(time_bytes) >  1 else 0
+        time_in_seconds += time_bytes[2] * 60 if len(time_bytes) > 2 else 0
+        time_in_seconds += time_bytes[3] * 3600 if len(time_bytes) > 3 else 0
+
+        return time_in_seconds
             
-    def _format_time_display(self, time_signals):
+    def _format_time_display(self, time_bytes):
         """
-        Format time signals as human-readable time string.
+        Format time bytes as human-readable time string.
         Time format: .ss ss mm [hh]
         - Byte 0: Subseconds (0x00-0xFF = 0.00-0.99)
         - Byte 1: Seconds (0-59)
@@ -608,13 +616,15 @@ class AsyncCentaur:
         Returns:
             str: Formatted time like "5:03.42" or "1:05:03.42" or empty string if no signals
         """
-        if len(time_signals) == 0:
+        if len(time_bytes) == 0:
             return ""
         
-        subsec = time_signals[0]
-        seconds = time_signals[1] if len(time_signals) >= 2 else 0
-        minutes = time_signals[2] if len(time_signals) >= 3 else 0
-        hours = time_signals[3] if len(time_signals) >= 4 else 0
+        subsec = time_bytes[0] if len(time_bytes) > 0 else 0
+        seconds = time_bytes[1] if len(time_bytes) > 1 else 0
+        minutes = time_bytes[2] if len(time_bytes) > 2 else 0
+        hours = time_bytes[3] if len(time_bytes) > 3 else 0
+        if len(time_bytes) > 4:
+            print(f"Warning: time_bytes has more than 4 bytes: {time_bytes}")
         
         # Convert subsec to hundredths
         subsec_decimal = subsec / 256.0 * 100
