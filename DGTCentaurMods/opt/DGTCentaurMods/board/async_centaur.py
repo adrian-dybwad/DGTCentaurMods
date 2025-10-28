@@ -525,10 +525,11 @@ class AsyncCentaur:
                         if piece_event in (0x40, 0x41):
                             field_hex = payload[i + 1]
                             try:
-                                #square = self.rotateFieldHex(field_hex)
+                                # The leds use this format to address the square
+                                square = self.rotateFieldHex(field_hex)
                                 #square = ((square + 1) * -1)
                                 if self._piece_listener is not None:
-                                    self._piece_listener(piece_event, field_hex, self._get_seconds_from_time_bytes(time_bytes))
+                                    self._piece_listener(piece_event, field_hex, square, self._get_seconds_from_time_bytes(time_bytes))
                                 else:
                                     print(f"No piece listener registered to handle event {piece_event} at field {field_hex} in {time_bytes}")
                             except Exception as e:
