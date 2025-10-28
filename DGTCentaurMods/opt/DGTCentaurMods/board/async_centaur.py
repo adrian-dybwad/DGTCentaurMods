@@ -292,7 +292,6 @@ class AsyncCentaur:
                 if not byte:
                     continue
 
-                print(f"Received byte: {byte[0]}")
                 # RAW CAPTURE: divert bytes to raw buffer if active
                 raw_to_deliver = None
                 with self._raw_waiter_lock:
@@ -421,10 +420,12 @@ class AsyncCentaur:
                     if actual_length == declared_length:
                         # We have a valid packet
                         self.on_packet_complete(self.response_buffer)
+                        print(f"Clearing response buffer in _try_checksum_packet_detection")
                         self.response_buffer = bytearray()
                         return True
                 else:
                     self.on_packet_complete(self.response_buffer)
+                    print(f"Clearing response buffer in _try_checksum_packet_detection")
                     self.response_buffer = bytearray()
                     return True
         return False
@@ -872,6 +873,7 @@ class AsyncCentaur:
                     pass
 
         # Also clear parser buffer so header detection won't prepend stale bytes
+        print(f"Clearing response buffer in request_response_raw")
         self.response_buffer = bytearray()
 
         spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
@@ -1124,6 +1126,7 @@ class AsyncCentaur:
         """Clear buffers and close serial port"""
         # Reset parser buffer and drain serial
         try:
+            print(f"Clearing response buffer in _cleanup_serial")
             self.response_buffer = bytearray()
         except Exception:
             pass
