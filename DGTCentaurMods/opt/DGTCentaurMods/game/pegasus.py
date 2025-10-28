@@ -79,7 +79,7 @@ DGT_MSG_LOCK_STATE = 164
 DGT_MSG_DEVKEY_STATE = 165
 
 # Global event callbacks so we can subscribe even before notifications are enabled
-def pegasus_key_callback(*args):
+def _key_callback(*args):
     """Handle key events regardless of notification state."""
     try:
         keycode = None
@@ -95,23 +95,22 @@ def pegasus_key_callback(*args):
     except Exception as e:
         print(f"[Pegasus] key callback error: {e}")
 
-def pegasus_field_callback(idx, piece_event):
+def _field_callback(piece_event, field_hex, time_in_seconds):
     """Handle field events; forward to client only if TX notifications are on."""
     try:
-        # Accept either signed int or (field, piece_event)
-        print(f"[Pegasus] Field event idx={idx} evt={hex(piece_event)}")
+        print(f"[Pegasus] piece_event={piece_event==0x40 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={time_in_seconds}")
         tx = UARTService.tx_obj
         if tx is not None and getattr(tx, 'notifying', False):
             try:
                 # Send unrotated idx to match board dump indexing expected by app
                 evt = 0 if piece_event == 0x40 else 1
-                msg = bytearray([idx, evt])
-                print(f"[Pegasus] FIELD_UPDATE idx={idx} event={evt}")
+                msg = bytearray([field_hex, evt])
+                print(f"[Pegasus] FIELD_UPDATE field_hex={field_hex} event={evt}")
                 tx.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
                 # Flash LED on place to mirror app feedback
                 if piece_event == 0x41:
                     try:
-                        board.led(idx)
+                        board.led(field_hex)
                     except Exception:
                         pass
             except Exception as e:
@@ -121,7 +120,7 @@ def pegasus_field_callback(idx, piece_event):
 
 # Subscribe immediately so key/back works even before BLE notifications are enabled
 try:
-    board.subscribeEvents(pegasus_key_callback, pegasus_field_callback, timeout=100000)
+    board.subscribeEvents(_key_callback, _field_callback, timeout=100000)
     print("[Pegasus] Subscribed to board events")
 except Exception as e:
     print(f"[Pegasus] Failed to subscribe events: {e}")
@@ -344,7 +343,7 @@ class UARTTXCharacteristic(Characteristic):
         global events_resubscribed
         try:
             if not events_resubscribed:
-                board.subscribeEvents(pegasus_key_callback, pegasus_field_callback, timeout=100000)
+                board.subscribeEvents(_key_callback, _field_callback, timeout=100000)
                 events_resubscribed = True
                 print("[Pegasus] Events re-subscribed post-notify")
         except Exception as e:

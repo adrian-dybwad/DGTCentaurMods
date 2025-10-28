@@ -246,8 +246,8 @@ class AsyncCentaur:
         self._raw_waiter_lock = threading.Lock()
         self._raw_waiter = None  # {'target_len': int, 'buf': bytearray, 'queue': Queue, 'callback': Optional[Callable]}
 
-        # Piece event listeners (marker 0x40/0x41, square 0..63)
-        self._piece_listeners = []
+        # Piece event listener (marker 0x40/0x41, square 0..63, time_in_seconds)
+        self._piece_listener = None
 
         if auto_init:
             init_thread = threading.Thread(target=self.run_background, daemon=False)
@@ -521,16 +521,16 @@ class AsyncCentaur:
                 try:
                     i = 0
                     while i < len(payload) - 1:
-                        marker = payload[i]
-                        if marker in (0x40, 0x41):
+                        piece_event = payload[i]
+                        if piece_event in (0x40, 0x41):
                             field_hex = payload[i + 1]
                             try:
-                                square = self.rotateFieldHex(field_hex)
-                                for fn in list(self._piece_listeners):
-                                    try:
-                                        fn(marker, square)
-                                    except Exception:
-                                        pass
+                                #square = self.rotateFieldHex(field_hex)
+                                #square = ((square + 1) * -1)
+                                if self._piece_listener is not None:
+                                    self._piece_listener(piece_event, field_hex, self._get_seconds_from_time_bytes(time_bytes))
+                                else:
+                                    print(f"No piece listener registered to handle event {piece_event} at field {field_hex} in {time_bytes}")
                             except Exception:
                                 pass
                             i += 2
@@ -583,6 +583,12 @@ class AsyncCentaur:
             out.append(b)
         return bytes(out)
 
+    def _get_seconds_from_time_bytes(self, time_bytes):
+        """
+        Return the seconds from the time bytes.
+        """
+        return time_bytes[0] / 256.0 + time_bytes[1] + time_bytes[2] * 60 + time_bytes[3] * 3600
+            
     def _format_time_display(self, time_signals):
         """
         Format time signals as human-readable time string.
