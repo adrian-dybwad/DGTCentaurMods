@@ -588,6 +588,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 except Exception as e:
                                     print(f"[board.events.push] error: {e}")
                             asyncserial._piece_listener = _listener
+                            asyncserial.poll_piece_detection()
                     except Exception as e:
                         print("Error in piece detection")   
                         print(f"Error: {e}")
