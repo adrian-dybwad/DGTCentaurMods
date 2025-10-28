@@ -717,7 +717,7 @@ def eventsThread(keycallback, fieldcallback, tout):
 
             try:
 
-                key_pressed = asyncserial.get_and_reset_last_button()
+                key_pressed = asyncserial.get_and_reset_last_key()
 
                 print("name: " + key_pressed.name)
                 print("value: " + str(key_pressed.value))
@@ -726,7 +726,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                     breaktime = time.time() + 0.5
                     beep(SOUND_GENERAL)
                     while time.time() < breaktime:
-                        key_pressed = asyncserial.get_and_reset_last_button()
+                        key_pressed = asyncserial.get_and_reset_last_key()
                         if key_pressed == Key.PLAY:
                             logging.debug('Play btn pressed. Stanby is: %s', standby)
                             if standby == False:
