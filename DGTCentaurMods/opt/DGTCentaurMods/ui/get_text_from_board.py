@@ -161,7 +161,7 @@ def getText(title="Enter text"):
                             print(f"Button event received: {btn}")
                             
                             try:
-                                if btn == board.BTNBACK:
+                                if btn == board.Key.BACK:
                                     if typed:
                                         typed = typed[:-1]
                                         board.beep(board.SOUND_GENERAL)
@@ -170,18 +170,18 @@ def getText(title="Enter text"):
                                     else:
                                         board.beep(board.SOUND_WRONG)
                                         print("No characters to delete")
-                                elif btn == board.BTNTICK:
+                                elif btn == board.Key.TICK:
                                     board.beep(board.SOUND_GENERAL)
                                     board.clearScreen()
                                     time.sleep(0.2)
                                     print(f"Text input confirmed: '{typed}'")
                                     return typed
-                                elif btn == board.BTNUP and charpage != 1:
+                                elif btn == board.Key.UP and charpage != 1:
                                     charpage = 1
                                     board.beep(board.SOUND_GENERAL)
                                     changed = True
                                     print("Switched to page 1")
-                                elif btn == board.BTNDOWN and charpage != 2:
+                                elif btn == board.Key.DOWN and charpage != 2:
                                     charpage = 2
                                     board.beep(board.SOUND_GENERAL)
                                     changed = True

@@ -55,13 +55,9 @@ lastremotemoves = "1234"
 lastmove = "1234"
 
 def keyCallback(key):
-	# This function will receive any keys presses on the keys
-	# under the display. Possibles:
-	# gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
-	# gamemanager.BTNDOWN  gamemanager.BTNHELP  gamemanager.BTNPLAY
 	global kill
 	print("Key event received: " + str(key))
-	if key == gamemanager.BTNBACK:
+	if key == gamemanager.board.Key.BACK:
 		kill = 1
 
 def makeAPIMove():

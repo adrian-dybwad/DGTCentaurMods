@@ -46,21 +46,17 @@ kill = 0
 E2ROM = bytearray([0] * 256)
 
 def keyCallback(key):
-	# This function will receive any keys presses on the keys
-	# under the display. Possibles:
-	# gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
-	# gamemanager.BTNDOWN  gamemanager.BTNHELP  gamemanager.BTNPLAY
 	global kill
 	global server_sock
 	print("Key event received: " + str(key))
-	if key == gamemanager.BTNBACK:
+	if key == gamemanager.board.Key.BACK:
 		print("setting kill")
 		kill = 1
 		try:
 			server_sock.close()
 		except:
 			pass
-	if key == gamemanager.BTNPLAY:
+	if key == gamemanager.board.Key.PLAY:
 		# Send the board state again (for cases where it doesn't seem to have sent)
 		board.beep(board.SOUND_GENERAL)
 		bs = gamemanager.cboard.fen()

@@ -157,22 +157,18 @@ else:
     gamemanager.setGameInfo(ucioptionsdesc, "", "", enginename, "Player")
 
 def keyCallback(key):
-    # This function will receive any keys presses on the keys
-    # under the display. Possibles:
-    # gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
-    # gamemanager.BTNDOWN  gamemanager.BTNHELP  gamemanager.BTNPLAY
     global kill
     global graphson
     global firstmove
     print("Key event received: " + str(key))
-    if key == gamemanager.BTNBACK:
+    if key == gamemanager.board.Key.BACK:
         kill = 1
-    if key == gamemanager.BTNDOWN:
+    if key == gamemanager.board.Key.DOWN:
         image = Image.new('1', (128, 80), 255)
         epaper.drawImagePartial(0, 209, image)         
         epaper.drawImagePartial(0, 1, image)
         graphson = 0        
-    if key == gamemanager.BTNUP:
+    if key == gamemanager.board.Key.UP:
         graphson = 1
         firstmove = 1
         #engine = chess.engine.SimpleEngine.popen_uci("/home/pi/centaur/engines/stockfish_pi")

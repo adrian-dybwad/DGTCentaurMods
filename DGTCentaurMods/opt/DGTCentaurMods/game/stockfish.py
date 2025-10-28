@@ -52,10 +52,6 @@ else:
 	gamemanager.setGameInfo(str(eloarg) + " ELO", "", "", "Stockfish UCI", "Player")
 
 def keyCallback(key):
-	# This function will receive any keys presses on the keys
-	# under the display. Possibles:
-	# gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
-	# gamemanager.BTNDOWN  gamemanager.BTNHELP  gamemanager.BTNPLAY
 	global kill
 	global engine
 	print("Key event received: " + str(key))
