@@ -714,6 +714,8 @@ def eventsThread(keycallback, fieldcallback, tout):
                     except Exception as e:
                         print("Error in piece detection")   
                         print(f"Error: {e}")
+
+            key_pressed = None
             try:
 
                 key_pressed = asyncserial.get_and_reset_last_button()
