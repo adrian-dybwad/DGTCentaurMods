@@ -719,6 +719,7 @@ def eventsThread(keycallback, fieldcallback, tout):
 
                 key_pressed = asyncserial.get_and_reset_last_key()
 
+                if key_pressed is not None:
                 print("name: " + key_pressed.name)
                 print("value: " + str(key_pressed.value))
 
