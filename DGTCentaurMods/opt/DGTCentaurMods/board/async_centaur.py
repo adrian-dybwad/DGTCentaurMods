@@ -292,6 +292,7 @@ class AsyncCentaur:
                 if not byte:
                     continue
 
+                print(f"Received byte: {byte[0]}")
                 # RAW CAPTURE: divert bytes to raw buffer if active
                 raw_to_deliver = None
                 with self._raw_waiter_lock:
@@ -805,7 +806,7 @@ class AsyncCentaur:
         spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
         tosend = self.buildPacket(command, eff_data)
-        if command != DGT_BUS_POLL_KEYS:
+        if command != DGT_BUS_POLL_KEYS and command != DGT_BUS_SEND_CHANGES:
             print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
         self.ser.write(tosend)
     
