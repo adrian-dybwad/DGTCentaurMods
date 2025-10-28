@@ -178,7 +178,7 @@ class UARTRXCharacteristic(Characteristic):
             tosend.append(data[x])
         try:
             preview = ' '.join(f'{b:02x}' for b in tosend[:16])
-            print(f"[Pegasus TX] type={msgtype} len={len(data)} total={len(tosend)} {preview}...")
+            print(f"[Pegasus TX] type=0x{msgtype:02x} len={len(data)} total={len(tosend)} {preview}...")
         except Exception:
             pass
         UARTService.tx_obj.updateValue(tosend)
@@ -186,8 +186,12 @@ class UARTRXCharacteristic(Characteristic):
     def WriteValue(self, value, options):
         # When the remote device writes data, it comes here
         global bt_connected
-        print("Received")
-        print(value)
+        try:
+            hex_row = ' '.join(f'{int(b):02x}' for b in value)
+            print(f"[Pegasus RX] len={len(value)} bytes: {hex_row}")
+        except Exception:
+            print("Received")
+            print(value)
         # Consider any write as an active connection from the client
         if not bt_connected:
             bt_connected = True
@@ -204,6 +208,7 @@ class UARTRXCharacteristic(Characteristic):
         print(bytes)
         processed = 0
         if len(bytes) == 1 and bytes[0] == ord('B'):
+            print("[Pegasus RX] 'B' (board dump) -> TX 0x86 BOARD_DUMP")
             bs = board.getBoardState()
             self.sendMessage(DGT_MSG_BOARD_DUMP, bs)
             processed = 1
@@ -363,7 +368,7 @@ class UARTTXCharacteristic(Characteristic):
         UARTService.tx_obj.updateValue(tosend)
 
     def StartNotify(self):
-        print("started notifying")
+        print("[Pegasus] StartNotify begin")
         epaper.writeText(13, "              ")
         epaper.writeText(13, "Connected")
         board.clearBoardData()
@@ -386,13 +391,7 @@ class UARTTXCharacteristic(Characteristic):
                 print("[Pegasus] Events re-subscribed post-notify")
         except Exception as e:
             print(f"[Pegasus] post-notify subscribe failed: {e}")
-        # Send initial board dump so client can sync
-        try:
-            bs = board.getBoardState()
-            self.sendMessage(DGT_MSG_BOARD_DUMP, bs)
-            print(f"[Pegasus] Sent BOARD_DUMP len={len(bs)}")
-        except Exception as e:
-            print(f"[Pegasus] BOARD_DUMP failed: {e}")
+        # Do NOT send unsolicited board dump; only respond when phone requests 'B'
         
         
         # TODO: Let's report the battery status here - 0x58 (or presumably higher as there is rounding) = 100%
