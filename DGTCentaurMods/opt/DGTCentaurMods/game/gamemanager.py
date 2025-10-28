@@ -156,10 +156,11 @@ def keycallback(key_pressed):
 def fieldcallback(piece_event, field_hex, square, time_in_seconds):
     # Receives field events. Positive is a field lift, negative is a field place. Numbering 0 = a1, 63 = h8
     # Use this to calculate moves
-    field = ((square + 1) * -1)
+    field = square + 1 # Convert to positive field number
+    if piece_event == 1: # PLACE
+        field = ((square + 1) * -1) # Convert to negative field number
 
     print(f"[gamemanager.fieldcallback] piece_event={piece_event} field_hex={field_hex} square={square} field={field} time_in_seconds={time_in_seconds}")
-
     global cboard
     global curturn
     global movecallbackfunction
