@@ -527,7 +527,6 @@ class AsyncCentaur:
                             try:
                                 # The leds use this format to address the square
                                 square = self.rotateFieldHex(field_hex)
-                                #square = ((square + 1) * -1)
                                 print(f"[P{self.packet_count:03d}] piece_event={piece_event == 0 and 'LIFT' or 'PLACE'} field_hex={field_hex} square={square} time_in_seconds={self._get_seconds_from_time_bytes(time_bytes)}")
                                 if self._piece_listener is not None:
                                     self._piece_listener(piece_event, field_hex, square, self._get_seconds_from_time_bytes(time_bytes))
@@ -806,7 +805,7 @@ class AsyncCentaur:
         spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
         tosend = self.buildPacket(command, eff_data)
-        #print(f"tosend: {' '.join(f'{b:02x}' for b in tosend)}")
+        print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
         self.ser.write(tosend)
     
     def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
@@ -1172,20 +1171,25 @@ class AsyncCentaur:
         return square
 
     def poll_piece_detection(self):
+        print(f"poll_piece_detection")
         self.sendPacket(DGT_BUS_SEND_CHANGES)
 
     def clearBoardData(self):
+        print(f"clearBoardData")
         self.sendPacket(DGT_BUS_SEND_CHANGES)
 
     def beep(self, beeptype):
+        print(f"beep: {beeptype}")
         # Ask the centaur to make a beep sound
         self.sendPacket(beeptype)
 
     def ledsOff(self):
+        print(f"ledsOff")
         # Switch the LEDs off on the centaur
         self.sendPacket(LED_OFF_CMD)
 
     def ledArray(self, inarray, speed = 3, intensity=5):
+        print(f"ledArray: {inarray} {speed} {intensity}")
         # Lights all the leds in the given inarray with the given speed and intensity
         tosend = bytearray(b'\xb0\x00\x0c' + self.addr1.to_bytes(1, byteorder='big') + self.addr2.to_bytes(1, byteorder='big') + b'\x05')
         tosend.append(speed)
@@ -1198,6 +1202,7 @@ class AsyncCentaur:
         self.ser.write(tosend)
 
     def ledFromTo(self, lfrom, lto, intensity=5):
+        print(f"ledFromTo: {lfrom} {lto} {intensity}")
         # Light up a from and to LED for move indication
         # Note the call to this function is 0 for a1 and runs to 63 for h8
         # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
@@ -1218,6 +1223,7 @@ class AsyncCentaur:
         # Flashes a specific led
         # Note the call to this function is 0 for a1 and runs to 63 for h8
         # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
+        print(f"led: {num} {intensity}")
         tcount = 0
         success = 0
         while tcount < 5 and success == 0:
@@ -1239,11 +1245,13 @@ class AsyncCentaur:
                 tcount = tcount + 1
 
     def ledFlash(self):
+        print(f"ledFlash")
         # Flashes the last led lit by led(num) above
         self.sendPacket(b'\xb0\x00\x0a', b'\x05\x0a\x00\x01')
         #ser.read(100000)
 
     def sleep(self):
+        print(f"sleep")
         """
         Sleep the controller.
         """
