@@ -419,7 +419,7 @@ def getBoardState(field=None, retries=3, sleep_between=0.12, timeout=3.0, protoc
         try:
             # Request a raw snapshot (header + payload)
             resp = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT, timeout=timeout, retries=protocol_retries)
-            
+            resp = bytearray(resp)
             # Check if request timed out
             if resp is None:
                 print("Error getting board state")
@@ -427,12 +427,12 @@ def getBoardState(field=None, retries=3, sleep_between=0.12, timeout=3.0, protoc
                 time.sleep(sleep_between)
                 continue
 
-            payload = bytearray(resp)
+            payload = bytearray(resp[1:])
             boarddata = BOARD_CLEAR_STATE.copy()
             upperlimit = 32000
             lowerlimit = 300
             # payload is 64 words (big-endian 16-bit)
-            for i in range(1, 128, 2):
+            for i in range(0, 128, 2):
                 tval = (payload[i] << 8) | payload[i+1]
                 boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
 
