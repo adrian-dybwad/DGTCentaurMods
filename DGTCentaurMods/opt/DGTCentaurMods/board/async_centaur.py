@@ -246,6 +246,9 @@ class AsyncCentaur:
         self._raw_waiter_lock = threading.Lock()
         self._raw_waiter = None  # {'target_len': int, 'buf': bytearray, 'queue': Queue, 'callback': Optional[Callable]}
 
+        # Piece event listeners (marker 0x40/0x41, square 0..63)
+        self._piece_listeners = []
+
         if auto_init:
             init_thread = threading.Thread(target=self.run_background, daemon=False)
             init_thread.start()
@@ -513,6 +516,28 @@ class AsyncCentaur:
                 hex_row = ' '.join(f'{b:02x}' for b in payload)
                 print(f"\r[P{self.packet_count:03d}] {hex_row}{time_str}")
                 self._draw_piece_events_from_payload(payload)
+
+                # Dispatch to registered listeners with parsed events
+                try:
+                    i = 0
+                    while i < len(payload) - 1:
+                        marker = payload[i]
+                        if marker in (0x40, 0x41):
+                            field_hex = payload[i + 1]
+                            try:
+                                square = self.rotateFieldHex(field_hex)
+                                for fn in list(self._piece_listeners):
+                                    try:
+                                        fn(marker, square)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                            i += 2
+                        else:
+                            i += 1
+                except Exception:
+                    pass
 
             self.sendPacket(DGT_BUS_SEND_CHANGES)
         except Exception as e:
