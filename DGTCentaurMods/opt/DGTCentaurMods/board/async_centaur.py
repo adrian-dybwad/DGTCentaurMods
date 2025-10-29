@@ -110,7 +110,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     "DGT_DISCOVERY_REQ":      CommandSpec(0x46, 0x93, None),
     "DGT_DISCOVERY_ACK":      CommandSpec(0x87, 0x87, None),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85, None),
-    "DGT_BUS_POLL_KEYS":      CommandSpec(0x94, 0xB1, None),
+    "DGT_BUS_POLL_KEYS":      CommandSpec(0x94, 0xB1, b''),
     "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5, None),
     "SOUND_GENERAL":          CommandSpec(0xb1, 0xB1, b'\x4c\x08'),
     "SOUND_FACTORY":          CommandSpec(0xb1, 0xB1, b'\x4c\x40'),
