@@ -1222,10 +1222,11 @@ class AsyncCentaur:
         # Note the call to this function is 0 for a1 and runs to 63 for h8
         # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
         # Recalculate lfrom to the different indexing system
-        data = bytearray([0x05, 0x03, 0x00])
+        data = bytearray([0x05, 0x03])
         data.append(intensity)
         data.append(self.rotateField(lfrom))
         data.append(self.rotateField(lto))
+        data.append(0x31)
         self.sendPacket(LED_FLASH_CMD, data)
 
     def led(self, num, intensity=5):
