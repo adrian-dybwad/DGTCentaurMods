@@ -825,7 +825,7 @@ class AsyncCentaur:
             raise KeyError(f"Unknown command name: {command_name}")
         eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
         tosend = self.buildPacket(spec.cmd, eff_data)
-        if spec.cmd != command.DGT_BUS_POLL_KEYS and spec.cmd != command.DGT_BUS_SEND_CHANGES:
+        if command_name != command.DGT_BUS_POLL_KEYS and command_name != command.DGT_BUS_SEND_CHANGES:
             print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
         self.ser.write(tosend)
     
