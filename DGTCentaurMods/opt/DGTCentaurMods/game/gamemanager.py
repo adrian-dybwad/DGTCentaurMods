@@ -77,7 +77,6 @@ gameinfo_black = ""
 inmenu = 0
 
 boardstates = []
-cs = None
 
 def collectBoardState():
     # Append the board state to boardstates
@@ -160,7 +159,6 @@ def keycallback(key_pressed):
             inmenu = 0
 
 def fieldcallback(piece_event, field_hex, square, time_in_seconds):
-    global cs
     # Receives field events. Positive is a field lift, negative is a field place. Numbering 0 = a1, 63 = h8
     # Use this to calculate moves
     field = square + 1 # Convert to positive field number
@@ -340,8 +338,6 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                 session.flush()
                 session.commit()
                 eventcallbackfunction(str(outc.termination))
-    cs = board.getBoardState()
-    print(f"DEBUG: cs: {cs}")
 
 def resignGame(sideresigning):
     # Take care of updating the data for a resigned game and callback to the program with the
@@ -382,7 +378,6 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     global startstate
     global newgame
     global cboard
-    global cs
     global curturn
     global keycallbackfunction
     global movecallbackfunction
@@ -422,7 +417,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
             else:
                 try:
                     #board.pauseEvents()
-                    #cs = board.getBoardState()
+                    cs = board.getBoardState()
                     #board.unPauseEvents()
                     # Debug: Log board state comparison
                     print(f"DEBUG: Board state check - cs length: {len(cs)}, startstate length: {len(startstate)}")
