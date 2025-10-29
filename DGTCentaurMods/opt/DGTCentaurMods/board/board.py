@@ -582,6 +582,7 @@ def eventsThread(keycallback, fieldcallback, tout):
     logging.debug('Timeout at %s seconds', str(tout))
     while time.time() < to:
         loopstart = time.time()
+        print(f"DEBUG: eventsrunning: {eventsrunning}")
         if eventsrunning == 1:
             # Hold and restart timeout on charger attached
             if chargerconnected == 1:
@@ -597,11 +598,15 @@ def eventsThread(keycallback, fieldcallback, tout):
                 events_paused = False
 
             key_pressed = None
+            print(f"DEBUG: key_pressed: {key_pressed}")
+            print(f"DEBUG: standby: {standby}")
             if not standby:
                 #Hold fields activity on standby
+                print(f"DEBUG: fieldcallback: {fieldcallback}")
                 if fieldcallback != None:
                     try:
                         # Prefer push model via asyncserial piece listeners
+                        print(f"DEBUG: asyncserial._piece_listener: {asyncserial._piece_listener}")
                         if asyncserial._piece_listener == None:
                             def _listener(piece_event, field_hex, square, time_in_seconds):
                                 nonlocal to
