@@ -138,7 +138,6 @@ COMMANDS: Dict[str, CommandSpec] = {
 
 
 # Fast lookups
-CMD_BY_CMD0 = {spec.cmd[0]: spec for spec in COMMANDS.values()}
 CMD_BY_CMD  = {spec.cmd: spec for spec in COMMANDS.values()}
 RESP_TYPE_TO_SPEC = {spec.expected_resp_type: spec for spec in COMMANDS.values()}
 
@@ -807,7 +806,7 @@ class AsyncCentaur:
             command: bytes for command
             data: bytes for data payload; if None, use default_data from COMMANDS if available
         """
-        spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
+        spec = CMD_BY_CMD.get(command)
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
         tosend = self.buildPacket(command, eff_data)
         if command != DGT_BUS_POLL_KEYS and command != DGT_BUS_SEND_CHANGES:
@@ -879,7 +878,7 @@ class AsyncCentaur:
         print(f"Clearing response buffer in request_response_raw")
         self.response_buffer = bytearray()
 
-        spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
+        spec = CMD_BY_CMD.get(command)
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
         self.sendPacket(command, eff_data)
 
@@ -913,7 +912,7 @@ class AsyncCentaur:
     def _request_response_blocking(self, command, data, timeout, retries):
         """Handle blocking mode with retry support"""
         expected_type = self._expected_type_for_cmd(command)
-        spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
+        spec = CMD_BY_CMD.get(command)
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
 
         # Try to acquire request lock with timeout (prevent concurrent requests)
@@ -981,7 +980,7 @@ class AsyncCentaur:
     def _request_response_async(self, command, data, timeout, callback):
         """Handle non-blocking callback mode"""
         expected_type = self._expected_type_for_cmd(command)
-        spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
+        spec = CMD_BY_CMD.get(command)
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
 
         def _on_timeout():
@@ -1012,7 +1011,7 @@ class AsyncCentaur:
         """Map an outbound command to the expected inbound packet type byte."""
         if not command:
             raise ValueError("Empty command")
-        spec = CMD_BY_CMD.get(command) or CMD_BY_CMD0.get(command[0])
+        spec = CMD_BY_CMD.get(command)
         if not spec:
             raise ValueError(f"Unsupported command: 0x{command[0]:02x}")
         return spec.expected_resp_type
