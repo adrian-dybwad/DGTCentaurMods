@@ -77,7 +77,7 @@ gameinfo_black = ""
 inmenu = 0
 
 boardstates = []
-cs = []
+cs = None
 
 def collectBoardState():
     # Append the board state to boardstates
@@ -475,7 +475,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
         if pausekeys == 2:
             board.unPauseEvents()
             pausekeys = 0
-        #time.sleep(0.1)
+        time.sleep(0.1)
 
 def clockThread():
     # This thread just decrements the clock and updates the epaper
