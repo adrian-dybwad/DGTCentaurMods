@@ -291,7 +291,11 @@ class AsyncCentaur:
                 if not byte:
                     continue
 
-                print(f"RCVD: {byte[0]:02x}")
+                if 32 <= byte[0] < 127:
+                    print(f"RCVD: {byte[0]:02x} {chr(byte[0])}")
+                else:
+                    print(f"RCVD: {byte[0]:02x} (payload)")
+
 
                 # RAW CAPTURE: divert bytes to raw buffer if active
                 raw_to_deliver = None
