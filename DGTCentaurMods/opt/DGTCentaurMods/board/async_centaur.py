@@ -106,21 +106,21 @@ class CommandSpec:
     default_data: Optional[bytes] = None
 
 COMMANDS: Dict[str, CommandSpec] = {
-    "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(b"\xf0", 0xF0, b'\x7f'),
-    "DGT_DISCOVERY_REQ":      CommandSpec(b"\x4d\x4e", 0x93, None),
-    "DGT_DISCOVERY_ACK":      CommandSpec(b"\x87", 0x87, None),
-    "DGT_BUS_SEND_CHANGES":   CommandSpec(b"\x83", 0x85, None),
-    "DGT_BUS_POLL_KEYS":      CommandSpec(b"\x94", 0xB1, None),
-    "DGT_SEND_BATTERY_INFO":  CommandSpec(b"\x98", 0xB5, None),
-    "SOUND_GENERAL":          CommandSpec(b"\xb1", 0xB1, b'\x4c\x08'),
-    "SOUND_FACTORY":          CommandSpec(b"\xb1", 0xB1, b'\x4c\x40'),
-    "SOUND_POWER_OFF":        CommandSpec(b"\xb1", 0xB1, b'\x4c\x08\x48\x08'),
-    "SOUND_POWER_ON":         CommandSpec(b"\xb1", 0xB1, b'\x48\x08\x4c\x08'),
-    "SOUND_WRONG":            CommandSpec(b"\xb1", 0xB1, b'\x4e\x0c\x48\x10'),
-    "SOUND_WRONG_MOVE":       CommandSpec(b"\xb1", 0xB1, b'\x48\x08'),
-    "DGT_SLEEP":              CommandSpec(b"\xb2", 0xB1, b'\x0a'),
+    "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(0xf0, 0xF0, b'\x7f'),
+    "DGT_DISCOVERY_REQ":      CommandSpec(0x46, 0x93, None),
+    "DGT_DISCOVERY_ACK":      CommandSpec(0x87, 0x87, None),
+    "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85, None),
+    "DGT_BUS_POLL_KEYS":      CommandSpec(0x94, 0xB1, None),
+    "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5, None),
+    "SOUND_GENERAL":          CommandSpec(0xb1, 0xB1, b'\x4c\x08'),
+    "SOUND_FACTORY":          CommandSpec(0xb1, 0xB1, b'\x4c\x40'),
+    "SOUND_POWER_OFF":        CommandSpec(0xb1, 0xB1, b'\x4c\x08\x48\x08'),
+    "SOUND_POWER_ON":         CommandSpec(0xb1, 0xB1, b'\x48\x08\x4c\x08'),
+    "SOUND_WRONG":            CommandSpec(0xb1, 0xB1, b'\x4e\x0c\x48\x10'),
+    "SOUND_WRONG_MOVE":       CommandSpec(0xb1, 0xB1, b'\x48\x08'),
+    "DGT_SLEEP":              CommandSpec(0xb2, 0xB1, b'\x0a'),
 
-    "LED_OFF_CMD":            CommandSpec(b"\xb0", 0xB1, b'\x00'),
+    "LED_OFF_CMD":            CommandSpec(0xb0, 0xB1, b'\x00'),
 
     # Returns the addr1 and addr2 values. If current addr1 and addr2 = 0x00, 
     # then response is 0x90 packet twice
@@ -1055,14 +1055,11 @@ class AsyncCentaur:
         # Called from run_background() with no packet
         if packet is None:
             print("Discovery: STARTING - sending 0x4d and 0x4e")
-            self.sendPacket(DGT_DISCOVERY_REQ)
+            self.sendPacket(DGT_RETURN_BUSADRES)
             return
 
         # Called from processResponse() with a complete packet
-        if packet[0] == 0x93:
-            print(f"Discovery: ACK received")
-            self.sendPacket(DGT_DISCOVERY_ACK)
-        elif packet[0] == 0x87:
+        if packet[0] == 0x90:
             self.addr1 = packet[3]
             self.addr2 = packet[4]
             self.ready = True
