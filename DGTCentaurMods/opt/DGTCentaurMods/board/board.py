@@ -434,9 +434,9 @@ def getBoardState(field=None):
             tval2 = (payload[i] << 8) | payload[i+1]
             populated = 1 if (len_hi < 0x7f // 2 and len_lo < 0x7f // 2 and len_hi > 0 and len_lo > 0) else 0
             boarddata[i // 2] = populated
-            print(f"DEBUG: {64 - (i // 2):02d} {populated} 1:{tval} 2:{tval} len_lo: {len_lo} {len_lo:02x} ({len_lo & 0x7F:02x}) len_hi: {len_hi} {len_hi:02x} ({len_hi & 0x7F:02x})")
+            print(f"\rDEBUG: {64 - (i // 2):02d} {populated} 1:{tval} 2:{tval2} len_lo: {len_lo} {len_lo:02x} ({len_lo & 0x7F:02x}) len_hi: {len_hi} {len_hi:02x} ({len_hi & 0x7F:02x})")
 
-        print(f"DEBUG: boarddata: {boarddata}")
+        print(f"\rDEBUG: boarddata: {boarddata}")
 
         if field is not None:
             return boarddata[field]
