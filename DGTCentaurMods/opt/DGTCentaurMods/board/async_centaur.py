@@ -794,8 +794,6 @@ class AsyncCentaur:
         Returns:
             bytearray: complete packet ready to send
         """
-        print(f"buildPacket: command: {command}")
-        print(f"buildPacket: data: {' '.join(f'{b:02x}' for b in data)}")
         tosend = bytearray([command])
         if data is not None:
             len_packet = len(tosend)
@@ -803,11 +801,10 @@ class AsyncCentaur:
             len_lo = len_packet & 0x7F          # lower 7 bits
             tosend.append(len_hi)
             tosend.append(len_lo)
-        else:
-            print(f"buildPacket: data is None")
         tosend.append(self.addr1 & 0xFF)
         tosend.append(self.addr2 & 0xFF)
-        tosend.extend(data)
+        if data is not None:
+            tosend.extend(data)
         tosend.append(self.checksum(tosend))
         return tosend
     
