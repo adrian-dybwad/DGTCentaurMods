@@ -400,7 +400,6 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     print(f"[gamemanager.gameThread] Subscribing to events")
     print(f"[gamemanager.gameThread] Keycallback: {keycallback}")
     print(f"[gamemanager.gameThread] Fieldcallback: {fieldcallback}")
-
     try:
         board.subscribeEvents(keycallback, fieldcallback)
     except Exception as e:
@@ -416,9 +415,9 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                 t = t + 1
             else:
                 try:
-                    #board.pauseEvents()
+                    board.pauseEvents()
                     cs = board.getBoardState()
-                    #board.unPauseEvents()
+                    board.unPauseEvents()
                     # Debug: Log board state comparison
                     print(f"DEBUG: Board state check - cs length: {len(cs)}, startstate length: {len(startstate)}")
                     print(f"DEBUG: States equal: {bytearray(cs) == startstate}")
