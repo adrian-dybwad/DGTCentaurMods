@@ -439,7 +439,7 @@ def getBoardState(field=None):
             # Original formula
             populated2 = 1 if (lowerlimit <= tval2 <= upperlimit) else 0
             boarddata[i // 2] = populated2
-            print(f"\rDEBUG: {64 - (i // 2):02d} p1:{populated} p2:{populated2} t1:{tval} t2:{tval2} len_lo: {len_lo} {len_lo:02x} ({len_lo & 0x7F:02x}) len_hi: {len_hi} {len_hi:02x} ({len_hi & 0x7F:02x})")
+            print(f"\rDEBUG: {64 - (i // 2):02d} p1:{populated} p2:{populated2} t1:{tval:6d} t2:{tval2:6d} len_lo: {len_lo:02x} ({len_lo & 0x7F:02x}) len_hi: {len_hi:02x} ({len_hi & 0x7F:02x})")
 
         print(f"\rDEBUG: boarddata: {boarddata}")
 
