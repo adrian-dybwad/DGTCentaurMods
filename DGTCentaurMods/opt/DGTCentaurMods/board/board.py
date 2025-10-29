@@ -432,7 +432,7 @@ def getBoardState(field=None):
             len_hi, len_lo = payload[i], payload[i+1]
             tval = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
             #tval = (payload[i] << 8) | payload[i+1]
-            print(f"DEBUG: tval: {tval}")
+            print(f"DEBUG: tval: {len_hi} {len_lo} {tval}")
             boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
 
         print(f"DEBUG: boarddata: {boarddata}")
