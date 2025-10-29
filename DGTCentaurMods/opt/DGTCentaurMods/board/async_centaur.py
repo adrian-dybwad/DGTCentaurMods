@@ -788,7 +788,7 @@ class AsyncCentaur:
         Returns:
             bytearray: complete packet ready to send
         """
-        len_packet = len(data) + 4
+        len_packet = len(data) + 6
         len_hi = (len_packet >> 7) & 0x7F   # upper 7 bits
         len_lo = len_packet & 0x7F          # lower 7 bits
 
