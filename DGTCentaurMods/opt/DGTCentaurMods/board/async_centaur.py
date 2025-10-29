@@ -794,6 +794,8 @@ class AsyncCentaur:
         Returns:
             bytearray: complete packet ready to send
         """
+        print(f"buildPacket: command: {command}")
+        print(f"buildPacket: data: {' '.join(f'{b:02x}' for b in data)}")
         tosend = bytearray([command])
         if data is not None:
             len_packet = len(tosend)
