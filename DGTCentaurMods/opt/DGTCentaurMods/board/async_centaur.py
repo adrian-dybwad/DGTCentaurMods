@@ -124,15 +124,15 @@ COMMANDS: Dict[str, CommandSpec] = {
 
     # Returns the addr1 and addr2 values. If current addr1 and addr2 = 0x00, 
     # then response is 0x90 packet twice
-    "DGT_RETURN_BUSADRES":    CommandSpec(b"\x46", 0x90, None),
+    "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90, None),
     # Returns the trademark
-    "DGT_SEND_TRADEMARK":     CommandSpec(b"\x47", 0x92, None),
+    "DGT_SEND_TRADEMARK":     CommandSpec(0x47, 0x92, None),
 
     # Changes the addr1 and addr2 values, no response
-    "DGT_BUS_RANDOMIZE_PIN":  CommandSpec(b"\x92", None, None),
+    "DGT_BUS_RANDOMIZE_PIN":  CommandSpec(0x920, None, None),
 
-    "DGT_SEND_UPDATE":        CommandSpec(b"\x43", None, None), # Will cause unsolicited packets with 8e message type till 83 is called.
-    "DGT_SEND_UPDATE_BRD":    CommandSpec(b"\x44", None, None), # Will cause unsolicited packets with 8e message type till 83 is called.
+    "DGT_SEND_UPDATE":        CommandSpec(0x43, None, None), # Will cause unsolicited packets with 8e message type till 83 is called.
+    "DGT_SEND_UPDATE_BRD":    CommandSpec(0x44, None, None), # Will cause unsolicited packets with 8e message type till 83 is called.
 
 }
 
