@@ -341,7 +341,7 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                 eventcallbackfunction(str(outc.termination))
     global current_state
     current_state = board.getBoardState()
-    print(f"DEBUG: current_state: {current_state[:16]}")
+    print(f"DEBUG: current_state: {current_state}")
 
 def resignGame(sideresigning):
     # Take care of updating the data for a resigned game and callback to the program with the
