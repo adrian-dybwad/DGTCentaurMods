@@ -424,7 +424,7 @@ def getBoardState(field=None):
         resp = asyncserial.request_response(command.DGT_BUS_SEND_SNAPSHOT)
         payload = resp[1:]
         boarddata = BOARD_CLEAR_STATE.copy()
-        upperlimit = 32000
+        upperlimit = 1000
         lowerlimit = 300
         # payload is 64 words (big-endian 16-bit)
         for i in range(0, 128, 2):
@@ -435,7 +435,7 @@ def getBoardState(field=None):
             print(f"DEBUG: tval: {tval}")
             boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
 
-        print(f"DEBUG: boarddata: {boarddata[:16]}")
+        print(f"DEBUG: boarddata: {boarddata}")
 
         if field is not None:
             return boarddata[field]
