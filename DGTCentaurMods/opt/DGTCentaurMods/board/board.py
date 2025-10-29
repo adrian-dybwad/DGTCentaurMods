@@ -665,7 +665,7 @@ def eventsThread(keycallback, fieldcallback, tout):
     else:
         # Timeout reached, while loop breaks. Shutdown.
         print("----------------------------------------")
-        print("Timeout. Shutting down board DISABLED FOR NOW")
+        print("Timeout. Shutting down board")
         print("----------------------------------------")
         logging.debug('Timeout. Shutting down board')
         shutdown()
@@ -675,6 +675,10 @@ def subscribeEvents(keycallback, fieldcallback, timeout=100000):
     # Called by any program wanting to subscribe to events
     # Arguments are firstly the callback function for key presses, secondly for piece lifts and places
     try:
+        print(f"[board.subscribeEvents] Subscribing to events")
+        print(f"[board.subscribeEvents] Keycallback: {keycallback}")
+        print(f"[board.subscribeEvents] Fieldcallback: {fieldcallback}")
+        print(f"[board.subscribeEvents] Timeout: {timeout}")
         eventsthreadpointer = threading.Thread(target=eventsThread, args=(keycallback, fieldcallback, timeout))
         eventsthreadpointer.daemon = True
         eventsthreadpointer.start()
@@ -684,14 +688,17 @@ def subscribeEvents(keycallback, fieldcallback, timeout=100000):
 
 def pauseEvents():
     global eventsrunning
+    print(f"[board.pauseEvents] Pausing events")
     eventsrunning = 0
     time.sleep(0.5)
 
 def unPauseEvents():
     global eventsrunning
+    print(f"[board.unPauseEvents] Unpausing events")
     eventsrunning = 1
     
 def unsubscribeEvents(keycallback=None, fieldcallback=None):
     # Minimal compatibility wrapper for callers expecting an unsubscribe API
     # Current implementation pauses events; resume via unPauseEvents()
+    print(f"[board.unsubscribeEvents] Unsubscribing from events")
     pauseEvents()

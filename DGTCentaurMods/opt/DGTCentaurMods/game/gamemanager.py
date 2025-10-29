@@ -397,7 +397,16 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     eventcallbackfunction = eventCallback
     takebackcallbackfunction = takebackcallbacki
     board.ledsOff()
-    board.subscribeEvents(keycallback, fieldcallback)
+    print(f"[gamemanager.gameThread] Subscribing to events")
+    print(f"[gamemanager.gameThread] Keycallback: {keycallback}")
+    print(f"[gamemanager.gameThread] Fieldcallback: {fieldcallback}")
+    
+    try:
+        board.subscribeEvents(keycallback, fieldcallback)
+    except Exception as e:
+        print(f"[gamemanager.gameThread] error: {e}")
+        print(f"[gamemanager.gameThread] error: {sys.exc_info()[1]}")
+        return
     t = 0
     pausekeys = 0
     while kill == 0:
