@@ -456,11 +456,11 @@ def printBoardState():
     # Helper to display board state
     state = getBoardState()
     for x in range(0,64,8):
-        print("+---+---+---+---+---+---+---+---+")
+        print("\r+---+---+---+---+---+---+---+---+")
         for y in range(0,8):
             print("| " + str(state[x+y]) + " ", end='')
         print("|\r")
-    print("+---+---+---+---+---+---+---+---+")
+    print("\r+---+---+---+---+---+---+---+---+")
 
 def getChargingState():
     # Returns if the board is plugged into the charger or not
