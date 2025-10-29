@@ -125,7 +125,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     "LED_FLASH_CMD":          CommandSpec(0xb0, 0xB1, b'\x05\x0a\x00\x01'),
 
     "DISC_1":  CommandSpec(0x4d, 0xb1, None),
-    "DISC_2":  CommandSpec(0x4e, None, None),
+    "DISC_2":  CommandSpec(0x4e, 0x93, None),
     # Returns the addr1 and addr2 values. If current addr1 and addr2 = 0x00, 
     # then response is 0x90 packet twice
     "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90, None),
