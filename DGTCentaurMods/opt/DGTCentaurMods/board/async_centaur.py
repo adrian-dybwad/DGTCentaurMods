@@ -394,7 +394,7 @@ class AsyncCentaur:
                             # Log orphaned data (everything except the 85)
                             hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
                             print(f"[ORPHANED] {hex_row}")
-                            self.response_buffer = bytearray(self.response_buffer[-(1+HEADER_DATA_BYTES):])  # last 5 bytes
+                            self.response_buffer = bytearray(self.response_buffer[-(HEADER_DATA_BYTES):])  # last 5 bytes
                             print(f"After trimming: self.response_buffer: {self.response_buffer}")
 
     def _try_discovery_packet_detection(self):
