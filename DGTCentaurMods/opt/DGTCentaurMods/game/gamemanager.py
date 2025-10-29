@@ -75,8 +75,9 @@ gameinfo_white = ""
 gameinfo_black = ""
 
 inmenu = 0
-
+current_state = []
 boardstates = []
+
 
 def collectBoardState():
     # Append the board state to boardstates
@@ -338,6 +339,9 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                 session.flush()
                 session.commit()
                 eventcallbackfunction(str(outc.termination))
+    global current_state
+    current_state = board.getBoardState()
+    print(f"DEBUG: current_state: {current_state[:16]}")
 
 def resignGame(sideresigning):
     # Take care of updating the data for a resigned game and callback to the program with the
@@ -374,6 +378,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     # The main thread handles the actual chess game functionality and calls back to
     # eventCallback with game events and
     # moveCallback with the actual moves made
+    global current_state    
     global kill
     global startstate
     global newgame
@@ -415,13 +420,10 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                 t = t + 1
             else:
                 try:
-                    board.pauseEvents()
-                    cs = board.getBoardState()
-                    board.unPauseEvents()
                     # Debug: Log board state comparison
-                    print(f"DEBUG: Board state check - cs length: {len(cs)}, startstate length: {len(startstate)}")
-                    print(f"DEBUG: States equal: {bytearray(cs) == startstate}")
-                    if bytearray(cs) == startstate:
+                    print(f"DEBUG: Board state check - current_state length: {len(current_state)}, startstate length: {len(startstate)}")
+                    print(f"DEBUG: States equal: {bytearray(current_state) == startstate}")
+                    if bytearray(current_state) == startstate:
                         print("DEBUG: Detected starting position - triggering NEW_GAME")
                         newgame = 1
                         curturn = 1
