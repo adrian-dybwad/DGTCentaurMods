@@ -421,8 +421,8 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
             else:
                 try:
                     # Debug: Log board state comparison
-                    print(f"DEBUG: Board state check - current_state length: {len(current_state)}, startstate length: {len(startstate)}")
-                    print(f"DEBUG: States equal: {bytearray(current_state) == startstate}")
+                    #print(f"DEBUG: Board state check - current_state length: {len(current_state)}, startstate length: {len(startstate)}")
+                    #print(f"DEBUG: States equal: {bytearray(current_state) == startstate}")
                     if bytearray(current_state) == startstate:
                         print("DEBUG: Detected starting position - triggering NEW_GAME")
                         newgame = 1
