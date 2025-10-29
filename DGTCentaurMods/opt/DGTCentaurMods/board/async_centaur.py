@@ -107,7 +107,8 @@ class CommandSpec:
     default_data: Optional[bytes] = None
 
 COMMANDS: Dict[str, CommandSpec] = {
-    "DGT_BUS_SEND_STATE":  CommandSpec(0x42, 0x86, b'\x7f'),
+    "DGT_BUS_SEND_STATE_NOCS":  CommandSpec(0x42, 0x86, b'\x7f'),
+    "DGT_BUS_SEND_STATE":  CommandSpec(0x82, 0x83, b'\x7f'),
     "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(0xf0, 0xF0, b'\x7f'),
     "DGT_DISCOVERY_REQ":      CommandSpec(0x46, 0x93, None),
     "DGT_DISCOVERY_ACK":      CommandSpec(0x87, 0x87, None),
@@ -131,7 +132,8 @@ COMMANDS: Dict[str, CommandSpec] = {
     # then response is 0x90 packet twice
     "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90, None),
     # Returns the trademark
-    "DGT_SEND_TRADEMARK":     CommandSpec(0x47, 0x92, None),
+    "DGT_SEND_TRADEMARK_NO_CS":     CommandSpec(0x47, 0x92, None),
+    "DGT_SEND_TRADEMARK":     CommandSpec(0x97, 0xb4, None),
 
     # Changes the addr1 and addr2 values, no response
     "DGT_BUS_RANDOMIZE_PIN":  CommandSpec(0x92, None, None),
