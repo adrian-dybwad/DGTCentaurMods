@@ -417,10 +417,13 @@ def getBoardState(field=None):
         timeout: Timeout in seconds for each request (default 3.0)
         protocol_retries: Number of protocol-level retries (default 1)
     """
+    # Local constants for snapshot framing and a clear board fallback
+    BOARD_CLEAR_STATE = [0] * 64
+
     try:
         resp = asyncserial.request_response(command.DGT_BUS_SEND_SNAPSHOT)
         payload = resp[1:]
-        boarddata = [0] * 64
+        boarddata = BOARD_CLEAR_STATE.copy()
         upperlimit = 32000
         lowerlimit = 300
         # payload is 64 words (big-endian 16-bit)
