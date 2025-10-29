@@ -397,7 +397,7 @@ def poll():
             logging.debug("PLAY BUTTON")
 
 
-def getBoardState(field=None, retries=3, sleep_between=0.12, timeout=3.0, protocol_retries=1):
+def getBoardState():
     """
     Query the board and return a 64-length list of 0/1 occupancy flags.
     Robust against short reads; retries at both application and protocol level.
@@ -415,46 +415,41 @@ def getBoardState(field=None, retries=3, sleep_between=0.12, timeout=3.0, protoc
     SNAPSHOT_TOTAL_LEN = SNAPSHOT_HEADER_LEN + SNAPSHOT_PAYLOAD_BYTES
     BOARD_CLEAR_STATE = [0] * 64
 
-    for _ in range(retries):
-        try:
-            # Request a raw snapshot (header + payload)
-            resp = asyncserial.request_response(
-                DGT_BUS_SEND_SNAPSHOT, timeout=2.0, raw_len=SNAPSHOT_TOTAL_LEN + 1
-            )
-            if not resp or len(resp) < SNAPSHOT_TOTAL_LEN:
-                time.sleep(sleep_between)
-                continue
+    try:
+        # Request a raw snapshot (header + payload)
+        resp = asyncserial.request_response(
+            DGT_BUS_SEND_SNAPSHOT, timeout=2.0, raw_len=SNAPSHOT_TOTAL_LEN + 1
+        )
 
-            resp = bytearray(resp)
-            payload = resp[SNAPSHOT_HEADER_LEN:SNAPSHOT_TOTAL_LEN]
+        resp = bytearray(resp)
+        payload = resp[SNAPSHOT_HEADER_LEN:SNAPSHOT_TOTAL_LEN]
 
-            print(f"DEBUG: resp: {resp}")
-            print(f"DEBUG: payload: {payload}")
-            # resp = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT, timeout=timeout, retries=protocol_retries)
-            # Check if request timed out
-            # if resp is None:
-            #     print("Error getting board state")
-            #     print("Request timeout - no response from board")
-            #     time.sleep(sleep_between)
-            #     continue
+        print(f"DEBUG: resp: {resp}")
+        print(f"DEBUG: payload: {payload}")
+        # resp = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT, timeout=timeout, retries=protocol_retries)
+        # Check if request timed out
+        # if resp is None:
+        #     print("Error getting board state")
+        #     print("Request timeout - no response from board")
+        #     time.sleep(sleep_between)
+        #     continue
 
-            boarddata = BOARD_CLEAR_STATE.copy()
-            upperlimit = 32000
-            lowerlimit = 300
-            # payload is 64 words (big-endian 16-bit)
-            for i in range(0, 128, 2):
-                tval = (payload[i] << 8) | payload[i+1]
-                boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
+        boarddata = BOARD_CLEAR_STATE.copy()
+        upperlimit = 32000
+        lowerlimit = 300
+        # payload is 64 words (big-endian 16-bit)
+        for i in range(0, 128, 2):
+            tval = (payload[i] << 8) | payload[i+1]
+            boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
 
-            if field is not None:
-                return boarddata[field]
-            return boarddata
+        if field is not None:
+            return boarddata[field]
+        return boarddata
 
-        except Exception as e:
-            print("Error getting board state")
-            print(e)
-            # transient read/parse error—retry
-            time.sleep(sleep_between)
+    except Exception as e:
+        print("Error getting board state")
+        print(e)
+        # transient read/parse error—retry
 
     # Final fallback so callers (like getText) never crash
     if field is not None:
@@ -679,9 +674,13 @@ def eventsThread(keycallback, fieldcallback, tout):
 def subscribeEvents(keycallback, fieldcallback, timeout=100000):
     # Called by any program wanting to subscribe to events
     # Arguments are firstly the callback function for key presses, secondly for piece lifts and places
-    eventsthreadpointer = threading.Thread(target=eventsThread, args=(keycallback, fieldcallback, timeout))
-    eventsthreadpointer.daemon = True
-    eventsthreadpointer.start()
+    try:
+        eventsthreadpointer = threading.Thread(target=eventsThread, args=(keycallback, fieldcallback, timeout))
+        eventsthreadpointer.daemon = True
+        eventsthreadpointer.start()
+    except Exception as e:
+        print(f"[board.subscribeEvents] error: {e}")
+        print(f"[board.subscribeEvents] error: {sys.exc_info()[1]}")
 
 def pauseEvents():
     global eventsrunning
