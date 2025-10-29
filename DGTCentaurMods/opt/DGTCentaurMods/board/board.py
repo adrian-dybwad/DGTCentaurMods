@@ -459,7 +459,7 @@ def printBoardState():
         print("\r+---+---+---+---+---+---+---+---+")
         line = "\r|"
         for y in range(0,8):
-            line.append(" " + str(state[x+y]) + " |")
+            line += (" " + str(state[x+y]) + " |")
         print(line)
     print("\r+---+---+---+---+---+---+---+---+")
 
