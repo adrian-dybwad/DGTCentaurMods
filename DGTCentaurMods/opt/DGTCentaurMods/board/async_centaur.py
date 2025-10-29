@@ -106,7 +106,7 @@ class CommandSpec:
     default_data: Optional[bytes] = None
 
 COMMANDS: Dict[str, CommandSpec] = {
-    "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(b"\xf0", 0xF0, b'\x7f'),
+    "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(b"\xf0\x00\x07", 0xF0, b'\x7f'),
     "DGT_DISCOVERY_REQ":          CommandSpec(b"\x4d\x4e", 0x93, None),
     "DGT_DISCOVERY_ACK":          CommandSpec(b"\x87", 0x87, None),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(b"\x83", 0x85, None),
@@ -790,8 +790,9 @@ class AsyncCentaur:
             bytearray: complete packet ready to send
         """
         tosend = bytearray(command)
+        len = len(data) + 4
         if len(data) > 0:
-            len_hi = (len(data) >> 7) & 0x7F   # upper 7 bits
+            len_hi = (len >> 7) & 0x7F   # upper 7 bits
             len_lo = len(data) & 0x7F          # lower 7 bits
             tosend.append(len_hi)
             tosend.append(len_lo)
