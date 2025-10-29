@@ -278,6 +278,10 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     event_key.clear()
     return selection
 
+def changedCallback(field):
+    print(f"DEBUG: changedCallback: {field}")
+    board.printBoardState()
+
 
 # Turn Leds off, beep, clear DGT Centaur Serial
 # Initialise the epaper display - after which functions in epaper.py are available but you can also draw to the
@@ -292,9 +296,7 @@ logging.debug("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
 # Subscribe to board events. First parameter is the function for key presses. The second is the function for
 # field activity
-board.printBoardState()
-board.subscribeEvents(keyPressed, None, timeout=900)
-
+board.subscribeEvents(keyPressed, changedCallback, timeout=900)
 
 def show_welcome():
     global idle
