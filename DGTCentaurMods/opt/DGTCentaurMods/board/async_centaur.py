@@ -106,13 +106,13 @@ class CommandSpec:
     default_data: Optional[bytes] = None
 
 COMMANDS: Dict[str, CommandSpec] = {
-    "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(b"\xf1\x00\x07", 0xF0, b'\x7f'),
+    "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(b"\xf0", 0xF0, b'\x7f'),
     "DGT_DISCOVERY_REQ":          CommandSpec(b"\x4d\x4e", 0x93, None),
     "DGT_DISCOVERY_ACK":          CommandSpec(b"\x87", 0x87, None),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(b"\x83", 0x85, None),
     "DGT_BUS_POLL_KEYS":      CommandSpec(b"\x94", 0xB1, None),
     "DGT_SEND_BATTERY_INFO":  CommandSpec(b"\x98", 0xB5, None),
-    "SOUND_GENERAL":          CommandSpec(b"\xb1\x00\x08", 0xB1, b'\x4c\x08'),
+    "SOUND_GENERAL":          CommandSpec(b"\xb1", 0xB1, b'\x4c\x08'),
     "SOUND_FACTORY":          CommandSpec(b"\xb1\x00\x08", 0xB1, b'\x4c\x40'),
     "SOUND_POWER_OFF":        CommandSpec(b"\xb1\x00\x0a", 0xB1, b'\x4c\x08\x48\x08'),
     "SOUND_POWER_ON":         CommandSpec(b"\xb1\x00\x0a", 0xB1, b'\x48\x08\x4c\x08'),
