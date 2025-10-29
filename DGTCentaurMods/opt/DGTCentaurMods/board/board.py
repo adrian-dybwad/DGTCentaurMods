@@ -429,7 +429,7 @@ def getBoardState(field=None):
         # payload is 64 words (big-endian 16-bit)
         for i in range(0, 128, 2):
 
-            len_hi, len_lo = payload[i], payload[i+1]
+            len_lo, len_hi = payload[i], payload[i+1]
             tval = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
             #tval = (payload[i] << 8) | payload[i+1]
             print(f"DEBUG: tval: {tval} len_hi: {len_hi} {len_hi:02x} ({len_hi & 0x7F:02x}) len_lo: {len_lo} {len_lo:02x} ({len_lo & 0x7F:02x})")
