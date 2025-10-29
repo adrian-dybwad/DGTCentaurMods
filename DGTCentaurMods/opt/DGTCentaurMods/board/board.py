@@ -432,7 +432,7 @@ def getBoardState(field=None):
             len_lo, len_hi = payload[i], payload[i+1]
             tval = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
             #tval = (payload[i] << 8) | payload[i+1]
-            populated = 1 if (len_hi < 0x7f // 2) else 0
+            populated = 1 if (len_hi < 0x7f // 2 and len_lo < 0x7f // 2 and len_hi > 0 and len_lo > 0) else 0
             boarddata[i // 2] = populated
             print(f"DEBUG: {64 - (i // 2):02d} {populated} {tval} len_lo: {len_lo} {len_lo:02x} ({len_lo & 0x7F:02x}) len_hi: {len_hi} {len_hi:02x} ({len_hi & 0x7F:02x})")
 
