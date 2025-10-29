@@ -291,6 +291,8 @@ class AsyncCentaur:
                 if not byte:
                     continue
 
+                print(f"DEBUG: byte: {byte[0]:02x}")
+                
                 # RAW CAPTURE: divert bytes to raw buffer if active
                 raw_to_deliver = None
                 with self._raw_waiter_lock:
