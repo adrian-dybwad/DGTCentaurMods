@@ -121,6 +121,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     "DGT_SLEEP":              CommandSpec(0xb2, 0xB1, b'\x0a'),
 
     "LED_OFF_CMD":            CommandSpec(0xb0, 0xB1, b'\x00'),
+    "LED_FLASH_CMD":          CommandSpec(0xb0, 0xB1, b'\x05\x0a\x00\x01'),
 
     # Returns the addr1 and addr2 values. If current addr1 and addr2 = 0x00, 
     # then response is 0x90 packet twice
@@ -819,8 +820,8 @@ class AsyncCentaur:
         spec = CMD_BY_CMD.get(command)
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else None)
         tosend = self.buildPacket(command, eff_data)
-        #if command != DGT_BUS_POLL_KEYS and command != DGT_BUS_SEND_CHANGES:
-        print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
+        if command != DGT_BUS_POLL_KEYS and command != DGT_BUS_SEND_CHANGES:
+            print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
         self.ser.write(tosend)
     
     def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
@@ -1206,63 +1207,42 @@ class AsyncCentaur:
     def ledArray(self, inarray, speed = 3, intensity=5):
         print(f"ledArray: {inarray} {speed} {intensity}")
         # Lights all the leds in the given inarray with the given speed and intensity
-        tosend = bytearray(b'\xb0\x00\x0c' + self.addr1.to_bytes(1, byteorder='big') + self.addr2.to_bytes(1, byteorder='big') + b'\x05')
-        tosend.append(speed)
-        tosend.append(0)
-        tosend.append(intensity)
+        data = bytearray([0x05])
+        data.append(speed)
+        data.append(0)
+        data.append(intensity)
         for i in range(0, len(inarray)):
-            tosend.append(self.rotateField(inarray[i]))
-        tosend[2] = len(tosend) + 1
-        tosend.append(self.checksum(tosend))
-        self.ser.write(tosend)
+            data.append(self.rotateField(inarray[i]))
+
+        self.sendPacket(LED_FLASH_CMD, data)
 
     def ledFromTo(self, lfrom, lto, intensity=5):
         print(f"ledFromTo: {lfrom} {lto} {intensity}")
         # Light up a from and to LED for move indication
         # Note the call to this function is 0 for a1 and runs to 63 for h8
         # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-        tosend = bytearray(b'\xb0\x00\x0c' + self.addr1.to_bytes(1, byteorder='big') + self.addr2.to_bytes(1, byteorder='big') + b'\x05\x03\x00\x05\x3d\x31\x0d')
         # Recalculate lfrom to the different indexing system
-        tosend[8] = intensity
-        tosend[9] = self.rotateField(lfrom)
-        # Same for lto
-        tosend[10] = self.rotateField(lto)
-        # Wipe checksum byte and append the new checksum.
-        tosend.pop()
-        tosend.append(self.checksum(tosend))
-        self.ser.write(tosend)
-        # Read off any data
-        #ser.read(100000)
+        data = bytearray([0x05, 0x03, 0x00])
+        data.append(intensity)
+        data.append(self.rotateField(lfrom))
+        data.append(self.rotateField(lto))
+        self.sendPacket(LED_FLASH_CMD, data)
 
     def led(self, num, intensity=5):
         # Flashes a specific led
         # Note the call to this function is 0 for a1 and runs to 63 for h8
         # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
         print(f"led: {num} {intensity}")
-        tcount = 0
-        success = 0
-        while tcount < 5 and success == 0:
-            try:
-                tosend = bytearray(b'\xb0\x00\x0b' + self.addr1.to_bytes(1, byteorder='big') + self.addr2.to_bytes(1, byteorder='big') + b'\x05\x0a\x01\x01\x3d\x5f')
-                # Recalculate num to the different indexing system
-                # Last bit is the checksum
-                tosend[8] = intensity
-                tosend[9] = self.rotateField(num)
-                # Wipe checksum byte and append the new checksum.
-                tosend.pop()
-                tosend.append(self.checksum(tosend))
-                self.ser.write(tosend)
-                success = 1
-                # Read off any data
-                #ser.read(100000)
-            except:
-                time.sleep(0.1)
-                tcount = tcount + 1
+        # Recalculate num to the different indexing system
+        data = bytearray([0x05, 0x0a, 0x01])
+        data.append(intensity)
+        data.append(self.rotateField(num))
+        self.sendPacket(LED_FLASH_CMD, data)
 
     def ledFlash(self):
         print(f"ledFlash")
         # Flashes the last led lit by led(num) above
-        self.sendPacket(b'\xb0\x00\x0a', b'\x05\x0a\x00\x01')
+        self.sendPacket(LED_FLASH_CMD)
         #ser.read(100000)
 
     def sleep(self):
