@@ -457,10 +457,10 @@ def printBoardState():
     state = getBoardState()
     for x in range(0,64,8):
         print("\r+---+---+---+---+---+---+---+---+")
-        print("\r|", end = '')
+        line = "\r|"
         for y in range(0,8):
-            print(" " + str(state[x+y]) + " |", end='')
-        print("")
+            line.append(" " + str(state[x+y]) + " |")
+        print(line)
     print("\r+---+---+---+---+---+---+---+---+")
 
 def getChargingState():
