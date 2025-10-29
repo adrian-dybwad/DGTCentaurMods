@@ -423,23 +423,23 @@ def getBoardState(field=None):
     BOARD_CLEAR_STATE = [0] * 64
 
     try:
-        resp = asyncserial.request_response(command.DGT_BUS_SEND_SNAPSHOT)
+        resp = asyncserial.request_response(command.DGT_BUS_SEND_STATE)
         print(f"DEBUG: resp: {' '.join(f'{b:02x}' for b in resp)}")
         payload = resp[1:]
-        boarddata = BOARD_CLEAR_STATE.copy()
+        boarddata = payload #BOARD_CLEAR_STATE.copy()
         upperlimit = 320000
         lowerlimit = 300
         # payload is 64 words (big-endian 16-bit)
-        for i in range(0, 128, 2):
+        # for i in range(0, 128, 2):
 
-            len_lo, len_hi = payload[i], payload[i+1]
-            tval = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
-            tval2 = (payload[i] << 8) | payload[i+1]
-            populated = 1 if (len_hi < 0x7f // 2 and len_lo < 0x7f // 2 and len_hi > 0 and len_lo > 0) else 0
-            # Original formula
-            populated2 = 1 if (lowerlimit <= tval2 <= upperlimit) else 0
-            boarddata[i // 2] = populated2
-            print(f"\rDEBUG: {64 - (i // 2):02d} p1:{populated} p2:{populated2} t1:{tval:6d} t2:{tval2:6d} len_lo: {len_lo:02x} ({len_lo & 0x7F:02x}) len_hi: {len_hi:02x} ({len_hi & 0x7F:02x})")
+        #     len_lo, len_hi = payload[i], payload[i+1]
+        #     tval = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
+        #     tval2 = (payload[i] << 8) | payload[i+1]
+        #     populated = 1 if (len_hi < 0x7f // 2 and len_lo < 0x7f // 2 and len_hi > 0 and len_lo > 0) else 0
+        #     # Original formula
+        #     populated2 = 1 if (lowerlimit <= tval2 <= upperlimit) else 0
+        #     boarddata[i // 2] = populated2
+        #     print(f"\rDEBUG: {64 - (i // 2):02d} p1:{populated} p2:{populated2} t1:{tval:6d} t2:{tval2:6d} len_lo: {len_lo:02x} ({len_lo & 0x7F:02x}) len_hi: {len_hi:02x} ({len_hi & 0x7F:02x})")
 
         print(f"\rDEBUG: boarddata: {boarddata}")
 
