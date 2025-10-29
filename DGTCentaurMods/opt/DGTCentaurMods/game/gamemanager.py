@@ -167,7 +167,9 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
         field = ((square + 1) * -1) # Convert to negative field number
 
     global cs
+    board.pauseEvents()
     cs = board.getBoardState()
+    board.unPauseEvents()
     print(f"DEBUG: cs: {cs}")
     print(f"[gamemanager.fieldcallback] piece_event={piece_event} field_hex={field_hex} square={square} field={field} time_in_seconds={time_in_seconds}")
     global cboard
@@ -555,12 +557,12 @@ def subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback = N
     global gamedbid
     global session
     global boardstates
-    
+    global cs
     boardstates = []
-    board.getBoardState()
-    board.getBoardState()
+    cs = []
     collectBoardState()
-    
+
+
     source = inspect.getsourcefile(sys._getframe(1))
     Session = sessionmaker(bind=models.engine)
     session = Session()
@@ -570,6 +572,9 @@ def subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback = N
     gamethread = threading.Thread(target=gameThread, args=([eventCallback, moveCallback, keyCallback, takebackCallback]))
     gamethread.daemon = True
     gamethread.start()
+    board.pauseEvents()
+    cs = board.getBoardState()
+    board.unPauseEvents()
 
 def unsubscribeGame():
     # Stops the game manager
