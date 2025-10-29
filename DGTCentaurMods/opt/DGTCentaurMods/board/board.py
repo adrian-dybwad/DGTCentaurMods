@@ -578,17 +578,17 @@ def eventsThread(keycallback, fieldcallback, tout):
                 if fieldcallback != None:
                     try:
                         # Prefer push model via asyncserial piece listeners
-                        #if asyncserial._piece_listener == None:
-                        def _listener(piece_event, field_hex, square, time_in_seconds):
-                            nonlocal to
-                            try:
-                                print(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} field_hex={field_hex} square={square} time_in_seconds={time_in_seconds}")
-                                fieldcallback(piece_event, field_hex, square, time_in_seconds)
-                                to = time.time() + tout
-                            except Exception as e:
-                                print(f"[board.events.push] error: {e}")
-                        asyncserial._piece_listener = _listener
-                        asyncserial.poll_piece_detection()
+                        if asyncserial._piece_listener == None:
+                            def _listener(piece_event, field_hex, square, time_in_seconds):
+                                nonlocal to
+                                try:
+                                    print(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} field_hex={field_hex} square={square} time_in_seconds={time_in_seconds}")
+                                    fieldcallback(piece_event, field_hex, square, time_in_seconds)
+                                    to = time.time() + tout
+                                except Exception as e:
+                                    print(f"[board.events.push] error: {e}")
+                            asyncserial._piece_listener = _listener
+                            asyncserial.poll_piece_detection()
                     except Exception as e:
                         print("Error in piece detection")   
                         print(f"Error: {e}")
