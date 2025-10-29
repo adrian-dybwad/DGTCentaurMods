@@ -107,7 +107,7 @@ class CommandSpec:
     default_data: Optional[bytes] = None
 
 COMMANDS: Dict[str, CommandSpec] = {
-    "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(0xf0, 0xF0, b'\x7f'),
+    "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(0xf0, 0xF0, b'\xff'),
     "DGT_DISCOVERY_REQ":      CommandSpec(0x46, 0x93, None),
     "DGT_DISCOVERY_ACK":      CommandSpec(0x87, 0x87, None),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85, None),
