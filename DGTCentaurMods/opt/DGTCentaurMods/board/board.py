@@ -360,6 +360,7 @@ def poll():
     # Perhaps there's a packet length in here somewhere but
     # I haven't noticed it yet, therefore we need to process
     # the data as it comes
+    print("+++++++++++++++++++++++++++++ poll() +++++++++++++++++++++++++++++")
     ser.read(100000)
     sendPacket(b'\x83', b'')
     expect = buildPacket(b'\x85\x00\x06', b'')
