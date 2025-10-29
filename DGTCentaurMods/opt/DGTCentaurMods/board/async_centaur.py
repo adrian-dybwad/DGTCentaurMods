@@ -366,6 +366,7 @@ class AsyncCentaur:
         self._handle_orphaned_data_detection(byte)
         self.response_buffer.append(byte)
         
+        print(f"DEBUG: response_buffer: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
         # Try special handlers first
         if self._try_discovery_packet_detection():
             return
@@ -1057,6 +1058,7 @@ class AsyncCentaur:
             self.sendPacket(DGT_RETURN_BUSADRES)
             return
 
+        print(f"Discovery: packet: {' '.join(f'{b:02x}' for b in packet)}")
         # Called from processResponse() with a complete packet
         if packet[0] == 0x90:
             self.addr1 = packet[3]
