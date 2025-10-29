@@ -397,7 +397,7 @@ def poll():
             logging.debug("PLAY BUTTON")
 
 
-def getBoardState():
+def getBoardState(field=None):
     """
     Query the board and return a 64-length list of 0/1 occupancy flags.
     Robust against short reads; retries at both application and protocol level.
