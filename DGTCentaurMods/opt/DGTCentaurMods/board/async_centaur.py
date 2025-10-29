@@ -368,7 +368,7 @@ class AsyncCentaur:
         
         print(f"DEBUG: response_buffer: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
         # Try special handlers first
-        if self._try_discovery_packet_detection():
+        if not self.ready and self._try_discovery_packet_detection():
             return
         if self._try_checksum_packet_detection(byte):
             return
@@ -396,7 +396,7 @@ class AsyncCentaur:
         """Handle 0x93 packets without checksum, returns True if packet complete"""
         # Special handling for 0x93 discovery packets (no checksum, use declared length)
         if not self.ready and len(self.response_buffer) >= 3:
-            if self.response_buffer[0] == 0x93:
+            if self.response_buffer[0] == 0x90:
                 len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
                 declared_length = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
                 if len(self.response_buffer) == declared_length:
