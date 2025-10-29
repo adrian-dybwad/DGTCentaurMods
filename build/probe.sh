@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-cd ~/DGTCentaurMods/DGTCentaurMods/opt
 
 git pull
 
