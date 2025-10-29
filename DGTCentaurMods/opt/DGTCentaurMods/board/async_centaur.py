@@ -1224,8 +1224,8 @@ class AsyncCentaur:
         # Recalculate lfrom to the different indexing system
         data = bytearray([0x05, 0x03, 0x00])
         data.append(intensity)
-        data.append(self.rotateField(lto))
         data.append(self.rotateField(lfrom))
+        data.append(self.rotateField(lto))
         self.sendPacket(LED_FLASH_CMD, data)
 
     def led(self, num, intensity=5):
