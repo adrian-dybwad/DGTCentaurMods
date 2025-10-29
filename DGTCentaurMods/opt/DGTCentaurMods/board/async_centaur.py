@@ -809,7 +809,7 @@ class AsyncCentaur:
             print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
         if len(self.response_buffer) > 0:
             print(f"response_buffer: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
-            self.response_buffer.pop(0)
+            self.response_buffer = bytearray()
         self.ser.write(tosend)
     
     def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
