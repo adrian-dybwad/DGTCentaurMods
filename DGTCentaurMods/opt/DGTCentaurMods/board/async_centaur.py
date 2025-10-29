@@ -398,7 +398,7 @@ class AsyncCentaur:
         if not self.ready and len(self.response_buffer) >= 3:
             if self.response_buffer[0] == 0x93:
                 len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
-                declared_length = (len_hi << 7) | len_lo
+                declared_length = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
                 if len(self.response_buffer) == declared_length:
                     # Complete 0x93 packet received
                     self.on_packet_complete(self.response_buffer)
@@ -415,7 +415,7 @@ class AsyncCentaur:
                 # Verify packet length matches declared length
                 if len(self.response_buffer) >= 6:
                     len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
-                    declared_length = (len_hi << 7) | len_lo
+                    declared_length = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
                     actual_length = len(self.response_buffer)
                     if actual_length == declared_length:
                         # We have a valid packet
@@ -789,9 +789,18 @@ class AsyncCentaur:
         Returns:
             bytearray: complete packet ready to send
         """
-        tosend = bytearray(command + self.addr1.to_bytes(1, byteorder='big') + 
-                          self.addr2.to_bytes(1, byteorder='big') + data)
+        tosend = bytearray(command)
+        if len(data) > 0:
+            len_hi = (len(data) >> 7) & 0x7F   # upper 7 bits
+            len_lo = len(data) & 0x7F          # lower 7 bits
+            tosend.append(len_hi)
+            tosend.append(len_lo)
+
+        tosend.append(self.addr1.to_bytes(1, byteorder='big'))
+        tosend.append(self.addr2.to_bytes(1, byteorder='big'))
+        tosend.extend(data)
         tosend.append(self.checksum(tosend))
+
         return tosend
     
     def sendPacket(self, command, data: Optional[bytes] = None):
@@ -807,9 +816,6 @@ class AsyncCentaur:
         tosend = self.buildPacket(command, eff_data)
         if command != DGT_BUS_POLL_KEYS and command != DGT_BUS_SEND_CHANGES:
             print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
-        if len(self.response_buffer) > 0:
-            print(f"response_buffer: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
-            self.response_buffer = bytearray()
         self.ser.write(tosend)
     
     def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
