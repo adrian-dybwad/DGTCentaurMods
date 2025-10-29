@@ -296,6 +296,10 @@ logging.debug("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
 # Subscribe to board events. First parameter is the function for key presses. The second is the function for
 # field activity
+resp = board.sendCommand(board.command_name.DISC_1)
+print(f"DEBUG: resp: {resp}")
+resp = board.sendCommand(board.command_name.DISC_2)
+print(f"DEBUG: resp: {resp}")
 board.subscribeEvents(keyPressed, changedCallback, timeout=900)
 board.printBoardState()
 

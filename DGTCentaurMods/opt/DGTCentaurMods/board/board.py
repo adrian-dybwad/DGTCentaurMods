@@ -50,6 +50,8 @@ SOUND_POWER_ON = command.SOUND_POWER_ON
 SOUND_WRONG = command.SOUND_WRONG
 SOUND_WRONG_MOVE = command.SOUND_WRONG_MOVE
 
+command_name = command
+
 # Get the config
 dev = Settings.read('system', 'developer', 'False')
 asyncserial = AsyncCentaur(developer_mode=False)
@@ -451,6 +453,10 @@ def getBoardState(field=None):
     if field is not None:
         return 0
     return BOARD_CLEAR_STATE
+
+def sendCommand(command):
+    resp = asyncserial.request_response(command)
+    return resp
 
 def printBoardState():
     # Helper to display board state
