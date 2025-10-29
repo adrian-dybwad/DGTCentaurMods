@@ -36,6 +36,7 @@ import threading
 import itertools
 from dataclasses import dataclass
 from typing import Dict, Optional
+from types import SimpleNamespace
 
 try:
     logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log", filemode="w")
@@ -138,18 +139,18 @@ COMMANDS: Dict[str, CommandSpec] = {
 }
 
 
-# Fast lookups
-CMD_BY_CMD  = {spec.cmd: spec for spec in COMMANDS.values()}
+# Fast lookups (name-only API)
+CMD_BY_NAME = {name: spec for name, spec in COMMANDS.items()}
 RESP_TYPE_TO_SPEC = {spec.expected_resp_type: spec for spec in COMMANDS.values()}
-
-# Export importable byte constants without repeating names
-globals().update({name: spec.cmd for name, spec in COMMANDS.items()})
 
 # Export response-type constants (e.g., DGT_BUS_SEND_CHANGES_RESP)
 globals().update({f"{name}_RESP": spec.expected_resp_type for name, spec in COMMANDS.items()})
 
 # Export default data constants (e.g., DGT_BUS_SEND_CHANGES_DATA); value may be None
 globals().update({f"{name}_DATA": spec.default_data for name, spec in COMMANDS.items()})
+
+# Export name namespace for commands, e.g. command.LED_OFF_CMD -> "LED_OFF_CMD"
+command = SimpleNamespace(**{name: name for name in COMMANDS.keys()})
 
 # Start-of-packet type bytes derived from registry (responses) + discovery types
 OTHER_START_TYPES = {0x87, 0x93}
@@ -174,7 +175,7 @@ KEY_CODE_BY_NAME = {v: k for k, v in KEY_NAME_BY_CODE.items()}  # {'BACK': 0x01,
 Key = IntEnum('Key', {name: code for name, code in KEY_CODE_BY_NAME.items()})
 
 
-__all__ = ['AsyncCentaur', 'DGT_BUS_SEND_CHANGES', 'DGT_BUS_POLL_KEYS', 'DGT_SEND_BATTERY_INFO', 'DGT_BUTTON_CODES']
+__all__ = ['AsyncCentaur', 'DGT_BUS_SEND_CHANGES', 'DGT_BUS_POLL_KEYS', 'DGT_SEND_BATTERY_INFO', 'DGT_BUTTON_CODES', 'command']
 
 class AsyncCentaur:
     """DGT Centaur Asynchronous Board Controller
@@ -550,7 +551,7 @@ class AsyncCentaur:
                     import traceback
                     traceback.print_exc()
 
-            self.sendPacket(DGT_BUS_SEND_CHANGES)
+            self.sendPacket(command.DGT_BUS_SEND_CHANGES)
         except Exception as e:
             print(f"Error: {e}")
             return 
@@ -575,7 +576,7 @@ class AsyncCentaur:
                         except queue.Full:
                             pass
 
-            self.sendPacket(DGT_BUS_POLL_KEYS)
+            self.sendPacket(command.DGT_BUS_POLL_KEYS)
         except Exception as e:
             print(f"Error: {e}")
             return 
@@ -809,29 +810,33 @@ class AsyncCentaur:
         tosend.append(self.checksum(tosend))
         return tosend
     
-    def sendPacket(self, command, data: Optional[bytes] = None):
+    def sendPacket(self, command_name: str, data: Optional[bytes] = None):
         """
-        Send a packet to the board.
+        Send a packet to the board using a command name.
         
         Args:
-            command: bytes for command
-            data: bytes for data payload; if None, use default_data from COMMANDS if available
+            command_name: command name in COMMANDS (e.g., "LED_OFF_CMD")
+            data: bytes for data payload; if None, use default_data from the named command if available
         """
-        spec = CMD_BY_CMD.get(command)
-        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else None)
-        tosend = self.buildPacket(command, eff_data)
-        if command != DGT_BUS_POLL_KEYS and command != DGT_BUS_SEND_CHANGES:
+        if not isinstance(command_name, str):
+            raise TypeError("sendPacket requires a command name (str), e.g. command.LED_OFF_CMD")
+        spec = CMD_BY_NAME.get(command_name)
+        if not spec:
+            raise KeyError(f"Unknown command name: {command_name}")
+        eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
+        tosend = self.buildPacket(spec.cmd, eff_data)
+        if spec.cmd != DGT_BUS_POLL_KEYS and spec.cmd != DGT_BUS_SEND_CHANGES:
             print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
         self.ser.write(tosend)
     
-    def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
+    def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
         """
         Send a command and either block until the matching response arrives (callback=None)
         returning the payload bytes, or return immediately (callback provided) and
         invoke callback(payload, None) on response or callback(None, TimeoutError) on timeout.
 
         Args:
-            command (bytes): command bytes to send (e.g., DGT_BUS_SEND_CHANGES)
+            command_name (str): command name to send (e.g., "DGT_BUS_SEND_CHANGES")
             data (bytes): optional payload to include with command
             timeout (float): seconds to wait for response per attempt
             callback (callable|None): function (payload: bytes|None, err: Exception|None) -> None
@@ -846,13 +851,15 @@ class AsyncCentaur:
             ValueError: if command is not recognized for matching
             RuntimeError: if another request is already waiting for a response
         """
+        if not isinstance(command_name, str):
+            raise TypeError("request_response requires a command name (str)")
         if raw_len is not None:
-            return self._request_response_raw(command, data, timeout, callback, raw_len)
+            return self._request_response_raw(command_name, data, timeout, callback, raw_len)
         elif callback is None:
-            return self._request_response_blocking(command, data, timeout, retries)
+            return self._request_response_blocking(command_name, data, timeout, retries)
         else:
-            return self._request_response_async(command, data, timeout, callback)
-    def _request_response_raw(self, command, data, timeout, callback, raw_len):
+            return self._request_response_async(command_name, data, timeout, callback)
+    def _request_response_raw(self, command_name: str, data, timeout, callback, raw_len):
         """Handle raw byte capture mode"""
         # ensure no packet-mode waiter is active
         with self._waiter_lock:
@@ -889,9 +896,11 @@ class AsyncCentaur:
         print(f"Clearing response buffer in request_response_raw")
         self.response_buffer = bytearray()
 
-        spec = CMD_BY_CMD.get(command)
-        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else None)
-        self.sendPacket(command, eff_data)
+        spec = CMD_BY_NAME.get(command_name)
+        if not spec:
+            raise KeyError(f"Unknown command name: {command_name}")
+        eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
+        self.sendPacket(command_name, eff_data)
 
         if callback is not None:
             return None
@@ -920,11 +929,13 @@ class AsyncCentaur:
                 pass
             raise TimeoutError("Timed out waiting for raw response bytes")
 
-    def _request_response_blocking(self, command, data, timeout, retries):
+    def _request_response_blocking(self, command_name: str, data, timeout, retries):
         """Handle blocking mode with retry support"""
-        expected_type = self._expected_type_for_cmd(command)
-        spec = CMD_BY_CMD.get(command)
-        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else None)
+        expected_type = self._expected_type_for_cmd(command_name)
+        spec = CMD_BY_NAME.get(command_name)
+        if not spec:
+            raise KeyError(f"Unknown command name: {command_name}")
+        eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
 
         # Try to acquire request lock with timeout (prevent concurrent requests)
         lock_timeout = timeout * (retries + 1)  # Total time for all attempts
@@ -951,7 +962,7 @@ class AsyncCentaur:
                         self._response_waiter = {'expected_type': expected_type, 'queue': q, 'callback': None, 'timer': None}
                         waiter_set = True
 
-                    self.sendPacket(command, eff_data)
+                    self.sendPacket(command_name, eff_data)
 
                     try:
                         payload = q.get(timeout=timeout)
@@ -988,11 +999,13 @@ class AsyncCentaur:
             # Always release request lock
             self._request_lock.release()
 
-    def _request_response_async(self, command, data, timeout, callback):
+    def _request_response_async(self, command_name: str, data, timeout, callback):
         """Handle non-blocking callback mode"""
-        expected_type = self._expected_type_for_cmd(command)
-        spec = CMD_BY_CMD.get(command)
-        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else None)
+        expected_type = self._expected_type_for_cmd(command_name)
+        spec = CMD_BY_NAME.get(command_name)
+        if not spec:
+            raise KeyError(f"Unknown command name: {command_name}")
+        eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
 
         def _on_timeout():
             with self._waiter_lock:
@@ -1015,16 +1028,16 @@ class AsyncCentaur:
 
         t.start()
         # Send after registering waiter to avoid race
-        self.sendPacket(command, eff_data)
+        self.sendPacket(command_name, eff_data)
         return None
 
-    def _expected_type_for_cmd(self, command):
-        """Map an outbound command to the expected inbound packet type byte."""
-        if not command:
-            raise ValueError("Empty command")
-        spec = CMD_BY_CMD.get(command)
+    def _expected_type_for_cmd(self, command_name: str):
+        """Map a command name to the expected inbound packet type byte."""
+        if not command_name:
+            raise ValueError("Empty command name")
+        spec = CMD_BY_NAME.get(command_name)
         if not spec:
-            raise ValueError(f"Unsupported command: 0x{command[0]:02x}")
+            raise ValueError(f"Unsupported command name: {command_name}")
         return spec.expected_resp_type
 
     def _extract_payload(self, packet):
@@ -1065,7 +1078,7 @@ class AsyncCentaur:
         # Called from run_background() with no packet
         if packet is None:
             print("Discovery: STARTING - sending 0x4d and 0x4e")
-            self.sendPacket(DGT_RETURN_BUSADRES)
+            self.sendPacket(command.DGT_RETURN_BUSADRES)
             return
 
         print(f"Discovery: packet: {' '.join(f'{b:02x}' for b in packet)}")
@@ -1075,7 +1088,7 @@ class AsyncCentaur:
             self.addr2 = packet[4]
             self.ready = True
             print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
-            self.sendPacket(DGT_BUS_POLL_KEYS) #Key detection enabled
+            self.sendPacket(command.DGT_BUS_POLL_KEYS) #Key detection enabled
     
     def cleanup(self, leds_off: bool = True):
         """Idempotent cleanup coordinator"""
@@ -1188,21 +1201,21 @@ class AsyncCentaur:
 
     def poll_piece_detection(self):
         print(f"poll_piece_detection")
-        self.sendPacket(DGT_BUS_SEND_CHANGES)
+        self.sendPacket(command.DGT_BUS_SEND_CHANGES)
 
     def clearBoardData(self):
         print(f"clearBoardData")
-        self.sendPacket(DGT_BUS_SEND_CHANGES)
+        self.sendPacket(command.DGT_BUS_SEND_CHANGES)
 
-    def beep(self, beeptype):
-        print(f"beep: {beeptype}")
-        # Ask the centaur to make a beep sound
-        self.sendPacket(beeptype)
+    def beep(self, sound_name: str):
+        print(f"beep: {sound_name}")
+        # Ask the centaur to make a beep sound by name
+        self.sendPacket(sound_name)
 
     def ledsOff(self):
         print(f"ledsOff")
         # Switch the LEDs off on the centaur
-        self.sendPacket(LED_OFF_CMD)
+        self.sendPacket(command.LED_OFF_CMD)
 
     def ledArray(self, inarray, speed = 3, intensity=5):
         print(f"ledArray: {inarray} {speed} {intensity}")
@@ -1214,7 +1227,7 @@ class AsyncCentaur:
         for i in range(0, len(inarray)):
             data.append(self.rotateField(inarray[i]))
 
-        self.sendPacket(LED_FLASH_CMD, data)
+        self.sendPacket(command.LED_FLASH_CMD, data)
 
     def ledFromTo(self, lfrom, lto, intensity=5):
         print(f"ledFromTo: {lfrom} {lto} {intensity}")
@@ -1226,7 +1239,7 @@ class AsyncCentaur:
         data.append(intensity)
         data.append(self.rotateField(lfrom))
         data.append(self.rotateField(lto))
-        self.sendPacket(LED_FLASH_CMD, data)
+        self.sendPacket(command.LED_FLASH_CMD, data)
 
     def led(self, num, intensity=5):
         # Flashes a specific led
@@ -1237,12 +1250,12 @@ class AsyncCentaur:
         data = bytearray([0x05, 0x0a, 0x01])
         data.append(intensity)
         data.append(self.rotateField(num))
-        self.sendPacket(LED_FLASH_CMD, data)
+        self.sendPacket(command.LED_FLASH_CMD, data)
 
     def ledFlash(self):
         print(f"ledFlash")
         # Flashes the last led lit by led(num) above
-        self.sendPacket(LED_FLASH_CMD)
+        self.sendPacket(command.LED_FLASH_CMD)
         #ser.read(100000)
 
     def sleep(self):
@@ -1251,4 +1264,4 @@ class AsyncCentaur:
         Sleep the controller.
         """
         print(f"Sleeping the centaur")
-        self.sendPacket(DGT_SLEEP)
+        self.sendPacket(command.DGT_SLEEP)

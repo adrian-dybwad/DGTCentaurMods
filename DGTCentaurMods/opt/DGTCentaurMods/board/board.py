@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 #import serial
-from DGTCentaurMods.board.async_centaur import AsyncCentaur, DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS, DGT_SEND_BATTERY_INFO, SOUND_GENERAL, SOUND_FACTORY, SOUND_POWER_OFF, SOUND_POWER_ON, SOUND_WRONG, SOUND_WRONG_MOVE, DGT_BUS_SEND_SNAPSHOT, Key
+from DGTCentaurMods.board.async_centaur import AsyncCentaur, command, Key
 import sys
 import os
 from DGTCentaurMods.display import epd2in9d, epaper
@@ -42,6 +42,13 @@ try:
 except:
     logging.basicConfig(level=logging.DEBUG)
 
+# Re-export commonly used command names for backward-compatible usage in this module
+SOUND_GENERAL = command.SOUND_GENERAL
+SOUND_FACTORY = command.SOUND_FACTORY
+SOUND_POWER_OFF = command.SOUND_POWER_OFF
+SOUND_POWER_ON = command.SOUND_POWER_ON
+SOUND_WRONG = command.SOUND_WRONG
+SOUND_WRONG_MOVE = command.SOUND_WRONG_MOVE
 
 # Get the config
 dev = Settings.read('system', 'developer', 'False')
@@ -417,7 +424,7 @@ def getBoardState(field=None):
     BOARD_CLEAR_STATE = [0] * 64
 
     try:
-        resp = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT)
+        resp = asyncserial.request_response(command.DGT_BUS_SEND_SNAPSHOT)
         payload = resp[1:]
         boarddata = BOARD_CLEAR_STATE.copy()
         upperlimit = 32000
@@ -482,7 +489,7 @@ def getBatteryLevel():
     # 20 is fully charged. The board dies somewhere around a low of 1
     # Sending the board a packet starting with 152 gives battery info
     global batterylevel, chargerconnected, batterylastchecked
-    resp = asyncserial.request_response(DGT_SEND_BATTERY_INFO)
+    resp = asyncserial.request_response(command.DGT_SEND_BATTERY_INFO)
     batterylastchecked = time.time()
     val = resp[0]
     batterylevel = val & 0x1F
