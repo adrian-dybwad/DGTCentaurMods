@@ -272,7 +272,7 @@ def shutdown():
         return
     
     # Normal shutdown sequence
-    logging.debug('Normal shutdown sequence starting')
+    print('Normal shutdown sequence starting')
     
     # Beep power off sound
     try:
@@ -293,7 +293,7 @@ def shutdown():
         # All LEDs off at end
         ledsOff()
     except Exception as e:
-        logging.debug(f"LED pattern failed during shutdown: {e}")
+        print(f"LED pattern failed during shutdown: {e}")
     
     time.sleep(2)
     
@@ -604,22 +604,30 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 logging.debug('Calling standbyScreen()')
                                 epaper.standbyScreen(True)
                                 standby = True
-                                logging.debug('Starting shutdown countdown')
+                                print("----------------------------------------")
+                                print("Starting shutdown countdown")
+                                print("----------------------------------------")
                                 sd = threading.Timer(600,shutdown)
                                 sd.start()
                                 to = time.time() + 100000
                                 break
                             else:
                                 epaper.standbyScreen(False)
-                                logging.debug('Cancel shutdown')
+                                print("----------------------------------------")
+                                print("Shutdown countdown interrupted")
+                                print("----------------------------------------")
                                 sd.cancel()
                                 standby = False
                                 to = time.time() + tout
                                 break
                             break
                     else:
+                        print(f"beep(SOUND_POWER_OFF)")
                         beep(SOUND_POWER_OFF)
-                        shutdown()
+                        print("----------------------------------------")
+                        print("Starting shutdown DISABLED")
+                        print("----------------------------------------")
+                        #shutdown()
             except Exception as e:
                 print(f"[board.events] error: {e}")
                 print(f"[board.events] error: {sys.exc_info()[1]}")
@@ -652,10 +660,10 @@ def eventsThread(keycallback, fieldcallback, tout):
     else:
         # Timeout reached, while loop breaks. Shutdown.
         print("----------------------------------------")
-        print("Timeout. Shutting down board")
+        print("Timeout. Shutting down board DIABLED")
         print("----------------------------------------")
         logging.debug('Timeout. Shutting down board')
-        shutdown()
+        #shutdown()
 
 
 def subscribeEvents(keycallback, fieldcallback, timeout=100000):
