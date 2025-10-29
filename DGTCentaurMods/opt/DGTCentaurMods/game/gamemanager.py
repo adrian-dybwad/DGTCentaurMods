@@ -77,6 +77,7 @@ gameinfo_black = ""
 inmenu = 0
 
 boardstates = []
+cs = []
 
 def collectBoardState():
     # Append the board state to boardstates
@@ -338,6 +339,8 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                 session.flush()
                 session.commit()
                 eventcallbackfunction(str(outc.termination))
+    cs = board.getBoardState()
+    print(f"DEBUG: cs: {cs}")
 
 def resignGame(sideresigning):
     # Take care of updating the data for a resigned game and callback to the program with the
@@ -400,7 +403,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     print(f"[gamemanager.gameThread] Subscribing to events")
     print(f"[gamemanager.gameThread] Keycallback: {keycallback}")
     print(f"[gamemanager.gameThread] Fieldcallback: {fieldcallback}")
-    
+
     try:
         board.subscribeEvents(keycallback, fieldcallback)
     except Exception as e:
@@ -416,9 +419,9 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                 t = t + 1
             else:
                 try:
-                    board.pauseEvents()
-                    cs = board.getBoardState()
-                    board.unPauseEvents()
+                    #board.pauseEvents()
+                    #cs = board.getBoardState()
+                    #board.unPauseEvents()
                     # Debug: Log board state comparison
                     print(f"DEBUG: Board state check - cs length: {len(cs)}, startstate length: {len(startstate)}")
                     print(f"DEBUG: States equal: {bytearray(cs) == startstate}")
