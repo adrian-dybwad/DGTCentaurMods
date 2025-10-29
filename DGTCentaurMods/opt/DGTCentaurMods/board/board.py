@@ -424,7 +424,8 @@ def getBoardState(field=None):
 
     try:
         resp = asyncserial.request_response(command.DGT_BUS_SEND_SNAPSHOT)
-        payload = resp #[1:]
+        print(f"DEBUG: resp: {' '.join(f'{b:02x}' for b in resp)}")
+        payload = resp[1:]
         boarddata = BOARD_CLEAR_STATE.copy()
         upperlimit = 320000
         lowerlimit = 300
