@@ -793,7 +793,7 @@ class AsyncCentaur:
         len_hi = (len_packet >> 7) & 0x7F   # upper 7 bits
         len_lo = len_packet & 0x7F          # lower 7 bits
 
-        tosend = bytearray([command, len_hi, len_lo, self.addr1.to_bytes(1, byteorder='big'), self.addr2.to_bytes(1, byteorder='big')])
+        tosend = bytearray([command, len_hi, len_lo, self.addr1 & 0xFF, self.addr2 & 0xFF])
         tosend.extend(data)
         tosend.append(self.checksum(tosend))
 
