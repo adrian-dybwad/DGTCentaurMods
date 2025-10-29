@@ -426,7 +426,7 @@ def getBoardState(field=None):
         resp = asyncserial.request_response(command.DGT_BUS_SEND_SNAPSHOT)
         payload = resp[1:]
         boarddata = BOARD_CLEAR_STATE.copy()
-        upperlimit = 1000
+        upperlimit = 10000
         lowerlimit = 300
         # payload is 64 words (big-endian 16-bit)
         for i in range(0, 128, 2):
