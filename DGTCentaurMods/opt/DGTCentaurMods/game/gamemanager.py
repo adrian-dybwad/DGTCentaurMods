@@ -77,7 +77,6 @@ gameinfo_black = ""
 inmenu = 0
 
 boardstates = []
-cs = []
 
 def collectBoardState():
     # Append the board state to boardstates
@@ -166,11 +165,6 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
     if piece_event == 1: # PLACE
         field = ((square + 1) * -1) # Convert to negative field number
 
-    global cs
-    board.pauseEvents()
-    cs = board.getBoardState()
-    board.unPauseEvents()
-    print(f"DEBUG: cs: {cs}")
     print(f"[gamemanager.fieldcallback] piece_event={piece_event} field_hex={field_hex} square={square} field={field} time_in_seconds={time_in_seconds}")
     global cboard
     global curturn
@@ -421,9 +415,9 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                 t = t + 1
             else:
                 try:
-                    #oard.pauseEvents()
-                    #cs = board.getBoardState()
-                    #board.unPauseEvents()
+                    board.pauseEvents()
+                    cs = board.getBoardState()
+                    board.unPauseEvents()
                     # Debug: Log board state comparison
                     print(f"DEBUG: Board state check - cs length: {len(cs)}, startstate length: {len(startstate)}")
                     print(f"DEBUG: States equal: {bytearray(cs) == startstate}")
@@ -475,7 +469,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
         if pausekeys == 2:
             board.unPauseEvents()
             pausekeys = 0
-        time.sleep(0.1)
+        #time.sleep(0.1)
 
 def clockThread():
     # This thread just decrements the clock and updates the epaper
@@ -557,12 +551,12 @@ def subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback = N
     global gamedbid
     global session
     global boardstates
-    global cs
+    
     boardstates = []
-    cs = []
+    board.getBoardState()
+    board.getBoardState()
     collectBoardState()
-
-
+    
     source = inspect.getsourcefile(sys._getframe(1))
     Session = sessionmaker(bind=models.engine)
     session = Session()
@@ -572,9 +566,6 @@ def subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback = N
     gamethread = threading.Thread(target=gameThread, args=([eventCallback, moveCallback, keyCallback, takebackCallback]))
     gamethread.daemon = True
     gamethread.start()
-    board.pauseEvents()
-    cs = board.getBoardState()
-    board.unPauseEvents()
 
 def unsubscribeGame():
     # Stops the game manager
