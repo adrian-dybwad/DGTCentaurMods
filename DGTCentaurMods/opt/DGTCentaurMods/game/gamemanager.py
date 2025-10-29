@@ -160,6 +160,7 @@ def keycallback(key_pressed):
             inmenu = 0
 
 def fieldcallback(piece_event, field_hex, square, time_in_seconds):
+    global cs
     # Receives field events. Positive is a field lift, negative is a field place. Numbering 0 = a1, 63 = h8
     # Use this to calculate moves
     field = square + 1 # Convert to positive field number
@@ -473,7 +474,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
         if pausekeys == 2:
             board.unPauseEvents()
             pausekeys = 0
-        time.sleep(0.1)
+        #time.sleep(0.1)
 
 def clockThread():
     # This thread just decrements the clock and updates the epaper
