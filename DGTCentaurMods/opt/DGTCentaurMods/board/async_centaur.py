@@ -107,20 +107,20 @@ class CommandSpec:
 
 COMMANDS: Dict[str, CommandSpec] = {
     "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(b"\xf0", 0xF0, b'\x7f'),
-    "DGT_DISCOVERY_REQ":          CommandSpec(b"\x4d\x4e", 0x93, None),
-    "DGT_DISCOVERY_ACK":          CommandSpec(b"\x87", 0x87, None),
+    "DGT_DISCOVERY_REQ":      CommandSpec(b"\x4d\x4e", 0x93, None),
+    "DGT_DISCOVERY_ACK":      CommandSpec(b"\x87", 0x87, None),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(b"\x83", 0x85, None),
     "DGT_BUS_POLL_KEYS":      CommandSpec(b"\x94", 0xB1, None),
     "DGT_SEND_BATTERY_INFO":  CommandSpec(b"\x98", 0xB5, None),
     "SOUND_GENERAL":          CommandSpec(b"\xb1", 0xB1, b'\x4c\x08'),
-    "SOUND_FACTORY":          CommandSpec(b"\xb1\x00\x08", 0xB1, b'\x4c\x40'),
-    "SOUND_POWER_OFF":        CommandSpec(b"\xb1\x00\x0a", 0xB1, b'\x4c\x08\x48\x08'),
-    "SOUND_POWER_ON":         CommandSpec(b"\xb1\x00\x0a", 0xB1, b'\x48\x08\x4c\x08'),
-    "SOUND_WRONG":            CommandSpec(b"\xb1\x00\x0a", 0xB1, b'\x4e\x0c\x48\x10'),
-    "SOUND_WRONG_MOVE":       CommandSpec(b"\xb1\x00\x08", 0xB1, b'\x48\x08'),
-    "DGT_SLEEP":              CommandSpec(b"\xb2\x00\x07", 0xB1, b'\x0a'),
+    "SOUND_FACTORY":          CommandSpec(b"\xb1", 0xB1, b'\x4c\x40'),
+    "SOUND_POWER_OFF":        CommandSpec(b"\xb1", 0xB1, b'\x4c\x08\x48\x08'),
+    "SOUND_POWER_ON":         CommandSpec(b"\xb1", 0xB1, b'\x48\x08\x4c\x08'),
+    "SOUND_WRONG":            CommandSpec(b"\xb1", 0xB1, b'\x4e\x0c\x48\x10'),
+    "SOUND_WRONG_MOVE":       CommandSpec(b"\xb1", 0xB1, b'\x48\x08'),
+    "DGT_SLEEP":              CommandSpec(b"\xb2", 0xB1, b'\x0a'),
 
-    "LED_OFF_CMD":            CommandSpec(b"\xb0\x00\x07", 0xB1, b'\x00'),
+    "LED_OFF_CMD":            CommandSpec(b"\xb0", 0xB1, b'\x00'),
 
     # Returns the addr1 and addr2 values. If current addr1 and addr2 = 0x00, 
     # then response is 0x90 packet twice
@@ -789,16 +789,11 @@ class AsyncCentaur:
         Returns:
             bytearray: complete packet ready to send
         """
-        tosend = bytearray(command)
         len = len(data) + 4
-        if len(data) > 0:
-            len_hi = (len >> 7) & 0x7F   # upper 7 bits
-            len_lo = len(data) & 0x7F          # lower 7 bits
-            tosend.append(len_hi)
-            tosend.append(len_lo)
+        len_hi = (len >> 7) & 0x7F   # upper 7 bits
+        len_lo = len(data) & 0x7F          # lower 7 bits
 
-        tosend.append(self.addr1.to_bytes(1, byteorder='big'))
-        tosend.append(self.addr2.to_bytes(1, byteorder='big'))
+        tosend = bytearray([command, len_hi, len_lo, self.addr1 & 0xFF, self.addr2 & 0xFF])
         tosend.extend(data)
         tosend.append(self.checksum(tosend))
 
