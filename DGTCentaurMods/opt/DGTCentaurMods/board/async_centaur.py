@@ -129,7 +129,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     "DGT_SEND_TRADEMARK":     CommandSpec(0x47, 0x92, None),
 
     # Changes the addr1 and addr2 values, no response
-    "DGT_BUS_RANDOMIZE_PIN":  CommandSpec(0x920, None, None),
+    "DGT_BUS_RANDOMIZE_PIN":  CommandSpec(0x92, None, None),
 
     "DGT_SEND_UPDATE":        CommandSpec(0x43, None, None), # Will cause unsolicited packets with 8e message type till 83 is called.
     "DGT_SEND_UPDATE_BRD":    CommandSpec(0x44, None, None), # Will cause unsolicited packets with 8e message type till 83 is called.
