@@ -820,7 +820,7 @@ class AsyncCentaur:
             data: bytes for data payload; if None, use default_data from COMMANDS if available
         """
         spec = CMD_BY_CMD.get(command)
-        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
+        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else None)
         tosend = self.buildPacket(command, eff_data)
         #if command != DGT_BUS_POLL_KEYS and command != DGT_BUS_SEND_CHANGES:
         print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
