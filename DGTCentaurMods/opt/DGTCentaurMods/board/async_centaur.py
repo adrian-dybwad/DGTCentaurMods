@@ -368,7 +368,6 @@ class AsyncCentaur:
         self._handle_orphaned_data_detection(byte)
         self.response_buffer.append(byte)
         
-        print(f"DEBUG: response_buffer: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
         # Try special handlers first
         if not self.ready and self._try_discovery_packet_detection():
             return
