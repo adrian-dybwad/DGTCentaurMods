@@ -481,7 +481,7 @@ def getBatteryLevel():
     # 20 is fully charged. The board dies somewhere around a low of 1
     # Sending the board a packet starting with 152 gives battery info
     global batterylevel, chargerconnected, batterylastchecked
-    resp = asyncserial.request_response(DGT_SEND_BATTERY_INFO)
+    resp = asyncserial.request_response(DGT_BUS_SEND_CHANGES) #DGT_SEND_BATTERY_INFO
     batterylastchecked = time.time()
     val = resp[0]
     batterylevel = val & 0x1F
