@@ -382,6 +382,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     global startstate
     global newgame
     global cboard
+    global cs
     global curturn
     global keycallbackfunction
     global movecallbackfunction
