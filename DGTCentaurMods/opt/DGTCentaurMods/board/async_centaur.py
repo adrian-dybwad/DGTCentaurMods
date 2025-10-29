@@ -252,6 +252,16 @@ class AsyncCentaur:
             init_thread = threading.Thread(target=self.run_background, daemon=False)
             init_thread.start()
 
+        # Dedicated worker for piece event callbacks to avoid blocking serial listener
+        try:
+            self._callback_queue = queue.Queue(maxsize=256)
+            self._callback_thread = threading.Thread(target=self._callback_worker, name="piece-callback", daemon=True)
+            self._callback_thread.start()
+        except Exception as e:
+            # Fallback: if thread creation fails, leave queue uninitialized
+            print(f"[AsyncCentaur] Failed to start callback worker: {e}")
+            self._callback_queue = None
+
     
     def run_background(self, start_key_polling=False):
         """Initialize in background thread"""
@@ -334,6 +344,22 @@ class AsyncCentaur:
                 self.processResponse(byte[0])
             except Exception as e:
                 logging.error(f"Listener error: {e}")
+
+    def _callback_worker(self):
+        """Run piece-event callbacks off the serial thread to allow blocking calls inside callbacks."""
+        while True:
+            try:
+                item = self._callback_queue.get()
+                if not item:
+                    continue
+                fn, args = item
+                try:
+                    fn(*args)
+                except Exception as e:
+                    print(f"[AsyncCentaur] piece callback error: {e}")
+            except Exception as e:
+                # Keep worker alive even on unexpected errors
+                print(f"[AsyncCentaur] callback worker loop error: {e}")
     
     def stop_listener(self):
         """Stop the serial listener thread"""
@@ -536,7 +562,17 @@ class AsyncCentaur:
                                 square = self.rotateFieldHex(field_hex)
                                 print(f"[P{self.packet_count:03d}] piece_event={piece_event == 0 and 'LIFT' or 'PLACE'} field_hex={field_hex} square={square} time_in_seconds={self._get_seconds_from_time_bytes(time_bytes)}")
                                 if self._piece_listener is not None:
-                                    self._piece_listener(piece_event, field_hex, square, self._get_seconds_from_time_bytes(time_bytes))
+                                    args = (piece_event, field_hex, square, self._get_seconds_from_time_bytes(time_bytes))
+                                    cq = getattr(self, '_callback_queue', None)
+                                    if cq is not None:
+                                        try:
+                                            cq.put_nowait((self._piece_listener, args))
+                                        except queue.Full:
+                                            # Drop if overwhelmed to avoid blocking serial listener
+                                            print("[AsyncCentaur] callback queue full, dropping piece event")
+                                    else:
+                                        # Fallback invoke inline if queue unavailable
+                                        self._piece_listener(*args)
                                 else:
                                     print(f"No piece listener registered to handle event")
                             except Exception as e:
