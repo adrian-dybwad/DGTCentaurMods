@@ -792,17 +792,27 @@ class AsyncCentaur:
             bytearray: complete packet ready to send
         """
         tosend = bytearray(command)
+        print(f"DEBUG: command: {' '.join(f'{b:02x}' for b in command)}")
         if data is not None:
             len_packet = len(tosend)
             len_hi = (len_packet >> 7) & 0x7F   # upper 7 bits
             len_lo = len_packet & 0x7F          # lower 7 bits
             tosend.append(len_hi)
             tosend.append(len_lo)
+            print(f"DEBUG: len_packet: {len_packet}")
+            print(f"DEBUG: len_hi: {len_hi}")
+            print(f"DEBUG: len_lo: {len_lo}")
+            print(f"DEBUG: tosend: {' '.join(f'{b:02x}' for b in tosend)}")
         tosend.append(self.addr1 & 0xFF)
         tosend.append(self.addr2 & 0xFF)
+        print(f"DEBUG: addr1: {self.addr1 & 0xFF}")
+        print(f"DEBUG: addr2: {self.addr2 & 0xFF}")
+        print(f"DEBUG: data: {' '.join(f'{b:02x}' for b in data)}")
         tosend.extend(data)
+        print(f"DEBUG: tosend: {' '.join(f'{b:02x}' for b in tosend)}")
         tosend.append(self.checksum(tosend))
-
+        print(f"DEBUG: checksum: {self.checksum(tosend)}")
+        print(f"DEBUG: tosend: {' '.join(f'{b:02x}' for b in tosend)}")
         return tosend
     
     def sendPacket(self, command, data: Optional[bytes] = None):
