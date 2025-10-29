@@ -792,7 +792,7 @@ class AsyncCentaur:
             bytearray: complete packet ready to send
         """
         tosend = bytearray(command)
-        print(f"DEBUG: command: {' '.join(f'{b:02x}' for b in command)}")
+        print(f"DEBUG: command: {command}")
         if data is not None:
             len_packet = len(tosend)
             len_hi = (len_packet >> 7) & 0x7F   # upper 7 bits
