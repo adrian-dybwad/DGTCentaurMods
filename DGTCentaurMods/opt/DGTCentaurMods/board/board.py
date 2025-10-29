@@ -416,24 +416,8 @@ def getBoardState(field=None):
     BOARD_CLEAR_STATE = [0] * 64
 
     try:
-        # Request a raw snapshot (header + payload)
-        resp = asyncserial.request_response(
-            DGT_BUS_SEND_SNAPSHOT, timeout=2.0, raw_len=SNAPSHOT_TOTAL_LEN + 1
-        )
-
-        resp = bytearray(resp)
-        payload = resp[SNAPSHOT_HEADER_LEN:SNAPSHOT_TOTAL_LEN]
-
-        print(f"DEBUG: resp: {resp}")
-        print(f"DEBUG: payload: {payload}")
-        # resp = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT, timeout=timeout, retries=protocol_retries)
-        # Check if request timed out
-        # if resp is None:
-        #     print("Error getting board state")
-        #     print("Request timeout - no response from board")
-        #     time.sleep(sleep_between)
-        #     continue
-
+        resp = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT)
+        payload = resp[1:]
         boarddata = BOARD_CLEAR_STATE.copy()
         upperlimit = 32000
         lowerlimit = 300
@@ -443,23 +427,7 @@ def getBoardState(field=None):
             print(f"DEBUG: tval: {tval}")
             boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
 
-        boarddata2 = [None] * 64
-        for x in range(0, 127, 2):
-            tval = (payload[x] * 256) + payload[x+1]
-            boarddata2[(int)(x/2)] = tval
-        # Any square lower than 400 is empty
-        # Any square higher than upper limit is also empty
-        upperlimit = 32000
-        lowerlimit = 300
-        for x in range(0,64):
-            if ((boarddata2[x] < lowerlimit) or (boarddata2[x] > upperlimit)):
-                boarddata2[x] = 0
-            else:
-                boarddata2[x] = 1
-
-
         print(f"DEBUG: boarddata: {boarddata[:16]}")
-        print(f"DEBUG: boarddata2: {boarddata2[:16]}")
 
         if field is not None:
             return boarddata[field]
