@@ -803,6 +803,8 @@ class AsyncCentaur:
             len_lo = len_packet & 0x7F          # lower 7 bits
             tosend.append(len_hi)
             tosend.append(len_lo)
+        else:
+            print(f"buildPacket: data is None")
         tosend.append(self.addr1 & 0xFF)
         tosend.append(self.addr2 & 0xFF)
         tosend.extend(data)
