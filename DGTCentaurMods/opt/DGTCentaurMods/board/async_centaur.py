@@ -294,7 +294,7 @@ class AsyncCentaur:
                 if 32 <= byte[0] < 127:
                     print(f"RCVD: {byte[0]:02x} {chr(byte[0])}")
                 else:
-                    print(f"RCVD: {byte[0]:02x} (payload)")
+                    print(f"RCVD: {byte[0]:02x} (CTL)")
 
 
                 # RAW CAPTURE: divert bytes to raw buffer if active
@@ -818,8 +818,8 @@ class AsyncCentaur:
         spec = CMD_BY_CMD.get(command)
         eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
         tosend = self.buildPacket(command, eff_data)
-        if command != DGT_BUS_POLL_KEYS and command != DGT_BUS_SEND_CHANGES:
-            print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
+        #if command != DGT_BUS_POLL_KEYS and command != DGT_BUS_SEND_CHANGES:
+        print(f"sendPacket: {' '.join(f'{b:02x}' for b in tosend)}")
         self.ser.write(tosend)
     
     def request_response(self, command, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
