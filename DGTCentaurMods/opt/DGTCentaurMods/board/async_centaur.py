@@ -110,7 +110,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     "DGT_DISCOVERY_REQ":      CommandSpec(0x46, 0x93, None),
     "DGT_DISCOVERY_ACK":      CommandSpec(0x87, 0x87, None),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85, None),
-    "DGT_BUS_POLL_KEYS":      CommandSpec(0x94, 0xB1, b''),
+    "DGT_BUS_POLL_KEYS":      CommandSpec(0x94, 0xB1, None),
     "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5, None),
     "SOUND_GENERAL":          CommandSpec(0xb1, 0xB1, b'\x4c\x08'),
     "SOUND_FACTORY":          CommandSpec(0xb1, 0xB1, b'\x4c\x40'),
@@ -889,7 +889,7 @@ class AsyncCentaur:
         self.response_buffer = bytearray()
 
         spec = CMD_BY_CMD.get(command)
-        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
+        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else None)
         self.sendPacket(command, eff_data)
 
         if callback is not None:
@@ -923,7 +923,7 @@ class AsyncCentaur:
         """Handle blocking mode with retry support"""
         expected_type = self._expected_type_for_cmd(command)
         spec = CMD_BY_CMD.get(command)
-        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
+        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else None)
 
         # Try to acquire request lock with timeout (prevent concurrent requests)
         lock_timeout = timeout * (retries + 1)  # Total time for all attempts
@@ -991,7 +991,7 @@ class AsyncCentaur:
         """Handle non-blocking callback mode"""
         expected_type = self._expected_type_for_cmd(command)
         spec = CMD_BY_CMD.get(command)
-        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else b'')
+        eff_data = data if data is not None else (spec.default_data if spec and spec.default_data is not None else None)
 
         def _on_timeout():
             with self._waiter_lock:
