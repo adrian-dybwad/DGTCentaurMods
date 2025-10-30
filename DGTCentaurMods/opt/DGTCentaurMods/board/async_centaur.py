@@ -639,7 +639,6 @@ class AsyncCentaur:
                     import traceback
                     traceback.print_exc()
 
-            self.sendPacket(command.DGT_BUS_SEND_CHANGES)
         except Exception as e:
             print(f"Error: {e}")
             return 
