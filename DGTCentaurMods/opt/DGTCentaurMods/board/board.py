@@ -212,8 +212,8 @@ def run_background(start_key_polling=False):
 # Board control - functions related to making the board do something
 #
 
-def poll_piece_detection():
-    asyncserial.poll_piece_detection()
+def notify_keys_and_pieces():
+    asyncserial.notify_keys_and_pieces()
 
 def clearBoardData():
     asyncserial.clearBoardData()
@@ -598,7 +598,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 except Exception as e:
                                     print(f"[board.events.push] error: {e}")
                             asyncserial._piece_listener = _listener
-                            asyncserial.poll_piece_detection()
+                            asyncserial.notify_keys_and_pieces()
                     except Exception as e:
                         print("Error in piece detection")   
                         print(f"Error: {e}")

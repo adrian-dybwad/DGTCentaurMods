@@ -893,8 +893,8 @@ class AsyncCentaur:
             raise KeyError(f"Unknown command name: {command_name}")
         eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
         tosend = self.buildPacket(spec.cmd, eff_data)
-        if command_name != command.DGT_BUS_POLL_KEYS and command_name != command.DGT_BUS_SEND_CHANGES:
-            print(f"sendPacket: {command_name} ({spec.cmd}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
+        #if command_name != command.DGT_BUS_POLL_KEYS and command_name != command.DGT_BUS_SEND_CHANGES:
+        print(f"sendPacket: {command_name} ({spec.cmd}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
     
     def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
@@ -1267,9 +1267,10 @@ class AsyncCentaur:
         square = chr((ord('a') + (field % 8))) + chr(ord('1') + (field // 8))
         return square
 
-    def poll_piece_detection(self):
-        print(f"poll_piece_detection")
-        self.sendPacket(command.DGT_BUS_SEND_CHANGES)
+    def notify_keys_and_pieces(self):
+        print(f"notify_keys_and_pieces")
+        #self.sendPacket(command.DGT_BUS_SEND_CHANGES)
+        self.sendPacket(command.DGT_NOTIFY_KEYS_AND_PIECES)
 
     def clearBoardData(self):
         print(f"clearBoardData")
