@@ -434,14 +434,13 @@ def sendCommand(command):
 def printBoardState():
     # Helper to display board state
     state = getBoardState()
-    print(state)
     line = ""
     for x in range(0,64,8):
-        line += "\r+---+---+---+---+---+---+---+---+"
-        line += "\r|"
+        line += "\r\n+---+---+---+---+---+---+---+---+"
+        line += "\r\n|"
         for y in range(0,8):
             line += " " + str(state[x+y]) + " |"
-    line += "\r+---+---+---+---+---+---+---+---+"
+    line += "\r\n+---+---+---+---+---+---+---+---+"
     print(line)
 
 def getChargingState():
