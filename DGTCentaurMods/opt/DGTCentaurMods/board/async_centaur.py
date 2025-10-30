@@ -470,7 +470,7 @@ class AsyncCentaur:
                     calculated_checksum = self.checksum(self.response_buffer[:-1])
                     if byte == calculated_checksum:
                         # We have a valid packet
-                        print(f"checksummed: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                        print(f"\r[P{self.packet_count:03d}] checksummed: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                         self.on_packet_complete(self.response_buffer)
                         return True
                     else:
@@ -629,7 +629,7 @@ class AsyncCentaur:
 
     def handle_key_payload(self, payload: bytes):
         try:
-            print(f"handle_key_payload: {' '.join(f'{b:02x}' for b in payload)}")
+            print(f"\r[P{self.packet_count:03d}] handle_key_payload: {' '.join(f'{b:02x}' for b in payload)}")
             if len(payload) > 0:
                 hex_row = ' '.join(f'{b:02x}' for b in payload)
                 print(f"\r[P{self.packet_count:03d}] {hex_row}")
@@ -897,7 +897,7 @@ class AsyncCentaur:
         eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
         tosend = self.buildPacket(spec.cmd, eff_data)
         #if command_name != command.DGT_BUS_POLL_KEYS and command_name != command.DGT_BUS_SEND_CHANGES:
-        print(f"sendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
+        print(f"\rsendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
     
     def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
