@@ -146,7 +146,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     # and a key pressed before calling 58 again...
     # Packets will be sent on keypress with a3
     # Packets will be sent on piece move with 8e
-    "DGT_NOTIFY_KEYS_AND_PIECES":  CommandSpec(0x57, None, None), 
+    "DGT_NOTIFY_KEYS_AND_PIECES":  CommandSpec(0x57, 0xa3, None), 
     "DGT_NOTIFY_KEYS_AND_PIECES_2":  CommandSpec(0x58, None, None), 
 
 
@@ -488,9 +488,14 @@ class AsyncCentaur:
                         self.on_packet_complete(self.response_buffer)
                         return True
                     else:
-                        print(f"checksum mismatch: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
-                        self.response_buffer = bytearray()
-                        return False
+                        if self.response_buffer[0] == DGT_NOTIFY_KEYS_AND_PIECES_RESP:
+                            print(f"DGT_NOTIFY_KEYS_AND_PIECES_RESP: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                            self.handle_key_payload(self.response_buffer[5:])
+                            return True
+                        else:
+                            print(f"checksum mismatch: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                            self.response_buffer = bytearray()
+                            return False
                 else:
                     # Short packet
                     self.on_packet_complete(self.response_buffer)
@@ -637,6 +642,7 @@ class AsyncCentaur:
 
     def handle_key_payload(self, payload: bytes):
         try:
+            print(f"handle_key_payload: {' '.join(f'{b:02x}' for b in payload)}")
             if len(payload) > 0:
                 hex_row = ' '.join(f'{b:02x}' for b in payload)
                 print(f"\r[P{self.packet_count:03d}] {hex_row}")
