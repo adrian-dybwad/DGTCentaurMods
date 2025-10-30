@@ -493,8 +493,7 @@ class AsyncCentaur:
                         return False
                 else:
                     # Short packet
-                    if self.ready:
-                        self.on_packet_complete(self.response_buffer)
+                    self.on_packet_complete(self.response_buffer)
                     return True
         return False
     
