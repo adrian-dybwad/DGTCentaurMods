@@ -107,13 +107,13 @@ class CommandSpec:
     default_data: Optional[bytes] = None
 
 COMMANDS: Dict[str, CommandSpec] = {
-    "DGT_BUS_SEND_STATE_NOCS": CommandSpec(0x42, 0x86, b'\x7f'),
+    #"DGT_BUS_SEND_STATE_NOCS": CommandSpec(0x42, 0x86, b'\x7f'),
     "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83, None),
-    "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(0xf0, 0xF0, b'\x7f'),
-    "DGT_DISCOVERY_REQ":      CommandSpec(0x46, 0x93, None),
-    "DGT_DISCOVERY_ACK":      CommandSpec(0x87, 0x87, None),
+    #"DGT_BUS_SEND_SNAPSHOT":  CommandSpec(0xf0, 0xF0, b'\x7f'),
+    #"DGT_DISCOVERY_REQ":      CommandSpec(0x46, 0x93, None),
+    #"DGT_DISCOVERY_ACK":      CommandSpec(0x87, 0x87, None),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85, None),
-    "DGT_BUS_POLL_KEYS":      CommandSpec(0x94, 0xB1, None),
+    #"DGT_BUS_POLL_KEYS":      CommandSpec(0x94, 0xB1, None),
     "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5, None),
     "SOUND_GENERAL":          CommandSpec(0xb1, 0xB1, b'\x4c\x08'),
     "SOUND_FACTORY":          CommandSpec(0xb1, 0xB1, b'\x4c\x40'),
@@ -129,16 +129,16 @@ COMMANDS: Dict[str, CommandSpec] = {
     #49 is interesting
     #43, 44, 4b - causes piece moves to be notified
 
-    "DISC_1":  CommandSpec(0x4d, 0x93, None),
-    "DISC_2":  CommandSpec(0x4e, None, None),
+    #"DISC_1":  CommandSpec(0x4d, 0x93, None),
+    #"DISC_2":  CommandSpec(0x4e, None, None),
 
     # Returns a lot of data
-    "UNKNOWN_0":  CommandSpec(0x49, 0x8f, None),
+    #"UNKNOWN_0":  CommandSpec(0x49, 0x8f, None),
 
-    "UNKNOWN_1_NO_CS":  CommandSpec(0x55, 0xa2, None),
+    #"UNKNOWN_1_NO_CS":  CommandSpec(0x55, 0xa2, None),
 
 
-    "UNKNOWN_2_NO_CS":  CommandSpec(0x56, 0xa3, None),
+    #"UNKNOWN_2_NO_CS":  CommandSpec(0x56, 0xa3, None),
 
     #KEY AND PIECE NOTIFIER !!!!
     # Both 57 and 58 Enables key and piecenotifications but also outputs 
@@ -147,7 +147,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     # Packets will be sent on keypress with a3
     # Packets will be sent on piece move with 8e
     "DGT_NOTIFY_KEYS_AND_PIECES":  CommandSpec(0x57, 0xa3, None), 
-    "DGT_NOTIFY_KEYS_AND_PIECES_2":  CommandSpec(0x58, None, None), 
+    #"DGT_NOTIFY_KEYS_AND_PIECES_2":  CommandSpec(0x58, None, None), 
 
 
 
@@ -159,14 +159,14 @@ COMMANDS: Dict[str, CommandSpec] = {
     # then response is 0x90 packet twice
     "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90, None),
     # Returns the trademark
-    "DGT_SEND_TRADEMARK_NO_CS":     CommandSpec(0x47, 0x92, None),
+    #"DGT_SEND_TRADEMARK_NO_CS":     CommandSpec(0x47, 0x92, None),
     "DGT_SEND_TRADEMARK":     CommandSpec(0x97, 0xb4, None),
 
     # Changes the addr1 and addr2 values, no response
-    "DGT_BUS_RANDOMIZE_PIN":  CommandSpec(0x92, None, None),
+    #"DGT_BUS_RANDOMIZE_PIN":  CommandSpec(0x92, None, None),
 
-    "DGT_SEND_UPDATE":        CommandSpec(0x43, None, None), # Will cause unsolicited packets with 8e message type till 83 is called.
-    "DGT_SEND_UPDATE_BRD":    CommandSpec(0x44, None, None), # Will cause unsolicited packets with 8e message type till 83 is called.
+    #"DGT_SEND_UPDATE":        CommandSpec(0x43, None, None), # Will cause unsolicited packets with 8e message type till 83 is called.
+    #"DGT_SEND_UPDATE_BRD":    CommandSpec(0x44, None, None), # Will cause unsolicited packets with 8e message type till 83 is called.
 
 }
 
@@ -663,7 +663,6 @@ class AsyncCentaur:
                         except queue.Full:
                             pass
 
-            self.sendPacket(command.DGT_BUS_POLL_KEYS)
         except Exception as e:
             print(f"Error: {e}")
             return 
