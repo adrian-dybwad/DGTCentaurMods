@@ -435,9 +435,7 @@ class AsyncCentaur:
         self.response_buffer.append(byte)
         
         # Try special handlers first
-        # if not self.ready and self._try_discovery_packet_detection():
-        #    return
-        if self._try_checksum_packet_detection(byte):
+        if self._try_packet_detection(byte):
             return
         
         # Prevent buffer overflow
@@ -459,21 +457,7 @@ class AsyncCentaur:
                             self.response_buffer = bytearray(self.response_buffer[-(HEADER_DATA_BYTES):])  # last 5 bytes
                             print(f"After trimming: self.response_buffer: {self.response_buffer}")
 
-    # def _try_discovery_packet_detection(self):
-    #     """Handle 0x93 packets without checksum, returns True if packet complete"""
-    #     # Special handling for 0x93 discovery packets (no checksum, use declared length)
-    #     if not self.ready and len(self.response_buffer) >= 3:
-    #         if self.response_buffer[0] == 0x90:
-    #             len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
-    #             declared_length = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
-    #             if len(self.response_buffer) == declared_length:
-    #                 # Complete 0x93 packet received
-    #                 self.on_packet_complete(self.response_buffer)
-    #                 self.response_buffer = bytearray()
-    #                 return True
-    #     return False
-
-    def _try_checksum_packet_detection(self, byte):
+    def _try_packet_detection(self, byte):
         """Handle checksum-validated packets, returns True if packet complete"""
         # Check if this byte is a checksum boundary
         if len(self.response_buffer) >= 3:
@@ -486,7 +470,7 @@ class AsyncCentaur:
                     calculated_checksum = self.checksum(self.response_buffer[:-1])
                     if byte == calculated_checksum:
                         # We have a valid packet
-                        print(f"checksumed: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                        print(f"checksummed: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                         self.on_packet_complete(self.response_buffer)
                         return True
                     else:
@@ -653,9 +637,7 @@ class AsyncCentaur:
                 if idx is not None:
                     self._draw_key_event_from_payload(payload, idx, code_val, is_down)
                     if not is_down:
-                        name = DGT_BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
                         key = Key(code_val)
-                        print(f"key: {key}")
                         print(f"key name: {key.name}")
                         print(f"key value: {key.value}")
                         self._last_key = key
