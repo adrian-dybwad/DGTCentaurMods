@@ -407,6 +407,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     print(f"[gamemanager.gameThread] Fieldcallback: {fieldcallback}")
     try:
         board.subscribeEvents(keycallback, fieldcallback)
+        current_state = board.getBoardState()
     except Exception as e:
         print(f"[gamemanager.gameThread] error: {e}")
         print(f"[gamemanager.gameThread] error: {sys.exc_info()[1]}")
