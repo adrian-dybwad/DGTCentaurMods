@@ -280,7 +280,7 @@ class UARTRXCharacteristic(Characteristic):
                         print(f"[Pegasus RX LED] led({fields_board[0]}, intensity={intensity})")
                     else:
                         # Use first two as from/to; extras are ignored for now
-                        fb, tb = fields_board[0], fields_board[1]
+                        tb, fb = fields_board[0], fields_board[1]
                         board.ledFromTo(fb, tb, intensity=intensity)
                         print(f"[Pegasus RX LED] ledFromTo({fb},{tb}, intensity={intensity})")
                         if mode == 1:
