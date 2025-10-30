@@ -433,7 +433,7 @@ class AsyncCentaur:
         self.response_buffer.append(byte)
         
         # Try special handlers first
-        #if not self.ready and self._try_discovery_packet_detection():
+        # if not self.ready and self._try_discovery_packet_detection():
         #    return
         if self._try_checksum_packet_detection(byte):
             return
@@ -457,45 +457,50 @@ class AsyncCentaur:
                             self.response_buffer = bytearray(self.response_buffer[-(HEADER_DATA_BYTES):])  # last 5 bytes
                             print(f"After trimming: self.response_buffer: {self.response_buffer}")
 
-    def _try_discovery_packet_detection(self):
-        """Handle 0x93 packets without checksum, returns True if packet complete"""
-        # Special handling for 0x93 discovery packets (no checksum, use declared length)
-        if not self.ready and len(self.response_buffer) >= 3:
-            if self.response_buffer[0] == 0x90:
-                len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
-                declared_length = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
-                if len(self.response_buffer) == declared_length:
-                    # Complete 0x93 packet received
-                    self.on_packet_complete(self.response_buffer)
-                    self.response_buffer = bytearray()
-                    return True
-        return False
+    # def _try_discovery_packet_detection(self):
+    #     """Handle 0x93 packets without checksum, returns True if packet complete"""
+    #     # Special handling for 0x93 discovery packets (no checksum, use declared length)
+    #     if not self.ready and len(self.response_buffer) >= 3:
+    #         if self.response_buffer[0] == 0x90:
+    #             len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
+    #             declared_length = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
+    #             if len(self.response_buffer) == declared_length:
+    #                 # Complete 0x93 packet received
+    #                 self.on_packet_complete(self.response_buffer)
+    #                 self.response_buffer = bytearray()
+    #                 return True
+    #     return False
 
     def _try_checksum_packet_detection(self, byte):
         """Handle checksum-validated packets, returns True if packet complete"""
         # Check if this byte is a checksum boundary
-        if len(self.response_buffer) >= 2:
-            calculated_checksum = self.checksum(self.response_buffer[:-1])
-            if byte == calculated_checksum:
-                # Verify packet length matches declared length
-                print(f"checksumed: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
-                if len(self.response_buffer) >= 6:
-                    len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
-                    declared_length = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
-                    actual_length = len(self.response_buffer)
-                    if actual_length == declared_length:
+        if len(self.response_buffer) >= 3:
+            # Verify packet length matches declared length
+            len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
+            declared_length = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
+            actual_length = len(self.response_buffer)
+            if actual_length == declared_length:
+                if len(self.response_buffer) > 5:
+                    calculated_checksum = self.checksum(self.response_buffer[:-1])
+                    if byte == calculated_checksum:
                         # We have a valid packet
+                        print(f"checksumed: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                         self.on_packet_complete(self.response_buffer)
-                        self.response_buffer = bytearray()
                         return True
+                    else:
+                        print(f"checksum mismatch: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                        self.response_buffer = bytearray()
+                        return False
                 else:
-                    self.on_packet_complete(self.response_buffer)
-                    self.response_buffer = bytearray()
+                    # Short packet
+                    if self.ready:
+                        self.on_packet_complete(self.response_buffer)
                     return True
         return False
     
     def on_packet_complete(self, packet):
         """Called when complete packet received"""
+        self.response_buffer = bytearray()
         self.packet_count += 1
 
         # Handle discovery or route to handler
