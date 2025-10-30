@@ -106,6 +106,8 @@ class CommandSpec:
     expected_resp_type: int
     default_data: Optional[bytes] = None
 
+DGT_PIECE_EVENT_RESP = 0x8e # This identifies a piece detection event
+
 COMMANDS: Dict[str, CommandSpec] = {
     #"DGT_BUS_SEND_STATE_NOCS": CommandSpec(0x42, 0x86, b'\x7f'),
     "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83, None),
@@ -146,8 +148,8 @@ COMMANDS: Dict[str, CommandSpec] = {
     # and a key pressed before calling 58 again...
     # Packets will be sent on keypress with a3
     # Packets will be sent on piece move with 8e
-    "DGT_NOTIFY_KEYS_AND_PIECES":  CommandSpec(0x57, 0xa3, None), 
-    #"DGT_NOTIFY_KEYS_AND_PIECES_2":  CommandSpec(0x58, None, None), 
+    "DGT_NOTIFY_EVENTS":  CommandSpec(0x57, 0xa3, None), 
+    #"DGT_NOTIFY_EVENTS_2":  CommandSpec(0x58, None, None), 
 
 
 
@@ -488,8 +490,8 @@ class AsyncCentaur:
                         self.on_packet_complete(self.response_buffer)
                         return True
                     else:
-                        if self.response_buffer[0] == DGT_NOTIFY_KEYS_AND_PIECES_RESP:
-                            print(f"DGT_NOTIFY_KEYS_AND_PIECES_RESP: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                        if self.response_buffer[0] == DGT_NOTIFY_EVENTS_RESP:
+                            print(f"DGT_NOTIFY_EVENTS_RESP: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                             self.handle_key_payload(self.response_buffer[1:])
                             self.response_buffer = bytearray()
                             self.packet_count += 1
@@ -523,7 +525,7 @@ class AsyncCentaur:
             self._route_packet_to_handler(packet)
 
         finally:
-            self.sendPacket(command.DGT_NOTIFY_KEYS_AND_PIECES)
+            self.sendPacket(command.DGT_NOTIFY_EVENTS)
 
 
     def _try_deliver_to_waiter(self, packet):
@@ -572,6 +574,8 @@ class AsyncCentaur:
             payload = self._extract_payload(packet)
             if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
                 self.handle_board_payload(payload)
+            if packet[0] == DGT_PIECE_EVENT_RESP:
+                self.sendPacket(command.DGT_BUS_SEND_CHANGES)
             else:
                 print(f"Unknown packet type: {packet[0]} {packet}")
         except Exception as e:
@@ -1297,7 +1301,7 @@ class AsyncCentaur:
     def notify_keys_and_pieces(self):
         print(f"notify_keys_and_pieces")
         #self.sendPacket(command.DGT_BUS_SEND_CHANGES)
-        self.sendPacket(command.DGT_NOTIFY_KEYS_AND_PIECES)
+        self.sendPacket(command.DGT_NOTIFY_EVENTS)
 
     def clearBoardData(self):
         print(f"clearBoardData")
