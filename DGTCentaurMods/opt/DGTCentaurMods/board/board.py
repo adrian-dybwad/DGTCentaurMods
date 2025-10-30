@@ -410,51 +410,22 @@ def poll():
 def getBoardState(field=None):
     """
     Query the board and return a 64-length list of 0/1 occupancy flags.
-    Robust against short reads; retries at both application and protocol level.
     
     Args:
         field: Optional square index (0-63) to query specific square
-        retries: Number of application-level retry attempts
-        sleep_between: Delay between application-level retries
-        timeout: Timeout in seconds for each request (default 3.0)
-        protocol_retries: Number of protocol-level retries (default 1)
     """
-    # Local constants for snapshot framing and a clear board fallback
-    BOARD_CLEAR_STATE = [0] * 64
+    boarddata = asyncserial.request_response(command.DGT_BUS_SEND_STATE)
 
-    try:
-        boarddata = asyncserial.request_response(command.DGT_BUS_SEND_STATE)
-        print(f"DEBUG: resp: {' '.join(f'{b:02x}' for b in boarddata)}")
-        #boarddata = BOARD_CLEAR_STATE.copy()
-        upperlimit = 320000
-        lowerlimit = 300
-        # payload is 64 words (big-endian 16-bit)
-        # for i in range(0, 128, 2):
-
-        #     len_lo, len_hi = payload[i], payload[i+1]
-        #     tval = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
-        #     tval2 = (payload[i] << 8) | payload[i+1]
-        #     populated = 1 if (len_hi < 0x7f // 2 and len_lo < 0x7f // 2 and len_hi > 0 and len_lo > 0) else 0
-        #     # Original formula
-        #     populated2 = 1 if (lowerlimit <= tval2 <= upperlimit) else 0
-        #     boarddata[i // 2] = populated2
-        #     print(f"\rDEBUG: {64 - (i // 2):02d} p1:{populated} p2:{populated2} t1:{tval:6d} t2:{tval2:6d} len_lo: {len_lo:02x} ({len_lo & 0x7F:02x}) len_hi: {len_hi:02x} ({len_hi & 0x7F:02x})")
-
-        print(f"\rDEBUG: boarddata: {boarddata}")
-
-        if field is not None:
-            return boarddata[field]
-        return boarddata
-
-    except Exception as e:
-        print("Error getting board state")
-        print(e)
-        # transient read/parse error—retry
-
-    # Final fallback so callers (like getText) never crash
+    if boarddata is None:
+        # Final fallback. Callers (like getText) 
+        # should check the return value for None
+        print("getBoardState: No board data received")
+        return None
+        
     if field is not None:
-        return 0
-    return BOARD_CLEAR_STATE
+        return boarddata[field]
+    return boarddata
+
 
 def sendCommand(command):
     resp = asyncserial.request_response(command)
@@ -464,12 +435,12 @@ def printBoardState():
     # Helper to display board state
     state = getBoardState()
     for x in range(0,64,8):
-        print("\r+---+---+---+---+---+---+---+---+")
-        line = "\r|"
+        line = "\r+---+---+---+---+---+---+---+---+"
+        line += "\r|"
         for y in range(0,8):
-            line += (" " + str(state[x+y]) + " |")
-        print(line)
-    print("\r+---+---+---+---+---+---+---+---+")
+            line += " " + str(state[x+y]) + " |"
+    line += "\r+---+---+---+---+---+---+---+---+"
+    print(line)
 
 def getChargingState():
     # Returns if the board is plugged into the charger or not
