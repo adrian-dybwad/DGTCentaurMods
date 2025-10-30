@@ -561,7 +561,7 @@ class AsyncCentaur:
             if packet[0] == DGT_PIECE_EVENT_RESP:
                 self.sendPacket(command.DGT_BUS_SEND_CHANGES)
             else:
-                print(f"Unknown packet type: {DGT_BUS_SEND_CHANGES_RESP} {' '.join(f'{b:02x}' for b in packet)}")
+                print(f"Unknown packet type: {DGT_BUS_SEND_CHANGES_RESP:02x} {' '.join(f'{b:02x}' for b in packet)}")
         except Exception as e:
             print(f"Error: {e}")
             return
