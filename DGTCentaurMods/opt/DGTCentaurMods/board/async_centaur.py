@@ -502,16 +502,22 @@ class AsyncCentaur:
         self.response_buffer = bytearray()
         self.packet_count += 1
 
-        # Handle discovery or route to handler
-        if not self.ready:
-            self._discover_board_address(packet)
-            return
+        try:
+    
+            # Handle discovery or route to handler
+            if not self.ready:
+                self._discover_board_address(packet)
+                return
 
-        # Try delivering to waiter first
-        if self._try_deliver_to_waiter(packet):
-            return
-        
-        self._route_packet_to_handler(packet)
+            # Try delivering to waiter first
+            if self._try_deliver_to_waiter(packet):
+                return
+            
+            self._route_packet_to_handler(packet)
+
+        finally:
+            self.sendPacket(command.DGT_NOTIFY_KEYS_AND_PIECES)
+
 
     def _try_deliver_to_waiter(self, packet):
         """Try to deliver packet to waiting request, returns True if delivered"""
