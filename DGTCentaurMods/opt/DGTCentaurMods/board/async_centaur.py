@@ -433,8 +433,8 @@ class AsyncCentaur:
         self.response_buffer.append(byte)
         
         # Try special handlers first
-        if not self.ready and self._try_discovery_packet_detection():
-            return
+        #if not self.ready and self._try_discovery_packet_detection():
+        #    return
         if self._try_checksum_packet_detection(byte):
             return
         
@@ -478,6 +478,7 @@ class AsyncCentaur:
             calculated_checksum = self.checksum(self.response_buffer[:-1])
             if byte == calculated_checksum:
                 # Verify packet length matches declared length
+                print(f"checksumed: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                 if len(self.response_buffer) >= 6:
                     len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
                     declared_length = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
@@ -496,14 +497,14 @@ class AsyncCentaur:
     def on_packet_complete(self, packet):
         """Called when complete packet received"""
         self.packet_count += 1
-        
-        # Try delivering to waiter first
-        if self._try_deliver_to_waiter(packet):
-            return
-        
+
         # Handle discovery or route to handler
         if not self.ready:
             self._discover_board_address(packet)
+            return
+
+        # Try delivering to waiter first
+        if self._try_deliver_to_waiter(packet):
             return
         
         self._route_packet_to_handler(packet)
@@ -1156,7 +1157,7 @@ class AsyncCentaur:
             self.addr2 = packet[4]
             self.ready = True
             print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
-            self.sendPacket(command.DGT_NOTIFY_KEYS_AND_PIECES) #Key and piecedetection enabled
+            #self.sendPacket(command.DGT_NOTIFY_KEYS_AND_PIECES) #Key and piecedetection enabled
     
     def cleanup(self, leds_off: bool = True):
         """Idempotent cleanup coordinator"""
