@@ -491,6 +491,8 @@ class AsyncCentaur:
                         if self.response_buffer[0] == DGT_NOTIFY_KEYS_AND_PIECES_RESP:
                             print(f"DGT_NOTIFY_KEYS_AND_PIECES_RESP: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                             self.handle_key_payload(self.response_buffer[5:])
+                            self.response_buffer = bytearray()
+                            self.packet_count += 1
                             return True
                         else:
                             print(f"checksum mismatch: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
