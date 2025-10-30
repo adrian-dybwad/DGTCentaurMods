@@ -126,8 +126,35 @@ COMMANDS: Dict[str, CommandSpec] = {
     "LED_OFF_CMD":            CommandSpec(0xb0, 0xB1, b'\x00'),
     "LED_FLASH_CMD":          CommandSpec(0xb0, 0xB1, b'\x05\x0a\x00\x01'),
 
-    "DISC_1":  CommandSpec(0x4d, 0xb1, None),
-    "DISC_2":  CommandSpec(0x4e, 0x93, None),
+    #49 is interesting
+    #43, 44, 4b - causes piece moves to be notified
+
+    "DISC_1":  CommandSpec(0x4d, 0x93, None),
+    "DISC_2":  CommandSpec(0x4e, None, None),
+
+    # Returns a lot of data
+    "UNKNOWN_0":  CommandSpec(0x49, 0x8f, None),
+
+    "UNKNOWN_1_NO_CS":  CommandSpec(0x55, 0xa2, None),
+
+
+    "UNKNOWN_2_NO_CS":  CommandSpec(0x56, 0xa3, None),
+
+    #KEY AND PIECE NOTIFIER !!!!
+    # Both 57 and 58 Enables key and piecenotifications but also outputs 
+    # all keys pressed while notifications were disabled - like if an 83 was called 
+    # and a key pressed before calling 58 again...
+    # Packets will be sent on keypress with a3
+    # Packets will be sent on piece move with 8e
+    "DGT_NOTIFY_KEYS_AND_PIECES":  CommandSpec(0x57, None, None), 
+    "DGT_NOTIFY_KEYS_AND_PIECES_2":  CommandSpec(0x58, None, None), 
+
+
+
+    #57 enables notifications for keys and pieces.
+    #83 gets piece movements since last call and disables notifications.
+
+
     # Returns the addr1 and addr2 values. If current addr1 and addr2 = 0x00, 
     # then response is 0x90 packet twice
     "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90, None),
@@ -1129,7 +1156,7 @@ class AsyncCentaur:
             self.addr2 = packet[4]
             self.ready = True
             print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
-            self.sendPacket(command.DGT_BUS_POLL_KEYS) #Key detection enabled
+            self.sendPacket(command.DGT_NOTIFY_KEYS_AND_PIECES) #Key and piecedetection enabled
     
     def cleanup(self, leds_off: bool = True):
         """Idempotent cleanup coordinator"""
