@@ -434,6 +434,7 @@ def sendCommand(command):
 def printBoardState():
     # Helper to display board state
     state = getBoardState()
+    print(state)
     line = ""
     for x in range(0,64,8):
         line += "\r+---+---+---+---+---+---+---+---+"
