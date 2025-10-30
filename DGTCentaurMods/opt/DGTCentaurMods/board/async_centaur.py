@@ -490,7 +490,7 @@ class AsyncCentaur:
                     else:
                         if self.response_buffer[0] == DGT_NOTIFY_KEYS_AND_PIECES_RESP:
                             print(f"DGT_NOTIFY_KEYS_AND_PIECES_RESP: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
-                            self.handle_key_payload(self.response_buffer[5:])
+                            self.handle_key_payload(self.response_buffer[1:])
                             self.response_buffer = bytearray()
                             self.packet_count += 1
                             return True
@@ -572,8 +572,6 @@ class AsyncCentaur:
             payload = self._extract_payload(packet)
             if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
                 self.handle_board_payload(payload)
-            elif packet[0] == DGT_BUS_POLL_KEYS_RESP:
-                self.handle_key_payload(payload)
             else:
                 print(f"Unknown packet type: {packet[0]} {packet}")
         except Exception as e:
@@ -662,6 +660,8 @@ class AsyncCentaur:
                             self.key_up_queue.put_nowait(key)
                         except queue.Full:
                             pass
+                else:
+                    print(f"No key event found in payload: {' '.join(f'{b:02x}' for b in payload)}")
 
         except Exception as e:
             print(f"Error: {e}")
