@@ -1150,18 +1150,27 @@ class AsyncCentaur:
         
         # Called from run_background() with no packet
         if packet is None:
-            print("Discovery: STARTING - sending 0x4d and 0x4e")
+            print("Discovery: STARTING")
             self.sendPacket(command.DGT_RETURN_BUSADRES)
             return
 
         print(f"Discovery: packet: {' '.join(f'{b:02x}' for b in packet)}")
         # Called from processResponse() with a complete packet
         if packet[0] == 0x90:
-            self.addr1 = packet[3]
-            self.addr2 = packet[4]
-            self.ready = True
-            print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
-            #self.sendPacket(command.DGT_NOTIFY_KEYS_AND_PIECES) #Key and piecedetection enabled
+            if self.addr1 == 0x00 and self.addr2 == 0x00:
+                self.addr1 = packet[3]
+                self.addr2 = packet[4]
+            else:
+                if self.addr1 == packet[3] and self.addr2 == packet[4]:
+                    self.ready = True
+                    print(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
+                else:
+                    print(f"Discovery: ERROR - addr1={hex(self.addr1)}, addr2={hex(self.addr2)} does not match packet {packet[3]} {packet[4]}")
+                    self.addr1 = 0x00
+                    self.addr2 = 0x00
+                    print("Discovery: RETRY")
+                    self.sendPacket(command.DGT_RETURN_BUSADRES)
+                    return
     
     def cleanup(self, leds_off: bool = True):
         """Idempotent cleanup coordinator"""
