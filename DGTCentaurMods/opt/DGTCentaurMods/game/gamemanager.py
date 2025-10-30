@@ -162,10 +162,6 @@ def keycallback(key_pressed):
 def fieldcallback(piece_event, field_hex, square, time_in_seconds):
     # Receives field events. Positive is a field lift, negative is a field place. Numbering 0 = a1, 63 = h8
     # Use this to calculate moves
-    global current_state
-    current_state = board.getBoardState()
-    print(f"DEBUG: current_state: {current_state}")
-    
     field = square + 1 # Convert to positive field number
     if piece_event == 1: # PLACE
         field = ((square + 1) * -1) # Convert to negative field number
@@ -343,6 +339,9 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                 session.flush()
                 session.commit()
                 eventcallbackfunction(str(outc.termination))
+    global current_state
+    current_state = board.getBoardState()
+    print(f"DEBUG: current_state: {current_state}")
 
 def resignGame(sideresigning):
     # Take care of updating the data for a resigned game and callback to the program with the
