@@ -281,32 +281,32 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                         board.ledsOff()
                         guided = True
                     elif len(wrong_locations) > 0 and len(missing_origins) > 0:
-                        # Pair wrong→missing by nearest-neighbor (Manhattan distance),
-                        # preferring the square just placed (field) when available.
-                        def _rc(idx):
-                            return (idx // 8), (idx % 8)
-                        def _dist(a, b):
-                            ar, ac = _rc(a)
-                            br, bc = _rc(b)
-                            return abs(ar - br) + abs(ac - bc)
-
+                        # Prefer guiding the player’s currently placed piece back to where it came from
                         board.ledsOff()
-                        if field in wrong_locations:
-                            # Choose the closest missing origin to the placed square
-                            to_idx = min(missing_origins, key=lambda m: _dist(field, m))
-                            from_idx = field
+                        if sourcesq >= 0 and (field in wrong_locations) and (sourcesq in missing_origins):
+                            from_idx, to_idx = field, sourcesq
                         else:
-                            # Choose the globally closest pair
-                            best_pair = None
-                            best_d = 1 << 30
-                            for wl in wrong_locations:
-                                for mo in missing_origins:
-                                    d = _dist(wl, mo)
-                                    if d < best_d:
-                                        best_d = d
-                                        best_pair = (wl, mo)
-                            from_idx, to_idx = best_pair if best_pair else (wrong_locations[0], missing_origins[0])
-
+                            # Pair wrong→missing by nearest-neighbor (Manhattan distance),
+                            # preferring the placed square when available
+                            def _rc(idx):
+                                return (idx // 8), (idx % 8)
+                            def _dist(a, b):
+                                ar, ac = _rc(a)
+                                br, bc = _rc(b)
+                                return abs(ar - br) + abs(ac - bc)
+                            if field in wrong_locations:
+                                to_idx = min(missing_origins, key=lambda m: _dist(field, m))
+                                from_idx = field
+                            else:
+                                best_pair = None
+                                best_d = 1 << 30
+                                for wl in wrong_locations:
+                                    for mo in missing_origins:
+                                        d = _dist(wl, mo)
+                                        if d < best_d:
+                                            best_d = d
+                                            best_pair = (wl, mo)
+                                from_idx, to_idx = best_pair if best_pair else (wrong_locations[0], missing_origins[0])
                         board.ledFromTo(from_idx, to_idx, intensity=5)
                         guided = True
                 if not guided:
