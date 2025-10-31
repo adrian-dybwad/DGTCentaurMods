@@ -351,10 +351,13 @@ class AsyncCentaur:
                 if not byte:
                     continue
 
-                if 32 <= byte[0] < 127:
-                    logging.info(f"RCVD: {byte[0]:02x} {chr(byte[0])}")
-                else:
-                    logging.info(f"RCVD: {byte[0]:02x} (CTL)")
+                if len(self.response_buffer) == 1:
+                    logging.info(f"RCVD: first byte: {byte[0]:02x}")
+
+                # if 32 <= byte[0] < 127:
+                #     logging.info(f"RCVD: {byte[0]:02x} {chr(byte[0])}")
+                # else:
+                #     logging.info(f"RCVD: {byte[0]:02x} (CTL)")
 
 
                 # RAW CAPTURE: divert bytes to raw buffer if active
@@ -397,7 +400,9 @@ class AsyncCentaur:
         """Run piece-event callbacks off the serial thread to allow blocking calls inside callbacks."""
         while True:
             try:
+                logging.info(f"callback worker: {self._callback_queue.qsize()}")
                 item = self._callback_queue.get()
+                logging.info(f"callback worker: item: {item}")
                 if not item:
                     continue
                 fn, args = item
@@ -445,6 +450,8 @@ class AsyncCentaur:
         1. Buffer ends with valid [addr1][addr2][checksum], OR
         2. A new 85 00 header is detected (indicating start of next packet)
         """
+        if len(self.response_buffer) == 1:
+            logging.info(f"processResponse: {byte:02x}")
         self._handle_orphaned_data_detection(byte)
         self.response_buffer.append(byte)
         
@@ -1019,11 +1026,13 @@ class AsyncCentaur:
         eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
 
         # Try to acquire request lock with timeout (prevent concurrent requests)
+        logging.info(f"_request_response_blocking: {command_name}")
         lock_timeout = timeout * (retries + 1)  # Total time for all attempts
         if not self._request_lock.acquire(blocking=True, timeout=lock_timeout):
             logging.info(f"Request queue busy, timed out after {lock_timeout}s")
             return None
 
+        logging.info(f"_request_response_blocking: acquired lock")
         try:
             attempt = 0
             max_attempts = retries + 1
