@@ -59,6 +59,7 @@ takebackcallbackfunction = None
 cboard = chess.Board()
 curturn = 1
 sourcesq = -1
+othersourcesq = -1
 legalsquares = []
 pausekeys = 0
 computermove = ""
@@ -174,6 +175,7 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
     global curturn
     global movecallbackfunction
     global sourcesq
+    global othersourcesq
     global legalsquares
     global eventcallbackfunction
     global newgame
@@ -231,6 +233,13 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                 pass
             if found == 1:
                 legalsquares.append(x)
+    # Track opposing side lifts so we can guide returning them if moved
+    if lift == 1 and vpiece == 0:
+        othersourcesq = field
+    # If opponent piece is placed back on original square, turn LEDs off and reset
+    if place == 1 and vpiece == 0 and othersourcesq >= 0 and field == othersourcesq:
+        board.ledsOff()
+        othersourcesq = -1
     if forcemove == 1 and lift == 1 and vpiece == 1:
         # If this is a forced move (computer move) then the piece lifted should equal the start of computermove
         # otherwise set legalsquares so they can just put the piece back down! If it is the correct piece then
@@ -253,11 +262,14 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
         print(f"[gamemanager.fieldcallback] Piece placed on illegal square {field}")
         is_takeback = checkLastBoardState()
         if not is_takeback:
-            # Guide player to return the piece to its source square if known
+            # Guide returning piece to its origin: use current side source or opponent source
             try:
                 if sourcesq >= 0:
                     board.ledsOff()
                     board.ledFromTo(field, sourcesq, intensity=5)
+                elif othersourcesq >= 0:
+                    board.ledsOff()
+                    board.ledFromTo(field, othersourcesq, intensity=5)
                 else:
                     board.led(field, intensity=5)
             except Exception as _:
