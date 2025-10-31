@@ -623,7 +623,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 if time.time() - batterylastchecked > 15:
                     # Every 15 seconds check the battery details
                     batterylastchecked = time.time()
-                    getBatteryLevel()
+                    #getBatteryLevel()
             except:
                 pass
             time.sleep(0.05)
