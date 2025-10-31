@@ -262,16 +262,38 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
         print(f"[gamemanager.fieldcallback] Piece placed on illegal square {field}")
         is_takeback = checkLastBoardState()
         if not is_takeback:
-            # Guide returning piece to its origin: use current side source or opponent source
+            # Prefer state-diff guidance to handle multiple displaced pieces
             try:
-                if sourcesq >= 0:
-                    board.ledsOff()
-                    board.ledFromTo(field, sourcesq, intensity=5)
-                elif othersourcesq >= 0:
-                    board.ledsOff()
-                    board.ledFromTo(field, othersourcesq, intensity=5)
-                else:
-                    board.led(field, intensity=5)
+                prev = boardstates[-1] if len(boardstates) > 0 else None
+                curr = board.getBoardState()
+                guided = False
+                if prev is not None and curr is not None and len(prev) == 64 and len(curr) == 64:
+                    missing_origins = []  # squares that were occupied and are now empty
+                    wrong_locations = []   # squares that were empty and are now occupied
+                    for i in range(64):
+                        if prev[i] == 1 and curr[i] == 0:
+                            missing_origins.append(i)
+                        elif prev[i] == 0 and curr[i] == 1:
+                            wrong_locations.append(i)
+                    if len(missing_origins) == 0 and len(wrong_locations) == 0:
+                        board.ledsOff()
+                        guided = True
+                    elif len(wrong_locations) > 0 and len(missing_origins) > 0:
+                        from_idx = field if field in wrong_locations else wrong_locations[0]
+                        to_idx = missing_origins[0]
+                        board.ledsOff()
+                        board.ledFromTo(from_idx, to_idx, intensity=5)
+                        guided = True
+                if not guided:
+                    # Fallback to single-source guidance
+                    if sourcesq >= 0:
+                        board.ledsOff()
+                        board.ledFromTo(field, sourcesq, intensity=5)
+                    elif othersourcesq >= 0:
+                        board.ledsOff()
+                        board.ledFromTo(field, othersourcesq, intensity=5)
+                    else:
+                        board.led(field, intensity=5)
             except Exception as _:
                 # LED guidance best-effort; ignore hardware errors
                 pass
