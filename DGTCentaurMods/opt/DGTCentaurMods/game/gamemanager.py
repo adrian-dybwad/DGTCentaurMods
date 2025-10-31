@@ -314,21 +314,21 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                                         best_pair = (wl, mo)
                             from_idx, to_idx = best_pair if best_pair else (wrong_locations[0], missing_origins[0])
 
-                        board.ledFromTo(from_idx, to_idx, intensity=5)
+                        board.ledFromTo(board.rotateField(from_idx), board.rotateField(to_idx), intensity=5)
                         guided = True
                 if not guided:
                     # Fallback to single-source guidance
                     if sourcesq >= 0:
                         board.ledsOff()
-                        board.ledFromTo(field, sourcesq, intensity=5)
+                        board.ledFromTo(board.rotateField(field), board.rotateField(sourcesq), intensity=5)
                     elif othersourcesq >= 0:
                         board.ledsOff()
-                        board.ledFromTo(field, othersourcesq, intensity=5)
+                        board.ledFromTo(board.rotateField(field), board.rotateField(othersourcesq), intensity=5)
                     else:
-                        if vpiece == 0:
-                            board.led(field, intensity=5)
+                        if vpiece == 0: 
+                            board.led(board.rotateField(field), intensity=5)
                         else:
-                            board.led(field, intensity=5)
+                            board.led(board.rotateField(field), intensity=5)
             except Exception as _:
                 # LED guidance best-effort; ignore hardware errors
                 pass
