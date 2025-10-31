@@ -148,12 +148,13 @@ def _check_misplaced_pieces(current_state):
     """
     Check if pieces are misplaced compared to the expected board state.
     
-    Compares the current board state with the most recent boardstates entry.
+    Iteratively compares the current board state with the most recent boardstates entry.
     If pieces are misplaced, uses LED guidance to show where pieces should be moved
-    to restore the correct position.
+    to restore the correct position. Continues checking until all pieces are correctly
+    placed or a maximum number of iterations is reached.
     
     Args:
-        current_state: The current board state to check
+        current_state: The initial current board state to check
     """
     global boardstates
     
@@ -162,75 +163,99 @@ def _check_misplaced_pieces(current_state):
     
     expected_state = boardstates[-1]
     
-    if current_state is None or expected_state is None:
+    if expected_state is None or len(expected_state) != 64:
         return
     
-    if len(current_state) != 64 or len(expected_state) != 64:
-        print(f"[gamemanager._check_misplaced_pieces] Invalid state lengths: current={len(current_state)}, expected={len(expected_state)}")
-        return
+    # Helper functions for distance calculation
+    def _rc(idx):
+        return (idx // 8), (idx % 8)
     
-    # Check if states match
-    if bytearray(current_state) == bytearray(expected_state):
-        board.ledsOff()
-        return
+    def _dist(a, b):
+        ar, ac = _rc(a)
+        br, bc = _rc(b)
+        return abs(ar - br) + abs(ac - bc)
     
-    print(f"[gamemanager._check_misplaced_pieces] Misplaced pieces detected")
-    print(f"[gamemanager._check_misplaced_pieces] Expected: {board.printBoardState(expected_state)}")
-    print(f"[gamemanager._check_misplaced_pieces] Current:  {board.printBoardState(current_state)}")
+    # Iteratively check and guide until all pieces are correctly placed
+    max_iterations = 100  # Safety limit to prevent infinite loops
+    iteration = 0
     
-    # Compute diffs to find misplaced pieces
-    missing_origins = []  # occupied → empty (pieces that should be there but aren't)
-    wrong_locations = []   # empty → occupied (pieces that shouldn't be there)
-    
-    for i in range(64):
-        if expected_state[i] == 1 and current_state[i] == 0:
-            missing_origins.append(i)
-        elif expected_state[i] == 0 and current_state[i] == 1:
-            wrong_locations.append(i)
-    
-    if len(missing_origins) == 0 and len(wrong_locations) == 0:
-        board.ledsOff()
-        return
-    
-    if len(wrong_locations) > 0 and len(missing_origins) > 0:
-        # Pair wrong→missing by nearest-neighbor (Manhattan distance)
-        def _rc(idx):
-            return (idx // 8), (idx % 8)
+    while iteration < max_iterations:
+        iteration += 1
         
-        def _dist(a, b):
-            ar, ac = _rc(a)
-            br, bc = _rc(b)
-            return abs(ar - br) + abs(ac - bc)
+        # Get fresh board state for this iteration
+        if iteration == 1:
+            current = current_state
+        else:
+            current = board.getBoardState()
         
-        # Choose the globally closest pair
-        best_pair = None
-        best_d = 1 << 30
-        for wl in wrong_locations:
-            for mo in missing_origins:
-                d = _dist(wl, mo)
-                if d < best_d:
-                    best_d = d
-                    best_pair = (wl, mo)
+        if current is None or len(current) != 64:
+            print(f"[gamemanager._check_misplaced_pieces] Invalid current state length: {len(current) if current else 'None'}")
+            board.ledsOff()
+            return
         
-        if best_pair:
-            from_idx, to_idx = best_pair
+        # Check if states match
+        if bytearray(current) == bytearray(expected_state):
+            print(f"[gamemanager._check_misplaced_pieces] All pieces correctly placed after {iteration} iteration(s)")
             board.ledsOff()
-            board.ledFromTo(board.rotateField(from_idx), board.rotateField(to_idx), intensity=5)
-            print(f"[gamemanager._check_misplaced_pieces] Guiding piece from {from_idx} to {to_idx}")
-    else:
-        # Only pieces missing or only extra pieces
-        if len(missing_origins) > 0:
-            # Light up the squares where pieces should be
+            return
+        
+        if iteration == 1:
+            print(f"[gamemanager._check_misplaced_pieces] Misplaced pieces detected")
+            print(f"[gamemanager._check_misplaced_pieces] Expected: {board.printBoardState(expected_state)}")
+            print(f"[gamemanager._check_misplaced_pieces] Current:  {board.printBoardState(current)}")
+        
+        # Compute diffs to find misplaced pieces
+        missing_origins = []  # occupied → empty (pieces that should be there but aren't)
+        wrong_locations = []   # empty → occupied (pieces that shouldn't be there)
+        
+        for i in range(64):
+            if expected_state[i] == 1 and current[i] == 0:
+                missing_origins.append(i)
+            elif expected_state[i] == 0 and current[i] == 1:
+                wrong_locations.append(i)
+        
+        if len(missing_origins) == 0 and len(wrong_locations) == 0:
+            print(f"[gamemanager._check_misplaced_pieces] All pieces correctly placed after {iteration} iteration(s)")
             board.ledsOff()
-            for idx in missing_origins:
-                board.ledOn(board.rotateField(idx), intensity=5)
-            print(f"[gamemanager._check_misplaced_pieces] Pieces missing at: {missing_origins}")
-        elif len(wrong_locations) > 0:
-            # Light up the squares where pieces shouldn't be
-            board.ledsOff()
-            for idx in wrong_locations:
-                board.ledOn(board.rotateField(idx), intensity=5)
-            print(f"[gamemanager._check_misplaced_pieces] Extra pieces at: {wrong_locations}")
+            return
+        
+        # Guide one piece at a time
+        if len(wrong_locations) > 0 and len(missing_origins) > 0:
+            # Pair wrong→missing by nearest-neighbor (Manhattan distance)
+            best_pair = None
+            best_d = 1 << 30
+            for wl in wrong_locations:
+                for mo in missing_origins:
+                    d = _dist(wl, mo)
+                    if d < best_d:
+                        best_d = d
+                        best_pair = (wl, mo)
+            
+            if best_pair:
+                from_idx, to_idx = best_pair
+                board.ledsOff()
+                board.ledFromTo(board.rotateField(from_idx), board.rotateField(to_idx), intensity=5)
+                print(f"[gamemanager._check_misplaced_pieces] Iteration {iteration}: Guiding piece from {from_idx} to {to_idx}")
+        else:
+            # Only pieces missing or only extra pieces
+            if len(missing_origins) > 0:
+                # Light up the squares where pieces should be
+                board.ledsOff()
+                for idx in missing_origins:
+                    board.ledOn(board.rotateField(idx), intensity=5)
+                print(f"[gamemanager._check_misplaced_pieces] Iteration {iteration}: Pieces missing at: {missing_origins}")
+            elif len(wrong_locations) > 0:
+                # Light up the squares where pieces shouldn't be
+                board.ledsOff()
+                for idx in wrong_locations:
+                    board.ledOn(board.rotateField(idx), intensity=5)
+                print(f"[gamemanager._check_misplaced_pieces] Iteration {iteration}: Extra pieces at: {wrong_locations}")
+        
+        # Wait for user to make the correction before checking again
+        time.sleep(0.5)
+    
+    print(f"[gamemanager._check_misplaced_pieces] Warning: Max iterations ({max_iterations}) reached, exiting")
+    board.ledsOff()
 
 def guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece):
     """
