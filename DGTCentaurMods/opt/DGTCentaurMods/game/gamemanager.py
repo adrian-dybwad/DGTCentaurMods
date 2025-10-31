@@ -297,7 +297,6 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
     print(f"[gamemanager.fieldcallback] Fieldname: {fieldname}")
     legalmoves = cboard.legal_moves
     lmoves = list(legalmoves)
-    print(f"[gamemanager.fieldcallback] Legal moves: {lmoves}")
     if lift == 1 and field not in legalsquares and sourcesq < 0 and vpiece == 1:
         # Generate a list of places this piece can move to
         lifted = 1
