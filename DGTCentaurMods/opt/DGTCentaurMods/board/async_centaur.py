@@ -530,8 +530,10 @@ class AsyncCentaur:
             self._route_packet_to_handler(packet)
 
         finally:
-            self.sendPacket(command.DGT_NOTIFY_EVENTS)
-
+            if packet[0] == DGT_NOTIFY_EVENTS_RESP:
+                self.sendPacket(command.DGT_BUS_SEND_CHANGES)
+            else:
+                self.sendPacket(command.DGT_NOTIFY_EVENTS)
 
     def _try_deliver_to_waiter(self, packet):
         """Try to deliver packet to waiting request, returns True if delivered"""
@@ -579,8 +581,6 @@ class AsyncCentaur:
             payload = self._extract_payload(packet)
             if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
                 self.handle_board_payload(payload)
-            elif packet[0] == DGT_PIECE_EVENT_RESP:
-                self.sendPacket(command.DGT_BUS_SEND_CHANGES)
             else:
                 logging.info(f"Unknown packet type: {' '.join(f'{b:02x}' for b in packet)}")
         except Exception as e:
