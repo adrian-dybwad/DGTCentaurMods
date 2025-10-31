@@ -296,8 +296,8 @@ logging.debug("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
 # Subscribe to board events. First parameter is the function for key presses. The second is the function for
 # field activity
-board.subscribeEvents(keyPressed, changedCallback, timeout=900)
-board.printBoardState()
+#board.subscribeEvents(keyPressed, changedCallback, timeout=900)
+#board.printBoardState()
 
 def show_welcome():
     global idle
