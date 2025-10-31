@@ -194,6 +194,9 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
         place = 1
         field = field * -1
     field = field - 1
+    # Helper to flip columns only (to correct LED A-H orientation for guidance)
+    def _flip_cols(idx):
+        return (idx // 8) * 8 + (7 - (idx % 8))
     # Check the piece colour against the current turn
     print(f"[gamemanager.fieldcallback] Field: {field}")
     pc = cboard.color_at(field)
@@ -282,18 +285,18 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                         from_idx = field if field in wrong_locations else wrong_locations[0]
                         to_idx = missing_origins[0]
                         board.ledsOff()
-                        board.ledFromTo(from_idx, to_idx, intensity=5)
+                        board.ledFromTo(_flip_cols(from_idx), _flip_cols(to_idx), intensity=5)
                         guided = True
                 if not guided:
                     # Fallback to single-source guidance
                     if sourcesq >= 0:
                         board.ledsOff()
-                        board.ledFromTo(field, sourcesq, intensity=5)
+                        board.ledFromTo(_flip_cols(field), _flip_cols(sourcesq), intensity=5)
                     elif othersourcesq >= 0:
                         board.ledsOff()
-                        board.ledFromTo(field, othersourcesq, intensity=5)
+                        board.ledFromTo(_flip_cols(field), _flip_cols(othersourcesq), intensity=5)
                     else:
-                        board.led(field, intensity=5)
+                        board.led(_flip_cols(field), intensity=5)
             except Exception as _:
                 # LED guidance best-effort; ignore hardware errors
                 pass
