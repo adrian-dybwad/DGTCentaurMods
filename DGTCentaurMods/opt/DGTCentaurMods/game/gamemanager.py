@@ -85,7 +85,7 @@ for i in range(0, 64):
         board.led(i, intensity=5)
     else:
         board.led(i, intensity=1)
-    time.sleep(0.1)
+    time.sleep(0.5)
     
 def collectBoardState():
     # Append the board state to boardstates
