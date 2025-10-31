@@ -21,6 +21,7 @@ import sys
 import time
 import threading
 from typing import Optional, Tuple, List
+from datetime import datetime
 
 try:
     import serial  # pyserial
@@ -38,6 +39,18 @@ def checksum(barr: bytes) -> int:
     for c in barr:
         total += c
     return total % 128
+
+
+def _ts() -> str:
+    now = datetime.now()
+    return f"{now.strftime('%Y-%m-%d %H:%M:%S')}.{now.microsecond // 1000:03d}"
+
+
+def out(msg: str):
+    try:
+        print(f"{_ts()} {msg}", flush=True)
+    except Exception:
+        pass
 
 
 class PacketReader:
@@ -82,7 +95,7 @@ class PacketReader:
                 if not b:
                     continue
                 try:
-                    print(f"raw byte: {b[0]:02x}")
+                    out(f"raw byte: {b[0]:02x}")
                 except Exception:
                     pass
                 self._append(b[0])
@@ -117,7 +130,7 @@ class PacketReader:
                 self._cv.notify_all()
             try:
                 label = "BAD_CSUM" if bad_csum else "OK"
-                print(f"raw packet ({label}): {hexrow(pkt)}")
+                out(f"raw packet ({label}): {hexrow(pkt)}")
                 if pkt and pkt[0] in (0x8E, 0xA3) and self._notice_handler is not None:
                     def _dispatch(p=pkt):
                         try:
@@ -176,7 +189,7 @@ def discover_with_0x46(ser: serial.Serial, reader: PacketReader, timeout: float 
 
     # Step 1: query with zeros
     pkt = build_short(0x46, 0x00, 0x00)
-    print(f"send discovery (step1): {hexrow(pkt)}")
+    out(f"send discovery (step1): {hexrow(pkt)}")
     try:
         ser.write(pkt)
     except Exception as e:
@@ -185,11 +198,11 @@ def discover_with_0x46(ser: serial.Serial, reader: PacketReader, timeout: float 
     if pkt90 is None or len(pkt90) < 5:
         raise RuntimeError("discovery step1 timeout or short 0x90")
     addr1, addr2 = pkt90[3], pkt90[4]
-    print(f"step1: addr1={addr1:02x} addr2={addr2:02x}")
+    out(f"step1: addr1={addr1:02x} addr2={addr2:02x}")
 
     # Step 2: confirm
     pkt2 = build_short(0x46, addr1, addr2)
-    print(f"send discovery (step2): {hexrow(pkt2)}")
+    out(f"send discovery (step2): {hexrow(pkt2)}")
     try:
         ser.write(pkt2)
     except Exception as e:
@@ -199,7 +212,7 @@ def discover_with_0x46(ser: serial.Serial, reader: PacketReader, timeout: float 
         raise RuntimeError("discovery step2 timeout or short 0x90")
     if pkt90b[3] != addr1 or pkt90b[4] != addr2:
         raise RuntimeError("discovery step2 addr mismatch")
-    print("discovery complete (READY)")
+    out("discovery complete (READY)")
     return addr1, addr2
 
 
@@ -208,7 +221,7 @@ def enable_notifications(ser: serial.Serial, addr1: int, addr2: int):
     Send 0x57 to enable notifications (no response expected).
     """
     pkt = build_short(0x57, addr1, addr2)
-    print(f"send notify-enable (0x57): {hexrow(pkt)}")
+    out(f"send notify-enable (0x57): {hexrow(pkt)}")
     ser.write(pkt)
 
 
@@ -217,7 +230,7 @@ def poll_changes(ser: serial.Serial, addr1: int, addr2: int):
     Send 0x83 (BUS_SEND_CHANGES). Response type should be 0x85.
     """
     pkt = build_short(0x83, addr1, addr2)
-    print(f"send changes (0x83): {hexrow(pkt)}")
+    out(f"send changes (0x83): {hexrow(pkt)}")
     ser.write(pkt)
 
 
@@ -232,29 +245,29 @@ def main():
     try:
         ser = serial.Serial(args.port, baudrate=args.baud, timeout=0.2)
     except Exception as e:
-        print(f"failed to open serial {args.port}@{args.baud}: {e}")
+        out(f"failed to open serial {args.port}@{args.baud}: {e}")
         sys.exit(1)
 
     reader = PacketReader(ser)
     reader.start()
 
     try:
-        print("attempting discovery via 0x46...")
+        out("attempting discovery via 0x46...")
         addr1, addr2 = discover_with_0x46(ser, reader, timeout=5.0)
-        print(f"discovered addr1={addr1:02x} addr2={addr2:02x}")
+        out(f"discovered addr1={addr1:02x} addr2={addr2:02x}")
 
         # Notice handler: on 0x8e or 0xa3, poll once with 0x83
         def on_notice(pkt: bytes):
             try:
                 t = pkt[0] if pkt else 0
-                print(f"notice pkt=0x{t:02x} -> polling 0x83")
+                out(f"notice pkt=0x{t:02x} -> polling 0x83")
                 poll_changes(ser, addr1, addr2)
                 # Rearm notifications if requested
                 if args.rearm:
                     time.sleep(0.02)
                     enable_notifications(ser, addr1, addr2)
             except Exception as e:
-                print(f"on-notice error: {e}")
+                out(f"on-notice error: {e}")
 
         reader.set_notice_handler(on_notice)
 
@@ -268,9 +281,9 @@ def main():
             if pkt is None:
                 continue
             payload = pkt[5:-1] if len(pkt) >= 6 else b""
-            print(f"changes (0x85) payload: {hexrow(payload)}")
+            out(f"changes (0x85) payload: {hexrow(payload)}")
 
-        print("done listening.")
+        out("done listening.")
     finally:
         try:
             reader.stop()
