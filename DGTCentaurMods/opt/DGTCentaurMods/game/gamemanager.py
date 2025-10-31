@@ -75,8 +75,8 @@ gameinfo_white = ""
 gameinfo_black = ""
 
 inmenu = 0
-current_state = []
 boardstates = []
+must_check_new_game = False
 
 
 def collectBoardState():
@@ -108,6 +108,7 @@ def checkLastBoardState():
     global cboard
     global takebackcallbackfunction
     global curturn
+    global must_check_new_game
     if takebackcallbackfunction != None:
         print(f"[gamemanager.checkLastBoardState] Checking last board state")
         c = board.getBoardState()
@@ -132,6 +133,7 @@ def checkLastBoardState():
             return True   
     else:
         print(f"[gamemanager.checkLastBoardState] No takeback detected")
+        must_check_new_game = True
     return False    
 
 def keycallback(key_pressed):
@@ -379,7 +381,6 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     # The main thread handles the actual chess game functionality and calls back to
     # eventCallback with game events and
     # moveCallback with the actual moves made
-    global current_state    
     global kill
     global startstate
     global newgame
@@ -408,7 +409,6 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     print(f"[gamemanager.gameThread] Fieldcallback: {fieldcallback}")
     try:
         board.subscribeEvents(keycallback, fieldcallback)
-        current_state = board.getBoardState()
     except Exception as e:
         print(f"[gamemanager.gameThread] error: {e}")
         print(f"[gamemanager.gameThread] error: {sys.exc_info()[1]}")
@@ -425,7 +425,19 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                     # Debug: Log board state comparison
                     #print(f"DEBUG: Board state check - current_state length: {len(current_state)}, startstate length: {len(startstate)}")
                     #print(f"DEBUG: States equal: {bytearray(current_state) == startstate}")
-                    if bytearray(current_state) == startstate:
+                    # Always refresh current_state before comparing to avoid stale reads
+                    current_state = None
+                    if must_check_new_game:
+                        current_state = board.getBoardState()
+                        must_check_new_game = False
+                    if current_state != None and bytearray(current_state) == startstate:
+                        # Debounce NEW_GAME detection to avoid rapid retriggers
+                        global last_new_game_time
+                        now = time.time()
+                        if now - last_new_game_time < 1.0:
+                            t = 0
+                            continue
+                        last_new_game_time = now
                         print("DEBUG: Detected starting position - triggering NEW_GAME")
                         newgame = 1
                         curturn = 1
