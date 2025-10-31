@@ -484,7 +484,7 @@ class AsyncCentaur:
                     calculated_checksum = self.checksum(self.response_buffer[:-1])
                     if byte == calculated_checksum:
                         # We have a valid packet
-                        logging.info(f"\r[P{self.packet_count:03d}] checksummed: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                        logging.info(f"[P{self.packet_count:03d}] checksummed: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                         self.on_packet_complete(self.response_buffer)
                         return True
                     else:
@@ -592,7 +592,7 @@ class AsyncCentaur:
                     if time_formatted:
                         time_str = f"  [TIME: {time_formatted}]"
                 hex_row = ' '.join(f'{b:02x}' for b in payload)
-                logging.info(f"\r[P{self.packet_count:03d}] {hex_row}{time_str}")
+                logging.info(f"[P{self.packet_count:03d}] {hex_row}{time_str}")
                 self._draw_piece_events_from_payload(payload)
 
                 # Dispatch to registered listeners with parsed events
@@ -640,10 +640,10 @@ class AsyncCentaur:
 
     def handle_key_payload(self, payload: bytes):
         try:
-            logging.info(f"\r[P{self.packet_count:03d}] handle_key_payload: {' '.join(f'{b:02x}' for b in payload)}")
+            logging.info(f"[P{self.packet_count:03d}] handle_key_payload: {' '.join(f'{b:02x}' for b in payload)}")
             if len(payload) > 0:
                 hex_row = ' '.join(f'{b:02x}' for b in payload)
-                logging.info(f"\r[P{self.packet_count:03d}] {hex_row}")
+                logging.info(f"[P{self.packet_count:03d}] {hex_row}")
                 idx, code_val, is_down = self._find_key_event_in_payload(payload)
                 if idx is not None:
                     self._draw_key_event_from_payload(payload, idx, code_val, is_down)
@@ -907,7 +907,7 @@ class AsyncCentaur:
         eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
         tosend = self.buildPacket(spec.cmd, eff_data)
         #if command_name != command.DGT_BUS_POLL_KEYS and command_name != command.DGT_BUS_SEND_CHANGES:
-        logging.info(f"\rsendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
+        logging.info(f"sendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
     
     def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
