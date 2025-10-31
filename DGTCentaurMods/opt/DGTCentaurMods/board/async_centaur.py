@@ -1182,6 +1182,7 @@ class AsyncCentaur:
             else:
                 if self.addr1 == packet[3] and self.addr2 == packet[4]:
                     self.ready = True
+                    self.sendPacket(command.DGT_NOTIFY_EVENTS)
                     logging.info(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
                 else:
                     logging.info(f"Discovery: ERROR - addr1={hex(self.addr1)}, addr2={hex(self.addr2)} does not match packet {packet[3]} {packet[4]}")
