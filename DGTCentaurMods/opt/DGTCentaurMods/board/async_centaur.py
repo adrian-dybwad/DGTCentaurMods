@@ -517,7 +517,7 @@ class AsyncCentaur:
         self.packet_count += 1
 
         try:
-    
+            print(f"[AsyncCentaur] on_packet_complete: packet: {' '.join(f'{b:02x}' for b in packet)}")
             # Handle discovery or route to handler
             if not self.ready:
                 self._discover_board_address(packet)
@@ -582,6 +582,7 @@ class AsyncCentaur:
             if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
                 self.handle_board_payload(payload)
             elif packet[0] == DGT_PIECE_EVENT_RESP:
+                print(f"[AsyncCentaur] _route_packet_to_handler: DO NOTGHING BECAUSE DGT_PIECE_EVENT_RESP: {' '.join(f'{b:02x}' for b in packet)}")
                 pass
             else:
                 logging.info(f"Unknown packet type: {' '.join(f'{b:02x}' for b in packet)}")
@@ -622,6 +623,7 @@ class AsyncCentaur:
                                     cq = getattr(self, '_callback_queue', None)
                                     if cq is not None:
                                         try:
+                                            print(f"[AsyncCentaur] handle_board_payload: putting piece event into callback queue: {' '.join(f'{b:02x}' for b in args)}")
                                             cq.put_nowait((self._piece_listener, args))
                                         except queue.Full:
                                             # Drop if overwhelmed to avoid blocking serial listener
