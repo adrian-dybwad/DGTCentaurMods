@@ -530,7 +530,7 @@ class AsyncCentaur:
             self._route_packet_to_handler(packet)
 
         finally:
-            if packet[0] == DGT_NOTIFY_EVENTS_RESP:
+            if packet[0] == DGT_PIECE_EVENT_RESP:
                 self.sendPacket(command.DGT_BUS_SEND_CHANGES)
             else:
                 self.sendPacket(command.DGT_NOTIFY_EVENTS)
