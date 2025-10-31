@@ -272,6 +272,7 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
         newgame = 0
         if field == sourcesq:
             # Piece has simply been placed back
+            board.ledsOff()
             sourcesq = -1
             legalsquares = []
         else:
