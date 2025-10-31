@@ -299,7 +299,7 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                         if vpiece == 0:
                             board.led(field, intensity=5)
                         else:
-                            board.led(_flip_cols(field), intensity=5)
+                            board.led(field, intensity=5)
             except Exception as _:
                 # LED guidance best-effort; ignore hardware errors
                 pass
