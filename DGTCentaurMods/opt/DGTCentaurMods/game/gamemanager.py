@@ -285,7 +285,10 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                         from_idx = field if field in wrong_locations else wrong_locations[0]
                         to_idx = missing_origins[0]
                         board.ledsOff()
-                        board.ledFromTo(_flip_cols(from_idx), _flip_cols(to_idx), intensity=5)
+                        if vpiece == 0:
+                            board.ledFromTo(from_idx, to_idx, intensity=5)
+                        else:
+                            board.ledFromTo(_flip_cols(from_idx), _flip_cols(to_idx), intensity=5)
                         guided = True
                 if not guided:
                     # Fallback to single-source guidance
@@ -294,9 +297,12 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                         board.ledFromTo(_flip_cols(field), _flip_cols(sourcesq), intensity=5)
                     elif othersourcesq >= 0:
                         board.ledsOff()
-                        board.ledFromTo(_flip_cols(field), _flip_cols(othersourcesq), intensity=5)
+                        board.ledFromTo(field, othersourcesq, intensity=5)
                     else:
-                        board.led(_flip_cols(field), intensity=5)
+                        if vpiece == 0:
+                            board.led(field, intensity=5)
+                        else:
+                            board.led(_flip_cols(field), intensity=5)
             except Exception as _:
                 # LED guidance best-effort; ignore hardware errors
                 pass
