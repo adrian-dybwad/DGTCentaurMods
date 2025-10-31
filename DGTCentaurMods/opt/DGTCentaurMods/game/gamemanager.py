@@ -193,6 +193,7 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
     # Check the piece colour against the current turn
     print(f"[gamemanager.fieldcallback] Field: {field}")
     pc = cboard.color_at(field)
+    print(f"[gamemanager.fieldcallback] Piece colour: {pc}")
     vpiece = 0
     if curturn == 0 and pc == False:
         vpiece = 1
@@ -202,8 +203,10 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
     squarecol = (field % 8)
     squarecol = 7 - squarecol
     fieldname = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
+    print(f"[gamemanager.fieldcallback] Fieldname: {fieldname}")
     legalmoves = cboard.legal_moves
     lmoves = list(legalmoves)
+    print(f"[gamemanager.fieldcallback] Legal moves: {lmoves}")
     if lift == 1 and field not in legalsquares and sourcesq < 0 and vpiece == 1:
         # Generate a list of places this piece can move to
         lifted = 1
