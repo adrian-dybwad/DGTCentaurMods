@@ -252,7 +252,12 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
         board.beep(board.SOUND_WRONG_MOVE)
         print(f"[gamemanager.fieldcallback] Piece placed on illegal square {field}")
         checkLastBoardState()
-    if place == 1 and field in legalsquares:
+    
+    print(f"[gamemanager.fieldcallback] must_check_new_game: {must_check_new_game}")
+    print(f"[gamemanager.fieldcallback] field: {field}")
+    print(f"[gamemanager.fieldcallback] legalsquares: {legalsquares}")
+    if place == 1: # and field in legalsquares:
+        print(f"[gamemanager.fieldcallback] Making move")
         newgame = 0
         if field == sourcesq:
             # Piece has simply been placed back
