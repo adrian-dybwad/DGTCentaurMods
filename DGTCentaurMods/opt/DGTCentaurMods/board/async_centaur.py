@@ -920,8 +920,8 @@ class AsyncCentaur:
         #if command_name != command.DGT_BUS_POLL_KEYS and command_name != command.DGT_BUS_SEND_CHANGES:
         logging.info(f"sendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
-        if spec.expected_resp_type is None and command_name != command.DGT_NOTIFY_EVENTS:
-            sendpacket(command.DGT_NOTIFY_EVENTS)
+        if self.ready and spec.expected_resp_type is None and command_name != command.DGT_NOTIFY_EVENTS:
+            self.sendpacket(command.DGT_NOTIFY_EVENTS)
     
     def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
         """
