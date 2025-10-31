@@ -144,6 +144,94 @@ def checkLastBoardState():
         must_check_new_game = True
     return False    
 
+def _check_misplaced_pieces(current_state):
+    """
+    Check if pieces are misplaced compared to the expected board state.
+    
+    Compares the current board state with the most recent boardstates entry.
+    If pieces are misplaced, uses LED guidance to show where pieces should be moved
+    to restore the correct position.
+    
+    Args:
+        current_state: The current board state to check
+    """
+    global boardstates
+    
+    if not boardstates or len(boardstates) == 0:
+        return
+    
+    expected_state = boardstates[-1]
+    
+    if current_state is None or expected_state is None:
+        return
+    
+    if len(current_state) != 64 or len(expected_state) != 64:
+        print(f"[gamemanager._check_misplaced_pieces] Invalid state lengths: current={len(current_state)}, expected={len(expected_state)}")
+        return
+    
+    # Check if states match
+    if bytearray(current_state) == bytearray(expected_state):
+        board.ledsOff()
+        return
+    
+    print(f"[gamemanager._check_misplaced_pieces] Misplaced pieces detected")
+    print(f"[gamemanager._check_misplaced_pieces] Expected: {board.printBoardState(expected_state)}")
+    print(f"[gamemanager._check_misplaced_pieces] Current:  {board.printBoardState(current_state)}")
+    
+    # Compute diffs to find misplaced pieces
+    missing_origins = []  # occupied → empty (pieces that should be there but aren't)
+    wrong_locations = []   # empty → occupied (pieces that shouldn't be there)
+    
+    for i in range(64):
+        if expected_state[i] == 1 and current_state[i] == 0:
+            missing_origins.append(i)
+        elif expected_state[i] == 0 and current_state[i] == 1:
+            wrong_locations.append(i)
+    
+    if len(missing_origins) == 0 and len(wrong_locations) == 0:
+        board.ledsOff()
+        return
+    
+    if len(wrong_locations) > 0 and len(missing_origins) > 0:
+        # Pair wrong→missing by nearest-neighbor (Manhattan distance)
+        def _rc(idx):
+            return (idx // 8), (idx % 8)
+        
+        def _dist(a, b):
+            ar, ac = _rc(a)
+            br, bc = _rc(b)
+            return abs(ar - br) + abs(ac - bc)
+        
+        # Choose the globally closest pair
+        best_pair = None
+        best_d = 1 << 30
+        for wl in wrong_locations:
+            for mo in missing_origins:
+                d = _dist(wl, mo)
+                if d < best_d:
+                    best_d = d
+                    best_pair = (wl, mo)
+        
+        if best_pair:
+            from_idx, to_idx = best_pair
+            board.ledsOff()
+            board.ledFromTo(board.rotateField(from_idx), board.rotateField(to_idx), intensity=5)
+            print(f"[gamemanager._check_misplaced_pieces] Guiding piece from {from_idx} to {to_idx}")
+    else:
+        # Only pieces missing or only extra pieces
+        if len(missing_origins) > 0:
+            # Light up the squares where pieces should be
+            board.ledsOff()
+            for idx in missing_origins:
+                board.ledOn(board.rotateField(idx), intensity=5)
+            print(f"[gamemanager._check_misplaced_pieces] Pieces missing at: {missing_origins}")
+        elif len(wrong_locations) > 0:
+            # Light up the squares where pieces shouldn't be
+            board.ledsOff()
+            for idx in wrong_locations:
+                board.ledOn(board.rotateField(idx), intensity=5)
+            print(f"[gamemanager._check_misplaced_pieces] Extra pieces at: {wrong_locations}")
+
 def guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece):
     """
     Guide the user to correct misplaced pieces using LED indicators.
@@ -533,6 +621,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                     current_state = None
                     if must_check_new_game:
                         current_state = board.getBoardState()
+                        _check_misplaced_pieces(current_state)
                         must_check_new_game = False
                     if current_state != None and bytearray(current_state) == startstate:
                         # Debounce NEW_GAME detection to avoid rapid retriggers
