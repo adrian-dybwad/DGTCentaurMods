@@ -194,9 +194,7 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
         place = 1
         field = field * -1
     field = field - 1
-    # Helper to flip columns only (to correct LED A-H orientation for guidance)
-    def _flip_cols(idx):
-        return (idx // 8) * 8 + (7 - (idx % 8))
+    # No extra index remapping here; LED helpers expect chess indices 0(a1)..63(h8)
     # Check the piece colour against the current turn
     print(f"[gamemanager.fieldcallback] Field: {field}")
     pc = cboard.color_at(field)
@@ -271,8 +269,9 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                 curr = board.getBoardState()
                 guided = False
                 if prev is not None and curr is not None and len(prev) == 64 and len(curr) == 64:
-                    missing_origins = []  # squares that were occupied and are now empty
-                    wrong_locations = []   # squares that were empty and are now occupied
+                    # Compute diffs directly on chess indices
+                    missing_origins = []  # occupied → empty
+                    wrong_locations = []   # empty → occupied
                     for i in range(64):
                         if prev[i] == 1 and curr[i] == 0:
                             missing_origins.append(i)
@@ -285,7 +284,7 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                         from_idx = field if field in wrong_locations else wrong_locations[0]
                         to_idx = missing_origins[0]
                         board.ledsOff()
-                        board.ledFromTo(_flip_cols(from_idx), _flip_cols(to_idx), intensity=5)
+                        board.ledFromTo(from_idx, to_idx, intensity=5)
                         guided = True
                 if not guided:
                     # Fallback to single-source guidance
