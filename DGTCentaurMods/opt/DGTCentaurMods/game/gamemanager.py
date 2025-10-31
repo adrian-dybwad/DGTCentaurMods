@@ -85,7 +85,7 @@ for i in range(0, 64):
         board.led(i, intensity=5)
     else:
         board.led(i, intensity=1)
-    time.sleep(0.5)
+    time.sleep(0.05)
     
 def collectBoardState():
     # Append the board state to boardstates
@@ -143,6 +143,85 @@ def checkLastBoardState():
         print(f"[gamemanager.checkLastBoardState] No takeback detected")
         must_check_new_game = True
     return False    
+
+def guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece):
+    """
+    Guide the user to correct misplaced pieces using LED indicators.
+    
+    Uses state-diff guidance to handle multiple displaced pieces by comparing
+    the current board state with the previous state. Lights up LEDs to show
+    where pieces should be moved to correct the board position.
+    
+    Args:
+        field: The square where the illegal piece was placed
+        sourcesq: The source square of the current player's piece being moved
+        othersourcesq: The source square of an opponent's piece that was lifted
+        vpiece: Whether the piece belongs to the current player (1) or opponent (0)
+    """
+    try:
+        prev = boardstates[-1] if len(boardstates) > 0 else None
+        curr = board.getBoardState()
+        print(f"[gamemanager.guideMisplacedPiece] Prev: {board.printBoardState(prev)}")
+        print(f"[gamemanager.guideMisplacedPiece] Curr: {board.printBoardState(curr)}")
+
+        guided = False
+        if prev is not None and curr is not None and len(prev) == 64 and len(curr) == 64:
+            # Compute diffs directly on chess indices
+            missing_origins = []  # occupied → empty
+            wrong_locations = []   # empty → occupied
+            for i in range(64):
+                if prev[i] == 1 and curr[i] == 0:
+                    missing_origins.append(i)
+                elif prev[i] == 0 and curr[i] == 1:
+                    wrong_locations.append(i)
+            if len(missing_origins) == 0 and len(wrong_locations) == 0:
+                board.ledsOff()
+                guided = True
+            elif len(wrong_locations) > 0 and len(missing_origins) > 0:
+                # Pair wrong→missing by nearest-neighbor (Manhattan distance),
+                # preferring the square just placed (field) when available.
+                def _rc(idx):
+                    return (idx // 8), (idx % 8)
+                def _dist(a, b):
+                    ar, ac = _rc(a)
+                    br, bc = _rc(b)
+                    return abs(ar - br) + abs(ac - bc)
+
+                board.ledsOff()
+                if field in wrong_locations:
+                    # Choose the closest missing origin to the placed square
+                    to_idx = min(missing_origins, key=lambda m: _dist(field, m))
+                    from_idx = field
+                else:
+                    # Choose the globally closest pair
+                    best_pair = None
+                    best_d = 1 << 30
+                    for wl in wrong_locations:
+                        for mo in missing_origins:
+                            d = _dist(wl, mo)
+                            if d < best_d:
+                                best_d = d
+                                best_pair = (wl, mo)
+                    from_idx, to_idx = best_pair if best_pair else (wrong_locations[0], missing_origins[0])
+
+                board.ledFromTo(board.rotateField(from_idx), board.rotateField(to_idx), intensity=5)
+                guided = True
+        if not guided:
+            # Fallback to single-source guidance
+            if sourcesq >= 0:
+                board.ledsOff()
+                board.ledFromTo(board.rotateField(field), board.rotateField(sourcesq), intensity=5)
+            elif othersourcesq >= 0:
+                board.ledsOff()
+                board.ledFromTo(board.rotateField(field), board.rotateField(othersourcesq), intensity=5)
+            else:
+                if vpiece == 0: 
+                    board.led(board.rotateField(field), intensity=5)
+                else:
+                    board.led(board.rotateField(field), intensity=5)
+    except Exception as _:
+        # LED guidance best-effort; ignore hardware errors
+        pass
 
 def keycallback(key_pressed):
     # Receives the key pressed and passes back to the script calling game manager
@@ -270,71 +349,7 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
         print(f"[gamemanager.fieldcallback] Piece placed on illegal square {field}")
         is_takeback = checkLastBoardState()
         if not is_takeback:
-            # Prefer state-diff guidance to handle multiple displaced pieces
-            try:
-                prev = boardstates[-1] if len(boardstates) > 0 else None
-                curr = board.getBoardState()
-                print(f"[gamemanager.fieldcallback] Prev: {board.printBoardState(prev)}")
-                print(f"[gamemanager.fieldcallback] Curr: {board.printBoardState(curr)}")
-
-                guided = False
-                if prev is not None and curr is not None and len(prev) == 64 and len(curr) == 64:
-                    # Compute diffs directly on chess indices
-                    missing_origins = []  # occupied → empty
-                    wrong_locations = []   # empty → occupied
-                    for i in range(64):
-                        if prev[i] == 1 and curr[i] == 0:
-                            missing_origins.append(i)
-                        elif prev[i] == 0 and curr[i] == 1:
-                            wrong_locations.append(i)
-                    if len(missing_origins) == 0 and len(wrong_locations) == 0:
-                        board.ledsOff()
-                        guided = True
-                    elif len(wrong_locations) > 0 and len(missing_origins) > 0:
-                        # Pair wrong→missing by nearest-neighbor (Manhattan distance),
-                        # preferring the square just placed (field) when available.
-                        def _rc(idx):
-                            return (idx // 8), (idx % 8)
-                        def _dist(a, b):
-                            ar, ac = _rc(a)
-                            br, bc = _rc(b)
-                            return abs(ar - br) + abs(ac - bc)
-
-                        board.ledsOff()
-                        if field in wrong_locations:
-                            # Choose the closest missing origin to the placed square
-                            to_idx = min(missing_origins, key=lambda m: _dist(field, m))
-                            from_idx = field
-                        else:
-                            # Choose the globally closest pair
-                            best_pair = None
-                            best_d = 1 << 30
-                            for wl in wrong_locations:
-                                for mo in missing_origins:
-                                    d = _dist(wl, mo)
-                                    if d < best_d:
-                                        best_d = d
-                                        best_pair = (wl, mo)
-                            from_idx, to_idx = best_pair if best_pair else (wrong_locations[0], missing_origins[0])
-
-                        board.ledFromTo(board.rotateField(from_idx), board.rotateField(to_idx), intensity=5)
-                        guided = True
-                if not guided:
-                    # Fallback to single-source guidance
-                    if sourcesq >= 0:
-                        board.ledsOff()
-                        board.ledFromTo(board.rotateField(field), board.rotateField(sourcesq), intensity=5)
-                    elif othersourcesq >= 0:
-                        board.ledsOff()
-                        board.ledFromTo(board.rotateField(field), board.rotateField(othersourcesq), intensity=5)
-                    else:
-                        if vpiece == 0: 
-                            board.led(board.rotateField(field), intensity=5)
-                        else:
-                            board.led(board.rotateField(field), intensity=5)
-            except Exception as _:
-                # LED guidance best-effort; ignore hardware errors
-                pass
+            guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece)
     
     print(f"[gamemanager.fieldcallback] must_check_new_game: {must_check_new_game}")
     print(f"[gamemanager.fieldcallback] field: {field}")
