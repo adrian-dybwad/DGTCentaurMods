@@ -82,6 +82,7 @@ boardstates = []
 def collectBoardState():
     # Append the board state to boardstates
     global boardstates
+    print(f"[gamemanager.collectBoardState] Collecting board state")
     boardstates.append(board.getBoardState())
 
 def waitForPromotionChoice():
@@ -472,7 +473,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
         if pausekeys == 2:
             board.unPauseEvents()
             pausekeys = 0
-        #time.sleep(0.1)
+        time.sleep(0.1)
 
 def clockThread():
     # This thread just decrements the clock and updates the epaper
@@ -556,8 +557,8 @@ def subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback = N
     global boardstates
     
     boardstates = []
-    board.getBoardState()
-    board.getBoardState()
+    #board.getBoardState()
+    #board.getBoardState()
     collectBoardState()
     
     source = inspect.getsourcefile(sys._getframe(1))
