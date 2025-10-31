@@ -42,7 +42,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 logger.handlers = []
 
-_fmt = logging.Formatter("%(asctime)s.%(msecs)03d %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S")
+_fmt = logging.Formatter("%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s", "%Y-%m-%d %H:%M:%S")
 
 try:
     _fh = logging.FileHandler("/home/pi/debug.log", mode="w")
@@ -420,10 +420,10 @@ class AsyncCentaur:
             logging.debug("Developer mode enabled - setting up virtual serial port")
             os.system("socat -d -d pty,raw,echo=0 pty,raw,echo=0 &")
             time.sleep(10)
-            self.ser = serial.Serial("/dev/pts/2", baudrate=1000000, timeout=2.0)
+            self.ser = serial.Serial("/dev/pts/2", baudrate=1000000, timeout=5.0)
         else:
             try:
-                self.ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=2.0)
+                self.ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=5.0)
                 self.ser.isOpen()
             except:
                 self.ser.close()
