@@ -43,7 +43,7 @@ python -m DGTCentaurMods.game.stockfish "$SIDE" "$ELO"
 # python -m DGTCentaurMods.menu "$@"
 
 # Deactivate when done
-deactivate
+#deactivate
 
 # Start web service if it exists
 if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "DGTCentaurMods.service"; then
