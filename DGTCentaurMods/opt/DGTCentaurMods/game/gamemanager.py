@@ -399,6 +399,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     global gameinfo_round
     global gameinfo_white
     global gameinfo_black
+    global must_check_new_game
     keycallbackfunction = keycallbacki
     movecallbackfunction = moveCallback
     eventcallbackfunction = eventCallback
