@@ -623,7 +623,7 @@ class AsyncCentaur:
                                     cq = getattr(self, '_callback_queue', None)
                                     if cq is not None:
                                         try:
-                                            print(f"[AsyncCentaur] handle_board_payload: putting piece event into callback queue: {' '.join(f'{b:02x}' for b in args)}")
+                                            print(f"[AsyncCentaur] handle_board_payload: putting piece event into callback queue: {args}")
                                             cq.put_nowait((self._piece_listener, args))
                                         except queue.Full:
                                             # Drop if overwhelmed to avoid blocking serial listener
