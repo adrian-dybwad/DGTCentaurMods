@@ -291,7 +291,7 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                     # Fallback to single-source guidance
                     if sourcesq >= 0:
                         board.ledsOff()
-                        board.ledFromTo(_flip_cols(field), _flip_cols(sourcesq), intensity=5)
+                        board.ledFromTo(field, sourcesq, intensity=5)
                     elif othersourcesq >= 0:
                         board.ledsOff()
                         board.ledFromTo(field, othersourcesq, intensity=5)
