@@ -31,8 +31,14 @@ if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{prin
 	sudo systemctl stop DGTCentaurMods 2>/dev/null || true
 fi
 
-# Launch the game
-python -m DGTCentaurMods.game.stockfish "$@"
+# Resolve args for stockfish wrapper
+# Arg1: side (white|black|random), default: random
+# Arg2: ELO (1350..2850 recommended), default: 2000
+SIDE=${1:-white}
+ELO=${2:-2000}
+
+# Launch stockfish mode
+python -m DGTCentaurMods.game.stockfish "$SIDE" "$ELO"
 # or if you restructured into a package, replace the above with:
 # python -m DGTCentaurMods.menu "$@"
 
