@@ -79,8 +79,12 @@ inmenu = 0
 boardstates = []
 must_check_new_game = False
 
+st = board.getBoardState()
 for i in range(0, 64):
-    board.led(i, intensity=5)
+    if st[i] == 1:
+        board.led(i, intensity=5)
+    else:
+        board.led(i, intensity=1)
     time.sleep(0.1)
     
 def collectBoardState():
