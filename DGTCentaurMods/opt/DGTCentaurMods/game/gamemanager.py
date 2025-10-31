@@ -428,6 +428,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                     #print(f"DEBUG: States equal: {bytearray(current_state) == startstate}")
                     # Always refresh current_state before comparing to avoid stale reads
                     current_state = None
+                    print(f"[gamemanager.gameThread] must_check_new_game: {must_check_new_game}")
                     if must_check_new_game:
                         current_state = board.getBoardState()
                         must_check_new_game = False
