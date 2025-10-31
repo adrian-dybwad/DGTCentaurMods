@@ -437,9 +437,10 @@ def sendCommand(command):
     resp = asyncserial.request_response(command)
     return resp
 
-def printBoardState():
+def printBoardState(state = None):
     # Helper to display board state
-    state = getBoardState()
+    if state is None:
+        state = getBoardState()
     line = ""
     for x in range(0,64,8):
         line += "\r\n+---+---+---+---+---+---+---+---+"

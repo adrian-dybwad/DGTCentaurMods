@@ -274,6 +274,9 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
             try:
                 prev = boardstates[-1] if len(boardstates) > 0 else None
                 curr = board.getBoardState()
+                print(f"[gamemanager.fieldcallback] Prev: {board.printBoardState(prev)}")
+                print(f"[gamemanager.fieldcallback] Curr: {board.printBoardState(curr)}")
+
                 guided = False
                 if prev is not None and curr is not None and len(prev) == 64 and len(curr) == 64:
                     # Compute diffs directly on chess indices
