@@ -56,6 +56,8 @@ sudo systemctl stop DGTCentaurMods.service
 sudo systemctl enable DGTCentaurModsWeb.service
 sudo systemctl enable DGTCentaurMods.service
 
+sudo systemctl start DGTCentaurModsWeb.service
+sudo systemctl start DGTCentaurMods.service
 
 sudo apt -y purge dgtcentaurmods
 cd ~
