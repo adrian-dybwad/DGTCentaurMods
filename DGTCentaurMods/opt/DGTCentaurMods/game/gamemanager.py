@@ -79,7 +79,10 @@ inmenu = 0
 boardstates = []
 must_check_new_game = False
 
-
+for i in range(0, 64):
+    board.led(i, intensity=5)
+    time.sleep(0.1)
+    
 def collectBoardState():
     # Append the board state to boardstates
     global boardstates
