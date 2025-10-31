@@ -50,6 +50,9 @@ sudo apt purge --auto-remove dgtcentaurmods
 sudo systemctl disable DGTCentaurModsWeb.service
 sudo systemctl disable DGTCentaurMods.service
 
+sudo systemctl stop DGTCentaurModsWeb.service
+sudo systemctl stop DGTCentaurMods.service
+
 sudo systemctl enable DGTCentaurModsWeb.service
 sudo systemctl enable DGTCentaurMods.service
 
