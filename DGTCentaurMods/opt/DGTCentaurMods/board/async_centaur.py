@@ -139,8 +139,8 @@ COMMANDS: Dict[str, CommandSpec] = {
     "SOUND_WRONG_MOVE":       CommandSpec(0xb1, 0xB1, b'\x48\x08'),
     "DGT_SLEEP":              CommandSpec(0xb2, 0xB1, b'\x0a'),
 
-    "LED_OFF_CMD":            CommandSpec(0xb0, 0xB1, b'\x00'),
-    "LED_FLASH_CMD":          CommandSpec(0xb0, 0xB1, b'\x05\x0a\x00\x01'),
+    "LED_OFF_CMD":            CommandSpec(0xb0, None, b'\x00'),
+    "LED_FLASH_CMD":          CommandSpec(0xb0, None, b'\x05\x0a\x00\x01'),
 
     #49 is interesting
     #43, 44, 4b - causes piece moves to be notified
@@ -920,6 +920,8 @@ class AsyncCentaur:
         #if command_name != command.DGT_BUS_POLL_KEYS and command_name != command.DGT_BUS_SEND_CHANGES:
         logging.info(f"sendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
+        if spec.expected_resp_type is None and command_name != command.DGT_NOTIFY_EVENTS:
+            sendpacket(command.DGT_NOTIFY_EVENTS)
     
     def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
         """
