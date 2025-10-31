@@ -248,6 +248,12 @@ def ledFlash():
     # Flashes the last led lit by led(num) above
     asyncserial.ledFlash()
 
+def rotateField(field):
+    return asyncserial.rotateField(field)
+
+def rotateFieldHex(fieldHex):
+    return asyncserial.rotateFieldHex(fieldHex)
+
 def shutdown():
     """
     Shutdown the Raspberry Pi with proper cleanup and visual feedback.
