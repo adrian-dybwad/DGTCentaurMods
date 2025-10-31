@@ -178,20 +178,38 @@ def _check_misplaced_pieces(current_state):
     # Iteratively check and guide until all pieces are correctly placed
     max_iterations = 100  # Safety limit to prevent infinite loops
     iteration = 0
+    retry_count = 0
+    max_retries = 3
     
     while iteration < max_iterations:
         iteration += 1
         
-        # Get fresh board state for this iteration
+        # Get fresh board state for this iteration with retry logic
         if iteration == 1:
             current = current_state
         else:
-            current = board.getBoardState()
+            # Retry reading board state if it fails
+            current = None
+            for attempt in range(max_retries):
+                current = board.getBoardState()
+                if current is not None and len(current) == 64:
+                    break
+                if attempt < max_retries - 1:
+                    print(f"[gamemanager._check_misplaced_pieces] Board read attempt {attempt + 1} failed, retrying...")
+                    time.sleep(0.3)
         
         if current is None or len(current) != 64:
-            print(f"[gamemanager._check_misplaced_pieces] Invalid current state length: {len(current) if current else 'None'}")
-            board.ledsOff()
-            return
+            print(f"[gamemanager._check_misplaced_pieces] Failed to read board state after {max_retries} attempts, skipping iteration")
+            retry_count += 1
+            if retry_count > 5:
+                print(f"[gamemanager._check_misplaced_pieces] Too many failed reads, exiting")
+                board.ledsOff()
+                return
+            time.sleep(0.5)
+            continue
+        
+        # Reset retry count on successful read
+        retry_count = 0
         
         # Check if states match
         if bytearray(current) == bytearray(expected_state):
@@ -218,6 +236,8 @@ def _check_misplaced_pieces(current_state):
             print(f"[gamemanager._check_misplaced_pieces] All pieces correctly placed after {iteration} iteration(s)")
             board.ledsOff()
             return
+        
+        print(f"[gamemanager._check_misplaced_pieces] Iteration {iteration}: Found {len(wrong_locations)} wrong pieces, {len(missing_origins)} missing pieces")
         
         # Guide one piece at a time
         if len(wrong_locations) > 0 and len(missing_origins) > 0:
@@ -252,7 +272,7 @@ def _check_misplaced_pieces(current_state):
                 print(f"[gamemanager._check_misplaced_pieces] Iteration {iteration}: Extra pieces at: {wrong_locations}")
         
         # Wait for user to make the correction before checking again
-        time.sleep(0.5)
+        time.sleep(0.8)
     
     print(f"[gamemanager._check_misplaced_pieces] Warning: Max iterations ({max_iterations}) reached, exiting")
     board.ledsOff()
