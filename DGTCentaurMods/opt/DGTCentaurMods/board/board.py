@@ -241,7 +241,7 @@ def led(num, intensity=5):
     # Flashes a specific led
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.led(num, intensity)
+    asyncserial.led(rotateField(num), intensity)
 
 def ledFlash():
     # Flashes the last led lit by led(num) above
