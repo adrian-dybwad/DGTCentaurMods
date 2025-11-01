@@ -440,173 +440,6 @@ def guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece):
     if boardstates and len(boardstates) > 0:
         provide_correction_guidance(current_state, boardstates[-1])
 
-def check_for_opponent_move():
-    """
-    Check if the current board state represents a valid opponent move that should be processed.
-    This is called after exiting correction mode to detect any opponent moves that may have
-    been made but not yet processed.
-    
-    The approach: Compare current board state with expected state to find what changed,
-    then check if that change corresponds to a valid legal move.
-    """
-    global cboard, curturn, boardstates, sourcesq, legalsquares, othersourcesq, gamedbid, session, movecallbackfunction, eventcallbackfunction
-    
-    if not boardstates or len(boardstates) == 0:
-        return False
-    
-    current_state = board.getBoardState()
-    expected_state = boardstates[-1]
-    
-    if current_state is None or expected_state is None:
-        return False
-    
-    if len(current_state) != 64 or len(expected_state) != 64:
-        return False
-    
-    # If board matches expected state, no move detected
-    if bytearray(current_state) == bytearray(expected_state):
-        return False
-    
-    # Find squares where pieces changed
-    from_squares = []
-    to_squares = []
-    
-    for i in range(64):
-        if expected_state[i] == 1 and current_state[i] == 0:
-            from_squares.append(i)
-        elif expected_state[i] == 0 and current_state[i] == 1:
-            to_squares.append(i)
-    
-    # We expect exactly one piece to move from one square to another
-    # (captures might be more complex, but for now handle simple case)
-    if len(from_squares) != 1:
-        return False
-    
-    from_sq = from_squares[0]
-    
-    # Check if piece at from_sq belongs to opponent
-    pc = cboard.color_at(from_sq)
-    if pc is None:
-        return False
-    
-    # Check if it's the opponent's turn
-    opponent_turn = (curturn == 0 and pc == True) or (curturn == 1 and pc == False)
-    if not opponent_turn:
-        return False
-    
-    # If we have exactly one to_square, use it directly
-    if len(to_squares) == 1:
-        to_sq = to_squares[0]
-    else:
-        # For captures or complex moves, try to find the destination by checking legal moves
-        # that start from from_sq
-        legal_moves_from = [m for m in cboard.legal_moves if m.from_square == from_sq]
-        if len(legal_moves_from) == 1:
-            # Only one legal move from this square, use it
-            to_sq = legal_moves_from[0].to_square
-        elif len(legal_moves_from) == 0:
-            return False
-        else:
-            # Multiple legal moves - try to match based on which square has the piece now
-            # Look for a square that now has a piece of the same type and color as from_sq
-            piece_at_from = cboard.piece_at(from_sq)
-            if piece_at_from is None:
-                return False
-            
-            # Find squares that now have this piece type but didn't before
-            candidate_to_squares = []
-            for sq in range(64):
-                if current_state[sq] == 1 and expected_state[sq] == 0:
-                    # Square now has a piece that wasn't there before
-                    piece_at_sq = cboard.piece_at(sq)
-                    if piece_at_sq == piece_at_from:
-                        candidate_to_squares.append(sq)
-            
-            if len(candidate_to_squares) == 1:
-                to_sq = candidate_to_squares[0]
-            else:
-                # Can't uniquely determine destination
-                return False
-    
-    # Construct the move
-    squarerow = (from_sq // 8)
-    squarecol = (from_sq % 8)
-    squarecol = 7 - squarecol
-    fromname = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
-    
-    squarerow = (to_sq // 8)
-    squarecol = (to_sq % 8)
-    squarecol = 7 - squarecol
-    toname = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
-    
-    # Check for promotion
-    pname = str(cboard.piece_at(from_sq))
-    pr = ""
-    if (to_sq // 8) == 7 and pname == "P":
-        pr = "q"  # Default to queen promotion for opponent moves
-    elif (to_sq // 8) == 0 and pname == "p":
-        pr = "q"  # Default to queen promotion for opponent moves
-    
-    move_uci = fromname + toname + pr
-    
-    # Check if this is a legal move
-    try:
-        move = chess.Move.from_uci(move_uci)
-        if move in cboard.legal_moves:
-            # This is a valid opponent move! Process it
-            print(f"[gamemanager.check_for_opponent_move] Detected valid opponent move: {move_uci}")
-            
-            # Make the move and update fen.log
-            cboard.push(move)
-            paths.write_fen_log(cboard.fen())
-            gamemove = models.GameMove(
-                gameid=gamedbid,
-                move=move_uci,
-                fen=str(cboard.fen())
-            )
-            session.add(gamemove)
-            session.commit()
-            collectBoardState()
-            legalsquares = []
-            sourcesq = -1
-            othersourcesq = -1
-            board.ledsOff()
-            if movecallbackfunction != None:
-                movecallbackfunction(move_uci)
-            board.beep(board.SOUND_GENERAL)
-            # Also light up the square moved to
-            board.led(to_sq)
-            
-            # Check the outcome and switch turns
-            outc = cboard.outcome(claim_draw=True)
-            if outc == None or outc == "None" or outc == 0:
-                # Switch the turn
-                if curturn == 0:
-                    curturn = 1
-                    if eventcallbackfunction != None:
-                        eventcallbackfunction(EVENT_WHITE_TURN)
-                else:
-                    curturn = 0
-                    if eventcallbackfunction != None:
-                        eventcallbackfunction(EVENT_BLACK_TURN)
-            else:
-                board.beep(board.SOUND_GENERAL)
-                resultstr = str(cboard.result())
-                tg = session.query(models.Game).filter(models.Game.id == gamedbid).first()
-                tg.result = resultstr
-                session.flush()
-                session.commit()
-                eventcallbackfunction(str(outc.termination))
-            
-            return True
-    except Exception as e:
-        print(f"[gamemanager.check_for_opponent_move] Error checking move: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-    
-    return False
-
 def correction_fieldcallback(piece_event, field_hex, square, time_in_seconds):
     """
     Wrapper that intercepts field events during correction mode.
@@ -619,7 +452,7 @@ def correction_fieldcallback(piece_event, field_hex, square, time_in_seconds):
         time_in_seconds: Time of the event
     """
 
-    global correction_mode, correction_expected_state, boardstates, cboard, original_fieldcallback, curturn
+    global correction_mode, correction_expected_state, boardstates, cboard, original_fieldcallback
     
     if not correction_mode:
         # Normal flow - pass through to original callback
@@ -634,14 +467,6 @@ def correction_fieldcallback(piece_event, field_hex, square, time_in_seconds):
         board.ledsOff()
         board.beep(board.SOUND_GENERAL)
         exit_correction_mode()
-        
-        # After exiting correction mode, check if there's a valid opponent move
-        # that should be processed (this handles the case where opponent made a move
-        # but correction mode was entered before it could be processed)
-        time.sleep(0.2)  # Give board state time to stabilize
-        if check_for_opponent_move():
-            print("[gamemanager.correction_fieldcallback] Successfully processed opponent move after correction")
-        
         # Board is corrected, resume normal game flow but don't process this specific event
         # as it was just a correction move, not a game move
         return
