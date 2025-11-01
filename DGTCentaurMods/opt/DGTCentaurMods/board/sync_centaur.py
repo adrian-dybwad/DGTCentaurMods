@@ -170,7 +170,7 @@ class SyncCentaur:
         self._request_queue = queue.Queue()
         self._request_processor_thread = None
         
-        # Piece event listener (marker 0x40/0x41, square 0..63, time_in_seconds)
+        # Piece event listener (marker 0x40/0x41 0..63, time_in_seconds)
         self._piece_listener = None
         
         # Dedicated worker for piece event callbacks
@@ -517,7 +517,7 @@ class SyncCentaur:
             logging.info(f"Request timeout for {command_name}")
             return None
     
-    def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
+    def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=10.0, callback=None, raw_len: Optional[int]=None, retries=0):
         """
         Send a command and wait for response (blocking, FIFO queued).
         
