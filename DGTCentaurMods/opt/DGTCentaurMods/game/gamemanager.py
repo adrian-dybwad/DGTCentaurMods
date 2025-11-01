@@ -130,8 +130,10 @@ def checkLastBoardState():
     if takebackcallbackfunction != None and len(boardstates) > 1:
         logger.info(f"[gamemanager.checkLastBoardState] Checking last board state")
         current_state = board.getBoardState()
-        logger.info(f"[gamemanager.checkLastBoardState] Current board state: {current_state}")
-        logger.info(f"[gamemanager.checkLastBoardState] Last board state: {boardstates[len(boardstates) - 2]}")
+        logger.info(f"[gamemanager.checkLastBoardState] Current board state:")
+        board.printBoardState(current_state)
+        logger.info(f"[gamemanager.checkLastBoardState] Last board state:")
+        board.printBoardState(boardstates[len(boardstates) - 2])
         if current_state == boardstates[len(boardstates) - 2]:    
             board.ledsOff()            
             boardstates = boardstates[:-1] 
@@ -321,8 +323,10 @@ def _check_misplaced_pieces(current_state):
         return
     
     logger.warning(f"[gamemanager._check_misplaced_pieces] Misplaced pieces detected")
-    logger.warning(f"[gamemanager._check_misplaced_pieces] Expected: {board.printBoardState(expected_state)}")
-    logger.warning(f"[gamemanager._check_misplaced_pieces] Current:  {board.printBoardState(current_state)}")
+    logger.warning(f"[gamemanager._check_misplaced_pieces] Expected:")
+    board.printBoardState(expected_state)
+    logger.warning(f"[gamemanager._check_misplaced_pieces] Current:")
+    board.printBoardState(current_state)
     
     # Iteratively check and guide until all pieces are correctly placed
     max_iterations = 100
