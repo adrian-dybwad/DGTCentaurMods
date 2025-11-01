@@ -376,9 +376,11 @@ def getBoardState(field=None):
 
     # print(f"[board.getBoardState] raw_boarddata: {raw_boarddata}")
     boarddata = list[int](raw_boarddata)
-    logger.info(f"[board.getBoardState] boarddata: {boarddata}")
+    print(f"[board.getBoardState] boarddata:")
+    printBoardState(boarddata)
     boarddata.reverse()
-    logger.info(f"[board.getBoardState] boarddata reversed: {boarddata}")
+    print(f"[board.getBoardState] boarddata reversed:")
+    printBoardState(boarddata)
     if boarddata is None:
         # Final fallback. Callers (like getText) 
         # should check the return value for None
