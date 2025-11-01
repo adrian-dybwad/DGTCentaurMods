@@ -238,7 +238,7 @@ def ledFromTo(lfrom, lto, intensity=5):
     asyncserial.ledFromTo(rotateField(lfrom), rotateField(lto), intensity)
 
 for i in range(0, 4):
-    ledFromTo(i, i + 2)
+    asyncserial.ledFromTo(i, i + 2)
     time.sleep(2.0)
 
 def led(num, intensity=5):
