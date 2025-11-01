@@ -222,6 +222,7 @@ def clearBoardData():
 
 def beep(beeptype):
     if centaur.get_sound() == "off":
+        print("Beep disabled")
         return
     # Ask the centaur to make a beep sound
     asyncserial.beep(beeptype)
