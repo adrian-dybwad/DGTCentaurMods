@@ -786,8 +786,6 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                     current_state = None
                     if must_check_new_game:
                         current_state = board.getBoardState()
-                        #_check_misplaced_pieces(current_state)
-                        must_check_new_game = False
                     if current_state != None and bytearray(current_state) == startstate:
                         # Also validate chess board is in starting position to ensure new game trigger
                         if cboard.fen() != "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1":
@@ -838,6 +836,9 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                         session.commit()
                         boardstates = []
                         collectBoardState()
+                    elif must_check_new_game:
+                        _check_misplaced_pieces(current_state)
+                    must_check_new_game = False
                     t = 0
                 except Exception as e:
                     print(f"DEBUG: Error in board state check: {e}")
