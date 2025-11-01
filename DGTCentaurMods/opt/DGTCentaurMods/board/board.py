@@ -241,7 +241,7 @@ def led(num, intensity=5):
     # Flashes a specific led
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.led(rotateField(num), intensity)
+    asyncserial.led(63 - num, intensity)
 
 def ledFlash():
     # Flashes the last led lit by led(num) above
@@ -465,15 +465,15 @@ def checkInternetSocket(host="8.8.8.8", port=53, timeout=1):
 def rotateField(field):
     lrow = (field // 8)
     lcol = (field % 8)
-    # Rotate rows AND invert columns for hardware LED coordinate system
-    newField = (7 - lrow) * 8 + (7 - lcol)
+    # Rotate rows for hardware coordinate system
+    newField = (7 - lrow) * 8 + lcol
     return newField
 
 def rotateFieldHex(fieldHex):
     squarerow = (fieldHex // 8)
     squarecol = (fieldHex % 8)
-    # Rotate rows AND invert columns for hardware LED coordinate system
-    field = (7 - squarerow) * 8 + (7 - squarecol)
+    # Rotate rows for hardware coordinate system
+    field = (7 - squarerow) * 8 + squarecol
     return field
 
 def convertField(field):
