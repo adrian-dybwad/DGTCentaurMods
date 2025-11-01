@@ -222,13 +222,65 @@ def _enter_correction_mode():
 def _exit_correction_mode():
     """Exit correction mode and check for pending opponent moves"""
     _game_state.correction_mode = False
+    correction_expected = _game_state.correction_expected_state
     _game_state.correction_expected_state = None
     print("[gamemanager._exit_correction_mode] Exited correction mode")
     
     # KEY FIX: After exiting correction mode, check for any pending opponent move
     # This handles the case where opponent made a move but correction mode was entered
-    time.sleep(0.2)  # Give board state time to stabilize
-    _check_and_process_opponent_move()
+    time.sleep(0.3)  # Give board state time to stabilize
+    
+    # First, try to detect opponent move from current board state
+    if _check_and_process_opponent_move():
+        print("[gamemanager._exit_correction_mode] Successfully processed opponent move after correction")
+        return
+    
+    # If no move detected but we were tracking an opponent move, check if it's still valid
+    if _game_state.othersourcesq >= 0:
+        current_state = board.getBoardState()
+        if current_state and correction_expected:
+            # Check if board shows a completed opponent move
+            from_squares = []
+            to_squares = []
+            for i in range(64):
+                if correction_expected[i] == 1 and current_state[i] == 0:
+                    from_squares.append(i)
+                elif correction_expected[i] == 0 and current_state[i] == 1:
+                    to_squares.append(i)
+            
+            # If we have a from and to square, and the from matches what we were tracking
+            if len(from_squares) == 1 and from_squares[0] == _game_state.othersourcesq:
+                if len(to_squares) == 1:
+                    to_sq = to_squares[0]
+                    fromname = _square_to_notation(_game_state.othersourcesq)
+                    toname = _square_to_notation(to_sq)
+                    
+                    piece_at_from = _game_state.cboard.piece_at(_game_state.othersourcesq)
+                    if piece_at_from:
+                        pname = str(piece_at_from)
+                        pr = ""
+                        if (to_sq // 8) == 7 and pname == "P":
+                            pr = "q"
+                        elif (to_sq // 8) == 0 and pname == "p":
+                            pr = "q"
+                        
+                        move_uci = fromname + toname + pr
+                        try:
+                            move = chess.Move.from_uci(move_uci)
+                            if move in _game_state.cboard.legal_moves:
+                                print(f"[gamemanager._exit_correction_mode] Detected opponent move after correction: {move_uci}")
+                                _process_move(move_uci, move, _game_state.othersourcesq, to_sq)
+                                _game_state.othersourcesq = -1
+                                _game_state.opponent_move_state = None
+                                return
+                        except Exception as e:
+                            print(f"[gamemanager._exit_correction_mode] Error processing opponent move: {e}")
+    
+    # If we were tracking an opponent move but can't detect it, reset tracking
+    if _game_state.othersourcesq >= 0:
+        print("[gamemanager._exit_correction_mode] Could not detect opponent move, resetting tracking")
+        _game_state.othersourcesq = -1
+        _game_state.opponent_move_state = None
 
 
 def _check_and_process_opponent_move():
@@ -551,18 +603,70 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
             if found:
                 _game_state.legalsquares.append(x)
     
-    # Track opponent piece lifts (KEY FIX: better tracking)
+    # Track opponent piece lifts and detect opponent moves
     if lift and vpiece == 0:
         _game_state.othersourcesq = field
-        # Store the board state when opponent piece is lifted (in case we need to restore)
+        # Store the board state when opponent piece is lifted (before their move)
         if _game_state.opponent_move_state is None:
             _game_state.opponent_move_state = board.getBoardState()
     
-    # If opponent piece is placed back on original square
-    if place and vpiece == 0 and _game_state.othersourcesq >= 0 and field == _game_state.othersourcesq:
-        board.ledsOff()
-        _game_state.othersourcesq = -1
-        _game_state.opponent_move_state = None
+    # Handle opponent piece placement
+    if place and vpiece == 0:
+        if _game_state.othersourcesq >= 0 and field == _game_state.othersourcesq:
+            # Placed back on original square - cancel tracking
+            board.ledsOff()
+            _game_state.othersourcesq = -1
+            _game_state.opponent_move_state = None
+        else:
+            # Opponent piece placed on a different square - check if it's a valid move
+            if _game_state.othersourcesq >= 0:
+                # Try to detect and process the opponent move
+                from_sq = _game_state.othersourcesq
+                to_sq = field
+                
+                # Check if this could be a valid move
+                fromname = _square_to_notation(from_sq)
+                toname = _square_to_notation(to_sq)
+                
+                # Check for promotion
+                piece_at_from = _game_state.cboard.piece_at(from_sq)
+                if piece_at_from is None:
+                    _game_state.othersourcesq = -1
+                    _game_state.opponent_move_state = None
+                    return
+                
+                pname = str(piece_at_from)
+                pr = ""
+                if (to_sq // 8) == 7 and pname == "P":
+                    pr = "q"  # Default to queen for opponent promotions
+                elif (to_sq // 8) == 0 and pname == "p":
+                    pr = "q"  # Default to queen for opponent promotions
+                
+                move_uci = fromname + toname + pr
+                
+                # Check if this is a legal move
+                try:
+                    move = chess.Move.from_uci(move_uci)
+                    if move in _game_state.cboard.legal_moves:
+                        # Valid opponent move detected!
+                        print(f"[gamemanager.fieldcallback] Detected opponent move: {move_uci}")
+                        _process_move(move_uci, move, from_sq, to_sq)
+                        _game_state.othersourcesq = -1
+                        _game_state.opponent_move_state = None
+                        return
+                    else:
+                        # Illegal move - enter correction mode
+                        print(f"[gamemanager.fieldcallback] Opponent piece placed on illegal square {field}")
+                        _enter_correction_mode()
+                        current_state = board.getBoardState()
+                        if _game_state.boardstates and len(_game_state.boardstates) > 0:
+                            _provide_correction_guidance(current_state, _game_state.boardstates[-1])
+                        _game_state.othersourcesq = -1
+                        _game_state.opponent_move_state = None
+                except Exception as e:
+                    print(f"[gamemanager.fieldcallback] Error processing opponent move: {e}")
+                    _game_state.othersourcesq = -1
+                    _game_state.opponent_move_state = None
     
     # Handle forced moves (computer moves)
     if _game_state.forcemove == 1 and lift and vpiece == 1:
