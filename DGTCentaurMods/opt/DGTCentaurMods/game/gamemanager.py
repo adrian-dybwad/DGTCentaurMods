@@ -505,6 +505,9 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
     if piece_event == 1: # PLACE
         field = ((square + 1) * -1) # Convert to negative field number
 
+    global must_check_new_game
+    must_check_new_game = True
+    
     print(f"[gamemanager.fieldcallback] piece_event={piece_event} field_hex={field_hex} square={square} field={field} time_in_seconds={time_in_seconds}")
     global cboard
     global curturn
