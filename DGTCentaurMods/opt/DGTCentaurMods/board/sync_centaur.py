@@ -65,6 +65,9 @@ class CommandSpec:
     default_data: Optional[bytes] = None
 
 DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
+DGT_BUS_SEND_CHANGES_RESP = 0x85
+DGT_BUS_SEND_STATE_RESP = 0x83
+DGT_NOTIFY_EVENTS_RESP = 0xa3
 
 COMMANDS: Dict[str, CommandSpec] = {
     "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83, None),
@@ -298,17 +301,25 @@ class SyncCentaur:
         self.response_buffer = bytearray()
         self.packet_count += 1
         
-        # Handle discovery
-        if not self.ready:
-            self._discover_board_address(packet)
-            return
-        
-        # Try delivering to waiter
-        if self._try_deliver_to_waiter(packet):
-            return
-        
-        # Handle unsolicited messages
-        self._route_packet_to_handler(packet)
+        try:
+            # Handle discovery
+            if not self.ready:
+                self._discover_board_address(packet)
+                return
+            
+            # Try delivering to waiter
+            if self._try_deliver_to_waiter(packet):
+                return
+            
+            # Handle unsolicited messages
+            self._route_packet_to_handler(packet)
+        finally:
+            # Re-enable notifications after every packet (like AsyncCentaur)
+            if self.ready:
+                if packet[0] == DGT_PIECE_EVENT_RESP:
+                    self._send_packet(command.DGT_BUS_SEND_CHANGES, None)
+                else:
+                    self._send_packet(command.DGT_NOTIFY_EVENTS, None)
     
     def _try_deliver_to_waiter(self, packet):
         """Try to deliver packet to waiting request, returns True if delivered"""
@@ -462,12 +473,16 @@ class SyncCentaur:
             payload = result_queue.get(timeout=timeout)
             return payload
         except queue.Empty:
-            # Timeout
+            # Timeout - cleanup waiter
             with self._waiter_lock:
                 if self._current_waiter is not None and self._current_waiter.get('queue') is result_queue:
                     self._current_waiter = None
             logging.info(f"Request timeout for {command_name}")
             return None
+        finally:
+            # Re-enable notifications after response or timeout
+            if self.ready and command_name != command.DGT_NOTIFY_EVENTS:
+                self._send_packet(command.DGT_NOTIFY_EVENTS, None)
     
     def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
         """
