@@ -525,8 +525,10 @@ def eventsThread(keycallback, fieldcallback, tout):
                             def _listener(piece_event, field_hex, time_in_seconds):
                                 nonlocal to
                                 try:
-                                    print(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field_hex={field_hex} time_in_seconds={time_in_seconds}")
-                                    fieldcallback(piece_event, field_hex, time_in_seconds)
+                                    #Rotate the field here. The callback to boardmanager should always have a proper square index
+                                    field = rotateFieldHex(field_hex)
+                                    print(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
+                                    fieldcallback(piece_event, field, time_in_seconds)
                                     to = time.time() + tout
                                 except Exception as e:
                                     print(f"[board.events.push] error: {e}")
