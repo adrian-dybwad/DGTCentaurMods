@@ -45,8 +45,10 @@ class ColoredFormatter(logging.Formatter):
     def format(self, record):
         if self.use_colors:
             original_levelname = record.levelname
+            # Pad to 8 characters before adding color codes
+            padded_levelname = f"{original_levelname:<8}"
             color = self.COLORS.get(original_levelname, '')
-            record.levelname = f"{color}{original_levelname}{self.RESET}"
+            record.levelname = f"{color}{padded_levelname}{self.RESET}"
             result = super().format(record)
             record.levelname = original_levelname
             return result
@@ -82,7 +84,7 @@ def setup_logging(log_file_path="/home/pi/debug.log", log_level=logging.DEBUG):
     # Console handler with colored formatter
     _ch = logging.StreamHandler(sys.stdout)
     _ch.setLevel(log_level)
-    _ch.setFormatter(ColoredFormatter("%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s", "%Y-%m-%d %H:%M:%S"))
+    _ch.setFormatter(ColoredFormatter("%(asctime)s.%(msecs)03d %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S"))
     logger.addHandler(_ch)
     
     return logger
