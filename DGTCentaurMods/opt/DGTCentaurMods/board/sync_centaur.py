@@ -66,6 +66,12 @@ class CommandSpec:
 
 DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
 
+# Response constants (needed before COMMANDS for exports)
+# These will be properly exported from COMMANDS below, but we need them here for direct use
+DGT_BUS_SEND_CHANGES_RESP = 0x85
+DGT_BUS_SEND_STATE_RESP = 0x83
+DGT_NOTIFY_EVENTS_RESP = 0xa3
+
 COMMANDS: Dict[str, CommandSpec] = {
     "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83, None),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85, None),
@@ -298,17 +304,25 @@ class SyncCentaur:
         self.response_buffer = bytearray()
         self.packet_count += 1
         
-        # Handle discovery
-        if not self.ready:
-            self._discover_board_address(packet)
-            return
-        
-        # Try delivering to waiter
-        if self._try_deliver_to_waiter(packet):
-            return
-        
-        # Handle unsolicited messages
-        self._route_packet_to_handler(packet)
+        try:
+            # Handle discovery
+            if not self.ready:
+                self._discover_board_address(packet)
+                return
+            
+            # Try delivering to waiter
+            if self._try_deliver_to_waiter(packet):
+                return
+            
+            # Handle unsolicited messages
+            self._route_packet_to_handler(packet)
+        finally:
+            # Re-enable notifications after every packet (like AsyncCentaur)
+            if self.ready:
+                if packet[0] == DGT_PIECE_EVENT_RESP:
+                    self.sendPacket(command.DGT_BUS_SEND_CHANGES)
+                else:
+                    self.sendPacket(command.DGT_NOTIFY_EVENTS)
     
     def _try_deliver_to_waiter(self, packet):
         """Try to deliver packet to waiting request, returns True if delivered"""
@@ -334,7 +348,9 @@ class SyncCentaur:
             if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
                 self._handle_board_payload(payload)
             elif packet[0] == DGT_PIECE_EVENT_RESP:
-                self._handle_board_payload(payload)
+                # Do nothing - the finally block will send DGT_BUS_SEND_CHANGES
+                # which will return the actual move data in a DGT_BUS_SEND_CHANGES_RESP packet
+                logging.debug(f"Piece event detected (0x8e), waiting for DGT_BUS_SEND_CHANGES response")
             elif packet[0] == DGT_BUS_SEND_STATE_RESP:
                 logging.debug(f"Unsolicited board state packet (0x83)")
             else:
