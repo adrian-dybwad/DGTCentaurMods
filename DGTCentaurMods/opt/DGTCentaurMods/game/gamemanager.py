@@ -552,7 +552,6 @@ def fieldcallback(piece_event, field, time_in_seconds):
         for x in range(0, 64):
             sqxr = (x // 8)
             sqxc = (x % 8)
-            sqxc = 7 - sqxc
             fx = board.convertField(sqxc)
             tm = fieldname + fx
             found = 0
