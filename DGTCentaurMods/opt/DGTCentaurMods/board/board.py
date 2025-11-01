@@ -228,20 +228,24 @@ def ledArray(inarray, speed = 3, intensity=5):
     inarray = list[int](inarray.copy())
     inarray.reverse()
     for i in range(0, len(inarray)):
-        inarray[i] = inarray[i]
+        inarray[i] = rotateField(inarray[i])
     asyncserial.ledArray(inarray, speed, intensity)
 
 def ledFromTo(lfrom, lto, intensity=5):
     # Light up a from and to LED for move indication
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.ledFromTo(lfrom, lto, intensity)
+    asyncserial.ledFromTo(rotateField(lfrom), rotateField(lto), intensity)
+
+for i in range(0, 4):
+    ledFromTo(i, i + 2)
+    time.sleep(2.0)
 
 def led(num, intensity=5):
     # Flashes a specific led
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.led(rotateLed(num), intensity)
+    asyncserial.led(rotateField(num), intensity)
 
 def ledFlash():
     # Flashes the last led lit by led(num) above
@@ -461,13 +465,6 @@ def checkInternetSocket(host="8.8.8.8", port=53, timeout=1):
 #
 # Helper functions - used by other functions or useful in manipulating board data
 #
-
-def rotateLed(led):
-    lrow = (led // 8)
-    lcol = (led % 8)
-    # Rotate rows for hardware coordinate system
-    newLed = (7 - lrow) * 8 + lcol
-    return newLed
 
 def rotateField(field):
     lrow = (field // 8)
