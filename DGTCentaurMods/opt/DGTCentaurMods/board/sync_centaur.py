@@ -345,7 +345,9 @@ class SyncCentaur:
             if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
                 self._handle_board_payload(payload)
             elif packet[0] == DGT_PIECE_EVENT_RESP:
-                self._handle_board_payload(payload)
+                # Don't process piece event packet directly
+                # The finally block will send DGT_BUS_SEND_CHANGES to get the actual move data
+                logging.debug(f"Piece event detected (0x8e), will request changes")
             elif packet[0] == DGT_BUS_SEND_STATE_RESP:
                 logging.debug(f"Unsolicited board state packet (0x83)")
             else:
@@ -473,16 +475,15 @@ class SyncCentaur:
             payload = result_queue.get(timeout=timeout)
             return payload
         except queue.Empty:
-            # Timeout - cleanup waiter
+            # Timeout - cleanup waiter and re-enable notifications
             with self._waiter_lock:
                 if self._current_waiter is not None and self._current_waiter.get('queue') is result_queue:
                     self._current_waiter = None
             logging.info(f"Request timeout for {command_name}")
-            return None
-        finally:
-            # Re-enable notifications after response or timeout
+            # Only send notification on timeout since _on_packet_complete handles successful responses
             if self.ready and command_name != command.DGT_NOTIFY_EVENTS:
                 self._send_packet(command.DGT_NOTIFY_EVENTS, None)
+            return None
     
     def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
         """
