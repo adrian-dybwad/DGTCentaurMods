@@ -240,6 +240,9 @@ def ledFromTo(lfrom, lto, intensity=5):
 for i in range(0, 4):
     asyncserial.ledFromTo(i, i + 2)
     time.sleep(2.0)
+for i in range(0, 4):
+    asyncserial.ledFromTo(rotateField(i), rotateField(i + 2))
+    time.sleep(2.0)
 
 def led(num, intensity=5):
     # Flashes a specific led
