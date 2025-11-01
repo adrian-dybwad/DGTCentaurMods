@@ -451,10 +451,6 @@ def correction_fieldcallback(piece_event, field_hex, square, time_in_seconds):
         square: Square index (0-63)
         time_in_seconds: Time of the event
     """
-
-    global must_check_new_game
-    must_check_new_game = True
-
     global correction_mode, correction_expected_state, boardstates, cboard, original_fieldcallback
     
     if not correction_mode:
@@ -509,6 +505,9 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
     if piece_event == 1: # PLACE
         field = ((square + 1) * -1) # Convert to negative field number
 
+    global must_check_new_game
+    must_check_new_game = True
+    
     print(f"[gamemanager.fieldcallback] piece_event={piece_event} field_hex={field_hex} square={square} field={field} time_in_seconds={time_in_seconds}")
     global cboard
     global curturn
