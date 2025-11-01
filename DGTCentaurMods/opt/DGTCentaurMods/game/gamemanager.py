@@ -595,7 +595,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     _game_state.takebackcallbackfunction = takebackcallbacki
     
     # Initialize database
-    engine = create_engine(paths.get_database_uri())
+    engine = create_engine(paths.db_path())
     Session = sessionmaker(bind=engine)
     _game_state.session = Session()
     _game_state.source = inspect.stack()[1].filename
