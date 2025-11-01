@@ -127,12 +127,12 @@ def checkLastBoardState():
     global takebackcallbackfunction
     global curturn
     global must_check_new_game
-    if takebackcallbackfunction != None:
+    if takebackcallbackfunction != None and len(boardstates) > 1:
         logger.info(f"[gamemanager.checkLastBoardState] Checking last board state")
-        c = board.getBoardState()
-        logger.info(f"[gamemanager.checkLastBoardState] Current board state: {c}")
+        current_state = board.getBoardState()
+        logger.info(f"[gamemanager.checkLastBoardState] Current board state: {current_state}")
         logger.info(f"[gamemanager.checkLastBoardState] Last board state: {boardstates[len(boardstates) - 2]}")
-        if c == boardstates[len(boardstates) - 2]:    
+        if current_state == boardstates[len(boardstates) - 2]:    
             board.ledsOff()            
             boardstates = boardstates[:-1] 
             # For a takeback we need to remove the last move logged to the database,
