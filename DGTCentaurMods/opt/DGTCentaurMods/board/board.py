@@ -219,7 +219,7 @@ def clearBoardData():
 
 def beep(beeptype):
     if centaur.get_sound() == "off":
-        print("Beep disabled")
+        logger.warning("Beep disabled")
         return
     # Ask the centaur to make a beep sound
     asyncserial.beep(beeptype)
@@ -281,7 +281,7 @@ def shutdown():
         return
     
     # Normal shutdown sequence
-    print('Normal shutdown sequence starting')
+    logger.info('Normal shutdown sequence starting')
     
     # Beep power off sound
     try:
@@ -302,7 +302,7 @@ def shutdown():
         # All LEDs off at end
         ledsOff()
     except Exception as e:
-        print(f"LED pattern failed during shutdown: {e}")
+        logger.error(f"LED pattern failed during shutdown: {e}")
     
     time.sleep(2)
     
@@ -371,16 +371,17 @@ def getBoardState(field=None):
     Args:
         field: Optional square index (0-63) to query specific square
     """ 
-    boarddata = asyncserial.request_response(command.DGT_BUS_SEND_STATE)
+    raw_boarddata = asyncserial.request_response(command.DGT_BUS_SEND_STATE)
+
     # print(f"[board.getBoardState] raw_boarddata: {raw_boarddata}")
-    # boarddata = bytearray(raw_boarddata)
-    # print(f"[board.getBoardState] boarddata: {boarddata}")
-    # boarddata.reverse()
-    print(f"[board.getBoardState] boarddata reversed: {boarddata}")
+    boarddata = bytearray(raw_boarddata)
+    logger.info(f"[board.getBoardState] boarddata: {boarddata}")
+    boarddata.reverse()
+    logger.info(f"[board.getBoardState] boarddata reversed: {boarddata}")
     if boarddata is None:
         # Final fallback. Callers (like getText) 
         # should check the return value for None
-        print("getBoardState: No board data received")
+        logger.error("getBoardState: No board data received")
         return None
         
     if field is not None:
@@ -528,16 +529,15 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 try:
                                     #Rotate the field here. The callback to boardmanager should always have a proper square index
                                     field = rotateFieldHex(field_hex)
-                                    print(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
+                                    logger.info(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
                                     fieldcallback(piece_event, field, time_in_seconds)
                                     to = time.time() + tout
                                 except Exception as e:
-                                    print(f"[board.events.push] error: {e}")
+                                    logger.error(f"[board.events.push] error: {e}")
                             asyncserial._piece_listener = _listener
                             asyncserial.notify_keys_and_pieces()
                     except Exception as e:
-                        print("Error in piece detection")   
-                        print(f"Error: {e}")
+                        logger.error(f"Error in piece detection thread: {e}")
 
             try:
 
@@ -579,8 +579,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                         print("----------------------------------------")
                         #shutdown()
             except Exception as e:
-                print(f"[board.events] error: {e}")
-                print(f"[board.events] error: {sys.exc_info()[1]}")
+                logger.error(f"[board.events] error: {e}")
             try:
                 # Sending 152 to the controller provides us with battery information
                 # Do this every 15 seconds and fill in the globals
@@ -593,12 +592,12 @@ def eventsThread(keycallback, fieldcallback, tout):
             time.sleep(0.05)
             if standby != True and key_pressed is not None:
                 to = time.time() + tout
-                print(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
+                logger.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
                 # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
                 try:
                     keycallback(key_pressed)
                 except Exception as e:
-                    print(f"[board.events] keycallback error: {sys.exc_info()[1]}")
+                    logger.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
         else:
             # If pauseEvents() hold timeout in the thread
             to = time.time() + 100000
@@ -633,17 +632,17 @@ def subscribeEvents(keycallback, fieldcallback, timeout=100000):
 
 def pauseEvents():
     global eventsrunning
-    print(f"[board.pauseEvents] Pausing events")
+    logger.info(f"[board.pauseEvents] Pausing events")
     eventsrunning = 0
     time.sleep(0.5)
 
 def unPauseEvents():
     global eventsrunning
-    print(f"[board.unPauseEvents] Unpausing events")
+    logger.info(f"[board.unPauseEvents] Unpausing events")
     eventsrunning = 1
     
 def unsubscribeEvents(keycallback=None, fieldcallback=None):
     # Minimal compatibility wrapper for callers expecting an unsubscribe API
     # Current implementation pauses events; resume via unPauseEvents()
-    print(f"[board.unsubscribeEvents] Unsubscribing from events")
+    logger.info(f"[board.unsubscribeEvents] Unsubscribing from events")
     pauseEvents()
