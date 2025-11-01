@@ -389,6 +389,24 @@ def getBoardState(field=None):
         return boarddata[field]
     return boarddata
 
+def getChessState():
+   # Transform: raw index i maps to chess index
+    # Raw order: 0=a8, 1=b8, ..., 63=h1
+    # Chess order: 0=a1, 1=b1, ..., 63=h8
+    # 
+    # Raw index i: row = i//8, col = i%8
+    # Chess index: row = 7 - (i//8), col = i%8
+    board_data = getBoardState()
+    chess_state = [0] * 64
+    
+    for i in range(64):
+        raw_row = i // 8
+        raw_col = i % 8
+        chess_row = 7 - raw_row  # Invert rows
+        chess_col = raw_col      # Keep columns
+        chess_idx = chess_row * 8 + chess_col
+        chess_state[chess_idx] = board_data[i]
+    return chess_state
 
 def sendCommand(command):
     resp = asyncserial.request_response(command)
@@ -656,9 +674,6 @@ def unsubscribeEvents(keycallback=None, fieldcallback=None):
     logger.info(f"[board.unsubscribeEvents] Unsubscribing from events")
     pauseEvents()
 
-for i in range(0, 4):
-    asyncserial.ledFromTo(i, i + 2)
-    time.sleep(2.0)
 for ii in range(0, 4):
     asyncserial.ledFromTo(rotateField(ii), rotateField(ii + 2))
     time.sleep(2.0)

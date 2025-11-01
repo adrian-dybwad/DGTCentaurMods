@@ -88,7 +88,7 @@ correction_expected_state = None
 correction_iteration = 0
 original_fieldcallback = None
 
-st = board.getBoardState()
+st = board.getChessState()
 for i in range(0, 64):
     if st[i] == 1:
         board.led(i, intensity=5)
