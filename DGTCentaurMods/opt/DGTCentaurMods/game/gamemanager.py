@@ -79,7 +79,7 @@ gameinfo_black = ""
 
 inmenu = 0
 boardstates = []
-must_check_new_game = False
+must_check_new_game = True
 
 # Correction mode state variables
 correction_mode = False
