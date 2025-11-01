@@ -375,7 +375,9 @@ def getBoardState(field=None):
         field: Optional square index (0-63) to query specific square
     """
     boarddata = asyncserial.request_response(command.DGT_BUS_SEND_STATE)
-
+    print(f"[board.getBoardState] boarddata: {boarddata}")
+    boarddata.reverse()
+    print(f"[board.getBoardState] boarddata reversed: {boarddata}")
     if boarddata is None:
         # Final fallback. Callers (like getText) 
         # should check the return value for None
