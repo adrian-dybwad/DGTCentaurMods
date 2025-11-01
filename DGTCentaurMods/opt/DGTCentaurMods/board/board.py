@@ -466,7 +466,7 @@ def rotateLed(led):
     lrow = (led // 8)
     lcol = (led % 8)
     # Rotate rows for hardware coordinate system
-    newLed = (lrow) * 8 + (lcol)
+    newLed = (7 - lrow) * 8 + lcol
     return newLed
 
 def rotateField(field):
