@@ -237,13 +237,6 @@ def ledFromTo(lfrom, lto, intensity=5):
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
     asyncserial.ledFromTo(rotateField(lfrom), rotateField(lto), intensity)
 
-for i in range(0, 4):
-    asyncserial.ledFromTo(i, i + 2)
-    time.sleep(2.0)
-for ii in range(0, 4):
-    asyncserial.ledFromTo(rotateField(ii), rotateField(ii + 2))
-    time.sleep(2.0)
-
 def led(num, intensity=5):
     # Flashes a specific led
     # Note the call to this function is 0 for a1 and runs to 63 for h8
@@ -662,3 +655,12 @@ def unsubscribeEvents(keycallback=None, fieldcallback=None):
     # Current implementation pauses events; resume via unPauseEvents()
     logger.info(f"[board.unsubscribeEvents] Unsubscribing from events")
     pauseEvents()
+
+for i in range(0, 4):
+    asyncserial.ledFromTo(i, i + 2)
+    time.sleep(2.0)
+for ii in range(0, 4):
+    asyncserial.ledFromTo(rotateField(ii), rotateField(ii + 2))
+    time.sleep(2.0)
+
+
