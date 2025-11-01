@@ -534,8 +534,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
         vpiece = 1
     squarerow = (field // 8)
     squarecol = (field % 8)
-    squarecol = 7 - squarecol
-    fieldname = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
+    fieldname = board.convertField(field)
     logger.info(f"[gamemanager.fieldcallback] Fieldname: {fieldname}")
     legalmoves = cboard.legal_moves
     lmoves = list(legalmoves)
@@ -549,7 +548,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
             sqxr = (x // 8)
             sqxc = (x % 8)
             sqxc = 7 - sqxc
-            fx = chr(ord("a") + (7 - sqxc)) + chr(ord("1") + sqxr)
+            fx = board.convertField(sqxc)
             tm = fieldname + fx
             found = 0
             try:
@@ -605,14 +604,8 @@ def fieldcallback(piece_event, field, time_in_seconds):
             legalsquares = []
         else:
             # Piece has been moved
-            squarerow = (sourcesq // 8)
-            squarecol = (sourcesq % 8)
-            squarecol = 7 - squarecol
-            fromname = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
-            squarerow = (field // 8)
-            squarecol = (field % 8)
-            squarecol = 7 - squarecol
-            toname = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
+            fromname = board.convertField(sourcesq)
+            toname = board.convertField(field)
             # Promotion
             # If this is a WPAWN and squarerow is 7
             # or a BPAWN and squarerow is 0
