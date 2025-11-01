@@ -379,7 +379,6 @@ class SyncCentaur:
                             piece_event = 0 if piece_event == 0x40 else 1
                             field_hex = payload[i + 1]
                             try:
-                                #square = self.rotateFieldHex(field_hex)
                                 logging.info(f"[P{self.packet_count:03d}] piece_event={piece_event == 0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={self._get_seconds_from_time_bytes(time_bytes)}")
                                 if self._piece_listener is not None:
                                     args = (piece_event, field_hex, self._get_seconds_from_time_bytes(time_bytes))
@@ -718,76 +717,35 @@ class SyncCentaur:
         
         self._last_key = None
     
-    def rotateField(self, field):
-        """Convert field index from board coordinate system"""
-        lrow = (field // 8)
-        lcol = (field % 8)
-        newField = (7 - lrow) * 8 + lcol
-        return newField
-    
-    def rotateFieldHex(self, fieldHex):
-        """Convert hex field to board coordinate system"""
-        squarerow = (fieldHex // 8)
-        squarecol = (fieldHex % 8)
-        field = (7 - squarerow) * 8 + squarecol
-        return field
-    
-    def convertField(self, field):
-        """Convert field index to chess notation (e.g., 'e4')"""
-        square = chr((ord('a') + (field % 8))) + chr(ord('1') + (field // 8))
-        return square
-    
-    def notify_keys_and_pieces(self):
-        """Enable notifications for keys and pieces"""
-        logging.info(f"notify_keys_and_pieces")
-        self.sendPacket(command.DGT_NOTIFY_EVENTS)
-    
-    def clearBoardData(self):
-        """Clear board movement data"""
-        logging.info(f"clearBoardData")
-        self.sendPacket(command.DGT_BUS_SEND_CHANGES)
-    
     def beep(self, sound_name: str):
-        """Make a beep sound by name"""
-        logging.info(f"beep: {sound_name}")
         self.sendPacket(sound_name)
     
     def ledsOff(self):
-        """Turn off all LEDs"""
-        logging.info(f"ledsOff")
         self.sendPacket(command.LED_OFF_CMD)
     
     def ledArray(self, inarray, speed=3, intensity=5):
-        """Light LEDs in array with given speed and intensity"""
-        logging.info(f"ledArray: {inarray} {speed} {intensity}")
         data = bytearray([0x05])
         data.append(speed)
         data.append(0)
         data.append(intensity)
         for i in range(0, len(inarray)):
-            data.append(self.rotateField(inarray[i]))
+            data.append(inarray[i])
         self.sendPacket(command.LED_FLASH_CMD, data)
     
     def ledFromTo(self, lfrom, lto, intensity=5):
-        """Light up from and to LEDs for move indication"""
-        logging.info(f"ledFromTo: {lfrom} {lto} {intensity}")
         data = bytearray([0x05, 0x03, 0x00])
         data.append(intensity)
-        data.append(self.rotateField(lfrom))
-        data.append(self.rotateField(lto))
+        data.append(lfrom)
+        data.append(lto)
         self.sendPacket(command.LED_FLASH_CMD, data)
     
     def led(self, num, intensity=5):
-        """Flash a specific LED"""
-        logging.info(f"led: {num} {intensity}")
         data = bytearray([0x05, 0x0a, 0x01])
         data.append(intensity)
-        data.append(self.rotateField(num))
+        data.append(num)
         self.sendPacket(command.LED_FLASH_CMD, data)
     
     def ledFlash(self):
-        """Flash the last LED lit"""
-        logging.info(f"ledFlash")
         self.sendPacket(command.LED_FLASH_CMD)
     
     def sleep(self):
@@ -842,14 +800,8 @@ class SyncCentaur:
                 marker = payload[i]
                 if marker in (0x40, 0x41):
                     field_hex = payload[i + 1]
-                    try:
-                        square = self.rotateFieldHex(field_hex)
-                        if 0 <= square <= 63:
-                            field_name = self.convertField(square)
-                            arrow = "↑" if marker == 0x40 else "↓"
-                            events.append(f"{arrow} {field_name}")
-                    except Exception:
-                        pass
+                    arrow = "↑" if marker == 0x40 else "↓"
+                    events.append(f"{arrow} {field_hex:02x}")
                     i += 2
                 else:
                     i += 1

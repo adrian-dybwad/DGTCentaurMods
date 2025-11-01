@@ -212,12 +212,6 @@ def run_background(start_key_polling=False):
 # Board control - functions related to making the board do something
 #
 
-def notify_keys_and_pieces():
-    asyncserial.notify_keys_and_pieces()
-
-def clearBoardData():
-    asyncserial.clearBoardData()
-
 def beep(beeptype):
     if centaur.get_sound() == "off":
         logger.warning("Beep disabled")
@@ -231,19 +225,23 @@ def ledsOff():
 
 def ledArray(inarray, speed = 3, intensity=5):
     # Lights all the leds in the given inarray with the given speed and intensity
+    inarray = list[int](inarray.copy())
+    inarray.reverse()
+    for i in range(0, len(inarray)):
+        inarray[i] = rotateField(inarray[i])
     asyncserial.ledArray(inarray, speed, intensity)
 
 def ledFromTo(lfrom, lto, intensity=5):
     # Light up a from and to LED for move indication
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.ledFromTo(lfrom, lto, intensity)
+    asyncserial.ledFromTo(rotateField(lfrom), rotateField(lto), intensity)
 
 def led(num, intensity=5):
     # Flashes a specific led
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.led(num, intensity)
+    asyncserial.led(rotateField(num), intensity)
 
 def ledFlash():
     # Flashes the last led lit by led(num) above
@@ -545,7 +543,6 @@ def eventsThread(keycallback, fieldcallback, tout):
                                     import traceback
                                     traceback.print_exc()
                             asyncserial._piece_listener = _listener
-                            asyncserial.notify_keys_and_pieces()
                     except Exception as e:
                         logger.error(f"Error in piece detection thread: {e}")
 
