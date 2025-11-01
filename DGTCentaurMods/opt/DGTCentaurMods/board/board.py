@@ -23,6 +23,7 @@
 
 #import serial
 #from DGTCentaurMods.board.async_centaur import AsyncCentaur, command, Key
+from typing import Any
 from DGTCentaurMods.board.sync_centaur import SyncCentaur, command, Key
 import sys
 import os
@@ -374,7 +375,7 @@ def getBoardState(field=None):
     raw_boarddata = asyncserial.request_response(command.DGT_BUS_SEND_STATE)
 
     # print(f"[board.getBoardState] raw_boarddata: {raw_boarddata}")
-    boarddata = bytearray(raw_boarddata)
+    boarddata = list[int](raw_boarddata)
     logger.info(f"[board.getBoardState] boarddata: {boarddata}")
     boarddata.reverse()
     logger.info(f"[board.getBoardState] boarddata reversed: {boarddata}")
