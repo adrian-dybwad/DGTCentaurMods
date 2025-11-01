@@ -210,8 +210,20 @@ def _provide_correction_guidance(current_state, expected_state):
 
 def _enter_correction_mode():
     """Enter correction mode to guide user in fixing board state"""
+    # Don't enter correction mode if we're in the middle of processing a valid move
+    if _game_state.sourcesq >= 0 and len(_game_state.legalsquares) > 1:
+        print("[gamemanager._enter_correction_mode] Skipping correction - valid move in progress")
+        return
+    
     _game_state.correction_mode = True
-    _game_state.correction_expected_state = _game_state.boardstates[-1] if _game_state.boardstates else None
+    # Use the most recent board state as the expected state
+    # This should represent the last known good position
+    if _game_state.boardstates and len(_game_state.boardstates) > 0:
+        _game_state.correction_expected_state = _game_state.boardstates[-1]
+        print(f"[gamemanager._enter_correction_mode] Using boardstate[-1] as expected state (total states: {len(_game_state.boardstates)})")
+    else:
+        _game_state.correction_expected_state = None
+        print("[gamemanager._enter_correction_mode] Warning: No board states available")
     _game_state.correction_iteration = 0
     board.pauseEvents()
     time.sleep(0.1)
@@ -387,6 +399,12 @@ def _check_and_process_opponent_move():
 
 def _process_move(move_uci, move, from_sq, to_sq):
     """Process a valid move: update board, database, and switch turns"""
+    # Ensure correction mode is off when processing a valid move
+    if _game_state.correction_mode:
+        print("[gamemanager._process_move] Exiting correction mode before processing move")
+        _game_state.correction_mode = False
+        _game_state.correction_expected_state = None
+    
     _game_state.cboard.push(move)
     paths.write_fen_log(_game_state.cboard.fen())
     
@@ -397,6 +415,11 @@ def _process_move(move_uci, move, from_sq, to_sq):
     )
     _game_state.session.add(gamemove)
     _game_state.session.commit()
+    
+    # Give board sensors time to stabilize after move
+    time.sleep(0.2)
+    
+    # Collect the new board state after move
     _collect_board_state()
     
     _game_state.legalsquares = []
