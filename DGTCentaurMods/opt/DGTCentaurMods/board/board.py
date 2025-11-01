@@ -522,11 +522,11 @@ def eventsThread(keycallback, fieldcallback, tout):
                     try:
                         # Prefer push model via asyncserial piece listeners
                         if asyncserial._piece_listener == None:
-                            def _listener(piece_event, field_hex, square, time_in_seconds):
+                            def _listener(piece_event, field_hex, time_in_seconds):
                                 nonlocal to
                                 try:
-                                    print(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} field_hex={field_hex} square={square} time_in_seconds={time_in_seconds}")
-                                    fieldcallback(piece_event, field_hex, square, time_in_seconds)
+                                    print(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field_hex={field_hex} time_in_seconds={time_in_seconds}")
+                                    fieldcallback(piece_event, field_hex, time_in_seconds)
                                     to = time.time() + tout
                                 except Exception as e:
                                     print(f"[board.events.push] error: {e}")
