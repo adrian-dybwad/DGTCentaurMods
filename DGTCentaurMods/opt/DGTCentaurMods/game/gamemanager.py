@@ -101,7 +101,7 @@ def collectBoardState():
     # Append the board state to boardstates
     global boardstates
     logger.info(f"[gamemanager.collectBoardState] Collecting board state")
-    boardstates.append(board.getBoardState())
+    boardstates.append(board.getChessState())
 
 def waitForPromotionChoice():
     """Wait for user to select promotion piece via button press"""
@@ -129,7 +129,7 @@ def checkLastBoardState():
     global must_check_new_game
     if takebackcallbackfunction != None and len(boardstates) > 1:
         logger.info(f"[gamemanager.checkLastBoardState] Checking last board state")
-        current_state = board.getBoardState()
+        current_state = board.getChessState()
         logger.info(f"[gamemanager.checkLastBoardState] Current board state:")
         board.printBoardState(current_state)
         logger.info(f"[gamemanager.checkLastBoardState] Last board state:")
@@ -153,7 +153,7 @@ def checkLastBoardState():
             
             # Verify board is correct after takeback
             time.sleep(0.2)
-            current = board.getBoardState()
+            current = board.getChessState()
             if not validate_board_state(current, boardstates[-1] if boardstates else None):
                 logger.info("[gamemanager.checkLastBoardState] Board state incorrect after takeback, entering correction mode")
                 enter_correction_mode()
@@ -170,7 +170,7 @@ def validate_board_state(current_state, expected_state):
     Returns True if board matches expected state.
     
     Args:
-        current_state: Current board state from getBoardState()
+        current_state: Current board state from getChessState()
         expected_state: Expected board state to compare against
     
     Returns:
@@ -215,7 +215,7 @@ def provide_correction_guidance(current_state, expected_state):
     for minimal total movement distance, then lights up LEDs to guide the user.
     
     Args:
-        current_state: Current board state from getBoardState()
+        current_state: Current board state from getChessState()
         expected_state: Expected board state
     """
     if current_state is None or expected_state is None:
@@ -347,7 +347,7 @@ def _check_misplaced_pieces(current_state):
         if iteration == 1:
             current = current_state
         else:
-            current = board.getBoardState()
+            current = board.getChessState()
         
         if current is None or len(current) != 64:
             logger.warning(f"[gamemanager._check_misplaced_pieces] Invalid current state length: {len(current) if current else 'None'}")
@@ -431,7 +431,7 @@ def guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece):
     """
     logger.warning(f"[gamemanager.guideMisplacedPiece] Entering correction mode for field {field}")
     enter_correction_mode()
-    current_state = board.getBoardState()
+    current_state = board.getChessState()
     if boardstates and len(boardstates) > 0:
         provide_correction_guidance(current_state, boardstates[-1])
 
@@ -453,7 +453,7 @@ def correction_fieldcallback(piece_event, field_hex, time_in_seconds):
         return fieldcallback(piece_event, field_hex, time_in_seconds)
     
     # In correction mode: check if board now matches expected after each event
-    current_state = board.getBoardState()
+    current_state = board.getChessState()
     logger.info(f"[gamemanager.correction_fieldcallback] Current state:")
     board.printBoardState(current_state)
     logger.info(f"[gamemanager.correction_fieldcallback] Correction expected state:")
@@ -771,7 +771,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                     # Always refresh current_state before comparing to avoid stale reads
                     current_state = None
                     if must_check_new_game:
-                        current_state = board.getBoardState()
+                        current_state = board.getChessState()
                         _check_misplaced_pieces(current_state)
                         must_check_new_game = False
                     if current_state != None and bytearray(current_state) == startstate:
@@ -919,8 +919,8 @@ def subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback = N
     global boardstates
     
     boardstates = []
-    #board.getBoardState()
-    #board.getBoardState()
+    #board.getChessState()
+    #board.getChessState()
     collectBoardState()
     
     source = inspect.getsourcefile(sys._getframe(1))
