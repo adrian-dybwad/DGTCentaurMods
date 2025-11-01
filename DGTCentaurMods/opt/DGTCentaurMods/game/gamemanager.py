@@ -273,7 +273,7 @@ def provide_correction_guidance(current_state, expected_state):
             to_idx = missing_origins[col_ind[0]]
         
         board.ledsOff()
-        board.ledFromTo(board.rotateField(from_idx), board.rotateField(to_idx), intensity=5)
+        board.ledFromTo(from_idx, to_idx, intensity=5)
         print(f"[gamemanager.provide_correction_guidance] Guiding piece from {chess.square_name(from_idx)} to {chess.square_name(to_idx)}")
     else:
         # Only pieces missing or only extra pieces
@@ -281,13 +281,13 @@ def provide_correction_guidance(current_state, expected_state):
             # Light up the squares where pieces should be
             board.ledsOff()
             for idx in missing_origins:
-                board.ledOn(board.rotateField(idx), intensity=5)
+                board.led(idx, intensity=5)
             print(f"[gamemanager.provide_correction_guidance] Pieces missing at: {[chess.square_name(sq) for sq in missing_origins]}")
         elif len(wrong_locations) > 0:
             # Light up the squares where pieces shouldn't be
             board.ledsOff()
             for idx in wrong_locations:
-                board.ledOn(board.rotateField(idx), intensity=5)
+                board.led(idx, intensity=5)
             print(f"[gamemanager.provide_correction_guidance] Extra pieces at: {[chess.square_name(sq) for sq in wrong_locations]}")
 
 
@@ -386,7 +386,7 @@ def _check_misplaced_pieces(current_state):
             if best_pair:
                 from_idx, to_idx = best_pair
                 board.ledsOff()
-                board.ledFromTo(board.rotateField(from_idx), board.rotateField(to_idx), intensity=5)
+                board.ledFromTo(from_idx, to_idx, intensity=5)
                 print(f"[gamemanager._check_misplaced_pieces] Iteration {iteration}: Guiding piece from {from_idx} to {to_idx}")
         else:
             # Only pieces missing or only extra pieces
@@ -394,13 +394,13 @@ def _check_misplaced_pieces(current_state):
                 # Light up the squares where pieces should be
                 board.ledsOff()
                 for idx in missing_origins:
-                    board.ledOn(board.rotateField(idx), intensity=5)
+                    board.led(idx, intensity=5)
                 print(f"[gamemanager._check_misplaced_pieces] Iteration {iteration}: Pieces missing at: {missing_origins}")
             elif len(wrong_locations) > 0:
                 # Light up the squares where pieces shouldn't be
                 board.ledsOff()
                 for idx in wrong_locations:
-                    board.ledOn(board.rotateField(idx), intensity=5)
+                    board.led(idx, intensity=5)
                 print(f"[gamemanager._check_misplaced_pieces] Iteration {iteration}: Extra pieces at: {wrong_locations}")
         
         # Wait for user to make the correction before checking again
@@ -487,14 +487,14 @@ def keycallback(key_pressed):
             eventcallbackfunction(EVENT_RESIGN_GAME)
             inmenu = 0
 
-def fieldcallback(piece_event, field_hex, square, time_in_seconds):
+def fieldcallback(piece_event, field, time_in_seconds):
     # Receives field events. Positive is a field lift, negative is a field place. Numbering 0 = a1, 63 = h8
     # Use this to calculate moves
     field = square + 1 # Convert to positive field number
     if piece_event == 1: # PLACE
         field = ((square + 1) * -1) # Convert to negative field number
 
-    print(f"[gamemanager.fieldcallback] piece_event={piece_event} field_hex={field_hex} square={square} field={field} time_in_seconds={time_in_seconds}")
+    print(f"[gamemanager.fieldcallback] piece_event={piece_event} field_hex={field} field={field} time_in_seconds={time_in_seconds}")
     global cboard
     global curturn
     global movecallbackfunction
@@ -512,12 +512,12 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
     global showingpromotion
     lift = 0
     place = 0
-    if field >= 0:
+    if piece_event == 0:
         lift = 1
     else:
         place = 1
-        field = field * -1
-    field = field - 1
+    #     field = field * -1
+    # field = field - 1
     # No extra index remapping here; LED helpers expect chess indices 0(a1)..63(h8)
     # Check the piece colour against the current turn
     print(f"[gamemanager.fieldcallback] Field: {field}")

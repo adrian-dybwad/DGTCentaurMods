@@ -396,10 +396,10 @@ class SyncCentaur:
                             piece_event = 0 if piece_event == 0x40 else 1
                             field_hex = payload[i + 1]
                             try:
-                                square = self.rotateFieldHex(field_hex)
+                                #square = self.rotateFieldHex(field_hex)
                                 logging.info(f"[P{self.packet_count:03d}] piece_event={piece_event == 0 and 'LIFT' or 'PLACE'} field_hex={field_hex} square={square} time_in_seconds={self._get_seconds_from_time_bytes(time_bytes)}")
                                 if self._piece_listener is not None:
-                                    args = (piece_event, field_hex, square, self._get_seconds_from_time_bytes(time_bytes))
+                                    args = (piece_event, field_hex, self._get_seconds_from_time_bytes(time_bytes))
                                     cq = getattr(self, '_callback_queue', None)
                                     if cq is not None:
                                         try:
@@ -782,7 +782,7 @@ class SyncCentaur:
         data.append(0)
         data.append(intensity)
         for i in range(0, len(inarray)):
-            data.append(inarray[i])
+            data.append(self.rotateField(inarray[i]))
         self.sendPacket(command.LED_FLASH_CMD, data)
     
     def ledFromTo(self, lfrom, lto, intensity=5):
@@ -790,8 +790,8 @@ class SyncCentaur:
         logging.info(f"ledFromTo: {lfrom} {lto} {intensity}")
         data = bytearray([0x05, 0x03, 0x00])
         data.append(intensity)
-        data.append(lfrom)
-        data.append(lto)
+        data.append(self.rotateField(lfrom))
+        data.append(self.rotateField(lto))
         self.sendPacket(command.LED_FLASH_CMD, data)
     
     def led(self, num, intensity=5):
@@ -799,7 +799,7 @@ class SyncCentaur:
         logging.info(f"led: {num} {intensity}")
         data = bytearray([0x05, 0x0a, 0x01])
         data.append(intensity)
-        data.append(num)
+        data.append(self.rotateField(num))
         self.sendPacket(command.LED_FLASH_CMD, data)
     
     def ledFlash(self):

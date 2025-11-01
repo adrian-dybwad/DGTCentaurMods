@@ -251,12 +251,6 @@ def ledFlash():
     # Flashes the last led lit by led(num) above
     asyncserial.ledFlash()
 
-def rotateField(field):
-    return asyncserial.rotateField(field)
-
-def rotateFieldHex(fieldHex):
-    return asyncserial.rotateFieldHex(fieldHex)
-
 def shutdown():
     """
     Shutdown the Raspberry Pi with proper cleanup and visual feedback.
@@ -372,49 +366,6 @@ def sleep():
 #
 # Board response - functions related to get something from the board
 #
-
-def poll():
-    # We need to continue poll the board to get data from it
-    # Perhaps there's a packet length in here somewhere but
-    # I haven't noticed it yet, therefore we need to process
-    # the data as it comes
-    print("+++++++++++++++++++++++++++++ poll() +++++++++++++++++++++++++++++")
-    ser.read(100000)
-    sendPacket(b'\x83', b'')
-    expect = buildPacket(b'\x85\x00\x06', b'')
-    resp = ser.read(10000)
-    resp = bytearray(resp)
-    if (bytearray(resp) != expect):
-        if (resp[0] == 133 and resp[1] == 0):
-            for x in range(0, len(resp) - 1):
-                if (resp[x] == 64):
-                    # Calculate the square to 0(a1)-63(h8) so that
-                    # all functions match
-                    fieldHex = resp[x + 1]
-                    newsquare = rotateFieldHex(fieldHex)
-                if (resp[x] == 65):
-                    # Calculate the square to 0(a1)-63(h8) so that
-                    # all functions match
-                    fieldHex = resp[x + 1]
-                    newsquare = rotateFieldHex(fieldHex)
-    sendPacket(b'\x94', b'')
-    expect = buildPacket(b'\xb1\x00\x06', b'')
-    resp = ser.read(10000)
-    resp = bytearray(resp)
-    if (resp != expect):
-        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0501000000007d47"):
-            logging.debug("BACK BUTTON")
-        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0510000000007d17"):
-            logging.debug("TICK BUTTON")
-        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0508000000007d3c"):
-            logging.debug("UP BUTTON")
-        if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a05020000000061"):
-            logging.debug("DOWN BUTTON")
-        if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0540000000006d"):
-            logging.debug("HELP BUTTON")
-        if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0504000000002a"):
-            logging.debug("PLAY BUTTON")
-
 
 def getBoardState(field=None):
     """
