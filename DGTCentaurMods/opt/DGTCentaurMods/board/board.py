@@ -38,10 +38,7 @@ import socket
 import queue
 import logging
 
-try:
-    logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log", filemode="w")
-except:
-    logging.basicConfig(level=logging.DEBUG)
+from DGTCentaurMods.board.logging import logger
 
 # Re-export commonly used command names for backward-compatible usage in this module
 SOUND_GENERAL = command.SOUND_GENERAL

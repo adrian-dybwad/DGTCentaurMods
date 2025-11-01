@@ -31,10 +31,7 @@ import json
 import urllib.request
 import logging
 
-try:
-    logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log",filemode="w")
-except:
-    logging.basicConfig(level=logging.DEBUG)
+from DGTCentaurMods.board.logging import logger
 
 def get_lichess_api():
     return Settings.read('lichess','api_token','')

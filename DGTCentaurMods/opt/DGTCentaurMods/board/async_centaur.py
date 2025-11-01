@@ -38,24 +38,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 from types import SimpleNamespace
 
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
-logger.handlers = []
-
-_fmt = logging.Formatter("%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s", "%Y-%m-%d %H:%M:%S")
-
-try:
-    _fh = logging.FileHandler("/home/pi/debug.log", mode="w")
-    _fh.setLevel(logging.DEBUG)
-    _fh.setFormatter(_fmt)
-    logger.addHandler(_fh)
-except Exception:
-    pass
-
-_ch = logging.StreamHandler(sys.stdout)
-_ch.setLevel(logging.DEBUG)
-_ch.setFormatter(_fmt)
-logger.addHandler(_ch)
+from DGTCentaurMods.board.logging import logger
 
 
 """
@@ -731,7 +714,7 @@ class AsyncCentaur:
         minutes = time_bytes[2] if len(time_bytes) > 2 else 0
         hours = time_bytes[3] if len(time_bytes) > 3 else 0
         if len(time_bytes) > 4:
-            logging.info(f"Warning: time_bytes has more than 4 bytes: {time_bytes}")
+            logging.warning(f"time_bytes has more than 4 bytes: {time_bytes}")
         
         # Convert subsec to hundredths
         subsec_decimal = subsec / 256.0 * 100
