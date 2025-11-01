@@ -363,7 +363,7 @@ def sleep():
 # Board response - functions related to get something from the board
 #
 
-def getBoardState(field=None):
+def getBoardState():
     """
     Query the board and return a 64-length list of 0/1 occupancy flags.
     
@@ -374,22 +374,15 @@ def getBoardState(field=None):
 
     # print(f"[board.getBoardState] raw_boarddata: {raw_boarddata}")
     boarddata = list[int](raw_boarddata)
-    # print(f"[board.getBoardState] boarddata:")
-    # printBoardState(boarddata)
-    boarddata.reverse()
-    # print(f"[board.getBoardState] boarddata reversed:")
-    # printBoardState(boarddata)
     if boarddata is None:
         # Final fallback. Callers (like getText) 
         # should check the return value for None
         logger.error("getBoardState: No board data received")
         return None
         
-    if field is not None:
-        return boarddata[field]
     return boarddata
 
-def getChessState():
+def getChessState(field=None):
    # Transform: raw index i maps to chess index
     # Raw order: 0=a8, 1=b8, ..., 63=h1
     # Chess order: 0=a1, 1=b1, ..., 63=h8
@@ -406,6 +399,8 @@ def getChessState():
         chess_col = raw_col      # Keep columns
         chess_idx = chess_row * 8 + chess_col
         chess_state[chess_idx] = board_data[i]
+    if field is not None:
+        return chess_state[field]
     return chess_state
 
 def sendCommand(command):
@@ -418,13 +413,11 @@ def printBoardState(state = None):
         state = getBoardState()
     line = ""
     # Because we draw this from the top row down, we need to reverse the bottom up state to draaw it correctly.
-    rev_state = list[int](state.copy())
-    rev_state.reverse()
     for x in range(0,64,8):
         line += "\r\n+---+---+---+---+---+---+---+---+"
         line += "\r\n|"
         for y in range(0,8):
-            line += " " + str(rev_state[x+y]) + " |"
+            line += " " + str(state[x+y]) + " |"
     line += "\r\n+---+---+---+---+---+---+---+---+\n"
     print(line)
 
