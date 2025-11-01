@@ -87,13 +87,13 @@ correction_expected_state = None
 correction_iteration = 0
 original_fieldcallback = None
 
-st = board.getBoardState()
-for i in range(0, 64):
-    if st[i] == 1:
-        board.led(i, intensity=5)
-    else:
-        board.led(i, intensity=1)
-    time.sleep(0.05)
+# st = board.getBoardState()
+# for i in range(0, 64):
+#     if st[i] == 1:
+#         board.led(i, intensity=5)
+#     else:
+#         board.led(i, intensity=1)
+#     time.sleep(0.05)
     
 def collectBoardState():
     # Append the board state to boardstates
