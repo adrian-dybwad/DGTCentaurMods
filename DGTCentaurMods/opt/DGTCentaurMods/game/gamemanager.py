@@ -131,9 +131,9 @@ def checkLastBoardState():
         logger.info(f"[gamemanager.checkLastBoardState] Checking last board state")
         current_state = board.getChessState()
         logger.info(f"[gamemanager.checkLastBoardState] Current board state:")
-        board.printBoardState(current_state)
+        board.printChessState(current_state)
         logger.info(f"[gamemanager.checkLastBoardState] Last board state:")
-        board.printBoardState(boardstates[len(boardstates) - 2])
+        board.printChessState(boardstates[len(boardstates) - 2])
         if current_state == boardstates[len(boardstates) - 2]:    
             board.ledsOff()            
             boardstates = boardstates[:-1] 
@@ -324,9 +324,9 @@ def _check_misplaced_pieces(current_state):
     
     logger.warning(f"[gamemanager._check_misplaced_pieces] Misplaced pieces detected")
     logger.warning(f"[gamemanager._check_misplaced_pieces] Expected:")
-    board.printBoardState(expected_state)
+    board.printChessState(expected_state)
     logger.warning(f"[gamemanager._check_misplaced_pieces] Current:")
-    board.printBoardState(current_state)
+    board.printChessState(current_state)
     
     # Iteratively check and guide until all pieces are correctly placed
     max_iterations = 100
@@ -455,9 +455,9 @@ def correction_fieldcallback(piece_event, field_hex, time_in_seconds):
     # In correction mode: check if board now matches expected after each event
     current_state = board.getChessState()
     logger.info(f"[gamemanager.correction_fieldcallback] Current state:")
-    board.printBoardState(current_state)
+    board.printChessState(current_state)
     logger.info(f"[gamemanager.correction_fieldcallback] Correction expected state:")
-    board.printBoardState(correction_expected_state)
+    board.printChessState(correction_expected_state)
     if validate_board_state(current_state, correction_expected_state):
         # Board is now correct!
         logger.info("[gamemanager.correction_fieldcallback] Board corrected, exiting correction mode")

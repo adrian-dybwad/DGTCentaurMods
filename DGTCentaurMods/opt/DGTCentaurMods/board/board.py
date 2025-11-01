@@ -363,25 +363,6 @@ def sleep():
 # Board response - functions related to get something from the board
 #
 
-def getBoardState():
-    """
-    Query the board and return a 64-length list of 0/1 occupancy flags.
-    
-    Args:
-        field: Optional square index (0-63) to query specific square
-    """ 
-    raw_boarddata = asyncserial.request_response(command.DGT_BUS_SEND_STATE)
-
-    # print(f"[board.getBoardState] raw_boarddata: {raw_boarddata}")
-    boarddata = list[int](raw_boarddata)
-    if boarddata is None:
-        # Final fallback. Callers (like getText) 
-        # should check the return value for None
-        logger.error("getBoardState: No board data received")
-        return None
-        
-    return boarddata
-
 def getChessState(field=None):
    # Transform: raw index i maps to chess index
     # Raw order: 0=a8, 1=b8, ..., 63=h1
@@ -389,7 +370,8 @@ def getChessState(field=None):
     # 
     # Raw index i: row = i//8, col = i%8
     # Chess index: row = 7 - (i//8), col = i%8
-    board_data = getBoardState()
+    raw_boarddata = asyncserial.request_response(command.DGT_BUS_SEND_STATE)
+    board_data = list[int](raw_boarddata)
     chess_state = [0] * 64
     
     for i in range(64):
@@ -407,18 +389,20 @@ def sendCommand(command):
     resp = asyncserial.request_response(command)
     return resp
 
-def printBoardState(state = None):
+def printChessState(state = None):
     # Helper to display board state
     if state is None:
-        state = getBoardState()
+        state = getChessState()  # Use getChessState if available, or update to use transformed state
     line = ""
-    # Because we draw this from the top row down, we need to reverse the bottom up state to draaw it correctly.
-    for x in range(0,64,8):
+    # Display ranks from top (rank 8) to bottom (rank 1)
+    # Chess coordinates: row 7 (56-63) = rank 8, row 0 (0-7) = rank 1
+    for rank in range(7, -1, -1):  # Iterate from rank 8 (row 7) down to rank 1 (row 0)
+        x = rank * 8  # Starting index for this rank
         line += "\r\n+---+---+---+---+---+---+---+---+"
         line += "\r\n|"
-        for y in range(0,8):
-            line += " " + str(state[x+y]) + " |"
-    line += "\r\n+---+---+---+---+---+---+---+---+\n"
+        for y in range(0, 8):
+            line += " " + str(state[x + y]) + " |"
+        line += "\r\n+---+---+---+---+---+---+---+---+\n"
     print(line)
 
 def getChargingState():
