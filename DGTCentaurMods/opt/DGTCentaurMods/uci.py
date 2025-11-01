@@ -191,11 +191,11 @@ def executeComputerMove(mv):
             raise ValueError(f"Illegal move: {mv}")
         
         # Light up LEDs to show the computer move to the player
-        fromnum = ((ord(mv[1:2]) - ord("1")) * 8) + (ord(mv[0:1]) - ord("a"))
-        tonum = ((ord(mv[3:4]) - ord("1")) * 8) + (ord(mv[2:3]) - ord("a"))
-        print(f"Lighting LEDs for move from {fromnum} to {tonum}")
-        board.ledFromTo(fromnum, tonum)
-        
+        from_square = chess.parse_square(mv[0:2])  # e.g., "d7" -> 51
+        to_square = chess.parse_square(mv[2:4])    # e.g., "d6" -> 43
+        print(f"Lighting LEDs for move from {from_square} ({mv[0:2]}) to {to_square} ({mv[2:4]})")
+        board.ledFromTo(from_square, to_square)
+                
         # Set gamemanager's forcemove flags so fieldcallback will process this move
         print(f"Setting up gamemanager for forced move")
         gamemanager.forcemove = 1
