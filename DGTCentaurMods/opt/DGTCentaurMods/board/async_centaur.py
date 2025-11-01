@@ -162,7 +162,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     # and a key pressed before calling 58 again...
     # Packets will be sent on keypress with a3
     # Packets will be sent on piece move with 8e
-    "DGT_NOTIFY_EVENTS":  CommandSpec(0x57, 0xa3, None), 
+    "DGT_NOTIFY_EVENTS":  CommandSpec(0x58, 0xa3, None), 
     #"DGT_NOTIFY_EVENTS_2":  CommandSpec(0x58, None, None), 
 
 
