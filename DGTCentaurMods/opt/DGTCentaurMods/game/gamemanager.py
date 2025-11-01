@@ -508,6 +508,35 @@ def correction_fieldcallback(piece_event, field_hex, square, time_in_seconds):
         # Normal flow - pass through to fieldcallback
         return fieldcallback(piece_event, field_hex, square, time_in_seconds)
     
+    # In correction mode: First check if this is part of a valid move in progress
+    # If the current player has a piece lifted (sourcesq >= 0), allow normal flow
+    # This prevents correction mode from interfering with valid moves
+    field = square + 1
+    if piece_event == 1:  # PLACE
+        field = ((square + 1) * -1)
+    place = field < 0
+    if place:
+        field = abs(field)
+    field = field - 1
+    
+    # If player has a piece lifted and is placing it, check if it's a valid move
+    if place and _game_state.sourcesq >= 0:
+        # Check if placing on a legal square
+        # If sourcesq is set and we're in correction mode but making a valid move,
+        # we should exit correction and let normal flow handle it
+        if field in _game_state.legalsquares:
+            print("[gamemanager.correction_fieldcallback] Valid move in progress during correction, exiting correction mode")
+            _game_state.correction_mode = False
+            _game_state.correction_expected_state = None
+            # Continue with normal fieldcallback
+            return fieldcallback(piece_event, field_hex, square, time_in_seconds)
+        elif field == _game_state.sourcesq:
+            # Placing back on source - this is allowed, exit correction
+            print("[gamemanager.correction_fieldcallback] Piece placed back, exiting correction mode")
+            _game_state.correction_mode = False
+            _game_state.correction_expected_state = None
+            return fieldcallback(piece_event, field_hex, square, time_in_seconds)
+    
     # In correction mode: check if board now matches expected after each event
     current_state = board.getBoardState()
     
@@ -677,16 +706,23 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
             tsq = _notation_to_square(target)
             _game_state.legalsquares = [tsq]
     
-    # Handle illegal placements
-    if place and field not in _game_state.legalsquares:
+    # Handle illegal placements (only for current player's pieces, not opponent's)
+    if place and field not in _game_state.legalsquares and vpiece == 1:
         board.beep(board.SOUND_WRONG_MOVE)
         print(f"[gamemanager.fieldcallback] Piece placed on illegal square {field}")
         is_takeback = checkLastBoardState()
         if not is_takeback:
-            _enter_correction_mode()
-            current_state = board.getBoardState()
-            if _game_state.boardstates and len(_game_state.boardstates) > 0:
-                _provide_correction_guidance(current_state, _game_state.boardstates[-1])
+            # Only enter correction mode if we actually have a piece lifted
+            if _game_state.sourcesq >= 0:
+                _enter_correction_mode()
+                current_state = board.getBoardState()
+                if _game_state.boardstates and len(_game_state.boardstates) > 0:
+                    _provide_correction_guidance(current_state, _game_state.boardstates[-1])
+            else:
+                # No piece was lifted, so just reset
+                board.ledsOff()
+                _game_state.legalsquares = []
+                _game_state.sourcesq = -1
     
     # Handle valid move completion
     if place and field in _game_state.legalsquares:
