@@ -457,7 +457,7 @@ class SyncCentaur:
         if not spec:
             raise KeyError(f"Unknown command name: {command_name}")
         
-        eff_data = data if data is not None else spec.default_data
+        eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
         expected_type = spec.expected_resp_type
         
         # If no response expected, just send and return
@@ -566,7 +566,9 @@ class SyncCentaur:
         if not spec:
             raise KeyError(f"Unknown command name: {command_name}")
         
-        tosend = self._build_packet(spec.cmd, data)
+        # Use passed data if provided, otherwise use default_data from command spec
+        eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
+        tosend = self._build_packet(spec.cmd, eff_data)
         logging.info(f"sendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
         
