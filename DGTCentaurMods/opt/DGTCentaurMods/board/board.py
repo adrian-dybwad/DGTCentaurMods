@@ -401,11 +401,14 @@ def printBoardState(state = None):
     if state is None:
         state = getBoardState()
     line = ""
+    # Because we draw this from the top row down, we need to reverse the bottom up state to draaw it correctly.
+    rev_state = list[int](state.copy())
+    rev_state.reverse()
     for x in range(0,64,8):
         line += "\r\n+---+---+---+---+---+---+---+---+"
         line += "\r\n|"
         for y in range(0,8):
-            line += " " + str(state[x+y]) + " |"
+            line += " " + str(rev_state[x+y]) + " |"
     line += "\r\n+---+---+---+---+---+---+---+---+\n"
     print(line)
 
