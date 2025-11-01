@@ -94,7 +94,7 @@ for i in range(0, 64):
         board.led(i, intensity=5)
     else:
         board.led(i, intensity=1)
-    logger.info(f"[gamemanager.gameThread] LED {i} on {board.convertField(i)}")
+    logger.info(f"[gamemanager.gameThread] LED {i} on {board.convertField(i)} PICE: {st[i]}")
     time.sleep(0.05)
     
 def collectBoardState():

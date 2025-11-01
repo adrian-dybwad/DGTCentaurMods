@@ -674,8 +674,5 @@ def unsubscribeEvents(keycallback=None, fieldcallback=None):
     logger.info(f"[board.unsubscribeEvents] Unsubscribing from events")
     pauseEvents()
 
-for ii in range(0, 4):
-    asyncserial.ledFromTo(rotateField(ii), rotateField(ii + 2))
-    time.sleep(2.0)
 
 
