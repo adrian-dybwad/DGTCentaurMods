@@ -216,9 +216,9 @@ def _enter_correction_mode():
         print("[gamemanager._enter_correction_mode] Skipping correction - valid move in progress")
         return
     
-    # Don't enter correction mode immediately after a move was processed (within 2 seconds)
+    # Don't enter correction mode immediately after a move was processed (within 1 second)
     # This prevents correction mode from triggering on residual sensor events after valid moves
-    if time.time() - _game_state.last_move_time < 2.0:
+    if time.time() - _game_state.last_move_time < 1.0:
         print(f"[gamemanager._enter_correction_mode] Skipping correction - move just processed {time.time() - _game_state.last_move_time:.2f}s ago")
         return
     
@@ -423,9 +423,6 @@ def _process_move(move_uci, move, from_sq, to_sq):
     _game_state.session.add(gamemove)
     _game_state.session.commit()
     
-    # Sync curturn with chess board's turn (board.turn is True for white, False for black)
-    _game_state.curturn = 1 if _game_state.cboard.turn else 0
-    
     # Give board sensors time to stabilize after move
     time.sleep(0.2)
     
@@ -445,16 +442,18 @@ def _process_move(move_uci, move, from_sq, to_sq):
         _game_state.movecallbackfunction(move_uci)
     
     board.beep(board.SOUND_GENERAL)
-    # Light up destination square to indicate the move
-    board.led(to_sq)
+    # Light up destination square - use rotateField for proper board coordinate conversion
+    board.led(board.rotateField(to_sq))
     
-    # Check outcome and emit turn events
+    # Check outcome and switch turns
     outc = _game_state.cboard.outcome(claim_draw=True)
     if outc is None or outc == "None" or outc == 0:
-        if _game_state.curturn == 1:
+        if _game_state.curturn == 0:
+            _game_state.curturn = 1
             if _game_state.eventcallbackfunction is not None:
                 _game_state.eventcallbackfunction(EVENT_WHITE_TURN)
         else:
+            _game_state.curturn = 0
             if _game_state.eventcallbackfunction is not None:
                 _game_state.eventcallbackfunction(EVENT_BLACK_TURN)
     else:
@@ -724,15 +723,16 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                         _game_state.opponent_move_state = None
                         return
                     else:
-                        # Illegal move - enter correction mode only if not immediately after a move
+                        # Illegal move - enter correction mode
                         print(f"[gamemanager.fieldcallback] Opponent piece placed on illegal square {field}")
-                        if time.time() - _game_state.last_move_time >= 2.0:
+                        # Only enter correction if not immediately after a move
+                        if time.time() - _game_state.last_move_time >= 1.0:
                             _enter_correction_mode()
                             current_state = board.getBoardState()
                             if _game_state.boardstates and len(_game_state.boardstates) > 0:
                                 _provide_correction_guidance(current_state, _game_state.boardstates[-1])
                         else:
-                            print(f"[gamemanager.fieldcallback] Skipping correction - move recently processed ({time.time() - _game_state.last_move_time:.2f}s ago)")
+                            print(f"[gamemanager.fieldcallback] Skipping correction - move recently processed")
                         _game_state.othersourcesq = -1
                         _game_state.opponent_move_state = None
                 except Exception as e:
