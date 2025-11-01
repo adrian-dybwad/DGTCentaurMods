@@ -6,3 +6,4 @@ pyserial
 spidev
 RPi.GPIO
 chess
+scipy>=1.7.0
