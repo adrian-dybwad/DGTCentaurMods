@@ -801,6 +801,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                         if now - last_new_game_time < 1.0:
                             t = 0
                             continue
+                        exit_correction_mode()
                         last_new_game_time = now
                         print("DEBUG: Detected starting position - triggering NEW_GAME")
                         newgame = 1
