@@ -584,6 +584,10 @@ class AsyncCentaur:
             elif packet[0] == DGT_PIECE_EVENT_RESP:
                 print(f"[AsyncCentaur] _route_packet_to_handler: DO NOTGHING BECAUSE DGT_PIECE_EVENT_RESP: {' '.join(f'{b:02x}' for b in packet)}")
                 pass
+            elif packet[0] == DGT_BUS_SEND_STATE_RESP:
+                # Board state response - arrived when no waiter was expecting it
+                # This can happen when requests timeout but responses arrive late
+                logging.debug(f"Unsolicited board state packet (0x83) - no active waiter")
             else:
                 logging.info(f"Unknown packet type: {' '.join(f'{b:02x}' for b in packet)}")
         except Exception as e:
