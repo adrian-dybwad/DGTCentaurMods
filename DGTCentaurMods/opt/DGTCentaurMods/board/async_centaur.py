@@ -620,7 +620,7 @@ class AsyncCentaur:
                             field_hex = payload[i + 1]
                             try:
                                 # The leds use this format to address the square
-                                logging.info(f"[P{self.packet_count:03d}] piece_event={piece_event == 0 and 'LIFT' or 'PLACE'} field_hex={field_hex} square={square} time_in_seconds={self._get_seconds_from_time_bytes(time_bytes)}")
+                                logging.info(f"[P{self.packet_count:03d}] piece_event={piece_event == 0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={self._get_seconds_from_time_bytes(time_bytes)}")
                                 if self._piece_listener is not None:
                                     args = (piece_event, field_hex, self._get_seconds_from_time_bytes(time_bytes))
                                     cq = getattr(self, '_callback_queue', None)
