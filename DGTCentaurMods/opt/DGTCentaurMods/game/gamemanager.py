@@ -193,7 +193,7 @@ def enter_correction_mode():
     board.pauseEvents()
     time.sleep(0.1)
     board.unPauseEvents()
-    logger.waring("[gamemanager.enter_correction_mode] Entered correction mode")
+    logger.warning("[gamemanager.enter_correction_mode] Entered correction mode")
 
 def exit_correction_mode():
     """
