@@ -534,6 +534,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                     to = time.time() + tout
                                 except Exception as e:
                                     logger.error(f"[board.events.push] error: {e}")
+                                    logger.error(f"[board.events.push] error: {sys.exc_info()[1]}")
                             asyncserial._piece_listener = _listener
                             asyncserial.notify_keys_and_pieces()
                     except Exception as e:
