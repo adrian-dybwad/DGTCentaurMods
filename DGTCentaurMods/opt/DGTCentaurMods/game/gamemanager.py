@@ -449,6 +449,8 @@ def correction_fieldcallback(piece_event, field_hex, time_in_seconds):
     
     # In correction mode: check if board now matches expected after each event
     current_state = board.getBoardState()
+    logger.info(f"[gamemanager.correction_fieldcallback] Current state: {current_state}")
+    logger.info(f"[gamemanager.correction_fieldcallback] Correction expected state: {correction_expected_state}")
     
     if validate_board_state(current_state, correction_expected_state):
         # Board is now correct!
