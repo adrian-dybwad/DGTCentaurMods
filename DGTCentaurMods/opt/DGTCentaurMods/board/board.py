@@ -465,13 +465,15 @@ def checkInternetSocket(host="8.8.8.8", port=53, timeout=1):
 def rotateField(field):
     lrow = (field // 8)
     lcol = (field % 8)
-    newField = (7 - lrow) * 8 + lcol
+    # Rotate rows AND invert columns for hardware LED coordinate system
+    newField = (7 - lrow) * 8 + (7 - lcol)
     return newField
 
 def rotateFieldHex(fieldHex):
     squarerow = (fieldHex // 8)
     squarecol = (fieldHex % 8)
-    field = (7 - squarerow) * 8 + squarecol
+    # Rotate rows AND invert columns for hardware LED coordinate system
+    field = (7 - squarerow) * 8 + (7 - squarecol)
     return field
 
 def convertField(field):
