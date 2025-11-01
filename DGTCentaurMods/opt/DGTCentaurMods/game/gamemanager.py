@@ -442,7 +442,8 @@ def _process_move(move_uci, move, from_sq, to_sq):
         _game_state.movecallbackfunction(move_uci)
     
     board.beep(board.SOUND_GENERAL)
-    board.led(to_sq)
+    # Light up destination square - use rotateField for proper board coordinate conversion
+    board.led(board.rotateField(to_sq))
     
     # Check outcome and switch turns
     outc = _game_state.cboard.outcome(claim_draw=True)
@@ -712,6 +713,11 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                     if move in _game_state.cboard.legal_moves:
                         # Valid opponent move detected!
                         print(f"[gamemanager.fieldcallback] Detected opponent move: {move_uci}")
+                        # Exit correction mode if active before processing opponent move
+                        if _game_state.correction_mode:
+                            print("[gamemanager.fieldcallback] Exiting correction mode for opponent move")
+                            _game_state.correction_mode = False
+                            _game_state.correction_expected_state = None
                         _process_move(move_uci, move, from_sq, to_sq)
                         _game_state.othersourcesq = -1
                         _game_state.opponent_move_state = None
@@ -719,10 +725,14 @@ def fieldcallback(piece_event, field_hex, square, time_in_seconds):
                     else:
                         # Illegal move - enter correction mode
                         print(f"[gamemanager.fieldcallback] Opponent piece placed on illegal square {field}")
-                        _enter_correction_mode()
-                        current_state = board.getBoardState()
-                        if _game_state.boardstates and len(_game_state.boardstates) > 0:
-                            _provide_correction_guidance(current_state, _game_state.boardstates[-1])
+                        # Only enter correction if not immediately after a move
+                        if time.time() - _game_state.last_move_time >= 1.0:
+                            _enter_correction_mode()
+                            current_state = board.getBoardState()
+                            if _game_state.boardstates and len(_game_state.boardstates) > 0:
+                                _provide_correction_guidance(current_state, _game_state.boardstates[-1])
+                        else:
+                            print(f"[gamemanager.fieldcallback] Skipping correction - move recently processed")
                         _game_state.othersourcesq = -1
                         _game_state.opponent_move_state = None
                 except Exception as e:
