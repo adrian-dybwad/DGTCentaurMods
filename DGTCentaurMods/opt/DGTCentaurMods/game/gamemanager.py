@@ -429,7 +429,7 @@ def guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece):
     if boardstates and len(boardstates) > 0:
         provide_correction_guidance(current_state, boardstates[-1])
 
-def correction_fieldcallback(piece_event, field_hex, square, time_in_seconds):
+def correction_fieldcallback(piece_event, field_hex, time_in_seconds):
     """
     Wrapper that intercepts field events during correction mode.
     Validates board state and only passes through to normal game flow when correct.
@@ -444,7 +444,7 @@ def correction_fieldcallback(piece_event, field_hex, square, time_in_seconds):
     
     if not correction_mode:
         # Normal flow - pass through to original callback
-        return fieldcallback(piece_event, field_hex, square, time_in_seconds)
+        return fieldcallback(piece_event, field_hex, time_in_seconds)
     
     # In correction mode: check if board now matches expected after each event
     current_state = board.getBoardState()
