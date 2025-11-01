@@ -537,8 +537,6 @@ def fieldcallback(piece_event, field, time_in_seconds):
         vpiece = 1
     if curturn == 1 and pc == True:
         vpiece = 1
-    squarerow = (field // 8)
-    squarecol = (field % 8)
     fieldname = board.convertField(field)
     logger.info(f"[gamemanager.fieldcallback] Fieldname: {fieldname}")
     legalmoves = cboard.legal_moves
@@ -550,9 +548,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
         legalsquares.append(field)
         sourcesq = field
         for x in range(0, 64):
-            sqxr = (x // 8)
-            sqxc = (x % 8)
-            fx = board.convertField(sqxc)
+            fx = board.convertField(x)
             tm = fieldname + fx
             found = 0
             try:
@@ -583,9 +579,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
             # Forced move, correct piece lifted, limit legal squares
             target = computermove[2:4]
             # Convert the text in target to the field number
-            sqcol = ord(target[0:1]) - ord('a')
-            sqrow = ord(target[1:2]) - ord('1')
-            tsq = (sqrow * 8) + (sqcol)
+            tsq = chess.parse_square(target)
             legalsquares = []
             legalsquares.append(tsq)
     if place == 1 and field not in legalsquares:
