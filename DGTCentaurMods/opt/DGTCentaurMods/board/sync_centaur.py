@@ -782,7 +782,7 @@ class SyncCentaur:
         data.append(0)
         data.append(intensity)
         for i in range(0, len(inarray)):
-            data.append(self.rotateField(inarray[i]))
+            data.append(inarray[i])
         self.sendPacket(command.LED_FLASH_CMD, data)
     
     def ledFromTo(self, lfrom, lto, intensity=5):
@@ -790,8 +790,8 @@ class SyncCentaur:
         logging.info(f"ledFromTo: {lfrom} {lto} {intensity}")
         data = bytearray([0x05, 0x03, 0x00])
         data.append(intensity)
-        data.append(self.rotateField(lfrom))
-        data.append(self.rotateField(lto))
+        data.append(lfrom)
+        data.append(lto)
         self.sendPacket(command.LED_FLASH_CMD, data)
     
     def led(self, num, intensity=5):
@@ -799,7 +799,7 @@ class SyncCentaur:
         logging.info(f"led: {num} {intensity}")
         data = bytearray([0x05, 0x0a, 0x01])
         data.append(intensity)
-        data.append(self.rotateField(num))
+        data.append(num)
         self.sendPacket(command.LED_FLASH_CMD, data)
     
     def ledFlash(self):
