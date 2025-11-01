@@ -773,12 +773,13 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
 
 def clockThread():
     """Clock thread that decrements time and updates display"""
-    global whitetime, blacktime
     while not _game_state.kill:
         time.sleep(2)
         if whitetime > 0 and _game_state.curturn == 1 and _game_state.cboard.fen() != START_FEN:
+            global whitetime
             whitetime = whitetime - 2
         if blacktime > 0 and _game_state.curturn == 0:
+            global blacktime
             blacktime = blacktime - 2
         
         wmin = whitetime // 60
