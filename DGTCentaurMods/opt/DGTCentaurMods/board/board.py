@@ -375,6 +375,7 @@ def getBoardState(field=None):
         field: Optional square index (0-63) to query specific square
     """ 
     raw_boarddata = asyncserial.request_response(command.DGT_BUS_SEND_STATE)
+    print(f"[board.getBoardState] raw_boarddata: {raw_boarddata}")
     boarddata = bytearray(raw_boarddata)
     print(f"[board.getBoardState] boarddata: {boarddata}")
     boarddata.reverse()
