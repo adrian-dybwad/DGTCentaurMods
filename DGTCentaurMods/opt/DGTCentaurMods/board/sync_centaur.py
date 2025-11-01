@@ -65,9 +65,6 @@ class CommandSpec:
     default_data: Optional[bytes] = None
 
 DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
-DGT_BUS_SEND_CHANGES_RESP = 0x85
-DGT_BUS_SEND_STATE_RESP = 0x83
-DGT_NOTIFY_EVENTS_RESP = 0xa3
 
 COMMANDS: Dict[str, CommandSpec] = {
     "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83, None),
@@ -576,15 +573,19 @@ class SyncCentaur:
     
     def sendPacket(self, command_name: str, data: Optional[bytes] = None):
         """
-        Send a packet to the board using a command name (for compatibility).
+        Send a packet to the board using a command name.
         
         Args:
-            command_name: command name in COMMANDS
-            data: bytes for data payload
+            command_name: command name in COMMANDS (e.g., "LED_OFF_CMD")
+            data: bytes for data payload; if None, use default_data from the named command if available
         """
         if not isinstance(command_name, str):
-            raise TypeError("sendPacket requires a command name (str)")
-        self._send_packet(command_name, data)
+            raise TypeError("sendPacket requires a command name (str), e.g. command.LED_OFF_CMD")
+        spec = CMD_BY_NAME.get(command_name)
+        if not spec:
+            raise KeyError(f"Unknown command name: {command_name}")
+        eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
+        self._send_packet(command_name, eff_data)
     
     def _build_packet(self, command, data):
         """Build a complete packet with command, addresses, data, and checksum"""
