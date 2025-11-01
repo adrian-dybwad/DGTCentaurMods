@@ -452,6 +452,9 @@ def correction_fieldcallback(piece_event, field_hex, square, time_in_seconds):
         time_in_seconds: Time of the event
     """
 
+    global must_check_new_game
+    must_check_new_game = True
+
     global correction_mode, correction_expected_state, boardstates, cboard, original_fieldcallback
     
     if not correction_mode:
@@ -467,8 +470,7 @@ def correction_fieldcallback(piece_event, field_hex, square, time_in_seconds):
         board.ledsOff()
         board.beep(board.SOUND_GENERAL)
         exit_correction_mode()
-        # Board is corrected, resume normal game flow but don't process this specific event
-        # as it was just a correction move, not a game move
+        # Don't process this event through normal flow, just exit correction
         return
     
     # Still incorrect, update guidance
