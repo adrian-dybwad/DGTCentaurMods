@@ -84,7 +84,6 @@ class GameState:
         self.correction_mode = False
         self.correction_expected_state = None
         self.correction_iteration = 0
-        self.last_move_time = 0  # Track when last move was processed to prevent immediate correction
         
         # Opponent move tracking (key fix for the bug)
         self.pending_opponent_move = None  # Stores (from_sq, to_sq, time) when detected during opponent turn
@@ -214,12 +213,6 @@ def _enter_correction_mode():
     # Don't enter correction mode if we're in the middle of processing a valid move
     if _game_state.sourcesq >= 0 and len(_game_state.legalsquares) > 1:
         print("[gamemanager._enter_correction_mode] Skipping correction - valid move in progress")
-        return
-    
-    # Don't enter correction mode immediately after a move was processed (within 1 second)
-    # This prevents correction mode from triggering on residual sensor events after valid moves
-    if time.time() - _game_state.last_move_time < 1.0:
-        print(f"[gamemanager._enter_correction_mode] Skipping correction - move just processed {time.time() - _game_state.last_move_time:.2f}s ago")
         return
     
     _game_state.correction_mode = True
@@ -428,9 +421,6 @@ def _process_move(move_uci, move, from_sq, to_sq):
     
     # Collect the new board state after move
     _collect_board_state()
-    
-    # Record the time when move was processed to prevent immediate correction checks
-    _game_state.last_move_time = time.time()
     
     _game_state.legalsquares = []
     _game_state.sourcesq = -1
