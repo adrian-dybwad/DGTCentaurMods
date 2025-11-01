@@ -281,13 +281,13 @@ def provide_correction_guidance(current_state, expected_state):
             # Light up the squares where pieces should be
             board.ledsOff()
             for idx in missing_origins:
-                board.led(board.rotateField(idx), intensity=5)
+                board.ledOn(board.rotateField(idx), intensity=5)
             print(f"[gamemanager.provide_correction_guidance] Pieces missing at: {[chess.square_name(sq) for sq in missing_origins]}")
         elif len(wrong_locations) > 0:
             # Light up the squares where pieces shouldn't be
             board.ledsOff()
             for idx in wrong_locations:
-                board.led(board.rotateField(idx), intensity=5)
+                board.ledOn(board.rotateField(idx), intensity=5)
             print(f"[gamemanager.provide_correction_guidance] Extra pieces at: {[chess.square_name(sq) for sq in wrong_locations]}")
 
 
