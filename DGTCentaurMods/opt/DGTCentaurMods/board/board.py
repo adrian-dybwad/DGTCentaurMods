@@ -228,20 +228,20 @@ def ledArray(inarray, speed = 3, intensity=5):
     inarray = list[int](inarray.copy())
     inarray.reverse()
     for i in range(0, len(inarray)):
-        inarray[i] = rotateField(inarray[i])
+        inarray[i] = inarray[i]
     asyncserial.ledArray(inarray, speed, intensity)
 
 def ledFromTo(lfrom, lto, intensity=5):
     # Light up a from and to LED for move indication
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.ledFromTo(rotateField(lfrom), rotateField(lto), intensity)
+    asyncserial.ledFromTo(lfrom, lto, intensity)
 
 def led(num, intensity=5):
     # Flashes a specific led
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.led(rotateField(num), intensity)
+    asyncserial.led(num, intensity)
 
 def ledFlash():
     # Flashes the last led lit by led(num) above
