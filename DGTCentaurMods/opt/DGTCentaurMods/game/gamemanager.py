@@ -88,15 +88,6 @@ correction_expected_state = None
 correction_iteration = 0
 original_fieldcallback = None
 
-st = board.getChessState()
-for i in range(0, 64):
-    if st[i] == 1:
-        board.led(i, intensity=5)
-    else:
-        board.led(i, intensity=1)
-    log.info(f"[gamemanager.gameThread] LED {i} on {board.convertField(i)} PICE: {st[i]}")
-    time.sleep(0.05)
-    
 def collectBoardState():
     # Append the board state to boardstates
     global boardstates
