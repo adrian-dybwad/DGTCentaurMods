@@ -309,46 +309,78 @@ epaper.quickClear()
 
 def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:
     process = None
+    interrupted = False
+    
     def signal_handler(signum, frame):
         """Handle Ctrl+C by terminating the subprocess"""
-        nonlocal process
+        nonlocal process, interrupted
+        if interrupted:
+            # Already handling interrupt, force kill
+            log.warning(">>> Force killing subprocess...")
+            if process is not None:
+                try:
+                    process.kill()
+                except:
+                    pass
+            return
+        
+        interrupted = True
         if process is not None:
             log.info(">>> Interrupted, terminating subprocess...")
             try:
-                process.terminate()
-                process.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
-                log.warning(">>> Subprocess didn't terminate, killing...")
-                process.kill()
-                process.wait()
+                # Try to kill the whole process group to get child processes too
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                except (OSError, ProcessLookupError):
+                    # Fallback to regular terminate if process group kill fails
+                    process.terminate()
+                
+                try:
+                    process.wait(timeout=2.0)
+                    log.info(">>> Subprocess terminated successfully")
+                except subprocess.TimeoutExpired:
+                    log.warning(">>> Subprocess didn't terminate, killing...")
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    except (OSError, ProcessLookupError):
+                        process.kill()
+                    try:
+                        process.wait(timeout=1.0)
+                    except subprocess.TimeoutExpired:
+                        pass
             except Exception as e:
                 log.warning(f">>> Error terminating subprocess: {e}")
-        sys.exit(130)  # Standard exit code for SIGINT
+                try:
+                    process.kill()
+                except:
+                    pass
+        # Don't call sys.exit() here - let the wait() complete
     
     # Register signal handler for graceful shutdown
     original_handler = signal.signal(signal.SIGINT, signal_handler)
     try:
-        try:
-            epaper.loadingScreen()
-            board.pauseEvents()
-            board.cleanup(leds_off=True)
-            statusbar.stop()
+        epaper.loadingScreen()
+        board.pauseEvents()
+        board.cleanup(leds_off=True)
+        statusbar.stop()
 
-            script_path = str((pathlib.Path(__file__).parent / script_rel_path).resolve())
-            log.info(f"script_path: {script_path}")
-            cmd = [sys.executable, script_path, *map(str, args)]
-            process = subprocess.Popen(cmd)
+        script_path = str((pathlib.Path(__file__).parent / script_rel_path).resolve())
+        log.info(f"script_path: {script_path}")
+        cmd = [sys.executable, script_path, *map(str, args)]
+        
+        # Start process in its own process group so we can kill all children
+        process = subprocess.Popen(cmd, preexec_fn=os.setsid)
+        
+        try:
             result = process.wait()
             return result
         except KeyboardInterrupt:
-            log.info(">>> KeyboardInterrupt in run_external_script")
+            log.info(">>> KeyboardInterrupt caught, subprocess should already be terminated")
             if process is not None:
                 try:
-                    process.terminate()
-                    process.wait(timeout=2.0)
+                    process.wait(timeout=1.0)
                 except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
+                    pass
             return 130  # Standard exit code for SIGINT
     finally:
         # Restore original signal handler
