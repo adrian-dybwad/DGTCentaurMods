@@ -392,12 +392,12 @@ def printChessState(state = None, loglevel = logging.INFO):
     # Helper to display board state
     if state is None:
         state = getChessState()  # Use getChessState if available, or update to use transformed state
-    line = ""
+    line = "\n"
     # Display ranks from top (rank 8) to bottom (rank 1)
     # Chess coordinates: row 7 (56-63) = rank 8, row 0 (0-7) = rank 1
     for rank in range(7, -1, -1):  # Iterate from rank 8 (row 7) down to rank 1 (row 0)
         x = rank * 8  # Starting index for this rank
-        line += "\n\r\n+---+---+---+---+---+---+---+---+"
+        line += "\r\n+---+---+---+---+---+---+---+---+"
         line += "\r\n|"
         for y in range(0, 8):
             line += " " + str(state[x + y]) + " |"
