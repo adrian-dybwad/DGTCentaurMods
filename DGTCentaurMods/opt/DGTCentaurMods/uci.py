@@ -226,8 +226,6 @@ def eventCallback(event):
         if last_event == gamemanager.EVENT_NEW_GAME:
             log.warning("!!! SKIPPING: Consecutive NEW_GAME events - ignoring to prevent loop !!!")
             return
-        import traceback
-        traceback.print_stack()
     last_event = event
     try:
         log.info(f"EventCallback triggered with event: {event}")
