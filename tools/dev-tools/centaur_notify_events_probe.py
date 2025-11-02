@@ -302,7 +302,7 @@ def main():
     ap = argparse.ArgumentParser(description="DGT_NOTIFY_EVENTS probe: discover → 0x58 → log events → 0x83 → 0x85 → reissue 0x58")
     ap.add_argument("--port", default="/dev/serial0", help="Serial device (e.g., /dev/serial0)")
     ap.add_argument("--baud", type=int, default=1000000, help="Baud rate")
-    ap.add_argument("--listen", type=float, default=30.0, help="Seconds to listen for notifications")
+    ap.add_argument("--listen", type=float, default=300.0, help="Seconds to listen for notifications")
     args = ap.parse_args()
 
     try:
