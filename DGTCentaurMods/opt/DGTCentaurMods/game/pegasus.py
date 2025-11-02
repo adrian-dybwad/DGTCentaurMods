@@ -34,6 +34,9 @@ from DGTCentaurMods.board import *
 from DGTCentaurMods.display import epaper
 from PIL import Image, ImageDraw
 from DGTCentaurMods.board.logging import log
+import signal
+import sys
+from DGTCentaurMods.thirdparty.bletools import BleTools
 
 kill = 0
 bt_connected = False
@@ -86,6 +89,7 @@ def _key_callback(key):
         log.info(f"[Pegasus] Key event: {key}")
         if (key == board.Key.BACK):
             log.info("[Pegasus] Back button pressed -> exit")
+            cleanup()
             app.quit()
     except Exception as e:
         log.info(f"[Pegasus] key callback error: {e}")
@@ -125,6 +129,54 @@ try:
     log.info("[Pegasus] Subscribed to board events")
 except Exception as e:
     log.info(f"[Pegasus] Failed to subscribe events: {e}")
+
+def cleanup():
+    """Clean up BLE services and advertisements before exit."""
+    try:
+        log.info("[Pegasus] Cleaning up BLE services...")
+        # Stop notifications
+        if UARTService.tx_obj is not None:
+            try:
+                UARTService.tx_obj.StopNotify()
+            except Exception as e:
+                log.info(f"[Pegasus] Error stopping notify: {e}")
+        
+        # Unregister advertisement
+        try:
+            if 'adv' in globals():
+                adapter = BleTools.find_adapter(adv.bus)
+                ad_manager = dbus.Interface(
+                    adv.bus.get_object("org.bluez", adapter),
+                    "org.bluez.LEAdvertisingManager1")
+                ad_manager.UnregisterAdvertisement(adv.get_path())
+                log.info("[Pegasus] Advertisement unregistered")
+        except Exception as e:
+            log.info(f"[Pegasus] Error unregistering advertisement: {e}")
+        
+        # Unregister application
+        try:
+            if 'app' in globals():
+                adapter = BleTools.find_adapter(app.bus)
+                service_manager = dbus.Interface(
+                    app.bus.get_object("org.bluez", adapter),
+                    "org.bluez.GattManager1")
+                service_manager.UnregisterApplication(app.get_path())
+                log.info("[Pegasus] Application unregistered")
+        except Exception as e:
+            log.info(f"[Pegasus] Error unregistering application: {e}")
+    except Exception as e:
+        log.info(f"[Pegasus] Error in cleanup: {e}")
+
+def signal_handler(signum, frame):
+    """Handle termination signals."""
+    log.info(f"[Pegasus] Received signal {signum}, cleaning up...")
+    cleanup()
+    try:
+        if 'app' in globals():
+            app.quit()
+    except:
+        pass
+    sys.exit(0)
 
 class UARTAdvertisement(Advertisement):
     def __init__(self, index):
@@ -189,8 +241,6 @@ class UARTRXCharacteristic(Characteristic):
         bytes = bytearray()
         for i in range(0,len(value)):
             bytes.append(value[i])
-
-        log.info(f"[Pegasus RX] len={len(bytes)} bytes: {' '.join(f'{b:02x}' for b in bytes)}")
 
         processed = 0
         if len(bytes) == 1 and (bytes[0] == ord('B') or bytes[0] == ord('b')):
@@ -330,13 +380,19 @@ class UARTTXCharacteristic(Characteristic):
 
     def StartNotify(self):
         log.info("[Pegasus] StartNotify begin")
-        epaper.writeText(13, "              ")
-        epaper.writeText(13, "Connected")
-        #board.clearBoardData()
-        board.beep(board.SOUND_GENERAL)
+        # Set tx_obj FIRST before any operations that might fail
         UARTService.tx_obj = self
         self.notifying = True
-        board.ledsOff()
+        
+        # Now do operations that might fail
+        try:
+            epaper.writeText(13, "              ")
+            epaper.writeText(13, "Connected")
+            #board.clearBoardData()
+            board.beep(board.SOUND_GENERAL)
+            board.ledsOff()
+        except Exception as e:
+            log.info(f"[Pegasus] Error in StartNotify operations: {e}")
         # Ensure event thread is running in case it was paused earlier
         try:
             board.unPauseEvents()
@@ -395,7 +451,16 @@ app.register()
 adv = UARTAdvertisement(0)
 adv.register()
 
+# Register signal handlers for clean shutdown
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
 try:
     app.run()
 except KeyboardInterrupt:
+    cleanup()
+    app.quit()
+except Exception as e:
+    log.info(f"[Pegasus] Unexpected error: {e}")
+    cleanup()
     app.quit()
