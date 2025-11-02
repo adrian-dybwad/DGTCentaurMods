@@ -78,6 +78,8 @@ function insertStockfish {
             make -j"$(nproc)" build ARCH=armv7
 
             mv stockfish stockfish_pi
+            # Remove any existing stockfish_pi (symlink or file) in staging before copying
+            rm -f "${STAGE_DIR}${INSTALLDIR}/engines/stockfish_pi"
             cp stockfish_pi "${STAGE_DIR}${INSTALLDIR}/engines"
             return
             ;;
