@@ -624,6 +624,11 @@ def _reset_game():
         global gameinfo_round
         global gameinfo_white
         global gameinfo_black
+        global sourcesq
+        global legalsquares
+        global othersourcesq
+        global forcemove
+        global computermove
         
         # Debug: Log board state comparison
         #log.info(f"DEBUG: Board state check - current_state length: {len(current_state)}, startstate length: {len(startstate)}")
@@ -640,6 +645,12 @@ def _reset_game():
         board.ledsOff()
         eventcallbackfunction(EVENT_NEW_GAME)
         eventcallbackfunction(EVENT_WHITE_TURN)
+        # Reset move-related state variables to prevent stale values from previous game/correction
+        sourcesq = -1
+        legalsquares = []
+        othersourcesq = -1
+        forcemove = 0
+        computermove = ""
         # Log a new game in the db
         game = models.Game(
             source=source,
