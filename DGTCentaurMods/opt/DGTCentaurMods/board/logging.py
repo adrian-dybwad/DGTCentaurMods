@@ -46,7 +46,7 @@ class ColoredFormatter(logging.Formatter):
         if self.use_colors:
             original_levelname = record.levelname
             # Pad to 8 characters before adding color codes
-            padded_levelname = f"{original_levelname:<8}"
+            padded_levelname = f"{original_levelname:>8}"
             color = self.COLORS.get(original_levelname, '')
             record.levelname = f"{color}{padded_levelname}{self.RESET}"
             result = super().format(record)
