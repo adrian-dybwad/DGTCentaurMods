@@ -280,7 +280,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
 
 def changedCallback(piece_event, field_hex, time_in_seconds):
     log.info(f"changedCallback: {piece_event} {field_hex} {time_in_seconds}")
-    board.printBoardState()
+    board.printChessState()
 
 
 # Turn Leds off, beep, clear DGT Centaur Serial
