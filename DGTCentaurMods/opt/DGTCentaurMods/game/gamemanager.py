@@ -667,9 +667,12 @@ def fieldcallback(piece_event, field, time_in_seconds):
                 # Depending on the outcome we can update the game information for the result
                 resultstr = str(cboard.result())
                 tg = session.query(models.Game).filter(models.Game.id == gamedbid).first()
-                tg.result = resultstr
-                session.flush()
-                session.commit()
+                if tg is not None:
+                    tg.result = resultstr
+                    session.flush()
+                    session.commit()
+                else:
+                    log.warning(f"[gamemanager.fieldcallback] Game with id {gamedbid} not found in database, cannot update result")
                 eventcallbackfunction(str(outc.termination))
 
 def resignGame(sideresigning):
@@ -681,9 +684,12 @@ def resignGame(sideresigning):
     else:
         resultstr = "1-0"
     tg = session.query(models.Game).filter(models.Game.id == gamedbid).first()
-    tg.result = resultstr
-    session.flush()
-    session.commit()
+    if tg is not None:
+        tg.result = resultstr
+        session.flush()
+        session.commit()
+    else:
+        log.warning(f"[gamemanager.resignGame] Game with id {gamedbid} not found in database, cannot update result")
     eventcallbackfunction("Termination.RESIGN")
     
 def getResult():
@@ -698,9 +704,12 @@ def getResult():
 def drawGame():
     # Take care of updating the data for a drawn game
     tg = session.query(models.Game).filter(models.Game.id == gamedbid).first()
-    tg.result = "1/2-1/2"
-    session.flush()
-    session.commit()
+    if tg is not None:
+        tg.result = "1/2-1/2"
+        session.flush()
+        session.commit()
+    else:
+        log.warning(f"[gamemanager.drawGame] Game with id {gamedbid} not found in database, cannot update result")
     eventcallbackfunction("Termination.DRAW")
 
 def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
