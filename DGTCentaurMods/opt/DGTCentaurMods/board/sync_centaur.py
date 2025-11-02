@@ -277,7 +277,6 @@ class SyncCentaur:
                 if len(self.response_buffer) > 5:
                     calculated_checksum = self.checksum(self.response_buffer[:-1])
                     if byte == calculated_checksum:
-                        log.info(f"[P{self.packet_count:03d}] checksummed: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                         self.on_packet_complete(self.response_buffer)
                         return True
                     else:
@@ -303,7 +302,8 @@ class SyncCentaur:
         self.packet_count += 1
         
         try:
-            log.info(f"[SyncCentaur] on_packet_complete: packet: {' '.join(f'{b:02x}' for b in packet)}")
+            truncated_packet = packet[:50]
+            log.info(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
             # Handle discovery or route to handler
             if not self.ready:
                 self._discover_board_address(packet)

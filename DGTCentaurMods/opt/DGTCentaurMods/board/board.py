@@ -402,7 +402,7 @@ def printChessState(state = None, loglevel = logging.INFO):
         line += "\r\n|"
         for y in range(0, 8):
             line += " " + str(state[x + y]) + " |"
-    line += "\r\n+---+---+---+---+---+---+---+---+"
+    line += "\r\n+---+---+---+---+---+---+---+---+\n"
     log.log(loglevel, line)
 
 def getChargingState():
