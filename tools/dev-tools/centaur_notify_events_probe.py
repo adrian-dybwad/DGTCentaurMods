@@ -237,8 +237,11 @@ class PacketReader:
                 if not bad_csum and len(pkt) >= 6:
                     payload = pkt[5:-1]  # Payload is after addr1, addr2, before checksum
                     if payload:
-                        decoded_time = decode_time(payload)
-                        time_str = f"  [decoded_time={decoded_time:.3f}s]"
+                        # Extract time bytes before passing to decode_time
+                        time_bytes = self._extract_time_from_payload(payload)
+                        if time_bytes:
+                            decoded_time = decode_time(time_bytes)
+                            time_str = f"  [decoded_time={decoded_time:.3f}s]"
                 out(f"raw packet ({label}): {hexrow(pkt)}{time_str}")
                 
                 # Handle 0x85 (board changes) payload logging
