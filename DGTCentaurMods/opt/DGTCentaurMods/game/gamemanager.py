@@ -174,20 +174,28 @@ def enter_correction_mode():
     Enter correction mode to guide user in fixing board state.
     Pauses and resumes events to reset the event queue.
     """
-    global correction_mode, correction_expected_state, correction_iteration
+    global correction_mode, correction_expected_state, correction_iteration, forcemove, computermove
     correction_mode = True
     correction_expected_state = boardstates[-1] if boardstates else None
     correction_iteration = 0
-    log.warning("[gamemanager.enter_correction_mode] Entered correction mode")
+    log.warning(f"[gamemanager.enter_correction_mode] Entered correction mode (forcemove={forcemove}, computermove={computermove})")
 
 def exit_correction_mode():
     """
     Exit correction mode and resume normal game flow.
+    Restores forced move LEDs if a forced move was pending.
     """
-    global correction_mode, correction_expected_state
+    global correction_mode, correction_expected_state, forcemove, computermove
     correction_mode = False
     correction_expected_state = None
     log.warning("[gamemanager.exit_correction_mode] Exited correction mode")
+    
+    # If there was a forced move pending, restore the LEDs
+    if forcemove == 1 and computermove and len(computermove) >= 4:
+        fromnum = ((ord(computermove[1:2]) - ord("1")) * 8) + (ord(computermove[0:1]) - ord("a"))
+        tonum = ((ord(computermove[3:4]) - ord("1")) * 8) + (ord(computermove[2:3]) - ord("a"))
+        board.ledFromTo(fromnum, tonum)
+        log.info(f"[gamemanager.exit_correction_mode] Restored forced move LEDs: {computermove}")
 
 def provide_correction_guidance(current_state, expected_state):
     """
@@ -332,8 +340,8 @@ def correction_fieldcallback(piece_event, field_hex, time_in_seconds):
     if validate_board_state(current_state, correction_expected_state):
         # Board is now correct!
         log.info("[gamemanager.correction_fieldcallback] Board corrected, exiting correction mode")
-        board.ledsOff()
         board.beep(board.SOUND_GENERAL)
+        # Don't turn off LEDs here - let exit_correction_mode() restore forced move LEDs if needed
         exit_correction_mode()
         # Don't process this event through normal flow, just exit correction
         return
