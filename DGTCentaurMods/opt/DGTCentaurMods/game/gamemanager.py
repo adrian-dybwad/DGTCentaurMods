@@ -636,6 +636,12 @@ def _reset_game():
         # Always refresh current_state before comparing to avoid stale reads
             
         log.info("DEBUG: Detected starting position - triggering NEW_GAME")
+        # Reset move-related state variables to prevent stale values from previous game/correction
+        sourcesq = -1
+        legalsquares = []
+        othersourcesq = -1
+        forcemove = 0
+        computermove = ""
         curturn = 1
         cboard = chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
         paths.write_fen_log(cboard.fen())
@@ -645,12 +651,6 @@ def _reset_game():
         board.ledsOff()
         eventcallbackfunction(EVENT_NEW_GAME)
         eventcallbackfunction(EVENT_WHITE_TURN)
-        # Reset move-related state variables to prevent stale values from previous game/correction
-        sourcesq = -1
-        legalsquares = []
-        othersourcesq = -1
-        forcemove = 0
-        computermove = ""
         # Log a new game in the db
         game = models.Game(
             source=source,
