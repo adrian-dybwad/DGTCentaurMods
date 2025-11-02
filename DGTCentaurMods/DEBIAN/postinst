@@ -180,15 +180,12 @@ then
 fi
 }
 
-# Install Stockfish if in build
+# Install Stockfish if in build (keep in package directory like other engines)
 if [[ -e "${DGTCM_PATH}/engines/${STOCKFISH}" ]]; then
     echo -e "::: Installing Stockfish engine"
-    mkdir -p "${CENTAUR_ENGINE}"
-    if [[ -f "${CENTAUR_ENGINE}/${STOCKFISH}" ]]; then
-        mv "${CENTAUR_ENGINE}/${STOCKFISH}" "${CENTAUR_ENGINE}/${STOCKFISH}.bak"
-    fi
-    mv "${DGTCM_PATH}/engines/${STOCKFISH}" "${CENTAUR_ENGINE}/${STOCKFISH}"
-    chown -R pi:root "${CENTAUR_ENGINE}"
+    # Ensure engines directory exists and has correct permissions
+    chmod 755 "${DGTCM_PATH}/engines/${STOCKFISH}"
+    chown pi:pi "${DGTCM_PATH}/engines/${STOCKFISH}"
 fi
 
 #
