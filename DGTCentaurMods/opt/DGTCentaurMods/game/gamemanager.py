@@ -193,9 +193,10 @@ def exit_correction_mode():
     """
     Exit correction mode and resume normal game flow.
     """
-    global correction_mode, correction_expected_state
+    global correction_mode, correction_expected_state, must_check_new_game
     correction_mode = False
     correction_expected_state = None
+    must_check_new_game = True
     log.warning("[gamemanager.exit_correction_mode] Exited correction mode")
 
 def provide_correction_guidance(current_state, expected_state):
@@ -444,6 +445,17 @@ def correction_fieldcallback(piece_event, field_hex, time_in_seconds):
     
     # In correction mode: check if board now matches expected after each event
     current_state = board.getChessState()
+
+    # Check if board is in starting position (new game detection)
+    if current_state is not None and len(current_state) == 64:
+        if bytearray(current_state) == startstate:
+            log.info("[gamemanager.correction_fieldcallback] Starting position detected while in correction mode - exiting correction and triggering new game check")
+            board.ledsOff()
+            board.beep(board.SOUND_GENERAL)
+            # exit_correction_mode will set must_check_new_game to True, triggering new game detection
+            exit_correction_mode()
+            return
+     
     log.info(f"[gamemanager.correction_fieldcallback] Current state:")
     board.printChessState(current_state, logging.ERROR)
     log.info(f"[gamemanager.correction_fieldcallback] Correction expected state:")
@@ -765,7 +777,7 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
                     current_state = None
                     if must_check_new_game:
                         current_state = board.getChessState()
-                        _check_misplaced_pieces(current_state)
+                        #_check_misplaced_pieces(current_state)
                         must_check_new_game = False
                     if current_state != None and bytearray(current_state) == startstate:
                         # Also validate chess board is in starting position to ensure new game trigger
