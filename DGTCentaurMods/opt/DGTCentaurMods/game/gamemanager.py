@@ -184,7 +184,7 @@ def exit_correction_mode():
     """
     Exit correction mode and resume normal game flow.
     """
-    global correction_mode, correction_expected_state, must_check_new_game
+    global correction_mode, correction_expected_state
     correction_mode = False
     correction_expected_state = None
     log.warning("[gamemanager.exit_correction_mode] Exited correction mode")
@@ -321,7 +321,6 @@ def correction_fieldcallback(piece_event, field_hex, time_in_seconds):
             log.info("[gamemanager.correction_fieldcallback] Starting position detected while in correction mode - exiting correction and triggering new game check")
             board.ledsOff()
             board.beep(board.SOUND_GENERAL)
-            # exit_correction_mode will set must_check_new_game to True, triggering new game detection
             exit_correction_mode()
             _reset_game()
             return
@@ -459,7 +458,6 @@ def fieldcallback(piece_event, field, time_in_seconds):
         if not is_takeback:
             guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece)
     
-    log.info(f"[gamemanager.fieldcallback] must_check_new_game: {must_check_new_game}")
     log.info(f"[gamemanager.fieldcallback] field: {field}")
     log.info(f"[gamemanager.fieldcallback] legalsquares: {legalsquares}")
     if place == 1 and field in legalsquares:
