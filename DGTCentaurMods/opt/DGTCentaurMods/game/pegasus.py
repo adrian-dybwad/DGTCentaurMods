@@ -90,9 +90,10 @@ def _key_callback(key):
     except Exception as e:
         log.info(f"[Pegasus] key callback error: {e}")
 
-def _field_callback(piece_event, field_hex, time_in_seconds):
+def _field_callback(piece_event, field, time_in_seconds):
     """Handle field events; forward to client only if TX notifications are on."""
     try:
+        field_hex = board.rotateFieldHex(field)
         log.info(f"[Pegasus] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={time_in_seconds}")
         tx = UARTService.tx_obj
         if tx is not None and getattr(tx, 'notifying', False):
@@ -104,8 +105,8 @@ def _field_callback(piece_event, field_hex, time_in_seconds):
                 # Flash LED on place to mirror app feedback
                 if piece_event == 1:
                     try:
-                        log.info(f"[Pegasus] LEDing field {field_hex}")
-                        board.led(board.rotateFieldHex(field_hex))
+                        log.info(f"[Pegasus] LEDing field {field}")
+                        board.led(field)
                     except Exception:
                         pass
             except Exception as e:

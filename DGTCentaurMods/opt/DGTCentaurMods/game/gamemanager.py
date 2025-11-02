@@ -316,22 +316,21 @@ def guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece):
     if boardstates and len(boardstates) > 0:
         provide_correction_guidance(current_state, boardstates[-1])
 
-def correction_fieldcallback(piece_event, field_hex, time_in_seconds):
+def correction_fieldcallback(piece_event, field, time_in_seconds):
     """
     Wrapper that intercepts field events during correction mode.
     Validates board state and only passes through to normal game flow when correct.
     
     Args:
         piece_event: 0 for lift, 1 for place
-        field_hex: Hex value of the field
-        square: Square index (0-63)
+        field: Square index (0-63)
         time_in_seconds: Time of the event
     """
     global correction_mode, correction_expected_state, boardstates, cboard, original_fieldcallback
     
     if not correction_mode:
         # Normal flow - pass through to original callback
-        return fieldcallback(piece_event, field_hex, time_in_seconds)
+        return fieldcallback(piece_event, field, time_in_seconds)
     
     # In correction mode: check if board now matches expected after each event
     current_state = board.getChessState()
@@ -395,7 +394,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
     # if piece_event == 1: # PLACE
     #     field = ((square + 1) * -1) # Convert to negative field number
 
-    log.info(f"[gamemanager.fieldcallback] piece_event={piece_event} field_hex={field} field={field} time_in_seconds={time_in_seconds}")
+    log.info(f"[gamemanager.fieldcallback] piece_event={piece_event} field={field} time_in_seconds={time_in_seconds}")
     global cboard
     global curturn
     global movecallbackfunction
