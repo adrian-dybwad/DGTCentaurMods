@@ -451,6 +451,13 @@ def fieldcallback(piece_event, field, time_in_seconds):
             tsq = chess.parse_square(target)
             legalsquares = []
             legalsquares.append(tsq)
+    # Ignore PLACE events without a corresponding LIFT (stale events from before reset)
+    # This prevents triggering correction mode when a PLACE event arrives after reset
+    # but before the piece is lifted again in the new game state
+    # Allow opponent piece placement back (othersourcesq >= 0) and forced moves
+    if place == 1 and sourcesq < 0 and othersourcesq < 0 and not forcemove:
+        log.info(f"[gamemanager.fieldcallback] Ignoring stale PLACE event for field {field} (no corresponding LIFT)")
+        return
     if place == 1 and field not in legalsquares:
         board.beep(board.SOUND_WRONG_MOVE)
         log.warning(f"[gamemanager.fieldcallback] Piece placed on illegal square {field}")
