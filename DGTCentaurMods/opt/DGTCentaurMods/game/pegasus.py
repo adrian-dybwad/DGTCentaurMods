@@ -90,7 +90,7 @@ def _key_callback(key):
     except Exception as e:
         log.info(f"[Pegasus] key callback error: {e}")
 
-def _field_callback(piece_event, field_hex, square, time_in_seconds):
+def _field_callback(piece_event, field_hex, time_in_seconds):
     """Handle field events; forward to client only if TX notifications are on."""
     try:
         log.info(f"[Pegasus] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={time_in_seconds}")
@@ -104,7 +104,8 @@ def _field_callback(piece_event, field_hex, square, time_in_seconds):
                 # Flash LED on place to mirror app feedback
                 if piece_event == 1:
                     try:
-                        board.led(square)
+                        log.info(f"[Pegasus] LEDing field {field_hex}")
+                        board.led(field_hex)
                     except Exception:
                         pass
             except Exception as e:
