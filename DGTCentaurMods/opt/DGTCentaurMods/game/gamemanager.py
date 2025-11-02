@@ -615,7 +615,6 @@ def _reset_game():
         global curturn
         global cboard
         global paths
-        global eventCallbackFunction
         global source
         global gameinfo_event
         global gameinfo_site
@@ -636,8 +635,8 @@ def _reset_game():
         time.sleep(0.3)
         board.beep(board.SOUND_GENERAL)
         board.ledsOff()
-        eventCallbackFunction(EVENT_NEW_GAME)
-        eventCallbackFunction(EVENT_WHITE_TURN)
+        eventcallbackfunction(EVENT_NEW_GAME)
+        eventcallbackfunction(EVENT_WHITE_TURN)
         # Log a new game in the db
         game = models.Game(
             source=source,
