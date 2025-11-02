@@ -713,7 +713,7 @@ class AsyncCentaur:
         minutes = time_bytes[2] if len(time_bytes) > 2 else 0
         hours = time_bytes[3] if len(time_bytes) > 3 else 0
         if len(time_bytes) > 4:
-            log.warning(f"time_bytes has more than 4 bytes: {time_bytes}")
+            log.warning(f"time_bytes has more than 4 bytes: {' '.join(f'{b:02x}' for b in time_bytes)}")
         
         # Convert subsec to hundredths
         subsec_decimal = subsec / 256.0 * 100
