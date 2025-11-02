@@ -38,6 +38,7 @@ from typing import Dict, Optional
 from types import SimpleNamespace
 
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.board import time_utils
 
 
 """
