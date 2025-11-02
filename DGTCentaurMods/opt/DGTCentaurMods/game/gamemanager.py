@@ -527,7 +527,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
         vpiece = 1
     if curturn == 1 and pc == True:
         vpiece = 1
-    fieldname = board.convertField(field)
+    fieldname = chess.square_name(field)
     log.info(f"[gamemanager.fieldcallback] Fieldname: {fieldname}")
     legalmoves = cboard.legal_moves
     lmoves = list(legalmoves)
@@ -538,7 +538,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
         legalsquares.append(field)
         sourcesq = field
         for x in range(0, 64):
-            fx = board.convertField(x)
+            fx = chess.square_name(x)
             tm = fieldname + fx
             found = 0
             try:
@@ -592,8 +592,8 @@ def fieldcallback(piece_event, field, time_in_seconds):
             legalsquares = []
         else:
             # Piece has been moved
-            fromname = board.convertField(sourcesq)
-            toname = board.convertField(field)
+            fromname = chess.square_name(sourcesq)
+            toname = chess.square_name(field)
             # Promotion
             # If this is a WPAWN and squarerow is 7
             # or a BPAWN and squarerow is 0

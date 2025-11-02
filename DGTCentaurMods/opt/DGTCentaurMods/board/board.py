@@ -27,6 +27,7 @@ from typing import Any
 from DGTCentaurMods.board.sync_centaur import SyncCentaur, command, Key
 import sys
 import os
+import chess
 from DGTCentaurMods.display import epd2in9d, epaper
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.board.settings import Settings
@@ -469,10 +470,6 @@ def rotateFieldHex(fieldHex):
     # Rotate rows for hardware coordinate system
     field = (7 - squarerow) * 8 + squarecol
     return field
-
-def convertField(field):
-    square = chr((ord('a') + (field % 8))) + chr(ord('1') + (field // 8))
-    return square
 
 
 # This section is the start of a new way of working with the board functions where those functions are

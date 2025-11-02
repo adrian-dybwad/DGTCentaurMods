@@ -278,8 +278,8 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     event_key.clear()
     return selection
 
-def changedCallback(piece_event, field_hex, square, time_in_seconds):
-    log.info(f"DEBUG: changedCallback: {piece_event} {field_hex} {square} {time_in_seconds}")
+def changedCallback(piece_event, field_hex, time_in_seconds):
+    log.info(f"changedCallback: {piece_event} {field_hex} {time_in_seconds}")
     board.printBoardState()
 
 
