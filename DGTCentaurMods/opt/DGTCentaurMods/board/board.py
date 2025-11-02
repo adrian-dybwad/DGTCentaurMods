@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 #import serial
-#from DGTCentaurMods.board.async_centaur import AsyncCentaur, command, Key
+from DGTCentaurMods.board.async_centaur import AsyncCentaur, command, Key
 from typing import Any
 from DGTCentaurMods.board.sync_centaur import SyncCentaur, command, Key
 import sys
@@ -53,8 +53,8 @@ command_name = command
 
 # Get the config
 dev = Settings.read('system', 'developer', 'False')
-#asyncserial = AsyncCentaur(developer_mode=False)
-controller = SyncCentaur(developer_mode=False)
+controller = AsyncCentaur(developer_mode=False)
+#controller = SyncCentaur(developer_mode=False)
 # Various setup
 
 font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
