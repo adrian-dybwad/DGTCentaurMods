@@ -171,6 +171,7 @@ class SyncCentaur:
     
     def run_background(self, start_key_polling=False):
         """Initialize in background thread"""
+        self._closed = False
         self.listener_running = True
         self.ready = False
         self._initialize()
@@ -708,6 +709,8 @@ class SyncCentaur:
         try:
             if self.ser:
                 self.ser.close()
+                self.ser = None
+                log.info("Serial port closed")
         except Exception:
             pass
         
