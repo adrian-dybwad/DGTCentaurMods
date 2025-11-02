@@ -54,7 +54,7 @@ command_name = command
 # Get the config
 dev = Settings.read('system', 'developer', 'False')
 #asyncserial = AsyncCentaur(developer_mode=False)
-asyncserial = SyncCentaur(developer_mode=False)
+controller = SyncCentaur(developer_mode=False)
 # Various setup
 
 font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
@@ -68,7 +68,7 @@ batterylastchecked = 0
 
 # But the address might not be that :( Here we send an initial 0x4d to ask the board to provide its address
 
-asyncserial.wait_ready()
+controller.wait_ready()
 
 # Screen functions - deprecated, use epaper.py if possible
 #
@@ -198,15 +198,15 @@ def displayScreenBufferPartial():
     time.sleep(0.1)
 
 def cleanup(leds_off: bool = True):
-    asyncserial.cleanup(leds_off=True)
+    controller.cleanup(leds_off=True)
 
 def wait_for_key_up(timeout=None, accept=None):
     """Wait for a key up event from the board"""
-    return asyncserial.wait_for_key_up(timeout=timeout, accept=accept)
+    return controller.wait_for_key_up(timeout=timeout, accept=accept)
 
 
 def run_background(start_key_polling=False):
-    asyncserial.run_background(start_key_polling=start_key_polling)
+    controller.run_background(start_key_polling=start_key_polling)
     
 #
 # Board control - functions related to making the board do something
@@ -217,11 +217,11 @@ def beep(beeptype):
         log.warning("Beep disabled")
         return
     # Ask the centaur to make a beep sound
-    asyncserial.beep(beeptype)
+    controller.beep(beeptype)
 
 def ledsOff():
     # Switch the LEDs off on the centaur
-    asyncserial.ledsOff()
+    controller.ledsOff()
 
 def ledArray(inarray, speed = 3, intensity=5):
     # Lights all the leds in the given inarray with the given speed and intensity
@@ -229,23 +229,23 @@ def ledArray(inarray, speed = 3, intensity=5):
     inarray.reverse()
     for i in range(0, len(inarray)):
         inarray[i] = rotateField(inarray[i])
-    asyncserial.ledArray(inarray, speed, intensity)
+    controller.ledArray(inarray, speed, intensity)
 
 def ledFromTo(lfrom, lto, intensity=5):
     # Light up a from and to LED for move indication
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.ledFromTo(rotateField(lfrom), rotateField(lto), intensity)
+    controller.ledFromTo(rotateField(lfrom), rotateField(lto), intensity)
 
 def led(num, intensity=5):
     # Flashes a specific led
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.led(rotateField(num), intensity)
+    controller.led(rotateField(num), intensity)
 
 def ledFlash():
     # Flashes the last led lit by led(num) above
-    asyncserial.ledFlash()
+    controller.ledFlash()
 
 def shutdown():
     """
@@ -356,7 +356,7 @@ def sleep():
     """
     Sleep the controller.
     """
-    asyncserial.sleep()
+    controller.sleep()
 
 
 #
@@ -370,7 +370,7 @@ def getChessState(field=None):
     # 
     # Raw index i: row = i//8, col = i%8
     # Chess index: row = 7 - (i//8), col = i%8
-    raw_boarddata = asyncserial.request_response(command.DGT_BUS_SEND_STATE)
+    raw_boarddata = controller.request_response(command.DGT_BUS_SEND_STATE)
     board_data = list[int](raw_boarddata)
     chess_state = [0] * 64
     
@@ -386,7 +386,7 @@ def getChessState(field=None):
     return chess_state
 
 def sendCommand(command):
-    resp = asyncserial.request_response(command)
+    resp = controller.request_response(command)
     return resp
 
 def printChessState(state = None, loglevel = logging.INFO):
@@ -433,7 +433,7 @@ def getBatteryLevel():
     # 20 is fully charged. The board dies somewhere around a low of 1
     # Sending the board a packet starting with 152 gives battery info
     global batterylevel, chargerconnected, batterylastchecked
-    resp = asyncserial.request_response(command.DGT_SEND_BATTERY_INFO)
+    resp = controller.request_response(command.DGT_SEND_BATTERY_INFO)
     batterylastchecked = time.time()
     val = resp[0]
     batterylevel = val & 0x1F
@@ -520,7 +520,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 if fieldcallback != None:
                     try:
                         # Prefer push model via asyncserial piece listeners
-                        if asyncserial._piece_listener == None:
+                        if controller._piece_listener == None:
                             def _listener(piece_event, field_hex, time_in_seconds):
                                 nonlocal to
                                 try:
@@ -533,19 +533,19 @@ def eventsThread(keycallback, fieldcallback, tout):
                                     log.error(f"[board.events.push] error: {e}")
                                     import traceback
                                     traceback.print_exc()
-                            asyncserial._piece_listener = _listener
+                            controller._piece_listener = _listener
                     except Exception as e:
                         log.error(f"Error in piece detection thread: {e}")
 
             try:
 
-                key_pressed = asyncserial.get_and_reset_last_key()
+                key_pressed = controller.get_and_reset_last_key()
 
                 if key_pressed == Key.PLAY:
                     breaktime = time.time() + 0.5
                     beep(SOUND_GENERAL)
                     while time.time() < breaktime:
-                        key_pressed = asyncserial.get_and_reset_last_key()
+                        key_pressed = controller.get_and_reset_last_key()
                         if key_pressed == Key.PLAY:
                             log.debug('Play btn pressed. Stanby is: %s', standby)
                             if standby == False:
