@@ -312,49 +312,45 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
     interrupted = False
     
     def signal_handler(signum, frame):
-        """Handle Ctrl+C by terminating the subprocess"""
+        """Handle Ctrl+C by terminating the subprocess - NO LOGGING to avoid reentrant calls"""
         nonlocal process, interrupted
         if interrupted:
-            # Already handling interrupt, force kill
-            log.warning(">>> Force killing subprocess...")
+            # Already handling interrupt, force kill immediately and exit
             if process is not None:
                 try:
-                    process.kill()
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
                 except:
-                    pass
+                    try:
+                        process.kill()
+                    except:
+                        pass
+            os._exit(130)
             return
         
         interrupted = True
         if process is not None:
-            log.info(">>> Interrupted, terminating subprocess...")
+            # Try to terminate gracefully (no blocking wait in signal handler)
             try:
-                # Try to kill the whole process group to get child processes too
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            except:
                 try:
-                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                except (OSError, ProcessLookupError):
-                    # Fallback to regular terminate if process group kill fails
                     process.terminate()
-                
-                try:
-                    process.wait(timeout=2.0)
-                    log.info(">>> Subprocess terminated successfully")
-                except subprocess.TimeoutExpired:
-                    log.warning(">>> Subprocess didn't terminate, killing...")
-                    try:
-                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                    except (OSError, ProcessLookupError):
-                        process.kill()
-                    try:
-                        process.wait(timeout=1.0)
-                    except subprocess.TimeoutExpired:
-                        pass
-            except Exception as e:
-                log.warning(f">>> Error terminating subprocess: {e}")
-                try:
-                    process.kill()
                 except:
                     pass
-        # Don't call sys.exit() here - let the wait() complete
+            
+            # Start a background thread to kill if it doesn't exit quickly
+            def force_kill_after_delay():
+                time.sleep(1.5)
+                if process.poll() is None:
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    except:
+                        try:
+                            process.kill()
+                        except:
+                            pass
+            threading.Thread(target=force_kill_after_delay, daemon=True).start()
+        # Don't block or log - let the main wait() handle completion
     
     # Register signal handler for graceful shutdown
     original_handler = signal.signal(signal.SIGINT, signal_handler)
