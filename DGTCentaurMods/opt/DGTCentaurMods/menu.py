@@ -969,7 +969,7 @@ while True:
                 }
                 elo = doMenu(ratingmenu, "ELO")
                 if elo != "BACK":
-                    rc = run_external_script("game/stockfish.py", color, elo, start_key_polling=True)
+                    rc = run_external_script("uci.py", color, "stockfish_pi", elo, start_key_polling=True)
         else:
             if result != "BACK":
                 # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
