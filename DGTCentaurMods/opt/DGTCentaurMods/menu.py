@@ -29,7 +29,7 @@ import urllib.request
 import json
 import socket
 import subprocess
-import os
+import signal
 from DGTCentaurMods.display.ui_components import AssetManager
 
 from DGTCentaurMods.board import *
@@ -308,18 +308,51 @@ epaper.quickClear()
 
 
 def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:
+    process = None
+    def signal_handler(signum, frame):
+        """Handle Ctrl+C by terminating the subprocess"""
+        nonlocal process
+        if process is not None:
+            log.info(">>> Interrupted, terminating subprocess...")
+            try:
+                process.terminate()
+                process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                log.warning(">>> Subprocess didn't terminate, killing...")
+                process.kill()
+                process.wait()
+            except Exception as e:
+                log.warning(f">>> Error terminating subprocess: {e}")
+        sys.exit(130)  # Standard exit code for SIGINT
+    
+    # Register signal handler for graceful shutdown
+    original_handler = signal.signal(signal.SIGINT, signal_handler)
     try:
-        epaper.loadingScreen()
-        board.pauseEvents()
-        board.cleanup(leds_off=True)
-        statusbar.stop()
+        try:
+            epaper.loadingScreen()
+            board.pauseEvents()
+            board.cleanup(leds_off=True)
+            statusbar.stop()
 
-        script_path = str((pathlib.Path(__file__).parent / script_rel_path).resolve())
-        log.info(f"script_path: {script_path}")
-        cmd = [sys.executable, script_path, *map(str, args)]
-        result = subprocess.run(cmd, check=False)
-        return result.returncode
+            script_path = str((pathlib.Path(__file__).parent / script_rel_path).resolve())
+            log.info(f"script_path: {script_path}")
+            cmd = [sys.executable, script_path, *map(str, args)]
+            process = subprocess.Popen(cmd)
+            result = process.wait()
+            return result
+        except KeyboardInterrupt:
+            log.info(">>> KeyboardInterrupt in run_external_script")
+            if process is not None:
+                try:
+                    process.terminate()
+                    process.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            return 130  # Standard exit code for SIGINT
     finally:
+        # Restore original signal handler
+        signal.signal(signal.SIGINT, original_handler)
         log.info(">>> Reinitializing after external script...")
         epaper.initEpaper()
         log.info(">>> epaper.initEpaper() complete")
