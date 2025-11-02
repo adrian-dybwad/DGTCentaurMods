@@ -92,7 +92,7 @@ def do_cleanup():
 def cleanup_and_exit(signum=None, frame=None):
     """Clean up resources and exit gracefully"""
     global kill
-    log.info("\n>>> Cleaning up and exiting...")
+    log.info(">>> Cleaning up and exiting...")
     kill = 1
     do_cleanup()
     log.info("Goodbye!")
