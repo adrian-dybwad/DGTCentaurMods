@@ -30,7 +30,7 @@
 # THE SOFTWARE.
 #
 
-import logging
+from DGTCentaurMods.board.logging import logger
 from lib import epdconfig
 from PIL import Image
 import RPi.GPIO as GPIO

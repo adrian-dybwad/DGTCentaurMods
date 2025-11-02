@@ -25,7 +25,6 @@ import pathlib
 import sys
 import threading
 import time
-import logging
 import urllib.request
 import json
 import socket
@@ -33,14 +32,10 @@ import subprocess
 import os
 from DGTCentaurMods.display.ui_components import AssetManager
 
-try:
-    logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log",filemode="w")
-except:
-    logging.basicConfig(level=logging.DEBUG)
-
 from DGTCentaurMods.board import *
 from DGTCentaurMods.display import epaper
 from PIL import Image, ImageDraw, ImageFont
+from DGTCentaurMods.board.logging import log
 
 menuitem = 1
 curmenu = None
@@ -53,7 +48,7 @@ idle = False # ensure defined before keyPressed can be called
 
 def keyPressed(id):
     # This functiion receives key presses
-    print("in menu.py keyPressed: " + str(id))
+    log.info("in menu.py keyPressed: " + str(id))
     global shift
     global menuitem
     global curmenu
@@ -68,7 +63,7 @@ def keyPressed(id):
         if id == board.Key.TICK:
             if not curmenu:
                 selection = "BTNTICK"
-                #print(selection)
+                #log.info(selection)
                 # event_key.set()
                 return
             c = 1
@@ -184,7 +179,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         actual_title = title_or_key
         actual_description = description
     
-    print(f"doMenu: {actual_menu}, Title: {actual_title}, Description: {actual_description}")
+    log.info(f"doMenu: {actual_menu}, Title: {actual_title}, Description: {actual_description}")
     global shift
     global menuitem
     global curmenu
@@ -279,7 +274,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     return selection
 
 def changedCallback(piece_event, field_hex, square, time_in_seconds):
-    print(f"DEBUG: changedCallback: {piece_event} {field_hex} {square} {time_in_seconds}")
+    log.info(f"DEBUG: changedCallback: {piece_event} {field_hex} {square} {time_in_seconds}")
     board.printBoardState()
 
 
@@ -292,7 +287,7 @@ epaper.initEpaper(1)
 statusbar = epaper.statusBar()
 statusbar.start()
 update = centaur.UpdateSystem()
-logging.debug("Setting checking for updates in 5 mins.")
+log.info("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
 # Subscribe to board events. First parameter is the function for key presses. The second is the function for
 # field activity
@@ -320,22 +315,22 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         statusbar.stop()
 
         script_path = str((pathlib.Path(__file__).parent / script_rel_path).resolve())
-        print(f"script_path: {script_path}")
+        log.info(f"script_path: {script_path}")
         cmd = [sys.executable, script_path, *map(str, args)]
         result = subprocess.run(cmd, check=False)
         return result.returncode
     finally:
-        print(">>> Reinitializing after external script...")
+        log.info(">>> Reinitializing after external script...")
         epaper.initEpaper()
-        print(">>> epaper.initEpaper() complete")
+        log.info(">>> epaper.initEpaper() complete")
         epaper.quickClear()
-        print(">>> epaper.quickClear() complete")
+        log.info(">>> epaper.quickClear() complete")
         board.run_background(start_key_polling=start_key_polling)
-        print(">>> board.run_background() complete")
+        log.info(">>> board.run_background() complete")
         board.unPauseEvents()
-        print(">>> board.unPauseEvents() complete")
+        log.info(">>> board.unPauseEvents() complete")
         statusbar.start()
-        print(">>> statusbar.start() complete")
+        log.info(">>> statusbar.start() complete")
 
 
 def bluetooth_pairing():
@@ -468,7 +463,7 @@ def connect_to_wifi(ssid, password):
         section = os.popen(cmd).read()
         
         if "ssid" not in section:
-            print("Failed to generate network configuration")
+            log.error("Failed to generate network configuration")
             return False
         
         conf_path = "/etc/wpa_supplicant/wpa_supplicant.conf"
@@ -496,21 +491,21 @@ def connect_to_wifi(ssid, password):
         # Reconfigure wpa_supplicant
         os.system("sudo wpa_cli -i wlan0 reconfigure")
         
-        print(f"Successfully configured WiFi for {ssid}")
+        log.info(f"Successfully configured WiFi for {ssid}")
         return True
         
     except Exception as e:
-        print(f"Error connecting to WiFi: {e}")
+        log.error(f"Error connecting to WiFi: {e}")
         return False
 
 
 def get_lichess_client():
-    logging.debug("get_lichess_client")
+    log.debug("get_lichess_client")
     import berserk
     import berserk.exceptions
     token = centaur.get_lichess_api()
     if not len(token):
-        logging.error('lichess token not defined')
+        log.error('lichess token not defined')
         raise ValueError('lichess token not defined')
     session = berserk.TokenSession(token)
     client = berserk.Client(session=session)
@@ -518,7 +513,7 @@ def get_lichess_client():
     try:
         who = client.account.get()
     except berserk.exceptions.ResponseError:
-        logging.error('Lichess API error. Wrong token maybe?')
+        log.error('Lichess API error. Wrong token maybe?')
         raise
     return client
 
@@ -543,15 +538,15 @@ while True:
         menu.update({"EmulateEB": "e-Board"})
     if centaur.get_menuCast() != "unchecked":
         menu.update({"Cast": "Chromecast"})
-    logging.debug("Checking for custom files")
+    log.debug("Checking for custom files")
     pyfiles = os.listdir("/home/pi")
     foundpyfiles = 0
     for pyfile in pyfiles:        
         if pyfile[-3:] == ".py" and pyfile != "firstboot.py":
-            logging.debug("found custom files")
+            log.debug("found custom files")
             foundpyfiles = 1
             break
-    logging.debug("Custom file check complete")
+    log.debug("Custom file check complete")
     if foundpyfiles == 1:
         menu.update({"Custom": "Custom"})
     if centaur.get_menuSettings() != "unchecked":
@@ -605,7 +600,7 @@ while True:
         topmenu = False
         while topmenu == False:
             result = doMenu(setmenu, "settings")
-            logging.debug(result)
+            log.debug(result)
             if result == "update":
                 topmenu = False
                 while topmenu == False:
@@ -621,10 +616,10 @@ while True:
                     # Check for .deb files in the /home/pi folder that have been uploaded by webdav
                     updatemenu["lastrelease"] = "Last Release"
                     debfiles = os.listdir("/home/pi")
-                    logging.debug("Check for deb files that system can update to")
+                    log.debug("Check for deb files that system can update to")
                     for debfile in debfiles:        
                         if debfile[-4:] == ".deb" and debfile[:15] == "dgtcentaurmods_":
-                            logging.debug("Found " + debfile)
+                            log.debug("Found " + debfile)
                             updatemenu[debfile] = debfile[15:debfile.find("_",15)]                    
                     selection = ""
                     result = doMenu(updatemenu, "Update opts")
@@ -632,7 +627,7 @@ while True:
                         result = doMenu(
                             {"enable": "Enable", "disable": "Disable"}, "Status"
                         )
-                        logging.debug(result)
+                        log.debug(result)
                         if result == "enable":
                             update.enable()
                         if result == "disable":
@@ -650,36 +645,36 @@ while True:
                         )
                         update.setPolicy(result)
                     if result == "lastrelease":
-                        logging.debug("Last Release")
+                        log.debug("Last Release")
                         update_source = update.conf.read_value('update', 'source')
-                        logging.debug(update_source)
+                        log.debug(update_source)
                         url = 'https://raw.githubusercontent.com/{}/master/DGTCentaurMods/DEBIAN/versions'.format(update_source)                   
-                        logging.debug(url)
+                        log.debug(url)
                         ver = None
                         try:
                             with urllib.request.urlopen(url) as versions:
                                 ver = json.loads(versions.read().decode())
-                                logging.debug(ver)
+                                log.debug(ver)
                         except Exception as e:
-                            logging.debug('!! Cannot download update info: ', e)
+                            log.debug('!! Cannot download update info: ', e)
                         pass
                         if ver != None:
-                            logging.debug(ver["stable"]["release"])
+                            log.debug(ver["stable"]["release"])
                             download_url = 'https://github.com/{}/releases/download/v{}/dgtcentaurmods_{}_armhf.deb'.format(update_source,ver["stable"]["release"],ver["stable"]["release"])
-                            logging.debug(download_url)
+                            log.debug(download_url)
                             try:
                                 urllib.request.urlretrieve(download_url,'/tmp/dgtcentaurmods_armhf.deb')
-                                logging.debug("downloaded to /tmp")
+                                log.debug("downloaded to /tmp")
                                 os.system("cp -f /home/pi/" + result + " /tmp/dgtcentaurmods_armhf.deb")
-                                logging.debug("Starting update")
+                                log.debug("Starting update")
                                 update.updateInstall()
                             except:
                                 pass
                     if os.path.exists("/home/pi/" + result):
-                        logging.debug("User selected .deb file. Doing update")
-                        logging.debug("Copying .deb file to /tmp")
+                        log.debug("User selected .deb file. Doing update")
+                        log.debug("Copying .deb file to /tmp")
                         os.system("cp -f /home/pi/" + result + " /tmp/dgtcentaurmods_armhf.deb")
-                        logging.debug("Starting update")
+                        log.debug("Starting update")
                         update.updateInstall()
                     if selection == "BACK":
                         # Trigger the update system to appply new settings
@@ -690,7 +685,7 @@ while True:
                         finally:
                             threading.Thread(target=update.main, args=()).start()
                         topmenu = True
-                        logging.debug("return to settings")
+                        log.debug("return to settings")
                         selection = ""
             topmenu = False
             if selection == "BACK":
@@ -867,14 +862,14 @@ while True:
                 p=subprocess.call(["/bin/bash","-i"])
     if result == "Lichess":
         result = doMenu("Lichess")
-        logging.debug('menu active: lichess')
+        log.debug('menu active: lichess')
         if result != "BACK":
             if result == "Ongoing":
-                logging.debug('menu active: Ongoing')
+                log.debug('menu active: Ongoing')
                 client = get_lichess_client()
                 ongoing_games = client.games.get_ongoing(10)
                 ongoing_menu = {}
-                logging.debug(f"{ongoing_menu}")
+                log.debug(f"{ongoing_menu}")
                 for game in ongoing_games:
                     gameid = game["gameId"]
                     opponent = game['opponent']['id']
@@ -883,16 +878,16 @@ while True:
                     else:
                         desc = f" {opponent} vs. {client.account.get()['username']}"
                     ongoing_menu[gameid] = desc
-                logging.debug(f"ongoing menu: {ongoing_menu}")
+                log.debug(f"ongoing menu: {ongoing_menu}")
                 if len(ongoing_menu) > 0:
                     result = doMenu(ongoing_menu, "Current games:")
                     if result != "BACK":
-                        logging.debug(f"menu current games")
+                        log.debug(f"menu current games")
                         game_id = result
-                        logging.debug(f"staring lichess")
+                        log.debug(f"staring lichess")
                         rc = run_external_script("game/lichess.py", "Ongoing", game_id, start_key_polling=True)
                 else:
-                    logging.warning("No ongoing games!")
+                    log.warning("No ongoing games!")
                     epaper.writeText(1, "No ongoing games!")
                     time.sleep(3)
 
@@ -909,7 +904,7 @@ while True:
                     challenge_menu[f"{challenge['id']}:out"] = f"out: {challenge['destUser']['id']}"
                 result = doMenu(challenge_menu, "Challenges")
                 if result != "BACK":
-                    logging.debug('menu active: Challenge')
+                    log.debug('menu active: Challenge')
                     game_id, challenge_direction = result.split(":")
                     rc = run_external_script("game/lichess.py", "Challenge", game_id, challenge_direction, start_key_polling=True)
 
@@ -954,11 +949,11 @@ while True:
                 # If this file don't have an extension then it is an engine
                 enginemenu[fn] = fn
         result = doMenu(enginemenu, "Engines")
-        logging.debug("Engines")
-        logging.debug(result)
+        log.debug("Engines")
+        log.debug(result)
         if result == "stockfish":
             color = doMenu(COLOR_MENU, "Stockfish", "World's strongest open-source engine")
-            logging.debug(color)
+            log.debug(color)
             # Current game will launch the screen for the current
             if color != "BACK":
                 ratingmenu = {
@@ -998,13 +993,13 @@ while True:
                 
                 color = doMenu(COLOR_MENU, result, engine_desc)
                 # Current game will launch the screen for the current
-                print("ucifile: " + ucifile)
+                log.info("ucifile: " + ucifile)
                 if color != "BACK":
                     if os.path.exists(ucifile):
                         # Read the uci file and build a menu
                         config = configparser.ConfigParser()
                         config.read(ucifile)
-                        logging.debug(config.sections())
+                        log.debug(config.sections())
                         smenu = {}
                         for sect in config.sections():
                             smenu[sect] = sect
@@ -1022,14 +1017,14 @@ while True:
         enginefiles = list(
             filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
         )
-        logging.debug(enginefiles)
+        log.debug(enginefiles)
         for f in enginefiles:
             fn = str(f)
             if ".uci" not in fn:
                 # If this file is not .uci then assume it is an engine
                 enginemenu[fn] = fn
         result = doMenu(enginemenu, "HandBrain")
-        logging.debug(result)
+        log.debug(result)
         if result != "BACK":
             # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
             enginefile = enginepath + result
@@ -1057,7 +1052,7 @@ while True:
                     # Read the uci file and build a menu
                     config = configparser.ConfigParser()
                     config.read(ucifile)
-                    logging.debug(config.sections())
+                    log.info(config.sections())
                     smenu = {}
                     for sect in config.sections():
                         smenu[sect] = sect
@@ -1075,7 +1070,7 @@ while True:
                 menuitems[pyfile] = pyfile
         result = doMenu(menuitems,"Custom Scripts")
         if result.find("..") < 0:
-            logging.debug("Running custom file: " + result)
+            log.info("Running custom file: " + result)
             os.system("python /home/pi/" + result)
 
     if result == "About" or result == "BTNHELP":

@@ -25,6 +25,7 @@ import dbus
 from DGTCentaurMods.thirdparty.advertisement import Advertisement
 from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic, Descriptor
 from DGTCentaurMods.board import *
+from DGTCentaurMods.board.logging import log
 import time
 import threading
 import random
@@ -68,13 +69,13 @@ class UARTRXCharacteristic(Characteristic):
 
     def WriteValue(self, value, options):
         # When the remote device writes data, it comes here
-        print("Received")
-        print(value)
+        log.info("Received message from BLE: " + str(value))
         bytes = bytearray()
         for i in range(0,len(value)):
             bytes.append(value[i])
-        print(len(bytes))
-        print(bytes)
+
+        log.info("Length of bytes: " + str(len(bytes)))
+        log.info("Bytes: " + str(bytes))
 
 class UARTTXCharacteristic(Characteristic):
     UARTTX_CHARACTERISTIC_UUID = "5f040003-5866-11ec-bf63-0242ac130002"
@@ -90,21 +91,20 @@ class UARTTXCharacteristic(Characteristic):
         if self.notifying == True:
             msg = bytearray()
             msg.append(random.randrange(65,90))
-            print("----")
-            print(msg)
+            log.info("---- Random message: " + str(msg))
             self.sendMessage(msg)
         return self.notifying
 
     def sendMessage(self, data):
         # Send a message
-        print(data)
+        log.info("Sending message to BLE: " + str(data))
         tosend = bytearray()
         for x in range(0, len(data)):
             tosend.append(data[x])
         UARTService.tx_obj.updateValue(tosend)
 
     def StartNotify(self):
-        print("started notifying")
+        log.info("started notifying")
         UARTService.tx_obj = self
         self.notifying = True
         self.add_timeout(200, self.checkSend)
@@ -125,9 +125,9 @@ class UARTTXCharacteristic(Characteristic):
         self.PropertiesChanged( GATT_CHRC_IFACE, { 'Value': send }, [])
 
     def ReadValue(self, options):
-        print("read value")
         value = bytearray()
         value.append(1)
+        log.info("Read value: " + str(value))
         return value
 
 app = Application()

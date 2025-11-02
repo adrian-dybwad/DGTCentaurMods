@@ -13,13 +13,13 @@ Can be tested independently: python3 board/shutdown.py
 """
 
 import sys
-import logging
+from DGTCentaurMods.board.logging import log
 
 try:
     from DGTCentaurMods.board import board
     board.sleep_controller()
     sys.exit(0)
 except Exception as e:
-    logging.error(f"Failed to sleep DGT Centaur controller: {e}")
+    log.error(f"Failed to sleep DGT Centaur controller: {e}")
     sys.exit(1)  # Non-zero exit signals failure to systemd
 

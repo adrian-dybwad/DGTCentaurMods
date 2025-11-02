@@ -5,6 +5,7 @@ import subprocess
 import psutil
 from typing import Optional, Callable
 import pathlib
+from DGTCentaurMods.board.logging import log
 
 class BluetoothManager:
     """Manage Bluetooth pairing and discoverability"""
@@ -66,7 +67,7 @@ class BluetoothManager:
         
         pin_conf = cls.get_pin_conf_path()
         if not pin_conf:
-            print("Warning: pin.conf not found, using NoInputNoOutput")
+            log.warning("Warning: pin.conf not found, using NoInputNoOutput")
             cmd = '/usr/bin/bt-agent --capability=NoInputNoOutput'
         else:
             cmd = f'/usr/bin/bt-agent --capability=NoInputNoOutput -p {pin_conf}'
@@ -104,7 +105,7 @@ class BluetoothManager:
             if poll_result and not spamyes:
                 line = p.stdout.readline()
                 if b'Device:' in line:
-                    print("Device detected, pairing...")
+                    log.info("Device detected, pairing...")
                     p.stdin.write(b'yes\n')
                     if on_device_detected:
                         on_device_detected()

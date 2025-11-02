@@ -33,6 +33,7 @@ import pathlib
 from DGTCentaurMods.board import *
 from DGTCentaurMods.display import epaper
 from PIL import Image, ImageDraw
+from DGTCentaurMods.board.logging import log
 
 kill = 0
 bt_connected = False
@@ -82,23 +83,23 @@ DGT_MSG_DEVKEY_STATE = 165
 def _key_callback(key):
     """Handle key events regardless of notification state."""
     try:
-        print(f"[Pegasus] Key event: {key}")
+        log.info(f"[Pegasus] Key event: {key}")
         if (key == board.Key.BACK):
-            print("[Pegasus] Back button pressed -> exit")
+            log.info("[Pegasus] Back button pressed -> exit")
             app.quit()
     except Exception as e:
-        print(f"[Pegasus] key callback error: {e}")
+        log.info(f"[Pegasus] key callback error: {e}")
 
 def _field_callback(piece_event, field_hex, square, time_in_seconds):
     """Handle field events; forward to client only if TX notifications are on."""
     try:
-        print(f"[Pegasus] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={time_in_seconds}")
+        log.info(f"[Pegasus] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={time_in_seconds}")
         tx = UARTService.tx_obj
         if tx is not None and getattr(tx, 'notifying', False):
             try:
                 # Send unrotated idx to match board dump indexing expected by app
                 msg = bytearray([field_hex, piece_event])
-                print(f"[Pegasus] FIELD_UPDATE msg={' '.join(f'{b:02x}' for b in msg)}")
+                log.info(f"[Pegasus] FIELD_UPDATE msg={' '.join(f'{b:02x}' for b in msg)}")
                 tx.sendMessage(DGT_MSG_FIELD_UPDATE, msg)
                 # Flash LED on place to mirror app feedback
                 if piece_event == 1:
@@ -107,16 +108,16 @@ def _field_callback(piece_event, field_hex, square, time_in_seconds):
                     except Exception:
                         pass
             except Exception as e:
-                print(f"[Pegasus] field send error: {e}")
+                log.info(f"[Pegasus] field send error: {e}")
     except Exception as e:
-        print(f"[Pegasus] field callback error: {e}")
+        log.info(f"[Pegasus] field callback error: {e}")
 
 # Subscribe immediately so key/back works even before BLE notifications are enabled
 try:
     board.subscribeEvents(_key_callback, _field_callback, timeout=100000)
-    print("[Pegasus] Subscribed to board events")
+    log.info("[Pegasus] Subscribed to board events")
 except Exception as e:
-    print(f"[Pegasus] Failed to subscribe events: {e}")
+    log.info(f"[Pegasus] Failed to subscribe events: {e}")
 
 class UARTAdvertisement(Advertisement):
     def __init__(self, index):
@@ -160,7 +161,7 @@ class UARTRXCharacteristic(Characteristic):
             tosend.append(data[x])
         try:
             preview = ' '.join(f'{b:02x}' for b in tosend[:16])
-            print(f"[Pegasus TX] type=0x{msgtype:02x} len={len(data)} total={len(tosend)} {preview}...")
+            log.info(f"[Pegasus TX] type=0x{msgtype:02x} len={len(data)} total={len(tosend)} {preview}...")
         except Exception:
             pass
         UARTService.tx_obj.updateValue(tosend)
@@ -170,10 +171,10 @@ class UARTRXCharacteristic(Characteristic):
         global bt_connected
         try:
             hex_row = ' '.join(f'{int(b):02x}' for b in value)
-            print(f"[Pegasus RX] len={len(value)} bytes: {hex_row}")
+            log.info(f"[Pegasus RX] len={len(value)} bytes: {hex_row}")
         except Exception:
-            print("Received")
-            print(value)
+            log.info("Received")
+            log.info(value)
         # Consider any write as an active connection from the client
         if not bt_connected:
             bt_connected = True
@@ -186,11 +187,11 @@ class UARTRXCharacteristic(Characteristic):
         bytes = bytearray()
         for i in range(0,len(value)):
             bytes.append(value[i])
-        print(len(bytes))
-        print(bytes)
+        log.info(len(bytes))
+        log.info(bytes)
         processed = 0
         if len(bytes) == 1 and (bytes[0] == ord('B') or bytes[0] == ord('b')):
-            print("[Pegasus RX] 'B' (board dump) -> TX 0x86 BOARD_DUMP")
+            log.info("[Pegasus RX] 'B' (board dump) -> TX 0x86 BOARD_DUMP")
             bs = board.getBoardState()
             self.sendMessage(DGT_MSG_BOARD_DUMP, bs)
             processed = 1
@@ -247,7 +248,7 @@ class UARTRXCharacteristic(Characteristic):
         if len(bytes) == 4:
             if bytes[0] == 96 and bytes[1] == 2 and bytes[2] == 0 and bytes[3] == 0:
                 # ledsOff
-                print("leds off")
+                log.info("leds off")
                 board.ledsOff()
                 # Let's report the battery status here - 0x58 (or presumably higher as there is rounding) = 100%
                 # As I can't read centaur battery percentage here - fake it
@@ -256,7 +257,7 @@ class UARTRXCharacteristic(Characteristic):
         if processed == 0 and bytes[0] == 96:
             # LEDS control from mobile app
             # Format: 96, [len-2], 5, speed, mode, intensity, fields..., 0
-            print(f"[Pegasus RX LED] raw: {' '.join(f'{b:02x}' for b in bytes)}")
+            log.info(f"[Pegasus RX LED] raw: {' '.join(f'{b:02x}' for b in bytes)}")
             if bytes[2] == 5:
                 ledspeed = int(bytes[3])
                 mode = int(bytes[4])
@@ -268,29 +269,29 @@ class UARTRXCharacteristic(Characteristic):
                 def hw_to_board(i):
                     return (7 - (i // 8)) * 8 + (i % 8)
                 fields_board = [hw_to_board(f) for f in fields_hw]
-                print(f"[Pegasus RX LED] speed={ledspeed} mode={mode} intensity={intensity_in} hw={fields_hw} -> board={fields_board}")
+                log.info(f"[Pegasus RX LED] speed={ledspeed} mode={mode} intensity={intensity_in} hw={fields_hw} -> board={fields_board}")
                 # Normalize intensity to 1..10 for board.* helpers
                 intensity = max(1, min(10, intensity_in))
                 try:
                     if len(fields_board) == 0:
                         board.ledsOff()
-                        print("[Pegasus RX LED] ledsOff()")
+                        log.info("[Pegasus RX LED] ledsOff()")
                     elif len(fields_board) == 1:
                         board.led(fields_board[0], intensity=intensity)
-                        print(f"[Pegasus RX LED] led({fields_board[0]}, intensity={intensity})")
+                        log.info(f"[Pegasus RX LED] led({fields_board[0]}, intensity={intensity})")
                     else:
                         # Use first two as from/to; extras are ignored for now
                         tb, fb = fields_board[0], fields_board[1]
                         board.ledFromTo(fb, tb, intensity=intensity)
-                        print(f"[Pegasus RX LED] ledFromTo({fb},{tb}, intensity={intensity})")
+                        log.info(f"[Pegasus RX LED] ledFromTo({fb},{tb}, intensity={intensity})")
                         if mode == 1:
                             time.sleep(0.5)
                             board.ledsOff()
                 except Exception as e:
-                    print(f"[Pegasus RX LED] error driving LEDs: {e}")
+                    log.info(f"[Pegasus RX LED] error driving LEDs: {e}")
                 processed = 1
         if processed==0:
-            print("Un-coded command")
+            log.info("Un-coded command")
             UARTService.tx_obj.updateValue(bytes)
 
 
@@ -318,7 +319,7 @@ class UARTTXCharacteristic(Characteristic):
         UARTService.tx_obj.updateValue(tosend)
 
     def StartNotify(self):
-        print("[Pegasus] StartNotify begin")
+        log.info("[Pegasus] StartNotify begin")
         epaper.writeText(13, "              ")
         epaper.writeText(13, "Connected")
         board.clearBoardData()
@@ -329,18 +330,18 @@ class UARTTXCharacteristic(Characteristic):
         # Ensure event thread is running in case it was paused earlier
         try:
             board.unPauseEvents()
-            print("[Pegasus] Events unpaused")
+            log.info("[Pegasus] Events unpaused")
         except Exception as e:
-            print(f"[Pegasus] unPauseEvents failed: {e}")
+            log.info(f"[Pegasus] unPauseEvents failed: {e}")
         # Re-subscribe after notify to guarantee active callbacks in this process
         global events_resubscribed
         try:
             if not events_resubscribed:
                 board.subscribeEvents(_key_callback, _field_callback, timeout=100000)
                 events_resubscribed = True
-                print("[Pegasus] Events re-subscribed post-notify")
+                log.info("[Pegasus] Events re-subscribed post-notify")
         except Exception as e:
-            print(f"[Pegasus] post-notify subscribe failed: {e}")
+            log.info(f"[Pegasus] post-notify subscribe failed: {e}")
         # Do NOT send unsolicited board dump; only respond when phone requests 'B'
         
         
@@ -365,7 +366,7 @@ class UARTTXCharacteristic(Characteristic):
             return
         try:
             preview = ' '.join(f'{int(b):02x}' for b in value[:16])
-            print(f"[Pegasus TX] GATT notify len={len(value)} {preview}...")
+            log.info(f"[Pegasus TX] GATT notify len={len(value)} {preview}...")
         except Exception:
             pass
         send = dbus.Array(signature=dbus.Signature('y'))

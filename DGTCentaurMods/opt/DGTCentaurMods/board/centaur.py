@@ -29,9 +29,8 @@ import os, sys
 import time
 import json
 import urllib.request
-import logging
 
-from DGTCentaurMods.board.logging import logger
+from DGTCentaurMods.board.logging import log
 
 def get_lichess_api():
     return Settings.read('lichess','api_token','')
@@ -104,10 +103,10 @@ def shell_run(rcmd):
     response = proc.communicate()
     response_stdout, response_stderr = response[0], response[1]
     if response_stderr:
-        logging.debug(response_stderr)
+        log.debug(response_stderr)
         return -1
     else:
-        logging.debug(response_stdout)
+        log.debug(response_stdout)
         return response_stdout
 
 
@@ -122,10 +121,10 @@ class UpdateSystem:
         
 
     def info(self):
-        logging.debug('Update system status: ' + self.getStatus())
-        logging.debug("Update source: ", Settings.read('update', 'source', 'EdNekebno/DGTCentaurMods'))
-        logging.debug('Update channel: ' + self.getChannel())
-        logging.debug('Policy: ' + self.getPolicy())
+        log.debug('Update system status: ' + self.getStatus())
+        log.debug("Update source: ", Settings.read('update', 'source', 'EdNekebno/DGTCentaurMods'))
+        log.debug('Update channel: ' + self.getChannel())
+        log.debug('Policy: ' + self.getPolicy())
 
     def getInstalledVersion(self):
         version = os.popen("dpkg -l | grep dgtcentaurmods | tr -s ' ' | cut -d' ' -f3").read().strip()
@@ -134,13 +133,13 @@ class UpdateSystem:
     def checkForUpdate(self):
         channel = self.getChannel()
         policy = self.getPolicy()
-        logging.debug('Settings channel: '+channel)
-        logging.debug('Settings policy: '+policy)
+        log.debug('Settings channel: '+channel)
+        log.debug('Settings policy: '+policy)
         try:
             curr_channel = self.getInstalledVersion().rsplit('.',1)[1].rsplit('-',1)[1]
         except:
             curr_channel = 'stable'
-        logging.debug('Current channel: '+curr_channel)
+        log.debug('Current channel: '+curr_channel)
         
         local_version = self.getInstalledVersion()
         if not local_version:
@@ -154,7 +153,7 @@ class UpdateSystem:
         #Dpkg is skipping 0 if last in version number. e.g: 1.1.0 will be 1.1
         #We need to rebuild the version
         local_version = '{}.{}.{}'.format(local_major,local_minor,local_revision)
-        logging.debug('Local ver: '+local_version+'\nLocal major: '+local_major+'\nLocal minor: '+local_minor+'\nLocal revision: '+local_revision)
+        log.debug('Local ver: '+local_version+'\nLocal major: '+local_major+'\nLocal minor: '+local_minor+'\nLocal revision: '+local_revision)
         
         self.update = self.ver[channel]['ota']
         #No OTA, no update
@@ -166,16 +165,16 @@ class UpdateSystem:
             update_revision = self.update.rsplit('.',1)[1] 
         else:
             update_revision = self.update.rsplit('.',1)[1].rsplit('-',1)[0]
-        logging.debug('Update ver: '+self.update+'\nUpdate major: '+update_major+'\nUpdate minor: '+update_minor+'\nUpdate revision: '+update_revision)
+        log.debug('Update ver: '+self.update+'\nUpdate major: '+update_major+'\nUpdate minor: '+update_minor+'\nUpdate revision: '+update_revision)
         
         #If local version is the same as update candidate, break
         if local_version == self.update:
-            logging.debug('Versions are the same. No updates')
+            log.debug('Versions are the same. No updates')
             return False
         
         #If user decides to switch channel, he will trigger a full reinstall
         if curr_channel != channel:
-            logging.debug('Channel changed. Installing varsion {} at shutdown'.format(self.update))
+            log.debug('Channel changed. Installing varsion {} at shutdown'.format(self.update))
             return True
         
         #Evaluate policies
@@ -185,7 +184,7 @@ class UpdateSystem:
                 if local_revision < update_revision:
                     return True
             else:
-                logging.debug('Policy don\'t allow major updates.')
+                log.debug('Policy don\'t allow major updates.')
                 return False
 
         #On 'always' just make sure this is an update to current installed version
@@ -200,7 +199,7 @@ class UpdateSystem:
 
     def downloadUpdate(self,update):
         download_url = 'https://github.com/{}/releases/download/v{}/dgtcentaurmods_{}_armhf.deb'.format(self.update_source,update,update)
-        logging.debug(download_url)
+        log.debug(download_url)
         try:
             urllib.request.urlretrieve(download_url,'/tmp/dgtcentaurmods_armhf.deb')
         except:
@@ -210,25 +209,25 @@ class UpdateSystem:
 
     def enable(self):
         Settings.write('update','status','enabled')
-        logging.debug('Autoupdate has been enabled')
+        log.debug('Autoupdate has been enabled')
         return
         
 
     def disable(self):
         Settings.write('update','status','disable')        
-        logging.debug('Autoupdate has beed disabled.')
+        log.debug('Autoupdate has beed disabled.')
         return
 
 
     def setPolicy(self,policy):
         Settings.write('update','policy',policy)        
-        logging.debug('Policy set to: ' + policy)
+        log.debug('Policy set to: ' + policy)
         return
 
 
     def setChannel(self,channel):
         Settings.write('update','channel',channel)        
-        logging.debug('Update channel  has beed set to ',channel)
+        log.debug('Update channel  has beed set to ',channel)
         return
 
 
@@ -247,14 +246,14 @@ class UpdateSystem:
     def updateInstall(self):
         # Check for available update
         package = '/tmp/dgtcentaurmods_armhf.deb'
-        logging.debug('Put the board in update mode')
+        log.debug('Put the board in update mode')
         import shutil
 
         epaper.writeText(3, '    System will')
         epaper.writeText(4, '       update')
         shutil.copy('update/update.py','/tmp')
         shutil.copytree('update/lib','/tmp/lib')
-        logging.debug('Keep the info on the screen')
+        log.debug('Keep the info on the screen')
         time.sleep(5)
         subprocess.Popen('cd /tmp; python /tmp/update.py', shell=True)
         sys.exit()
@@ -263,18 +262,18 @@ class UpdateSystem:
     def main(self):
         #Download update ingormation file
         self.update_source = Settings.read('update','source','EdNekebno/DGTCentaurMods')
-        logging.debug('Downloading update information...')
+        log.debug('Downloading update information...')
         url = 'https://raw.githubusercontent.com/{}/master/DGTCentaurMods/DEBIAN/versions'.format(self.update_source)
         try:
             with urllib.request.urlopen(url) as versions:
                 self.ver = json.loads(versions.read().decode())
         except Exception as e:
-            logging.debug('!! Cannot download update info: ', e)
+            log.debug('!! Cannot download update info: ', e)
             pass
 
         # This function will run as a thread once, sometime after boot if updting is enabled.
         if not self.getStatus() == "disabled" and self.checkForUpdate():
             self.downloadUpdate(self.update)
             return
-        logging.debug('Update not needed or disabled')
+        log.debug('Update not needed or disabled')
         return

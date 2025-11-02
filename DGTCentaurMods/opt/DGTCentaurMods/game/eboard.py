@@ -105,6 +105,7 @@ import select
 import bluetooth
 import subprocess
 import psutil
+from DGTCentaurMods.board.logging import log
 
 source = ""
 gamedbid = -1
@@ -230,7 +231,7 @@ if bytearray(board.getBoardState()) != startstate:
 	board.ledsOff()
 
 # As we can only detect piece presence on the centaur and not pieces, we must have a known start state
-print("Setup board")
+log.info("Setup board")
 while bytearray(board.getBoardState()) != startstate:
 	time.sleep(0.5)
 cboard[7] = WROOK
@@ -265,7 +266,7 @@ cboard[59] = BKING
 cboard[58] = BBISHOP
 cboard[57] = BKNIGHT
 cboard[56] = BROOK
-print("board is setup")
+log.info("board is setup")
 cb = chess.Board()
 buffer1=bytearray([EMPTY] * 64)
 buffer1[:] = cboard
@@ -418,22 +419,22 @@ def clockToggle():
 	global clockfirst
 	global clockturn
 	global clockpaused
-	print("clock toggled")
+	log.info("clock toggled")
 	if clockfirst == 1:
-		print("first")
+		log.info("first")
 		clockturn = 2
 		clockpaused = 0
 		clockfirst = 0
 	else:
-		print("not first")
-		print(clockturn)
+		log.info("not first")
+		log.info(clockturn)
 		if clockturn == 1:
 			clockturn = 2
 			clockpaused = 0
 		else:
 			clockturn = 1
 			clockpaused = 0
-		print(clockturn)
+		log.info(clockturn)
 
 def pieceMoveDetectionThread():
 	# Separate thread to take care of detecting piece movement
@@ -486,11 +487,11 @@ def pieceMoveDetectionThread():
 								squarerow = 7 - squarerow
 								squarecol = 7 - squarecol
 								field = (squarerow * 8) + squarecol
-								print("UP: " + chr(ord("a") + (7-squarecol)) + chr(ord("1") + squarerow))
+								log.info("UP: " + chr(ord("a") + (7-squarecol)) + chr(ord("1") + squarerow))
 								if curturn == 1:
-									print("White turn")
+									log.info("White turn")
 								else:
-									print("Black turn")
+									log.info("Black turn")
 								if curturn == 1:
 									# white
 									item = cboard[field]
@@ -507,9 +508,9 @@ def pieceMoveDetectionThread():
 											lastlift = cboard[field]
 											lastfield = field
 										liftedthisturn = liftedthisturn + 1
-								print(item)
-								print(lastlift)
-								print(liftedthisturn)
+								log.info(item)
+								log.info(lastlift)
+								log.info(liftedthisturn)
 								if lastlift != EMPTY and liftedthisturn < 2:
 									cboard[field] = EMPTY
 									tosend = bytearray(b'')
@@ -521,7 +522,7 @@ def pieceMoveDetectionThread():
 									bt.send(bytes(tosend))
 									#bt.flush()
 									time.sleep(0.2)
-									print("SENT UP PACKET")
+									log.info("SENT UP PACKET")
 									buffer1 = bytearray([EMPTY] * 64)
 									buffer1[:] = cboard
 									boardhistory.append(buffer1)
@@ -531,13 +532,13 @@ def pieceMoveDetectionThread():
 									if item == WKING or item == BKING:
 										if field == 3 or field == 59:
 											# This is a king lift that could be part of castling.
-											#print("kinglift")
+											#log.info("kinglift")
 											kinglift = 1
 									else:
 										kinglift = 0
 									#lastfield = field
 								else:
-									print("Nudge??")
+									log.info("Nudge??")
 							if (resp[x] == 65 and lastlift != EMPTY):
 								# A piece has been placed
 								fieldHex = resp[x + 1]
@@ -546,7 +547,7 @@ def pieceMoveDetectionThread():
 								squarerow = 7 - squarerow
 								squarecol = 7 - squarecol
 								field = (squarerow * 8) + squarecol
-								print("DOWN: " + chr(ord("a") + (7-squarecol)) + chr(ord("1") + squarerow))
+								log.info("DOWN: " + chr(ord("a") + (7-squarecol)) + chr(ord("1") + squarerow))
 
 								# Here we check if this was a valid move to make. If not then indicate it on
 								# the board
@@ -561,12 +562,12 @@ def pieceMoveDetectionThread():
 								mv = fromsq + tosq
 
 								if curturn == 1:
-									print("White turn")
+									log.info("White turn")
 								else:
-									print("Black turn")
-								print(lastlift)
+									log.info("Black turn")
+								log.info(lastlift)
 								liftedthisturn = liftedthisturn - 1
-								print(liftedthisturn)
+								log.info(liftedthisturn)
 								# Promotion
 								promoted = 0
 								if liftedthisturn == 0:
@@ -690,7 +691,7 @@ def pieceMoveDetectionThread():
 									#bt.flush()
 									time.sleep(0.2)
 									lastchangepacket = tosend
-									print("SENT DOWN PACKET")
+									log.info("SENT DOWN PACKET")
 									buffer1 = bytearray([EMPTY] * 64)
 									buffer1[:] = cboard
 									boardhistory.append(buffer1)
@@ -719,17 +720,17 @@ def pieceMoveDetectionThread():
 									if kinglift == 1:
 										if lastfield == 3 or lastfield == 59:
 											if field == 1 or field == 5 or field == 61 or field == 57:
-												print("Castle attempt detected")
+												log.info("Castle attempt detected")
 												if curturn == 0:
 													curturn = 1
 													liftedthisturn = 0
 												else:
 													curturn = 0
 													liftedthisturn = 0
-									print(mv)
+									log.info(mv)
 									if fromsq != tosq:
 										if promoted == 1:
-											print("promotion")
+											log.info("promotion")
 											if lastlift == WQUEEN or lastlift == BQUEEN:
 												mv = mv + "q"
 											if lastlift == WROOK or lastlift == BROOK:
@@ -739,11 +740,11 @@ def pieceMoveDetectionThread():
 											if lastlift == WKNIGHT or lastlift == BKNIGHT:
 												mv = mv + "n"
 											promoted = 0
-											print(mv)
+											log.info(mv)
 										cm = chess.Move.from_uci(mv)
 										legal = 1
 										if cm in cb.legal_moves:
-											print("Move is allowed")
+											log.info("Move is allowed")
 											clockToggle()
 											cb.push(cm)
 											gamemove = models.GameMove(
@@ -753,7 +754,7 @@ def pieceMoveDetectionThread():
 											)
 											session.add(gamemove)
 											session.commit()
-											print(cb.fen())
+											log.info(cb.fen())
 										else:
 											# The move is not allowed or the move is the rook move after a king move in castling
 											if (lastlift == WROOK or lastlift == BROOK) and (
@@ -761,7 +762,7 @@ def pieceMoveDetectionThread():
 												pass
 											else:
 												# Action the illegal move
-												print("Move not allowed")
+												log.info("Move not allowed")
 												squarerow = (lastfield // 8)
 												squarecol = 7 - (lastfield % 8)
 												tosq = (squarerow * 8) + squarecol
@@ -785,7 +786,7 @@ def pieceMoveDetectionThread():
 													if (bytearray(resp) != expect):
 														if (resp[0] == 133 and resp[1] == 0):
 															# A piece has been raised or placed
-															print("event")
+															log.info("event")
 															if boardhistory:
 																oldboard = boardhistory.pop()
 																turnhistory.pop
@@ -794,9 +795,9 @@ def pieceMoveDetectionThread():
 																# it has changed
 																for x in range(0, len(oldboard)):
 																	if oldboard[x] != cboard[x]:
-																		print("Found difference at")
-																		print(x)
-																		print(oldboard[x])
+																		log.info("Found difference at")
+																		log.info(x)
+																		log.info(oldboard[x])
 																		tosend = bytearray(b'')
 																		tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
 																		tosend.append(0)
@@ -816,7 +817,7 @@ def pieceMoveDetectionThread():
 																		squarecol = squarecol
 																		field = (squarerow * 8) + squarecol
 																		if field == fromsq:
-																			print("Piece placed back")
+																			log.info("Piece placed back")
 																			breakout = 1
 													# If the user is resetting the board to the starting position then they
 													# will definitely make an illegal move. Then it will get trapped in this
@@ -836,24 +837,24 @@ def pieceMoveDetectionThread():
 									lastfield = field
 									lastlift = EMPTY
 						except:
-							print("An impossible exception really did just occur! Don't ask me how!")
+							log.info("An impossible exception really did just occur! Don't ask me how!")
 
 			if lastcurturn != curturn:
 				lastcurturn = curturn
-				print("--------------")
+				log.info("--------------")
 				paths.write_fen_log(cb.fen())
 				if curturn == 1:
-					print("White turn")
+					log.info("White turn")
 					epaper.writeText(10,"White turn")
 				else:
-					print("Black turn")
+					log.info("Black turn")
 					epaper.writeText(10,"Black turn")
 
 			timer = timer + 1
 			if timer > 5:
 				r = board.getBoardState()
 				if bytearray(r) == startstate and startstateflag == 0:
-					print("start state detected")
+					log.info("start state detected")
 					clockpaused = 1
 					paths.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
 					tosend = bytearray(
@@ -989,7 +990,7 @@ def pieceMoveDetectionThread():
 					game = models.Game(
 						source=source
 					)
-					print(game)
+					log.info(game)
 					session.add(game)
 					session.commit()
 					# Get the max game id as that is this game id and fill it into gamedbid
@@ -1028,7 +1029,7 @@ def pieceMoveDetectionThread():
 				tosend.append(ack2 & 0x7f)  # 8  4
 				tosend.append(ack3 & 0x7f)  # 9  5
 				tosend.append(0)  # 10
-				print(tosend.hex())
+				log.info(tosend.hex())
 				bt.send(bytes(tosend))
 				#bt.flush()
 				board.beep(board.SOUND_GENERAL)
@@ -1049,7 +1050,7 @@ def pieceMoveDetectionThread():
 				tosend.append(ack2 & 0x7f)  # 8  4
 				tosend.append(ack3 & 0x7f)  # 9  5
 				tosend.append(0)  # 10
-				print(tosend.hex())
+				log.info(tosend.hex())
 				bt.send(bytes(tosend))
 				#bt.flush()
 				board.beep(board.SOUND_GENERAL)
@@ -1070,7 +1071,7 @@ def pieceMoveDetectionThread():
 				tosend.append(ack2 & 0x7f)  # 8  4
 				tosend.append(ack3 & 0x7f)  # 9  5
 				tosend.append(0)  # 10
-				print(tosend.hex())
+				log.info(tosend.hex())
 				bt.send(bytes(tosend))
 				#bt.flush()
 				board.beep(board.SOUND_GENERAL)
@@ -1091,7 +1092,7 @@ def pieceMoveDetectionThread():
 				tosend.append(ack2 & 0x7f)  # 8  4
 				tosend.append(ack3 & 0x7f)  # 9  5
 				tosend.append(0)  # 10
-				print(tosend.hex())
+				log.info(tosend.hex())
 				bt.send(bytes(tosend))
 				#bt.flush()
 				board.beep(board.SOUND_GENERAL)
@@ -1116,7 +1117,7 @@ def pieceMoveDetectionThread():
 				tosend.append(ack2 & 0x7f)  # 8  4
 				tosend.append(ack3 & 0x7f)  # 9  5
 				tosend.append(0)  # 10
-				print(tosend.hex())
+				log.info(tosend.hex())
 				bt.send(bytes(tosend))
 				#bt.flush()
 				board.beep(board.SOUND_GENERAL)
@@ -1139,7 +1140,7 @@ for p in psutil.process_iter(attrs=['pid', 'name']):
 	if str(p.info["name"]) == "rfcomm":
 		p.kill()
 iskilled = 0
-print("checking killed")
+log.info("checking killed")
 while iskilled == 0:
 	iskilled = 1
 	for p in psutil.process_iter(attrs=['pid', 'name']):
@@ -1161,7 +1162,7 @@ bluetooth.advertise_service(server_sock, "UARTClassicServer", service_id=uuid,
                             # protocols=[bluetooth.OBEX_UUID]
                             )
 
-print("Waiting for connection on RFCOMM channel", port)
+log.info("Waiting for connection on RFCOMM channel: " + str(port))
 epaper.writeText(0,'Connect remote')
 epaper.writeText(1,'Device Now')
 connected = 0
@@ -1183,13 +1184,12 @@ while connected == 0 and kill == 0:
 if kill == 1:
 	os._exit(0)
 
-print("Connected")
+log.info("Connected")
 
 #bt = serial.Serial("/dev/rfcomm0",baudrate=9600, timeout=10)
 epaper.clearScreen()
 epaper.writeText(0,'Connected')
-epaper.writeText(1,'         ')
-print("start")
+log.info("pieceMoveDetectionThread started")
 
 cb = chess.Board()
 board.ledsOff()
@@ -1202,7 +1202,7 @@ session = Session()
 game = models.Game(
 	source=source
 )
-print(game)
+log.info(game)
 session.add(game)
 session.commit()
 # Get the max game id as that is this game id and fill it into gamedbid
@@ -1257,7 +1257,7 @@ def sendClockData():
 	global rclock
 	global clockturn
 	global clockpaused
-	print("sending clock")
+	log.info("sending clock")
 	tosend = bytearray(b'')
 	tosend.append(DGT_BWTIME | MESSAGE_BIT)
 	tosend.append(0)
@@ -1302,7 +1302,7 @@ def sendClockData():
 	if clockturn == 2:
 		flags = flags | 0x10
 	tosend.append(flags) # flags
-	print(tosend.hex())
+	log.info("Sending clock data: " + tosend.hex())
 	bt.send(bytes(tosend))
 	#bt.flush()
 
@@ -1354,18 +1354,18 @@ while True and dodie == 0:
 				#board.writeText(0, 'Init')
 				#board.writeText(1, '         ')
 				if debugcmds == 1:
-					print("DGT_SEND_RESET")
+					log.info("DGT_SEND_RESET")
 				sendupdates = 0
 				handled = 1
 			if data[0] == DGT_TO_BUSMODE:
 				# Puts the board in BUS mode
-				#print("Bus mode")
+				#log.info("Bus mode")
 				if debugcmds == 1:
-					print("DGT_TO_BUSMODE")
+					log.info("DGT_TO_BUSMODE")
 				handled = 1
 			if data[0] == DGT_RETURN_BUSADRES:
 				if debugcmds == 1:
-					print("DGT_RETURN_BUSADRES")
+					log.info("DGT_RETURN_BUSADRES")
 				tosend = bytearray(b'\x00\x00\x05\x08\x01')
 				tosend[0] = DGT_BUSADRES | MESSAGE_BIT
 				#tosend.append(board.checksum(tosend))
@@ -1376,7 +1376,7 @@ while True and dodie == 0:
 			if data[0] == DGT_SEND_EE_MOVES:
 				# Send EEPROM followed by EE_EOF
 				if debugcmds == 1:
-					print("DGT_SEND_EE_MOVES")
+					log.info("DGT_SEND_EE_MOVES")
 				tosend = bytearray(b'')
 				tosend[0] = DGT_EE_MOVES | MESSAGE_BIT
 				for j in range(0,len(EEPROM)-1):
@@ -1388,7 +1388,7 @@ while True and dodie == 0:
 			if data[0] == DGT_SEND_TRADEMARK:
 				# Send DGT Trademark Message
 				if debugcmds == 1:
-					print("DGT_SEND_TRADEMARK")
+					log.info("DGT_SEND_TRADEMARK")
 				tosend = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
 				tosend[0] = DGT_TRADEMARK | MESSAGE_BIT
 				tosend[1] = 0
@@ -1432,17 +1432,17 @@ while True and dodie == 0:
 			if data[0] == DGT_BUS_PING:
 				# Received a ping message
 				# The message actually has two more bytes and a checksum
-				#print("bus pinged")
+				#log.info("bus pinged")
 				dump = bt.recv(3)
 				if debugcmds == 1:
-					print("DGT_BUS_PING " + dump.hex())
+					log.info("DGT_BUS_PING " + dump.hex())
 				#print(dump.hex())
 				if ignore_next_bus_ping == 1 and dump[0] == 0 and dump[1] == 0:
 					ignore_next_bus_ping = 0
-					#print("ignoring")
+					#log.info("ignoring")
 					handled = 1
 				else:
-					#print(dump.hex())
+					#log.info(dump.hex())
 					tosend = bytearray(b'')
 					tosend.append(DGT_MSG_BUS_PING | MESSAGE_BIT)
 					tosend.append(0)
@@ -1457,10 +1457,10 @@ while True and dodie == 0:
 			if data[0] == DGT_BUS_IGNORE_NEXT_BUS_PING:
 				# A ping message and response but ignore the next ping!
 				# The message actually has two more bytes and a checksum
-				#print("ignore next bus ping")
+				#log.info("ignore next bus ping")
 				dump = bt.recv(3)
 				if debugcmds == 1:
-					print("DGT_BUS_IGNORE_NEXT_BUS_PING " + dump.hex())
+					log.info("DGT_BUS_IGNORE_NEXT_BUS_PING " + dump.hex())
 				#print(dump.hex())
 				tosend = bytearray(b'')
 				tosend.append(DGT_MSG_BUS_PING | MESSAGE_BIT)
@@ -1476,10 +1476,10 @@ while True and dodie == 0:
 				handled = 1
 			if data[0] == DGT_BUS_SEND_VERSION:
 				# Send Version to bus
-				#print("sending version to bus")
+				#log.info("sending version to bus")
 				dump = bt.recv(3)
 				if debugcmds == 1:
-					print("DGT_BUS_SEND_VERSION " + dump.hex())
+					log.info("DGT_BUS_SEND_VERSION " + dump.hex())
 				tosend = bytearray(b'')
 				tosend.append(DGT_MSG_BUS_VERSION | MESSAGE_BIT)
 				tosend.append(0)
@@ -1497,13 +1497,13 @@ while True and dodie == 0:
 				# with ourbus  address and checksum
 				dump = bt.recv(3)
 				if debugcmds == 1:
-					print("DGT_BUS_SEND_CLK " + dump.hex())
+					log.info("DGT_BUS_SEND_CLK " + dump.hex())
 				handled = 1
 			if data[0] == DGT_BUS_SEND_FROM_START:
-				#print("Sending EEPROM data from start")
+				#log.info("Sending EEPROM data from start")
 				dump = bt.recv(3)
 				if debugcmds == 1:
-					print("DGT_BUS_SEND_FROM_START " + dump.hex())
+					log.info("DGT_BUS_SEND_FROM_START " + dump.hex())
 				# find the last occurrence of EE_START in the EEPROM
 				offset = -1
 				for i in range(len(EEPROM) - 1, -1, -1):
@@ -1517,28 +1517,28 @@ while True and dodie == 0:
 				tosend.append(8)
 				tosend.append(1)
 				if offset == -1:
-					#print("Sending but no data")
+					#log.info("Sending but no data")
 					tosend.append(board.checksum(tosend))
-					#print(tosend.hex())
+					#log.info(tosend.hex())
 					bt.send(bytes(tosend))
 					#bt.flush()
 					handled = 1
 				else:
-					#print("Sending with data")
+					#log.info("Sending with data")
 					for i in range(offset, len(EEPROM)-1):
 						tosend.append(EEPROM[i])
 						tosend[2] = len(tosend) + 1
 						tosend.append(board.checksum(tosend))
-						#print(tosend.hex())
+						#log.info(tosend.hex())
 						bt.send(bytes(tosend))
 						#bt.flush()
 						handled = 1
 				sendupdates = 1
 			if data[0] == DGT_BUS_SEND_CHANGES:
-				#print("Sending changes since last request")
+				#log.info("Sending changes since last request")
 				dump = bt.recv(3)
 				if debugcmds == 1:
-					print("DGT_BUS_SEND_CHANGES " + dump.hex())
+					log.info("DGT_BUS_SEND_CHANGES " + dump.hex())
 				tosend = bytearray(b'')
 				tosend.append(DGT_MSG_BUS_UPDATE | MESSAGE_BIT)
 				tosend.append(0)
@@ -1556,10 +1556,10 @@ while True and dodie == 0:
 				eepromlastsendpoint = len(EEPROM)
 				handled = 1
 			if data[0] == DGT_BUS_REPEAT_CHANGES:
-				print("repeat changes")
+				log.info("repeat changes")
 				dump = bt.recv(3)
 				if debugcmds == 1:
-					print("DGT_BUS_REPEAT_CHANGES " + dump.hex())
+					log.info("DGT_BUS_REPEAT_CHANGES " + dump.hex())
 				tosend = lastchangepacket
 				bt.send(bytes(tosend))
 				#bt.flush()
@@ -1568,13 +1568,13 @@ while True and dodie == 0:
 				# This is a bus mode packet. But I don't know what it does. It seems it can be ignored though
 				dump = bt.recv(3)
 				if debugcmds == 1:
-					print("DGT_BUS_UNKNOWN_2 (PING RANDOM REPLY) " + dump.hex())
+					log.info("DGT_BUS_UNKNOWN_2 (PING RANDOM REPLY) " + dump.hex())
 				handled = 1
 			if data[0] == DGT_BUS_SET_START_GAME:
 				dump = bt.recv(3)
 				if debugcmds == 1:
-					print("DGT_BUS_SET_START_GAME " + dump.hex())
-				print("Bus set start game")
+					log.info("DGT_BUS_SET_START_GAME " + dump.hex())
+				log.info("Bus set start game")
 				paths.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
 				# Write EE_START_TAG to EEPROM
 				# Followed by piece positions
@@ -1668,7 +1668,7 @@ while True and dodie == 0:
 			if data[0] == DGT_RETURN_SERIALNR:
 				# Return our serial number
 				if debugcmds == 1:
-					print("DGT_RETURN_SERIALNR")
+					log.info("DGT_RETURN_SERIALNR")
 				tosend = bytearray(b'')
 				tosend.append(DGT_SERIALNR | MESSAGE_BIT)
 				tosend.append(0)
@@ -1701,7 +1701,7 @@ while True and dodie == 0:
 			if data[0] == DGT_RETURN_LONG_SERIALNR:
 				# Return our long serial number
 				if debugcmds == 1:
-					print("DGT_RETURN_LONG_SERIALNR")
+					log.info("DGT_RETURN_LONG_SERIALNR")
 				tosend = bytearray(b'')
 				tosend.append(DGT_LONG_SERIALNR | MESSAGE_BIT)
 				tosend.append(0)
@@ -1726,7 +1726,7 @@ while True and dodie == 0:
 			if data[0] == DGT_SEND_VERSION:
 				# Return our serial number
 				if debugcmds == 1:
-					print("DGT_SEND_VERSION")
+					log.info("DGT_SEND_VERSION")
 				tosend = bytearray(b'')
 				tosend.append(DGT_VERSION | MESSAGE_BIT)
 				tosend.append(0)
@@ -1739,7 +1739,7 @@ while True and dodie == 0:
 			if data[0] == DGT_SEND_BRD:
 				# Send the board
 				if debugcmds == 1:
-					print("DGT_SEND_BRD")
+					log.info("DGT_SEND_BRD")
 				tosend = bytearray(b'')
 				tosend.append(DGT_BOARD_DUMP | MESSAGE_BIT)
 				tosend.append(0)
@@ -1755,11 +1755,11 @@ while True and dodie == 0:
 				# This mapping goes 0 (h1) to 63 (a8)
 				dd = bt.recv(5)
 				if debugcmds == 1:
-					print("DGT_SET_LEDS " + dd.hex())
+					log.info("DGT_SET_LEDS " + dd.hex())
 				#print(dd.hex())
 				if dd[1] == 0:
 					# Off
-					print("off")
+					log.info("off")
 					tos = 0
 					froms = 0
 					if reversed == 1:
@@ -1785,13 +1785,13 @@ while True and dodie == 0:
 					if len(litsquares) > 0:
 						board.ledsOff()
 						tosend = bytearray(b'\xb0\x00\x0b' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big') + b'\x05\x05\x00\x05')
-						print(tosend)
+						log.info(tosend)
 						# '\x38\x39\x3a\x3b\x3c\x3d\x3e\x3f\x37\x36\x35\x34\x33\x32\x31\x30\x0d')
 						for x in range(0, len(litsquares)):
 							tosend.append(litsquares[x])
 						tosend[2] = len(tosend) + 1
 						tosend.append(board.checksum(tosend))
-						print(tosend.hex())
+						log.info(tosend.hex())
 						board.ser.write(tosend)
 						time.sleep(0.2)
 					else:
@@ -1821,7 +1821,7 @@ while True and dodie == 0:
 						tosend.append(litsquares[x])
 					tosend[2] = len(tosend) + 1
 					tosend.append(board.checksum(tosend))
-					print(tosend.hex())
+					log.info(tosend.hex())
 					board.ser.write(tosend)
 					time.sleep(0.2)
 				handled = 1
@@ -1829,9 +1829,9 @@ while True and dodie == 0:
 				# Send an update
 				if debugcmds == 1:
 					if data[0] == DGT_SEND_UPDATE:
-						print("DGT_SEND_UPDATE")
+						log.info("DGT_SEND_UPDATE")
 					else:
-						print("DGT_SEND_UPDATE_BRD")
+						log.info("DGT_SEND_UPDATE_BRD")
 				tosend = bytearray(b'')
 				tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
 				tosend.append(0)
@@ -1849,18 +1849,18 @@ while True and dodie == 0:
 				#board.writeText(0, 'PLAY   ')
 				#board.writeText(1, '         ')
 				if debugcmds == 1:
-					print("DGT_SEND_UPDATE_NICE")
+					log.info("DGT_SEND_UPDATE_NICE")
 				sendupdates = 1
 				handled = 1
 			if data[0] == DGT_CLOCK_MESSAGE:
 				# For now don't display the clock, maybe later. But the other device acts as it
 				# Just drop the data
 				if debugcmds == 1:
-					print("DGT_CLOCK_MESSAGE")
+					log.info("DGT_CLOCK_MESSAGE")
 				sz = bt.recv(1)
 				sz = sz[0]
 				d = bt.recv(sz)
-				print("****** " + d.hex())
+				log.info("****** " + d.hex())
 				clkhandled = 0
 				if d.hex() == "030300":
 					# Clears the message and shows normal clock times
@@ -1881,7 +1881,7 @@ while True and dodie == 0:
 					tosend.append(ack2 & 0x7f) # 8  4
 					tosend.append(ack3 & 0x7f) # 9  5
 					tosend.append(0) # 10
-					print(tosend.hex())
+					log.info(tosend.hex())
 					bt.send(bytes(tosend))
 					#bt.flush()
 					clkhandled = 1
@@ -1902,13 +1902,13 @@ while True and dodie == 0:
 					tosend.append(ack2 & 0x7f) # 8  4
 					tosend.append(ack3 & 0x7f) # 9  5
 					tosend.append(0) # 10
-					print(tosend.hex())
+					log.info(tosend.hex())
 					bt.send(bytes(tosend))
 					#bt.flush()
 					clkhandled = 1
 				if d.hex()[0:4] == "030a":
 					# This is asking to set the clock setnrun
-					print("setting the clock")
+					log.info("setting the clock")
 					# clockturn clockpaused showclock
 					lh = d[2]
 					lm = d[3]
@@ -1917,29 +1917,29 @@ while True and dodie == 0:
 					rm = d[6]
 					rs = d[7]
 					ctl = d[8]
-					print(lh)
-					print(lm)
-					print(ls)
-					print(rh)
-					print(rm)
-					print(rs)
+					log.info(lh)
+					log.info(lm)
+					log.info(ls)
+					log.info(rh)
+					log.info(rm)
+					log.info(rs)
 					lclock = (int(str(lh)) * 3600) + (int(str(lm)) * 60) + (int(str(ls)))
 					rclock = (int(str(rh)) * 3600) + (int(str(rm)) * 60) + (int(str(rs)))
-					print("Set the clocks")
-					print(lclock)
-					print(rclock)
+					log.info("Set the clocks")
+					log.info(lclock)
+					log.info(rclock)
 					showclock = 1
 					clockturn = 1
-					print("left turn")
+					log.info("left turn")
 					if ctl & 0x02 > 0:
 						clockturn = 2
-						print("right turn")
+						log.info("right turn")
 					if ctl & 0x04 > 0:
 						clockpaused = 1
-						print("paused")
+						log.info("paused")
 					else:
 						clockpaused = 0
-						print("running")
+						log.info("running")
 					tosend = bytearray(b'')
 					tosend.append(DGT_BWTIME | MESSAGE_BIT)
 					tosend.append(0)
@@ -1955,7 +1955,7 @@ while True and dodie == 0:
 					tosend.append(ack2 & 0x7f) # 8  4
 					tosend.append(ack3 & 0x7f) # 9  5
 					tosend.append(0) # 10
-					print(tosend.hex())
+					log.info(tosend.hex())
 					bt.send(bytes(tosend))
 					#bt.flush()
 					clkhandled = 1
@@ -1982,7 +1982,7 @@ while True and dodie == 0:
 					tosend.append(ack2 & 0x7f) # 8  4
 					tosend.append(ack3 & 0x7f) # 9  5
 					tosend.append(0) # 10
-					print(tosend.hex())
+					log.info(tosend.hex())
 					bt.send(bytes(tosend))
 					#bt.flush()
 					clkhandled = 1
@@ -1991,7 +1991,7 @@ while True and dodie == 0:
 					asciimessage = ""
 					for qi in range(2,13):
 						asciimessage = asciimessage + chr(d[qi])
-					print("|||" + asciimessage + "||||")
+					log.info("|||" + asciimessage + "||||")
 					if "RevII" not in asciimessage and "PicoChs" not in asciimessage:
 						epaper.writeText(13,asciimessage + "               ")
 					#if d[13] > 0:
@@ -2011,25 +2011,24 @@ while True and dodie == 0:
 					tosend.append(ack2 & 0x7f) # 8  4
 					tosend.append(ack3 & 0x7f) # 9  5
 					tosend.append(0) # 10
-					print(tosend.hex())
+					log.info(tosend.hex())
 					bt.send(bytes(tosend))
 					#bt.flush()
 					clkhandled = 1
 				if clkhandled == 0:
-					print("Unhandled clock message")
-					print(d.hex())
+					log.info("Unhandled clock message " + d.hex())
 				handled = 1
 			if data[0] == DGT_SEND_CLK:
 				# RabbitPlugin doesn't work without this so let's fake this for now
 				if debugcmds == 1:
-					print("DGT_SEND_CLK")
+					log.info("DGT_SEND_CLK")
 				sendClockData()
 				handled = 1
 			if data[0] == DGT_SEND_BATTERY_STATUS:
 				# Ideally in the future we'll put a function in board to get the
 				# battery status from the centaur. But for now, fake it!
 				if debugcmds == 1:
-					print("DGT_SEND_BATTERY_STATUS")
+					log.info("DGT_SEND_BATTERY_STATUS")
 				tosend = bytearray(b'')
 				tosend.append(DGT_BATTERY_STATUS | MESSAGE_BIT)
 				tosend.append(0)
@@ -2047,7 +2046,7 @@ while True and dodie == 0:
 				#bt.flush()
 				handled = 1
 			if handled == 0:
-				print("Unhandled message type: " + data.hex())
+				log.info("Unhandled message type: " + str(data.hex()))
 	except:
 		# This indicates that the serial port connection has been broken
 		dodie = 1

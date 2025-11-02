@@ -37,9 +37,8 @@ import inspect
 import pathlib
 import socket
 import queue
-import logging
 
-from DGTCentaurMods.board.logging import logger
+from DGTCentaurMods.board.logging import log
 
 # Re-export commonly used command names for backward-compatible usage in this module
 SOUND_GENERAL = command.SOUND_GENERAL
@@ -214,7 +213,7 @@ def run_background(start_key_polling=False):
 
 def beep(beeptype):
     if centaur.get_sound() == "off":
-        logger.warning("Beep disabled")
+        log.warning("Beep disabled")
         return
     # Ask the centaur to make a beep sound
     asyncserial.beep(beeptype)
@@ -263,7 +262,7 @@ def shutdown():
     
     # Check for pending update
     if os.path.exists(package):
-        logging.debug('Update package found - installing instead of shutdown')
+        log.debug('Update package found - installing instead of shutdown')
         beep(SOUND_POWER_OFF)
         epaper.clearScreen()
         epaper.writeText(3, "   Installing")
@@ -280,7 +279,7 @@ def shutdown():
         return
     
     # Normal shutdown sequence
-    logger.info('Normal shutdown sequence starting')
+    log.info('Normal shutdown sequence starting')
     
     # Beep power off sound
     try:
@@ -301,7 +300,7 @@ def shutdown():
         # All LEDs off at end
         ledsOff()
     except Exception as e:
-        logger.error(f"LED pattern failed during shutdown: {e}")
+        log.error(f"LED pattern failed during shutdown: {e}")
     
     time.sleep(2)
     
@@ -309,7 +308,7 @@ def shutdown():
     try:
         epaper.stopEpaper()
     except Exception as e:
-        logging.debug(f"E-paper stop failed: {e}")
+        log.debug(f"E-paper stop failed: {e}")
     
     time.sleep(1)
     
@@ -317,13 +316,13 @@ def shutdown():
     try:
         sleep_controller()
     except Exception as e:
-        logging.debug(f"Controller sleep failed: {e}")
+        log.debug(f"Controller sleep failed: {e}")
     
     # Execute system poweroff via systemd (ensures shutdown hooks run as root)
-    logging.debug('Requesting system poweroff via systemd')
+    log.debug('Requesting system poweroff via systemd')
     rc = os.system("systemctl poweroff")
     if rc != 0:
-        logging.error(f"systemctl poweroff failed with rc={rc}")
+        log.error(f"systemctl poweroff failed with rc={rc}")
 
 
 def sleep_controller():
@@ -336,20 +335,20 @@ def sleep_controller():
     
     Visual feedback: Single LED at h8 position (square 7)
     """
-    logging.debug("Sending sleep command to DGT Centaur controller")
+    log.debug("Sending sleep command to DGT Centaur controller")
     
     # Visual feedback - single LED at h8
     try:
         ledFromTo(7, 7)
     except Exception as e:
-        logging.debug(f"LED failed during controller sleep: {e}")
+        log.debug(f"LED failed during controller sleep: {e}")
     
     # Send sleep command to controller
     try:
         sleep()
-        logging.debug("Controller sleep command sent successfully")
+        log.debug("Controller sleep command sent successfully")
     except Exception as e:
-        logging.debug(f"Failed to send sleep command: {e}")
+        log.debug(f"Failed to send sleep command: {e}")
 
 
 def sleep():
@@ -450,7 +449,7 @@ def checkInternetSocket(host="8.8.8.8", port=53, timeout=1):
         socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
         return True
     except socket.error as ex:
-        logging.debug(ex)
+        log.debug(ex)
         return False
 
 #
@@ -501,7 +500,7 @@ def eventsThread(keycallback, fieldcallback, tout):
     hold_timeout = False
     events_paused = False
     to = time.time() + tout
-    logging.debug('Timeout at %s seconds', str(tout))
+    log.debug('Timeout at %s seconds', str(tout))
     while time.time() < to:
         loopstart = time.time()
         if eventsrunning == 1:
@@ -530,18 +529,16 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 try:
                                     #Rotate the field here. The callback to boardmanager should always have a proper square index
                                     field = rotateFieldHex(field_hex)
-                                    logger.info(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
+                                    log.info(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
                                     fieldcallback(piece_event, field, time_in_seconds)
                                     to = time.time() + tout
                                 except Exception as e:
-                                    logger.error(f"[board.events.push] error: {e}")
-                                    logger.error(f"[board.events.push] error: {sys.exc_info()[1]}")
-                                    logger.error(f"[board.events.push] error: {sys.exc_info()[2]}")
+                                    log.error(f"[board.events.push] error: {e}")
                                     import traceback
                                     traceback.print_exc()
                             asyncserial._piece_listener = _listener
                     except Exception as e:
-                        logger.error(f"Error in piece detection thread: {e}")
+                        log.error(f"Error in piece detection thread: {e}")
 
             try:
 
@@ -553,9 +550,9 @@ def eventsThread(keycallback, fieldcallback, tout):
                     while time.time() < breaktime:
                         key_pressed = asyncserial.get_and_reset_last_key()
                         if key_pressed == Key.PLAY:
-                            logging.debug('Play btn pressed. Stanby is: %s', standby)
+                            log.debug('Play btn pressed. Stanby is: %s', standby)
                             if standby == False:
-                                logging.debug('Calling standbyScreen()')
+                                log.debug('Calling standbyScreen()')
                                 epaper.standbyScreen(True)
                                 standby = True
                                 print("----------------------------------------")
@@ -576,14 +573,13 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 break
                             break
                     else:
-                        print(f"beep(SOUND_POWER_OFF)")
                         beep(SOUND_POWER_OFF)
                         print("----------------------------------------")
                         print("Starting shutdown DISABLED")
                         print("----------------------------------------")
                         #shutdown()
             except Exception as e:
-                logger.error(f"[board.events] error: {e}")
+                log.error(f"[board.events] error: {e}")
             try:
                 # Sending 152 to the controller provides us with battery information
                 # Do this every 15 seconds and fill in the globals
@@ -596,12 +592,12 @@ def eventsThread(keycallback, fieldcallback, tout):
             time.sleep(0.05)
             if standby != True and key_pressed is not None:
                 to = time.time() + tout
-                logger.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
+                log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
                 # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
                 try:
                     keycallback(key_pressed)
                 except Exception as e:
-                    logger.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
+                    log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
         else:
             # If pauseEvents() hold timeout in the thread
             to = time.time() + 100000
@@ -615,7 +611,7 @@ def eventsThread(keycallback, fieldcallback, tout):
         print("----------------------------------------")
         print("Timeout. Shutting down board DIABLED")
         print("----------------------------------------")
-        logging.debug('Timeout. Shutting down board')
+        log.debug('Timeout. Shutting down board')
         #shutdown()
 
 
@@ -623,32 +619,27 @@ def subscribeEvents(keycallback, fieldcallback, timeout=100000):
     # Called by any program wanting to subscribe to events
     # Arguments are firstly the callback function for key presses, secondly for piece lifts and places
     try:
-        print(f"[board.subscribeEvents] Subscribing to events")
-        print(f"[board.subscribeEvents] Keycallback: {keycallback}")
-        print(f"[board.subscribeEvents] Fieldcallback: {fieldcallback}")
-        print(f"[board.subscribeEvents] Timeout: {timeout}")
         eventsthreadpointer = threading.Thread(target=eventsThread, args=(keycallback, fieldcallback, timeout))
         eventsthreadpointer.daemon = True
         eventsthreadpointer.start()
     except Exception as e:
         print(f"[board.subscribeEvents] error: {e}")
-        print(f"[board.subscribeEvents] error: {sys.exc_info()[1]}")
 
 def pauseEvents():
     global eventsrunning
-    logger.info(f"[board.pauseEvents] Pausing events")
+    log.info(f"[board.pauseEvents] Pausing events")
     eventsrunning = 0
     time.sleep(0.5)
 
 def unPauseEvents():
     global eventsrunning
-    logger.info(f"[board.unPauseEvents] Unpausing events")
+    log.info(f"[board.unPauseEvents] Unpausing events")
     eventsrunning = 1
     
 def unsubscribeEvents(keycallback=None, fieldcallback=None):
     # Minimal compatibility wrapper for callers expecting an unsubscribe API
     # Current implementation pauses events; resume via unPauseEvents()
-    logger.info(f"[board.unsubscribeEvents] Unsubscribing from events")
+    log.info(f"[board.unsubscribeEvents] Unsubscribing from events")
     pauseEvents()
 
 

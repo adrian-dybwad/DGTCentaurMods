@@ -65,9 +65,9 @@ def setup_logging(log_file_path="/home/pi/debug.log", log_level=logging.DEBUG):
     Returns:
         The configured logger instance.
     """
-    logger = logging.getLogger()
-    logger.setLevel(log_level)
-    logger.handlers = []
+    log = logging.getLogger()
+    log.setLevel(log_level)
+    log.handlers = []
     
     # File handler with plain formatter
     _fmt = logging.Formatter("%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s", "%Y-%m-%d %H:%M:%S")
@@ -77,7 +77,7 @@ def setup_logging(log_file_path="/home/pi/debug.log", log_level=logging.DEBUG):
             _fh = logging.FileHandler(log_file_path, mode="w")
             _fh.setLevel(log_level)
             _fh.setFormatter(_fmt)
-            logger.addHandler(_fh)
+            log.addHandler(_fh)
         except Exception:
             pass
     
@@ -85,11 +85,11 @@ def setup_logging(log_file_path="/home/pi/debug.log", log_level=logging.DEBUG):
     _ch = logging.StreamHandler(sys.stdout)
     _ch.setLevel(log_level)
     _ch.setFormatter(ColoredFormatter("%(asctime)s.%(msecs)03d %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S"))
-    logger.addHandler(_ch)
+    log.addHandler(_ch)
     
-    return logger
+    return log
 
 
-# Automatically configure and export logger on module import
-logger = setup_logging()
+# Automatically configure and export log on module import
+log = setup_logging()
 

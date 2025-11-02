@@ -39,12 +39,11 @@ import chess.engine
 from DGTCentaurMods.board import board, centaur
 from DGTCentaurMods.display import epaper
 from DGTCentaurMods.game import gamemanager
+from DGTCentaurMods.board.logging import log
 
-import logging
-logging.basicConfig(level=logging.INFO)
 from DGTCentaurMods.config import paths
 
-logging.info("loaded lichess.py")
+log.info("loaded lichess.py")
 curturn = 1
 computeronturn = 0
 kill = 0
@@ -56,7 +55,7 @@ lastmove = "1234"
 
 def keyCallback(key):
 	global kill
-	print("Key event received: " + str(key))
+	log.info("Key event received: " + str(key))
 	if key == gamemanager.board.Key.BACK:
 		kill = 1
 
@@ -152,19 +151,19 @@ def moveCallback(move):
 	epaper.drawFen(gamemanager.cboard.fen(),3)
 	# As long as we have player data we have a connection to the lichess api
 	# so send the move if it's our turn
-	print("make move called")
+	log.info("make move called")
 	if whiteplayer != "":
-		print("white player name is set")
+		log.info("white player name is set")
 		if (curturn == 1 and playeriswhite == 1) or (curturn == 0 and playeriswhite == 0):
-			print("making move")
+			log.info("making move")
 			ret = False
 			while ret == False:
 				ret = client.board.make_move(gameid, move)
 				if ret == False:
-					print("api failed to respond, trying again")
+					log.info("api failed to respond, trying again")
 					time.sleep(1)
 			lastmove = str(move).lower()
-			print(ret)
+			log.info(ret)
 
 
 # Activate the epaper
@@ -173,7 +172,7 @@ epaper.initEpaper()
 # Get the token
 token = centaur.get_lichess_api()
 if (token == "" or token == "tokenhere") and kill == 0:
-	print('no token')
+	log.info('no token')
 	epaper.writeText(0,"No API token      ")
 	epaper.writeText(1,"Fill it in       ")
 	epaper.writeText(2,"in the web")
@@ -186,7 +185,7 @@ if (token == "" or token == "tokenhere") and kill == 0:
 # or New [time=10|15|30|60] [increment=5|10|20] [rated=True|False] [color=White|Black|Random]
 
 if (len(sys.argv) == 1) and kill == 0:
-	logging.error("no parameter given!")
+	log.error("no parameter given!")
 	epaper.writeText(0,"Error:        ")
 	epaper.writeText(1,"lichess.py    ")
 	epaper.writeText(2,"no parameter")
@@ -197,7 +196,7 @@ if (len(sys.argv) == 1) and kill == 0:
 
 if (len(sys.argv) > 1) and kill == 0:
 	if sys.argv[1] not in ["New", "Ongoing", "Challenge"]:
-		logging.error("Wrong first input parameter")
+		log.error("Wrong first input parameter")
 		sys.exit()
 
 gtime = 0
@@ -221,7 +220,7 @@ if len(sys.argv) > 1:
 		challengeid = sys.argv[2]
 		challenge_direction = sys.argv[3]
 	else:
-		logging.error("Wrong input value")
+		log.error("Wrong input value")
 		raise ValueError("Not expected value %s" % (sys.argv[1],))
 
 # Prepare for the lichess api
@@ -233,15 +232,15 @@ try:
 	who = client.account.get()
 	player = str(who.get('username'))
 except:
-	print('no token')
+	log.info('no token')
 	epaper.writeText(0,"Error in API token")
 	epaper.writeText(1,"                 ")
 	time.sleep(10)
 	kill = 1
 	sys.exit()
 
-print(who)
-print(player)
+log.info(who)
+log.info(player)
 
 def newGameThread():
 	# Starts a new game and monitors client.board.stream_incoming events
@@ -262,7 +261,7 @@ def newChallengeThread():
 	global challengeid
 	global gameid
 	epaper.writeText(0, "Accepting challenge / waiting for the opponent...")
-	logging.debug("Accepting challenge / waiting for the opponent...")
+	log.debug("Accepting challenge / waiting for the opponent...")
 	if challenge_direction == 'in':
 		client.challenges.accept(challengeid)
 	else:
@@ -278,14 +277,14 @@ def newChallengeThread():
 	#if not ongoing:
 	#	raise ValueError("Value `ongoing` is expected to be True")
 	#epaper.writeText(0, "Waiting fot the game...")
-	#logging.info("Waiting fot the game...")
+	#log.info("Waiting fot the game...")
 	#while True:
 	#	current_games = client.games.get_ongoing(10)
 	#	if len(current_games) > 0:
 	#		break
 	#	time.sleep(0.5)
 	#gameid = sys.argv[2]
-	#logging.info("found game with ID="+gameid)
+	#log.info("found game with ID="+gameid)
 
 
 checkback = 0
@@ -302,7 +301,7 @@ def backTest():
 			resp = board.ser.read(10000)
 			resp = bytearray(resp)
 			if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0501000000007d47"):
-				print("back button pressed")
+				log.info("back button pressed")
 				kill = 1  # BACK
 				checkback = 1
 				gameid = "exit"
@@ -332,10 +331,10 @@ if sys.argv[1] == "New":
 				continue
 			# remove all the wrong timecontrols (if there were any)
 			if not a_game.get('clock'):
-				print(f'1 {g}')
+				log.info(f'1 {g}')
 				continue
 			if (a_game['clock']['initial'] != (int(gtime)*60)) or (a_game['clock']['increment'] != int(ginc)):
-				print(f'2 {g}')
+				log.info(f'2 {g}')
 				continue
 			# are there some changes breaking compatibility in berserk?
 			if isinstance(game_start, int):
@@ -345,9 +344,9 @@ if sys.argv[1] == "New":
 				gameid = g
 
 elif sys.argv[1] == "Ongoing":
-	logging.info(f"selected game id {gameid}")
+	log.info(f"selected game id {gameid}")
 elif sys.argv[1] == "Challenge":
-	logging.info(f"selected challenge id {challengeid}")
+	log.info(f"selected challenge id {challengeid}")
 	gt = threading.Thread(target=newChallengeThread, args=())
 	gt.daemon = True
 	gt.start()
@@ -356,13 +355,13 @@ elif sys.argv[1] == "Challenge":
 	bb.start()
 
 	while gameid == "" and kill == 0:
-		logging.info('.')
+		log.info('.')
 		ongoing_games = client.games.get_ongoing(10)
 		for game in ongoing_games:
 			if game["gameId"] == challengeid:
 				gameid = challengeid
 				break
-	logging.info(f"challenge accepted. Current challenge id {gameid}")
+	log.info(f"challenge accepted. Current challenge id {gameid}")
 
 else:
 	raise ValueError(f"Wrong argv[1] value: {sys.argv[1]}")
@@ -377,7 +376,7 @@ else:
 checkback = 1
 
 if kill == 1:
-	print("exiting")
+	log.info("exiting")
 	sys.exit()
 
 playeriswhite = -1
@@ -423,9 +422,9 @@ def stateThread():
 		buttonPress = 0
 		gamestate = client.board.stream_game_state(gameid)
 		for state in gamestate:
-			print(state)
+			log.info(state)
 			message1 = str(state)
-			print("message1 = ", message1)
+			log.info("message1 = ", message1)
 
 			if 'chatLine' in message1 or 'opponentGone' in message1:
 				time.sleep(0.1)
@@ -434,7 +433,7 @@ def stateThread():
 			if message1.find('moves'):
 				c = message1.find("wtime")
 				messagehelp = message1[c:len(message1)]
-				print("messagehelp = ", messagehelp)
+				log.info("messagehelp = ", messagehelp)
 				# At this point if the string contains date then the time is in date format
 				# otherwise it's in number format.
 				whitetimemin = 0
@@ -472,7 +471,7 @@ def stateThread():
 					
 				c = message1.find("btime")
 				messagehelp = message1[c:len(message1)]
-				print("messagehelp = ", messagehelp)
+				log.info("messagehelp = ", messagehelp)
 
 				blacktimemin = 0
 				blacktimesec = 0
@@ -584,7 +583,7 @@ def stateThread():
 				remotemoves = ""
 			if ('black' in state.keys()):
 				if ('name' in state.get('white') or 'name' in state.get('black')):
-					print(str(state.get('white').get('name')) + " vs " + str(state.get('black').get('name')))
+					log.info(str(state.get('white').get('name')) + " vs " + str(state.get('black').get('name')))
 					whiteplayer = str(state.get('white').get('name'))
 					whiterating = str(state.get('white').get('rating'))
 					blackplayer = str(state.get('black').get('name'))

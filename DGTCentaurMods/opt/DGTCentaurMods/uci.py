@@ -25,6 +25,7 @@ from DGTCentaurMods.game import gamemanager
 from DGTCentaurMods.display import epaper
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.board import board
+from DGTCentaurMods.board.logging import log
 
 import time
 import chess
@@ -91,10 +92,10 @@ def do_cleanup():
 def cleanup_and_exit(signum=None, frame=None):
     """Clean up resources and exit gracefully"""
     global kill
-    print("\n>>> Cleaning up and exiting...")
+    log.info("\n>>> Cleaning up and exiting...")
     kill = 1
     do_cleanup()
-    print("Goodbye!")
+    log.info("Goodbye!")
     sys.exit(0)
 
 # Register signal handler for Ctrl+C
@@ -120,20 +121,20 @@ if computerarg == "random":
 
 # Arg2 is going to contain the name of our engine choice. We use this for database logging and to spawn the engine
 enginename = sys.argv[2]
-print("enginename: " + enginename)
+log.info("enginename: " + enginename)
 ENGINE_PATH_NAME = "engines/" + enginename
-print("ENGINE_PATH_NAME: " + ENGINE_PATH_NAME)
+log.info("ENGINE_PATH_NAME: " + ENGINE_PATH_NAME)
 CT_800_PATH = "engines/ct800"
-print("CT_800_PATH: " + CT_800_PATH)
+log.info("CT_800_PATH: " + CT_800_PATH)
 AENGINE_PATH = str((pathlib.Path(__file__).parent / CT_800_PATH).resolve())
 PENGINE_PATH = str((pathlib.Path(__file__).parent / ENGINE_PATH_NAME).resolve())
 UCI_FILE_PATH = PENGINE_PATH + ".uci"
-print(f"aengine: {AENGINE_PATH}")
-print(f"pengine: {PENGINE_PATH}")
+log.info(f"aengine: {AENGINE_PATH}")
+log.info(f"pengine: {PENGINE_PATH}")
 aengine = chess.engine.SimpleEngine.popen_uci(AENGINE_PATH, timeout = None)
 pengine = chess.engine.SimpleEngine.popen_uci(PENGINE_PATH)
-print(f"aengine: {aengine}")
-print(f"pengine: {pengine}")
+log.info(f"aengine: {aengine}")
+log.info(f"pengine: {pengine}")
 ucioptionsdesc = "Default"
 ucioptions = {}
 if len(sys.argv) > 3:
@@ -143,13 +144,13 @@ if len(sys.argv) > 3:
     config = configparser.ConfigParser()
     config.optionxform = str
     config.read(UCI_FILE_PATH)
-    print(config.items(ucioptionsdesc))
+    log.info(config.items(ucioptionsdesc))
     for item in config.items(ucioptionsdesc):
         ucioptions[item[0]] = item[1]
     # Filter out non-UCI metadata fields that shouldn't be sent to the engine
     NON_UCI_FIELDS = ['Description']
     ucioptions = {k: v for k, v in ucioptions.items() if k not in NON_UCI_FIELDS}
-    print(ucioptions)
+    log.info(ucioptions)
 
 if computeronturn == 0:
     gamemanager.setGameInfo(ucioptionsdesc, "", "", "Player", enginename)
@@ -160,7 +161,7 @@ def keyCallback(key):
     global kill
     global graphson
     global firstmove
-    print("Key event received: " + str(key))
+    log.info("Key event received: " + str(key))
     if key == gamemanager.board.Key.BACK:
         kill = 1
     if key == gamemanager.board.Key.DOWN:
@@ -179,35 +180,35 @@ def executeComputerMove(mv):
     # Execute the computer move by setting up LEDs and flags for the player to move pieces
     # The actual move will be processed when fieldcallback detects the piece placement
     try:
-        print(f"Setting up computer move: {mv}")
-        print(f"Current FEN: {gamemanager.cboard.fen()}")
-        print(f"Legal moves: {[str(m) for m in list(gamemanager.cboard.legal_moves)[:5]]}...")
+        log.info(f"Setting up computer move: {mv}")
+        log.info(f"Current FEN: {gamemanager.cboard.fen()}")
+        log.info(f"Legal moves: {[str(m) for m in list(gamemanager.cboard.legal_moves)[:5]]}...")
         
         # Validate the move is legal
         move = chess.Move.from_uci(mv)
         if move not in gamemanager.cboard.legal_moves:
-            print(f"ERROR: Move {mv} is not legal! This should not happen.")
-            print(f"Legal moves: {list(gamemanager.cboard.legal_moves)}")
+            log.error(f"ERROR: Move {mv} is not legal! This should not happen.")
+            log.error(f"Legal moves: {list(gamemanager.cboard.legal_moves)}")
             raise ValueError(f"Illegal move: {mv}")
         
         # Light up LEDs to show the computer move to the player
         from_square = chess.parse_square(mv[0:2])  # e.g., "d7" -> 51
         to_square = chess.parse_square(mv[2:4])    # e.g., "d6" -> 43
-        print(f"Lighting LEDs for move from {from_square} ({mv[0:2]}) to {to_square} ({mv[2:4]})")
+        log.info(f"Lighting LEDs for move from {from_square} ({mv[0:2]}) to {to_square} ({mv[2:4]})")
         board.ledFromTo(from_square, to_square)
-                
+
         # Set gamemanager's forcemove flags so fieldcallback will process this move
-        print(f"Setting up gamemanager for forced move")
+        log.info(f"Setting up gamemanager for forced move")
         gamemanager.forcemove = 1
         gamemanager.computermove = mv
         
         # DO NOT push the move here - let fieldcallback handle it when pieces are moved
         # DO NOT call moveCallback or reset flags here
         # DO NOT turn off LEDs
-        print("Computer move setup complete. Waiting for player to move pieces on board.")
+        log.info("Computer move setup complete. Waiting for player to move pieces on board.")
         return
     except Exception as e:
-        print(f"Error in executeComputerMove: {e}")
+        log.error(f"Error in executeComputerMove: {e}")
         import traceback
         traceback.print_exc()
 
@@ -219,23 +220,23 @@ def eventCallback(event):
     global scorehistory
     global last_event
     # This function receives event callbacks about the game in play
-    print(f">>> eventCallback START: event={event}")
+    log.info(f">>> eventCallback START: event={event}")
     if event == gamemanager.EVENT_NEW_GAME:
-        print("!!! WARNING: NEW_GAME event triggered !!!")
+        log.warning("!!! WARNING: NEW_GAME event triggered !!!")
         if last_event == gamemanager.EVENT_NEW_GAME:
-            print("!!! SKIPPING: Consecutive NEW_GAME events - ignoring to prevent loop !!!")
+            log.warning("!!! SKIPPING: Consecutive NEW_GAME events - ignoring to prevent loop !!!")
             return
         import traceback
         traceback.print_stack()
     last_event = event
     try:
-        print(f"EventCallback triggered with event: {event}")
+        log.info(f"EventCallback triggered with event: {event}")
         if event == gamemanager.EVENT_NEW_GAME:        
             #writeTextLocal(0, "               ")
             #writeTextLocal(1, "               ")
-            print("EVENT_NEW_GAME: Resetting board to starting position")
+            log.info("EVENT_NEW_GAME: Resetting board to starting position")
             # Clear any pending computer move setup from before the reset
-            print("Clearing pending computer move setup")
+            log.info("Clearing pending computer move setup")
             gamemanager.forcemove = 0
             gamemanager.computermove = ""
             gamemanager.sourcesq = -1
@@ -248,14 +249,14 @@ def eventCallback(event):
             firstmove = 1   
             epaper.pauseEpaper() 
             drawBoardLocal(gamemanager.cboard.fen())
-            print(f"Board reset. FEN: {gamemanager.cboard.fen()}")
+            log.info(f"Board reset. FEN: {gamemanager.cboard.fen()}")
             if graphson == 1:
                 info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.1))        
                 evaluationGraphs(info) 
             epaper.unPauseEpaper()
         if event == gamemanager.EVENT_WHITE_TURN:
             curturn = 1
-            print(f"WHITE_TURN event: curturn={curturn}, computeronturn={computeronturn}")
+            log.info(f"WHITE_TURN event: curturn={curturn}, computeronturn={computeronturn}")
             if graphson == 1:            
                 info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))
                 epaper.pauseEpaper()
@@ -263,27 +264,27 @@ def eventCallback(event):
                 epaper.unPauseEpaper()
             drawBoardLocal(gamemanager.cboard.fen())  
             if curturn == computeronturn:            
-                print(f"Computer's turn! Current FEN: {gamemanager.cboard.fen()}")
+                log.info(f"Computer's turn! Current FEN: {gamemanager.cboard.fen()}")
                 if ucioptions != {}:
-                    print(f"Configuring engine with options: {ucioptions}")
+                    log.info(f"Configuring engine with options: {ucioptions}")
                     options = (ucioptions)
                     pengine.configure(options)
                 limit = chess.engine.Limit(time=5)
-                print(f"Asking engine to play from FEN: {gamemanager.cboard.fen()}")
+                log.info(f"Asking engine to play from FEN: {gamemanager.cboard.fen()}")
                 try:
                     mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
-                    print(f"Engine returned: {mv}")
+                    log.info(f"Engine returned: {mv}")
                     mv = mv.move
-                    print(f"Move extracted: {mv}")
-                    print(f"Executing move: {str(mv)}")
+                    log.info(f"Move extracted: {mv}")
+                    log.info(f"Executing move: {str(mv)}")
                     executeComputerMove(str(mv))
                 except Exception as e:
-                    print(f"Error in WHITE_TURN computer move: {e}")
+                    log.error(f"Error in WHITE_TURN computer move: {e}")
                     import traceback
                     traceback.print_exc()
         if event == gamemanager.EVENT_BLACK_TURN:
             curturn = 0
-            print(f"BLACK_TURN event: curturn={curturn}, computeronturn={computeronturn}")
+            log.info(f"BLACK_TURN event: curturn={curturn}, computeronturn={computeronturn}")
             if graphson == 1:            
                 info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))    
                 epaper.pauseEpaper()    
@@ -291,22 +292,22 @@ def eventCallback(event):
                 epaper.unPauseEpaper()
             drawBoardLocal(gamemanager.cboard.fen())    
             if curturn == computeronturn:            
-                print(f"Computer's turn! Current FEN: {gamemanager.cboard.fen()}")
+                log.info(f"Computer's turn! Current FEN: {gamemanager.cboard.fen()}")
                 if ucioptions != {}:
-                    print(f"Configuring engine with options: {ucioptions}")
+                    log.info(f"Configuring engine with options: {ucioptions}")
                     options = (ucioptions)
                     pengine.configure(options)
                 limit = chess.engine.Limit(time=5)
-                print(f"Asking engine to play from FEN: {gamemanager.cboard.fen()}")
+                log.info(f"Asking engine to play from FEN: {gamemanager.cboard.fen()}")
                 try:
                     mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
-                    print(f"Engine returned: {mv}")
+                    log.info(f"Engine returned: {mv}")
                     mv = mv.move
-                    print(f"Move extracted: {mv}")
-                    print(f"Executing move: {str(mv)}")
+                    log.info(f"Move extracted: {mv}")
+                    log.info(f"Executing move: {str(mv)}")
                     executeComputerMove(str(mv))
                 except Exception as e:
-                    print(f"Error in BLACK_TURN computer move: {e}")
+                    log.error(f"Error in BLACK_TURN computer move: {e}")
                     import traceback
                     traceback.print_exc()
         if event == gamemanager.EVENT_RESIGN_GAME:
@@ -336,14 +337,14 @@ def eventCallback(event):
                 epaper.drawImagePartial(0, 57, image)            
                 epaper.quickClear()            
                 # Let's display an end screen
-                print("displaying end screen")
+                log.info("displaying end screen")
                 image = Image.new('1', (128,292), 255)
                 draw = ImageDraw.Draw(image)
                 font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
                 draw.text((0,0), "   GAME OVER", font=font18, fill = 0)
                 draw.text((0,20), "          " + gamemanager.getResult(), font=font18, fill = 0)            
                 if len(scorehistory) > 0:
-                    print("there be history")
+                    log.info("there be history")
                     draw.line([(0,114),(128,114)], fill = 0, width = 1)
                     barwidth = 128/len(scorehistory)
                     if barwidth > 8:
@@ -356,12 +357,12 @@ def eventCallback(event):
                             col = 0
                         draw.rectangle([(baroffset,114),(baroffset+barwidth,114 - (scorehistory[i]*4))],fill=col,outline='black')
                         baroffset = baroffset + barwidth
-                print("drawing")
+                log.info("drawing")
                 epaper.drawImagePartial(0, 0, image)
                 time.sleep(10)            
                 kill = 1
     except Exception as e:
-        print(f"Error in eventCallback: {e}")
+        log.error(f"Error in eventCallback: {e}")
         import traceback
         traceback.print_exc()
         try:
@@ -373,17 +374,17 @@ def moveCallback(move):
     # This function receives valid moves made on the board
     # Note: the board state is in python-chess object gamemanager.cboard
     try:
-        print(f"moveCallback: Drawing board for move {move}")
+        log.info(f"moveCallback: Drawing board for move {move}")
         drawBoardLocal(gamemanager.cboard.fen())
-        print("moveCallback: Board drawn successfully")
+        log.info("moveCallback: Board drawn successfully")
     except Exception as e:
-        print(f"Error in moveCallback while drawing board: {e}")
+        log.error(f"Error in moveCallback while drawing board: {e}")
         import traceback
         traceback.print_exc()
 
 def takebackCallback():
     # This function gets called when the user takes back a move
-    print("Takeback detected - clearing computer move setup")
+    log.info("Takeback detected - clearing computer move setup")
     # Clear any pending computer move setup
     gamemanager.forcemove = 0
     gamemanager.computermove = ""
@@ -411,7 +412,7 @@ def evaluationGraphs(info):
     
     # Check if score is available in the info
     if "score" not in info:
-        print("evaluationGraphs: No score in info, skipping")
+        log.info("evaluationGraphs: No score in info, skipping")
         return
     
     if graphson == 0:
@@ -499,7 +500,7 @@ def drawBoardLocal(fen):
     # This local version of drawboard - we draw into a 64x64 image and then
     # use epaper.drawWindow to write that to the screen
     try:
-        print(f"drawBoardLocal: Starting to draw board with FEN: {fen[:20]}...")
+        log.info(f"drawBoardLocal: Starting to draw board with FEN: {fen[:20]}...")
         global computeronturn
         curfen = str(fen)
         curfen = curfen.replace("/", "")
@@ -562,7 +563,7 @@ def drawBoardLocal(fen):
         draw.rectangle([(0,0),(127,127)],fill=None,outline='black')
         epaper.drawImagePartial(0, 81, lboard)    
     except Exception as e:
-        print(f"Error in drawBoardLocal: {e}")
+        log.error(f"Error in drawBoardLocal: {e}")
         import traceback
         traceback.print_exc()
     
@@ -574,26 +575,26 @@ curturn = 1
 
 # Subscribe to the game manager to activate the previous functions
 gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback)
-print("Game manager subscribed")
+log.info("Game manager subscribed")
 
 # Manually trigger game start for UCI mode (no physical board to detect starting position)
-print("Triggering NEW_GAME event")
+log.info("Triggering NEW_GAME event")
 writeTextLocal(0,"Starting game...")
 writeTextLocal(1,"              ")
 time.sleep(1)
 eventCallback(gamemanager.EVENT_NEW_GAME)
 time.sleep(1)
-print("Game started, triggering initial turn")
+log.info("Game started, triggering initial turn")
 # Always start with WHITE_TURN since white moves first in chess
-print("Triggering initial white turn")
+log.info("Triggering initial white turn")
 eventCallback(gamemanager.EVENT_WHITE_TURN)
 
 try:
     while kill == 0:    
         time.sleep(0.1)
 except KeyboardInterrupt:
-    print("\n>>> Caught KeyboardInterrupt, cleaning up...")
+    log.info("\n>>> Caught KeyboardInterrupt, cleaning up...")
     cleanup_and_exit()
 finally:
-    print(">>> Final cleanup")
+    log.info(">>> Final cleanup")
     do_cleanup()

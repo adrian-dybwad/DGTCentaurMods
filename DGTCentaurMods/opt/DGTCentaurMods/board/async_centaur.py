@@ -29,7 +29,6 @@
 import serial
 import time
 import queue
-import logging
 import sys
 import os
 import threading
@@ -38,7 +37,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 from types import SimpleNamespace
 
-from DGTCentaurMods.board.logging import logger
+from DGTCentaurMods.board.logging import log
 
 
 """
@@ -290,7 +289,7 @@ class AsyncCentaur:
             self._callback_thread.start()
         except Exception as e:
             # Fallback: if thread creation fails, leave queue uninitialized
-            logging.error(f"[AsyncCentaur] Failed to start callback worker: {e}")
+            log.error(f"[AsyncCentaur] Failed to start callback worker: {e}")
             self._callback_queue = None
 
     
@@ -305,7 +304,7 @@ class AsyncCentaur:
         self.listener_thread.start()
 
         # THEN send discovery commands
-        logging.info("Starting discovery...")
+        log.info("Starting discovery...")
         self._discover_board_address()
         
     def wait_ready(self, timeout=60):
@@ -322,12 +321,12 @@ class AsyncCentaur:
         while not self.ready and time.time() - start < timeout:
             time.sleep(0.1)
         if not self.ready:
-            logging.warning(f"Timeout waiting for AsyncCentaur initialization (waited {timeout}s)")
+            log.warning(f"Timeout waiting for AsyncCentaur initialization (waited {timeout}s)")
         return self.ready
     
     def _listener_thread(self):
         """Continuously listen for data on the serial port and print it"""
-        logging.info("Listening for serial data (press Ctrl+C to stop)...")
+        log.info("Listening for serial data (press Ctrl+C to stop)...")
         while self.listener_running:
             try:
                 byte = self.ser.read(1)
@@ -335,12 +334,12 @@ class AsyncCentaur:
                     continue
 
                 if len(self.response_buffer) == 1:
-                    logging.info(f"RCVD: first byte: {byte[0]:02x}")
+                    log.info(f"RCVD: first byte: {byte[0]:02x}")
 
                 # if 32 <= byte[0] < 127:
-                #     logging.info(f"RCVD: {byte[0]:02x} {chr(byte[0])}")
+                #     log.info(f"RCVD: {byte[0]:02x} {chr(byte[0])}")
                 # else:
-                #     logging.info(f"RCVD: {byte[0]:02x} (CTL)")
+                #     log.info(f"RCVD: {byte[0]:02x} (CTL)")
 
 
                 # RAW CAPTURE: divert bytes to raw buffer if active
@@ -377,35 +376,35 @@ class AsyncCentaur:
                 # Normal parsing path
                 self.processResponse(byte[0])
             except Exception as e:
-                logging.error(f"Listener error: {e}")
+                log.error(f"Listener error: {e}")
 
     def _callback_worker(self):
         """Run piece-event callbacks off the serial thread to allow blocking calls inside callbacks."""
         while True:
             try:
-                logging.info(f"callback worker: {self._callback_queue.qsize()}")
+                log.info(f"callback worker: {self._callback_queue.qsize()}")
                 item = self._callback_queue.get()
-                logging.info(f"callback worker: item: {item}")
+                log.info(f"callback worker: item: {item}")
                 if not item:
                     continue
                 fn, args = item
                 try:
                     fn(*args)
                 except Exception as e:
-                    logging.error(f"[AsyncCentaur] piece callback error: {e}")
+                    log.error(f"[AsyncCentaur] piece callback error: {e}")
             except Exception as e:
                 # Keep worker alive even on unexpected errors
-                logging.error(f"[AsyncCentaur] callback worker loop error: {e}")
+                log.error(f"[AsyncCentaur] callback worker loop error: {e}")
     
     def stop_listener(self):
         """Stop the serial listener thread"""
         self.listener_running = False
-        logging.info("Serial listener thread stopped")
+        log.info("Serial listener thread stopped")
     
     def _initialize(self):
         """Open serial connection based on mode"""
         if self.developer_mode:
-            logging.debug("Developer mode enabled - setting up virtual serial port")
+            log.debug("Developer mode enabled - setting up virtual serial port")
             os.system("socat -d -d pty,raw,echo=0 pty,raw,echo=0 &")
             time.sleep(10)
             self.ser = serial.Serial("/dev/pts/2", baudrate=1000000, timeout=5.0)
@@ -417,7 +416,7 @@ class AsyncCentaur:
                 self.ser.close()
                 self.ser.open()
         
-        logging.info("Serial port opened successfully")
+        log.info("Serial port opened successfully")
     
 
     def processResponse(self, byte):
@@ -434,7 +433,7 @@ class AsyncCentaur:
         2. A new 85 00 header is detected (indicating start of next packet)
         """
         if len(self.response_buffer) == 1:
-            logging.info(f"processResponse: {byte:02x}")
+            log.info(f"processResponse: {byte:02x}")
         self._handle_orphaned_data_detection(byte)
         self.response_buffer.append(byte)
         
@@ -457,9 +456,9 @@ class AsyncCentaur:
                         if len(self.response_buffer) > HEADER_DATA_BYTES:
                             # Log orphaned data (everything except the 85)
                             hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
-                            logging.warning(f"[ORPHANED] {hex_row}")
+                            log.warning(f"[ORPHANED] {hex_row}")
                             self.response_buffer = bytearray(self.response_buffer[-(HEADER_DATA_BYTES):])  # last 5 bytes
-                            logging.info(f"After trimming: self.response_buffer: {self.response_buffer}")
+                            log.info(f"After trimming: self.response_buffer: {self.response_buffer}")
 
     def _try_packet_detection(self, byte):
         """Handle checksum-validated packets, returns True if packet complete"""
@@ -474,18 +473,18 @@ class AsyncCentaur:
                     calculated_checksum = self.checksum(self.response_buffer[:-1])
                     if byte == calculated_checksum:
                         # We have a valid packet
-                        logging.info(f"[P{self.packet_count:03d}] checksummed: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                        log.info(f"[P{self.packet_count:03d}] checksummed: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                         self.on_packet_complete(self.response_buffer)
                         return True
                     else:
                         if self.response_buffer[0] == DGT_NOTIFY_EVENTS_RESP:
-                            logging.info(f"DGT_NOTIFY_EVENTS_RESP: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                            log.info(f"DGT_NOTIFY_EVENTS_RESP: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                             self.handle_key_payload(self.response_buffer[1:])
                             self.response_buffer = bytearray()
                             self.packet_count += 1
                             return True
                         else:
-                            logging.info(f"checksum mismatch: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                            log.info(f"checksum mismatch: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                             self.response_buffer = bytearray()
                             return False
                 else:
@@ -500,7 +499,7 @@ class AsyncCentaur:
         self.packet_count += 1
 
         try:
-            print(f"[AsyncCentaur] on_packet_complete: packet: {' '.join(f'{b:02x}' for b in packet)}")
+            log.info(f"[AsyncCentaur] on_packet_complete: packet: {' '.join(f'{b:02x}' for b in packet)}")
             # Handle discovery or route to handler
             if not self.ready:
                 self._discover_board_address(packet)
@@ -525,9 +524,9 @@ class AsyncCentaur:
             with self._waiter_lock:
                 if self._response_waiter is not None:
                     expected_type = self._response_waiter.get('expected_type')
-                    #print(f"exp={expected_type!r} {type(expected_type)}, got={packet[0]!r} {type(packet[0])}")
+                    log.info(f"exp={expected_type!r} {type(expected_type)}, got={packet[0]!r} {type(packet[0])}")
                     if expected_type == packet[0]:
-                        #print(f"Matching packet type: {expected_type} == {packet[0]}")
+                        log.info(f"Matching packet type: {expected_type} == {packet[0]}")
                         payload = self._extract_payload(packet)
                         cb = self._response_waiter.get('callback') if isinstance(self._response_waiter, dict) else None
                         q = self._response_waiter.get('queue') if isinstance(self._response_waiter, dict) else None
@@ -565,16 +564,16 @@ class AsyncCentaur:
             if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
                 self.handle_board_payload(payload)
             elif packet[0] == DGT_PIECE_EVENT_RESP:
-                print(f"[AsyncCentaur] _route_packet_to_handler: DO NOTGHING BECAUSE DGT_PIECE_EVENT_RESP: {' '.join(f'{b:02x}' for b in packet)}")
+                log.info(f"[AsyncCentaur] _route_packet_to_handler: DO NOTGHING BECAUSE DGT_PIECE_EVENT_RESP: {' '.join(f'{b:02x}' for b in packet)}")
                 pass
             elif packet[0] == DGT_BUS_SEND_STATE_RESP:
                 # Board state response - arrived when no waiter was expecting it
                 # This can happen when requests timeout but responses arrive late
-                logging.debug(f"Unsolicited board state packet (0x83) - no active waiter")
+                log.debug(f"Unsolicited board state packet (0x83) - no active waiter")
             else:
-                logging.info(f"Unknown packet type: {' '.join(f'{b:02x}' for b in packet)}")
+                log.info(f"Unknown packet type: {' '.join(f'{b:02x}' for b in packet)}")
         except Exception as e:
-            logging.error(f"Error: {e}")
+            log.error(f"Error: {e}")
             return
         
 
@@ -589,7 +588,7 @@ class AsyncCentaur:
                     if time_formatted:
                         time_str = f"  [TIME: {time_formatted}]"
                 hex_row = ' '.join(f'{b:02x}' for b in payload)
-                logging.info(f"[P{self.packet_count:03d}] {hex_row}{time_str}")
+                log.info(f"[P{self.packet_count:03d}] {hex_row}{time_str}")
                 self._draw_piece_events_from_payload(payload)
 
                 # Dispatch to registered listeners with parsed events
@@ -603,60 +602,60 @@ class AsyncCentaur:
                             field_hex = payload[i + 1]
                             try:
                                 # The leds use this format to address the square
-                                logging.info(f"[P{self.packet_count:03d}] piece_event={piece_event == 0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={self._get_seconds_from_time_bytes(time_bytes)}")
+                                log.info(f"[P{self.packet_count:03d}] piece_event={piece_event == 0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={self._get_seconds_from_time_bytes(time_bytes)}")
                                 if self._piece_listener is not None:
                                     args = (piece_event, field_hex, self._get_seconds_from_time_bytes(time_bytes))
                                     cq = getattr(self, '_callback_queue', None)
                                     if cq is not None:
                                         try:
-                                            print(f"[AsyncCentaur] handle_board_payload: putting piece event into callback queue: {args}")
+                                            log.info(f"[AsyncCentaur] handle_board_payload: putting piece event into callback queue: {args}")
                                             cq.put_nowait((self._piece_listener, args))
                                         except queue.Full:
                                             # Drop if overwhelmed to avoid blocking serial listener
-                                            logging.error("[AsyncCentaur] callback queue full, dropping piece event")
+                                            log.error("[AsyncCentaur] callback queue full, dropping piece event")
                                     else:
                                         # Fallback invoke inline if queue unavailable
                                         self._piece_listener(*args)
                                 else:
-                                    logging.info(f"No piece listener registered to handle event")
+                                    log.info(f"No piece listener registered to handle event")
                             except Exception as e:
-                                logging.error(f"Error in _draw_piece_events_from_payload: {e}")
+                                log.error(f"Error in _draw_piece_events_from_payload: {e}")
                                 import traceback
                                 traceback.print_exc()
                             i += 2
                         else:
                             i += 1
                 except Exception as e:
-                    logging.error(f"Error in _draw_piece_events_from_payload: {e}")
+                    log.error(f"Error in _draw_piece_events_from_payload: {e}")
                     import traceback
                     traceback.print_exc()
 
         except Exception as e:
-            logging.error(f"Error: {e}")
+            log.error(f"Error: {e}")
             return 
 
     def handle_key_payload(self, payload: bytes):
         try:
-            logging.info(f"[P{self.packet_count:03d}] handle_key_payload: {' '.join(f'{b:02x}' for b in payload)}")
+            log.info(f"[P{self.packet_count:03d}] handle_key_payload: {' '.join(f'{b:02x}' for b in payload)}")
             if len(payload) > 0:
                 hex_row = ' '.join(f'{b:02x}' for b in payload)
-                logging.info(f"[P{self.packet_count:03d}] {hex_row}")
+                log.info(f"[P{self.packet_count:03d}] {hex_row}")
                 idx, code_val, is_down = self._find_key_event_in_payload(payload)
                 if idx is not None:
                     self._draw_key_event_from_payload(payload, idx, code_val, is_down)
                     if not is_down:
                         key = Key(code_val)
-                        logging.info(f"key name: {key.name} value: {key.value}")
+                        log.info(f"key name: {key.name} value: {key.value}")
                         self._last_key = key
                         try:
                             self.key_up_queue.put_nowait(key)
                         except queue.Full:
                             pass
                 else:
-                    logging.info(f"No key event found in payload: {' '.join(f'{b:02x}' for b in payload)}")
+                    log.info(f"No key event found in payload: {' '.join(f'{b:02x}' for b in payload)}")
 
         except Exception as e:
-            logging.error(f"Error: {e}")
+            log.error(f"Error: {e}")
             return 
 
     def _extract_time_from_payload(self, payload: bytes) -> bytes:
@@ -714,7 +713,7 @@ class AsyncCentaur:
         minutes = time_bytes[2] if len(time_bytes) > 2 else 0
         hours = time_bytes[3] if len(time_bytes) > 3 else 0
         if len(time_bytes) > 4:
-            logging.warning(f"time_bytes has more than 4 bytes: {time_bytes}")
+            log.warning(f"time_bytes has more than 4 bytes: {time_bytes}")
         
         # Convert subsec to hundredths
         subsec_decimal = subsec / 256.0 * 100
@@ -751,9 +750,9 @@ class AsyncCentaur:
                     i += 1
             if events:
                 prefix = f"[P{self.packet_count:03d}] "
-                logging.info(prefix + " ".join(events))
+                log.info(prefix + " ".join(events))
         except Exception as e:
-            logging.error(f"Error in _draw_piece_events_from_payload: {e}")
+            log.error(f"Error in _draw_piece_events_from_payload: {e}")
 
     def wait_for_key_up(self, timeout=None, accept=None):
         """
@@ -838,7 +837,7 @@ class AsyncCentaur:
         """
         base_name = DGT_BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
         prefix = f"[P{self.packet_count:03d}] "
-        logging.info(prefix + f"{base_name} {'↓' if is_down else '↑'}")
+        log.info(prefix + f"{base_name} {'↓' if is_down else '↑'}")
         return True
 
     def checksum(self, barr):
@@ -898,7 +897,7 @@ class AsyncCentaur:
         eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
         tosend = self.buildPacket(spec.cmd, eff_data)
         #if command_name != command.DGT_BUS_POLL_KEYS and command_name != command.DGT_BUS_SEND_CHANGES:
-        logging.info(f"sendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
+        log.info(f"sendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
         if self.ready and spec.expected_resp_type is None and command_name != command.DGT_NOTIFY_EVENTS:
             self.sendPacket(command.DGT_NOTIFY_EVENTS)
@@ -967,7 +966,7 @@ class AsyncCentaur:
                     pass
 
         # Also clear parser buffer so header detection won't prepend stale bytes
-        logging.info(f"Clearing response buffer in request_response_raw")
+        log.info(f"Clearing response buffer in request_response_raw")
         self.response_buffer = bytearray()
 
         spec = CMD_BY_NAME.get(command_name)
@@ -994,11 +993,11 @@ class AsyncCentaur:
             try:
                 if buf is not None:
                     hex_row = ' '.join(f'{b:02x}' for b in buf)
-                    logging.info(f"raw timeout: wanted={raw_len} got={len(buf)} bytes: {hex_row}")
+                    log.info(f"raw timeout: wanted={raw_len} got={len(buf)} bytes: {hex_row}")
                 else:
-                    logging.info(f"raw timeout: wanted={raw_len} got=unknown (waiter cleared)")
+                    log.info(f"raw timeout: wanted={raw_len} got=unknown (waiter cleared)")
                 rb = bytes(self.response_buffer)
-                logging.info(f"parser buffer at timeout len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}")
+                log.info(f"parser buffer at timeout len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}")
             except Exception:
                 pass
             raise TimeoutError("Timed out waiting for raw response bytes")
@@ -1012,13 +1011,13 @@ class AsyncCentaur:
         eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
 
         # Try to acquire request lock with timeout (prevent concurrent requests)
-        logging.info(f"_request_response_blocking: {command_name}")
+        log.info(f"_request_response_blocking: {command_name}")
         lock_timeout = timeout * (retries + 1)  # Total time for all attempts
         if not self._request_lock.acquire(blocking=True, timeout=lock_timeout):
-            logging.info(f"Request queue busy, timed out after {lock_timeout}s")
+            log.info(f"Request queue busy, timed out after {lock_timeout}s")
             return None
 
-        logging.info(f"_request_response_blocking: acquired lock")
+        log.info(f"_request_response_blocking: acquired lock")
         try:
             attempt = 0
             max_attempts = retries + 1
@@ -1033,7 +1032,7 @@ class AsyncCentaur:
                     with self._waiter_lock:
                         if self._response_waiter is not None:
                             # Should not happen with request lock, but check anyway
-                            logging.info("Warning: waiter still set despite request lock")
+                            log.info("Warning: waiter still set despite request lock")
                             self._response_waiter = None
                         self._response_waiter = {'expected_type': expected_type, 'queue': q, 'callback': None, 'timer': None}
                         waiter_set = True
@@ -1058,7 +1057,7 @@ class AsyncCentaur:
                 if attempt >= max_attempts:
                     try:
                         rb = bytes(self.response_buffer)
-                        logging.info(
+                        log.info(
                             f"packet timeout after {max_attempts} attempt(s): expected_type=0x{expected_type:02x} "
                             f"parser buffer len={len(rb)}: {' '.join(f'{b:02x}' for b in rb)}"
                         )
@@ -1067,7 +1066,7 @@ class AsyncCentaur:
                     return None
                 
                 # Retry after small delay
-                logging.info(f"Retry {attempt}/{max_attempts} after timeout...")
+                log.info(f"Retry {attempt}/{max_attempts} after timeout...")
                 time.sleep(0.1)
             
             return None
@@ -1153,11 +1152,11 @@ class AsyncCentaur:
         
         # Called from run_background() with no packet
         if packet is None:
-            logging.info("Discovery: STARTING")
+            log.info("Discovery: STARTING")
             self.sendPacket(command.DGT_RETURN_BUSADRES)
             return
 
-        logging.info(f"Discovery: packet: {' '.join(f'{b:02x}' for b in packet)}")
+        log.info(f"Discovery: packet: {' '.join(f'{b:02x}' for b in packet)}")
         # Called from processResponse() with a complete packet
         if packet[0] == 0x90:
             if self.addr1 == 0x00 and self.addr2 == 0x00:
@@ -1167,12 +1166,12 @@ class AsyncCentaur:
                 if self.addr1 == packet[3] and self.addr2 == packet[4]:
                     self.ready = True
                     self.sendPacket(command.DGT_NOTIFY_EVENTS)
-                    logging.info(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
+                    log.info(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
                 else:
-                    logging.info(f"Discovery: ERROR - addr1={hex(self.addr1)}, addr2={hex(self.addr2)} does not match packet {packet[3]} {packet[4]}")
+                    log.info(f"Discovery: ERROR - addr1={hex(self.addr1)}, addr2={hex(self.addr2)} does not match packet {packet[3]} {packet[4]}")
                     self.addr1 = 0x00
                     self.addr2 = 0x00
-                    logging.info("Discovery: RETRY")
+                    log.info("Discovery: RETRY")
                     self.sendPacket(command.DGT_RETURN_BUSADRES)
                     return
     
@@ -1186,7 +1185,7 @@ class AsyncCentaur:
         self._cleanup_waiters()
         self._cleanup_serial()
         self._closed = True
-        logging.info("AsyncCentaur cleaned up")
+        log.info("AsyncCentaur cleaned up")
 
     def _cleanup_listener(self):
         """Stop and join listener thread"""
@@ -1236,7 +1235,7 @@ class AsyncCentaur:
         """Clear buffers and close serial port"""
         # Reset parser buffer and drain serial
         try:
-            logging.info(f"Clearing response buffer in _cleanup_serial")
+            log.info(f"Clearing response buffer in _cleanup_serial")
             self.response_buffer = bytearray()
         except Exception:
             pass
@@ -1301,9 +1300,9 @@ class AsyncCentaur:
         self.sendPacket(command.LED_FLASH_CMD)
 
     def sleep(self):
-        logging.info(f"sleep")
+        log.info(f"sleep")
         """
         Sleep the controller.
         """
-        logging.info(f"Sleeping the centaur")
+        log.info(f"Sleeping the centaur")
         self.sendPacket(command.DGT_SLEEP)

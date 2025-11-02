@@ -11,6 +11,7 @@ Assumptions:
 import os
 import shutil
 from typing import Optional
+from DGTCentaurMods.board.logging import log
 
 
 # Base directories
@@ -140,7 +141,7 @@ def write_fen_log(text: str) -> None:
     """
     ensure_parent_dir(FEN_LOG)
     # Simple write; atomic swap could be added if needed
-    print(f"Writing to {FEN_LOG}: {text}")
+    log.info(f"Writing to {FEN_LOG}: {text}")
     with open(FEN_LOG, "w", encoding="utf-8") as f:
         f.write(text)
 
@@ -159,7 +160,7 @@ def get_current_fen() -> str:
             curfen = f.readline().strip()
     except FileNotFoundError:
         return DEFAULT_START_FEN
-    print(f"Reading from {FEN_LOG}: {curfen}")
+    log.info(f"Reading from {FEN_LOG}: {curfen}")
     return curfen or DEFAULT_START_FEN
 
 def get_current_placement() -> str:
@@ -195,7 +196,7 @@ def get_epaper_static_jpg_path(ensure_parent: bool = False) -> str:
     """
     if ensure_parent:
         ensure_parent_dir(EPAPER_STATIC_JPG)
-    print(f"Getting epaper.jpg path: {EPAPER_STATIC_JPG}")
+    log.info(f"Getting epaper.jpg path: {EPAPER_STATIC_JPG}")
     return EPAPER_STATIC_JPG
 
 
@@ -213,5 +214,5 @@ def write_epaper_static_jpg(image) -> str:
     if img.mode not in ("L", "RGB"):
         img = img.convert("L")
     img.save(path, format="JPEG")
-    print(f"Wrote epaper.jpg to {path}")
+    log.info(f"Wrote epaper.jpg to {path}")
     return path
