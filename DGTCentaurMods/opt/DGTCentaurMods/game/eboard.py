@@ -1232,7 +1232,8 @@ pMove.start()
 
 # Clear any remaining data sent from the board
 try:
-	board.clearBoardData()
+	#board.clearBoardData()
+	pass
 except:
 	pass
 
