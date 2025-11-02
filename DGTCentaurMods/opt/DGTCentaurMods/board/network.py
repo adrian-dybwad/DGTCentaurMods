@@ -49,7 +49,7 @@ def shell_run(rcmd):
 
 def check_network():
     ret = shell_run("ifconfig wlan0").decode("utf-8")
-    reg = re.search("inet (\d+\.\d+\.\d+\.\d+)", ret)
+    reg = re.search(r"inet (\d+\.\d+\.\d+\.\d+)", ret)
     if reg is None:
         return False
     else:
@@ -64,7 +64,7 @@ def wps_detect(i=0):
         shell_run("wpa_cli -i wlan0 scan")
         time.sleep(1)
         wpa = shell_run("wpa_cli -i wlan0 scan_results").decode("UTF-8")
-        network = re.search("(([\da-f]{2}:){5}[\da-f]{2})(.*?)\[WPS-PBC\]", wpa)
+        network = re.search(r"(([\da-f]{2}:){5}[\da-f]{2})(.*?)\[WPS-PBC\]", wpa)
         if not (network is None):
             if network.group(1):
                 return network.group(1)
