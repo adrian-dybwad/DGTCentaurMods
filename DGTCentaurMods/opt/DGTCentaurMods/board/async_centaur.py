@@ -708,6 +708,7 @@ class AsyncCentaur:
         if len(time_bytes) == 0:
             return ""
         
+        log.info(f"time_bytes: {' '.join(f'{b:02x}' for b in time_bytes)}")
         subsec = time_bytes[0] if len(time_bytes) > 0 else 0
         seconds = time_bytes[1] if len(time_bytes) > 1 else 0
         minutes = time_bytes[2] if len(time_bytes) > 2 else 0
