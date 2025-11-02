@@ -903,7 +903,7 @@ class AsyncCentaur:
         if self.ready and spec.expected_resp_type is None and command_name != command.DGT_NOTIFY_EVENTS:
             self.sendPacket(command.DGT_NOTIFY_EVENTS)
     
-    def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0):
+    def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=10.0, callback=None, raw_len: Optional[int]=None, retries=0):
         """
         Send a command and either block until the matching response arrives (callback=None)
         returning the payload bytes, or return immediately (callback provided) and
