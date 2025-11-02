@@ -110,7 +110,12 @@ def _field_callback(piece_event, field_hex, time_in_seconds):
                         pass
             except Exception as e:
                 log.info(f"[Pegasus] field send error: {e}")
+        else:
+            log.info(f"[Pegasus] No TX object (tx={tx}) or not notifying (notifying={getattr(tx, 'notifying', False)})")
+            
     except Exception as e:
+            import traceback
+            traceback.print_exc()
         log.info(f"[Pegasus] field callback error: {e}")
 
 # Subscribe immediately so key/back works even before BLE notifications are enabled
