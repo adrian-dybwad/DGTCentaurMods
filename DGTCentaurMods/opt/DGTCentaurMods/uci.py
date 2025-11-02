@@ -253,7 +253,6 @@ def keyCallback(key):
     if key == gamemanager.board.Key.UP:
         graphson = 1
         firstmove = 1
-        #engine = chess.engine.SimpleEngine.popen_uci("/home/pi/centaur/engines/stockfish_pi")
         info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))
         evaluationGraphs(info)
 
