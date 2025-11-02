@@ -169,13 +169,8 @@ class UARTRXCharacteristic(Characteristic):
 
     def WriteValue(self, value, options):
         # When the remote device writes data, it comes here
+        log.info(f"[Pegasus RX] len={len(value)} bytes: {' '.join(f'{b:02x}' for b in value)}")
         global bt_connected
-        try:
-            hex_row = ' '.join(f'{int(b):02x}' for b in value)
-            log.info(f"[Pegasus RX] len={len(value)} bytes: {hex_row}")
-        except Exception:
-            log.info("Received")
-            log.info(value)
         # Consider any write as an active connection from the client
         if not bt_connected:
             bt_connected = True
@@ -188,8 +183,9 @@ class UARTRXCharacteristic(Characteristic):
         bytes = bytearray()
         for i in range(0,len(value)):
             bytes.append(value[i])
-        log.info(len(bytes))
-        log.info(bytes)
+
+        log.info(f"[Pegasus RX] len={len(bytes)} bytes: {' '.join(f'{b:02x}' for b in bytes)}")
+
         processed = 0
         if len(bytes) == 1 and (bytes[0] == ord('B') or bytes[0] == ord('b')):
             log.info("[Pegasus RX] 'B' (board dump) -> TX 0x86 BOARD_DUMP")
