@@ -44,6 +44,34 @@ def checksum(barr: bytes) -> int:
     return total % 128
 
 
+SUBSEC_DIVISOR = 256.0  # 1 tick = 1/256 s
+
+
+def decode_time(packet: bytes) -> float:
+    """
+    Decode a time packet.
+    Rules:
+      - If packet[1:3] == b'\x7c\x03', treat packet[3:] as time bytes.
+      - Otherwise, the whole packet is time bytes (no header present).
+      - Time bytes are hierarchical: b0=subsec (1/256 s), b1=sec, b2=min, b3=hour.
+      - No implicit +1 second anywhere.
+    """
+    if len(packet) == 0:
+        return 0.0
+
+    # Detect header at positions 1..2
+    has_header = len(packet) >= 3 and packet[1:3] == b"\x7c\x03"
+    time_bytes = packet[3:] if has_header else packet
+
+    # Pull fields if present
+    b0 = time_bytes[0] if len(time_bytes) > 0 else 0
+    b1 = time_bytes[1] if len(time_bytes) > 1 else 0
+    b2 = time_bytes[2] if len(time_bytes) > 2 else 0
+    b3 = time_bytes[3] if len(time_bytes) > 3 else 0
+
+    return (b0 / SUBSEC_DIVISOR) + b1 + (60 * b2) + (3600 * b3)
+
+
 def _ts() -> str:
     now = datetime.now()
     return f"{now.strftime('%Y-%m-%d %H:%M:%S')}.{now.microsecond // 1000:03d}"
@@ -74,6 +102,7 @@ class PacketReader:
         self.log: List[Tuple[float, bytes]] = []
         self._inbox: List[Tuple[float, bytes]] = []
         self._notice_handler = None
+        self.packet_count = 0
 
     def set_notice_handler(self, handler):
         self._notice_handler = handler
@@ -194,7 +223,22 @@ class PacketReader:
                 self._cv.notify_all()
             try:
                 label = "BAD_CSUM" if bad_csum else "OK"
-                out(f"raw packet ({label}): {hexrow(pkt)}")
+                # For valid packets, decode time from payload and append to header line
+                time_str = ""
+                if not bad_csum and len(pkt) >= 6:
+                    payload = pkt[5:-1]  # Payload is after addr1, addr2, before checksum
+                    if payload:
+                        decoded_time = decode_time(payload)
+                        time_str = f"  [decoded_time={decoded_time:.3f}s]"
+                out(f"raw packet ({label}): {hexrow(pkt)}{time_str}")
+                
+                # Handle 0x85 (board changes) payload logging
+                if pkt and pkt[0] == 0x85:
+                    self.packet_count += 1
+                    payload = pkt[5:-1] if len(pkt) >= 6 else b""
+                    if payload:
+                        self.handle_board_payload(payload)
+                
                 if pkt and pkt[0] in (0x8E, 0xA3) and self._notice_handler is not None:
                     def _dispatch(p=pkt):
                         try:
@@ -206,6 +250,129 @@ class PacketReader:
                 pass
             del self._buf[:end]
             i = 0
+
+    def handle_board_payload(self, payload: bytes):
+        """
+        Handle board payload logging (from async_centaur.handle_board_payload).
+        Only includes logging, no callbacks.
+        """
+        try:
+            if len(payload) > 0:
+                # time bytes are before first event marker
+                time_bytes = self._extract_time_from_payload(payload)
+                time_str = ""
+                if time_bytes:
+                    time_formatted = self._format_time_display(time_bytes)
+                    if time_formatted:
+                        time_str = f"  [TIME: {time_formatted}]"
+                hex_row = ' '.join(f'{b:02x}' for b in payload)
+                out(f"[P{self.packet_count:03d}] {hex_row}{time_str}")
+                self._draw_piece_events_from_payload(payload)
+
+                # Log individual piece events
+                try:
+                    i = 0
+                    while i < len(payload) - 1:
+                        piece_event = payload[i]
+                        if piece_event in (0x40, 0x41):
+                            # 0 is lift, 1 is place
+                            piece_event_type = 0 if piece_event == 0x40 else 1
+                            field_hex = payload[i + 1]
+                            try:
+                                event_name = 'LIFT' if piece_event_type == 0 else 'PLACE'
+                                time_in_seconds = self._get_seconds_from_time_bytes(time_bytes)
+                                out(f"[P{self.packet_count:03d}] piece_event={event_name} field_hex={field_hex} time_in_seconds={time_in_seconds}")
+                            except Exception as e:
+                                out(f"Error processing piece event: {e}")
+                            i += 2
+                        else:
+                            i += 1
+                except Exception as e:
+                    out(f"Error processing piece events: {e}")
+
+        except Exception as e:
+            out(f"Error in handle_board_payload: {e}")
+
+    def _extract_time_from_payload(self, payload: bytes) -> bytes:
+        """
+        Return the time bytes prefix from a board payload.
+        The board payload layout is:
+            [optional time bytes ...] [events ...]
+        where events are pairs of bytes starting with 0x40 (lift) or 0x41 (place),
+        followed by the field hex. This function returns all bytes before the
+        first event marker (0x40/0x41).
+        """
+        out_bytes = bytearray()
+        for b in payload:
+            if b in (0x40, 0x41):
+                break
+            out_bytes.append(b)
+        return bytes(out_bytes)
+
+    def _get_seconds_from_time_bytes(self, time_bytes):
+        """
+        Return the seconds from the time bytes.
+        """
+        if len(time_bytes) == 0:
+            return 0
+        time_in_seconds = time_bytes[0] / 256.0
+        time_in_seconds += time_bytes[1] if len(time_bytes) > 1 else 0
+        time_in_seconds += time_bytes[2] * 60 if len(time_bytes) > 2 else 0
+        time_in_seconds += time_bytes[3] * 3600 if len(time_bytes) > 3 else 0
+        return time_in_seconds
+
+    def _format_time_display(self, time_bytes):
+        """
+        Format time bytes as human-readable time string.
+        Time format: .ss ss mm [hh]
+        - Byte 0: Subseconds (0x00-0xFF = 0.00-0.99)
+        - Byte 1: Seconds (0-59)
+        - Byte 2: Minutes (0-59)
+        - Byte 3: Hours (optional, for times > 59:59)
+        """
+        if len(time_bytes) == 0:
+            return ""
+        
+        subsec = time_bytes[0] if len(time_bytes) > 0 else 0
+        seconds = time_bytes[1] if len(time_bytes) > 1 else 0
+        minutes = time_bytes[2] if len(time_bytes) > 2 else 0
+        hours = time_bytes[3] if len(time_bytes) > 3 else 0
+        
+        # Convert subsec to hundredths
+        subsec_decimal = subsec / 256.0 * 100
+        
+        # Format based on highest unit
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{seconds:02d}.{int(subsec_decimal):02d}"
+        else:
+            return f"{minutes}:{seconds:02d}.{int(subsec_decimal):02d}"
+
+    def _draw_piece_events_from_payload(self, payload: bytes):
+        """
+        Print a compact list of piece events extracted from the payload.
+        Each event in the payload is encoded as two bytes:
+          - 0x40: lift,  followed by the square byte (controller indexing)
+          - 0x41: place, followed by the square byte (controller indexing)
+        Output is prefixed with the current packet counter, for example:
+            [P012] ↑ e2 ↓ e4
+        """
+        try:
+            events = []
+            i = 0
+            while i < len(payload) - 1:
+                marker = payload[i]
+                if marker in (0x40, 0x41):
+                    field_hex = payload[i + 1]
+                    arrow = "↑" if marker == 0x40 else "↓"
+                    events.append(f"{arrow} {field_hex:02x}")
+                    i += 2
+                else:
+                    i += 1
+            if events:
+                prefix = f"[P{self.packet_count:03d}] "
+                out(prefix + " ".join(events))
+        except Exception as e:
+            out(f"Error in _draw_piece_events_from_payload: {e}")
 
     def wait_for_type(self, type_byte: int, timeout: float) -> Optional[bytes]:
         deadline = time.time() + timeout
