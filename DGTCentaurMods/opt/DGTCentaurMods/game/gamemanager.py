@@ -41,7 +41,7 @@ import sys
 import inspect
 import numpy as np
 from DGTCentaurMods.config import paths
-from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.board.logging import log, logging
 
 
 # Some useful constants
@@ -309,13 +309,12 @@ def _check_misplaced_pieces(current_state):
     
     # Check if already correct
     if bytearray(current_state) == bytearray(expected_state):
-        log.info(f"[gamemanager._check_misplaced_pieces] Board already correct")
+        log.info(f"[gamemanager._check_misplaced_pieces] Board is correct")
         board.ledsOff()
         return
     
-    log.warning(f"[gamemanager._check_misplaced_pieces] Misplaced pieces detected")
     log.warning(f"[gamemanager._check_misplaced_pieces] Expected:")
-    board.printChessState(expected_state)
+    board.printChessState(expected_state, logging.ERROR)
     log.warning(f"[gamemanager._check_misplaced_pieces] Current:")
     board.printChessState(current_state)
     
@@ -446,7 +445,7 @@ def correction_fieldcallback(piece_event, field_hex, time_in_seconds):
     # In correction mode: check if board now matches expected after each event
     current_state = board.getChessState()
     log.info(f"[gamemanager.correction_fieldcallback] Current state:")
-    board.printChessState(current_state)
+    board.printChessState(current_state, logging.ERROR)
     log.info(f"[gamemanager.correction_fieldcallback] Correction expected state:")
     board.printChessState(correction_expected_state)
     if validate_board_state(current_state, correction_expected_state):
