@@ -141,16 +141,29 @@ if len(sys.argv) > 3:
     # This also has an options string...but what is actually passed in 3 is the desc which is the section name
     ucioptionsdesc = sys.argv[3]
     # These options we should derive form the uci file and read it from the UCI_FILE_PATH
-    config = configparser.ConfigParser()
-    config.optionxform = str
-    config.read(UCI_FILE_PATH)
-    log.info(config.items(ucioptionsdesc))
-    for item in config.items(ucioptionsdesc):
-        ucioptions[item[0]] = item[1]
-    # Filter out non-UCI metadata fields that shouldn't be sent to the engine
-    NON_UCI_FIELDS = ['Description']
-    ucioptions = {k: v for k, v in ucioptions.items() if k not in NON_UCI_FIELDS}
-    log.info(ucioptions)
+    if os.path.exists(UCI_FILE_PATH):
+        config = configparser.ConfigParser()
+        config.optionxform = str
+        config.read(UCI_FILE_PATH)
+        if config.has_section(ucioptionsdesc):
+            log.info(config.items(ucioptionsdesc))
+            for item in config.items(ucioptionsdesc):
+                ucioptions[item[0]] = item[1]
+            # Filter out non-UCI metadata fields that shouldn't be sent to the engine
+            NON_UCI_FIELDS = ['Description']
+            ucioptions = {k: v for k, v in ucioptions.items() if k not in NON_UCI_FIELDS}
+            log.info(ucioptions)
+        else:
+            log.warning(f"Section '{ucioptionsdesc}' not found in {UCI_FILE_PATH}, falling back to Default")
+            if config.has_section("DEFAULT"):
+                for item in config.items("DEFAULT"):
+                    ucioptions[item[0]] = item[1]
+                NON_UCI_FIELDS = ['Description']
+                ucioptions = {k: v for k, v in ucioptions.items() if k not in NON_UCI_FIELDS}
+            ucioptionsdesc = "Default"
+    else:
+        log.warning(f"UCI file not found: {UCI_FILE_PATH}, using Default settings")
+        ucioptionsdesc = "Default"
 
 if computeronturn == 0:
     gamemanager.setGameInfo(ucioptionsdesc, "", "", "Player", enginename)
