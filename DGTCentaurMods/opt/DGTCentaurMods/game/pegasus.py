@@ -193,9 +193,16 @@ class UARTRXCharacteristic(Characteristic):
         processed = 0
         if len(bytes) == 1 and (bytes[0] == ord('B') or bytes[0] == ord('b')):
             log.info("[Pegasus RX] 'B' (board dump) -> TX 0x86 BOARD_DUMP")
-            bs = board.getBoardState()
-            self.sendMessage(DGT_MSG_BOARD_DUMP, bs)
-            processed = 1
+            try:
+                log.info("[Pegasus RX] Getting board state")    
+                bs = board.getBoardState()
+                self.sendMessage(DGT_MSG_BOARD_DUMP, bs)
+                processed = 1
+            except Exception as e:
+                log.info(f"[Pegasus RX] Error getting board state: {e}")
+                import traceback
+                traceback.print_exc()
+                processed = 0
         if len(bytes) == 1 and bytes[0] == ord('D'):
             processed = 1
         if len(bytes) == 1 and bytes[0] == ord('E'):
