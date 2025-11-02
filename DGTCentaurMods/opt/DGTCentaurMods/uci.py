@@ -33,6 +33,7 @@ import chess.engine
 import sys
 import pathlib
 import os
+import threading
 from random import randint
 import configparser
 from PIL import Image, ImageDraw, ImageFont
@@ -55,6 +56,70 @@ def do_cleanup():
     if cleaned_up:
         return
     cleaned_up = True
+    
+    # Clean up engines first (before other cleanup to avoid blocking)
+    def cleanup_engine(engine, name):
+        """Safely quit an engine, with fallback to terminate/kill if needed"""
+        if engine is None:
+            return
+        try:
+            # Try graceful quit with timeout using threading to avoid blocking
+            quit_done = threading.Event()
+            quit_error = []
+            
+            def quit_thread():
+                try:
+                    engine.quit()
+                    quit_done.set()
+                except KeyboardInterrupt:
+                    quit_error.append("KeyboardInterrupt")
+                    quit_done.set()
+                except Exception as e:
+                    quit_error.append(str(e))
+                    quit_done.set()
+            
+            thread = threading.Thread(target=quit_thread, daemon=True)
+            thread.start()
+            thread.join(timeout=1.0)  # Wait max 1 second
+            
+            if not quit_done.is_set() or thread.is_alive():
+                # Force terminate if graceful quit didn't work
+                log.warning(f"{name} quit() timed out, attempting to kill process")
+                thread.join(timeout=0.1)  # Give it a tiny bit more time
+                # Try to access the underlying process
+                try:
+                    # SimpleEngine uses a protocol that may have transport with process
+                    if hasattr(engine, 'transport') and hasattr(engine.transport, 'proc'):
+                        engine.transport.proc.terminate()
+                        engine.transport.proc.wait(timeout=0.5)
+                    elif hasattr(engine, 'proc'):
+                        engine.proc.terminate()
+                        engine.proc.wait(timeout=0.5)
+                except:
+                    try:
+                        if hasattr(engine, 'transport') and hasattr(engine.transport, 'proc'):
+                            engine.transport.proc.kill()
+                        elif hasattr(engine, 'proc'):
+                            engine.proc.kill()
+                    except:
+                        pass
+            elif quit_error:
+                log.debug(f"{name} quit() raised: {quit_error[0]}")
+        except KeyboardInterrupt:
+            # If we get KeyboardInterrupt during cleanup setup, just skip it
+            log.warning(f"{name} interrupted during cleanup setup")
+        except Exception as e:
+            log.warning(f"Error cleaning up {name}: {e}")
+    
+    try:
+        cleanup_engine(aengine, "aengine")
+    except:
+        pass
+    try:
+        cleanup_engine(pengine, "pengine")
+    except:
+        pass
+    
     try:
         board.ledsOff()
     except:
@@ -80,21 +145,24 @@ def do_cleanup():
         board.cleanup(leds_off=True)
     except Exception:
         pass
-    try:
-        aengine.quit()
-    except:
-        pass
-    try:
-        pengine.quit()
-    except:
-        pass
 
 def cleanup_and_exit(signum=None, frame=None):
     """Clean up resources and exit gracefully"""
     global kill
+    global cleaned_up
+    if cleaned_up:
+        # Already cleaning up, force exit
+        os._exit(0)
     log.info(">>> Cleaning up and exiting...")
     kill = 1
-    do_cleanup()
+    try:
+        do_cleanup()
+    except KeyboardInterrupt:
+        # If we get another interrupt during cleanup, just force exit
+        log.warning(">>> Interrupted during cleanup, forcing exit")
+        os._exit(1)
+    except Exception as e:
+        log.warning(f">>> Error during cleanup: {e}")
     log.info("Goodbye!")
     sys.exit(0)
 
