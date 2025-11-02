@@ -570,7 +570,10 @@ def getResult():
         models.Game.white, models.Game.black, models.Game.result, models.Game.id).
         order_by(models.Game.id.desc())
     ).first()
-    return str(gamedata["result"])
+    if gamedata is not None:
+        return str(gamedata.result)
+    else:
+        return "Unknown"
 
 def drawGame():
     # Take care of updating the data for a drawn game
