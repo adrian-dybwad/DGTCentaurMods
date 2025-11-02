@@ -184,11 +184,20 @@ def exit_correction_mode():
     """
     Exit correction mode and resume normal game flow.
     Restores forced move LEDs if a forced move was pending.
+    Resets move state variables to ensure clean state after correction.
     """
     global correction_mode, correction_expected_state, forcemove, computermove
+    global sourcesq, legalsquares, othersourcesq
     correction_mode = False
     correction_expected_state = None
     log.warning("[gamemanager.exit_correction_mode] Exited correction mode")
+    
+    # Reset move state variables to ensure clean state after correction
+    # The correction process may have left these in an inconsistent state,
+    # so reset them so the next move starts fresh
+    sourcesq = -1
+    legalsquares = []
+    othersourcesq = -1
     
     # If there was a forced move pending, restore the LEDs
     if forcemove == 1 and computermove and len(computermove) >= 4:
