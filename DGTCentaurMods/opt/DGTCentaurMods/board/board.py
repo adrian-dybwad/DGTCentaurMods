@@ -38,7 +38,7 @@ import pathlib
 import socket
 import queue
 
-from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.board.logging import log, logging
 
 # Re-export commonly used command names for backward-compatible usage in this module
 SOUND_GENERAL = command.SOUND_GENERAL
@@ -388,7 +388,7 @@ def sendCommand(command):
     resp = asyncserial.request_response(command)
     return resp
 
-def printChessState(state = None):
+def printChessState(state = None, loglevel = logging.INFO):
     # Helper to display board state
     if state is None:
         state = getChessState()  # Use getChessState if available, or update to use transformed state
@@ -397,12 +397,12 @@ def printChessState(state = None):
     # Chess coordinates: row 7 (56-63) = rank 8, row 0 (0-7) = rank 1
     for rank in range(7, -1, -1):  # Iterate from rank 8 (row 7) down to rank 1 (row 0)
         x = rank * 8  # Starting index for this rank
-        line += "\r\n+---+---+---+---+---+---+---+---+"
+        line += "\n\r\n+---+---+---+---+---+---+---+---+"
         line += "\r\n|"
         for y in range(0, 8):
             line += " " + str(state[x + y]) + " |"
-    line += "\r\n+---+---+---+---+---+---+---+---+\n"
-    print(line)
+    line += "\r\n+---+---+---+---+---+---+---+---+"
+    log.log(loglevel, line)
 
 def getChargingState():
     # Returns if the board is plugged into the charger or not
