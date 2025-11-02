@@ -1,10 +1,10 @@
 from typing import Iterable, Optional, Callable, List
 from PIL import Image, ImageDraw, ImageFont
 import time
-import logging
 import signal
 import sys
 import os
+from DGTCentaurMods.board.logging import log
 
 # Global flag for graceful shutdown
 shutdown_requested = False
@@ -66,7 +66,7 @@ def select_from_list_epaper(
         # Give the display time to initialize properly
         time.sleep(0.2)
     except Exception as e:
-        logging.error(f"Failed to initialize epaper display: {e}")
+        log.error(f"Failed to initialize epaper display: {e}")
         return None
 
     # Hardcode the working canvas (matches other code paths)
@@ -149,12 +149,12 @@ def select_from_list_epaper(
             if act is not None:
                 break  # Polling is working
         except Exception as e:
-            logging.error(f"Error in poll_action test: {e}")
+            log.error(f"Error in poll_action test: {e}")
         test_attempts += 1
         time.sleep(0.1)
     
     if test_attempts >= max_test_attempts:
-        logging.warning("Poll action not responding, using fallback selection")
+        log.warning("Poll action not responding, using fallback selection")
         # Fallback: return first item after a delay
         time.sleep(2.0)
         return items[0] if items else None
@@ -162,18 +162,18 @@ def select_from_list_epaper(
     while True:
         # Check for shutdown request
         if shutdown_requested:
-            logging.info("Menu selection cancelled by user")
+            log.info("Menu selection cancelled by user")
             return None
             
         # Check for timeout
         if time.time() - start_time > timeout_seconds:
-            logging.warning("select_from_list_epaper timed out")
+            log.warning("select_from_list_epaper timed out")
             return None
         
         try:
             act = poll_action()
         except Exception as e:
-            logging.error(f"Error in poll_action: {e}")
+            log.error(f"Error in poll_action: {e}")
             time.sleep(0.1)
             continue
             
@@ -203,6 +203,6 @@ def select_from_list_epaper(
                 # Reduced delay for better responsiveness
                 time.sleep(0.01)
             except Exception as e:
-                logging.error(f"Failed to update epaper display: {e}")
+                log.error(f"Failed to update epaper display: {e}")
             last_i = i
             last_paint = now

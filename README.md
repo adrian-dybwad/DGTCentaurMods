@@ -61,6 +61,15 @@ Currently we are working on...
 See the install procedure in the release info page.
 Note: when installing Raspbian please select Bullseye (legacy) and not the new "bookworm".
 
+## Local development setup (configs and database)
+
+- Active config is read from `/opt/DGTCentaurMods/config/centaur.ini`. A default template is tracked at `DGTCentaurMods/opt/DGTCentaurMods/defaults/config/centaur.ini`.
+- To prepare a dev device quickly, run `build/setup.sh` on the Pi. It will:
+  - Ensure `/opt/DGTCentaurMods/config/centaur.ini` exists, copying from `defaults/config/centaur.ini` if missing.
+  - Copy resources to `/opt/DGTCentaurMods/resources/`.
+- The SQLite database is created at runtime at `/opt/DGTCentaurMods/db/centaur.db` on first run; it is not tracked in git.
+ - The current FEN position is written to `/opt/DGTCentaurMods/tmp/fen.log` by runtime services.
+
 ## Support
 
 Join us on Discord: https://discord.gg/zqgUGK2x49

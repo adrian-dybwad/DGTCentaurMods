@@ -19,11 +19,11 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
-from flask import Flask, render_template, Response, request, redirect, send_file
+from flask import Flask, render_template, Response, request, redirect, send_file, abort
 from DGTCentaurMods.db import models
 from DGTCentaurMods.display.ui_components import AssetManager
-from chessboard import LiveBoard
-import centaurflask
+from .chessboard import LiveBoard
+from . import centaurflask
 from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, MetaData
@@ -37,6 +37,7 @@ import io
 import chess
 import chess.pgn
 import json
+from DGTCentaurMods.config import paths
 
 app = Flask(__name__)
 app.config['UCI_UPLOAD_EXTENSIONS'] = ['.txt']
@@ -75,7 +76,7 @@ def handle_preflight():
             response = response + '</D:creationdate>\n'
             response = response + '<D:lastmodified>'
             response = response + time.strftime('%a, %d %b %Y %H:%M:%S %Z',time.localtime(os.path.getctime("/home/pi")));
-            response = response + '</D:lastmodified>\m'
+            response = response + '</D:lastmodified>\n'
             response = response + '</D:prop>\n'
             response = response + '<D:status>HTTP/1.1 200 OK</D:status>\n'
             response = response + '</D:propstat>\n'
@@ -278,7 +279,7 @@ def handle_preflight():
                 response = response + '</D:creationdate>\n'
                 response = response + '<D:lastmodified>'
                 response = response + time.strftime('%a, %d %b %Y %H:%M:%S %Z',time.localtime(os.path.getmtime("/home/pi" + thispath)))
-                response = response + '</D:lastmodified>\m'
+                response = response + '</D:lastmodified>\n'
                 response = response + '</D:prop>\n'
                 response = response + '<D:status>HTTP/1.1 200 OK</D:status>\n'
                 response = response + '</D:propstat>\n'
@@ -476,25 +477,11 @@ def handle_preflight():
 
 @app.route("/", methods=["GET"])
 def index():
-    fenlog = "/home/pi/centaur/fen.log"
-    if os.path.isfile(fenlog) == True:
-        with open(fenlog, "r") as f:
-            line = f.readline().split(" ")
-            fen = line[0]
-    else:
-        fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-    return render_template('index.html', fen=fen)
+    return render_template('index.html', fen=paths.get_current_placement())
 
 @app.route("/fen")
 def fen():
-    fenlog = "/home/pi/centaur/fen.log"
-    if os.path.isfile(fenlog) == True:
-        with open(fenlog, "r") as f:
-            line = f.readline().split(" ")
-            fen = line[0]
-    else:
-        fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-    return fen
+    return paths.get_current_placement()
 
 @app.route("/rodentivtuner")
 def tuner():
@@ -575,7 +562,7 @@ def return2dgtcentaurmods():
 @app.route("/shutdownboard")
 def shutdownboard():
     os.system("pkill centaur")
-    os.system("sudo poweroff")
+    os.system("systemctl poweroff")
     return "ok"
 
 @app.route("/lichesskey/<key>")
@@ -764,17 +751,15 @@ kw = Image.open(AssetManager.get_resource_path("kw.png")).convert("RGBA")
 logo = Image.open(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/logo_mods_web.png")
 moddate = -1
 sc = None
-if os.path.isfile(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/epaper.jpg"):
-    sc = Image.open(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/epaper.jpg")
-    moddate = os.stat(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/epaper.jpg")[8]
+epaper_path = paths.get_epaper_static_jpg_path()
+if os.path.isfile(epaper_path):
+    sc = Image.open(epaper_path)
+    moddate = os.stat(epaper_path)[8]
 
 def generateVideoFrame():
     global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo, sc, moddate
     while True:
-        fenlog = "/home/pi/centaur/fen.log"
-        f = open(fenlog, "r")
-        curfen = f.readline()
-        f.close()
+        curfen = paths.get_current_fen()
         curfen = curfen.replace("/", "")
         curfen = curfen.replace("1", " ")
         curfen = curfen.replace("2", "  ")
@@ -839,9 +824,9 @@ def generateVideoFrame():
             if col == 8:
                 col = 0
                 row = row + 1
-        newmoddate = os.stat(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/epaper.jpg")[8]
+        newmoddate = os.stat(paths.get_epaper_static_jpg_path())[8]
         if newmoddate != moddate:
-            sc = Image.open(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/epaper.jpg")
+            sc = Image.open(paths.get_epaper_static_jpg_path())
             moddate = newmoddate
         image.paste(sc, (345 + 1216 - 130, 635))
         image.paste(logo, (345 + 1216 - 130, 0), logo)

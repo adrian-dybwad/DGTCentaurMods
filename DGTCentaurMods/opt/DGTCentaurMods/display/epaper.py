@@ -29,16 +29,12 @@ from DGTCentaurMods.board import centaur,board
 from DGTCentaurMods.display import epd2in9d
 from DGTCentaurMods.display.epaper_driver import epaperDriver
 from DGTCentaurMods.display.ui_components import AssetManager
+from DGTCentaurMods.config import paths
 import os, time
 from PIL import Image, ImageDraw, ImageFont
 import pathlib
 import threading
-import logging
-
-try:
-    logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log",filemode="w")
-except:
-    logging.basicConfig(level=logging.DEBUG)
+from DGTCentaurMods.board.logging import log
 
 driver = epaperDriver()
 
@@ -51,10 +47,43 @@ epd = epd2in9d.EPD()
 epaperUpd = ""
 kill = 0
 epapermode = 0
-lastepaperbytes = bytearray(b'')
+lastepaperbytes = b''
 first = 1
 event_refresh = threading.Event()
 screeninverted = 0
+
+def compute_changed_region(prev_bytes: bytes, curr_bytes: bytes) -> tuple[int, int]:
+    """
+    Returns (rs, re) row indices [0, 295] that bound the changed region.
+    Falls back to full update if buffers are empty or lengths differ.
+    """
+    if not prev_bytes or not curr_bytes or len(prev_bytes) != len(curr_bytes):
+        return 0, 295
+
+    total = len(curr_bytes)
+    rs, re = 0, 295
+
+    # Find first differing byte
+    for i in range(total):
+        if prev_bytes[i] != curr_bytes[i]:
+            rs = (i // 16) - 1
+            break
+
+    # Find last differing byte
+    for i in range(total - 1, -1, -1):
+        if prev_bytes[i] != curr_bytes[i]:
+            re = (i // 16) + 1
+            break
+
+    # Clamp and sanity checks
+    if rs < 0:
+        rs = 0
+    if re > 295:
+        re = 295
+    if rs >= re:
+        return 0, 295
+
+    return rs, re
 
 def epaperUpdate():
     # This is used as a thread to update the e-paper if the image has changed
@@ -69,48 +98,35 @@ def epaperUpdate():
     global screeninverted
     global screensleep
     global sleepcount
-    logging.debug("started epaper update thread")    
+    log.debug("started epaper update thread")    
     driver.display(epaperbuffer)    
-    logging.debug("epaper init image sent")
-    tepaperbytes = ""
+    log.debug("epaper init image sent")
+    tepaperbytes = b''
     screensleep = 0
     sleepcount = 0
     while True and kill == 0:
         im = epaperbuffer.copy()
         im2 = im.copy()
         if epaperprocesschange == 1:
-            tepaperbytes = im.tobytes()
+            # Use driver buffer format to keep buffer size consistent across frames
+            tepaperbytes = driver.getbuffer(im)
         if lastepaperbytes != tepaperbytes and epaperprocesschange == 1:
+            log.debug("epaperUpdate: Display change detected, updating screen")
             sleepcount = 0
             if screensleep == 1:
                 driver.reset()
                 screensleep = 0
-            filename = str(AssetManager.get_resource_path("epaper.jpg"))
-            epaperbuffer.save(filename)
+            paths.write_epaper_static_jpg(epaperbuffer)
             if screeninverted == 0:
                 im = im.transpose(Image.FLIP_TOP_BOTTOM)
                 im = im.transpose(Image.FLIP_LEFT_RIGHT)                        
             if epapermode == 0 or first == 1:                
+                log.debug("epaperUpdate: Using DisplayPartial")
                 driver.DisplayPartial(im)
                 first = 0
             else:
-                rs = 0
-                re = 295
-                for x in range(0, len(tepaperbytes)):
-                    if lastepaperbytes[x] != tepaperbytes[x]:
-                        rs = (x // 16) - 1
-                        break;
-                for x in range(len(tepaperbytes) - 1, 0, -1):
-                    if lastepaperbytes[x] != tepaperbytes[x]:
-                        re = (x // 16) + 1
-                        break;
-                if rs < 0:
-                    rs = 0
-                if re > 295:
-                    re = 295
-                if rs >= re:
-                    rs = 0
-                    re = 295
+                rs, re = compute_changed_region(lastepaperbytes, tepaperbytes)
+                log.info(f"epaperUpdate: Using DisplayRegion rs={rs}, re={re}")
                 bb = im2.crop((0, rs + 1, 128, re))
                 bb = bb.transpose(Image.FLIP_TOP_BOTTOM)
                 bb = bb.transpose(Image.FLIP_LEFT_RIGHT)                
@@ -135,7 +151,7 @@ def loadingScreen():
     lg = Image.open(filename)
     epaperbuffer.paste(lg,(0,20))
     writeText(10,'     Loading')
-    logging.debug('Display loading screen')
+    log.debug('Display loading screen')
     
 
 def welcomeScreen():
@@ -157,7 +173,7 @@ def standbyScreen(show):
     global epaperbuffer
     f = '/tmp/epapersave.bmp'
     if show:
-        logging.debug('Saving buffer')
+        log.debug('Saving buffer')
         epaperbuffer.save(f)
         statusBar().print()
         
@@ -172,7 +188,7 @@ def standbyScreen(show):
             drawImagePartial(0,0,epaperbuffer.crop((0,0,128,292)))
 
     if not show:
-        logging.debug('Restore buffer')
+        log.debug('Restore buffer')
         restore = Image.open(f)
         epaperbuffer.paste(restore,(0,0))
         if epaperprocesschange == 0:
@@ -185,15 +201,25 @@ def initEpaper(mode = 0):
     # Set the screen to a known start state and start the epaperUpdate thread
     global epaperbuffer
     global epaperUpd
-    global epapermode    
+    global epapermode
+    global kill
+    
+    # Stop existing thread if running
+    if epaperUpd and epaperUpd.is_alive():
+        log.debug("Stopping existing epaper thread...")
+        kill = 1
+        epaperUpd.join(timeout=2.0)
+        kill = 0
+    
     epapermode = mode
     epaperbuffer = Image.new('1', (128, 296), 255)
-    logging.debug("init epaper")
+    log.debug("init epaper")
     driver.reset()
     driver.init()      
     epaperUpd = threading.Thread(target=epaperUpdate, args=())
     epaperUpd.daemon = True
     epaperUpd.start()
+    log.debug("epaper thread started")
 
 def pauseEpaper():
     # Pause epaper updates (for example if you know you will be making a lot of changes in quick succession
@@ -342,7 +368,7 @@ def drawFen(fen, startrow=2):
 def promotionOptions(row):
     # Draws the promotion options to the screen buffer
     global epaperbuffer
-    logging.debug("drawing promotion options")
+    log.debug("drawing promotion options")
     global epaperprocesschange
     font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
     writeText(13, "                    ")
@@ -376,9 +402,9 @@ def promotionOptions(row):
         o = 97
         draw.line((6+o,offset+16,16+o,offset+4), fill=0, width=5)
         draw.line((2+o,offset+10, 8+o,offset+16), fill=0, width=5)
-        logging.debug("drawing promotion options")
+        log.debug("drawing promotion options")
         drawImagePartial(0, 270, timage)
-        logging.debug("drawn")
+        log.debug("drawn")
 
 def resignDrawMenu(row):
     # Draws draw or resign options to the screen buffer
@@ -457,8 +483,7 @@ def drawWindow(x, y, w, data):
         if tw >= dw:
             tw = 0
             dyoff = dyoff + 1
-    filename = str(AssetManager.get_resource_path("epaper.jpg"))
-    epaperbuffer.save(filename)    
+    paths.write_epaper_static_jpg(epaperbuffer)    
 
 def drawImagePartial(x, y, img):
     # For backwards compatibility we just paste into the image here
@@ -513,7 +538,7 @@ class statusBar():
         return
 
     def init(self):
-        logging.debug("Starting status bar update thread")
+        log.debug("Starting status bar update thread")
         self.statusbar = threading.Thread(target=self.display, args=())
         self.statusbar.daemon = True
         self.statusbar.start()
@@ -523,7 +548,7 @@ class statusBar():
         self.init()
 
     def stop(self):
-        logging.debug("Kill status bar thread")
+        log.debug("Kill status bar thread")
         self.is_running = False
 
 
@@ -533,9 +558,9 @@ class MenuDraw:
 
 
     def draw_page(self, title, items):
-        logging.debug('-------------')
-        logging.debug(title)
-        logging.debug('-------------')
+        log.debug('-------------')
+        log.debug(title)
+        log.debug('-------------')
         global epaperbuffer
         draw = ImageDraw.Draw(epaperbuffer)
         draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
@@ -543,7 +568,7 @@ class MenuDraw:
         row = 2
         for item in items:
             writeText(row, "  " + item)
-            logging.debug(item)
+            log.debug(item)
             row += 1
         self.statusbar.print()
         # draw epaperbuffer to the screen
@@ -552,8 +577,7 @@ class MenuDraw:
             im = im.transpose(Image.FLIP_TOP_BOTTOM)
             im = im.transpose(Image.FLIP_LEFT_RIGHT)
         bytes = im.tobytes()
-        filename = str(AssetManager.get_resource_path("epaper.jpg"))
-        epaperbuffer.save(filename)
+        paths.write_epaper_static_jpg(epaperbuffer)
         epd.send_command(0x91)
         epd.send_command(0x90)
         epd.send_data(0)
@@ -595,8 +619,7 @@ class MenuDraw:
         draw = ImageDraw.Draw(epaperbuffer)
         draw.rectangle([(0, 40), (8, 191)], fill = 255, outline = 255)
         draw.rectangle([(2,((index + 2) * 20) + 5), (8, ((index+2) * 20) + 14)], fill = 0, outline = 0)
-        filename = str(AssetManager.get_resource_path("epaper.jpg"))
-        epaperbuffer.save(filename)
+        paths.write_epaper_static_jpg(epaperbuffer)
         epd.send_command(0x91) # Enter partial mode
         epd.send_command(0x90) # Set resolution
         epd.send_data(120) #x start

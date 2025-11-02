@@ -30,7 +30,7 @@ def text_input_button_callback(button_id):
     text_input_event.set()
     print(f"Text input button callback: {button_id}")
 
-def text_input_field_callback(field):
+def text_input_field_callback(piece_event, field, time_in_seconds):
     """Callback for text input field events"""
     global text_input_field, text_input_event, text_input_event_type
 

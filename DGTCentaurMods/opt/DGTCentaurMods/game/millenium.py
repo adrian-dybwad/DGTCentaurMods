@@ -24,6 +24,7 @@
 from DGTCentaurMods.game import gamemanager
 from DGTCentaurMods.display import epaper
 from DGTCentaurMods.board import board
+from DGTCentaurMods.board.logging import log
 
 import time
 import chess
@@ -46,21 +47,17 @@ kill = 0
 E2ROM = bytearray([0] * 256)
 
 def keyCallback(key):
-	# This function will receive any keys presses on the keys
-	# under the display. Possibles:
-	# gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
-	# gamemanager.BTNDOWN  gamemanager.BTNHELP  gamemanager.BTNPLAY
 	global kill
 	global server_sock
-	print("Key event received: " + str(key))
-	if key == gamemanager.BTNBACK:
-		print("setting kill")
+	log.info("Key event received: " + str(key))
+	if key == gamemanager.board.Key.BACK:
+		log.info("setting kill")
 		kill = 1
 		try:
 			server_sock.close()
 		except:
 			pass
-	if key == gamemanager.BTNPLAY:
+	if key == gamemanager.board.Key.PLAY:
 		# Send the board state again (for cases where it doesn't seem to have sent)
 		board.beep(board.SOUND_GENERAL)
 		bs = gamemanager.cboard.fen()
@@ -76,8 +73,8 @@ def keyCallback(key):
 		resp = 's'
 		for x in range(0, 64):
 			resp = resp + bs[x]
-		print("sending status on change")
-		print(resp)
+		log.info("sending status on change")
+		log.info(resp)
 		sendMilleniumCommand(resp)
 
 sendstatewithoutrequest = 1
@@ -95,7 +92,7 @@ def eventCallback(event):
 		epaper.writeText(1,"               ")
 		curturn = 1
 		epaper.drawFen(gamemanager.cboard.fen())
-		print("sending state")
+		log.info("sending state")
 		bs = gamemanager.cboard.fen()
 		bs = bs.replace("/", "")
 		bs = bs.replace("1", ".")
@@ -109,16 +106,16 @@ def eventCallback(event):
 		resp = 's'
 		for x in range(0, 64):
 			resp = resp + bs[x]
-		print(resp)
+		log.info(resp)
 		sendMilleniumCommand(resp)
 		board.ledsOff()
 	if event == gamemanager.EVENT_WHITE_TURN:
 		curturn = 1
-		print("white turn event")
+		log.info("white turn event")
 		epaper.writeText(0,"White turn")
 	if event == gamemanager.EVENT_BLACK_TURN:
 		curturn = 0
-		print("black turn event")
+		log.info("black turn event")
 		epaper.writeText(0,"Black turn")
 
 	if type(event) == str:
@@ -159,57 +156,11 @@ def moveCallback(move):
 	resp = 's'
 	for x in range(0, 64):
 		resp = resp + bs[x]
-	print("sending status on change")
+	log.info("sending status on change")
 	sendMilleniumCommand(resp)
 
-def pairThread():
-	# Emulate bluetooth pairing by providing pairing in a separate thread too
-	# First kill any running bt-agent, it may have been started from the menu
-	for p in psutil.process_iter(attrs=['pid', 'name']):
-		if "bt-agent" in p.info["name"]:
-			p.kill()
-			time.sleep(3)
-	while True:
-		print('running pair thread')
-		# In case something has gone wrong we actually call bluetoothctl first to make it discoverable and pairable.
-		p = subprocess.Popen(['/usr/bin/bluetoothctl'],stdout=subprocess.PIPE, stdin=subprocess.PIPE, universal_newlines=True, shell=True)
-		poll_obj = select.poll()
-		poll_obj.register(p.stdout, select.POLLIN)
-		p.stdin.write("power on\n")
-		p.stdin.flush()
-		p.stdin.write("discoverable on\n")
-		p.stdin.flush()
-		p.stdin.write("pairable on\n")
-		p.stdin.flush()
-		time.sleep(4)
-		p.terminate()
-		p = subprocess.Popen(['/usr/bin/bt-agent --capability=NoInputNoOutput -p /etc/bluetooth/pin.conf'],stdout=subprocess.PIPE, stdin=subprocess.PIPE, shell=True)
-		poll_obj = select.poll()
-		poll_obj.register(p.stdout, select.POLLIN)
-		running = 1
-		spamyes = 0
-		spamtime = 0;
-		while running == 1:
-			poll_result = poll_obj.poll(0)
-			if spamyes == 1:
-				if time.time() - spamtime < 3:
-					print("spamming yes!")
-					p.stdin.write(b'yes\n')
-					time.sleep(1)
-				else:
-					p.terminate()
-					running = 0
-			if poll_result and spamyes == 0:
-				line = p.stdout.readline()
-				if b'Device:' in line:
-					print("detected device")
-					p.stdin.write(b'yes\n')
-					spamyes = 1
-					spamtime = time.time()
-			r = p.poll()
-			if r is not None:
-				running = 0
-		time.sleep(0.1)
+# Import shared Bluetooth manager
+from DGTCentaurMods.board.bluetooth_utils import BluetoothManager
 
 # Activate the epaper
 epaper.initEpaper()
@@ -218,9 +169,8 @@ epaper.writeText(0,'Connect remote')
 epaper.writeText(1,'Device Now')
 start = time.time()
 
-pairThread = threading.Thread(target=pairThread, args=())
-pairThread.daemon = True
-pairThread.start()
+# Start pairing thread using shared BluetoothManager
+pairThread = BluetoothManager.start_pairing_thread()
 
 # Kill rfcomm if it is started
 os.system('sudo service rfcomm stop')
@@ -229,7 +179,7 @@ for p in psutil.process_iter(attrs=['pid', 'name']):
 	if str(p.info["name"]) == "rfcomm":
 		p.kill()
 iskilled = 0
-print("checking killed")
+log.info("checking killed")
 while iskilled == 0:
 	iskilled = 1
 	for p in psutil.process_iter(attrs=['pid', 'name']):
@@ -251,7 +201,7 @@ bluetooth.advertise_service(server_sock, "UARTClassicServer", service_id=uuid,
                             # protocols=[bluetooth.OBEX_UUID]
                             )
 
-print("Waiting for connection on RFCOMM channel", port)
+log.info("Waiting for connection on RFCOMM channel", port)
 connected = 0
 while connected == 0 and kill == 0:
 	try:
@@ -270,7 +220,7 @@ while connected == 0 and kill == 0:
 
 # Subscribe to the game manager to activate the previous functions
 if kill == 0:
-	print("Accepted connection from", client_info)
+	log.info("Accepted connection from", client_info)
 	gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback)
 	epaper.writeText(0,"Place pieces in")
 	epaper.writeText(1,"Starting Pos")
@@ -291,27 +241,27 @@ def odd_par(b):
 def sendMilleniumCommand(txt):
 	global client_sock
 	global client_sock
-	print("send command in")
-	print(txt)
+	log.info("send command in")
+	log.info(txt)
 	cs = 0;
 	tosend = bytearray(b'')
 	for el in range(0,len(txt)):
 		tosend.append(odd_par(ord(txt[el][0])))
 		cs = cs ^ ord(txt[el][0])
-	print("parityset")
+	log.info("parityset")
 	#h = str(hex(cs)).upper()
 	h = "0x{:02x}".format(cs)
 	h1 = h[2:3]
 	h2 = h[3:4]
-	print("checksum created")
-	print(h)
-	print(h1)
-	print(h2)
+	log.info("checksum created")
+	log.info(h)
+	log.info(h1)
+	log.info(h2)
 	tosend.append(odd_par(ord(h1)))
 	tosend.append(odd_par(ord(h2)))
-	print("sending stuff")
-	print(tosend.hex())
-	print(str(tosend))
+	log.info("sending stuff")
+	log.info(tosend.hex())
+	log.info(str(tosend))
 	#bt.write(tosend)
 	#bt.flush()
 	client_sock.send(bytes(tosend))
@@ -322,14 +272,14 @@ while kill == 0:
 		handled = 1
 		while kill == 0:
 			data = client_sock.recv(1)
-			print(data)
+			log.info(data)
 			if not data:
-				print("read failed")
+				log.info("read failed")
 				break
 			cmd = data[0] & 127
 			handled = 0
-			print(cmd)
-			print(chr(cmd))
+			log.info(cmd)
+			log.info(chr(cmd))
 			if chr(cmd) == 'V':
 				# Remote is asking for the version
 				# dump the checksum (two bytes represent the first and second characters in ascii of a hex
@@ -340,9 +290,9 @@ while kill == 0:
 			if chr(cmd) == 'I':
 				# Needed by chess.com app
 				data = client_sock.recv(4)
-				print("hit i")
-				print(data.hex())
-				print(data)
+				log.info("hit i")
+				log.info(data.hex())
+				log.info(data)
 				sendMilleniumCommand("i0055mm\n")
 				handled = 1
 			if chr(cmd) == 'S':
@@ -373,8 +323,8 @@ while kill == 0:
 				h4 = client_sock.recv(1)[0] & 127
 				hexn = '0x' + chr(h3) + chr(h4)
 				value = int(str(hexn), 16)
-				print(address)
-				print(value)
+				log.info(address)
+				log.info(value)
 				client_sock.recv(2)
 				E2ROM[address] = value
 				sendMilleniumCommand(str('w' + chr(h1) + chr(h2) + chr(h3) + chr(h4)))
@@ -480,16 +430,16 @@ while kill == 0:
 				time.sleep(3)
 				handled = 1
 			if handled == 0:
-				print("unhandled")
-				print(chr(cmd))
+				log.info("unhandled")
+				log.info(chr(cmd))
 	except OSError:
 		pass
 
-	print("Disconnected.")
+	log.info("Disconnected.")
 
 	client_sock.close()
 	if kill == 0:
-		print("Waiting for connection on RFCOMM channel", port)
+		log.info("Waiting for connection on RFCOMM channel", port)
 		connected = 0
 		while connected == 0 and kill == 0:
 			try:
@@ -518,7 +468,7 @@ kill = 1
 os._exit(0)
 
 while True == False:
-	print("true loop")
+	log.info("true loop")
 	kill = 0
 	excount = 0
 	while kill == 0:
@@ -530,14 +480,14 @@ while True == False:
 			try:
 				data = bt.recv(1)
 				cmd = data[0] & 127
-				print(chr(cmd))
+				log.info(chr(cmd))
 				handled = 0
 				excount = 0
 				readsuccess = 1
 				time.sleep(0.1)
 			except Exception as e:
-				print("exception")
-				print(e)
+				log.info("exception")
+				log.info(e)
 				#if bt.is_open == False:
 				#	kill = 1
 				#if not exists("/dev/rfcomm0"):
@@ -549,33 +499,33 @@ while True == False:
 					kill = 1
 
 	bt.close()
-	print(bt.is_open)
-	print("killing rfcomm")
+	log.info(bt.is_open)
+	log.info("killing rfcomm")
 	for p in psutil.process_iter(attrs=['pid', 'name']):
 		if str(p.info["name"]) == "rfcomm":
 			p.kill()
 	iskilled = 0
-	print("checking killed")
+	log.info("checking killed")
 	while iskilled == 0:
 		iskilled = 1
 		for p in psutil.process_iter(attrs=['pid', 'name']):
 			if str(p.info["name"]) == "rfcomm":
 				iskilled = 0
 		time.sleep(0.1)
-	print("is killed. restarting")
+	log.info("is killed. restarting")
 	#os.system('service rfcomm start')
 	os.system('/usr/bin/rfcomm watch hci0 &')
 	restarted = 0
-	print("checking restart")
+	log.info("checking restart")
 	while restarted == 0:
 		for p in psutil.process_iter(attrs=['pid', 'name']):
 			if str(p.info["name"]) == "rfcomm":
-				print("found it")
+				log.info("found it")
 				restarted = 1
-		print("ran check")
+		log.info("ran check")
 		time.sleep(0.1)
-	print("restarted")
-	print("broke out")
+	log.info("restarted")
+	log.info("broke out")
 	#time.sleep(1)
 	while True:
 		time.sleep(0.1)
@@ -585,5 +535,5 @@ while True == False:
 		except:
 			pass
 	#time.sleep(3)
-	print("new serial connection")
-	print(bt.is_open)
+	log.info("new serial connection")
+	log.info(bt.is_open)

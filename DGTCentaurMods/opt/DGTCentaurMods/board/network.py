@@ -31,6 +31,7 @@ import re
 import time
 import os
 import shlex
+from DGTCentaurMods.board.logging import log
 
 def shell_run(rcmd):
     cmd = shlex.split(rcmd)
@@ -40,14 +41,15 @@ def shell_run(rcmd):
     response = proc.communicate()
     response_stdout, response_stderr = response[0], response[1]
     if response_stderr:
-        print(response_stderr)
+        log.error(response_stderr)
         return -1
     else:
+        log.info(response_stdout)
         return response_stdout
 
 def check_network():
     ret = shell_run("ifconfig wlan0").decode("utf-8")
-    reg = re.search("inet (\d+\.\d+\.\d+\.\d+)", ret)
+    reg = re.search(r"inet (\d+\.\d+\.\d+\.\d+)", ret)
     if reg is None:
         return False
     else:
@@ -62,7 +64,7 @@ def wps_detect(i=0):
         shell_run("wpa_cli -i wlan0 scan")
         time.sleep(1)
         wpa = shell_run("wpa_cli -i wlan0 scan_results").decode("UTF-8")
-        network = re.search("(([\da-f]{2}:){5}[\da-f]{2})(.*?)\[WPS-PBC\]", wpa)
+        network = re.search(r"(([\da-f]{2}:){5}[\da-f]{2})(.*?)\[WPS-PBC\]", wpa)
         if not (network is None):
             if network.group(1):
                 return network.group(1)
@@ -71,8 +73,8 @@ def wps_detect(i=0):
 
 def wps_connect(network=""):
     is_network = check_network()
-    print("Press WPS button now")
-    print("Waiting to connect...")
+    log.info("Press WPS button now")
+    log.info("Waiting to connect...")
     shell_run("wpa_cli -i wlan0 wps_pbc " + network)
     time.sleep(60)
     is_network = check_network()
@@ -81,10 +83,10 @@ def wps_connect(network=""):
     # Wait dhcp
     time.sleep(10)
     if is_network:
-        print("Network is up!")
+        log.info("Network is up!")
         return True
     else:
-        print("Network is down")
+        log.info("Network is down")
 
 def wps_disconnect_all():
     shell_run("wpa_cli -i wlan0 remove_network all")

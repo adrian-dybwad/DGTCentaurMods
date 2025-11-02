@@ -19,7 +19,6 @@ CENTAUR_ENGINE="/home/pi/centaur/engines"
 STOCKFISH="stockfish_pi"
 RODENT_REPO="https://github.com/nescitus/rodent-iv.git"
 MAIA_REPO="https://github.com/CSSLab/maia-chess.git"
-FENLOG="/home/pi/centaur/fen.log"
 VENV_DIR="$DGTCM_PATH/.venv"
 REQ_VENV="$DGTCM_PATH/setup/requirements.txt"
 WHEELS_DIR="$DGTCM_PATH/wheels"   # ship this in the .deb (optional but recommended)
@@ -75,15 +74,51 @@ then
         echo -e "$REPLY" > $CMDLINEFILE
 fi
 
-    # Setting up Bluetooth
-    #echo -e "::: Setting up bluetooth."
-    #    echo -e "$BTPIN" > /etc/bluetooth/pin.conf
-    #    echo -e "$BTMACHINEINFO" > /etc/machine-info
+    # Setting up Bluetooth configuration
+    echo -e "::: Setting up Bluetooth configuration"
+
+    # Unblock Bluetooth hardware
+    sudo rfkill unblock bluetooth || true
+
+    # Install Bluetooth configuration files
+    sudo mkdir -p /etc/bluetooth
+    sudo mkdir -p /etc/systemd/system/bluetooth.service.d
+
+    # Copy pin.conf if it doesn't exist
+    if [ ! -f /etc/bluetooth/pin.conf ]; then
+        echo "* *" | sudo tee /etc/bluetooth/pin.conf > /dev/null
+    fi
+
+    # Copy machine-info for Bluetooth name
+    if [ ! -f /etc/machine-info ]; then
+        echo "PRETTY_HOSTNAME=PCS-REVII-081500" | sudo tee /etc/machine-info > /dev/null
+    fi
+
+    # Install systemd service overrides (but NOT rfcomm.service)
+    sudo cp ${DGTCM_PATH}/../etc/systemd/system/bluetooth.service.d/*.conf /etc/systemd/system/bluetooth.service.d/ 2>/dev/null || true
+    sudo cp ${DGTCM_PATH}/../etc/systemd/system/var-run-sdp.* /etc/systemd/system/ 2>/dev/null || true
+    sudo cp ${DGTCM_PATH}/../etc/systemd/system/bthelper@.service.d/*.conf /etc/systemd/system/bthelper@.service.d/ 2>/dev/null || true
+
+    # Set correct permissions
+    sudo chmod 644 /etc/bluetooth/pin.conf
+    sudo chmod 644 /etc/machine-info
+
+    echo -e "::: Enabling Bluetooth services"
+    systemctl daemon-reload
+    systemctl enable bluetooth.service || true
+    systemctl enable var-run-sdp.path || true
+
+    # Start Bluetooth
+    systemctl start bluetooth || true
 
 
-#Make DGTCM available to all users
-rm /usr/lib/python3/dist-packages/DGTCentaurMods
-cd /usr/lib/python3/dist-packages && sudo ln -s ${DGTCM_PATH} DGTCentaurMods
+# Make DGTCM available to all users (idempotent)
+DISTPKG_DIR="/usr/lib/python3/dist-packages"
+TARGET_PATH="${DISTPKG_DIR}/DGTCentaurMods"
+install -d "$DISTPKG_DIR"
+# Replace any existing file/dir/symlink with a symlink to $DGTCM_PATH
+rm -rf "$TARGET_PATH"
+ln -sfnT "$DGTCM_PATH" "$TARGET_PATH"
 
 # Allow flask on port 80
 # sudo touch /etc/authbind/byport/80
@@ -97,8 +132,19 @@ sudo usermod -a -G kmem pi
 ##### Enable systemd services.
 echo -e "::: Setup services"
     systemctl daemon-reload
-    systemctl enable rfcomm.service
-    systemctl enable centaurmods-web.service
+    echo -e "::: Disabling rfcomm.service (application manages RFCOMM in Python)"
+    systemctl disable rfcomm.service 2>/dev/null || true
+    systemctl stop rfcomm.service 2>/dev/null || true
+    # Migrate web service name: stop/disable old unit, remove file if present
+    if systemctl list-unit-files | grep -q '^centaurmods-web.service'; then
+        systemctl stop centaurmods-web.service 2>/dev/null || true
+        systemctl disable centaurmods-web.service 2>/dev/null || true
+    fi
+    if [ -e /etc/systemd/system/centaurmods-web.service ]; then
+        rm -f /etc/systemd/system/centaurmods-web.service
+        systemctl daemon-reload
+    fi
+    systemctl enable DGTCentaurModsWeb.service
     systemctl enable DGTCentaurMods.service
 #    systemctl enable ntp
     systemctl enable var-run-sdp.path
@@ -134,32 +180,15 @@ then
 fi
 }
 
-# Install Stockfish if in build
-if [[ -e ${DGTCM_PATH}/engines/$STOCKFISH ]]
-then
+# Install Stockfish if in build (keep in package directory like other engines)
+if [[ -e "${DGTCM_PATH}/engines/${STOCKFISH}" ]]; then
     echo -e "::: Installing Stockfish engine"
-    if [[ -d $CENTAUR_ENGINE ]]
-    then
-        mv ${CENTAUR_ENGINE}/$STOCKFISH ${CENTAUR_ENGINE}/$STOCKFISH.bak
-        mv ${DGTCM_PATH}/engines/$STOCKFISH $CENTAUR_ENGINE/$STOCKFISH
-        chown -R pi:root $CENTAUR_ENGINE
-    else
-        mkdir -p $CENTAUR_ENGINE
-        mv ${DGTCM_PATH}/engines/$STOCKFISH $CENTAUR_ENGINE
-        chown -R pi:root $CENTAUR_ENGINE
-    fi
-#else
-#    echo -e "Downloading Stockfish..."
-    # TODO: find a way to download.
+    # Ensure engines directory exists and has correct permissions
+    chmod 755 "${DGTCM_PATH}/engines/${STOCKFISH}"
+    chown pi:pi "${DGTCM_PATH}/engines/${STOCKFISH}"
 fi
 
-#Check if fen.log is there
-if [ ! -e $FENLOG ]
-then
-    touch $FENLOG
-fi
-
-
+#
 #echo -e "::: Installing python packages."
 #    cd $DGTCM_PATH
 #    CFLAGS="-fcommon" pip3 install -r $DGTCM_PATH/setup/requirements.txt
@@ -240,7 +269,9 @@ insertZahak
 # Setting final permissions
 function setPermissions {
     chown -R pi:pi ${DGTCM_PATH}
-    chown -R pi:root $CENTAUR
+    if [[ -d "${CENTAUR}" ]]; then
+        chown -R pi:root ${CENTAUR}
+    fi
 
 }
 
@@ -288,6 +319,18 @@ case $1 in
     fi
 
     setPermissions
+    
+    # Guarded reboot (fresh installs and upgrades)
+    # if [ -z "${DGTCM_SKIP_REBOOT:-}" ]; then
+    #     echo "Rebooting to complete DGTCentaurMods installation..."
+    #     if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    #         nohup /bin/sh -c "sleep 3; systemctl reboot" >/dev/null 2>&1 &
+    #     else
+    #         nohup /bin/sh -c "sleep 3; /sbin/shutdown -r now" >/dev/null 2>&1 &
+    #     fi
+    # else
+    #     echo "DGTCM_SKIP_REBOOT set; skipping automatic reboot."
+    # fi
     ;;
 esac
 

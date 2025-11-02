@@ -24,6 +24,7 @@
 from DGTCentaurMods.game import gamemanager
 from DGTCentaurMods.display import epaper
 from DGTCentaurMods.board import *
+from DGTCentaurMods.board.logging import log
 
 import time
 import chess
@@ -59,10 +60,10 @@ if len(sys.argv) > 3:
 	config = configparser.ConfigParser()
 	config.optionxform = str
 	config.read(ucifile)
-	print(config.items(ucioptionsdesc))
+	log.info(config.items(ucioptionsdesc))
 	for item in config.items(ucioptionsdesc):
 		ucioptions[item[0]] = item[1]
-	print(ucioptions)
+	log.info(ucioptions)
 
 if computeronturn == 0:
 	gamemanager.setGameInfo(ucioptionsdesc, "", "", "Player", enginename)
@@ -70,13 +71,9 @@ else:
 	gamemanager.setGameInfo(ucioptionsdesc, "", "", enginename, "Player")
 
 def keyCallback(key):
-	# This function will receive any keys presses on the keys
-	# under the display. Possibles:
-	# gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
-	# gamemanager.BTNDOWN  gamemanager.BTNHELP  gamemanager.BTNPLAY
 	global kill
-	print("Key event received: " + str(key))
-	if key == gamemanager.BTNBACK:
+	log.info("Key event received: " + str(key))
+	if key == gamemanager.board.Key.BACK:
 		kill = 1
 
 def eventCallback(event):

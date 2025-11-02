@@ -1,3 +1,6 @@
+[DEFAULT]
+Description = Compact engine optimized for limited resources
+
 [1000 ELO]
 UCI_LimitStrength = true
 UCI_Elo: 1000

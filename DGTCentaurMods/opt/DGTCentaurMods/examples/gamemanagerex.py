@@ -6,10 +6,6 @@ import time
 global curturn
 
 def keyCallback(key):
-	# This function will receive any keys presses on the keys
-	# under the display. Possibles:
-	# gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
-	# gamemanager.BTNDOWN  gamemanager.BTNHELP  gamemanager.BTNPLAY
 	print("Key event received: " + str(key))
 
 def eventCallback(event):

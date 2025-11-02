@@ -25,22 +25,17 @@ import pathlib
 import sys
 import threading
 import time
-import logging
 import urllib.request
 import json
 import socket
 import subprocess
-import os
+import signal
 from DGTCentaurMods.display.ui_components import AssetManager
-
-try:
-    logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log",filemode="w")
-except:
-    logging.basicConfig(level=logging.DEBUG)
 
 from DGTCentaurMods.board import *
 from DGTCentaurMods.display import epaper
 from PIL import Image, ImageDraw, ImageFont
+from DGTCentaurMods.board.logging import log
 
 menuitem = 1
 curmenu = None
@@ -53,7 +48,7 @@ idle = False # ensure defined before keyPressed can be called
 
 def keyPressed(id):
     # This functiion receives key presses
-    print("in menu.py keyPressed: " + str(id))
+    log.info("in menu.py keyPressed: " + str(id))
     global shift
     global menuitem
     global curmenu
@@ -61,14 +56,14 @@ def keyPressed(id):
     global event_key
     epaper.epapermode = 1    
     if idle:
-        if id == board.BTNTICK:
+        if id == board.Key.TICK:
             event_key.set()
             return
     else:
-        if id == board.BTNTICK:
+        if id == board.Key.TICK:
             if not curmenu:
                 selection = "BTNTICK"
-                #print(selection)
+                #log.info(selection)
                 # event_key.set()
                 return
             c = 1
@@ -82,18 +77,18 @@ def keyPressed(id):
                     return
                 c = c + 1
 
-        if id == board.BTNLONGPLAY:
+        if id == board.Key.LONG_PLAY:
             board.shutdown()
             return
-        if id == board.BTNDOWN:
+        if id == board.Key.DOWN:
             menuitem = menuitem + 1
-        if id == board.BTNUP:
+        if id == board.Key.UP:
             menuitem = menuitem - 1
-        if id == board.BTNBACK:
+        if id == board.Key.BACK:
             selection = "BACK"
             event_key.set()
             return
-        if id == board.BTNHELP:
+        if id == board.Key.HELP:
             selection = "BTNHELP"
             event_key.set()
             return
@@ -120,9 +115,71 @@ quickselect = 0
 
 COLOR_MENU = {"white": "White", "black": "Black", "random": "Random"}
 
-def doMenu(menu, title=None):
-    print(f"doMenu: {menu}, Title: {title}")
-    # Draws a menu and waits for the response in the global variable 'selection'
+MENU_CONFIG = {
+    "EmulateEB": {
+        "title": "e-Board",
+        "description": "Emulate DGT Classic or Millennium electronic boards for compatibility",
+        "items": {"dgtclassic": "DGT REVII", "millennium": "Millennium"}
+    },
+    "settings": {
+        "title": "Settings",
+        "description": "Configure WiFi, Bluetooth, sound, updates, and system settings",
+        "items": None  # Built dynamically
+    },
+    "Lichess": {
+        "title": "Lichess",
+        "description": "Play online games and challenges on Lichess.org with your account",
+        "items": {"Rated": "Rated", "Unrated": "Unrated", "Ongoing": "Ongoing", "Challenges": "Challenges"}
+    },
+    "Engines": {
+        "title": "Engines",
+        "description": "Play against computer opponents with various difficulty levels",
+        "items": None  # Built dynamically
+    },
+    "HandBrain": {
+        "title": "Hand + Brain",
+        "description": "Two-player cooperative mode where one sees the board and the other calls moves",
+        "items": None  # Built dynamically (uses enginemenu)
+    }
+}
+
+def doMenu(menu_or_key, title_or_key=None, description=None):
+    """
+    Display a menu and wait for user selection.
+    
+    Args:
+        menu_or_key: Either a menu dict {"key": "Display"} or a config key string
+        title_or_key: Either a title string, a config key, or None
+        description: Menu description (optional, can be looked up from config)
+    
+    Returns:
+        Selected menu key or "BACK"
+    """
+    actual_menu = None
+    actual_title = None
+    actual_description = None
+    
+    # Case 1: menu_or_key is a config key (e.g., "EmulateEB" or "Lichess")
+    if isinstance(menu_or_key, str) and menu_or_key in MENU_CONFIG:
+        config = MENU_CONFIG[menu_or_key]
+        actual_menu = config.get("items")
+        actual_title = config.get("title")
+        actual_description = config.get("description")
+    
+    # Case 2: menu_or_key is a dict and title_or_key is a config key (e.g., enginemenu, "Engines")
+    elif isinstance(menu_or_key, dict) and isinstance(title_or_key, str) and title_or_key in MENU_CONFIG:
+        config = MENU_CONFIG[title_or_key]
+        actual_menu = menu_or_key
+        actual_title = config.get("title")
+        actual_description = config.get("description")
+    
+    # Case 3: Explicit parameters (backward compatible)
+    else:
+        actual_menu = menu_or_key
+        actual_title = title_or_key
+        actual_description = description
+    
+    log.info(f"doMenu: {actual_menu}, Title: {actual_title}, Description: {actual_description}")
     global shift
     global menuitem
     global curmenu
@@ -133,25 +190,71 @@ def doMenu(menu, title=None):
     epaper.clearScreen()  
     
     selection = ""
-    curmenu = menu
+    curmenu = actual_menu
     # Display the given menu
     menuitem = 1
     quickselect = 0    
 
     quickselect = 1    
-    if title:
+    if actual_title:
         row = 2
         shift = 20
-        epaper.writeMenuTitle("[ " + title + " ]")
+        epaper.writeMenuTitle("[ " + actual_title + " ]")
     else:
         shift = 0
         row = 1
     # Print a fresh status bar.
     statusbar.print()
     epaper.pauseEpaper()
-    for k, v in menu.items():
+    for k, v in actual_menu.items():
         epaper.writeText(row, "    " + str(v))
         row = row + 1
+    
+    # Display description if provided
+    if actual_description and actual_description.strip():
+        # Create background rectangle covering the right side area
+        description_y = (row * 20) + 2 + shift
+        description_height = 108  # Height for description area (allows 9 lines: 9 * 12px)
+        draw = ImageDraw.Draw(epaper.epaperbuffer)
+        
+        # Draw background rectangle covering right side (from vertical line to screen edge)
+        draw.rectangle([17, description_y, 127, description_y + description_height], fill=255)
+        
+        # Position text with more space from vertical line
+        description_x = 22  # Start after vertical line (17) with 5px margin
+        description_text_y = description_y + 2  # Small margin from top
+        
+        # Use 16px font for description
+        small_font = ImageFont.truetype(epaper.AssetManager.get_resource_path("Font.ttc"), 16)
+        
+        # Wrap text to fit within the available width
+        max_width = 127 - description_x - 2  # Available width minus margins (now 103px)
+        words = actual_description.split()
+        lines = []
+        current_line = ""
+        
+        for word in words:
+            test_line = current_line + (" " if current_line else "") + word
+            bbox = draw.textbbox((0, 0), test_line, font=small_font)
+            text_width = bbox[2] - bbox[0]
+            
+            if text_width <= max_width:
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append(current_line)
+                    current_line = word
+                else:
+                    lines.append(word)  # Single word too long, add anyway
+        
+        if current_line:
+            lines.append(current_line)
+        
+        # Draw each line
+        for i, line in enumerate(lines[:9]):  # Limit to 9 lines max (fits in 108px height)
+            y_pos = description_text_y + (i * 16)  # 16px line spacing
+            draw.text((description_x, y_pos), line, font=small_font, fill=0)
+    
     epaper.unPauseEpaper()    
     time.sleep(0.1)
     epaper.clearArea(0, 20 + shift, 17, 295)
@@ -166,9 +269,18 @@ def doMenu(menu, title=None):
     )
     draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
     statusbar.print()         
-    event_key.wait()
+    try:
+        event_key.wait()
+    except KeyboardInterrupt:
+        # Handle Ctrl+C in menu - return special value to trigger shutdown
+        event_key.clear()
+        return "SHUTDOWN"
     event_key.clear()
     return selection
+
+def changedCallback(piece_event, field, time_in_seconds):
+    log.info(f"changedCallback: {piece_event} {field} {time_in_seconds}")
+    board.printChessState()
 
 
 # Turn Leds off, beep, clear DGT Centaur Serial
@@ -180,18 +292,23 @@ epaper.initEpaper(1)
 statusbar = epaper.statusBar()
 statusbar.start()
 update = centaur.UpdateSystem()
-logging.debug("Setting checking for updates in 5 mins.")
+log.info("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
 # Subscribe to board events. First parameter is the function for key presses. The second is the function for
 # field activity
-board.subscribeEvents(keyPressed, None, timeout=900)
-
+board.subscribeEvents(keyPressed, changedCallback, timeout=900)
+#board.printBoardState()
 
 def show_welcome():
     global idle
     epaper.welcomeScreen()
     idle = True
-    event_key.wait()
+    try:
+        event_key.wait()
+    except KeyboardInterrupt:
+        # Handle Ctrl+C in welcome screen
+        event_key.clear()
+        raise  # Re-raise to exit program
     event_key.clear()
     idle = False
 
@@ -201,6 +318,52 @@ epaper.quickClear()
 
 
 def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:
+    process = None
+    interrupted = False
+    
+    def signal_handler(signum, frame):
+        """Handle Ctrl+C by terminating the subprocess - NO LOGGING to avoid reentrant calls"""
+        nonlocal process, interrupted
+        if interrupted:
+            # Already handling interrupt, force kill immediately and exit
+            if process is not None:
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except:
+                    try:
+                        process.kill()
+                    except:
+                        pass
+            os._exit(130)
+            return
+        
+        interrupted = True
+        if process is not None:
+            # Try to terminate gracefully (no blocking wait in signal handler)
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            except:
+                try:
+                    process.terminate()
+                except:
+                    pass
+            
+            # Start a background thread to kill if it doesn't exit quickly
+            def force_kill_after_delay():
+                time.sleep(1.5)
+                if process.poll() is None:
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    except:
+                        try:
+                            process.kill()
+                        except:
+                            pass
+            threading.Thread(target=force_kill_after_delay, daemon=True).start()
+        # Don't block or log - let the main wait() handle completion
+    
+    # Register signal handler for graceful shutdown
+    original_handler = signal.signal(signal.SIGINT, signal_handler)
     try:
         epaper.loadingScreen()
         board.pauseEvents()
@@ -208,16 +371,148 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         statusbar.stop()
 
         script_path = str((pathlib.Path(__file__).parent / script_rel_path).resolve())
-        print(f"script_path: {script_path}")
+        log.info(f"script_path: {script_path}")
         cmd = [sys.executable, script_path, *map(str, args)]
-        result = subprocess.run(cmd, check=False)
-        return result.returncode
+        
+        # Start process in its own process group so we can kill all children
+        process = subprocess.Popen(cmd, preexec_fn=os.setsid)
+        
+        try:
+            result = process.wait()
+            return result
+        except KeyboardInterrupt:
+            log.info(">>> KeyboardInterrupt caught, subprocess should already be terminated")
+            if process is not None:
+                try:
+                    process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    pass
+            return 130  # Standard exit code for SIGINT
     finally:
+        # Restore original signal handler
+        signal.signal(signal.SIGINT, original_handler)
+        log.info(">>> Reinitializing after external script...")
         epaper.initEpaper()
+        log.info(">>> epaper.initEpaper() complete")
         epaper.quickClear()
+        log.info(">>> epaper.quickClear() complete")
         board.run_background(start_key_polling=start_key_polling)
+        log.info(">>> board.run_background() complete")
         board.unPauseEvents()
+        log.info(">>> board.unPauseEvents() complete")
         statusbar.start()
+        log.info(">>> statusbar.start() complete")
+
+
+def bluetooth_pairing():
+    """
+    Run Bluetooth pairing mode with timeout.
+    Displays pairing instructions on e-paper screen.
+    
+    Returns:
+        bool: True if device paired successfully, False on timeout
+    """
+    from DGTCentaurMods.board.bluetooth_utils import BluetoothManager
+    
+    epaper.clearScreen()
+    epaper.writeText(0, "Pair Now use")
+    epaper.writeText(1, "any passcode if")
+    epaper.writeText(2, "prompted.")
+    epaper.writeText(4, "Times out in")
+    epaper.writeText(5, "one minute.")
+    
+    def on_device_detected():
+        """Callback when pairing device is detected"""
+        epaper.writeText(8, "Pairing...")
+    
+    # Start pairing with 60 second timeout
+    paired = BluetoothManager.start_pairing(
+        timeout=60, 
+        on_device_detected=on_device_detected
+    )
+    
+    # Show result
+    epaper.clearScreen()
+    if paired:
+        epaper.writeText(0, "Paired!")
+        time.sleep(2)
+    else:
+        epaper.writeText(0, "Pairing timeout")
+        time.sleep(2)
+    epaper.clearScreen()
+    
+    return paired
+
+
+def chromecast_menu():
+    """
+    Select and start Chromecast display.
+    
+    Discovers available Chromecasts, presents menu for selection,
+    and launches background cchandler process to stream board display.
+    """
+    import pychromecast
+    
+    # Kill any existing cchandler processes
+    os.system("ps -ef | grep 'cchandler.py' | grep -v grep | awk '{print $2}' | xargs -r kill -9")
+    
+    # Discover Chromecasts
+    epaper.clearScreen()
+    epaper.writeText(0, "Discovering...")
+    epaper.writeText(1, "Chromecasts...")
+    time.sleep(1)
+    
+    try:
+        chromecasts = pychromecast.get_chromecasts()
+    except Exception as e:
+        epaper.clearScreen()
+        epaper.writeText(0, "Discovery failed")
+        epaper.writeText(1, str(e)[:20])
+        time.sleep(2)
+        return
+    
+    # Build menu of available Chromecasts (cast type only, not audio devices)
+    cc_menu = {}
+    cc_mapping = {}  # Map menu keys to actual Chromecast objects
+    
+    for idx, cc in enumerate(chromecasts[0]):
+        if cc.device.cast_type == 'cast':
+            friendly_name = cc.device.friendly_name
+            # Use friendly name as both key and display value
+            cc_menu[friendly_name] = friendly_name
+            cc_mapping[friendly_name] = cc
+    
+    if not cc_menu:
+        epaper.clearScreen()
+        epaper.writeText(0, "No Chromecasts")
+        epaper.writeText(1, "found")
+        time.sleep(2)
+        return
+    
+    # Let user select Chromecast using main menu system
+    result = doMenu(cc_menu, "Chromecast")
+    
+    if result == "BACK":
+        return
+    
+    # Launch cchandler in background for selected Chromecast
+    cchandler_path = str(pathlib.Path(__file__).parent / 'display' / 'cchandler.py')
+    cmd = f'{sys.executable} "{cchandler_path}" "{result}" &'
+    os.system(cmd)
+    
+    # Show feedback
+    epaper.clearScreen()
+    epaper.writeText(0, "Streaming to:")
+    # Truncate long names to fit on screen (20 chars per line)
+    if len(result) > 20:
+        epaper.writeText(1, result[:20])
+        if len(result) > 40:
+            epaper.writeText(2, result[20:40])
+        else:
+            epaper.writeText(2, result[20:])
+    else:
+        epaper.writeText(1, result)
+    time.sleep(2)
 
 
 def connect_to_wifi(ssid, password):
@@ -239,7 +534,7 @@ def connect_to_wifi(ssid, password):
         section = os.popen(cmd).read()
         
         if "ssid" not in section:
-            print("Failed to generate network configuration")
+            log.error("Failed to generate network configuration")
             return False
         
         conf_path = "/etc/wpa_supplicant/wpa_supplicant.conf"
@@ -267,21 +562,21 @@ def connect_to_wifi(ssid, password):
         # Reconfigure wpa_supplicant
         os.system("sudo wpa_cli -i wlan0 reconfigure")
         
-        print(f"Successfully configured WiFi for {ssid}")
+        log.info(f"Successfully configured WiFi for {ssid}")
         return True
         
     except Exception as e:
-        print(f"Error connecting to WiFi: {e}")
+        log.error(f"Error connecting to WiFi: {e}")
         return False
 
 
 def get_lichess_client():
-    logging.debug("get_lichess_client")
+    log.debug("get_lichess_client")
     import berserk
     import berserk.exceptions
     token = centaur.get_lichess_api()
     if not len(token):
-        logging.error('lichess token not defined')
+        log.error('lichess token not defined')
         raise ValueError('lichess token not defined')
     session = berserk.TokenSession(token)
     client = berserk.Client(session=session)
@@ -289,7 +584,7 @@ def get_lichess_client():
     try:
         who = client.account.get()
     except berserk.exceptions.ResponseError:
-        logging.error('Lichess API error. Wrong token maybe?')
+        log.error('Lichess API error. Wrong token maybe?')
         raise
     return client
 
@@ -314,15 +609,15 @@ while True:
         menu.update({"EmulateEB": "e-Board"})
     if centaur.get_menuCast() != "unchecked":
         menu.update({"Cast": "Chromecast"})
-    logging.debug("Checking for custom files")
+    log.debug("Checking for custom files")
     pyfiles = os.listdir("/home/pi")
     foundpyfiles = 0
     for pyfile in pyfiles:        
         if pyfile[-3:] == ".py" and pyfile != "firstboot.py":
-            logging.debug("found custom files")
+            log.debug("found custom files")
             foundpyfiles = 1
             break
-    logging.debug("Custom file check complete")
+    log.debug("Custom file check complete")
     if foundpyfiles == 1:
         menu.update({"Custom": "Custom"})
     if centaur.get_menuSettings() != "unchecked":
@@ -334,11 +629,20 @@ while True:
     # time.sleep(0.7)
     # epaper.clearArea(0,0 + shift,128,295)
     # time.sleep(1)
+    if result == "SHUTDOWN":
+        # Graceful shutdown requested via Ctrl+C
+        try:
+            statusbar.stop()
+            board.cleanup(leds_off=True)
+            board.pauseEvents()
+        except:
+            pass
+        break
     if result == "BACK":
         board.beep(board.SOUND_POWER_OFF)
         show_welcome()
     if result == "Cast":
-        rc = run_external_script("display/chromecast.py", start_key_polling=True)
+        chromecast_menu()
     if result == "Centaur":
         epaper.loadingScreen()
         #time.sleep(1)
@@ -355,8 +659,7 @@ while True:
     if result == "pegasus":
         rc = run_external_script("game/pegasus.py", start_key_polling=True)
     if result == "EmulateEB":
-        boardmenu = {"dgtclassic": "DGT REVII", "millennium": "Millennium"}
-        result = doMenu(boardmenu, "e-Board")
+        result = doMenu("EmulateEB")
         if result == "dgtclassic":
             rc = run_external_script("game/eboard.py", start_key_polling=True)
         if result == "millennium":
@@ -376,8 +679,8 @@ while True:
         }
         topmenu = False
         while topmenu == False:
-            result = doMenu(setmenu, "Settings")
-            logging.debug(result)
+            result = doMenu(setmenu, "settings")
+            log.debug(result)
             if result == "update":
                 topmenu = False
                 while topmenu == False:
@@ -393,10 +696,10 @@ while True:
                     # Check for .deb files in the /home/pi folder that have been uploaded by webdav
                     updatemenu["lastrelease"] = "Last Release"
                     debfiles = os.listdir("/home/pi")
-                    logging.debug("Check for deb files that system can update to")
+                    log.debug("Check for deb files that system can update to")
                     for debfile in debfiles:        
                         if debfile[-4:] == ".deb" and debfile[:15] == "dgtcentaurmods_":
-                            logging.debug("Found " + debfile)
+                            log.debug("Found " + debfile)
                             updatemenu[debfile] = debfile[15:debfile.find("_",15)]                    
                     selection = ""
                     result = doMenu(updatemenu, "Update opts")
@@ -404,7 +707,7 @@ while True:
                         result = doMenu(
                             {"enable": "Enable", "disable": "Disable"}, "Status"
                         )
-                        logging.debug(result)
+                        log.debug(result)
                         if result == "enable":
                             update.enable()
                         if result == "disable":
@@ -422,36 +725,36 @@ while True:
                         )
                         update.setPolicy(result)
                     if result == "lastrelease":
-                        logging.debug("Last Release")
+                        log.debug("Last Release")
                         update_source = update.conf.read_value('update', 'source')
-                        logging.debug(update_source)
+                        log.debug(update_source)
                         url = 'https://raw.githubusercontent.com/{}/master/DGTCentaurMods/DEBIAN/versions'.format(update_source)                   
-                        logging.debug(url)
+                        log.debug(url)
                         ver = None
                         try:
                             with urllib.request.urlopen(url) as versions:
                                 ver = json.loads(versions.read().decode())
-                                logging.debug(ver)
+                                log.debug(ver)
                         except Exception as e:
-                            logging.debug('!! Cannot download update info: ', e)
+                            log.debug('!! Cannot download update info: ', e)
                         pass
                         if ver != None:
-                            logging.debug(ver["stable"]["release"])
+                            log.debug(ver["stable"]["release"])
                             download_url = 'https://github.com/{}/releases/download/v{}/dgtcentaurmods_{}_armhf.deb'.format(update_source,ver["stable"]["release"],ver["stable"]["release"])
-                            logging.debug(download_url)
+                            log.debug(download_url)
                             try:
                                 urllib.request.urlretrieve(download_url,'/tmp/dgtcentaurmods_armhf.deb')
-                                logging.debug("downloaded to /tmp")
+                                log.debug("downloaded to /tmp")
                                 os.system("cp -f /home/pi/" + result + " /tmp/dgtcentaurmods_armhf.deb")
-                                logging.debug("Starting update")
+                                log.debug("Starting update")
                                 update.updateInstall()
                             except:
                                 pass
                     if os.path.exists("/home/pi/" + result):
-                        logging.debug("User selected .deb file. Doing update")
-                        logging.debug("Copying .deb file to /tmp")
+                        log.debug("User selected .deb file. Doing update")
+                        log.debug("Copying .deb file to /tmp")
                         os.system("cp -f /home/pi/" + result + " /tmp/dgtcentaurmods_armhf.deb")
-                        logging.debug("Starting update")
+                        log.debug("Starting update")
                         update.updateInstall()
                     if selection == "BACK":
                         # Trigger the update system to appply new settings
@@ -462,7 +765,7 @@ while True:
                         finally:
                             threading.Thread(target=update.main, args=()).start()
                         topmenu = True
-                        logging.debug("return to settings")
+                        log.debug("return to settings")
                         selection = ""
             topmenu = False
             if selection == "BACK":
@@ -587,13 +890,22 @@ while True:
                             time.sleep(4)
 
             if result == "Pairing":
-                rc = run_external_script("config/pair.py", start_key_polling=True)
+                bluetooth_pairing()
             if result == "LichessAPI":
                 rc = run_external_script("config/lichesstoken.py", start_key_polling=True)
             if result == "Shutdown":
+                # Stop statusbar
                 statusbar.stop()
+                
+                # Pause events and cleanup board
+                board.pauseEvents()
+                board.cleanup(leds_off=False)  # LEDs handled by shutdown()
+                
+                # Execute shutdown (handles LEDs, e-paper, controller sleep)
                 board.shutdown()
-                input()
+                
+                # Exit cleanly
+                sys.exit()
             if result == "Reboot":
                 board.beep(board.SOUND_POWER_OFF)
                 epaper.epd.init()
@@ -601,6 +913,15 @@ while True:
                 time.sleep(5)
                 epaper.stopEpaper()
                 time.sleep(2)
+                
+                # LED cascade pattern h1→h8 (squares 0 to 7) for reboot
+                try:
+                    for i in range(0, 8):
+                        board.led(i, intensity=5)
+                        time.sleep(0.2)
+                except Exception:
+                    pass
+                
                 board.pauseEvents()
                 board.cleanup(leds_off=True)
                 os.system("/sbin/shutdown -r now &")
@@ -620,16 +941,15 @@ while True:
                 os.dup2(conn.fileno(),2)
                 p=subprocess.call(["/bin/bash","-i"])
     if result == "Lichess":
-        livemenu = {"Rated": "Rated", "Unrated": "Unrated", "Ongoing": "Ongoing", 'Challenges': 'Challenges'}
-        result = doMenu(livemenu, "Lichess")
-        logging.debug('menu active: lichess')
+        result = doMenu("Lichess")
+        log.debug('menu active: lichess')
         if result != "BACK":
             if result == "Ongoing":
-                logging.debug('menu active: Ongoing')
+                log.debug('menu active: Ongoing')
                 client = get_lichess_client()
                 ongoing_games = client.games.get_ongoing(10)
                 ongoing_menu = {}
-                logging.debug(f"{ongoing_menu}")
+                log.debug(f"{ongoing_menu}")
                 for game in ongoing_games:
                     gameid = game["gameId"]
                     opponent = game['opponent']['id']
@@ -638,16 +958,16 @@ while True:
                     else:
                         desc = f" {opponent} vs. {client.account.get()['username']}"
                     ongoing_menu[gameid] = desc
-                logging.debug(f"ongoing menu: {ongoing_menu}")
+                log.debug(f"ongoing menu: {ongoing_menu}")
                 if len(ongoing_menu) > 0:
                     result = doMenu(ongoing_menu, "Current games:")
                     if result != "BACK":
-                        logging.debug(f"menu current games")
+                        log.debug(f"menu current games")
                         game_id = result
-                        logging.debug(f"staring lichess")
+                        log.debug(f"staring lichess")
                         rc = run_external_script("game/lichess.py", "Ongoing", game_id, start_key_polling=True)
                 else:
-                    logging.warning("No ongoing games!")
+                    log.warning("No ongoing games!")
                     epaper.writeText(1, "No ongoing games!")
                     time.sleep(3)
 
@@ -664,7 +984,7 @@ while True:
                     challenge_menu[f"{challenge['id']}:out"] = f"out: {challenge['destUser']['id']}"
                 result = doMenu(challenge_menu, "Challenges")
                 if result != "BACK":
-                    logging.debug('menu active: Challenge')
+                    log.debug('menu active: Challenge')
                     game_id, challenge_direction = result.split(":")
                     rc = run_external_script("game/lichess.py", "Challenge", game_id, challenge_direction, start_key_polling=True)
 
@@ -709,11 +1029,11 @@ while True:
                 # If this file don't have an extension then it is an engine
                 enginemenu[fn] = fn
         result = doMenu(enginemenu, "Engines")
-        logging.debug("Engines")
-        logging.debug(result)
+        log.debug("Engines")
+        log.debug(result)
         if result == "stockfish":
-            color = doMenu(COLOR_MENU, "Color")
-            logging.debug(color)
+            color = doMenu(COLOR_MENU, "Stockfish", "World's strongest open-source engine")
+            log.debug(color)
             # Current game will launch the screen for the current
             if color != "BACK":
                 ratingmenu = {
@@ -729,21 +1049,37 @@ while True:
                 }
                 elo = doMenu(ratingmenu, "ELO")
                 if elo != "BACK":
-                    rc = run_external_script("game/stockfish.py", color, elo, start_key_polling=True)
+                    rc = run_external_script("uci.py", color, "stockfish_pi", elo, start_key_polling=True)
         else:
             if result != "BACK":
                 # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
                 enginefile = enginepath + result
                 ucifile = enginepath + result + ".uci"
-                color = doMenu(COLOR_MENU, result)
+                
+                # Get engine description from .uci file if it exists
+                engine_desc = None
+                # Check both engines/ and defaults/engines/ directories for .uci files
+                ucifile_paths = [
+                    enginepath + result + ".uci",  # engines/ directory
+                    str(pathlib.Path(__file__).parent.resolve()) + "/defaults/engines/" + result + ".uci"  # defaults/engines/ directory
+                ]
+                for ucifile_path in ucifile_paths:
+                    if os.path.exists(ucifile_path):
+                        config = configparser.ConfigParser()
+                        config.read(ucifile_path)
+                        if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
+                            engine_desc = config['DEFAULT']['Description']
+                        break
+                
+                color = doMenu(COLOR_MENU, result, engine_desc)
                 # Current game will launch the screen for the current
-                print("ucifile: " + ucifile)
+                log.info("ucifile: " + ucifile)
                 if color != "BACK":
                     if os.path.exists(ucifile):
                         # Read the uci file and build a menu
                         config = configparser.ConfigParser()
                         config.read(ucifile)
-                        logging.debug(config.sections())
+                        log.debug(config.sections())
                         smenu = {}
                         for sect in config.sections():
                             smenu[sect] = sect
@@ -761,26 +1097,42 @@ while True:
         enginefiles = list(
             filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
         )
-        logging.debug(enginefiles)
+        log.debug(enginefiles)
         for f in enginefiles:
             fn = str(f)
             if ".uci" not in fn:
                 # If this file is not .uci then assume it is an engine
                 enginemenu[fn] = fn
-        result = doMenu(enginemenu, "Engines")
-        logging.debug(result)
+        result = doMenu(enginemenu, "HandBrain")
+        log.debug(result)
         if result != "BACK":
             # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
             enginefile = enginepath + result
             ucifile = enginepath + result + ".uci"
-            color = doMenu(COLOR_MENU, result)
+            
+            # Get engine description from .uci file if it exists
+            engine_desc = None
+            # Check both engines/ and defaults/engines/ directories for .uci files
+            ucifile_paths = [
+                enginepath + result + ".uci",  # engines/ directory
+                str(pathlib.Path(__file__).parent.resolve()) + "/defaults/engines/" + result + ".uci"  # defaults/engines/ directory
+            ]
+            for ucifile_path in ucifile_paths:
+                if os.path.exists(ucifile_path):
+                    config = configparser.ConfigParser()
+                    config.read(ucifile_path)
+                    if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
+                        engine_desc = config['DEFAULT']['Description']
+                    break
+            
+            color = doMenu(COLOR_MENU, result, engine_desc)
             # Current game will launch the screen for the current
             if color != "BACK":
                 if os.path.exists(ucifile):
                     # Read the uci file and build a menu
                     config = configparser.ConfigParser()
                     config.read(ucifile)
-                    logging.debug(config.sections())
+                    log.info(config.sections())
                     smenu = {}
                     for sect in config.sections():
                         smenu[sect] = sect
@@ -798,7 +1150,7 @@ while True:
                 menuitems[pyfile] = pyfile
         result = doMenu(menuitems,"Custom Scripts")
         if result.find("..") < 0:
-            logging.debug("Running custom file: " + result)
+            log.info("Running custom file: " + result)
             os.system("python /home/pi/" + result)
 
     if result == "About" or result == "BTNHELP":

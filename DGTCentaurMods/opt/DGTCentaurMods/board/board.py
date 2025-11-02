@@ -22,39 +22,39 @@
 # distribution, modification, variant, or derivative of this software.
 
 #import serial
-from DGTCentaurMods.board.async_centaur import AsyncCentaur, DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS, DGT_SEND_BATTERY_INFO, SOUND_GENERAL, SOUND_FACTORY, SOUND_POWER_OFF, SOUND_POWER_ON, SOUND_WRONG, SOUND_WRONG_MOVE, DGT_BUS_SEND_SNAPSHOT
+from DGTCentaurMods.board.async_centaur import AsyncCentaur, command, Key
+from typing import Any
+from DGTCentaurMods.board.sync_centaur import SyncCentaur, command, Key
 import sys
 import os
+import chess
 from DGTCentaurMods.display import epd2in9d, epaper
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.board.settings import Settings
 from DGTCentaurMods.board import centaur
 import time
 from PIL import Image, ImageDraw, ImageFont
+import inspect
 import pathlib
 import socket
 import queue
-import logging
 
-try:
-    logging.basicConfig(level=logging.DEBUG, filename="/home/pi/debug.log", filemode="w")
-except:
-    logging.basicConfig(level=logging.DEBUG)
+from DGTCentaurMods.board.logging import log, logging
 
-#
-# Useful constants
-#
-BTNBACK = 1
-BTNTICK = 2
-BTNUP = 3
-BTNDOWN = 4
-BTNHELP = 5
-BTNPLAY = 6
-BTNLONGPLAY = 7
+# Re-export commonly used command names for backward-compatible usage in this module
+SOUND_GENERAL = command.SOUND_GENERAL
+SOUND_FACTORY = command.SOUND_FACTORY
+SOUND_POWER_OFF = command.SOUND_POWER_OFF
+SOUND_POWER_ON = command.SOUND_POWER_ON
+SOUND_WRONG = command.SOUND_WRONG
+SOUND_WRONG_MOVE = command.SOUND_WRONG_MOVE
+
+command_name = command
 
 # Get the config
 dev = Settings.read('system', 'developer', 'False')
-asyncserial = AsyncCentaur(developer_mode=False)
+#controller = AsyncCentaur(developer_mode=False)
+controller = SyncCentaur(developer_mode=False)
 # Various setup
 
 font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
@@ -68,7 +68,7 @@ batterylastchecked = 0
 
 # But the address might not be that :( Here we send an initial 0x4d to ask the board to provide its address
 
-asyncserial.wait_ready()
+controller.wait_ready()
 
 # Screen functions - deprecated, use epaper.py if possible
 #
@@ -198,298 +198,214 @@ def displayScreenBufferPartial():
     time.sleep(0.1)
 
 def cleanup(leds_off: bool = True):
-    asyncserial.cleanup(leds_off=True)
+    controller.cleanup(leds_off=True)
+
+def wait_for_key_up(timeout=None, accept=None):
+    """Wait for a key up event from the board"""
+    return controller.wait_for_key_up(timeout=timeout, accept=accept)
 
 
 def run_background(start_key_polling=False):
-    asyncserial.run_background(start_key_polling=start_key_polling)
+    controller.run_background(start_key_polling=start_key_polling)
     
-# def doMenu(items, fast = 0):
-#     print(f"doMenu: {items}, Fast: {fast}")
-#     # Draw a menu, let the user navigate and return the value
-#     # or "BACK" if the user backed out
-#     # pass a menu like: menu = {'Lichess': 'Lichess', 'Centaur': 'DGT
-#     # Centaur', 'Shutdown': 'Shutdown', 'Reboot': 'Reboot'}
-#     selected = 1
-#     buttonPress = 0
-#     first = 1
-#     global initialised
-#     #if initialised == 0 and fast == 0:
-#     #    epd.Clear(0xff)
-#     connected = 0
-#     if fast == 0:
-#         connected = checkInternetSocket()
-#     print("Connected: " + str(connected))
-#     quickselect = 0
-#     quickselectpossible = -1
-#     res = getBoardState()
-#     print("getBoardState: " + str(res))
-
-#     if res[32] == 0 and res[33] == 0 and res[34] == 0 and res[35] == 0 and res[36]==0 and res[37] == 0 and res[38] == 0 and res[39] == 0:
-#         # If the 4th rank is empty then enable quick select mode. Then we can choose a menu option by placing and releasing a piece
-#         quickselect = 1
-#     image = Image.new('1', (epd.width, epd.height), 255)
-#     print("First: " + str(first))
-#     print("Selected: " + str(selected))
-#     print("Quickselect: " + str(quickselect))
-#     print("Initialised: " + str(initialised))
-
-
-#     while (buttonPress != 2):
-#         time.sleep(0.05)
-#         draw = ImageDraw.Draw(image)
-#         if first == 1:
-#             rpos = 20
-#             draw.rectangle([(0,0),(127,295)], fill=255, outline=255)
-#             for k, v in items.items():
-#                 draw.text((20, rpos), str(v), font=font18, fill=0)
-#                 rpos = rpos + 20
-#             draw.rectangle([(-1, 0), (17, 294)], fill=255, outline=0)
-#             draw.polygon([(2, (selected * 20) + 2), (2, (selected * 20) + 18),
-#                           (18, (selected * 20) + 10)], fill=0)
-#             # Draw an image representing internet connectivity
-#             wifion = Image.open(AssetManager.get_resource_path("wifiontiny.bmp"))
-#             wifioff = Image.open(AssetManager.get_resource_path("wifiofftiny.bmp"))
-#             if connected == True:
-#                 print("Connected")
-#                 wifidispicon = wifion.resize((20,16))
-#                 image.paste(wifidispicon, (105, 5))
-#             else:
-#                 print("Not Connected")
-#                 wifidispicon = wifioff.resize((20, 16))
-#                 image.paste(wifidispicon, (105, 5))
-
-#             print("Drawing image")
-#             image = image.transpose(Image.FLIP_TOP_BOTTOM)
-#             print(f"Image flipped top bottom, {Image.FLIP_TOP_BOTTOM}")
-#             image = image.transpose(Image.FLIP_LEFT_RIGHT)
-#             print("Image drawn")
-
-#         draw.rectangle([(110,0),(128,294)],fill=255,outline=0)
-#         draw.polygon([(128 - 2, 276 - (selected * 20) + 2), (128 - 2, 276 - (selected * 20) + 18),
-#                       (128 - 18, 276 - (selected * 20) + 10)], fill=0)
-
-#         if first == 1 and initialised == 0:
-#             if fast == 0:
-#                 epd.init()
-#                 epd.display(epd.getbuffer(image))
-#             first = 0
-#             epd.DisplayRegion(0,295,epd.getbuffer(image))
-#             time.sleep(2)
-#             initialised = 1
-#         else:
-#             if first == 1 and initialised == 1:
-#                 first = 0
-#                 epd.DisplayRegion(0, 295, epd.getbuffer(image))
-#                 time.sleep(2)
-#             else:
-#                 sl = 295 - (selected * 20) - 40
-#                 epd.DisplayRegion(sl,sl + 60,epd.getbuffer(image.crop((0,sl,127,sl+60))))
-
-#         # Next we wait for either the up/down/back or tick buttons to get
-#         # pressed
-
-#         code, name = asyncserial.wait_for_key_up(timeout=60*15)
-#         if name == 'TICK':
-#             buttonPress = BTNTICK
-#         if name == 'BACK':
-#             buttonPress = BTNBACK
-#         if name == 'UP':
-#             buttonPress = BTNUP
-#         if name == 'DOWN':
-#             buttonPress = BTNDOWN
-#         if name == 'HELP':
-#             buttonPress = BTNHELP
-#         if name == 'PLAY':
-#             buttonPress = BTNPLAY
-
-#         print("name: " + name)
-#         print("buttonPress: " + str(buttonPress))
-
-#         if (buttonPress == 2):
-#             # Tick, so return the key for this menu item
-#             c = 1
-#             r = ""
-#             for k, v in items.items():
-#                 if (c == selected):
-#                     selected = 99999
-#                     return k
-#                 c = c + 1
-#         if (buttonPress == 4 and selected < len(items)):
-#             selected = selected + 1
-#         if (buttonPress == 3 and selected > 1):
-#             selected = selected - 1
-#         if (buttonPress == 1):
-#             epd.Clear(0xff)
-#             return "BACK"
-#         if time.time() > timeout:
-#             epd.Clear(0xff)
-#             return "BACK"
-#         buttonPress = 0
-
 #
 # Board control - functions related to making the board do something
 #
 
-def poll_piece_detection():
-    asyncserial.poll_piece_detection()
-
-def clearBoardData():
-    asyncserial.clearBoardData()
-
 def beep(beeptype):
     if centaur.get_sound() == "off":
+        log.warning("Beep disabled")
         return
     # Ask the centaur to make a beep sound
-    asyncserial.beep(beeptype)
+    controller.beep(beeptype)
 
 def ledsOff():
     # Switch the LEDs off on the centaur
-    asyncserial.ledsOff()
+    controller.ledsOff()
 
 def ledArray(inarray, speed = 3, intensity=5):
     # Lights all the leds in the given inarray with the given speed and intensity
-    asyncserial.ledArray(inarray, speed, intensity)
+    inarray = list[int](inarray.copy())
+    inarray.reverse()
+    for i in range(0, len(inarray)):
+        inarray[i] = rotateField(inarray[i])
+    controller.ledArray(inarray, speed, intensity)
 
 def ledFromTo(lfrom, lto, intensity=5):
     # Light up a from and to LED for move indication
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.ledFromTo(lfrom, lto, intensity)
+    controller.ledFromTo(rotateField(lfrom), rotateField(lto), intensity)
 
 def led(num, intensity=5):
     # Flashes a specific led
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    asyncserial.led(num, intensity)
+    controller.led(rotateField(num), intensity)
 
 def ledFlash():
     # Flashes the last led lit by led(num) above
-    asyncserial.ledFlash()
+    controller.ledFlash()
 
 def shutdown():
+    """
+    Shutdown the Raspberry Pi with proper cleanup and visual feedback.
+    
+    If a pending update exists, installs it instead of shutting down.
+    Otherwise performs clean shutdown with LED cascade pattern.
+    
+    Visual feedback:
+    - Update install: All LEDs solid
+    - Normal shutdown: Sequential LED cascade h8→h1
+    """
     update = centaur.UpdateSystem()
-    beep(SOUND_POWER_OFF)
     package = '/tmp/dgtcentaurmods_armhf.deb'
+    
+    # Check for pending update
     if os.path.exists(package):
-        ledArray([0,1,2,3,4,5,6,7],6)
+        log.debug('Update package found - installing instead of shutdown')
+        beep(SOUND_POWER_OFF)
         epaper.clearScreen()
+        epaper.writeText(3, "   Installing")
+        epaper.writeText(4, "     update")
+        
+        # All LEDs for update install
+        try:
+            ledArray([0,1,2,3,4,5,6,7], intensity=6)
+        except Exception:
+            pass
+        
+        time.sleep(2)
         update.updateInstall()
         return
-    logging.debug('Normal shutdown')
+    
+    # Normal shutdown sequence
+    log.info('Normal shutdown sequence starting')
+    
+    # Beep power off sound
+    try:
+        beep(SOUND_POWER_OFF)
+    except Exception:
+        pass
+    
+    # Display shutdown message
     epaper.clearScreen()
-    time.sleep(1)
-    ledFromTo(7,7)
     epaper.writeText(3, "     Shutting")
     epaper.writeText(4, "       down")
-    time.sleep(3)
-    epaper.stopEpaper()
-    os.system("sudo poweroff")
+    
+    # LED cascade pattern h8→h1 (squares 7 down to 0)
+    try:
+        for i in range(7, -1, -1):
+            led(i, intensity=5)
+            time.sleep(0.2)
+        # All LEDs off at end
+        ledsOff()
+    except Exception as e:
+        log.error(f"LED pattern failed during shutdown: {e}")
+    
+    time.sleep(2)
+    
+    # Properly stop e-paper
+    try:
+        epaper.stopEpaper()
+    except Exception as e:
+        log.debug(f"E-paper stop failed: {e}")
+    
+    time.sleep(1)
+    
+    # Send sleep to controller before system poweroff
+    try:
+        sleep_controller()
+    except Exception as e:
+        log.debug(f"Controller sleep failed: {e}")
+    
+    # Execute system poweroff via systemd (ensures shutdown hooks run as root)
+    log.debug('Requesting system poweroff via systemd')
+    rc = os.system("systemctl poweroff")
+    if rc != 0:
+        log.error(f"systemctl poweroff failed with rc={rc}")
+
+
+def sleep_controller():
+    """
+    Send sleep command to DGT Centaur controller.
+    
+    Called during system shutdown to properly power down the controller
+    before the Raspberry Pi powers off. This prevents the controller
+    from remaining powered when the Pi shuts down.
+    
+    Visual feedback: Single LED at h8 position (square 7)
+    """
+    log.debug("Sending sleep command to DGT Centaur controller")
+    
+    # Visual feedback - single LED at h8
+    try:
+        ledFromTo(7, 7)
+    except Exception as e:
+        log.debug(f"LED failed during controller sleep: {e}")
+    
+    # Send sleep command to controller
+    try:
+        sleep()
+        log.debug("Controller sleep command sent successfully")
+    except Exception as e:
+        log.debug(f"Failed to send sleep command: {e}")
 
 
 def sleep():
     """
     Sleep the controller.
     """
-    asyncserial.sleep()
+    controller.sleep()
 
 
 #
 # Board response - functions related to get something from the board
 #
+def getBoardState():
+    raw_boarddata = controller.request_response(command.DGT_BUS_SEND_STATE)
+    return raw_boarddata
 
-def poll():
-    # We need to continue poll the board to get data from it
-    # Perhaps there's a packet length in here somewhere but
-    # I haven't noticed it yet, therefore we need to process
-    # the data as it comes
-    ser.read(100000)
-    sendPacket(b'\x83', b'')
-    expect = buildPacket(b'\x85\x00\x06', b'')
-    resp = ser.read(10000)
-    resp = bytearray(resp)
-    if (bytearray(resp) != expect):
-        if (resp[0] == 133 and resp[1] == 0):
-            for x in range(0, len(resp) - 1):
-                if (resp[x] == 64):
-                    # Calculate the square to 0(a1)-63(h8) so that
-                    # all functions match
-                    fieldHex = resp[x + 1]
-                    newsquare = rotateFieldHex(fieldHex)
-                if (resp[x] == 65):
-                    # Calculate the square to 0(a1)-63(h8) so that
-                    # all functions match
-                    fieldHex = resp[x + 1]
-                    newsquare = rotateFieldHex(fieldHex)
-    sendPacket(b'\x94', b'')
-    expect = buildPacket(b'\xb1\x00\x06', b'')
-    resp = ser.read(10000)
-    resp = bytearray(resp)
-    if (resp != expect):
-        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0501000000007d47"):
-            logging.debug("BACK BUTTON")
-        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0510000000007d17"):
-            logging.debug("TICK BUTTON")
-        if (resp.hex()[:-2] == "b10011" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0508000000007d3c"):
-            logging.debug("UP BUTTON")
-        if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a05020000000061"):
-            logging.debug("DOWN BUTTON")
-        if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0540000000006d"):
-            logging.debug("HELP BUTTON")
-        if (resp.hex()[:-2] == "b10010" + "{:02x}".format(addr1) + "{:02x}".format(addr2) + "00140a0504000000002a"):
-            logging.debug("PLAY BUTTON")
-
-
-def getBoardState(field=None, retries=6, sleep_between=0.12):
-    """
-    Query the board and return a 64-length list of 0/1 occupancy flags.
-    Robust against short reads; retries a few times and falls back to zeros.
-    If 'field' is given (0..63), returns just that square.
-    """
-    # Local constants for snapshot framing and a clear board fallback
-    SNAPSHOT_HEADER_LEN = 6
-    SNAPSHOT_PAYLOAD_BYTES = 64 * 2
-    SNAPSHOT_TOTAL_LEN = SNAPSHOT_HEADER_LEN + SNAPSHOT_PAYLOAD_BYTES
-    BOARD_CLEAR_STATE = [0] * 64
-
-    for _ in range(retries):
-        try:
-            # Request a raw snapshot (header + payload)
-            resp = asyncserial.request_response(DGT_BUS_SEND_SNAPSHOT)
-
-            payload = bytearray(resp)
-            boarddata = BOARD_CLEAR_STATE.copy()
-            upperlimit = 32000
-            lowerlimit = 300
-            # payload is 64 words (big-endian 16-bit)
-            for i in range(1, 128, 2):
-                tval = (payload[i] << 8) | payload[i+1]
-                boarddata[i // 2] = 1 if (lowerlimit <= tval <= upperlimit) else 0
-
-            if field is not None:
-                return boarddata[field]
-            return boarddata
-
-        except Exception as e:
-            print("Error getting board state")
-            print(e)
-            # transient read/parse error—retry
-            time.sleep(sleep_between)
-
-    # Final fallback so callers (like getText) never crash
+def getChessState(field=None):
+   # Transform: raw index i maps to chess index
+    # Raw order: 0=a8, 1=b8, ..., 63=h1
+    # Chess order: 0=a1, 1=b1, ..., 63=h8
+    # 
+    # Raw index i: row = i//8, col = i%8
+    # Chess index: row = 7 - (i//8), col = i%8
+    board_data = list[int](getBoardState())
+    chess_state = [0] * 64
+    
+    for i in range(64):
+        raw_row = i // 8
+        raw_col = i % 8
+        chess_row = 7 - raw_row  # Invert rows
+        chess_col = raw_col      # Keep columns
+        chess_idx = chess_row * 8 + chess_col
+        chess_state[chess_idx] = board_data[i]
     if field is not None:
-        return 0
-    return BOARD_CLEAR_STATE
+        return chess_state[field]
+    return chess_state
 
-def printBoardState():
+def sendCommand(command):
+    resp = controller.request_response(command)
+    return resp
+
+def printChessState(state = None, loglevel = logging.INFO):
     # Helper to display board state
-    state = getBoardState()
-    for x in range(0,64,8):
-        print("+---+---+---+---+---+---+---+---+")
-        for y in range(0,8):
-            print("| " + str(state[x+y]) + " ", end='')
-        print("|\r")
-    print("+---+---+---+---+---+---+---+---+")
+    if state is None:
+        state = getChessState()  # Use getChessState if available, or update to use transformed state
+    line = "\n"
+    # Display ranks from top (rank 8) to bottom (rank 1)
+    # Chess coordinates: row 7 (56-63) = rank 8, row 0 (0-7) = rank 1
+    for rank in range(7, -1, -1):  # Iterate from rank 8 (row 7) down to rank 1 (row 0)
+        x = rank * 8  # Starting index for this rank
+        line += "\r\n+---+---+---+---+---+---+---+---+"
+        line += "\r\n|"
+        for y in range(0, 8):
+            line += " " + str(state[x + y]) + " |"
+    line += "\r\n+---+---+---+---+---+---+---+---+\n"
+    log.log(loglevel, line)
 
 def getChargingState():
     # Returns if the board is plugged into the charger or not
@@ -519,7 +435,7 @@ def getBatteryLevel():
     # 20 is fully charged. The board dies somewhere around a low of 1
     # Sending the board a packet starting with 152 gives battery info
     global batterylevel, chargerconnected, batterylastchecked
-    resp = asyncserial.request_response(DGT_SEND_BATTERY_INFO)
+    resp = controller.request_response(command.DGT_SEND_BATTERY_INFO)
     batterylastchecked = time.time()
     val = resp[0]
     batterylevel = val & 0x1F
@@ -536,7 +452,7 @@ def checkInternetSocket(host="8.8.8.8", port=53, timeout=1):
         socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
         return True
     except socket.error as ex:
-        logging.debug(ex)
+        log.debug(ex)
         return False
 
 #
@@ -546,18 +462,16 @@ def checkInternetSocket(host="8.8.8.8", port=53, timeout=1):
 def rotateField(field):
     lrow = (field // 8)
     lcol = (field % 8)
+    # Rotate rows for hardware coordinate system
     newField = (7 - lrow) * 8 + lcol
     return newField
 
 def rotateFieldHex(fieldHex):
     squarerow = (fieldHex // 8)
     squarecol = (fieldHex % 8)
+    # Rotate rows for hardware coordinate system
     field = (7 - squarerow) * 8 + squarecol
     return field
-
-def convertField(field):
-    square = chr((ord('a') + (field % 8))) + chr(ord('1') + (field // 8))
-    return square
 
 
 # This section is the start of a new way of working with the board functions where those functions are
@@ -585,7 +499,7 @@ def eventsThread(keycallback, fieldcallback, tout):
     hold_timeout = False
     events_paused = False
     to = time.time() + tout
-    logging.debug('Timeout at %s seconds', str(tout))
+    log.debug('Timeout at %s seconds', str(tout))
     while time.time() < to:
         loopstart = time.time()
         if eventsrunning == 1:
@@ -602,77 +516,56 @@ def eventsThread(keycallback, fieldcallback, tout):
                 to = time.time() + tout
                 events_paused = False
 
-            buttonPress = 0
+            key_pressed = None
             if not standby:
                 #Hold fields activity on standby
                 if fieldcallback != None:
                     try:
-                        resp = asyncserial.request_response(DGT_BUS_SEND_CHANGES)
-                        resp = bytearray(resp)
-                        for x in range(0, len(resp) - 1):
-                            if (resp[x] == 0x40):
-                                # Calculate the square to 0(a1)-63(h8) so that
-                                # all functions match
-                                fieldHex = resp[x + 1]
-                                newsquare = rotateFieldHex(fieldHex)
-                                fieldcallback(newsquare + 1)
-                                to = time.time() + tout
-                                
-                            if (resp[x] == 0x41):
-                                # Calculate the square to 0(a1)-63(h8) so that
-                                # all functions match
-                                fieldHex = resp[x + 1]
-                                newsquare = rotateFieldHex(fieldHex)
-                                fieldcallback((newsquare + 1) * -1)
-                                to = time.time() + tout
-                                
+                        # Prefer push model via asyncserial piece listeners
+                        if controller._piece_listener == None:
+                            def _listener(piece_event, field_hex, time_in_seconds):
+                                nonlocal to
+                                try:
+                                    #Rotate the field here. The callback to boardmanager should always have a proper square index
+                                    field = rotateFieldHex(field_hex)
+                                    log.info(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
+                                    fieldcallback(piece_event, field, time_in_seconds)
+                                    to = time.time() + tout
+                                except Exception as e:
+                                    log.error(f"[board.events.push] error: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                            controller._piece_listener = _listener
                     except Exception as e:
-                        print("Error in piece detection")   
-                        print(f"Error: {e}")
+                        log.error(f"Error in piece detection thread: {e}")
+
             try:
 
-                code, name = asyncserial.get_and_reset_last_button()
-                if name == 'PLAY':
-                    buttonPress = BTNPLAY
+                key_pressed = controller.get_and_reset_last_key()
 
-                print("name: " + name)
-                print("buttonPress: " + str(buttonPress))
-
-                if not standby:
-                    print("standby is false")
-                    #Disable these buttons on standby
-                    if name == 'TICK':
-                        buttonPress = BTNTICK
-                    if name == 'BACK':
-                        buttonPress = BTNBACK
-                    if name == 'UP':
-                        buttonPress = BTNUP
-                    if name == 'DOWN':
-                        buttonPress = BTNDOWN
-                    if name == 'HELP':
-                        buttonPress = BTNHELP
-
-                if buttonPress == BTNPLAY:
+                if key_pressed == Key.PLAY:
                     breaktime = time.time() + 0.5
                     beep(SOUND_GENERAL)
                     while time.time() < breaktime:
-                        code, name = asyncserial.get_and_reset_last_button()
-                        if name == 'PLAY':
-                            buttonPress = BTNPLAY
-                        if rbuttonPress == BTNPLAY:
-                            logging.debug('Play btn pressed. Stanby is: %s', standby)
+                        key_pressed = controller.get_and_reset_last_key()
+                        if key_pressed == Key.PLAY:
+                            log.debug('Play btn pressed. Stanby is: %s', standby)
                             if standby == False:
-                                logging.debug('Calling standbyScreen()')
+                                log.debug('Calling standbyScreen()')
                                 epaper.standbyScreen(True)
                                 standby = True
-                                logging.debug('Starting shutdown countdown')
+                                print("----------------------------------------")
+                                print("Starting shutdown countdown")
+                                print("----------------------------------------")
                                 sd = threading.Timer(600,shutdown)
                                 sd.start()
                                 to = time.time() + 100000
                                 break
                             else:
                                 epaper.standbyScreen(False)
-                                logging.debug('Cancel shutdown')
+                                print("----------------------------------------")
+                                print("Shutdown countdown interrupted")
+                                print("----------------------------------------")
                                 sd.cancel()
                                 standby = False
                                 to = time.time() + tout
@@ -680,23 +573,30 @@ def eventsThread(keycallback, fieldcallback, tout):
                             break
                     else:
                         beep(SOUND_POWER_OFF)
-                        shutdown()
-            except:
-                pass
+                        print("----------------------------------------")
+                        print("Starting shutdown DISABLED")
+                        print("----------------------------------------")
+                        #shutdown()
+            except Exception as e:
+                log.error(f"[board.events] error: {e}")
             try:
                 # Sending 152 to the controller provides us with battery information
                 # Do this every 15 seconds and fill in the globals
                 if time.time() - batterylastchecked > 15:
                     # Every 15 seconds check the battery details
                     batterylastchecked = time.time()
-                    getBatteryLevel()
+                    #getBatteryLevel()
             except:
                 pass
             time.sleep(0.05)
-            if buttonPress != 0:
+            if standby != True and key_pressed is not None:
                 to = time.time() + tout
-                print(f"btn{buttonPress} pressed, sending to keycallback")
-                keycallback(buttonPress)
+                log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
+                # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
+                try:
+                    keycallback(key_pressed)
+                except Exception as e:
+                    log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
         else:
             # If pauseEvents() hold timeout in the thread
             to = time.time() + 100000
@@ -707,22 +607,39 @@ def eventsThread(keycallback, fieldcallback, tout):
         time.sleep(0.05)
     else:
         # Timeout reached, while loop breaks. Shutdown.
-        logging.debug('Timeout. Shutting doen')
-        shutdown()
+        print("----------------------------------------")
+        print("Timeout. Shutting down board DIABLED")
+        print("----------------------------------------")
+        log.debug('Timeout. Shutting down board')
+        #shutdown()
 
 
 def subscribeEvents(keycallback, fieldcallback, timeout=100000):
     # Called by any program wanting to subscribe to events
     # Arguments are firstly the callback function for key presses, secondly for piece lifts and places
-    eventsthreadpointer = threading.Thread(target=eventsThread, args=([keycallback, fieldcallback, timeout]))
-    eventsthreadpointer.daemon = True
-    eventsthreadpointer.start()
+    try:
+        eventsthreadpointer = threading.Thread(target=eventsThread, args=(keycallback, fieldcallback, timeout))
+        eventsthreadpointer.daemon = True
+        eventsthreadpointer.start()
+    except Exception as e:
+        print(f"[board.subscribeEvents] error: {e}")
 
 def pauseEvents():
     global eventsrunning
+    log.info(f"[board.pauseEvents] Pausing events")
     eventsrunning = 0
     time.sleep(0.5)
 
 def unPauseEvents():
     global eventsrunning
+    log.info(f"[board.unPauseEvents] Unpausing events")
     eventsrunning = 1
+    
+def unsubscribeEvents(keycallback=None, fieldcallback=None):
+    # Minimal compatibility wrapper for callers expecting an unsubscribe API
+    # Current implementation pauses events; resume via unPauseEvents()
+    log.info(f"[board.unsubscribeEvents] Unsubscribing from events")
+    pauseEvents()
+
+
+

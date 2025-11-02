@@ -26,6 +26,7 @@ import os
 import sys
 import pychromecast
 from random import random
+from DGTCentaurMods.board.logging import log
 
 cn = sys.argv[1]
 
@@ -42,15 +43,15 @@ while True:
     if ccid == -1:
         sys.exit()
 
-    print(chromecasts[0][ccid].status)
+    log.info(chromecasts[0][ccid].status)
     chromecasts[0][ccid].wait()
     mc = chromecasts[0][ccid].media_controller
     IP = network.check_network()
-    mc.play_media("http://" + IP + ":5000/video?" + str(random()), 'image/jpeg',stream_type='LIVE')
+    mc.play_media("http://" + IP + "/video?" + str(random()), 'image/jpeg',stream_type='LIVE')
     mc.block_until_active()
     mc.play()
 
     while chromecasts[0][ccid].status.display_name == 'Default Media Receiver':
         time.sleep(0.5)
 
-    print("stopped playing")
+    log.info("stopped playing")

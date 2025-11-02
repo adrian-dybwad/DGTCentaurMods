@@ -44,24 +44,20 @@ scorehistory = []
 gamemanager.setGameInfo("1v1 Analysis", "", "", "Player White", "Player Black")
 
 def keyCallback(key):
-    # This function will receive any keys presses on the keys
-    # under the display. Possibles:
-    # gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
-    # gamemanager.BTNDOWN  gamemanager.BTNHELP  gamemanager.BTNPLAY
     global kill
     global engine
     global graphson
     global firstmove
     print("Key event received: " + str(key))
-    if key == gamemanager.BTNBACK:        
+    if key == gamemanager.board.Key.BACK:        
         kill = 1
         engine.quit()
-    if key == gamemanager.BTNDOWN:
+    if key == gamemanager.board.Key.DOWN:
         image = Image.new('1', (128, 80), 255)
         epaper.drawImagePartial(0, 209, image)     
         epaper.drawImagePartial(0, 1, image)
         graphson = 0        
-    if key == gamemanager.BTNUP:
+    if key == gamemanager.board.Key.UP:
         graphson = 1
         firstmove = 1
         info = engine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))
