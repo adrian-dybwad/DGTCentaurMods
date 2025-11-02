@@ -53,8 +53,8 @@ command_name = command
 
 # Get the config
 dev = Settings.read('system', 'developer', 'False')
-controller = AsyncCentaur(developer_mode=False)
-#controller = SyncCentaur(developer_mode=False)
+#controller = AsyncCentaur(developer_mode=False)
+controller = SyncCentaur(developer_mode=False)
 # Various setup
 
 font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
