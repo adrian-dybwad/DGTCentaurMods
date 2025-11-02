@@ -63,13 +63,15 @@ def decode_time(packet: bytes) -> float:
     header_marker = b"\x7c\x03"
     time_bytes = packet
     has_header = False
+    result = 0.0
     if len(packet) >= 2:
         # Find the header marker in the packet
         try:
             marker_pos = packet.index(header_marker)
             # Take bytes after the marker
             time_bytes = packet[marker_pos + len(header_marker):]
-            has_header = True
+            # Add 1 second if header marker is present
+            result = 1.0
         except ValueError:
             # Header marker not found, use entire packet as time bytes
             pass
@@ -80,11 +82,7 @@ def decode_time(packet: bytes) -> float:
     b2 = time_bytes[2] if len(time_bytes) > 2 else 0
     b3 = time_bytes[3] if len(time_bytes) > 3 else 0
 
-    result = (b0 / SUBSEC_DIVISOR) + b1 + (60 * b2) + (3600 * b3)
-    
-    # Add 1 second if header marker is present
-    if has_header:
-        result += 1.0
+    result += (b0 / SUBSEC_DIVISOR) + b1 + (60 * b2) + (3600 * b3)
     
     return result
 

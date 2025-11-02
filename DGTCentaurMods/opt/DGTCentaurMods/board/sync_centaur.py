@@ -37,6 +37,7 @@ from typing import Dict, Optional
 from types import SimpleNamespace
 
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.board import time_utils
 
 
 # Unified command registry
@@ -359,16 +360,12 @@ class SyncCentaur:
         """Handle piece movement events from board payload"""
         try:
             if len(payload) > 0:
-                time_bytes = self._extract_time_from_payload(payload)
-                time_str = ""
-                if time_bytes:
-                    time_formatted = self._format_time_display(time_bytes)
-                    if time_formatted:
-                        time_str = f"  [TIME: {time_formatted}]"
+                
+                time_in_seconds = time_utils.decode_time(payload)
+                time_str = f"  [TIME: {time_utils.format_time_display(time_in_seconds)}]"
                 hex_row = ' '.join(f'{b:02x}' for b in payload)
                 log.info(f"[P{self.packet_count:03d}] {hex_row}{time_str}")
                 self._draw_piece_events_from_payload(payload)
-                
                 # Dispatch to registered listeners with parsed events
                 try:
                     i = 0
@@ -378,9 +375,9 @@ class SyncCentaur:
                             piece_event = 0 if piece_event == 0x40 else 1
                             field_hex = payload[i + 1]
                             try:
-                                log.info(f"[P{self.packet_count:03d}] piece_event={piece_event == 0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={self._get_seconds_from_time_bytes(time_bytes)}")
+                                log.info(f"[P{self.packet_count:03d}] piece_event={piece_event == 0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={time_in_seconds} {time_str}")
                                 if self._piece_listener is not None:
-                                    args = (piece_event, field_hex, self._get_seconds_from_time_bytes(time_bytes))
+                                    args = (piece_event, field_hex, time_in_seconds)
                                     cq = getattr(self, '_callback_queue', None)
                                     if cq is not None:
                                         try:
@@ -751,46 +748,7 @@ class SyncCentaur:
         """Sleep the controller"""
         log.info(f"sleep")
         self.sendPacket(command.DGT_SLEEP)
-    
-    def _extract_time_from_payload(self, payload: bytes) -> bytes:
-        """Return time bytes prefix from payload (before first 0x40/0x41 marker)"""
-        out = bytearray()
-        for b in payload:
-            if b in (0x40, 0x41):
-                break
-            out.append(b)
-        return bytes(out)
-    
-    def _get_seconds_from_time_bytes(self, time_bytes):
-        """Convert time bytes to seconds"""
-        if len(time_bytes) == 0:
-            return 0
-        time_in_seconds = time_bytes[0] / 256.0
-        time_in_seconds += time_bytes[1] if len(time_bytes) > 1 else 0
-        time_in_seconds += time_bytes[2] * 60 if len(time_bytes) > 2 else 0
-        time_in_seconds += time_bytes[3] * 3600 if len(time_bytes) > 3 else 0
-        return time_in_seconds
-    
-    def _format_time_display(self, time_bytes):
-        """Format time bytes as human-readable time string"""
-        if len(time_bytes) == 0:
-            return ""
-        
-        log.info(f"time_bytes: {' '.join(f'{b:02x}' for b in time_bytes)}")
-        subsec = time_bytes[0] if len(time_bytes) > 0 else 0
-        seconds = time_bytes[1] if len(time_bytes) > 1 else 0
-        minutes = time_bytes[2] if len(time_bytes) > 2 else 0
-        hours = time_bytes[3] if len(time_bytes) > 3 else 0
-        if len(time_bytes) > 4:
-            log.warning(f"time_bytes has more than 4 bytes: {' '.join(f'{b:02x}' for b in time_bytes)}")
-        
-        subsec_decimal = subsec / 256.0 * 100
-        
-        if hours > 0:
-            return f"{hours}:{minutes:02d}:{seconds:02d}.{int(subsec_decimal):02d}"
-        else:
-            return f"{minutes}:{seconds:02d}.{int(subsec_decimal):02d}"
-    
+            
     def _draw_piece_events_from_payload(self, payload: bytes):
         """Print a compact list of piece events extracted from the payload"""
         try:
