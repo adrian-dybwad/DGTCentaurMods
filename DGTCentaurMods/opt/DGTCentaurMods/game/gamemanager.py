@@ -83,6 +83,7 @@ correction_mode = False
 correction_expected_state = None
 correction_iteration = 0
 original_fieldcallback = None
+correction_just_exited = False  # Flag to suppress stale events immediately after correction mode exits
 
 def collectBoardState():
     # Append the board state to boardstates
@@ -175,9 +176,11 @@ def enter_correction_mode():
     Pauses and resumes events to reset the event queue.
     """
     global correction_mode, correction_expected_state, correction_iteration, forcemove, computermove
+    global correction_just_exited
     correction_mode = True
     correction_expected_state = boardstates[-1] if boardstates else None
     correction_iteration = 0
+    correction_just_exited = False  # Clear flag when entering correction mode
     log.warning(f"[gamemanager.enter_correction_mode] Entered correction mode (forcemove={forcemove}, computermove={computermove})")
 
 def exit_correction_mode():
@@ -187,9 +190,10 @@ def exit_correction_mode():
     Resets move state variables to ensure clean state after correction.
     """
     global correction_mode, correction_expected_state, forcemove, computermove
-    global sourcesq, legalsquares, othersourcesq
+    global sourcesq, legalsquares, othersourcesq, correction_just_exited
     correction_mode = False
     correction_expected_state = None
+    correction_just_exited = True  # Set flag to suppress stale events immediately after exit
     log.warning("[gamemanager.exit_correction_mode] Exited correction mode")
     
     # Reset move state variables to ensure clean state after correction
@@ -472,17 +476,40 @@ def fieldcallback(piece_event, field, time_in_seconds):
     # This prevents triggering correction mode when a PLACE event arrives after reset
     # but before the piece is lifted again in the new game state
     # Allow opponent piece placement back (othersourcesq >= 0) and forced moves
+    global correction_just_exited
     if place == 1 and sourcesq < 0 and othersourcesq < 0:
+        # After correction mode exits, there may be stale PLACE events from the correction process
+        # Ignore them unless it's a forced move source square (which we handle separately)
+        if correction_just_exited:
+            # Check if this is the forced move source square - if so, we'll handle it below
+            # Otherwise, ignore it as a stale event from correction
+            if forcemove == 1 and computermove and len(computermove) >= 4:
+                forced_source = chess.parse_square(computermove[0:2])
+                if field != forced_source:
+                    log.info(f"[gamemanager.fieldcallback] Ignoring stale PLACE event after correction exit for field {field} (not forced move source)")
+                    correction_just_exited = False  # Clear flag after ignoring first stale event
+                    return
+            else:
+                log.info(f"[gamemanager.fieldcallback] Ignoring stale PLACE event after correction exit for field {field}")
+                correction_just_exited = False  # Clear flag after ignoring first stale event
+                return
+        
         # For forced moves, also ignore stale PLACE events on the source square
         # (the forced move source square) before the LIFT has been processed
         if forcemove == 1 and computermove and len(computermove) >= 4:
             forced_source = chess.parse_square(computermove[0:2])
             if field == forced_source:
                 log.info(f"[gamemanager.fieldcallback] Ignoring stale PLACE event for forced move source field {field} (no corresponding LIFT)")
+                correction_just_exited = False  # Clear flag
                 return
         if not forcemove:
             log.info(f"[gamemanager.fieldcallback] Ignoring stale PLACE event for field {field} (no corresponding LIFT)")
+            correction_just_exited = False  # Clear flag
             return
+    
+    # Clear the flag once we process a valid event (LIFT)
+    if lift == 1:
+        correction_just_exited = False
     if place == 1 and field not in legalsquares:
         board.beep(board.SOUND_WRONG_MOVE)
         log.warning(f"[gamemanager.fieldcallback] Piece placed on illegal square {field}")
