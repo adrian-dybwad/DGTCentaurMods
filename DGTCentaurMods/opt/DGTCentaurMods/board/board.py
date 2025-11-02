@@ -362,6 +362,9 @@ def sleep():
 #
 # Board response - functions related to get something from the board
 #
+def getBoardState():
+    raw_boarddata = controller.request_response(command.DGT_BUS_SEND_STATE)
+    return raw_boarddata
 
 def getChessState(field=None):
    # Transform: raw index i maps to chess index
@@ -370,8 +373,7 @@ def getChessState(field=None):
     # 
     # Raw index i: row = i//8, col = i%8
     # Chess index: row = 7 - (i//8), col = i%8
-    raw_boarddata = controller.request_response(command.DGT_BUS_SEND_STATE)
-    board_data = list[int](raw_boarddata)
+    board_data = list[int](getBoardState())
     chess_state = [0] * 64
     
     for i in range(64):

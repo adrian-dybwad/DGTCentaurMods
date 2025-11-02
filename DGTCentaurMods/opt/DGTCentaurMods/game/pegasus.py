@@ -196,7 +196,7 @@ class UARTRXCharacteristic(Characteristic):
             log.info("[Pegasus RX] 'B' (board dump) -> TX 0x86 BOARD_DUMP")
             try:
                 log.info("[Pegasus RX] Getting board state")    
-                bs = board.getChessState() #.getBoardState()
+                bs = board.getBoardState()
                 self.sendMessage(DGT_MSG_BOARD_DUMP, bs)
                 processed = 1
             except Exception as e:
