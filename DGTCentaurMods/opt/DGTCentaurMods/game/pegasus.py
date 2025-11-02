@@ -105,7 +105,7 @@ def _field_callback(piece_event, field_hex, time_in_seconds):
                 if piece_event == 1:
                     try:
                         log.info(f"[Pegasus] LEDing field {field_hex}")
-                        board.led(field_hex)
+                        board.led(board.rotateFieldHex(field_hex))
                     except Exception:
                         pass
             except Exception as e:
@@ -196,7 +196,7 @@ class UARTRXCharacteristic(Characteristic):
             log.info("[Pegasus RX] 'B' (board dump) -> TX 0x86 BOARD_DUMP")
             try:
                 log.info("[Pegasus RX] Getting board state")    
-                bs = board.getBoardState()
+                bs = board.getChessState() #.getBoardState()
                 self.sendMessage(DGT_MSG_BOARD_DUMP, bs)
                 processed = 1
             except Exception as e:
