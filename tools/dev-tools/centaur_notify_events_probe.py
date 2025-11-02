@@ -51,7 +51,7 @@ def decode_time(packet: bytes) -> float:
     """
     Decode a time packet.
     Rules:
-      - If packet[1:3] == b'\x7c\x03', treat packet[3:] as time bytes.
+      - Search for b'\x7c\x03' in the packet, if found treat bytes after it as time bytes.
       - Otherwise, the whole packet is time bytes (no header present).
       - Time bytes are hierarchical: b0=subsec (1/256 s), b1=sec, b2=min, b3=hour.
       - No implicit +1 second anywhere.
@@ -59,9 +59,18 @@ def decode_time(packet: bytes) -> float:
     if len(packet) == 0:
         return 0.0
 
-    # Detect header at positions 1..2
-    has_header = len(packet) >= 3 and packet[1:3] == b"\x7c\x03"
-    time_bytes = packet[3:] if has_header else packet
+    # Search for header marker \x7c\x03
+    header_marker = b"\x7c\x03"
+    time_bytes = packet
+    if len(packet) >= 2:
+        # Find the header marker in the packet
+        try:
+            marker_pos = packet.index(header_marker)
+            # Take bytes after the marker
+            time_bytes = packet[marker_pos + len(header_marker):]
+        except ValueError:
+            # Header marker not found, use entire packet as time bytes
+            pass
 
     # Pull fields if present
     b0 = time_bytes[0] if len(time_bytes) > 0 else 0
