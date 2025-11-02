@@ -97,13 +97,74 @@ class PacketReader:
                 b = self.ser.read(1)
                 if not b:
                     continue
+                byte_val = b[0]
+                # Calculate position based on current buffer state (before appending)
+                with self._lock:
+                    pos = self._calculate_position()
+                annotation = self._format_byte_annotation(byte_val, pos)
                 try:
-                    out(f"raw byte: {b[0]:02x}")
+                    out(f"raw byte: {byte_val:02x} {annotation}")
                 except Exception:
                     pass
                 self._append(b[0])
             except Exception:
                 time.sleep(0.01)
+
+    def _calculate_position(self) -> int:
+        """
+        Calculate the position of the next byte to be appended,
+        relative to the most recent packet start in the buffer.
+        """
+        if len(self._buf) < 3:
+            return len(self._buf)
+        
+        # Search backwards from the end to find the most recent packet start
+        packet_start = -1
+        for start_idx in range(len(self._buf) - 2, -1, -1):
+            if start_idx + 2 >= len(self._buf):
+                continue
+            len_hi = self._buf[start_idx + 1]
+            len_lo = self._buf[start_idx + 2]
+            pkt_len = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
+            if 5 <= pkt_len <= 200:  # Reasonable packet length
+                # Check if this packet could still be incomplete (hasn't been consumed)
+                expected_end = start_idx + pkt_len
+                if expected_end >= len(self._buf):  # Packet still incomplete or just completed
+                    packet_start = start_idx
+                    break
+        
+        if packet_start >= 0:
+            # Position relative to the packet start (len(_buf) is current length before append)
+            return len(self._buf) - packet_start
+        else:
+            # No valid packet start found, use buffer length
+            return len(self._buf)
+
+    def _format_byte_annotation(self, byte_val: int, position: int) -> str:
+        """
+        Format byte annotation based on position and value.
+        Position 0: TYPE
+        Position 1-2: LEN
+        Position 3: ADDR1
+        Position 4: ADDR2
+        Position 5+: payload bytes (0x40=LIFT, 0x41=PLACE, else int value)
+        """
+        if position == 0:
+            return "TYPE"
+        elif position == 1 or position == 2:
+            return "LEN"
+        elif position == 3:
+            return "ADDR1"
+        elif position == 4:
+            return "ADDR2"
+        else:
+            # Payload byte
+            if byte_val == 0x40:
+                return "LIFT"
+            elif byte_val == 0x41:
+                return "PLACE"
+            else:
+                return str(byte_val)
 
     def _append(self, v: int):
         with self._lock:
