@@ -765,10 +765,10 @@ class SyncCentaur:
         """Convert time bytes to seconds"""
         if len(time_bytes) == 0:
             return 0
-        time_in_seconds = time_bytes[0] / 256.0
-        time_in_seconds += time_bytes[1] if len(time_bytes) > 1 else 0
-        time_in_seconds += time_bytes[2] * 60 if len(time_bytes) > 2 else 0
-        time_in_seconds += time_bytes[3] * 3600 if len(time_bytes) > 3 else 0
+        time_in_seconds = time_bytes[-1] / 256.0
+        time_in_seconds += time_bytes[-2] if len(time_bytes) > 1 else 0
+        time_in_seconds += time_bytes[-3] * 60 if len(time_bytes) > 2 else 0
+        time_in_seconds += time_bytes[-4] * 3600 if len(time_bytes) > 3 else 0
         return time_in_seconds
     
     def _format_time_display(self, time_bytes):
@@ -777,10 +777,10 @@ class SyncCentaur:
             return ""
         
         log.info(f"time_bytes: {' '.join(f'{b:02x}' for b in time_bytes)}")
-        subsec = time_bytes[0] if len(time_bytes) > 0 else 0
-        seconds = time_bytes[1] if len(time_bytes) > 1 else 0
-        minutes = time_bytes[2] if len(time_bytes) > 2 else 0
-        hours = time_bytes[3] if len(time_bytes) > 3 else 0
+        subsec = time_bytes[-1] if len(time_bytes) > 0 else 0
+        seconds = time_bytes[-2] if len(time_bytes) > 1 else 0
+        minutes = time_bytes[-3] if len(time_bytes) > 2 else 0
+        hours = time_bytes[-4] if len(time_bytes) > 3 else 0
         if len(time_bytes) > 4:
             log.warning(f"time_bytes has more than 4 bytes: {' '.join(f'{b:02x}' for b in time_bytes)}")
         
