@@ -9,6 +9,8 @@ Behavior:
 - Send DGT_NOTIFY_EVENTS (0x58) to enable notifications
 - When a notification event arrives (0x8e piece event or 0xa3 key event):
   - Log the event payload
+  - Send DGT_BUS_SEND_CHANGES (0x83)
+  - Wait for response (0x85) and log its payload
   - Reissue DGT_NOTIFY_EVENTS (0x58)
 
 Notes:
@@ -226,8 +228,17 @@ def send_notify_events(ser: serial.Serial, addr1: int, addr2: int):
     ser.write(pkt)
 
 
+def send_bus_send_changes(ser: serial.Serial, addr1: int, addr2: int):
+    """
+    Send DGT_BUS_SEND_CHANGES (0x83).
+    """
+    pkt = build_short(0x83, addr1, addr2)
+    out(f"send DGT_BUS_SEND_CHANGES (0x83): {hexrow(pkt)}")
+    ser.write(pkt)
+
+
 def main():
-    ap = argparse.ArgumentParser(description="DGT_NOTIFY_EVENTS probe: discover → 0x58 → log events → reissue 0x58")
+    ap = argparse.ArgumentParser(description="DGT_NOTIFY_EVENTS probe: discover → 0x58 → log events → 0x83 → 0x85 → reissue 0x58")
     ap.add_argument("--port", default="/dev/serial0", help="Serial device (e.g., /dev/serial0)")
     ap.add_argument("--baud", type=int, default=1000000, help="Baud rate")
     ap.add_argument("--listen", type=float, default=30.0, help="Seconds to listen for notifications")
@@ -247,7 +258,7 @@ def main():
         addr1, addr2 = discover_with_0x46(ser, reader, timeout=5.0)
         out(f"discovered addr1={addr1:02x} addr2={addr2:02x}")
 
-        # Notice handler: on 0x8e or 0xa3, log payload and reissue DGT_NOTIFY_EVENTS
+        # Notice handler: on 0x8e or 0xa3, log payload, send 0x83, wait for 0x85, then reissue DGT_NOTIFY_EVENTS
         def on_notice(pkt: bytes):
             try:
                 event_type = pkt[0] if pkt else 0
@@ -255,7 +266,19 @@ def main():
                 payload = pkt[5:-1] if len(pkt) >= 6 else b""
                 out(f"event received: type=0x{event_type:02x} ({event_name}) payload={hexrow(payload)}")
                 
-                # Reissue DGT_NOTIFY_EVENTS
+                # Send DGT_BUS_SEND_CHANGES and wait for response
+                time.sleep(0.01)  # Small delay before sending
+                send_bus_send_changes(ser, addr1, addr2)
+                
+                # Wait for 0x85 response
+                resp = reader.wait_for_type(0x85, timeout=2.0)
+                if resp is not None:
+                    resp_payload = resp[5:-1] if len(resp) >= 6 else b""
+                    out(f"changes response (0x85) payload: {hexrow(resp_payload)}")
+                else:
+                    out("warning: timeout waiting for 0x85 response")
+                
+                # Reissue DGT_NOTIFY_EVENTS after receiving changes response
                 time.sleep(0.01)  # Small delay before reissuing
                 send_notify_events(ser, addr1, addr2)
             except Exception as e:
