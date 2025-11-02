@@ -269,7 +269,12 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     )
     draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
     statusbar.print()         
-    event_key.wait()
+    try:
+        event_key.wait()
+    except KeyboardInterrupt:
+        # Handle Ctrl+C in menu - return special value to trigger shutdown
+        event_key.clear()
+        return "SHUTDOWN"
     event_key.clear()
     return selection
 
@@ -298,7 +303,12 @@ def show_welcome():
     global idle
     epaper.welcomeScreen()
     idle = True
-    event_key.wait()
+    try:
+        event_key.wait()
+    except KeyboardInterrupt:
+        # Handle Ctrl+C in welcome screen
+        event_key.clear()
+        raise  # Re-raise to exit program
     event_key.clear()
     idle = False
 
@@ -619,6 +629,15 @@ while True:
     # time.sleep(0.7)
     # epaper.clearArea(0,0 + shift,128,295)
     # time.sleep(1)
+    if result == "SHUTDOWN":
+        # Graceful shutdown requested via Ctrl+C
+        try:
+            statusbar.stop()
+            board.cleanup(leds_off=True)
+            board.pauseEvents()
+        except:
+            pass
+        break
     if result == "BACK":
         board.beep(board.SOUND_POWER_OFF)
         show_welcome()
