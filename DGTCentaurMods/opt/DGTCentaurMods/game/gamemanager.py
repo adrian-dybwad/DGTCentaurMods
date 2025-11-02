@@ -53,8 +53,6 @@ EVENT_RESIGN_GAME = 5
 
 kill = 0
 startstate = bytearray(b'\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01')
-newgame = 0
-last_new_game_time = 0
 keycallbackfunction = None
 movecallbackfunction = None
 eventcallbackfunction = None
@@ -64,7 +62,6 @@ curturn = 1
 sourcesq = -1
 othersourcesq = -1
 legalsquares = []
-pausekeys = 0
 computermove = ""
 forcemove = 0
 source = ""
@@ -80,7 +77,6 @@ gameinfo_black = ""
 
 inmenu = 0
 boardstates = []
-must_check_new_game = False
 
 # Correction mode state variables
 correction_mode = False
@@ -117,7 +113,6 @@ def checkLastBoardState():
     global cboard
     global takebackcallbackfunction
     global curturn
-    global must_check_new_game
     if takebackcallbackfunction != None and len(boardstates) > 1:
         log.info(f"[gamemanager.checkLastBoardState] Checking last board state")
         current_state = board.getChessState()
@@ -152,7 +147,6 @@ def checkLastBoardState():
             return True   
     else:
         log.info(f"[gamemanager.checkLastBoardState] No takeback detected")
-        must_check_new_game = True
     return False    
 
 def validate_board_state(current_state, expected_state):
@@ -184,9 +178,6 @@ def enter_correction_mode():
     correction_mode = True
     correction_expected_state = boardstates[-1] if boardstates else None
     correction_iteration = 0
-    board.pauseEvents()
-    time.sleep(0.1)
-    board.unPauseEvents()
     log.warning("[gamemanager.enter_correction_mode] Entered correction mode")
 
 def exit_correction_mode():
@@ -196,7 +187,6 @@ def exit_correction_mode():
     global correction_mode, correction_expected_state, must_check_new_game
     correction_mode = False
     correction_expected_state = None
-    must_check_new_game = True
     log.warning("[gamemanager.exit_correction_mode] Exited correction mode")
 
 def provide_correction_guidance(current_state, expected_state):
@@ -286,127 +276,6 @@ def provide_correction_guidance(current_state, expected_state):
                 board.led(idx, intensity=5)
             log.warning(f"[gamemanager.provide_correction_guidance] Extra pieces at: {[chess.square_name(sq) for sq in wrong_locations]}")
 
-
-def _check_misplaced_pieces(current_state):
-    """
-    Check if pieces are misplaced compared to the expected board state.
-    
-    Iteratively uses Hungarian algorithm to guide optimal piece corrections.
-    Provides LED guidance and waits for corrections with change detection.
-    Supports user escape via BACK key after several iterations.
-    
-    Args:
-        current_state: The initial current board state to check
-    """
-    global boardstates, correction_iteration
-    
-    if not boardstates or len(boardstates) == 0:
-        return
-    
-    expected_state = boardstates[-1]
-    
-    if expected_state is None or len(expected_state) != 64:
-        return
-    
-    # Check if already correct
-    if bytearray(current_state) == bytearray(expected_state):
-        log.info(f"[gamemanager._check_misplaced_pieces] Board is correct")
-        board.ledsOff()
-        return
-    
-    log.warning(f"[gamemanager._check_misplaced_pieces] Expected:")
-    board.printChessState(expected_state, logging.ERROR)
-    log.warning(f"[gamemanager._check_misplaced_pieces] Current:")
-    board.printChessState(current_state)
-    
-    # Iteratively check and guide until all pieces are correctly placed
-    max_iterations = 100
-    iteration = 0
-    
-    # Helper function for distance calculation
-    def _dist(a, b):
-        """Manhattan distance between two squares"""
-        ar, ac = (a // 8), (a % 8)
-        br, bc = (b // 8), (b % 8)
-        return abs(ar - br) + abs(ac - bc)
-    
-    while iteration < max_iterations:
-        iteration += 1
-        correction_iteration = iteration
-        
-        # Get fresh board state for this iteration
-        if iteration == 1:
-            current = current_state
-        else:
-            current = board.getChessState()
-        
-        if current is None or len(current) != 64:
-            log.warning(f"[gamemanager._check_misplaced_pieces] Invalid current state length: {len(current) if current else 'None'}")
-            board.ledsOff()
-            return
-        
-        # Check if states match
-        if bytearray(current) == bytearray(expected_state):
-            log.info(f"[gamemanager._check_misplaced_pieces] All pieces correctly placed after {iteration} iteration(s)")
-            board.ledsOff()
-            return
-        
-        # Compute mismatches
-        missing_origins = []
-        wrong_locations = []
-        
-        for i in range(64):
-            if expected_state[i] == 1 and current[i] == 0:
-                missing_origins.append(i)
-            elif expected_state[i] == 0 and current[i] == 1:
-                wrong_locations.append(i)
-        
-        mismatch_count = len(missing_origins) + len(wrong_locations)
-        
-        if mismatch_count == 0:
-            log.info(f"[gamemanager._check_misplaced_pieces] All pieces correctly placed after {iteration} iteration(s)")
-            board.ledsOff()
-            return
-        
-        # Guide one piece at a time
-        if len(wrong_locations) > 0 and len(missing_origins) > 0:
-            # Pair wrong→missing by nearest-neighbor (Manhattan distance)
-            best_pair = None
-            best_d = 1 << 30
-            for wl in wrong_locations:
-                for mo in missing_origins:
-                    d = _dist(wl, mo)
-                    if d < best_d:
-                        best_d = d
-                        best_pair = (wl, mo)
-            
-            if best_pair:
-                from_idx, to_idx = best_pair
-                board.ledsOff()
-                board.ledFromTo(from_idx, to_idx, intensity=5)
-                log.warning(f"[gamemanager._check_misplaced_pieces] Iteration {iteration}: Guiding piece from {from_idx} to {to_idx}")
-        else:
-            # Only pieces missing or only extra pieces
-            if len(missing_origins) > 0:
-                # Light up the squares where pieces should be
-                board.ledsOff()
-                for idx in missing_origins:
-                    board.led(idx, intensity=5)
-                log.warning(f"[gamemanager._check_misplaced_pieces] Iteration {iteration}: Pieces missing at: {missing_origins}")
-            elif len(wrong_locations) > 0:
-                # Light up the squares where pieces shouldn't be
-                board.ledsOff()
-                for idx in wrong_locations:
-                    board.led(idx, intensity=5)
-                log.warning(f"[gamemanager._check_misplaced_pieces] Iteration {iteration}: Extra pieces at: {wrong_locations}")
-        
-        # Wait for user to make the correction before checking again
-        time.sleep(0.5)
-    
-    log.warning(f"[gamemanager._check_misplaced_pieces] Warning: Max iterations ({max_iterations}) reached, exiting")
-    board.ledsOff()
-
-
 def guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece):
     """
     Guide the user to correct misplaced pieces using LED indicators.
@@ -454,6 +323,7 @@ def correction_fieldcallback(piece_event, field_hex, time_in_seconds):
             board.beep(board.SOUND_GENERAL)
             # exit_correction_mode will set must_check_new_game to True, triggering new game detection
             exit_correction_mode()
+            _reset_game()
             return
      
     log.info(f"[gamemanager.correction_fieldcallback] Current state:")
@@ -513,8 +383,6 @@ def fieldcallback(piece_event, field, time_in_seconds):
     global othersourcesq
     global legalsquares
     global eventcallbackfunction
-    global newgame
-    global pausekeys
     global computermove
     global forcemove
     global source
@@ -596,7 +464,6 @@ def fieldcallback(piece_event, field, time_in_seconds):
     log.info(f"[gamemanager.fieldcallback] legalsquares: {legalsquares}")
     if place == 1 and field in legalsquares:
         log.info(f"[gamemanager.fieldcallback] Making move")
-        newgame = 0
         if field == sourcesq:
             # Piece has simply been placed back
             board.ledsOff()
@@ -618,12 +485,9 @@ def fieldcallback(piece_event, field, time_in_seconds):
                 if forcemove == 0:
                     showingpromotion = True
                     epaper.promotionOptions(13)
-                    pausekeys = 1
-                    time.sleep(1)
                     pr = waitForPromotionChoice()
                     epaper.epaperbuffer = screenback.copy()
                     showingpromotion = False
-                    pausekeys = 2
             if (field // 8) == 0 and pname == "p":
                 screenback = epaper.epaperbuffer.copy()
                 #Beep
@@ -631,12 +495,9 @@ def fieldcallback(piece_event, field, time_in_seconds):
                 if forcemove == 0:
                     showingpromotion = True
                     epaper.promotionOptions(13)
-                    pausekeys = 1
-                    time.sleep(1)
                     pr = waitForPromotionChoice()
                     showingpromotion = False
                     epaper.epaperbuffer = screenback.copy()
-                    pausekeys = 2
                     
             if forcemove == 1:
                 mv = computermove
@@ -729,24 +590,10 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
     # eventCallback with game events and
     # moveCallback with the actual moves made
     global kill
-    global startstate
-    global newgame
-    global cboard
-    global curturn
     global keycallbackfunction
     global movecallbackfunction
     global eventcallbackfunction
     global takebackcallbackfunction
-    global pausekeys
-    global source
-    global gamedbid
-    global session
-    global gameinfo_event
-    global gameinfo_site
-    global gameinfo_round
-    global gameinfo_white
-    global gameinfo_black
-    global must_check_new_game
     keycallbackfunction = keycallbacki
     movecallbackfunction = moveCallback
     eventcallbackfunction = eventCallback
@@ -761,86 +608,67 @@ def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
         log.error(f"[gamemanager.gameThread] error: {e}")
         log.error(f"[gamemanager.gameThread] error: {sys.exc_info()[1]}")
         return
-    t = 0
-    pausekeys = 0
     while kill == 0:
-        # Detect if a new game has begun
-        if newgame == 0:
-            if t < 5:
-                t = t + 1
-            else:
-                try:
-                    # Debug: Log board state comparison
-                    #log.info(f"DEBUG: Board state check - current_state length: {len(current_state)}, startstate length: {len(startstate)}")
-                    #log.info(f"DEBUG: States equal: {bytearray(current_state) == startstate}")
-                    # Always refresh current_state before comparing to avoid stale reads
-                    current_state = None
-                    if must_check_new_game:
-                        current_state = board.getChessState()
-                        #_check_misplaced_pieces(current_state)
-                        must_check_new_game = False
-                    if current_state != None and bytearray(current_state) == startstate:
-                        # Also validate chess board is in starting position to ensure new game trigger
-                        if cboard.fen() != "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1":
-                            log.info("DEBUG: Board state matches start, but FEN doesn't - not triggering NEW_GAME")
-                            t = 0
-                            continue
-                        
-                        # Debounce NEW_GAME detection to avoid rapid retriggers
-                        global last_new_game_time
-                        now = time.time()
-                        if now - last_new_game_time < 1.0:
-                            t = 0
-                            continue
-                        last_new_game_time = now
-                        log.info("DEBUG: Detected starting position - triggering NEW_GAME")
-                        newgame = 1
-                        curturn = 1
-                        cboard = chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-                        paths.write_fen_log(cboard.fen())
-                        board.beep(board.SOUND_GENERAL)
-                        time.sleep(0.3)
-                        board.beep(board.SOUND_GENERAL)
-                        board.ledsOff()
-                        eventCallback(EVENT_NEW_GAME)
-                        eventCallback(EVENT_WHITE_TURN)
-                        # Log a new game in the db
-                        game = models.Game(
-                            source=source,
-                            event=gameinfo_event,
-                            site=gameinfo_site,
-                            round=gameinfo_round,
-                            white=gameinfo_white,
-                            black=gameinfo_black
-                        )
-                        log.info(game)
-                        session.add(game)
-                        session.commit()                        
-                        # Get the max game id as that is this game id and fill it into gamedbid
-                        gamedbid = session.query(func.max(models.Game.id)).scalar()
-                        # Now make an entry in GameMove for this start state
-                        gamemove = models.GameMove(
-                            gameid = gamedbid,
-                            move = '',
-                            fen = str(cboard.fen())
-                        )
-                        session.add(gamemove)
-                        session.commit()
-                        boardstates = []
-                        collectBoardState()
-                    t = 0
-                except Exception as e:
-                    log.error(f"DEBUG: Error in board state check: {e}")
-                    # If it's a concurrency error, skip this check cycle
-                    if "Another blocking request" in str(e):
-                        log.warning("DEBUG: Skipping board state check due to concurrent request")
-                    pass
-        if pausekeys == 1:
-            board.pauseEvents()
-        if pausekeys == 2:
-            board.unPauseEvents()
-            pausekeys = 0
         time.sleep(0.1)
+
+def _reset_game():
+    try:
+        global boardstates
+        global curturn
+        global cboard
+        global paths
+        global eventCallback
+        global source
+        global gameinfo_event
+        global gameinfo_site
+        global gameinfo_round
+        global gameinfo_white
+        global gameinfo_black
+        
+        # Debug: Log board state comparison
+        #log.info(f"DEBUG: Board state check - current_state length: {len(current_state)}, startstate length: {len(startstate)}")
+        #log.info(f"DEBUG: States equal: {bytearray(current_state) == startstate}")
+        # Always refresh current_state before comparing to avoid stale reads
+            
+        log.info("DEBUG: Detected starting position - triggering NEW_GAME")
+        curturn = 1
+        cboard = chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+        paths.write_fen_log(cboard.fen())
+        board.beep(board.SOUND_GENERAL)
+        time.sleep(0.3)
+        board.beep(board.SOUND_GENERAL)
+        board.ledsOff()
+        eventCallback(EVENT_NEW_GAME)
+        eventCallback(EVENT_WHITE_TURN)
+        # Log a new game in the db
+        game = models.Game(
+            source=source,
+            event=gameinfo_event,
+            site=gameinfo_site,
+            round=gameinfo_round,
+            white=gameinfo_white,
+            black=gameinfo_black
+        )
+        log.info(game)
+        session.add(game)
+        session.commit()                        
+        # Get the max game id as that is this game id and fill it into gamedbid
+        gamedbid = session.query(func.max(models.Game.id)).scalar()
+        # Now make an entry in GameMove for this start state
+        gamemove = models.GameMove(
+            gameid = gamedbid,
+            move = '',
+            fen = str(cboard.fen())
+        )
+        session.add(gamemove)
+        session.commit()
+        boardstates = []
+        collectBoardState()
+    except Exception as e:
+        log.error(f"Error resetting game: {e}")
+        import traceback
+        traceback.print_exc()
+        pass
 
 def clockThread():
     # This thread just decrements the clock and updates the epaper
