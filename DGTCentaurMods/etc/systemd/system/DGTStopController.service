@@ -13,3 +13,4 @@ Type=oneshot
 
 [Install]
 WantedBy=shutdown.target
+

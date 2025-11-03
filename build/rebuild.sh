@@ -81,8 +81,9 @@ fi
 mapfile -t all_dgt_units < <(systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -i 'dgt.*\\.service' | sort -u || true)
 unexpected_dgt=()
 for unit in "${all_dgt_units[@]:-}"; do
+  [[ -z "$unit" ]] && continue  # Skip empty entries
   ul="${unit,,}"
-  if [[ "$ul" == "dgtcentaurmods.service" || "$ul" == "stopdgtcontroller.service" ]]; then
+  if [[ "$ul" == "dgtcentaurmods.service" || "$ul" == "dgtstopcontroller.service" ]]; then
     continue
   fi
   unexpected_dgt+=("$unit")

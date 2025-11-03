@@ -32,7 +32,7 @@ Test promotion hardware feature, test and fix board text input feature.
                                                 - Simplify to call `board.sleep_controller()` OR
                                                 - Delete if using direct function call in systemd
 
-4. **DGTCentaurMods/etc/systemd/system/stopDGTController.service**
+4. **DGTCentaurMods/etc/systemd/system/DGTStopController.service**
 
                                                 - Update to call `sleep_controller()` directly OR
                                                 - Keep calling simplified shutdown.py
@@ -62,7 +62,7 @@ Test promotion hardware feature, test and fix board text input feature.
 4. **Test Controller Sleep on System Shutdown**
 
                                                 - SSH into Pi and run `sudo poweroff`
-                                                - Verify stopDGTController.service runs
+                                                - Verify DGTStopController.service runs
                                                 - Verify controller receives sleep command
                                                 - Verify controller powers down with system
 

@@ -2,12 +2,12 @@
 """
 DGT Centaur Controller Sleep Hook
 
-This script is called by stopDGTController.service during system shutdown
+This script is called by DGTStopController.service during system shutdown
 to send a sleep command to the DGT Centaur controller. This ensures the
 controller powers down properly before the Raspberry Pi completes shutdown.
 
 Installed by: DGTCentaurMods package
-Service: /etc/systemd/system/stopDGTController.service
+Service: /etc/systemd/system/DGTStopController.service
 
 Can be tested independently: python3 board/shutdown.py
 """

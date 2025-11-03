@@ -88,7 +88,7 @@ stop_services() {
     DGTCentaurMods.service
     var-run-sdp.path
     var-run-sdp.service
-    stopDGTController.service
+    DGTStopController.service
   )
   for u in "${units[@]}"; do
     run systemctl stop "$u" || true
@@ -102,7 +102,7 @@ remove_units_and_overrides() {
     /etc/systemd/system/DGTCentaurMods.service
     /etc/systemd/system/var-run-sdp.path
     /etc/systemd/system/var-run-sdp.service
-    /etc/systemd/system/stopDGTController.service
+    /etc/systemd/system/DGTStopController.service
     /etc/systemd/system/bluetooth.service.d/01-disable-sap-plugin.conf
     /etc/systemd/system/bthelper@.service.d/01-add-delay.conf
   )

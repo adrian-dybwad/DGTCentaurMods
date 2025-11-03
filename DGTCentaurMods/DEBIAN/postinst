@@ -147,12 +147,19 @@ echo -e "::: Setup services"
         rm -f /etc/systemd/system/centaurmods-web.service
         systemctl daemon-reload
     fi
+    # Migrate stopDGTController.service to DGTStopController.service
+    systemctl stop stopDGTController.service 2>/dev/null || true
+    systemctl disable stopDGTController.service 2>/dev/null || true
+    if [ -e /etc/systemd/system/stopDGTController.service ]; then
+        rm -f /etc/systemd/system/stopDGTController.service
+        systemctl daemon-reload
+    fi
     systemctl enable DGTCentaurModsWeb.service
     systemctl enable DGTCentaurMods.service
 #    systemctl enable ntp
     systemctl enable var-run-sdp.path
     systemctl enable var-run-sdp.service
-    systemctl enable stopDGTController.service
+    systemctl enable DGTStopController.service
     systemctl start var-run-sdp.path
 
 # Setup nginx proxy for web service
