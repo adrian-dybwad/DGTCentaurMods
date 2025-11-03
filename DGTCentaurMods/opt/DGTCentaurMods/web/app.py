@@ -85,6 +85,7 @@ def verify_webdav_authentication():
     auth_header = request.headers.get("Authorization", "")
     
     if not auth_header.startswith("Basic "):
+        app.logger.debug("WebDAV auth: No Basic auth header")
         return (False, None)
     
     try:
@@ -92,15 +93,21 @@ def verify_webdav_authentication():
         encoded_credentials = auth_header[6:]  # Remove "Basic "
         decoded_credentials = base64.b64decode(encoded_credentials).decode("utf-8")
         username, password = decoded_credentials.split(":", 1)
-    except Exception:
+        app.logger.debug(f"WebDAV auth: Attempting authentication for user '{username}'")
+    except Exception as e:
+        app.logger.debug(f"WebDAV auth: Failed to decode credentials: {e}")
         return (False, None)
     
     # Verify user exists in system
     try:
         pwd_entry = pwd.getpwnam(username)
+        app.logger.debug(f"WebDAV auth: User '{username}' exists in system")
     except KeyError:
-        # User doesn't exist
+        app.logger.debug(f"WebDAV auth: User '{username}' does not exist")
         return (False, None)
+    
+    # Log available authentication methods
+    app.logger.debug(f"WebDAV auth: HAS_PAM={HAS_PAM}, HAS_CRYPT={HAS_CRYPT}, HAS_SPWD={HAS_SPWD}")
     
     # Verify password using available authentication method
     password_valid = False
@@ -111,7 +118,11 @@ def verify_webdav_authentication():
             p = pam.pam()
             if p.authenticate(username, password):
                 password_valid = True
-        except Exception:
+                app.logger.debug(f"WebDAV auth: PAM authentication succeeded for '{username}'")
+            else:
+                app.logger.debug(f"WebDAV auth: PAM authentication failed for '{username}'")
+        except Exception as e:
+            app.logger.debug(f"WebDAV auth: PAM authentication exception: {e}")
             pass
     
     # If PAM not available, try crypt-based verification
@@ -124,23 +135,29 @@ def verify_webdav_authentication():
                 try:
                     spwd_entry = spwd.getspnam(username)
                     hashed_password = spwd_entry.sp_pwd
-                except (KeyError, PermissionError, OSError):
-                    # Shadow password not accessible, fall through to regular password
+                    app.logger.debug(f"WebDAV auth: Retrieved shadow password hash for '{username}'")
+                except (KeyError, PermissionError, OSError) as e:
+                    app.logger.debug(f"WebDAV auth: Could not access shadow password: {e}")
                     pass
             
             # Fall back to regular password database if shadow not available or accessible
             if hashed_password is None:
                 hashed_password = pwd_entry.pw_passwd
+                hash_preview = hashed_password[:10] + '...' if hashed_password and len(hashed_password) > 10 else (hashed_password or 'None')
+                app.logger.debug(f"WebDAV auth: Using regular password database (hash='{hash_preview}')")
                 # If password hash is 'x', it means password is in shadow file
                 # and we don't have access - if spwd is not available, deny access
                 if hashed_password == 'x':
                     if not HAS_SPWD:
+                        app.logger.debug(f"WebDAV auth: Password in shadow but spwd not available, denying")
                         return (False, None)
                     # If spwd is available but still got 'x', we couldn't access shadow
+                    app.logger.debug(f"WebDAV auth: Password in shadow but cannot access, denying")
                     return (False, None)
             
             # Empty password hash means no password set - deny for security
             if not hashed_password or hashed_password == '*':
+                app.logger.debug(f"WebDAV auth: No password set for user '{username}', denying")
                 return (False, None)
             
             # Use crypt module if available
@@ -148,22 +165,33 @@ def verify_webdav_authentication():
                 try:
                     if hashed_password.startswith('$'):
                         # Modern crypt format (SHA-256, SHA-512, etc.)
-                        if crypt.crypt(password, hashed_password) == hashed_password:
+                        computed = crypt.crypt(password, hashed_password)
+                        if computed == hashed_password:
                             password_valid = True
+                            app.logger.debug(f"WebDAV auth: Crypt authentication succeeded for '{username}' (modern format)")
+                        else:
+                            app.logger.debug(f"WebDAV auth: Crypt authentication failed for '{username}' (modern format)")
                     else:
                         # Traditional DES crypt (deprecated but still used)
-                        if crypt.crypt(password, hashed_password[:2]) == hashed_password:
+                        computed = crypt.crypt(password, hashed_password[:2])
+                        if computed == hashed_password:
                             password_valid = True
-                except Exception:
+                            app.logger.debug(f"WebDAV auth: Crypt authentication succeeded for '{username}' (DES format)")
+                        else:
+                            app.logger.debug(f"WebDAV auth: Crypt authentication failed for '{username}' (DES format)")
+                except Exception as e:
+                    app.logger.debug(f"WebDAV auth: Crypt authentication exception: {e}")
                     pass
         
-        except Exception:
+        except Exception as e:
+            app.logger.debug(f"WebDAV auth: Crypt-based verification exception: {e}")
             pass
     
     # Final fallback: use subprocess to verify via system authentication
     # This is less reliable as su may require TTY
     if not password_valid:
         try:
+            app.logger.debug(f"WebDAV auth: Trying subprocess authentication for '{username}'")
             # Use expect-like approach via subprocess
             proc = subprocess.Popen(
                 ['su', username, '-c', 'echo SUCCESS'],
@@ -176,12 +204,18 @@ def verify_webdav_authentication():
             # If authentication succeeded, we should see "SUCCESS" in output
             if proc.returncode == 0 and 'SUCCESS' in stdout:
                 password_valid = True
-        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError, OSError):
+                app.logger.debug(f"WebDAV auth: Subprocess authentication succeeded for '{username}'")
+            else:
+                app.logger.debug(f"WebDAV auth: Subprocess authentication failed for '{username}' (returncode={proc.returncode}, stdout={stdout[:50]}, stderr={stderr[:50]})")
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError, OSError) as e:
+            app.logger.debug(f"WebDAV auth: Subprocess authentication exception: {e}")
             pass
     
     if password_valid:
+        app.logger.info(f"WebDAV auth: Authentication successful for user '{username}'")
         return (True, username)
     
+    app.logger.warning(f"WebDAV auth: Authentication failed for user '{username}'")
     return (False, None)
 
 def require_webdav_authentication():
