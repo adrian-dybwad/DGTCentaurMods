@@ -6,4 +6,4 @@ RequiredBy=var-run-sdp.path
 
 [Service]
 Type=simple
-ExecStart=sudo /bin/chgrp bluetooth /var/run/sdp
+ExecStart=/bin/sh -c 'chgrp bluetooth /var/run/sdp && chmod 660 /var/run/sdp'
