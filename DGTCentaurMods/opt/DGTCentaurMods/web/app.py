@@ -40,16 +40,30 @@ import json
 import urllib.parse
 import base64
 import pwd
-import crypt
+import subprocess
 from xml.sax.saxutils import escape
 from DGTCentaurMods.config import paths
 
-# Conditionally import spwd (shadow password support)
+# Conditionally import crypt (removed in Python 3.13+, may not be available)
+try:
+    import crypt
+    HAS_CRYPT = True
+except ImportError:
+    HAS_CRYPT = False
+
+# Conditionally import spwd (removed in Python 3.13+, may not be available)
 try:
     import spwd
     HAS_SPWD = True
 except ImportError:
     HAS_SPWD = False
+
+# Try to import PAM for authentication (alternative to crypt/spwd)
+try:
+    import pam
+    HAS_PAM = True
+except ImportError:
+    HAS_PAM = False
 
 app = Flask(__name__)
 app.config['UCI_UPLOAD_EXTENSIONS'] = ['.txt']
@@ -88,50 +102,87 @@ def verify_webdav_authentication():
         # User doesn't exist
         return (False, None)
     
-    # Verify password
-    try:
-        hashed_password = None
-        
-        # Try shadow password first if available
-        if HAS_SPWD:
-            try:
-                spwd_entry = spwd.getspnam(username)
-                hashed_password = spwd_entry.sp_pwd
-            except (KeyError, PermissionError, OSError):
-                # Shadow password not accessible, fall through to regular password
-                pass
-        
-        # Fall back to regular password database if shadow not available or accessible
-        if hashed_password is None:
-            hashed_password = pwd_entry.pw_passwd
-            # If password hash is 'x', it means password is in shadow file
-            # and we don't have access - if spwd is not available, deny access
-            if hashed_password == 'x':
-                if not HAS_SPWD:
-                    return (False, None)
-                # If spwd is available but still got 'x', we couldn't access shadow
-                return (False, None)
-        
-        # Empty password hash means no password set - deny for security
-        if not hashed_password or hashed_password == '*':
-            return (False, None)
-        
-        # Verify password using crypt
+    # Verify password using available authentication method
+    password_valid = False
+    
+    # Try PAM authentication first (most reliable on Linux systems)
+    if HAS_PAM:
         try:
-            if hashed_password.startswith('$'):
-                # Modern crypt format (SHA-256, SHA-512, etc.)
-                if crypt.crypt(password, hashed_password) == hashed_password:
-                    return (True, username)
-            else:
-                # Traditional DES crypt (deprecated but still used)
-                if crypt.crypt(password, hashed_password[:2]) == hashed_password:
-                    return (True, username)
+            p = pam.pam()
+            if p.authenticate(username, password):
+                password_valid = True
         except Exception:
             pass
+    
+    # If PAM not available, try crypt-based verification
+    if not password_valid:
+        try:
+            hashed_password = None
+            
+            # Try shadow password first if available
+            if HAS_SPWD:
+                try:
+                    spwd_entry = spwd.getspnam(username)
+                    hashed_password = spwd_entry.sp_pwd
+                except (KeyError, PermissionError, OSError):
+                    # Shadow password not accessible, fall through to regular password
+                    pass
+            
+            # Fall back to regular password database if shadow not available or accessible
+            if hashed_password is None:
+                hashed_password = pwd_entry.pw_passwd
+                # If password hash is 'x', it means password is in shadow file
+                # and we don't have access - if spwd is not available, deny access
+                if hashed_password == 'x':
+                    if not HAS_SPWD:
+                        return (False, None)
+                    # If spwd is available but still got 'x', we couldn't access shadow
+                    return (False, None)
+            
+            # Empty password hash means no password set - deny for security
+            if not hashed_password or hashed_password == '*':
+                return (False, None)
+            
+            # Use crypt module if available
+            if HAS_CRYPT:
+                try:
+                    if hashed_password.startswith('$'):
+                        # Modern crypt format (SHA-256, SHA-512, etc.)
+                        if crypt.crypt(password, hashed_password) == hashed_password:
+                            password_valid = True
+                    else:
+                        # Traditional DES crypt (deprecated but still used)
+                        if crypt.crypt(password, hashed_password[:2]) == hashed_password:
+                            password_valid = True
+                except Exception:
+                    pass
         
-        return (False, None)
-    except Exception:
-        return (False, None)
+        except Exception:
+            pass
+    
+    # Final fallback: use subprocess to verify via system authentication
+    # This is less reliable as su may require TTY
+    if not password_valid:
+        try:
+            # Use expect-like approach via subprocess
+            proc = subprocess.Popen(
+                ['su', username, '-c', 'echo SUCCESS'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            stdout, stderr = proc.communicate(input=password + '\n', timeout=2)
+            # If authentication succeeded, we should see "SUCCESS" in output
+            if proc.returncode == 0 and 'SUCCESS' in stdout:
+                password_valid = True
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError, OSError):
+            pass
+    
+    if password_valid:
+        return (True, username)
+    
+    return (False, None)
 
 def require_webdav_authentication():
     """
