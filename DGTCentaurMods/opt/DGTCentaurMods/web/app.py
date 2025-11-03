@@ -92,6 +92,7 @@ def verify_webdav_authentication():
         # Decode Basic Auth credentials
         encoded_credentials = auth_header[6:]  # Remove "Basic "
         app.logger.debug(f"WebDAV auth: Encoded credentials length: {len(encoded_credentials)}")
+        app.logger.debug(f"WebDAV auth: Base64 encoded string: '{encoded_credentials}'")
         
         # Decode base64
         try:
@@ -99,6 +100,7 @@ def verify_webdav_authentication():
             decoded_credentials = decoded_bytes.decode("utf-8")
             app.logger.debug(f"WebDAV auth: Decoded credentials length: {len(decoded_credentials)}")
             app.logger.debug(f"WebDAV auth: Decoded credentials (sanitized): '{decoded_credentials[:50].replace(chr(0), 'NULL')}'")
+            app.logger.debug(f"WebDAV auth: Decoded bytes (hex): {decoded_bytes.hex()}")
         except Exception as e:
             app.logger.warning(f"WebDAV auth: Base64 decode failed: {e}, header preview: {auth_header[:50]}")
             return (False, None)
@@ -254,8 +256,12 @@ def require_webdav_authentication():
     """
     is_authenticated, username = verify_webdav_authentication()
     if not is_authenticated:
-        response = Response('', mimetype='text/plain', status=401)
+        response = Response('Authentication required', mimetype='text/plain', status=401)
         response.headers['WWW-Authenticate'] = 'Basic realm="WebDAV"'
+        # Add CORS headers if needed for browser-based clients
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PROPFIND, MOVE, MKCOL, LOCK, UNLOCK, PROPPATCH'
+        response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type, Depth'
         return response
     return None
 
