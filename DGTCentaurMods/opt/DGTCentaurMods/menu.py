@@ -1016,7 +1016,7 @@ while True:
                         gincrement = int(seek_time[1])
                         rc = run_external_script("game/lichess.py", "New", gtime, gincrement, rated, color, start_key_polling=True)
     if result == "Engines":
-        enginemenu = {"stockfish": "Stockfish"}
+        enginemenu = {}
         # Pick up the engines from the engines folder and build the menu
         enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/engines/"
         enginefiles = os.listdir(enginepath)
@@ -1031,64 +1031,44 @@ while True:
         result = doMenu(enginemenu, "Engines")
         log.debug("Engines")
         log.debug(result)
-        if result == "stockfish":
-            color = doMenu(COLOR_MENU, "Stockfish", "World's strongest open-source engine")
-            log.debug(color)
+        if result != "BACK":
+            # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
+            enginefile = enginepath + result
+            ucifile = enginepath + result + ".uci"
+            
+            # Get engine description from .uci file if it exists
+            engine_desc = None
+            # Check both engines/ and defaults/engines/ directories for .uci files
+            ucifile_paths = [
+                enginepath + result + ".uci",  # engines/ directory
+                str(pathlib.Path(__file__).parent.resolve()) + "/defaults/engines/" + result + ".uci"  # defaults/engines/ directory
+            ]
+            for ucifile_path in ucifile_paths:
+                if os.path.exists(ucifile_path):
+                    config = configparser.ConfigParser()
+                    config.read(ucifile_path)
+                    if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
+                        engine_desc = config['DEFAULT']['Description']
+                    break
+            
+            color = doMenu(COLOR_MENU, result, engine_desc)
             # Current game will launch the screen for the current
+            log.info("ucifile: " + ucifile)
             if color != "BACK":
-                ratingmenu = {
-                    "2850": "Pure",
-                    "1350": "1350 ELO",
-                    "1500": "1500 ELO",
-                    "1700": "1700 ELO",
-                    "1800": "1800 ELO",
-                    "2000": "2000 ELO",
-                    "2200": "2200 ELO",
-                    "2400": "2400 ELO",
-                    "2600": "2600 ELO",
-                }
-                elo = doMenu(ratingmenu, "ELO")
-                if elo != "BACK":
-                    rc = run_external_script("uci.py", color, "stockfish_pi", elo, start_key_polling=True)
-        else:
-            if result != "BACK":
-                # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
-                enginefile = enginepath + result
-                ucifile = enginepath + result + ".uci"
-                
-                # Get engine description from .uci file if it exists
-                engine_desc = None
-                # Check both engines/ and defaults/engines/ directories for .uci files
-                ucifile_paths = [
-                    enginepath + result + ".uci",  # engines/ directory
-                    str(pathlib.Path(__file__).parent.resolve()) + "/defaults/engines/" + result + ".uci"  # defaults/engines/ directory
-                ]
-                for ucifile_path in ucifile_paths:
-                    if os.path.exists(ucifile_path):
-                        config = configparser.ConfigParser()
-                        config.read(ucifile_path)
-                        if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
-                            engine_desc = config['DEFAULT']['Description']
-                        break
-                
-                color = doMenu(COLOR_MENU, result, engine_desc)
-                # Current game will launch the screen for the current
-                log.info("ucifile: " + ucifile)
-                if color != "BACK":
-                    if os.path.exists(ucifile):
-                        # Read the uci file and build a menu
-                        config = configparser.ConfigParser()
-                        config.read(ucifile)
-                        log.debug(config.sections())
-                        smenu = {}
-                        for sect in config.sections():
-                            smenu[sect] = sect
-                        sec = doMenu(smenu, result)
-                        if sec != "BACK":
-                            rc = run_external_script("uci.py", color, result, sec, start_key_polling=True)
-                    else:
-                        # With no uci file we just call the engine
-                        rc = run_external_script("uci.py", color, result, start_key_polling=True)
+                if os.path.exists(ucifile):
+                    # Read the uci file and build a menu
+                    config = configparser.ConfigParser()
+                    config.read(ucifile)
+                    log.debug(config.sections())
+                    smenu = {}
+                    for sect in config.sections():
+                        smenu[sect] = sect
+                    sec = doMenu(smenu, result)
+                    if sec != "BACK":
+                        rc = run_external_script("uci.py", color, result, sec, start_key_polling=True)
+                else:
+                    # With no uci file we just call the engine
+                    rc = run_external_script("uci.py", color, result, start_key_polling=True)
     if result == "HandBrain":
         # Pick up the engines from the engines folder and build the menu
         enginemenu = {}
