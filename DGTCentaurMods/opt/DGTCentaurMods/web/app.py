@@ -122,6 +122,17 @@ def verify_webdav_authentication():
             app.logger.warning(f"WebDAV auth: Empty username after decode")
             return (False, None)
         
+        # Detect macOS Finder placeholder credentials and reject early
+        # macOS sometimes sends "No user account" or similar when it can't/won't send real credentials
+        if username.lower().startswith("no user") or (len(username) > 0 and len(password) == 0 and username.lower() in ["", "guest", "anonymous"]):
+            app.logger.warning(f"WebDAV auth: Rejected macOS placeholder credential. Username: '{username}', Password length: {len(password)}. Please delete Keychain entry and reconnect with proper credentials.")
+            return (False, None)
+        
+        # Reject empty passwords for security
+        if len(password) == 0:
+            app.logger.warning(f"WebDAV auth: Rejected authentication with empty password for user '{username}'. macOS may be refusing to send password over HTTP.")
+            return (False, None)
+        
         app.logger.debug(f"WebDAV auth: Attempting authentication for user '{username}' (password length: {len(password)})")
     except Exception as e:
         app.logger.warning(f"WebDAV auth: Failed to decode credentials: {e}, header preview: {auth_header[:100]}")
@@ -175,14 +186,15 @@ def verify_webdav_authentication():
                 hash_preview = hashed_password[:10] + '...' if hashed_password and len(hashed_password) > 10 else (hashed_password or 'None')
                 app.logger.debug(f"WebDAV auth: Using regular password database (hash='{hash_preview}')")
                 # If password hash is 'x', it means password is in shadow file
-                # and we don't have access - if spwd is not available, deny access
+                # If spwd is not available, we'll need to use subprocess fallback
                 if hashed_password == 'x':
                     if not HAS_SPWD:
-                        app.logger.debug(f"WebDAV auth: Password in shadow but spwd not available, denying")
-                        return (False, None)
-                    # If spwd is available but still got 'x', we couldn't access shadow
-                    app.logger.debug(f"WebDAV auth: Password in shadow but cannot access, denying")
-                    return (False, None)
+                        app.logger.debug(f"WebDAV auth: Password in shadow but spwd not available, will try subprocess fallback")
+                        hashed_password = None  # Set to None to skip crypt verification and use subprocess
+                    else:
+                        # If spwd is available but still got 'x', we couldn't access shadow
+                        app.logger.debug(f"WebDAV auth: Password in shadow but cannot access, will try subprocess fallback")
+                        hashed_password = None  # Set to None to skip crypt verification and use subprocess
             
             # Empty password hash means no password set - deny for security
             if not hashed_password or hashed_password == '*':
