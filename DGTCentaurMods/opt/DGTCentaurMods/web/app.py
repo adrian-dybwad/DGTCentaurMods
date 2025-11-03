@@ -98,18 +98,23 @@ def verify_webdav_authentication():
             decoded_bytes = base64.b64decode(encoded_credentials, validate=True)
             decoded_credentials = decoded_bytes.decode("utf-8")
             app.logger.debug(f"WebDAV auth: Decoded credentials length: {len(decoded_credentials)}")
+            app.logger.debug(f"WebDAV auth: Decoded credentials (sanitized): '{decoded_credentials[:50].replace(chr(0), 'NULL')}'")
         except Exception as e:
             app.logger.warning(f"WebDAV auth: Base64 decode failed: {e}, header preview: {auth_header[:50]}")
             return (False, None)
         
         # Split username and password
         if ":" not in decoded_credentials:
-            app.logger.warning(f"WebDAV auth: No colon in decoded credentials, full value: '{decoded_credentials[:100]}'")
+            app.logger.warning(f"WebDAV auth: No colon in decoded credentials, full value (repr): {repr(decoded_credentials)}")
             return (False, None)
         
         username, password = decoded_credentials.split(":", 1)
         username = username.strip()
         password = password.strip()
+        
+        # Log the raw values for debugging
+        app.logger.debug(f"WebDAV auth: Raw decoded (repr): {repr(decoded_credentials)}")
+        app.logger.debug(f"WebDAV auth: Username (repr): {repr(username)}, Password (repr): {repr(password)}")
         
         if not username:
             app.logger.warning(f"WebDAV auth: Empty username after decode")
