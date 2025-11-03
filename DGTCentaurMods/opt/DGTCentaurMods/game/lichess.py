@@ -85,7 +85,7 @@ def eventCallback(event):
 	if event == gamemanager.EVENT_NEW_GAME:
 		epaper.writeText(0,"New Game")
 		curturn = 1
-		epaper.drawFen(gamemanager.cboard.fen(),3)
+		epaper.drawFen(gamemanager.getFEN(),3)
 		epaper.writeText(10, whiteplayer)
 		epaper.writeText(11, ("(" + whiterating.replace("None", "") + ")").replace("()",""))
 		epaper.writeText(1, blackplayer)
@@ -143,12 +143,12 @@ def eventCallback(event):
 
 def moveCallback(move):
 	# This function receives valid moves made on the board
-	# Note: the board state is in python-chess object gamemanager.cboard
+	# Note: the board state is in python-chess object gamemanager.getBoard()
 	global whiteplayer
 	global curturn
 	global playeriswhite
 	global lastmove
-	epaper.drawFen(gamemanager.cboard.fen(),3)
+	epaper.drawFen(gamemanager.getFEN(),3)
 	# As long as we have player data we have a connection to the lichess api
 	# so send the move if it's our turn
 	log.info("make move called")

@@ -130,10 +130,7 @@ def do_cleanup():
     except:
         pass
     try:
-        gamemanager.forcemove = 0
-        gamemanager.computermove = ""
-        gamemanager.sourcesq = -1
-        gamemanager.legalsquares = []
+        gamemanager.resetMoveState()
     except:
         pass
     try:
@@ -253,7 +250,7 @@ def keyCallback(key):
     if key == gamemanager.board.Key.UP:
         graphson = 1
         firstmove = 1
-        info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))
+        info = aengine.analyse(gamemanager.getBoard(), chess.engine.Limit(time=0.5))
         evaluationGraphs(info)
 
 def executeComputerMove(mv):
@@ -261,26 +258,20 @@ def executeComputerMove(mv):
     # The actual move will be processed when fieldcallback detects the piece placement
     try:
         log.info(f"Setting up computer move: {mv}")
-        log.info(f"Current FEN: {gamemanager.cboard.fen()}")
-        log.info(f"Legal moves: {[str(m) for m in list(gamemanager.cboard.legal_moves)[:5]]}...")
+        board_obj = gamemanager.getBoard()
+        log.info(f"Current FEN: {gamemanager.getFEN()}")
+        log.info(f"Legal moves: {[str(m) for m in list(board_obj.legal_moves)[:5]]}...")
         
         # Validate the move is legal
         move = chess.Move.from_uci(mv)
-        if move not in gamemanager.cboard.legal_moves:
+        if move not in board_obj.legal_moves:
             log.error(f"ERROR: Move {mv} is not legal! This should not happen.")
-            log.error(f"Legal moves: {list(gamemanager.cboard.legal_moves)}")
+            log.error(f"Legal moves: {list(board_obj.legal_moves)}")
             raise ValueError(f"Illegal move: {mv}")
         
-        # Light up LEDs to show the computer move to the player
-        from_square = chess.parse_square(mv[0:2])  # e.g., "d7" -> 51
-        to_square = chess.parse_square(mv[2:4])    # e.g., "d6" -> 43
-        log.info(f"Lighting LEDs for move from {from_square} ({mv[0:2]}) to {to_square} ({mv[2:4]})")
-        board.ledFromTo(from_square, to_square)
-
-        # Set gamemanager's forcemove flags so fieldcallback will process this move
+        # Use gamemanager.computerMove() which handles LED setup and state management
         log.info(f"Setting up gamemanager for forced move")
-        gamemanager.forcemove = 1
-        gamemanager.computermove = mv
+        gamemanager.computerMove(mv)
         
         # DO NOT push the move here - let fieldcallback handle it when pieces are moved
         # DO NOT call moveCallback or reset flags here
@@ -315,42 +306,39 @@ def eventCallback(event):
             log.info("EVENT_NEW_GAME: Resetting board to starting position")
             # Clear any pending computer move setup from before the reset
             log.info("Clearing pending computer move setup")
-            gamemanager.forcemove = 0
-            gamemanager.computermove = ""
-            gamemanager.sourcesq = -1
-            gamemanager.legalsquares = []
+            gamemanager.resetMoveState()
             board.ledsOff()
-            gamemanager.cboard.reset()  # Reset to starting position
+            gamemanager.resetBoard()  # Reset to starting position
             epaper.quickClear()            
             scorehistory = []
             curturn = 1
             firstmove = 1   
             epaper.pauseEpaper() 
-            drawBoardLocal(gamemanager.cboard.fen())
-            log.info(f"Board reset. FEN: {gamemanager.cboard.fen()}")
+            drawBoardLocal(gamemanager.getFEN())
+            log.info(f"Board reset. FEN: {gamemanager.getFEN()}")
             if graphson == 1:
-                info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.1))        
+                info = aengine.analyse(gamemanager.getBoard(), chess.engine.Limit(time=0.1))        
                 evaluationGraphs(info) 
             epaper.unPauseEpaper()
         if event == gamemanager.EVENT_WHITE_TURN:
             curturn = 1
             log.info(f"WHITE_TURN event: curturn={curturn}, computeronturn={computeronturn}")
             if graphson == 1:            
-                info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))
+                info = aengine.analyse(gamemanager.getBoard(), chess.engine.Limit(time=0.5))
                 epaper.pauseEpaper()
                 evaluationGraphs(info)                                  
                 epaper.unPauseEpaper()
-            drawBoardLocal(gamemanager.cboard.fen())  
+            drawBoardLocal(gamemanager.getFEN())  
             if curturn == computeronturn:            
-                log.info(f"Computer's turn! Current FEN: {gamemanager.cboard.fen()}")
+                log.info(f"Computer's turn! Current FEN: {gamemanager.getFEN()}")
                 if ucioptions != {}:
                     log.info(f"Configuring engine with options: {ucioptions}")
                     options = (ucioptions)
                     pengine.configure(options)
                 limit = chess.engine.Limit(time=5)
-                log.info(f"Asking engine to play from FEN: {gamemanager.cboard.fen()}")
+                log.info(f"Asking engine to play from FEN: {gamemanager.getFEN()}")
                 try:
-                    mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
+                    mv = pengine.play(gamemanager.getBoard(), limit, info=chess.engine.INFO_ALL)
                     log.info(f"Engine returned: {mv}")
                     mv = mv.move
                     log.info(f"Move extracted: {mv}")
@@ -364,21 +352,21 @@ def eventCallback(event):
             curturn = 0
             log.info(f"BLACK_TURN event: curturn={curturn}, computeronturn={computeronturn}")
             if graphson == 1:            
-                info = aengine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))    
+                info = aengine.analyse(gamemanager.getBoard(), chess.engine.Limit(time=0.5))    
                 epaper.pauseEpaper()    
                 evaluationGraphs(info)                                                       
                 epaper.unPauseEpaper()
-            drawBoardLocal(gamemanager.cboard.fen())    
+            drawBoardLocal(gamemanager.getFEN())    
             if curturn == computeronturn:            
-                log.info(f"Computer's turn! Current FEN: {gamemanager.cboard.fen()}")
+                log.info(f"Computer's turn! Current FEN: {gamemanager.getFEN()}")
                 if ucioptions != {}:
                     log.info(f"Configuring engine with options: {ucioptions}")
                     options = (ucioptions)
                     pengine.configure(options)
                 limit = chess.engine.Limit(time=5)
-                log.info(f"Asking engine to play from FEN: {gamemanager.cboard.fen()}")
+                log.info(f"Asking engine to play from FEN: {gamemanager.getFEN()}")
                 try:
-                    mv = pengine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
+                    mv = pengine.play(gamemanager.getBoard(), limit, info=chess.engine.INFO_ALL)
                     log.info(f"Engine returned: {mv}")
                     mv = mv.move
                     log.info(f"Move extracted: {mv}")
@@ -450,10 +438,10 @@ def eventCallback(event):
 
 def moveCallback(move):
     # This function receives valid moves made on the board
-    # Note: the board state is in python-chess object gamemanager.cboard
+    # Note: the board state is in python-chess object gamemanager.getBoard()
     try:
         log.info(f"moveCallback: Drawing board for move {move}")
-        drawBoardLocal(gamemanager.cboard.fen())
+        drawBoardLocal(gamemanager.getFEN())
         log.info("moveCallback: Board drawn successfully")
     except Exception as e:
         log.error(f"Error in moveCallback while drawing board: {e}")
@@ -464,10 +452,7 @@ def takebackCallback():
     # This function gets called when the user takes back a move
     log.info("Takeback detected - clearing computer move setup")
     # Clear any pending computer move setup
-    gamemanager.forcemove = 0
-    gamemanager.computermove = ""
-    gamemanager.sourcesq = -1
-    gamemanager.legalsquares = []
+    gamemanager.resetMoveState()
     board.ledsOff()
     global curturn     
     # First the turn switches

@@ -86,7 +86,7 @@ def eventCallback(event):
 		epaper.writeText(0,"New Game")
 		epaper.writeText(1,"               ")
 		curturn = 1
-		epaper.drawFen(gamemanager.cboard.fen())
+		epaper.drawFen(gamemanager.getFEN())
 	if event == gamemanager.EVENT_WHITE_TURN:
 		curturn = 1
 		epaper.writeText(0,"White turn")
@@ -96,7 +96,7 @@ def eventCallback(event):
 				options = (ucioptions)
 				engine.configure(options)
 			limit = chess.engine.Limit(time=5)
-			mv = engine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
+			mv = engine.play(gamemanager.getBoard(), limit, info=chess.engine.INFO_ALL)
 			mv = mv.move
 			epaper.writeText(12, "Engine: " + str(mv))
 			engine.quit()
@@ -110,14 +110,14 @@ def eventCallback(event):
 			if proc == 1:
 				engine = chess.engine.SimpleEngine.popen_uci("/home/pi/centaur/engines/stockfish_pi")
 				limit = chess.engine.Limit(time=5)
-				mv = engine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
+				mv = engine.play(gamemanager.getBoard(), limit, info=chess.engine.INFO_ALL)
 				mv = mv.move
 				mv = str(mv)[:2]
 				sqnum = chess.parse_square(str(mv))
-				piecesq = gamemanager.cboard.piece_at(sqnum)
+				piecesq = gamemanager.getBoard().piece_at(sqnum)
 				sqs = []
 				for i in range(0,64):
-					if gamemanager.cboard.piece_at(i) == piecesq:
+					if gamemanager.getBoard().piece_at(i) == piecesq:
 						sqs.append(i)
 				board.ledArray(sqs,20)
 				epaper.writeText(13, "BRAIN SAYS: " + str(piecesq))
@@ -131,7 +131,7 @@ def eventCallback(event):
 				options = (ucioptions)
 				engine.configure(options)
 			limit = chess.engine.Limit(time=5)
-			mv = engine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
+			mv = engine.play(gamemanager.getBoard(), limit, info=chess.engine.INFO_ALL)
 			mv = mv.move
 			epaper.writeText(12,"Engine: " + str(mv))
 			engine.quit()
@@ -145,14 +145,14 @@ def eventCallback(event):
 			if proc == 1:
 				engine = chess.engine.SimpleEngine.popen_uci("/home/pi/centaur/engines/stockfish_pi")
 				limit = chess.engine.Limit(time=5)
-				mv = engine.play(gamemanager.cboard, limit, info=chess.engine.INFO_ALL)
+				mv = engine.play(gamemanager.getBoard(), limit, info=chess.engine.INFO_ALL)
 				mv = mv.move
 				mv = str(mv)[:2]
 				sqnum = chess.parse_square(str(mv))
-				piecesq = gamemanager.cboard.piece_at(sqnum)
+				piecesq = gamemanager.getBoard().piece_at(sqnum)
 				sqs = []
 				for i in range(0,64):
-					if gamemanager.cboard.piece_at(i) == piecesq:
+					if gamemanager.getBoard().piece_at(i) == piecesq:
 						sqs.append(i)
 				board.ledArray(sqs,20)
 				epaper.writeText(13, "BRAIN SAYS: " + str(piecesq))
@@ -178,8 +178,8 @@ def eventCallback(event):
 
 def moveCallback(move):
 	# This function receives valid moves made on the board
-	# Note: the board state is in python-chess object gamemanager.cboard
-	epaper.drawFen(gamemanager.cboard.fen())
+	# Note: the board state is in python-chess object gamemanager.getBoard()
+	epaper.drawFen(gamemanager.getFEN())
 	epaper.writeText(9, move)
 
 

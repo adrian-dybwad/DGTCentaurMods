@@ -60,7 +60,7 @@ def keyCallback(key):
     if key == gamemanager.board.Key.UP:
         graphson = 1
         firstmove = 1
-        info = engine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))
+        info = engine.analyse(gamemanager.getBoard(), chess.engine.Limit(time=0.5))
         evaluationGraphs(info)        
 
 def eventCallback(event):
@@ -79,16 +79,16 @@ def eventCallback(event):
         scorehistory = []
         curturn = 1
         firstmove = 1
-        drawBoardLocal(gamemanager.cboard.fen())
+        drawBoardLocal(gamemanager.getFEN())
     if event == gamemanager.EVENT_WHITE_TURN:        
-        drawBoardLocal(gamemanager.cboard.fen())
+        drawBoardLocal(gamemanager.getFEN())
         curturn = 1
-        info = engine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))
+        info = engine.analyse(gamemanager.getBoard(), chess.engine.Limit(time=0.5))
         evaluationGraphs(info)        
     if event == gamemanager.EVENT_BLACK_TURN:
-        drawBoardLocal(gamemanager.cboard.fen())
+        drawBoardLocal(gamemanager.getFEN())
         curturn = 0
-        info = engine.analyse(gamemanager.cboard, chess.engine.Limit(time=0.5))        
+        info = engine.analyse(gamemanager.getBoard(), chess.engine.Limit(time=0.5))        
         evaluationGraphs(info)                
     if event == gamemanager.EVENT_REQUEST_DRAW:
         gamemanager.drawGame()

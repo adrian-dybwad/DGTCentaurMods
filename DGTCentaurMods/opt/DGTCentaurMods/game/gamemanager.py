@@ -695,11 +695,7 @@ def _reset_game():
             
         log.info("DEBUG: Detected starting position - triggering NEW_GAME")
         # Reset move-related state variables to prevent stale values from previous game/correction
-        sourcesq = -1
-        legalsquares = []
-        othersourcesq = -1
-        forcemove = 0
-        computermove = ""
+        resetMoveState()
         curturn = 1
         cboard = chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
         paths.write_fen_log(cboard.fen())
@@ -812,6 +808,33 @@ def setGameInfo(gi_event,gi_site,gi_round,gi_white,gi_black):
     gameinfo_round = gi_round
     gameinfo_white = gi_white
     gameinfo_black = gi_black
+
+def getBoard():
+    """Get the current chess board state."""
+    return cboard
+
+def getFEN():
+    """Get current board position as FEN string."""
+    return cboard.fen()
+
+def resetMoveState():
+    """Reset all move-related state variables (forcemove, computermove, sourcesq, legalsquares)."""
+    global forcemove, computermove, sourcesq, legalsquares, othersourcesq
+    forcemove = 0
+    computermove = ""
+    sourcesq = -1
+    legalsquares = []
+    othersourcesq = -1
+
+def resetBoard():
+    """Reset the chess board to starting position."""
+    global cboard
+    cboard.reset()
+
+def setBoard(board):
+    """Set the chess board state (primarily for testing)."""
+    global cboard
+    cboard = board
 
 def subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback = None):
     # Subscribe to the game manager

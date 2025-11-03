@@ -60,7 +60,7 @@ def keyCallback(key):
 	if key == gamemanager.board.Key.PLAY:
 		# Send the board state again (for cases where it doesn't seem to have sent)
 		board.beep(board.SOUND_GENERAL)
-		bs = gamemanager.cboard.fen()
+		bs = gamemanager.getFEN()
 		bs = bs.replace("/", "")
 		bs = bs.replace("1", ".")
 		bs = bs.replace("2", "..")
@@ -91,9 +91,9 @@ def eventCallback(event):
 		epaper.writeText(0,"New Game")
 		epaper.writeText(1,"               ")
 		curturn = 1
-		epaper.drawFen(gamemanager.cboard.fen())
+		epaper.drawFen(gamemanager.getFEN())
 		log.info("sending state")
-		bs = gamemanager.cboard.fen()
+		bs = gamemanager.getFEN()
 		bs = bs.replace("/", "")
 		bs = bs.replace("1", ".")
 		bs = bs.replace("2", "..")
@@ -137,13 +137,13 @@ def eventCallback(event):
 
 def moveCallback(move):
 	# This function receives valid moves made on the board
-	# Note: the board state is in python-chess object gamemanager.cboard
+	# Note: the board state is in python-chess object gamemanager.getBoard()
 	global client_sock
 	global sendstatewithoutrequest
-	epaper.drawFen(gamemanager.cboard.fen())
+	epaper.drawFen(gamemanager.getFEN())
 	epaper.writeText(9, move)
 	# Note at the moment chess for android asks to send status on any change, but there are other options TODO
-	bs = gamemanager.cboard.fen()
+	bs = gamemanager.getFEN()
 	bs = bs.replace("/", "")
 	bs = bs.replace("1", ".")
 	bs = bs.replace("2", "..")
@@ -298,7 +298,7 @@ while kill == 0:
 			if chr(cmd) == 'S':
 				# Status - essentially asks for the board state to be sent
 				client_sock.recv(2)
-				bs = gamemanager.cboard.fen()
+				bs = gamemanager.getFEN()
 				bs = bs.replace("/","")
 				bs = bs.replace("1",".")
 				bs = bs.replace("2", "..")
