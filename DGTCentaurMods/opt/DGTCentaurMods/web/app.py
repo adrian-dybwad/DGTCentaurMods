@@ -569,6 +569,75 @@ def parse_fen_to_board_string(fen):
         board = board.replace(str(num), " " * num)
     return board
 
+def paste_chess_piece(image, piece_char, piece_image, x_offset, y_offset, col, row, sqsize):
+    """
+    Pastes a chess piece image onto the board if the piece character matches.
+    
+    Args:
+        image: PIL Image to paste onto
+        piece_char: Character representing the piece ('r', 'b', 'n', 'q', 'k', 'p', or uppercase)
+        piece_image: PIL Image of the piece to paste
+        x_offset: X offset for board position
+        y_offset: Y offset for board position
+        col: Column (0-7)
+        row: Row (0-7)
+        sqsize: Size of each square
+    """
+    x_pos = x_offset + 18 + int(col * sqsize + 1)
+    y_pos = y_offset + 16 + int(row * sqsize + 1)
+    image.paste(piece_image, (x_pos, y_pos), piece_image)
+
+def draw_chess_board(draw, x_offset, y_offset, sqsize):
+    """
+    Draws a chess board background with alternating square colors.
+    
+    Args:
+        draw: PIL ImageDraw object
+        x_offset: X offset for board position
+        y_offset: Y offset for board position
+        sqsize: Size of each square
+    """
+    col = 229
+    xp = x_offset + 16
+    yp = y_offset + 16
+    for r in range(0, 8):
+        if r / 2 == r // 2:
+            col = 229
+        else:
+            col = 178
+        for c in range(0, 8):
+            draw.rectangle([(xp, yp), (xp + sqsize, yp + sqsize)], fill=(col, col, col), outline=(col, col, col))
+            xp = xp + sqsize
+            if col == 178:
+                col = 229
+            else:
+                col = 178
+        yp = yp + sqsize
+        xp = x_offset + 16
+
+def render_chess_pieces(image, curfen, piece_images, x_offset, y_offset, sqsize):
+    """
+    Renders chess pieces onto the board image based on FEN board string.
+    
+    Args:
+        image: PIL Image to render onto
+        curfen: Board string from FEN (64 characters)
+        piece_images: Dictionary mapping piece chars to PIL Images
+        x_offset: X offset for board position
+        y_offset: Y offset for board position
+        sqsize: Size of each square
+    """
+    row = 0
+    col = 0
+    for r in range(0, 64):
+        item = curfen[r]
+        if item in piece_images:
+            paste_chess_piece(image, item, piece_images[item], x_offset, y_offset, col, row, sqsize)
+        col = col + 1
+        if col == 8:
+            col = 0
+            row = row + 1
+
 def convert_menu_option(value):
     """
     Converts menu option from true/false to checked/unchecked.
@@ -660,6 +729,16 @@ def build_chess_game_from_id(session, game_id):
     
     return g
 
+def get_db_session():
+    """
+    Creates and returns a new database session.
+    
+    Returns:
+        SQLAlchemy session object
+    """
+    Session = sessionmaker(bind=models.engine)
+    return Session()
+
 def generate_pgn_string(game_id):
     """
     Generates a PGN string for a given game ID.
@@ -670,8 +749,7 @@ def generate_pgn_string(game_id):
     Returns:
         PGN string or None if game not found
     """
-    Session = sessionmaker(bind=models.engine)
-    session = Session()
+    session = get_db_session()
     try:
         g = build_chess_game_from_id(session, game_id)
         if not g:
@@ -756,8 +834,7 @@ def handle_preflight():
             
             # Depth 1: list PGN files
             if int(request.headers.get("Depth", 0)) == 1:
-                Session = sessionmaker(bind=models.engine)
-                session = Session()
+                session = get_db_session()
                 try:
                     gamedata = session.execute(
                         select(models.Game.created_at, models.Game.source, models.Game.event, 
@@ -782,8 +859,7 @@ def handle_preflight():
             
             if idnum is None:
                 return Response("", mimetype='text/plain', status=404)
-            Session = sessionmaker(bind=models.engine)
-            session = Session()
+            session = get_db_session()
             try:
                 gamedata = get_game_data_from_session(session, idnum)
                 if not gamedata:
@@ -1130,37 +1206,39 @@ def analyse(gameid):
 
 @app.route("/deletegame/<gameid>")
 def deletegame(gameid):
-    Session = sessionmaker(bind=models.engine)
-    session = Session()
-    stmt = delete(models.GameMove).where(models.GameMove.gameid == gameid)
-    session.execute(stmt)
-    stmt = delete(models.Game).where(models.Game.id == gameid)
-    session.execute(stmt)
-    session.commit()
-    session.close()
+    session = get_db_session()
+    try:
+        stmt = delete(models.GameMove).where(models.GameMove.gameid == gameid)
+        session.execute(stmt)
+        stmt = delete(models.Game).where(models.Game.id == gameid)
+        session.execute(stmt)
+        session.commit()
+    finally:
+        session.close()
     return "ok"
 
 @app.route("/getgames/<page>")
 def getGames(page):
     # Return batches of 10 games by listing games in reverse order
-    Session = sessionmaker(bind=models.engine)
-    session = Session()
-    gamedata = session.execute(
-        select(models.Game.created_at, models.Game.source, models.Game.event, models.Game.site, models.Game.round,
-               models.Game.white, models.Game.black, models.Game.result, models.Game.id).
-            order_by(models.Game.id.desc())
-    ).all()
-    t = (int(page) * 10) - 10
-    games = {}
+    session = get_db_session()
     try:
-        for x in range(0, 10):
-            if x + t < len(gamedata):
-                gameitem = build_gameitem_from_gamedata(gamedata[x + t])
-                games[x] = gameitem
-    except Exception:
-        pass
-    session.close()
-    return json.dumps(games)
+        gamedata = session.execute(
+            select(models.Game.created_at, models.Game.source, models.Game.event, models.Game.site, models.Game.round,
+                   models.Game.white, models.Game.black, models.Game.result, models.Game.id).
+                order_by(models.Game.id.desc())
+        ).all()
+        t = (int(page) * 10) - 10
+        games = {}
+        try:
+            for x in range(0, 10):
+                if x + t < len(gamedata):
+                    gameitem = build_gameitem_from_gamedata(gamedata[x + t])
+                    games[x] = gameitem
+        except Exception:
+            pass
+        return json.dumps(games)
+    finally:
+        session.close()
 
 @app.route("/engines")
 def engines():
@@ -1221,69 +1299,31 @@ if os.path.isfile(epaper_path):
 
 def generateVideoFrame():
     global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo, sc, moddate
+    piece_images = {
+        'r': rb, 'b': bb, 'n': nb, 'q': qb, 'k': kb, 'p': pb,
+        'R': rw, 'B': bw, 'N': nw, 'Q': qw, 'K': kw, 'P': pw
+    }
+    x_offset = 345
+    y_offset = 16
+    sqsize = 130.9
+    
     while True:
         curfen = parse_fen_to_board_string(paths.get_current_fen())
         image = Image.new(mode="RGBA", size=(1920, 1080), color=(255, 255, 255))
         draw = ImageDraw.Draw(image)
-        draw.rectangle([(345, 0), (345 + 1329 - 100, 1080)], fill=(33, 33, 33), outline=(33, 33, 33))
-        draw.rectangle([(345 + 9, 9), (345 + 1220 - 149, 1071)], fill=(225, 225, 225), outline=(225, 225, 225))
-        draw.rectangle([(345 + 12, 12), (345 + 1216 - 149, 1067)], fill=(33, 33, 33), outline=(33, 33, 33))
-        col = 229
-        xp = 345 + 16
-        yp = 16
-        sqsize = 130.9
-        for r in range(0, 8):
-            if r / 2 == r // 2:
-                col = 229
-            else:
-                col = 178
-            for c in range(0, 8):
-                draw.rectangle([(xp, yp), (xp + sqsize, yp + sqsize)], fill=(col, col, col), outline=(col, col, col))
-                xp = xp + sqsize
-                if col == 178:
-                    col = 229
-                else:
-                    col = 178
-            yp = yp + sqsize
-            xp = 345 + 16
-        row = 0
-        col = 0
-        for r in range(0, 64):
-            item = curfen[r]
-            if item == "r":
-                image.paste(rb, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), rb)
-            if item == "b":
-                image.paste(bb, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), bb)
-            if item == "n":
-                image.paste(nb, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), nb)
-            if item == "q":
-                image.paste(qb, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), qb)
-            if item == "k":
-                image.paste(kb, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), kb)
-            if item == "p":
-                image.paste(pb, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), pb)
-            if item == "R":
-                image.paste(rw, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), rw)
-            if item == "B":
-                image.paste(bw, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), bw)
-            if item == "N":
-                image.paste(nw, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), nw)
-            if item == "Q":
-                image.paste(qw, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), qw)
-            if item == "K":
-                image.paste(kw, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), kw)
-            if item == "P":
-                image.paste(pw, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), pw)
-            col = col + 1
-            if col == 8:
-                col = 0
-                row = row + 1
+        draw.rectangle([(x_offset, 0), (x_offset + 1329 - 100, 1080)], fill=(33, 33, 33), outline=(33, 33, 33))
+        draw.rectangle([(x_offset + 9, 9), (x_offset + 1220 - 149, 1071)], fill=(225, 225, 225), outline=(225, 225, 225))
+        draw.rectangle([(x_offset + 12, 12), (x_offset + 1216 - 149, 1067)], fill=(33, 33, 33), outline=(33, 33, 33))
+        
+        draw_chess_board(draw, x_offset, 0, sqsize)
+        render_chess_pieces(image, curfen, piece_images, x_offset, y_offset, sqsize)
+        
         newmoddate = os.stat(paths.get_epaper_static_jpg_path())[8]
         if newmoddate != moddate:
             sc = Image.open(paths.get_epaper_static_jpg_path())
             moddate = newmoddate
-        image.paste(sc, (345 + 1216 - 130, 635))
-        image.paste(logo, (345 + 1216 - 130, 0), logo)
+        image.paste(sc, (x_offset + 1216 - 130, 635))
+        image.paste(logo, (x_offset + 1216 - 130, 0), logo)
         output = io.BytesIO()
         image = image.convert("RGB")
         image.save(output, "JPEG", quality=30)
@@ -1298,75 +1338,32 @@ def video_feed():
     return Response(generateVideoFrame(),mimetype='multipart/x-mixed-replace; boundary=frame')
 
 def fenToImage(fen):
-    global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo, sc, moddate
+    global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo
+    piece_images = {
+        'r': rb, 'b': bb, 'n': nb, 'q': qb, 'k': kb, 'p': pb,
+        'R': rw, 'B': bw, 'N': nw, 'Q': qw, 'K': kw, 'P': pw
+    }
     curfen = parse_fen_to_board_string(fen)
     image = Image.new(mode="RGBA", size=(1200, 1080), color=(255, 255, 255))
     draw = ImageDraw.Draw(image)
     draw.rectangle([(0, 0), (1329 - 100, 1080)], fill=(33, 33, 33), outline=(33, 33, 33))
     draw.rectangle([(9, 9), (1220 - 149, 1071)], fill=(225, 225, 225), outline=(225, 225, 225))
     draw.rectangle([(12, 12), (1216 - 149, 1067)], fill=(33, 33, 33), outline=(33, 33, 33))
-    col = 229
-    xp = 16
-    yp = 16
+    
+    x_offset = 0
+    y_offset = 16
     sqsize = 130.9
-    for r in range(0, 8):
-        if r / 2 == r // 2:
-            col = 229
-        else:
-            col = 178
-        for c in range(0, 8):
-            draw.rectangle([(xp, yp), (xp + sqsize, yp + sqsize)], fill=(col, col, col), outline=(col, col, col))
-            xp = xp + sqsize
-            if col == 178:
-                col = 229
-            else:
-                col = 178
-        yp = yp + sqsize
-        xp = 16
-    row = 0
-    col = 0
-    for r in range(0, 64):
-        item = curfen[r]
-        if item == "r":
-            image.paste(rb, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), rb)
-        if item == "b":
-            image.paste(bb, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), bb)
-        if item == "n":
-            image.paste(nb, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), nb)
-        if item == "q":
-            image.paste(qb, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), qb)
-        if item == "k":
-            image.paste(kb, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), kb)
-        if item == "p":
-            image.paste(pb, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), pb)
-        if item == "R":
-            image.paste(rw, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), rw)
-        if item == "B":
-            image.paste(bw, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), bw)
-        if item == "N":
-            image.paste(nw, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), nw)
-        if item == "Q":
-            image.paste(qw, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), qw)
-        if item == "K":
-            image.paste(kw, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), kw)
-        if item == "P":
-            image.paste(pw, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), pw)
-        col = col + 1
-        if col == 8:
-            col = 0
-            row = row + 1
+    draw_chess_board(draw, x_offset, 0, sqsize)
+    render_chess_pieces(image, curfen, piece_images, x_offset, y_offset, sqsize)
     
     image.paste(logo, (1216 - 145, 0), logo)
-    #output = io.BytesIO()
-    #image = image.convert("RGB")  
-    image = image.resize((400,360))  
+    image = image.resize((400, 360))
     return image
 
 @app.route("/getgif/<gameid>")
 def getgif(gameid):
     # Export a GIF animation of the specified game
-    Session = sessionmaker(bind=models.engine)
-    session = Session()
+    session = get_db_session()
     try:
         g = build_chess_game_from_id(session, int(gameid))
         if not g:
