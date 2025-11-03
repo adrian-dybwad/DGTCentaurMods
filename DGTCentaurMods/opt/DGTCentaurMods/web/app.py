@@ -91,11 +91,33 @@ def verify_webdav_authentication():
     try:
         # Decode Basic Auth credentials
         encoded_credentials = auth_header[6:]  # Remove "Basic "
-        decoded_credentials = base64.b64decode(encoded_credentials).decode("utf-8")
+        app.logger.debug(f"WebDAV auth: Encoded credentials length: {len(encoded_credentials)}")
+        
+        # Decode base64
+        try:
+            decoded_bytes = base64.b64decode(encoded_credentials, validate=True)
+            decoded_credentials = decoded_bytes.decode("utf-8")
+            app.logger.debug(f"WebDAV auth: Decoded credentials length: {len(decoded_credentials)}")
+        except Exception as e:
+            app.logger.warning(f"WebDAV auth: Base64 decode failed: {e}, header preview: {auth_header[:50]}")
+            return (False, None)
+        
+        # Split username and password
+        if ":" not in decoded_credentials:
+            app.logger.warning(f"WebDAV auth: No colon in decoded credentials, full value: '{decoded_credentials[:100]}'")
+            return (False, None)
+        
         username, password = decoded_credentials.split(":", 1)
-        app.logger.debug(f"WebDAV auth: Attempting authentication for user '{username}'")
+        username = username.strip()
+        password = password.strip()
+        
+        if not username:
+            app.logger.warning(f"WebDAV auth: Empty username after decode")
+            return (False, None)
+        
+        app.logger.debug(f"WebDAV auth: Attempting authentication for user '{username}' (password length: {len(password)})")
     except Exception as e:
-        app.logger.debug(f"WebDAV auth: Failed to decode credentials: {e}")
+        app.logger.warning(f"WebDAV auth: Failed to decode credentials: {e}, header preview: {auth_header[:100]}")
         return (False, None)
     
     # Verify user exists in system
