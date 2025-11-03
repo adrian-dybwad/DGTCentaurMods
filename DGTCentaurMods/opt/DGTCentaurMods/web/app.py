@@ -40,10 +40,16 @@ import json
 import urllib.parse
 import base64
 import pwd
-import spwd
 import crypt
 from xml.sax.saxutils import escape
 from DGTCentaurMods.config import paths
+
+# Conditionally import spwd (shadow password support)
+try:
+    import spwd
+    HAS_SPWD = True
+except ImportError:
+    HAS_SPWD = False
 
 app = Flask(__name__)
 app.config['UCI_UPLOAD_EXTENSIONS'] = ['.txt']
@@ -84,20 +90,30 @@ def verify_webdav_authentication():
     
     # Verify password
     try:
-        # Try shadow password first
-        try:
-            spwd_entry = spwd.getspnam(username)
-            hashed_password = spwd_entry.sp_pwd
-        except (KeyError, PermissionError):
-            # Fall back to regular password database if shadow not accessible
+        hashed_password = None
+        
+        # Try shadow password first if available
+        if HAS_SPWD:
+            try:
+                spwd_entry = spwd.getspnam(username)
+                hashed_password = spwd_entry.sp_pwd
+            except (KeyError, PermissionError, OSError):
+                # Shadow password not accessible, fall through to regular password
+                pass
+        
+        # Fall back to regular password database if shadow not available or accessible
+        if hashed_password is None:
             hashed_password = pwd_entry.pw_passwd
             # If password hash is 'x', it means password is in shadow file
-            # and we don't have access, so deny
+            # and we don't have access - if spwd is not available, deny access
             if hashed_password == 'x':
+                if not HAS_SPWD:
+                    return (False, None)
+                # If spwd is available but still got 'x', we couldn't access shadow
                 return (False, None)
         
         # Empty password hash means no password set - deny for security
-        if not hashed_password:
+        if not hashed_password or hashed_password == '*':
             return (False, None)
         
         # Verify password using crypt
