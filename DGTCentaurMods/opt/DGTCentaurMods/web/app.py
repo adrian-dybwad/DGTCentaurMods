@@ -59,11 +59,20 @@ except ImportError:
     HAS_SPWD = False
 
 # Try to import PAM for authentication (alternative to crypt/spwd)
+HAS_PAM = False
 try:
     import pam
     HAS_PAM = True
-except ImportError:
-    HAS_PAM = False
+except ImportError as e:
+    try:
+        # Some systems may have it as PAM (uppercase)
+        import PAM as pam
+        HAS_PAM = True
+    except ImportError:
+        # Log to stderr so it's visible at startup
+        import sys
+        print(f"Warning: PAM module not available: {e}. Install with: sudo apt-get install python3-pam", file=sys.stderr)
+        HAS_PAM = False
 
 app = Flask(__name__)
 app.config['UCI_UPLOAD_EXTENSIONS'] = ['.txt']
@@ -196,13 +205,16 @@ def verify_webdav_authentication():
                         app.logger.debug(f"WebDAV auth: Password in shadow but cannot access, will try subprocess fallback")
                         hashed_password = None  # Set to None to skip crypt verification and use subprocess
             
-            # Empty password hash means no password set - deny for security
-            if not hashed_password or hashed_password == '*':
-                app.logger.debug(f"WebDAV auth: No password set for user '{username}', denying")
-                return (False, None)
+            # Only check for empty/disabled passwords if hashed_password is not None
+            # (None means we're skipping crypt verification to use subprocess fallback)
+            if hashed_password is not None:
+                # Empty password hash means no password set - deny for security
+                if not hashed_password or hashed_password == '*':
+                    app.logger.debug(f"WebDAV auth: No password set for user '{username}', denying")
+                    return (False, None)
             
-            # Use crypt module if available
-            if HAS_CRYPT:
+            # Use crypt module if available (and hashed_password is not None)
+            if HAS_CRYPT and hashed_password is not None:
                 try:
                     if hashed_password.startswith('$'):
                         # Modern crypt format (SHA-256, SHA-512, etc.)
