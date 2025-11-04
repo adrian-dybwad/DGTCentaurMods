@@ -172,6 +172,11 @@ start = time.time()
 # Start pairing thread using shared BluetoothManager
 pairThread = BluetoothManager.start_pairing_thread()
 
+# Ensure Bluetooth is enabled and discoverable BEFORE advertising service
+# This is critical for Android devices to discover the service
+BluetoothManager.ensure_bluetooth_enabled()
+BluetoothManager.keep_discoverable("MILLENNIUM CHESS")
+
 # Kill rfcomm if it is started
 os.system('sudo service rfcomm stop')
 time.sleep(2)

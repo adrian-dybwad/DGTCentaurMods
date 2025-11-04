@@ -199,6 +199,11 @@ class BluetoothManager:
         import threading
         
         def pair_loop():
+            # Keep device discoverable from the start, not just after pairing
+            # This ensures Android devices can discover the service during scanning
+            cls.keep_discoverable("MILLENNIUM CHESS")
+            last_discoverable_check = time.time()
+            
             while True:
                 paired = cls.start_pairing(timeout=0)  # Run indefinitely
                 if paired:
@@ -227,6 +232,11 @@ class BluetoothManager:
                             break
                 else:
                     # Pairing failed or timed out - restart quickly
+                    # Keep device discoverable during retry
+                    current_time = time.time()
+                    if current_time - last_discoverable_check > 30:
+                        cls.keep_discoverable("MILLENNIUM CHESS")
+                        last_discoverable_check = current_time
                     time.sleep(0.1)
         
         thread = threading.Thread(target=pair_loop, daemon=True)
