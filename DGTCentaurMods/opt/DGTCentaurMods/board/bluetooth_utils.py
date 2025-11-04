@@ -83,6 +83,37 @@ class BluetoothManager:
         BluetoothManager._safe_terminate(p)
     
     @staticmethod
+    def keep_discoverable(device_name: str = "Millennium ChessLink"):
+        """
+        Keep Bluetooth device discoverable and set device name.
+        This is needed for applications like Hiarcs to find the service after pairing.
+        
+        Args:
+            device_name: Name to set for the Bluetooth device
+        """
+        try:
+            p = subprocess.Popen(
+                ['/usr/bin/bluetoothctl'],
+                stdout=subprocess.PIPE,
+                stdin=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+                shell=True
+            )
+            p.stdin.write("power on\n")
+            p.stdin.flush()
+            p.stdin.write(f"system-alias {device_name}\n")
+            p.stdin.flush()
+            p.stdin.write("discoverable on\n")
+            p.stdin.flush()
+            p.stdin.write("pairable on\n")
+            p.stdin.flush()
+            time.sleep(2)
+            BluetoothManager._safe_terminate(p)
+        except Exception as e:
+            log.debug(f"Error keeping Bluetooth discoverable: {e}")
+    
+    @staticmethod
     def get_pin_conf_path() -> Optional[str]:
         """Find pin.conf file in standard locations"""
         for path in BluetoothManager.PIN_CONF_PATHS:
@@ -173,9 +204,17 @@ class BluetoothManager:
                 if paired:
                     # Pairing succeeded - bt-agent is still running
                     # Check periodically if it's still running, only restart if it exits
-                    log.info("Pairing succeeded, monitoring bt-agent status")
+                    # Also keep device discoverable so applications like Hiarcs can find it
+                    log.info("Pairing succeeded, monitoring bt-agent status and keeping discoverable")
+                    last_discoverable_check = 0
                     while True:
                         time.sleep(10)  # Check every 10 seconds
+                        # Keep device discoverable every 30 seconds
+                        current_time = time.time()
+                        if current_time - last_discoverable_check > 30:
+                            cls.keep_discoverable("Millennium ChessLink")
+                            last_discoverable_check = current_time
+                        
                         bt_agent_running = False
                         for p in psutil.process_iter(attrs=['pid', 'name']):
                             if "bt-agent" in p.info["name"]:
