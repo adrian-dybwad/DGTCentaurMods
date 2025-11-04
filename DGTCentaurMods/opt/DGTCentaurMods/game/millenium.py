@@ -408,16 +408,12 @@ while kill == 0:
 							((r + 2) * 8) + t] == 4:
 							centaurpattern[((r + 1) * 8) + t] = 0
 				board.ledsOff()
-				trigger = 0
-				tosend = bytearray(b'\xb0\x00\x0c' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1,byteorder='big') + b'\x05\x05\x00\x05')
+				ledfields = []
 				for x in range(0, 64):
 					if centaurpattern[x] > 0:
-						trigger = 1
-						tosend.append(board.rotateField(x))
-				if trigger == 1:
-					tosend[2] = len(tosend) + 1
-					tosend.append(board.checksum(tosend))
-					board.ser.write(tosend)
+						ledfields.append(x)
+				if len(ledfields) > 0:
+					board.ledArray(ledfields, speed=5, intensity=5)
 				sendMilleniumCommand("l")
 				handled = 1
 			if chr(cmd) == 'T':
