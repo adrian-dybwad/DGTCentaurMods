@@ -83,7 +83,7 @@ class BluetoothManager:
         BluetoothManager._safe_terminate(p)
     
     @staticmethod
-    def keep_discoverable(device_name: str = "Millennium ChessLink"):
+    def keep_discoverable(device_name: str = "MILLENNIUM CHESS"):
         """
         Keep Bluetooth device discoverable and set device name.
         This is needed for applications like Hiarcs to find the service after pairing.
@@ -207,14 +207,14 @@ class BluetoothManager:
                     # Also keep device discoverable so applications like Hiarcs can find it
                     log.info("Pairing succeeded, monitoring bt-agent status and keeping discoverable")
                     # Set discoverable immediately after pairing
-                    cls.keep_discoverable("Millennium ChessLink")
+                    cls.keep_discoverable("MILLENNIUM CHESS")
                     last_discoverable_check = time.time()
                     while True:
                         time.sleep(10)  # Check every 10 seconds
                         # Keep device discoverable every 30 seconds
                         current_time = time.time()
                         if current_time - last_discoverable_check > 30:
-                            cls.keep_discoverable("Millennium ChessLink")
+                            cls.keep_discoverable("MILLENNIUM CHESS")
                             last_discoverable_check = current_time
                         
                         bt_agent_running = False
