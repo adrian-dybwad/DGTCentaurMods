@@ -16,6 +16,46 @@ class BluetoothManager:
     ]
     
     @staticmethod
+    def _safe_terminate(p):
+        """
+        Safely terminate a subprocess by closing pipes before termination.
+        
+        Args:
+            p: subprocess.Popen object to terminate
+        """
+        try:
+            # Close stdin if it exists and isn't already closed
+            if p.stdin and not p.stdin.closed:
+                try:
+                    p.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
+            
+            # Close stdout if it exists and isn't already closed
+            if p.stdout and not p.stdout.closed:
+                try:
+                    p.stdout.close()
+                except (BrokenPipeError, OSError):
+                    pass
+            
+            # Terminate the process
+            p.terminate()
+            
+            # Wait for process to exit (with timeout)
+            try:
+                p.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                # Force kill if it doesn't terminate gracefully
+                try:
+                    p.kill()
+                    p.wait(timeout=1)
+                except (subprocess.TimeoutExpired, ProcessLookupError):
+                    pass
+        except (ProcessLookupError, ValueError):
+            # Process already terminated or invalid
+            pass
+    
+    @staticmethod
     def kill_bt_agent():
         """Kill any running bt-agent processes"""
         for p in psutil.process_iter(attrs=['pid', 'name']):
@@ -40,7 +80,7 @@ class BluetoothManager:
         p.stdin.write("pairable on\n")
         p.stdin.flush()
         time.sleep(4)
-        p.terminate()
+        BluetoothManager._safe_terminate(p)
     
     @staticmethod
     def get_pin_conf_path() -> Optional[str]:
@@ -89,7 +129,7 @@ class BluetoothManager:
         while running:
             # Check timeout
             if timeout > 0 and time.time() - start_time > timeout:
-                p.terminate()
+                cls._safe_terminate(p)
                 return False
             
             poll_result = poll_obj.poll(0)
@@ -99,7 +139,9 @@ class BluetoothManager:
                     p.stdin.write(b'yes\n')
                     time.sleep(1)
                 else:
-                    p.terminate()
+                    # Pairing succeeded - don't terminate bt-agent, let it keep running
+                    # The RFCOMM connection needs bt-agent to stay active
+                    log.info("Pairing completed successfully, bt-agent will remain running")
                     return True
             
             if poll_result and not spamyes:
@@ -127,8 +169,24 @@ class BluetoothManager:
         
         def pair_loop():
             while True:
-                cls.start_pairing(timeout=0)  # Run indefinitely
-                time.sleep(0.1)
+                paired = cls.start_pairing(timeout=0)  # Run indefinitely
+                if paired:
+                    # Pairing succeeded - bt-agent is still running
+                    # Check periodically if it's still running, only restart if it exits
+                    log.info("Pairing succeeded, monitoring bt-agent status")
+                    while True:
+                        time.sleep(10)  # Check every 10 seconds
+                        bt_agent_running = False
+                        for p in psutil.process_iter(attrs=['pid', 'name']):
+                            if "bt-agent" in p.info["name"]:
+                                bt_agent_running = True
+                                break
+                        if not bt_agent_running:
+                            log.info("bt-agent exited, restarting pairing")
+                            break
+                else:
+                    # Pairing failed or timed out - restart quickly
+                    time.sleep(0.1)
         
         thread = threading.Thread(target=pair_loop, daemon=True)
         thread.start()
