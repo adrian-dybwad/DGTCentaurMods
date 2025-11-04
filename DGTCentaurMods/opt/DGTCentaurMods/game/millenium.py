@@ -201,9 +201,6 @@ bluetooth.advertise_service(server_sock, "UARTClassicServer", service_id=uuid,
                             # protocols=[bluetooth.OBEX_UUID]
                             )
 
-# Subscribe to board events early so BACK button works during Bluetooth wait
-board.subscribeEvents(keyCallback, None, timeout=100000)
-
 log.info(f"Waiting for connection on RFCOMM channel {port}")
 connected = 0
 while connected == 0 and kill == 0:
