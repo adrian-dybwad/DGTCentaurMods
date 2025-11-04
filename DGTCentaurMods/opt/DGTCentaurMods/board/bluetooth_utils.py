@@ -199,6 +199,11 @@ class BluetoothManager:
         import threading
         
         def pair_loop():
+            # Small delay to ensure bt-agent has started from start_pairing() before
+            # we call keep_discoverable(). This prevents bluetoothctl commands from
+            # interfering with bt-agent's initial pairing setup
+            time.sleep(2.5)
+            
             # Keep device discoverable from the start, not just after pairing
             # This ensures Android devices can discover the service during scanning
             cls.keep_discoverable("MILLENNIUM CHESS")
@@ -237,7 +242,7 @@ class BluetoothManager:
                     if current_time - last_discoverable_check > 30:
                         cls.keep_discoverable("MILLENNIUM CHESS")
                         last_discoverable_check = current_time
-                    time.sleep(0.1)
+                time.sleep(0.1)
         
         thread = threading.Thread(target=pair_loop, daemon=True)
         thread.start()
