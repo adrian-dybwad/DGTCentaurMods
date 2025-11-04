@@ -104,6 +104,8 @@ class BluetoothManager:
             p.stdin.flush()
             p.stdin.write(f"system-alias {device_name}\n")
             p.stdin.flush()
+            # Use discoverable on with timeout 0 for indefinite discoverability
+            # This ensures iPhone can discover the device throughout the pairing window
             p.stdin.write("discoverable on\n")
             p.stdin.flush()
             p.stdin.write("pairable on\n")
@@ -135,9 +137,6 @@ class BluetoothManager:
         """
         cls.kill_bt_agent()
         cls.ensure_bluetooth_enabled()
-        # Set device name and maintain discoverability for iPhone discovery
-        # iPhone needs the device name set to recognize it in scan results
-        cls.keep_discoverable("MILLENNIUM CHESS")
         
         pin_conf = cls.get_pin_conf_path()
         if not pin_conf:
