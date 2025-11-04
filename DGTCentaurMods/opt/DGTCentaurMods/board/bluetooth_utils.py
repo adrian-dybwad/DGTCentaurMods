@@ -135,6 +135,9 @@ class BluetoothManager:
         """
         cls.kill_bt_agent()
         cls.ensure_bluetooth_enabled()
+        # Set device name and maintain discoverability for iPhone discovery
+        # iPhone needs the device name set to recognize it in scan results
+        cls.keep_discoverable("MILLENNIUM CHESS")
         
         pin_conf = cls.get_pin_conf_path()
         if not pin_conf:
