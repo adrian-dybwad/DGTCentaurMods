@@ -159,8 +159,8 @@ def moveCallback(move):
 	log.info("sending status on change")
 	sendMilleniumCommand(resp)
 
-# Import shared Bluetooth manager
-from DGTCentaurMods.board.bluetooth_utils import BluetoothManager
+# Import shared Bluetooth controller
+from DGTCentaurMods.board.bluetooth_controller import BluetoothController
 
 # Activate the epaper
 epaper.initEpaper()
@@ -169,8 +169,9 @@ epaper.writeText(0,'Connect remote')
 epaper.writeText(1,'Device Now')
 start = time.time()
 
-# Start pairing thread using shared BluetoothManager
-pairThread = BluetoothManager.start_pairing_thread()
+# Create Bluetooth controller instance and start pairing thread
+bluetooth_controller = BluetoothController()
+pairThread = bluetooth_controller.start_pairing_thread()
 
 # Small delay to let bt-agent initialize before other operations
 # The pairing thread will handle discoverability through its own mechanisms

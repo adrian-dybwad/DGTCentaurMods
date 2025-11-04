@@ -1125,13 +1125,14 @@ def pieceMoveDetectionThread():
 		except:
 			pass
 
-# Import shared Bluetooth manager
-from DGTCentaurMods.board.bluetooth_utils import BluetoothManager
+# Import shared Bluetooth controller
+from DGTCentaurMods.board.bluetooth_controller import BluetoothController
 
 drawCurrentBoard()
 
-# Start pairing thread using shared BluetoothManager
-pairThread = BluetoothManager.start_pairing_thread()
+# Create Bluetooth controller instance and start pairing thread
+bluetooth_controller = BluetoothController()
+pairThread = bluetooth_controller.start_pairing_thread()
 
 # Kill rfcomm if it is started
 os.system('sudo service rfcomm stop')

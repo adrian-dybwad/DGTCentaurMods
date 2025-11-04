@@ -412,7 +412,7 @@ def bluetooth_pairing():
     Returns:
         bool: True if device paired successfully, False on timeout
     """
-    from DGTCentaurMods.board.bluetooth_utils import BluetoothManager
+    from DGTCentaurMods.board.bluetooth_controller import BluetoothController
     
     epaper.clearScreen()
     epaper.writeText(0, "Pair Now use")
@@ -425,8 +425,9 @@ def bluetooth_pairing():
         """Callback when pairing device is detected"""
         epaper.writeText(8, "Pairing...")
     
-    # Start pairing with 60 second timeout
-    paired = BluetoothManager.start_pairing(
+    # Create Bluetooth controller instance and start pairing with 60 second timeout
+    bluetooth_controller = BluetoothController()
+    paired = bluetooth_controller.start_pairing(
         timeout=60, 
         on_device_detected=on_device_detected
     )
