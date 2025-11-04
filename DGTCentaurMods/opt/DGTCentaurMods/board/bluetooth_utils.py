@@ -206,7 +206,9 @@ class BluetoothManager:
                     # Check periodically if it's still running, only restart if it exits
                     # Also keep device discoverable so applications like Hiarcs can find it
                     log.info("Pairing succeeded, monitoring bt-agent status and keeping discoverable")
-                    last_discoverable_check = 0
+                    # Set discoverable immediately after pairing
+                    cls.keep_discoverable("Millennium ChessLink")
+                    last_discoverable_check = time.time()
                     while True:
                         time.sleep(10)  # Check every 10 seconds
                         # Keep device discoverable every 30 seconds
