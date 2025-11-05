@@ -119,7 +119,8 @@ def bt_to_serial():
                 # Read from Bluetooth
                 data = bt.recv(1024)
                 if len(data) > 0:
-                    log.debug(f"BT -> Serial: {len(data)} bytes {data.hex()}")
+                    data = bytearray(data)
+                    log.debug(f"BT -> Serial: {len(data)} {' '.join(f'{b:02x}' for b in data)}")
                     # Write to serial
                     ser.write(data)
                     ser.flush()
@@ -142,7 +143,8 @@ def serial_to_bt():
                 # Read from serial
                 data = ser.read(1024)
                 if len(data) > 0:
-                    log.debug(f"Serial -> BT: {len(data)} bytes {data.hex()}")
+                    data = bytearray(data)
+                    log.debug(f"Serial -> BT: {len(data)} {' '.join(f'{b:02x}' for b in data)}")
                     # Write to Bluetooth
                     bt.send(data)
             except Exception as e:
