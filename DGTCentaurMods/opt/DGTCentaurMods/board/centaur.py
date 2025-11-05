@@ -127,8 +127,20 @@ class UpdateSystem:
         log.debug('Policy: ' + self.getPolicy())
 
     def getInstalledVersion(self):
-        version = os.popen("dpkg -l | grep dgtcentaurmods | tr -s ' ' | cut -d' ' -f3").read().strip()
-        return version
+        # Use subprocess.run for proper resource cleanup
+        result = subprocess.run(
+            ["dpkg", "-l"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if 'dgtcentaurmods' in line:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        return parts[2].strip()
+        return ""
 
     def checkForUpdate(self):
         channel = self.getChannel()

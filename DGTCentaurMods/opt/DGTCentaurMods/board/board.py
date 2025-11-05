@@ -477,6 +477,7 @@ def rotateFieldHex(fieldHex):
 # This section is the start of a new way of working with the board functions where those functions are
 # the board returning some kind of data
 import threading
+import subprocess
 eventsthreadpointer = ""
 eventsrunning = 1
 
@@ -484,8 +485,17 @@ def temp():
     '''
     Get CPU temperature
     '''
-    temp = os.popen("vcgencmd measure_temp | cut -d'=' -f2").read().strip()
-    return temp
+    # Use subprocess.run for proper resource cleanup
+    result = subprocess.run(
+        ["vcgencmd", "measure_temp"],
+        capture_output=True,
+        text=True,
+        timeout=2
+    )
+    if result.returncode == 0 and result.stdout:
+        temp = result.stdout.split('=')[1].strip()
+        return temp
+    return ""
 
 def eventsThread(keycallback, fieldcallback, tout):
     # This monitors the board for events

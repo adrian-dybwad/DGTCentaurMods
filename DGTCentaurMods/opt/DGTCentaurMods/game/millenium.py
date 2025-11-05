@@ -208,13 +208,23 @@ bluetooth.advertise_service(server_sock, "UARTClassicServer", service_id=uuid,
 
 log.info(f"Waiting for connection on RFCOMM channel {port}")
 connected = 0
-while connected == 0 and kill == 0:
+client_sock = None
+try:
+	while connected == 0 and kill == 0:
+		try:
+			client_sock, client_info = server_sock.accept()
+			connected = 1
+		except:
+			# Key events are handled via keyCallback registered above
+			time.sleep(0.1)
+except Exception:
+	# Clean up server socket on error
 	try:
-		client_sock, client_info = server_sock.accept()
-		connected = 1
-	except:
-		# Key events are handled via keyCallback registered above
-		time.sleep(0.1)
+		if server_sock is not None:
+			server_sock.close()
+	except Exception:
+		pass
+	raise
 
 # Subscribe to the game manager to activate the previous functions
 if kill == 0:
@@ -481,8 +491,12 @@ while True == False:
 				if excount > 3:
 					kill = 1
 
-	bt.close()
-	log.info(bt.is_open)
+	# Ensure Bluetooth socket is properly closed
+	try:
+		if bt is not None and hasattr(bt, 'close'):
+			bt.close()
+	except Exception:
+		pass
 	log.info("killing rfcomm")
 	for p in psutil.process_iter(attrs=['pid', 'name']):
 		if str(p.info["name"]) == "rfcomm":
@@ -513,6 +527,12 @@ while True == False:
 	while True:
 		time.sleep(0.1)
 		try:
+			# Ensure previous connection is closed before creating new one
+			if bt is not None and hasattr(bt, 'close') and hasattr(bt, 'is_open') and bt.is_open:
+				try:
+					bt.close()
+				except Exception:
+					pass
 			bt = serial.Serial("/dev/rfcomm0",baudrate=38400,timeout=60)
 			break
 		except:

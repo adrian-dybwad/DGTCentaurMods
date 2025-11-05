@@ -105,6 +105,7 @@ import select
 import bluetooth
 import subprocess
 import psutil
+import atexit
 from DGTCentaurMods.board.logging import log
 
 source = ""
@@ -202,6 +203,7 @@ PIECE3 = 0x0f  # Magic piece: Black win
 cboard = bytearray([EMPTY] * 64)
 boardhistory = []
 turnhistory = []
+MAX_BOARDHISTORY_SIZE = 100  # Maximum number of board states to prevent memory leak
 litsquares = []
 startstate = bytearray(b'\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01')
 
@@ -272,6 +274,10 @@ buffer1=bytearray([EMPTY] * 64)
 buffer1[:] = cboard
 boardhistory.append(buffer1)
 turnhistory.append(1)
+# Limit boardhistory size to prevent memory leak
+if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
+	boardhistory.pop(0)
+	turnhistory.pop(0)
 board.ledsOff()
 
 # Here we are emulating power on so push into the pretend eeprom
@@ -527,6 +533,10 @@ def pieceMoveDetectionThread():
 									buffer1[:] = cboard
 									boardhistory.append(buffer1)
 									turnhistory.append(curturn)
+									# Limit boardhistory size to prevent memory leak
+									if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
+										boardhistory.pop(0)
+										turnhistory.pop(0)
 									EEPROM.append(EMPTY + 64)
 									EEPROM.append(field)
 									if item == WKING or item == BKING:
@@ -659,6 +669,10 @@ def pieceMoveDetectionThread():
 											buffer1[:] = cboard
 											boardhistory.append(buffer1)
 											turnhistory.append(curturn)
+											# Limit boardhistory size to prevent memory leak
+											if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
+												boardhistory.pop(0)
+												turnhistory.pop(0)
 											EEPROM.append(EMPTY + 64)
 											EEPROM.append(field - 8)
 									if lastlift == BPAWN and field >=16 and field <= 23:
@@ -678,6 +692,10 @@ def pieceMoveDetectionThread():
 											buffer1[:] = cboard
 											boardhistory.append(buffer1)
 											turnhistory.append(curturn)
+											# Limit boardhistory size to prevent memory leak
+											if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
+												boardhistory.pop(0)
+												turnhistory.pop(0)
 											EEPROM.append(EMPTY + 64)
 											EEPROM.append(field + 8)
 									cboard[field] = lastlift
@@ -696,6 +714,10 @@ def pieceMoveDetectionThread():
 									buffer1[:] = cboard
 									boardhistory.append(buffer1)
 									turnhistory.append(curturn)
+									# Limit boardhistory size to prevent memory leak
+									if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
+										boardhistory.pop(0)
+										turnhistory.pop(0)
 									EEPROM.append(lastlift + 64)
 									EEPROM.append(field)
 									if lastfield != field:
@@ -902,6 +924,10 @@ def pieceMoveDetectionThread():
 					buffer1[:] = cboard
 					boardhistory.append(buffer1)
 					turnhistory.append(1)
+					# Limit boardhistory size to prevent memory leak
+					if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
+						boardhistory.pop(0)
+						turnhistory.pop(0)
 					for x in range(0,64):
 						tosend = bytearray(b'')
 						tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
@@ -1183,6 +1209,12 @@ while connected == 0 and kill == 0:
 		time.sleep(0.1)
 
 if kill == 1:
+	# Clean up database session before exit
+	if session is not None:
+		try:
+			session.close()
+		except Exception:
+			pass
 	os._exit(0)
 
 log.info("Connected")
@@ -1198,6 +1230,18 @@ board.ledsOff()
 source = "eboard.py"
 Session = sessionmaker(bind=models.engine)
 session = Session()
+
+# Register cleanup function to ensure session is closed on exit
+def cleanup_session():
+	"""Ensure database session is closed on program exit."""
+	global session
+	if session is not None:
+		try:
+			session.close()
+		except Exception:
+			pass
+
+atexit.register(cleanup_session)
 
 # Log a new game in the db
 game = models.Game(

@@ -531,8 +531,14 @@ def connect_to_wifi(ssid, password):
     
     try:
         # Generate wpa_supplicant network block
-        cmd = f"""sudo sh -c "wpa_passphrase '{ssid}' '{password}'" """
-        section = os.popen(cmd).read()
+        # Use subprocess.run for proper resource cleanup
+        result = subprocess.run(
+            ["sudo", "sh", "-c", f"wpa_passphrase '{ssid}' '{password}'"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        section = result.stdout if result.returncode == 0 else ""
         
         if "ssid" not in section:
             log.error("Failed to generate network configuration")
@@ -1138,9 +1144,21 @@ while True:
         selection = ""
         epaper.clearScreen()
         statusbar.print()
-        version = os.popen(
-            "dpkg -l | grep dgtcentaurmods | tr -s ' ' | cut -d' ' -f3"
-        ).read()
+        # Use subprocess.run for proper resource cleanup
+        result = subprocess.run(
+            ["dpkg", "-l"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        version = ""
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if 'dgtcentaurmods' in line:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        version = parts[2]
+                        break
         epaper.writeText(1, "Get support:")
         epaper.writeText(9, "DGTCentaur")
         epaper.writeText(10, "      Mods")

@@ -48,6 +48,15 @@ def shell_run(rcmd):
 
 
 def temp():
-    temp = os.popen("vcgencmd measure_temp | cut -d'=' -f2").read().strip()
-    return temp
+    # Use subprocess.run for proper resource cleanup
+    result = subprocess.run(
+        ["vcgencmd", "measure_temp"],
+        capture_output=True,
+        text=True,
+        timeout=2
+    )
+    if result.returncode == 0 and result.stdout:
+        temp = result.stdout.split('=')[1].strip()
+        return temp
+    return ""
             

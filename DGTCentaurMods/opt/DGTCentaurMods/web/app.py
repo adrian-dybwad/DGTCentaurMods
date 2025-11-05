@@ -199,6 +199,7 @@ def verify_webdav_authentication():
     # Final fallback: use subprocess to verify via system authentication
     # This is less reliable as su may require TTY
     if not password_valid:
+        proc = None
         try:
             # Use expect-like approach via subprocess
             proc = subprocess.Popen(
@@ -214,6 +215,27 @@ def verify_webdav_authentication():
                 password_valid = True
         except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError, OSError):
             pass
+        finally:
+            # Ensure subprocess resources are cleaned up
+            if proc is not None:
+                try:
+                    # Close pipes if they're still open
+                    if proc.stdin and not proc.stdin.closed:
+                        proc.stdin.close()
+                    if proc.stdout and not proc.stdout.closed:
+                        proc.stdout.close()
+                    if proc.stderr and not proc.stderr.closed:
+                        proc.stderr.close()
+                    # Terminate process if still running
+                    if proc.poll() is None:
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=1)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                            proc.wait()
+                except Exception:
+                    pass
     
     if password_valid:
         return (True, username)

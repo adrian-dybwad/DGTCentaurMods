@@ -50,6 +50,7 @@ graphson = 0 # Default to graphs off, for pi zero w users
 scorehistory = []
 last_event = None  # Track last event to prevent duplicate NEW_GAME resets
 cleaned_up = False
+MAX_SCOREHISTORY_SIZE = 200  # Maximum number of score history entries to prevent memory leak
 
 def do_cleanup():
     global cleaned_up
@@ -515,7 +516,10 @@ def evaluationGraphs(info):
     if sval < -12:
         sval = -12    
     if firstmove == 0:
-        scorehistory.append(sval)        
+        scorehistory.append(sval)
+        # Limit scorehistory size to prevent memory leak
+        if len(scorehistory) > MAX_SCOREHISTORY_SIZE:
+            scorehistory.pop(0)  # Remove oldest entry
     else:
         firstmove = 0    
     offset = (128/25) * (sval + 12)

@@ -861,5 +861,13 @@ def subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback = N
 def unsubscribeGame():
     # Stops the game manager
     global kill
+    global session
     board.ledsOff()
     kill = 1
+    # Clean up database session
+    if session is not None:
+        try:
+            session.close()
+            session = None
+        except Exception:
+            session = None

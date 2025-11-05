@@ -150,7 +150,8 @@ class SyncCentaur:
         self._response_waiter = None  # dict with keys: expected_type:int, queue:Queue
         
         # Request queue for FIFO serialization
-        self._request_queue = queue.Queue()
+        # Limit queue size to prevent unbounded memory growth
+        self._request_queue = queue.Queue(maxsize=100)
         self._request_processor_thread = None
         
         # Piece event listener (marker 0x40/0x41 0..63, time_in_seconds)
