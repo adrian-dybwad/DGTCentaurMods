@@ -247,6 +247,24 @@ def ledFlash():
     # Flashes the last led lit by led(num) above
     controller.ledFlash()
 
+def sendCustomBeep(data: bytes):
+    """
+    Send a custom beep pattern using SOUND_GENERAL command.
+    
+    Args:
+        data: Custom beep pattern bytes (e.g., b'\x50\x08\x00\x08\x59\x08\x00')
+    """
+    controller.sendPacket(command.SOUND_GENERAL, data)
+
+def sendCustomLedArray(data: bytes):
+    """
+    Send a custom LED array command using LED_FLASH_CMD.
+    
+    Args:
+        data: Custom LED array data bytes (e.g., b'\x05\x12\x00\x05' followed by square indices)
+    """
+    controller.sendPacket(command.LED_FLASH_CMD, data)
+
 def shutdown():
     """
     Shutdown the Raspberry Pi with proper cleanup and visual feedback.

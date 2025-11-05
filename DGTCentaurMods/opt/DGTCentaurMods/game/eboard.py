@@ -217,18 +217,15 @@ if bytearray(board.getBoardState()) != startstate:
 	# squares to help people out
 	while bytearray(board.getBoardState()) != startstate:
 		rstate = board.getBoardState()
-		tosend = bytearray(b'\xb0\x00\x0c' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big') + b'\x05\x12\x00\x05')
-		# '\x38\x39\x3a\x3b\x3c\x3d\x3e\x3f\x37\x36\x35\x34\x33\x32\x31\x30\x0d')
+		data = bytearray(b'\x05\x12\x00\x05')
 		for x in range(0, 64):
 			if x < 16 or x > 47:
 				if rstate[x] != 1:
-					tosend.append(x)
+					data.append(x)
 			if x > 15 and x < 48:
 				if rstate[x] == 1:
-					tosend.append(x)
-		tosend[2] = len(tosend) + 1
-		tosend.append(board.checksum(tosend))
-		board.ser.write(tosend)
+					data.append(x)
+		board.sendCustomLedArray(data)
 		time.sleep(0.5)
 	board.ledsOff()
 
@@ -583,10 +580,7 @@ def pieceMoveDetectionThread():
 								if liftedthisturn == 0:
 									if lastlift == WPAWN and field > 55:
 										# This is a pawn promotion. So beep and ask what to promote to
-										tosend = bytearray(b'\xb1\x00\x08' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big') + b'\x50\x08\x00\x08\x59\x08\x00');
-										tosend[2] = len(tosend)
-										tosend[len(tosend) - 1] = board.checksum(tosend)
-										board.ser.write(tosend)
+										board.sendCustomBeep(b'\x50\x08\x00\x08\x59\x08\x00')
 										boardtoscreen = 0
 										time.sleep(1)
 										epaper.promotionOptions(9)
@@ -618,10 +612,7 @@ def pieceMoveDetectionThread():
 										epaper.writeText(9,"              ")
 										promoted = 1
 									if lastlift == BPAWN and field < 8:
-										tosend = bytearray(b'\xb1\x00\x08' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big') + b'\x50\x08\x00\x08\x59\x08\x00');
-										tosend[2] = len(tosend)
-										tosend[len(tosend) - 1] = board.checksum(tosend)
-										board.ser.write(tosend)
+										board.sendCustomBeep(b'\x50\x08\x00\x08\x59\x08\x00')
 										boardtoscreen = 0
 										time.sleep(1)
 										epaper.promotionOptions(9)
@@ -879,11 +870,7 @@ def pieceMoveDetectionThread():
 					log.info("start state detected")
 					clockpaused = 1
 					paths.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
-					tosend = bytearray(
-						b'\xb1\x00\x08' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big') + b'\x50\x08\x00\x08\x50\x08\x00\x08\x59\x08\x00\x08\x50\x08\x00\x08\x00');
-					tosend[2] = len(tosend)
-					tosend[len(tosend) - 1] = board.checksum(tosend)
-					board.ser.write(tosend)
+					board.sendCustomBeep(b'\x50\x08\x00\x08\x50\x08\x00\x08\x59\x08\x00\x08\x50\x08\x00\x08\x00')
 					boardhistory = []
 					turnhistory = []
 					startstateflag = 1
@@ -1830,15 +1817,11 @@ while True and dodie == 0:
 					#print(len(litsquares))
 					if len(litsquares) > 0:
 						board.ledsOff()
-						tosend = bytearray(b'\xb0\x00\x0b' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big') + b'\x05\x05\x00\x05')
-						log.info(tosend)
-						# '\x38\x39\x3a\x3b\x3c\x3d\x3e\x3f\x37\x36\x35\x34\x33\x32\x31\x30\x0d')
+						data = bytearray(b'\x05\x05\x00\x05')
 						for x in range(0, len(litsquares)):
-							tosend.append(litsquares[x])
-						tosend[2] = len(tosend) + 1
-						tosend.append(board.checksum(tosend))
-						log.info(tosend.hex())
-						board.ser.write(tosend)
+							data.append(litsquares[x])
+						log.info(data.hex())
+						board.sendCustomLedArray(data)
 						time.sleep(0.2)
 					else:
 						board.ledsOff()
@@ -1861,14 +1844,11 @@ while True and dodie == 0:
 					if froms != tos:
 						litsquares.append(tos)
 					board.ledsOff()
-					tosend = bytearray(b'\xb0\x00\x0b' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big') + b'\x05\x08\x00\x05')
-					# '\x38\x39\x3a\x3b\x3c\x3d\x3e\x3f\x37\x36\x35\x34\x33\x32\x31\x30\x0d')
+					data = bytearray(b'\x05\x08\x00\x05')
 					for x in range(0, len(litsquares)):
-						tosend.append(litsquares[x])
-					tosend[2] = len(tosend) + 1
-					tosend.append(board.checksum(tosend))
-					log.info(tosend.hex())
-					board.ser.write(tosend)
+						data.append(litsquares[x])
+					log.info(data.hex())
+					board.sendCustomLedArray(data)
 					time.sleep(0.2)
 				handled = 1
 			if data[0] == DGT_SEND_UPDATE or data[0] == DGT_SEND_UPDATE_BRD:
