@@ -462,14 +462,8 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 		time_in_seconds: Time from packet
 	"""
 
-	def dgt_to_chess(dgt_idx):
-		"""Convert DGT protocol index (0=h1 to 63=a8) to chess square index (0=a1 to 63=h8)"""
-		dgt_row = dgt_idx // 8
-		dgt_col = dgt_idx % 8
-		chess_col = 7 - dgt_col  # Flip horizontally (DGT col 0=h, chess col 7=h)
-		return dgt_row * 8 + chess_col
 
-	dgt_field = dgt_to_chess(field)
+	dgt_field = board.dgt_to_chess(field)
 
 	global bt, sendupdates, WROOK,WBISHOP,WKNIGHT,WQUEEN,WKING,WPAWN,BROOK,BBISHOP,BKNIGHT,BQUEEN,BKING,BPAWN,EMPTY
 	global cboard, boardhistory, turnhistory, curturn, boardtoscreen, EEPROM, dodie, cb
@@ -1823,15 +1817,8 @@ while True and dodie == 0:
 					else:
 						froms = dd[2]
 						tos = dd[3]
-					litsquares.append(froms)
-					if froms != tos:
-						litsquares.append(tos)
 					board.ledsOff()
-					data = bytearray(b'\x05\x08\x00\x05')
-					for x in range(0, len(litsquares)):
-						data.append(litsquares[x])
-					log.info(data.hex())
-					board.sendCustomLedArray(data)
+					board.ledFromTo(board.dgt_to_chess(froms), board.dgt_to_chess(tos))
 					time.sleep(0.2)
 				handled = 1
 			if data[0] == DGT_SEND_UPDATE or data[0] == DGT_SEND_UPDATE_BRD:
