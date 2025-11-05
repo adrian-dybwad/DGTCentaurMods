@@ -236,8 +236,8 @@ while bytearray(board.getBoardState()) != startstate:
 cboard[7] = WROOK
 cboard[6] = WKNIGHT
 cboard[5] = WBISHOP
-cboard[4] = WKING
-cboard[3] = WQUEEN
+cboard[4] = WQUEEN
+cboard[3] = WKING
 cboard[2] = WBISHOP
 cboard[1] = WKNIGHT
 cboard[0] = WROOK
@@ -260,8 +260,8 @@ cboard[48] = BPAWN
 cboard[63] = BROOK
 cboard[62] = BKNIGHT
 cboard[61] = BBISHOP
-cboard[60] = BKING
-cboard[59] = BQUEEN
+cboard[60] = BQUEEN
+cboard[59] = BKING
 cboard[58] = BBISHOP
 cboard[57] = BKNIGHT
 cboard[56] = BROOK
@@ -288,9 +288,9 @@ EEPROM.append(WKNIGHT + 64)
 EEPROM.append(6)
 EEPROM.append(WBISHOP + 64)
 EEPROM.append(5)
-EEPROM.append(WKING + 64)
-EEPROM.append(4)
 EEPROM.append(WQUEEN + 64)
+EEPROM.append(4)
+EEPROM.append(WKING + 64)
 EEPROM.append(3)
 EEPROM.append(WBISHOP + 64)
 EEPROM.append(2)
@@ -336,9 +336,9 @@ EEPROM.append(BKNIGHT + 64)
 EEPROM.append(62)
 EEPROM.append(BBISHOP + 64)
 EEPROM.append(61)
-EEPROM.append(BKING + 64)
-EEPROM.append(60)
 EEPROM.append(BQUEEN + 64)
+EEPROM.append(60)
+EEPROM.append(BKING + 64)
 EEPROM.append(59)
 EEPROM.append(BBISHOP + 64)
 EEPROM.append(58)
@@ -528,8 +528,7 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 				EEPROM.append(EMPTY + 64)
 				EEPROM.append(field)
 				if item == WKING or item == BKING:
-					# Kings start at e1 (4) or e8 (60) - check if lifted from starting square
-					if field == 4 or field == 60:
+					if field == 3 or field == 59:
 						# This is a king lift that could be part of castling.
 						kinglift = 1
 				else:
@@ -546,8 +545,12 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 			
 			# Here we check if this was a valid move to make. If not then indicate it on the board
 			board.ledsOff()
-			fromsq = chess.square_name(lastfield)
-			tosq = chess.square_name(field)
+			squarerow = (lastfield // 8)
+			squarecol = (lastfield % 8)
+			fromsq = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
+			squarerow = (field // 8)
+			squarecol = (field % 8)
+			tosq = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
 			mv = fromsq + tosq
 			
 			if curturn == 1:
@@ -683,14 +686,11 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 				if lastfield == field:
 					curturn = 0
 			
-			# If kinglift is 1 and lastfield is e1 (4) or e8 (60) then if the king has moved to
-			# castling destination squares (g1=6, c1=2 for white; g8=62, c8=58 for black)
-			# then the user is going to move the rook next
+			# If kinglift is 1 and lastfield is 3 or 59 then if the king has moved to
+			# 1 or 5 or 61 or 57 then the user is going to move the rook next
 			if kinglift == 1:
-				if lastfield == 4 or lastfield == 60:
-					# White kingside: e1(4) -> g1(6), White queenside: e1(4) -> c1(2)
-					# Black kingside: e8(60) -> g8(62), Black queenside: e8(60) -> c8(58)
-					if field == 2 or field == 6 or field == 58 or field == 62:
+				if lastfield == 3 or lastfield == 59:
+					if field == 1 or field == 5 or field == 61 or field == 57:
 						log.info("Castle attempt detected")
 						if curturn == 0:
 							curturn = 1
@@ -736,9 +736,14 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 					else:
 						# Action the illegal move
 						log.info("Move not allowed")
-						# field and lastfield are already chess square indices (0=a1, 63=h8)
+						squarerow = (lastfield // 8)
+						squarecol = 7 - (lastfield % 8)
+						tosq = (squarerow * 8) + squarecol
+						squarerow = (field // 8)
+						squarecol = 7 - (field % 8)
+						fromsq = (squarerow * 8) + squarecol
 						board.beep(board.SOUND_WRONG_MOVE)
-						board.ledFromTo(lastfield, field)
+						board.ledFromTo(fromsq, tosq)
 						# Need to maintain some sort of board history
 						# Then every piece up and down from this point until
 						# fromsq is refilled is a history rewind
@@ -746,8 +751,7 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 						boardhistory.pop()
 						turnhistory.pop()
 						# Handle illegal move takeback via callback
-						# lastfield is chess square index (0=a1, 63=h8)
-						_handle_illegal_move_takeback(lastfield)
+						_handle_illegal_move_takeback(fromsq)
 			
 			kinglift = 0
 			lastfield = field
@@ -960,8 +964,8 @@ def pieceMoveDetectionThread():
 					cboard[7] = WROOK
 					cboard[6] = WKNIGHT
 					cboard[5] = WBISHOP
-					cboard[4] = WKING
-					cboard[3] = WQUEEN
+					cboard[4] = WQUEEN
+					cboard[3] = WKING
 					cboard[2] = WBISHOP
 					cboard[1] = WKNIGHT
 					cboard[0] = WROOK
@@ -984,8 +988,8 @@ def pieceMoveDetectionThread():
 					cboard[63] = BROOK
 					cboard[62] = BKNIGHT
 					cboard[61] = BBISHOP
-					cboard[60] = BKING
-					cboard[59] = BQUEEN
+					cboard[60] = BQUEEN
+					cboard[59] = BKING
 					cboard[58] = BBISHOP
 					cboard[57] = BKNIGHT
 					cboard[56] = BROOK
@@ -1012,9 +1016,9 @@ def pieceMoveDetectionThread():
 					EEPROM.append(6)
 					EEPROM.append(WBISHOP + 64)
 					EEPROM.append(5)
-					EEPROM.append(WKING + 64)
-					EEPROM.append(4)
 					EEPROM.append(WQUEEN + 64)
+					EEPROM.append(4)
+					EEPROM.append(WKING + 64)
 					EEPROM.append(3)
 					EEPROM.append(WBISHOP + 64)
 					EEPROM.append(2)
@@ -1060,9 +1064,9 @@ def pieceMoveDetectionThread():
 					EEPROM.append(62)
 					EEPROM.append(BBISHOP + 64)
 					EEPROM.append(61)
-					EEPROM.append(BKING + 64)
-					EEPROM.append(60)
 					EEPROM.append(BQUEEN + 64)
+					EEPROM.append(60)
+					EEPROM.append(BKING + 64)
 					EEPROM.append(59)
 					EEPROM.append(BBISHOP + 64)
 					EEPROM.append(58)
@@ -1588,9 +1592,9 @@ while True and dodie == 0:
 				EEPROM.append(6)
 				EEPROM.append(WBISHOP + 64)
 				EEPROM.append(5)
-				EEPROM.append(WKING + 64)
-				EEPROM.append(4)
 				EEPROM.append(WQUEEN + 64)
+				EEPROM.append(4)
+				EEPROM.append(WKING + 64)
 				EEPROM.append(3)
 				EEPROM.append(WBISHOP + 64)
 				EEPROM.append(2)
@@ -1636,9 +1640,9 @@ while True and dodie == 0:
 				EEPROM.append(62)
 				EEPROM.append(BBISHOP + 64)
 				EEPROM.append(61)
-				EEPROM.append(BKING + 64)
-				EEPROM.append(60)
 				EEPROM.append(BQUEEN + 64)
+				EEPROM.append(60)
+				EEPROM.append(BKING + 64)
 				EEPROM.append(59)
 				EEPROM.append(BBISHOP + 64)
 				EEPROM.append(58)
