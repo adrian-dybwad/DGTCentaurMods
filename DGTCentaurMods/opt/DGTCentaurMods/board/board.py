@@ -618,7 +618,7 @@ def eventsThread(keycallback, fieldcallback, tout):
     else:
         # Timeout reached, while loop breaks. Shutdown.
         print("----------------------------------------")
-        print("Timeout. Shutting down board DIABLED")
+        print("Timeout. Shutting down board DISABLED")
         print("----------------------------------------")
         log.debug('Timeout. Shutting down board')
         #shutdown()
