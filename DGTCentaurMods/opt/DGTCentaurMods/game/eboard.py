@@ -1752,28 +1752,35 @@ while True and dodie == 0:
 				#bt.flush()
 				handled = 1
 			if data[0] == DGT_SET_LEDS:
-				# LEDs! Not sure about this code, but at the moment it works with Chess for Android
-				# Note the mapping for the centaur goes 0 (a1) to 63 (h8)
-				# This mapping goes 0 (h1) to 63 (a8)
+				# LEDs! DGT protocol uses: 0 (h1) to 63 (a8)
+				# Centaur board uses chess square indices: 0 (a1) to 63 (h8)
+				# Convert DGT index to chess index: chess = (dgt // 8) * 8 + (7 - (dgt % 8))
 				dd = bt.recv(5)
 				if debugcmds == 1:
 					log.info("DGT_SET_LEDS " + dd.hex())
-				#print(dd.hex())
+				
+				def dgt_to_chess(dgt_idx):
+					"""Convert DGT protocol index (0=h1 to 63=a8) to chess square index (0=a1 to 63=h8)"""
+					dgt_row = dgt_idx // 8
+					dgt_col = dgt_idx % 8
+					chess_col = 7 - dgt_col  # Flip horizontally (DGT col 0=h, chess col 7=h)
+					return dgt_row * 8 + chess_col
+				
 				if dd[1] == 0:
 					# Off
 					log.info("off")
 					tos = 0
 					froms = 0
 					if reversed == 1:
-						squarerow = 7 - (dd[2] // 8)
-						squarecol = 7 - (dd[2] % 8)
-						froms = (squarerow * 8) + squarecol
-						squarerow = 7 - (dd[3] // 8)
-						squarecol = 7 - (dd[3] % 8)
-						tos = (squarerow * 8) + squarecol
+						# In reversed mode: convert DGT to chess, then flip board (view from black's side)
+						chess_froms = dgt_to_chess(dd[2]) if dd[2] < 64 else dd[2]
+						chess_tos = dgt_to_chess(dd[3]) if dd[3] < 64 else dd[3]
+						froms = 63 - chess_froms
+						tos = 63 - chess_tos
 					else:
-						froms = dd[2]
-						tos = dd[3]
+						# Convert DGT indices to chess square indices
+						froms = dgt_to_chess(dd[2]) if dd[2] < 64 else dd[2]
+						tos = dgt_to_chess(dd[3]) if dd[3] < 64 else dd[3]
 					litsquares = list(filter(lambda a: a != froms, litsquares))
 					litsquares = list(filter(lambda a: a != tos, litsquares))
 					if (dd[2] == 0 and dd[3] >= 63) or (dd[2] == 64):
@@ -1800,15 +1807,15 @@ while True and dodie == 0:
 					tos = 0
 					froms = 0
 					if reversed == 1:
-						squarerow = 7 - (dd[2] // 8)
-						squarecol = 7 - (dd[2] % 8)
-						froms = (squarerow * 8) + squarecol
-						squarerow = 7 - (dd[3] // 8)
-						squarecol = 7 - (dd[3] % 8)
-						tos = (squarerow * 8) + squarecol
+						# In reversed mode: convert DGT to chess, then flip board (view from black's side)
+						chess_froms = dgt_to_chess(dd[2]) if dd[2] < 64 else dd[2]
+						chess_tos = dgt_to_chess(dd[3]) if dd[3] < 64 else dd[3]
+						froms = 63 - chess_froms
+						tos = 63 - chess_tos
 					else:
-						froms = dd[2]
-						tos = dd[3]
+						# Convert DGT indices to chess square indices
+						froms = dgt_to_chess(dd[2]) if dd[2] < 64 else dd[2]
+						tos = dgt_to_chess(dd[3]) if dd[3] < 64 else dd[3]
 					litsquares.append(froms)
 					if froms != tos:
 						litsquares.append(tos)
