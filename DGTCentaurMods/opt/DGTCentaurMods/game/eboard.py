@@ -479,7 +479,7 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 	try:
 		if piece_event == 0:  # LIFT
 			# A piece has been lifted
-			log.info("UP: " + chess.square_name(field))
+			log.info(f"UP: {field} {chess.square_name(field)}")
 			if curturn == 1:
 				log.info("White turn")
 			else:
@@ -539,7 +539,7 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 		
 		elif piece_event == 1:  # PLACE
 			# A piece has been placed
-			log.info("DOWN: " + chess.square_name(field))
+			log.info(f"DOWN: {field} {chess.square_name(field)}")
 			
 			if lastlift == EMPTY:
 				return
