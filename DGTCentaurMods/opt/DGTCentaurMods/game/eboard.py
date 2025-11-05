@@ -461,6 +461,16 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 		field: Chess square index (0=a1, 63=h8)
 		time_in_seconds: Time from packet
 	"""
+
+	def dgt_to_chess(dgt_idx):
+		"""Convert DGT protocol index (0=h1 to 63=a8) to chess square index (0=a1 to 63=h8)"""
+		dgt_row = dgt_idx // 8
+		dgt_col = dgt_idx % 8
+		chess_col = 7 - dgt_col  # Flip horizontally (DGT col 0=h, chess col 7=h)
+		return dgt_row * 8 + chess_col
+
+	dgt_field = dgt_to_chess(field)
+
 	global bt, sendupdates, WROOK,WBISHOP,WKNIGHT,WQUEEN,WKING,WPAWN,BROOK,BBISHOP,BKNIGHT,BQUEEN,BKING,BPAWN,EMPTY
 	global cboard, boardhistory, turnhistory, curturn, boardtoscreen, EEPROM, dodie, cb
 	global lastchangepacket, startstate, source, gamedbid, session, clockpaused, _piece_state
@@ -478,8 +488,8 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 	
 	try:
 		if piece_event == 0:  # LIFT
-			# A piece has been lifted
-			log.info(f"UP: {field} {chess.square_name(field)}")
+			# A piece has been lifted	
+			log.info(f"UP: {field} {chess.square_name(field)} -> {dgt_field}")
 			if curturn == 1:
 				log.info("White turn")
 			else:
@@ -487,19 +497,19 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 			
 			if curturn == 1:
 				# white
-				item = cboard[field]
+				item = cboard[dgt_field]
 				if (item == WROOK or item == WBISHOP or item == WKNIGHT or item == WQUEEN or item == WKING or item == WPAWN):
 					if liftedthisturn == 0:
-						lastlift = cboard[field]
-						lastfield = field
+						lastlift = cboard[dgt_field]
+						lastfield = dgt_field
 					liftedthisturn = liftedthisturn + 1
 			if curturn == 0:
 				#black
-				item = cboard[field]
+				item = cboard[dgt_field]
 				if (item == BROOK or item == BBISHOP or item == BKNIGHT or item == BQUEEN or item == BKING or item == BPAWN):
 					if liftedthisturn == 0:
-						lastlift = cboard[field]
-						lastfield = field
+						lastlift = cboard[dgt_field]
+						lastfield = dgt_field
 					liftedthisturn = liftedthisturn + 1
 			
 			log.info(item)
@@ -507,12 +517,12 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 			log.info(liftedthisturn)
 			
 			if lastlift != EMPTY and liftedthisturn < 2:
-				cboard[field] = EMPTY
+				cboard[dgt_field] = EMPTY
 				tosend = bytearray(b'')
 				tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
 				tosend.append(0)
 				tosend.append(5)
-				tosend.append(field)
+				tosend.append(dgt_field)
 				tosend.append(EMPTY)
 				bt.send(bytes(tosend))
 				time.sleep(0.2)
@@ -526,9 +536,9 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 					boardhistory.pop(0)
 					turnhistory.pop(0)
 				EEPROM.append(EMPTY + 64)
-				EEPROM.append(field)
+				EEPROM.append(dgt_field)
 				if item == WKING or item == BKING:
-					if field == 3 or field == 59:
+					if dgt_field == 3 or dgt_field == 59:
 						# This is a king lift that could be part of castling.
 						kinglift = 1
 				else:
@@ -538,7 +548,7 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 		
 		elif piece_event == 1:  # PLACE
 			# A piece has been placed
-			log.info(f"DOWN: {field} {chess.square_name(field)}")
+			log.info(f"DOWN: {dgt_field} {chess.square_name(dgt_field)}")
 			
 			if lastlift == EMPTY:
 				return
@@ -548,8 +558,8 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 			squarerow = (lastfield // 8)
 			squarecol = (lastfield % 8)
 			fromsq = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
-			squarerow = (field // 8)
-			squarecol = (field % 8)
+			squarerow = (dgt_field // 8)
+			squarecol = (dgt_field % 8)
 			tosq = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
 			mv = fromsq + tosq
 			
@@ -564,7 +574,7 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 			# Promotion
 			promoted = 0
 			if liftedthisturn == 0:
-				if lastlift == WPAWN and field > 55:
+				if lastlift == WPAWN and dgt_field > 55:
 					# This is a pawn promotion. Wait for button press to choose piece
 					_piece_state['promotion_waiting'] = True
 					_piece_state['promotion_piece'] = None
@@ -583,7 +593,7 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 						lastlift = WQUEEN  # Default to queen if timeout
 					epaper.writeText(9,"              ")
 				
-				if lastlift == BPAWN and field < 8:
+				if lastlift == BPAWN and dgt_field < 8:
 					_piece_state['promotion_waiting'] = True
 					_piece_state['promotion_piece'] = None
 					board.sendCustomBeep(b'\x50\x08\x00\x08\x59\x08\x00')
@@ -601,15 +611,15 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 						lastlift = BQUEEN  # Default to queen if timeout
 					epaper.writeText(9,"              ")
 				
-				if lastlift == WPAWN and field >= 40 and field <= 47:
-					if (field == lastfield + 9) or (field == lastfield + 7):
+				if lastlift == WPAWN and dgt_field >= 40 and dgt_field <= 47:
+					if (dgt_field == lastfield + 9) or (dgt_field == lastfield + 7):
 						time.sleep(0.2)
 						# This is an enpassant
 						tosend = bytearray(b'')
 						tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
 						tosend.append(0)
 						tosend.append(5)
-						tosend.append(field - 8)
+						tosend.append(dgt_field - 8)
 						tosend.append(EMPTY)
 						bt.send(bytes(tosend))
 						time.sleep(0.2)
@@ -622,17 +632,17 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 							boardhistory.pop(0)
 							turnhistory.pop(0)
 						EEPROM.append(EMPTY + 64)
-						EEPROM.append(field - 8)
+						EEPROM.append(dgt_field - 8)
 				
-				if lastlift == BPAWN and field >=16 and field <= 23:
-					if (field == lastfield - 9) or (field == lastfield - 7):
+				if lastlift == BPAWN and dgt_field >=16 and dgt_field <= 23:
+					if (dgt_field == lastfield - 9) or (dgt_field == lastfield - 7):
 						time.sleep(0.2)
 						# This is an enpassant
 						tosend = bytearray(b'')
 						tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
 						tosend.append(0)
 						tosend.append(5)
-						tosend.append(field + 8)
+						tosend.append(dgt_field + 8)
 						tosend.append(EMPTY)
 						bt.send(bytes(tosend))
 						time.sleep(0.2)
@@ -645,14 +655,14 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 							boardhistory.pop(0)
 							turnhistory.pop(0)
 						EEPROM.append(EMPTY + 64)
-						EEPROM.append(field + 8)
+						EEPROM.append(dgt_field + 8)
 			
-			cboard[field] = lastlift
+			cboard[dgt_field] = lastlift
 			tosend = bytearray(b'')
 			tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
 			tosend.append(0)
 			tosend.append(5)
-			tosend.append(field)
+			tosend.append(dgt_field)
 			tosend.append(lastlift)
 			bt.send(bytes(tosend))
 			time.sleep(0.2)
@@ -667,8 +677,8 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 				boardhistory.pop(0)
 				turnhistory.pop(0)
 			EEPROM.append(lastlift + 64)
-			EEPROM.append(field)
-			if lastfield != field:
+			EEPROM.append(dgt_field)
+			if lastfield != dgt_field:
 				board.beep(board.SOUND_GENERAL)
 			
 			if curturn == 1:
@@ -676,21 +686,21 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 				if lastlift != EMPTY:
 					curturn = 0
 					liftedthisturn = 0
-				if lastfield == field:
+				if lastfield == dgt_field:
 					curturn = 1
 			else:
 				#black
 				if lastlift != EMPTY:
 					curturn = 1
 					liftedthisturn = 0
-				if lastfield == field:
+				if lastfield == dgt_field:
 					curturn = 0
 			
 			# If kinglift is 1 and lastfield is 3 or 59 then if the king has moved to
 			# 1 or 5 or 61 or 57 then the user is going to move the rook next
 			if kinglift == 1:
 				if lastfield == 3 or lastfield == 59:
-					if field == 1 or field == 5 or field == 61 or field == 57:
+					if dgt_field == 1 or dgt_field == 5 or dgt_field == 61 or dgt_field == 57:
 						log.info("Castle attempt detected")
 						if curturn == 0:
 							curturn = 1
@@ -739,8 +749,8 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 						squarerow = (lastfield // 8)
 						squarecol = 7 - (lastfield % 8)
 						tosq = (squarerow * 8) + squarecol
-						squarerow = (field // 8)
-						squarecol = 7 - (field % 8)
+						squarerow = (dgt_field // 8)
+						squarecol = 7 - (dgt_field % 8)
 						fromsq = (squarerow * 8) + squarecol
 						board.beep(board.SOUND_WRONG_MOVE)
 						board.ledFromTo(fromsq, tosq)
@@ -754,7 +764,7 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 						_handle_illegal_move_takeback(fromsq)
 			
 			kinglift = 0
-			lastfield = field
+			lastfield = dgt_field
 			lastlift = EMPTY
 		
 		# Update state
