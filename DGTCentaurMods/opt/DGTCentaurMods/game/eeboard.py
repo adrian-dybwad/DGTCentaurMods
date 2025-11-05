@@ -29,11 +29,12 @@ import os
 import psutil
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board.bluetooth_controller import BluetoothController
-from DGTCentaurMods.display import epaper
 from DGTCentaurMods.board.settings import Settings
 
 # Initialize serial connection like board.py (directly, not through SyncCentaur)
 # This is the same initialization as in SyncCentaur._initialize()
+# Note: We don't import epaper to avoid triggering board.py initialization
+# which would create a conflicting SyncCentaur controller
 log.info("Initializing serial connection...")
 dev = Settings.read('system', 'developer', 'False')
 developer_mode = dev.lower() == 'true'
@@ -52,11 +53,7 @@ else:
         ser.open()
 
 log.info("Serial port opened successfully")
-
-# Initialize epaper display
-epaper.initEpaper()
-epaper.writeText(0, 'Waiting for')
-epaper.writeText(1, 'BT connection')
+log.info("Waiting for Bluetooth connection...")
 
 # Create Bluetooth controller instance and start pairing thread
 bluetooth_controller = BluetoothController()
@@ -91,8 +88,6 @@ bluetooth.advertise_service(server_sock, "UARTClassicServer", service_id=uuid,
                             profiles=[bluetooth.SERIAL_PORT_PROFILE])
 
 log.info("Waiting for connection on RFCOMM channel: " + str(port))
-epaper.writeText(0, 'Connect remote')
-epaper.writeText(1, 'Device Now')
 connected = 0
 while connected == 0 and kill == 0:
     try:
@@ -104,14 +99,12 @@ while connected == 0 and kill == 0:
         time.sleep(0.1)
 
 if kill == 1:
-    epaper.writeText(0, 'Exiting...')
+    log.info("Exiting...")
     time.sleep(1)
     os._exit(0)
 
 log.info("Connected")
-epaper.clearScreen()
-epaper.writeText(0, 'Connected')
-epaper.writeText(1, 'Relay active')
+log.info("Relay active")
 
 # Relay state
 running = True
@@ -201,7 +194,7 @@ try:
 except Exception:
     pass
 
-epaper.writeText(0, 'Disconnected')
+log.info("Disconnected")
 time.sleep(1)
 
 log.info("Exiting eeboard.py")
