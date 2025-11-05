@@ -491,6 +491,13 @@ def rotateFieldHex(fieldHex):
     field = (7 - squarerow) * 8 + squarecol
     return field
 
+def dgt_to_chess(dgt_idx):
+    """Convert DGT protocol index (0=h1 to 63=a8) to chess square index (0=a1 to 63=h8)"""
+    dgt_row = dgt_idx // 8
+    dgt_col = dgt_idx % 8
+    chess_col = 7 - dgt_col  # Flip horizontally (DGT col 0=h, chess col 7=h)
+    return dgt_row * 8 + chess_col
+
 
 # This section is the start of a new way of working with the board functions where those functions are
 # the board returning some kind of data
