@@ -439,10 +439,463 @@ def clockToggle():
 			clockpaused = 0
 		log.info(clockturn)
 
+# Piece and button event state variables
+_piece_state = {
+	'lastlift': 0,
+	'kinglift': 0,
+	'lastfield': -1,
+	'startstateflag': 1,
+	'castlemode': 0,
+	'liftedthisturn': 0,
+	'lastcurturn': 1,
+	'promotion_waiting': False,
+	'promotion_piece': None
+}
+
+def pieceEventCallback(piece_event, field, time_in_seconds):
+	"""
+	Callback for piece events (lift/place).
+	
+	Args:
+		piece_event: 0 for LIFT, 1 for PLACE
+		field: Chess square index (0=a1, 63=h8)
+		time_in_seconds: Time from packet
+	"""
+	global bt, sendupdates, WROOK,WBISHOP,WKNIGHT,WQUEEN,WKING,WPAWN,BROOK,BBISHOP,BKNIGHT,BQUEEN,BKING,BPAWN,EMPTY
+	global cboard, boardhistory, turnhistory, curturn, boardtoscreen, EEPROM, dodie, cb
+	global lastchangepacket, startstate, source, gamedbid, session, clockpaused, _piece_state
+	
+	lastlift = _piece_state['lastlift']
+	kinglift = _piece_state['kinglift']
+	lastfield = _piece_state['lastfield']
+	castlemode = _piece_state['castlemode']
+	liftedthisturn = _piece_state['liftedthisturn']
+	
+	if sendupdates != 1:
+		return
+	
+	boardtoscreen = 1
+	
+	try:
+		if piece_event == 0:  # LIFT
+			# A piece has been lifted
+			log.info("UP: " + chr(ord("a") + (7 - (field % 8))) + chr(ord("1") + (field // 8)))
+			if curturn == 1:
+				log.info("White turn")
+			else:
+				log.info("Black turn")
+			
+			if curturn == 1:
+				# white
+				item = cboard[field]
+				if (item == WROOK or item == WBISHOP or item == WKNIGHT or item == WQUEEN or item == WKING or item == WPAWN):
+					if liftedthisturn == 0:
+						lastlift = cboard[field]
+						lastfield = field
+					liftedthisturn = liftedthisturn + 1
+			if curturn == 0:
+				#black
+				item = cboard[field]
+				if (item == BROOK or item == BBISHOP or item == BKNIGHT or item == BQUEEN or item == BKING or item == BPAWN):
+					if liftedthisturn == 0:
+						lastlift = cboard[field]
+						lastfield = field
+					liftedthisturn = liftedthisturn + 1
+			
+			log.info(item)
+			log.info(lastlift)
+			log.info(liftedthisturn)
+			
+			if lastlift != EMPTY and liftedthisturn < 2:
+				cboard[field] = EMPTY
+				tosend = bytearray(b'')
+				tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
+				tosend.append(0)
+				tosend.append(5)
+				tosend.append(field)
+				tosend.append(EMPTY)
+				bt.send(bytes(tosend))
+				time.sleep(0.2)
+				log.info("SENT UP PACKET")
+				buffer1 = bytearray([EMPTY] * 64)
+				buffer1[:] = cboard
+				boardhistory.append(buffer1)
+				turnhistory.append(curturn)
+				# Limit boardhistory size to prevent memory leak
+				if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
+					boardhistory.pop(0)
+					turnhistory.pop(0)
+				EEPROM.append(EMPTY + 64)
+				EEPROM.append(field)
+				if item == WKING or item == BKING:
+					if field == 3 or field == 59:
+						# This is a king lift that could be part of castling.
+						kinglift = 1
+				else:
+					kinglift = 0
+			else:
+				log.info("Nudge??")
+		
+		elif piece_event == 1:  # PLACE
+			# A piece has been placed
+			log.info("DOWN: " + chr(ord("a") + (7 - (field % 8))) + chr(ord("1") + (field // 8)))
+			
+			if lastlift == EMPTY:
+				return
+			
+			# Here we check if this was a valid move to make. If not then indicate it on the board
+			board.ledsOff()
+			squarerow = (lastfield // 8)
+			squarecol = (lastfield % 8)
+			fromsq = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
+			squarerow = (field // 8)
+			squarecol = (field % 8)
+			tosq = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
+			mv = fromsq + tosq
+			
+			if curturn == 1:
+				log.info("White turn")
+			else:
+				log.info("Black turn")
+			log.info(lastlift)
+			liftedthisturn = liftedthisturn - 1
+			log.info(liftedthisturn)
+			
+			# Promotion
+			promoted = 0
+			if liftedthisturn == 0:
+				if lastlift == WPAWN and field > 55:
+					# This is a pawn promotion. Wait for button press to choose piece
+					_piece_state['promotion_waiting'] = True
+					_piece_state['promotion_piece'] = None
+					board.sendCustomBeep(b'\x50\x08\x00\x08\x59\x08\x00')
+					boardtoscreen = 0
+					time.sleep(1)
+					epaper.promotionOptions(9)
+					boardtoscreen = 2
+					# Wait for button press in keyEventCallback
+					while _piece_state['promotion_waiting']:
+						time.sleep(0.1)
+					if _piece_state['promotion_piece'] is not None:
+						lastlift = _piece_state['promotion_piece']
+						promoted = 1
+					else:
+						lastlift = WQUEEN  # Default to queen if timeout
+					epaper.writeText(9,"              ")
+				
+				if lastlift == BPAWN and field < 8:
+					_piece_state['promotion_waiting'] = True
+					_piece_state['promotion_piece'] = None
+					board.sendCustomBeep(b'\x50\x08\x00\x08\x59\x08\x00')
+					boardtoscreen = 0
+					time.sleep(1)
+					epaper.promotionOptions(9)
+					boardtoscreen = 2
+					# Wait for button press in keyEventCallback
+					while _piece_state['promotion_waiting']:
+						time.sleep(0.1)
+					if _piece_state['promotion_piece'] is not None:
+						lastlift = _piece_state['promotion_piece']
+						promoted = 1
+					else:
+						lastlift = BQUEEN  # Default to queen if timeout
+					epaper.writeText(9,"              ")
+				
+				if lastlift == WPAWN and field >= 40 and field <= 47:
+					if (field == lastfield + 9) or (field == lastfield + 7):
+						time.sleep(0.2)
+						# This is an enpassant
+						tosend = bytearray(b'')
+						tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
+						tosend.append(0)
+						tosend.append(5)
+						tosend.append(field - 8)
+						tosend.append(EMPTY)
+						bt.send(bytes(tosend))
+						time.sleep(0.2)
+						buffer1 = bytearray([EMPTY] * 64)
+						buffer1[:] = cboard
+						boardhistory.append(buffer1)
+						turnhistory.append(curturn)
+						# Limit boardhistory size to prevent memory leak
+						if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
+							boardhistory.pop(0)
+							turnhistory.pop(0)
+						EEPROM.append(EMPTY + 64)
+						EEPROM.append(field - 8)
+				
+				if lastlift == BPAWN and field >=16 and field <= 23:
+					if (field == lastfield - 9) or (field == lastfield - 7):
+						time.sleep(0.2)
+						# This is an enpassant
+						tosend = bytearray(b'')
+						tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
+						tosend.append(0)
+						tosend.append(5)
+						tosend.append(field + 8)
+						tosend.append(EMPTY)
+						bt.send(bytes(tosend))
+						time.sleep(0.2)
+						buffer1 = bytearray([EMPTY] * 64)
+						buffer1[:] = cboard
+						boardhistory.append(buffer1)
+						turnhistory.append(curturn)
+						# Limit boardhistory size to prevent memory leak
+						if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
+							boardhistory.pop(0)
+							turnhistory.pop(0)
+						EEPROM.append(EMPTY + 64)
+						EEPROM.append(field + 8)
+			
+			cboard[field] = lastlift
+			tosend = bytearray(b'')
+			tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
+			tosend.append(0)
+			tosend.append(5)
+			tosend.append(field)
+			tosend.append(lastlift)
+			bt.send(bytes(tosend))
+			time.sleep(0.2)
+			lastchangepacket = tosend
+			log.info("SENT DOWN PACKET")
+			buffer1 = bytearray([EMPTY] * 64)
+			buffer1[:] = cboard
+			boardhistory.append(buffer1)
+			turnhistory.append(curturn)
+			# Limit boardhistory size to prevent memory leak
+			if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
+				boardhistory.pop(0)
+				turnhistory.pop(0)
+			EEPROM.append(lastlift + 64)
+			EEPROM.append(field)
+			if lastfield != field:
+				board.beep(board.SOUND_GENERAL)
+			
+			if curturn == 1:
+				# white
+				if lastlift != EMPTY:
+					curturn = 0
+					liftedthisturn = 0
+				if lastfield == field:
+					curturn = 1
+			else:
+				#black
+				if lastlift != EMPTY:
+					curturn = 1
+					liftedthisturn = 0
+				if lastfield == field:
+					curturn = 0
+			
+			# If kinglift is 1 and lastfield is 3 or 59 then if the king has moved to
+			# 1 or 5 or 61 or 57 then the user is going to move the rook next
+			if kinglift == 1:
+				if lastfield == 3 or lastfield == 59:
+					if field == 1 or field == 5 or field == 61 or field == 57:
+						log.info("Castle attempt detected")
+						if curturn == 0:
+							curturn = 1
+							liftedthisturn = 0
+						else:
+							curturn = 0
+							liftedthisturn = 0
+			
+			log.info(mv)
+			if fromsq != tosq:
+				if promoted == 1:
+					log.info("promotion")
+					if lastlift == WQUEEN or lastlift == BQUEEN:
+						mv = mv + "q"
+					if lastlift == WROOK or lastlift == BROOK:
+						mv = mv + "r"
+					if lastlift == WBISHOP or lastlift == BBISHOP:
+						mv = mv + "b"
+					if lastlift == WKNIGHT or lastlift == BKNIGHT:
+						mv = mv + "n"
+					promoted = 0
+					log.info(mv)
+				
+				cm = chess.Move.from_uci(mv)
+				legal = 1
+				if cm in cb.legal_moves:
+					log.info("Move is allowed")
+					clockToggle()
+					cb.push(cm)
+					gamemove = models.GameMove(
+						gameid=gamedbid,
+						move=mv,
+						fen=str(cb.fen())
+					)
+					session.add(gamemove)
+					session.commit()
+					log.info(cb.fen())
+				else:
+					# The move is not allowed or the move is the rook move after a king move in castling
+					if (lastlift == WROOK or lastlift == BROOK) and (
+							fromsq == "a1" or fromsq == "a8" or fromsq == "h1" or fromsq == "h8"):
+						pass
+					else:
+						# Action the illegal move
+						log.info("Move not allowed")
+						squarerow = (lastfield // 8)
+						squarecol = 7 - (lastfield % 8)
+						tosq = (squarerow * 8) + squarecol
+						squarerow = (field // 8)
+						squarecol = 7 - (field % 8)
+						fromsq = (squarerow * 8) + squarecol
+						board.beep(board.SOUND_WRONG_MOVE)
+						board.ledFromTo(fromsq, tosq)
+						# Need to maintain some sort of board history
+						# Then every piece up and down from this point until
+						# fromsq is refilled is a history rewind
+						# but we'll also need to send the board differences as updates
+						boardhistory.pop()
+						turnhistory.pop()
+						# Handle illegal move takeback via callback
+						_handle_illegal_move_takeback(fromsq)
+			
+			kinglift = 0
+			lastfield = field
+			lastlift = EMPTY
+		
+		# Update state
+		_piece_state['lastlift'] = lastlift
+		_piece_state['kinglift'] = kinglift
+		_piece_state['lastfield'] = lastfield
+		_piece_state['castlemode'] = castlemode
+		_piece_state['liftedthisturn'] = liftedthisturn
+		# Note: curturn is updated in the callback above and is a global variable
+		
+	except Exception as e:
+		log.error(f"Error in pieceEventCallback: {e}")
+		import traceback
+		traceback.print_exc()
+
+def _handle_illegal_move_takeback(fromsq):
+	"""Handle illegal move takeback by waiting for piece events to restore board state"""
+	global boardhistory, turnhistory, cboard, EEPROM, bt, curturn, startstate
+	global _piece_state
+	
+	breakout = 0
+	while breakout == 0:
+		time.sleep(0.1)
+		# Check if piece was placed back at fromsq via next callback
+		if boardhistory:
+			oldboard = boardhistory.pop()
+			turnhistory.pop()
+			# Calculate the difference between oldboard and cboard
+			for x in range(0, len(oldboard)):
+				if oldboard[x] != cboard[x]:
+					log.info("Found difference at")
+					log.info(x)
+					log.info(oldboard[x])
+					tosend = bytearray(b'')
+					tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
+					tosend.append(0)
+					tosend.append(5)
+					tosend.append(x)
+					tosend.append(oldboard[x])
+					bt.send(bytes(tosend))
+					EEPROM.append(oldboard[x] + 64)
+					EEPROM.append(x)
+			cboard[:] = oldboard
+			# Check if we've restored to the illegal move source square
+			if cboard[fromsq] != EMPTY:
+				log.info("Piece placed back")
+				breakout = 1
+		
+		# If the user is resetting the board to the starting position then they
+		# will definitely make an illegal move. Then it will get trapped in this loop.
+		r = board.getBoardState()
+		if bytearray(r) == startstate:
+			breakout = 1
+		
+		if breakout == 0:
+			time.sleep(0.05)
+	
+	if curturn == 0:
+		curturn = 1
+	else:
+		curturn = 0
+	board.ledsOff()
+	time.sleep(0.2)
+
+def keyEventCallback(key_pressed):
+	"""
+	Callback for button/key press events.
+	
+	Args:
+		key_pressed: Key enum value (Key.BACK, Key.TICK, Key.UP, Key.DOWN, Key.PLAY, Key.HELP)
+	"""
+	global bt, clockpaused, dodie, _piece_state
+	from DGTCentaurMods.board.sync_centaur import Key
+	
+	try:
+		# Handle promotion selection if waiting
+		if _piece_state['promotion_waiting']:
+			if key_pressed == Key.BACK:
+				_piece_state['promotion_piece'] = WKNIGHT if curturn == 1 else BKNIGHT
+				_piece_state['promotion_waiting'] = False
+			elif key_pressed == Key.TICK:
+				_piece_state['promotion_piece'] = WBISHOP if curturn == 1 else BBISHOP
+				_piece_state['promotion_waiting'] = False
+			elif key_pressed == Key.UP:
+				_piece_state['promotion_piece'] = WQUEEN if curturn == 1 else BQUEEN
+				_piece_state['promotion_waiting'] = False
+			elif key_pressed == Key.DOWN:
+				_piece_state['promotion_piece'] = WROOK if curturn == 1 else BROOK
+				_piece_state['promotion_waiting'] = False
+			return
+		
+		# Handle regular button presses
+		tosend = bytearray(b'')
+		tosend.append(DGT_BWTIME | MESSAGE_BIT)
+		tosend.append(0)
+		tosend.append(10)
+		ack0 = 0x10
+		ack1 = 0x88
+		ack2 = 0x0
+		
+		if key_pressed == Key.BACK:
+			ack3 = 0x31
+			board.beep(board.SOUND_GENERAL)
+		elif key_pressed == Key.TICK:
+			ack3 = 0x35
+			board.beep(board.SOUND_GENERAL)
+		elif key_pressed == Key.UP:
+			ack3 = 0x34
+			board.beep(board.SOUND_GENERAL)
+		elif key_pressed == Key.DOWN:
+			ack3 = 0x32
+			board.beep(board.SOUND_GENERAL)
+		elif key_pressed == Key.HELP:
+			dodie = 1
+			board.beep(board.SOUND_GENERAL)
+			return
+		elif key_pressed == Key.PLAY:
+			ack3 = 0x33
+			board.beep(board.SOUND_GENERAL)
+			clockpaused = 0
+		else:
+			return
+		
+		tosend.append(round(((ack2 & 0x80) / 8) + ((ack3 & 0x80) / 4) + 0x0a))
+		tosend.append(ack0 & 0x7f)
+		tosend.append(ack1 & 0x7f)
+		tosend.append(round(((ack0 & 0x80) / 8) + ((ack1 & 0x80) / 4) + 0x0a))
+		tosend.append(ack2 & 0x7f)
+		tosend.append(ack3 & 0x7f)
+		tosend.append(0)
+		log.info(tosend.hex())
+		bt.send(bytes(tosend))
+		
+	except Exception as e:
+		log.error(f"Error in keyEventCallback: {e}")
+		import traceback
+		traceback.print_exc()
+
 def pieceMoveDetectionThread():
-	# Separate thread to take care of detecting piece movement
-	# for the board, so that it isn't waiting on the bluetooth
-	# read from the other end
+	# Separate thread to monitor board state and handle timer-based checks
+	# Piece and button events are now handled via callbacks
 	global bt
 	global sendupdates
 	global timer
@@ -461,407 +914,40 @@ def pieceMoveDetectionThread():
 	global gamedbid
 	global session
 	global clockpaused
-	lastlift = 0
-	kinglift = 0
-	lastfield = -1
-	startstateflag = 1
-	castlemode = 0
-	liftedthisturn = 0
-	lastcurturn = 1
+	global _piece_state
+	
+	lastlift = _piece_state['lastlift']
+	kinglift = _piece_state['kinglift']
+	lastfield = _piece_state['lastfield']
+	startstateflag = _piece_state['startstateflag']
+	castlemode = _piece_state['castlemode']
+	liftedthisturn = _piece_state['liftedthisturn']
+	lastcurturn = _piece_state['lastcurturn']
 	while True:
 		time.sleep(0.3)
 		if sendupdates == 1:
 			boardtoscreen = 1
-			board.ser.read(10000)
-			board.sendPacket(b'\x83', b'')
-			expect = board.buildPacket(b'\x85\x00\x06', b'')
-			resp = board.ser.read(1000)
-			resp = bytearray(resp)
-			if (bytearray(resp) != expect):
-				if (resp[0] == 133 and resp[1] == 0):
-					for x in range(0, len(resp) - 1):
-						# It should be impossible to get an exception here. But nevertheless it occurs sometimes!
-						try:
-							if (resp[x] == 64):
-								# A piece has been lifted
-								fieldHex = resp[x + 1]
-								squarerow = (fieldHex // 8)
-								squarecol = (fieldHex % 8)
-								squarerow = 7 - squarerow
-								squarecol = 7 - squarecol
-								field = (squarerow * 8) + squarecol
-								log.info("UP: " + chr(ord("a") + (7-squarecol)) + chr(ord("1") + squarerow))
-								if curturn == 1:
-									log.info("White turn")
-								else:
-									log.info("Black turn")
-								if curturn == 1:
-									# white
-									item = cboard[field]
-									if (item == WROOK or item == WBISHOP or item == WKNIGHT or item == WQUEEN or item == WKING or item == WPAWN):
-										if liftedthisturn == 0:
-											lastlift = cboard[field]
-											lastfield = field
-										liftedthisturn = liftedthisturn + 1
-								if curturn == 0:
-									#black
-									item = cboard[field]
-									if (item == BROOK or item == BBISHOP or item == BKNIGHT or item == BQUEEN or item == BKING or item == BPAWN):
-										if liftedthisturn == 0:
-											lastlift = cboard[field]
-											lastfield = field
-										liftedthisturn = liftedthisturn + 1
-								log.info(item)
-								log.info(lastlift)
-								log.info(liftedthisturn)
-								if lastlift != EMPTY and liftedthisturn < 2:
-									cboard[field] = EMPTY
-									tosend = bytearray(b'')
-									tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
-									tosend.append(0)
-									tosend.append(5)
-									tosend.append(field)
-									tosend.append(EMPTY)
-									bt.send(bytes(tosend))
-									#bt.flush()
-									time.sleep(0.2)
-									log.info("SENT UP PACKET")
-									buffer1 = bytearray([EMPTY] * 64)
-									buffer1[:] = cboard
-									boardhistory.append(buffer1)
-									turnhistory.append(curturn)
-									# Limit boardhistory size to prevent memory leak
-									if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
-										boardhistory.pop(0)
-										turnhistory.pop(0)
-									EEPROM.append(EMPTY + 64)
-									EEPROM.append(field)
-									if item == WKING or item == BKING:
-										if field == 3 or field == 59:
-											# This is a king lift that could be part of castling.
-											#log.info("kinglift")
-											kinglift = 1
-									else:
-										kinglift = 0
-									#lastfield = field
-								else:
-									log.info("Nudge??")
-							if (resp[x] == 65 and lastlift != EMPTY):
-								# A piece has been placed
-								fieldHex = resp[x + 1]
-								squarerow = (fieldHex // 8)
-								squarecol = (fieldHex % 8)
-								squarerow = 7 - squarerow
-								squarecol = 7 - squarecol
-								field = (squarerow * 8) + squarecol
-								log.info("DOWN: " + chr(ord("a") + (7-squarecol)) + chr(ord("1") + squarerow))
-
-								# Here we check if this was a valid move to make. If not then indicate it on
-								# the board
-								# We need to convert lastfield and field to square names
-								board.ledsOff()
-								squarerow = (lastfield // 8)
-								squarecol = (lastfield % 8)
-								fromsq = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
-								squarerow = (field // 8)
-								squarecol = (field % 8)
-								tosq = chr(ord("a") + (7 - squarecol)) + chr(ord("1") + squarerow)
-								mv = fromsq + tosq
-
-								if curturn == 1:
-									log.info("White turn")
-								else:
-									log.info("Black turn")
-								log.info(lastlift)
-								liftedthisturn = liftedthisturn - 1
-								log.info(liftedthisturn)
-								# Promotion
-								promoted = 0
-								if liftedthisturn == 0:
-									if lastlift == WPAWN and field > 55:
-										# This is a pawn promotion. So beep and ask what to promote to
-										board.sendCustomBeep(b'\x50\x08\x00\x08\x59\x08\x00')
-										boardtoscreen = 0
-										time.sleep(1)
-										epaper.promotionOptions(9)
-										boardtoscreen = 2
-										# Wait for a button press and set last lift according to the choice
-										buttonPress = 0
-										board.ser.read(1000000)
-										while buttonPress == 0:
-											board.sendPacket(b'\x83', b'')
-											resp = board.ser.read(10000)
-											resp = bytearray(resp)
-											board.sendPacket(b'\x94', b'')
-											expect = board.buildPacket(b'\xb1\x00\x06', b'')
-											resp = board.ser.read(10000)
-											resp = bytearray(resp)
-											if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0501000000007d47"):
-												buttonPress = 1  # BACK
-												lastlift = WKNIGHT
-											if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0510000000007d17"):
-												buttonPress = 2  # TICK
-												lastlift = WBISHOP
-											if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0508000000007d3c"):
-												buttonPress = 3  # UP
-												lastlift = WQUEEN
-											if (resp.hex()[:-2] == "b10010" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a05020000000061"):
-												buttonPress = 4  # DOWN
-												lastlift = WROOK
-											time.sleep(0.2)
-										epaper.writeText(9,"              ")
-										promoted = 1
-									if lastlift == BPAWN and field < 8:
-										board.sendCustomBeep(b'\x50\x08\x00\x08\x59\x08\x00')
-										boardtoscreen = 0
-										time.sleep(1)
-										epaper.promotionOptions(9)
-										boardtoscreen = 2
-										# Wait for a button press and set last lift according to the choice
-										buttonPress = 0
-										board.ser.read(1000000)
-										while buttonPress == 0:
-											board.sendPacket(b'\x83', b'')
-											resp = board.ser.read(10000)
-											resp = bytearray(resp)
-											board.sendPacket(b'\x94', b'')
-											expect = board.buildPacket(b'\xb1\x00\x06', b'')
-											resp = board.ser.read(10000)
-											resp = bytearray(resp)
-											if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0501000000007d47"):
-												buttonPress = 1  # BACK
-												lastlift = BKNIGHT
-											if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0510000000007d17"):
-												buttonPress = 2  # TICK
-												lastlift = BBISHOP
-											if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0508000000007d3c"):
-												buttonPress = 3  # UP
-												lastlift = BQUEEN
-											if (resp.hex()[:-2] == "b10010" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a05020000000061"):
-												buttonPress = 4  # DOWN
-												lastlift = BROOK
-											time.sleep(0.2)
-										epaper.writeText(9,"              ")
-										promoted = 1
-									if lastlift == WPAWN and field >= 40 and field <= 47:
-										if (field == lastfield + 9) or (field == lastfield + 7):
-											time.sleep(0.2)
-											# This is an enpassant
-											tosend = bytearray(b'')
-											tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
-											tosend.append(0)
-											tosend.append(5)
-											tosend.append(field - 8)
-											tosend.append(EMPTY)
-											bt.send(bytes(tosend))
-											#bt.flush()
-											time.sleep(0.2)
-											buffer1 = bytearray([EMPTY] * 64)
-											buffer1[:] = cboard
-											boardhistory.append(buffer1)
-											turnhistory.append(curturn)
-											# Limit boardhistory size to prevent memory leak
-											if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
-												boardhistory.pop(0)
-												turnhistory.pop(0)
-											EEPROM.append(EMPTY + 64)
-											EEPROM.append(field - 8)
-									if lastlift == BPAWN and field >=16 and field <= 23:
-										if (field == lastfield - 9) or (field == lastfield - 7):
-											time.sleep(0.2)
-											# This is an enpassant
-											tosend = bytearray(b'')
-											tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
-											tosend.append(0)
-											tosend.append(5)
-											tosend.append(field + 8)
-											tosend.append(EMPTY)
-											bt.send(bytes(tosend))
-											#bt.flush()
-											time.sleep(0.2)
-											buffer1 = bytearray([EMPTY] * 64)
-											buffer1[:] = cboard
-											boardhistory.append(buffer1)
-											turnhistory.append(curturn)
-											# Limit boardhistory size to prevent memory leak
-											if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
-												boardhistory.pop(0)
-												turnhistory.pop(0)
-											EEPROM.append(EMPTY + 64)
-											EEPROM.append(field + 8)
-									cboard[field] = lastlift
-									tosend = bytearray(b'')
-									tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
-									tosend.append(0)
-									tosend.append(5)
-									tosend.append(field)
-									tosend.append(lastlift)
-									bt.send(bytes(tosend))
-									#bt.flush()
-									time.sleep(0.2)
-									lastchangepacket = tosend
-									log.info("SENT DOWN PACKET")
-									buffer1 = bytearray([EMPTY] * 64)
-									buffer1[:] = cboard
-									boardhistory.append(buffer1)
-									turnhistory.append(curturn)
-									# Limit boardhistory size to prevent memory leak
-									if len(boardhistory) > MAX_BOARDHISTORY_SIZE:
-										boardhistory.pop(0)
-										turnhistory.pop(0)
-									EEPROM.append(lastlift + 64)
-									EEPROM.append(field)
-									if lastfield != field:
-										board.beep(board.SOUND_GENERAL)
-										#board.led(field)
-									if curturn == 1:
-										# white
-										if lastlift != EMPTY:
-											curturn = 0
-											liftedthisturn = 0
-										if lastfield == field:
-											curturn = 1
-									else:
-										#black
-										if lastlift != EMPTY:
-											curturn = 1
-											liftedthisturn = 0
-										if lastfield == field:
-											curturn = 0
-									# If kinglift is 1 and lastfield is 3 or 59 then if the king has moved to
-									# 1 or 5 or 61 or 57 then the user is going to move the rook next
-									if kinglift == 1:
-										if lastfield == 3 or lastfield == 59:
-											if field == 1 or field == 5 or field == 61 or field == 57:
-												log.info("Castle attempt detected")
-												if curturn == 0:
-													curturn = 1
-													liftedthisturn = 0
-												else:
-													curturn = 0
-													liftedthisturn = 0
-									log.info(mv)
-									if fromsq != tosq:
-										if promoted == 1:
-											log.info("promotion")
-											if lastlift == WQUEEN or lastlift == BQUEEN:
-												mv = mv + "q"
-											if lastlift == WROOK or lastlift == BROOK:
-												mv = mv + "r"
-											if lastlift == WBISHOP or lastlift == BBISHOP:
-												mv = mv + "b"
-											if lastlift == WKNIGHT or lastlift == BKNIGHT:
-												mv = mv + "n"
-											promoted = 0
-											log.info(mv)
-										cm = chess.Move.from_uci(mv)
-										legal = 1
-										if cm in cb.legal_moves:
-											log.info("Move is allowed")
-											clockToggle()
-											cb.push(cm)
-											gamemove = models.GameMove(
-												gameid=gamedbid,
-												move=mv,
-												fen=str(cb.fen())
-											)
-											session.add(gamemove)
-											session.commit()
-											log.info(cb.fen())
-										else:
-											# The move is not allowed or the move is the rook move after a king move in castling
-											if (lastlift == WROOK or lastlift == BROOK) and (
-													fromsq == "a1" or fromsq == "a8" or fromsq == "h1" or fromsq == "h8"):
-												pass
-											else:
-												# Action the illegal move
-												log.info("Move not allowed")
-												squarerow = (lastfield // 8)
-												squarecol = 7 - (lastfield % 8)
-												tosq = (squarerow * 8) + squarecol
-												squarerow = (field // 8)
-												squarecol = 7 - (field % 8)
-												fromsq = (squarerow * 8) + squarecol
-												board.beep(board.SOUND_WRONG_MOVE)
-												board.ledFromTo(fromsq, tosq)
-												# Need to maintain some sort of board history
-												# Then every piece up and down from this point until
-												# fromsq is refilled is a history rewind
-												# but we'll also need to send the board differences as updates
-												boardhistory.pop()
-												turnhistory.pop()
-												breakout = 0
-												while breakout == 0:
-													board.sendPacket(b'\x83', b'')
-													expect = board.buildPacket(b'\x85\x00\x06', b'')
-													resp = board.ser.read(1000)
-													resp = bytearray(resp)
-													if (bytearray(resp) != expect):
-														if (resp[0] == 133 and resp[1] == 0):
-															# A piece has been raised or placed
-															log.info("event")
-															if boardhistory:
-																oldboard = boardhistory.pop()
-																turnhistory.pop
-																# Next we need to calculate the difference between oldboard and
-																# board. It should be a single byte. And send messages to say
-																# it has changed
-																for x in range(0, len(oldboard)):
-																	if oldboard[x] != cboard[x]:
-																		log.info("Found difference at")
-																		log.info(x)
-																		log.info(oldboard[x])
-																		tosend = bytearray(b'')
-																		tosend.append(DGT_FIELD_UPDATE | MESSAGE_BIT)
-																		tosend.append(0)
-																		tosend.append(5)
-																		tosend.append(x)
-																		tosend.append(oldboard[x])
-																		# time.sleep(0.2)
-																		bt.send(bytes(tosend))
-																		EEPROM.append(oldboard[x] + 64)
-																		EEPROM.append(x)
-																cboard[:] = oldboard
-																for x in range(0, len(resp) - 1):
-																	if resp[x] == 65:
-																		squarerow = (fieldHex // 8)
-																		squarecol = (fieldHex % 8)
-																		squarerow = 7 - squarerow
-																		squarecol = squarecol
-																		field = (squarerow * 8) + squarecol
-																		if field == fromsq:
-																			log.info("Piece placed back")
-																			breakout = 1
-													# If the user is resetting the board to the starting position then they
-													# will definitely make an illegal move. Then it will get trapped in this
-													# loop.
-													r = board.getBoardState()
-													if bytearray(r) == startstate:
-														breakout = 1
-													time.sleep(0.05)
-												if curturn == 0:
-													curturn = 1
-												else:
-													curturn = 0
-												board.ledsOff()
-												time.sleep(0.2)
-
-									kinglift = 0
-									lastfield = field
-									lastlift = EMPTY
-						except:
-							log.info("An impossible exception really did just occur! Don't ask me how!")
-
-			if lastcurturn != curturn:
-				lastcurturn = curturn
-				log.info("--------------")
-				paths.write_fen_log(cb.fen())
-				if curturn == 1:
-					log.info("White turn")
-					epaper.writeText(10,"White turn")
-				else:
-					log.info("Black turn")
-					epaper.writeText(10,"Black turn")
+		
+		# Update state from global _piece_state
+		lastcurturn = _piece_state['lastcurturn']
+		startstateflag = _piece_state['startstateflag']
+		
+		# Update _piece_state with current values
+		_piece_state['lastcurturn'] = lastcurturn
+		_piece_state['startstateflag'] = startstateflag
+		
+		# Monitor turn changes and board state
+		if lastcurturn != curturn:
+			lastcurturn = curturn
+			_piece_state['lastcurturn'] = lastcurturn
+			log.info("--------------")
+			paths.write_fen_log(cb.fen())
+			if curturn == 1:
+				log.info("White turn")
+				epaper.writeText(10,"White turn")
+			else:
+				log.info("Black turn")
+				epaper.writeText(10,"Black turn")
 
 			timer = timer + 1
 			if timer > 5:
@@ -1021,122 +1107,6 @@ def pieceMoveDetectionThread():
 					if bytearray(r) != startstate:
 						startstateflag = 0
 				timer = 0
-		try:
-			board.sendPacket(b'\x94', b'')
-			resp = board.ser.read(1000)
-			resp = bytearray(resp)
-			if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0501000000007d47"):
-				# BACK
-				tosend = bytearray(b'')
-				tosend.append(DGT_BWTIME | MESSAGE_BIT)
-				tosend.append(0)
-				tosend.append(10)
-				ack0 = 0x10
-				ack1 = 0x88
-				ack2 = 0x0
-				ack3 = 0x31
-				tosend.append(round(((ack2 & 0x80) / 8) + ((ack3 & 0x80) / 4) + 0x0a))  # 4  0
-				tosend.append(ack0 & 0x7f)  # 5  1
-				tosend.append(ack1 & 0x7f)  # 6  2
-				tosend.append(round(((ack0 & 0x80) / 8) + ((ack1 & 0x80) / 4) + 0x0a))  # 7  3
-				tosend.append(ack2 & 0x7f)  # 8  4
-				tosend.append(ack3 & 0x7f)  # 9  5
-				tosend.append(0)  # 10
-				log.info(tosend.hex())
-				bt.send(bytes(tosend))
-				#bt.flush()
-				board.beep(board.SOUND_GENERAL)
-			if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0510000000007d17"):
-				# TICK
-				tosend = bytearray(b'')
-				tosend.append(DGT_BWTIME | MESSAGE_BIT)
-				tosend.append(0)
-				tosend.append(10)
-				ack0 = 0x10
-				ack1 = 0x88
-				ack2 = 0x0
-				ack3 = 0x35
-				tosend.append(round(((ack2 & 0x80) / 8) + ((ack3 & 0x80) / 4) + 0x0a))  # 4  0
-				tosend.append(ack0 & 0x7f)  # 5  1
-				tosend.append(ack1 & 0x7f)  # 6  2
-				tosend.append(round(((ack0 & 0x80) / 8) + ((ack1 & 0x80) / 4) + 0x0a))  # 7  3
-				tosend.append(ack2 & 0x7f)  # 8  4
-				tosend.append(ack3 & 0x7f)  # 9  5
-				tosend.append(0)  # 10
-				log.info(tosend.hex())
-				bt.send(bytes(tosend))
-				#bt.flush()
-				board.beep(board.SOUND_GENERAL)
-			if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0508000000007d3c"):
-				# UP = MINUS
-				tosend = bytearray(b'')
-				tosend.append(DGT_BWTIME | MESSAGE_BIT)
-				tosend.append(0)
-				tosend.append(10)
-				ack0 = 0x10
-				ack1 = 0x88
-				ack2 = 0x0
-				ack3 = 0x34
-				tosend.append(round(((ack2 & 0x80) / 8) + ((ack3 & 0x80) / 4) + 0x0a))  # 4  0
-				tosend.append(ack0 & 0x7f)  # 5  1
-				tosend.append(ack1 & 0x7f)  # 6  2
-				tosend.append(round(((ack0 & 0x80) / 8) + ((ack1 & 0x80) / 4) + 0x0a))  # 7  3
-				tosend.append(ack2 & 0x7f)  # 8  4
-				tosend.append(ack3 & 0x7f)  # 9  5
-				tosend.append(0)  # 10
-				log.info(tosend.hex())
-				bt.send(bytes(tosend))
-				#bt.flush()
-				board.beep(board.SOUND_GENERAL)
-			if (resp.hex()[:-2] == "b10010" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a05020000000061"):
-				# DOWN = PLUS
-				tosend = bytearray(b'')
-				tosend.append(DGT_BWTIME | MESSAGE_BIT)
-				tosend.append(0)
-				tosend.append(10)
-				ack0 = 0x10
-				ack1 = 0x88
-				ack2 = 0x0
-				ack3 = 0x32
-				tosend.append(round(((ack2 & 0x80) / 8) + ((ack3 & 0x80) / 4) + 0x0a))  # 4  0
-				tosend.append(ack0 & 0x7f)  # 5  1
-				tosend.append(ack1 & 0x7f)  # 6  2
-				tosend.append(round(((ack0 & 0x80) / 8) + ((ack1 & 0x80) / 4) + 0x0a))  # 7  3
-				tosend.append(ack2 & 0x7f)  # 8  4
-				tosend.append(ack3 & 0x7f)  # 9  5
-				tosend.append(0)  # 10
-				log.info(tosend.hex())
-				bt.send(bytes(tosend))
-				#bt.flush()
-				board.beep(board.SOUND_GENERAL)
-			if (resp.hex()[:-2] == "b10010" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0540000000006d"):
-				# HELP button - quits
-				dodie = 1
-				board.beep(board.SOUND_GENERAL)
-			if (resp.hex()[:-2] == "b10010" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0504000000002a"):
-				# PLAY = RUN
-				tosend = bytearray(b'')
-				tosend.append(DGT_BWTIME | MESSAGE_BIT)
-				tosend.append(0)
-				tosend.append(10)
-				ack0 = 0x10
-				ack1 = 0x88
-				ack2 = 0x0
-				ack3 = 0x33
-				tosend.append(round(((ack2 & 0x80) / 8) + ((ack3 & 0x80) / 4) + 0x0a))  # 4  0
-				tosend.append(ack0 & 0x7f)  # 5  1
-				tosend.append(ack1 & 0x7f)  # 6  2
-				tosend.append(round(((ack0 & 0x80) / 8) + ((ack1 & 0x80) / 4) + 0x0a))  # 7  3
-				tosend.append(ack2 & 0x7f)  # 8  4
-				tosend.append(ack3 & 0x7f)  # 9  5
-				tosend.append(0)  # 10
-				log.info(tosend.hex())
-				bt.send(bytes(tosend))
-				#bt.flush()
-				board.beep(board.SOUND_GENERAL)
-				clockpaused = 0
-		except:
-			pass
 
 # Import shared Bluetooth controller
 from DGTCentaurMods.board.bluetooth_controller import BluetoothController
@@ -1185,13 +1155,13 @@ while connected == 0 and kill == 0:
 		bt, client_info = server_sock.accept()
 		connected = 1
 	except:
-		board.sendPacket(b'\x94', b'')
-		expect = bytearray(b'\xb1\x00\x06' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big'))
-		resp = board.ser.read(10000)
-		resp = bytearray(resp)
-		if (resp != expect):
-			if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0501000000007d47"):
-				# BACK BUTTON PRESSED
+		# Check for BACK button via callback (handled in keyEventCallback)
+		# Access controller through board module
+		from DGTCentaurMods.board import board as board_module
+		key_pressed = board_module.controller.get_and_reset_last_key()
+		if key_pressed is not None:
+			from DGTCentaurMods.board.sync_centaur import Key
+			if key_pressed == Key.BACK:
 				kill = 1
 		time.sleep(0.1)
 
@@ -1210,6 +1180,9 @@ log.info("Connected")
 epaper.clearScreen()
 epaper.writeText(0,'Connected')
 log.info("pieceMoveDetectionThread started")
+
+# Set up callbacks for piece and button events
+board.subscribeEvents(keyEventCallback, pieceEventCallback, timeout=100000)
 
 cb = chess.Board()
 board.ledsOff()
