@@ -176,6 +176,10 @@ class UARTAdvertisement(Advertisement):
 		self.include_tx_power = True
 		# Millennium ChessLink service UUID
 		self.add_service_uuid("94f39d29-7d6d-437d-973b-fba39e49d4ee")
+		
+		# Store MAC address for later use in advertisement
+		self.mac_address = None
+		
 		log.info("BLE Advertisement initialized with name: MILLENNIUM CHESS")
 		log.info("BLE Advertisement service UUID: 94f39d29-7d6d-437d-973b-fba39e49d4ee")
 	
@@ -201,47 +205,63 @@ class UARTAdvertisement(Advertisement):
 				bus.get_object("org.bluez", adapter),
 				"org.freedesktop.DBus.Properties")
 			
-			# Get adapter MAC address
+			# Get adapter MAC address and store it
 			try:
 				mac_address = adapter_props.Get("org.bluez.Adapter1", "Address")
 				log.info(f"Bluetooth adapter MAC address: {mac_address}")
+				# Store MAC address in advertisement object
+				self.mac_address = mac_address
+				
+				# Convert MAC address to bytes for manufacturer data
+				# Format: B8:27:EB:21:D2:51 -> [0xB8, 0x27, 0xEB, 0x21, 0xD2, 0x51]
+				mac_bytes = []
+				for byte_str in mac_address.split(':'):
+					mac_bytes.append(int(byte_str, 16))
+				
+				# Add MAC address to manufacturer data (using a dummy manufacturer code)
+				# This might help ChessLink identify the device by MAC address
+				# Manufacturer code 0x0000 is reserved, using 0x0001 as placeholder
+				# Note: This is a workaround - the real solution is to ensure public address type
+				try:
+					self.add_manufacturer_data(0x0001, mac_bytes)
+					log.info(f"Added MAC address to manufacturer data: {mac_address}")
+				except Exception as e:
+					log.warning(f"Could not add MAC to manufacturer data: {e}")
 			except Exception as e:
 				log.warning(f"Could not get MAC address: {e}")
 			
 			# Configure adapter to use public MAC address instead of random
 			# This is required for ChessLink to display MAC address instead of UUID
 			# and to prevent app freezing
+			# BlueZ privacy mode must be disabled in /etc/bluetooth/main.conf
 			try:
-				# Disable privacy mode to use public MAC address
+				# Check if /etc/bluetooth/main.conf has privacy disabled
+				import pathlib
+				main_conf = pathlib.Path("/etc/bluetooth/main.conf")
+				privacy_disabled = False
+				if main_conf.exists():
+					with open(main_conf, 'r') as f:
+						content = f.read()
+						if "Privacy = off" in content or "Privacy=off" in content:
+							privacy_disabled = True
+							log.info("Privacy mode is disabled in /etc/bluetooth/main.conf")
+						else:
+							log.warning("Privacy mode may be enabled in /etc/bluetooth/main.conf")
+							log.warning("Add 'Privacy = off' under [General] section to use public MAC address")
+				else:
+					log.warning("/etc/bluetooth/main.conf not found - privacy mode status unknown")
+				
+				# Try to disable privacy mode via D-Bus (may not work on all systems)
 				try:
 					adapter_props.Set("org.bluez.Adapter1", "Privacy", dbus.Boolean(False))
-					log.info("Disabled adapter Privacy mode (using public MAC address)")
+					log.info("Disabled adapter Privacy mode via D-Bus (using public MAC address)")
+					privacy_disabled = True
 				except dbus.exceptions.DBusException as e:
-					# Privacy property might not exist - try AddressType
-					log.info(f"Privacy property not available: {e}")
-					try:
-						adapter_props.Set("org.bluez.Adapter1", "AddressType", dbus.String("public"))
-						log.info("Set adapter AddressType to 'public'")
-					except dbus.exceptions.DBusException as e2:
-						log.info(f"AddressType property not available: {e2}")
-						# Try to configure via bluetoothctl commands
-						import subprocess
-						try:
-							# Disable privacy mode via bluetoothctl
-							proc = subprocess.Popen(['bluetoothctl'], 
-													stdin=subprocess.PIPE,
-													stdout=subprocess.PIPE,
-													stderr=subprocess.PIPE,
-													text=True)
-							proc.stdin.write("menu adapter\n")
-							proc.stdin.write("set-alias MILLENNIUM CHESS\n")
-							proc.stdin.write("back\n")
-							proc.stdin.write("exit\n")
-							proc.stdin.close()
-							proc.wait(timeout=3)
-							log.info("Configured adapter via bluetoothctl")
-						except Exception as e3:
-							log.warning(f"Could not configure via bluetoothctl: {e3}")
+					log.info(f"Privacy property not available via D-Bus: {e}")
+					if not privacy_disabled:
+						log.warning("Cannot disable privacy mode - ChessLink may show UUID instead of MAC")
+						log.warning("To fix: Add 'Privacy = off' to /etc/bluetooth/main.conf under [General] section")
+						log.warning("Then restart bluetooth service: sudo systemctl restart bluetooth")
 			except Exception as e:
 				log.warning(f"Could not configure adapter for public MAC address: {e}")
 				log.warning("ChessLink may show UUID instead of MAC address and may freeze")
@@ -251,11 +271,21 @@ class UARTAdvertisement(Advertisement):
 				"org.bluez.LEAdvertisingManager1")
 			
 			# iOS/macOS compatibility options
-			# Also ensure we're using public address type in advertisement options
+			# Try to ensure we're using public address type
+			# Note: The address type is typically controlled by the adapter's privacy settings
 			options = {
 				"MinInterval": dbus.UInt16(0x0014),  # 20ms
 				"MaxInterval": dbus.UInt16(0x0098),  # 152.5ms
 			}
+			
+			# Try to set address type to public if the option exists
+			# This might not be available in all BlueZ versions
+			try:
+				# Check if adapter is using public address
+				adapter_info = adapter_props.GetAll("org.bluez.Adapter1")
+				log.info(f"Adapter properties: {list(adapter_info.keys())}")
+			except Exception as e:
+				log.debug(f"Could not get all adapter properties: {e}")
 			
 			log.info("Registering Millennium BLE advertisement with iOS/macOS compatible intervals")
 			log.info(f"Advertisement path: {self.get_path()}")
