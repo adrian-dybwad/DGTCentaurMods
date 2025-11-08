@@ -1,4 +1,4 @@
-# Emulate the Millenium Chesslink protocol
+# Emulate the Millennium Chesslink protocol
 #
 # This file is part of the DGTCentaur Mods open source software
 # ( https://github.com/EdNekebno/DGTCentaur )
@@ -24,6 +24,7 @@
 from DGTCentaurMods.game import gamemanager
 from DGTCentaurMods.display import epaper
 from DGTCentaurMods.board import board
+from DGTCentaurMods.board.logging import log
 
 import time
 import chess
@@ -46,24 +47,20 @@ kill = 0
 E2ROM = bytearray([0] * 256)
 
 def keyCallback(key):
-	# This function will receive any keys presses on the keys
-	# under the display. Possibles:
-	# gamemanager.BTNBACK  gamemanager.BTNTICK  gamemanager.BTNUP
-	# gamemanager.BTNDOWN  gamemanager.BTNHELP  gamemanager.BTNPLAY
 	global kill
 	global server_sock
-	print("Key event received: " + str(key))
-	if key == gamemanager.BTNBACK:
-		print("setting kill")
+	log.info("Key event received: " + str(key))
+	if key == gamemanager.board.Key.BACK:
+		log.info("setting kill")
 		kill = 1
 		try:
 			server_sock.close()
 		except:
 			pass
-	if key == gamemanager.BTNPLAY:
+	if key == gamemanager.board.Key.PLAY:
 		# Send the board state again (for cases where it doesn't seem to have sent)
 		board.beep(board.SOUND_GENERAL)
-		bs = gamemanager.cboard.fen()
+		bs = gamemanager.getFEN()
 		bs = bs.replace("/", "")
 		bs = bs.replace("1", ".")
 		bs = bs.replace("2", "..")
@@ -76,9 +73,9 @@ def keyCallback(key):
 		resp = 's'
 		for x in range(0, 64):
 			resp = resp + bs[x]
-		print("sending status on change")
-		print(resp)
-		sendMilleniumCommand(resp)
+		log.info("sending status on change")
+		log.info(resp)
+		sendMillenniumCommand(resp)
 
 sendstatewithoutrequest = 1
 
@@ -94,9 +91,9 @@ def eventCallback(event):
 		epaper.writeText(0,"New Game")
 		epaper.writeText(1,"               ")
 		curturn = 1
-		epaper.drawFen(gamemanager.cboard.fen())
-		print("sending state")
-		bs = gamemanager.cboard.fen()
+		epaper.drawFen(gamemanager.getFEN())
+		log.info("sending state")
+		bs = gamemanager.getFEN()
 		bs = bs.replace("/", "")
 		bs = bs.replace("1", ".")
 		bs = bs.replace("2", "..")
@@ -109,16 +106,16 @@ def eventCallback(event):
 		resp = 's'
 		for x in range(0, 64):
 			resp = resp + bs[x]
-		print(resp)
-		sendMilleniumCommand(resp)
+		log.info(resp)
+		sendMillenniumCommand(resp)
 		board.ledsOff()
 	if event == gamemanager.EVENT_WHITE_TURN:
 		curturn = 1
-		print("white turn event")
+		log.info("white turn event")
 		epaper.writeText(0,"White turn")
 	if event == gamemanager.EVENT_BLACK_TURN:
 		curturn = 0
-		print("black turn event")
+		log.info("black turn event")
 		epaper.writeText(0,"Black turn")
 
 	if type(event) == str:
@@ -140,13 +137,13 @@ def eventCallback(event):
 
 def moveCallback(move):
 	# This function receives valid moves made on the board
-	# Note: the board state is in python-chess object gamemanager.cboard
+	# Note: the board state is in python-chess object gamemanager.getBoard()
 	global client_sock
 	global sendstatewithoutrequest
-	epaper.drawFen(gamemanager.cboard.fen())
+	epaper.drawFen(gamemanager.getFEN())
 	epaper.writeText(9, move)
 	# Note at the moment chess for android asks to send status on any change, but there are other options TODO
-	bs = gamemanager.cboard.fen()
+	bs = gamemanager.getFEN()
 	bs = bs.replace("/", "")
 	bs = bs.replace("1", ".")
 	bs = bs.replace("2", "..")
@@ -159,57 +156,11 @@ def moveCallback(move):
 	resp = 's'
 	for x in range(0, 64):
 		resp = resp + bs[x]
-	print("sending status on change")
-	sendMilleniumCommand(resp)
+	log.info("sending status on change")
+	sendMillenniumCommand(resp)
 
-def pairThread():
-	# Emulate bluetooth pairing by providing pairing in a separate thread too
-	# First kill any running bt-agent, it may have been started from the menu
-	for p in psutil.process_iter(attrs=['pid', 'name']):
-		if "bt-agent" in p.info["name"]:
-			p.kill()
-			time.sleep(3)
-	while True:
-		print('running pair thread')
-		# In case something has gone wrong we actually call bluetoothctl first to make it discoverable and pairable.
-		p = subprocess.Popen(['/usr/bin/bluetoothctl'],stdout=subprocess.PIPE, stdin=subprocess.PIPE, universal_newlines=True, shell=True)
-		poll_obj = select.poll()
-		poll_obj.register(p.stdout, select.POLLIN)
-		p.stdin.write("power on\n")
-		p.stdin.flush()
-		p.stdin.write("discoverable on\n")
-		p.stdin.flush()
-		p.stdin.write("pairable on\n")
-		p.stdin.flush()
-		time.sleep(4)
-		p.terminate()
-		p = subprocess.Popen(['/usr/bin/bt-agent --capability=NoInputNoOutput -p /etc/bluetooth/pin.conf'],stdout=subprocess.PIPE, stdin=subprocess.PIPE, shell=True)
-		poll_obj = select.poll()
-		poll_obj.register(p.stdout, select.POLLIN)
-		running = 1
-		spamyes = 0
-		spamtime = 0;
-		while running == 1:
-			poll_result = poll_obj.poll(0)
-			if spamyes == 1:
-				if time.time() - spamtime < 3:
-					print("spamming yes!")
-					p.stdin.write(b'yes\n')
-					time.sleep(1)
-				else:
-					p.terminate()
-					running = 0
-			if poll_result and spamyes == 0:
-				line = p.stdout.readline()
-				if b'Device:' in line:
-					print("detected device")
-					p.stdin.write(b'yes\n')
-					spamyes = 1
-					spamtime = time.time()
-			r = p.poll()
-			if r is not None:
-				running = 0
-		time.sleep(0.1)
+# Import shared Bluetooth controller
+from DGTCentaurMods.board.bluetooth_controller import BluetoothController
 
 # Activate the epaper
 epaper.initEpaper()
@@ -218,9 +169,17 @@ epaper.writeText(0,'Connect remote')
 epaper.writeText(1,'Device Now')
 start = time.time()
 
-pairThread = threading.Thread(target=pairThread, args=())
-pairThread.daemon = True
-pairThread.start()
+# Create Bluetooth controller instance and start pairing thread
+# Use "MILLENNIUM CHESS" device name for ChessLink app compatibility
+bluetooth_controller = BluetoothController(device_name="MILLENNIUM CHESS")
+# Enable Bluetooth and set device name immediately for discovery
+bluetooth_controller.enable_bluetooth()
+bluetooth_controller.set_device_name("MILLENNIUM CHESS")
+pairThread = bluetooth_controller.start_pairing_thread()
+
+# Small delay to let bt-agent initialize before other operations
+# The pairing thread will handle discoverability through its own mechanisms
+time.sleep(2.5)
 
 # Kill rfcomm if it is started
 os.system('sudo service rfcomm stop')
@@ -229,7 +188,7 @@ for p in psutil.process_iter(attrs=['pid', 'name']):
 	if str(p.info["name"]) == "rfcomm":
 		p.kill()
 iskilled = 0
-print("checking killed")
+log.info("checking killed")
 while iskilled == 0:
 	iskilled = 1
 	for p in psutil.process_iter(attrs=['pid', 'name']):
@@ -251,26 +210,29 @@ bluetooth.advertise_service(server_sock, "UARTClassicServer", service_id=uuid,
                             # protocols=[bluetooth.OBEX_UUID]
                             )
 
-print("Waiting for connection on RFCOMM channel", port)
+log.info(f"Waiting for connection on RFCOMM channel {port}")
 connected = 0
-while connected == 0 and kill == 0:
+client_sock = None
+try:
+	while connected == 0 and kill == 0:
+		try:
+			client_sock, client_info = server_sock.accept()
+			connected = 1
+		except:
+			# Key events are handled via keyCallback registered above
+			time.sleep(0.1)
+except Exception:
+	# Clean up server socket on error
 	try:
-		client_sock, client_info = server_sock.accept()
-		connected = 1
-	except:
-		board.sendPacket(b'\x94', b'')
-		expect = bytearray(b'\xb1\x00\x06' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big'))
-		resp = board.ser.read(10000)
-		resp = bytearray(resp)
-		if (resp != expect):
-			if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0501000000007d47"):
-				# BACK BUTTON PRESSED
-				kill = 1
-		time.sleep(0.1)
+		if server_sock is not None:
+			server_sock.close()
+	except Exception:
+		pass
+	raise
 
 # Subscribe to the game manager to activate the previous functions
 if kill == 0:
-	print("Accepted connection from", client_info)
+	log.info(f"Accepted connection from {client_info}")
 	gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback)
 	epaper.writeText(0,"Place pieces in")
 	epaper.writeText(1,"Starting Pos")
@@ -288,30 +250,30 @@ def odd_par(b):
 		byte = b & 127
 	return byte
 
-def sendMilleniumCommand(txt):
+def sendMillenniumCommand(txt):
 	global client_sock
 	global client_sock
-	print("send command in")
-	print(txt)
+	log.info("send command in")
+	log.info(txt)
 	cs = 0;
 	tosend = bytearray(b'')
 	for el in range(0,len(txt)):
 		tosend.append(odd_par(ord(txt[el][0])))
 		cs = cs ^ ord(txt[el][0])
-	print("parityset")
+	log.info("parityset")
 	#h = str(hex(cs)).upper()
 	h = "0x{:02x}".format(cs)
 	h1 = h[2:3]
 	h2 = h[3:4]
-	print("checksum created")
-	print(h)
-	print(h1)
-	print(h2)
+	log.info("checksum created")
+	log.info(h)
+	log.info(h1)
+	log.info(h2)
 	tosend.append(odd_par(ord(h1)))
 	tosend.append(odd_par(ord(h2)))
-	print("sending stuff")
-	print(tosend.hex())
-	print(str(tosend))
+	log.info("sending stuff")
+	log.info(tosend.hex())
+	log.info(str(tosend))
 	#bt.write(tosend)
 	#bt.flush()
 	client_sock.send(bytes(tosend))
@@ -322,33 +284,33 @@ while kill == 0:
 		handled = 1
 		while kill == 0:
 			data = client_sock.recv(1)
-			print(data)
+			log.info(data)
 			if not data:
-				print("read failed")
+				log.info("read failed")
 				break
 			cmd = data[0] & 127
 			handled = 0
-			print(cmd)
-			print(chr(cmd))
+			log.info(cmd)
+			log.info(chr(cmd))
 			if chr(cmd) == 'V':
 				# Remote is asking for the version
 				# dump the checksum (two bytes represent the first and second characters in ascii of a hex
 				# checksum made by binary xoring other stuff. weird!)
 				client_sock.recv(2)
-				sendMilleniumCommand("v3130")
+				sendMillenniumCommand("v3130")
 				handled = 1
 			if chr(cmd) == 'I':
 				# Needed by chess.com app
 				data = client_sock.recv(4)
-				print("hit i")
-				print(data.hex())
-				print(data)
-				sendMilleniumCommand("i0055mm\n")
+				log.info("hit i")
+				log.info(data.hex())
+				log.info(data)
+				sendMillenniumCommand("i0055mm\n")
 				handled = 1
 			if chr(cmd) == 'S':
 				# Status - essentially asks for the board state to be sent
 				client_sock.recv(2)
-				bs = gamemanager.cboard.fen()
+				bs = gamemanager.getFEN()
 				bs = bs.replace("/","")
 				bs = bs.replace("1",".")
 				bs = bs.replace("2", "..")
@@ -361,7 +323,7 @@ while kill == 0:
 				resp = 's'
 				for x in range(0,64):
 					resp = resp + bs[x]
-				sendMilleniumCommand(resp)
+				sendMillenniumCommand(resp)
 				handled = 1
 			if chr(cmd) == 'W':
 				# Writes to E2ROM. (this allows setting of board scan response behaviour)
@@ -373,11 +335,11 @@ while kill == 0:
 				h4 = client_sock.recv(1)[0] & 127
 				hexn = '0x' + chr(h3) + chr(h4)
 				value = int(str(hexn), 16)
-				print(address)
-				print(value)
+				log.info(address)
+				log.info(value)
 				client_sock.recv(2)
 				E2ROM[address] = value
-				sendMilleniumCommand(str('w' + chr(h1) + chr(h2) + chr(h3) + chr(h4)))
+				sendMillenniumCommand(str('w' + chr(h1) + chr(h2) + chr(h3) + chr(h4)))
 				if address == 2 and (value & 0x01 == 1):
 					sendstatewithoutrequest = 0
 				handled = 1
@@ -385,7 +347,7 @@ while kill == 0:
 				# Extinguish all LEDs
 				client_sock.recv(2)
 				board.ledsOff()
-				sendMilleniumCommand('x')
+				sendMillenniumCommand('x')
 				handled = 1
 			if chr(cmd) == 'R':
 				# Reads from the E2ROM
@@ -397,10 +359,10 @@ while kill == 0:
 				h = str(hex(value)).upper()
 				h3 = h[2:3]
 				h4 = h[3:4]
-				sendMilleniumCommand(str(chr(h1) + chr(2) + str(h3) + str(h4)))
+				sendMillenniumCommand(str(chr(h1) + chr(2) + str(h3) + str(h4)))
 				handled = 1
 			if chr(cmd) == 'L':
-				# We need to translate the lighting pattern. According to the spec the millenium board has 81 leds
+				# We need to translate the lighting pattern. According to the spec the Millennium board has 81 leds
 				# This puts them on the corner of each square. Each byte represents a state in time slots so the
 				# pattern uses 8 bits. But we need to translate this to the centaur's central light on the square
 				# with it's regular flashing pattern.
@@ -460,54 +422,39 @@ while kill == 0:
 							((r + 2) * 8) + t] == 4:
 							centaurpattern[((r + 1) * 8) + t] = 0
 				board.ledsOff()
-				trigger = 0
-				tosend = bytearray(b'\xb0\x00\x0c' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1,byteorder='big') + b'\x05\x05\x00\x05')
+				ledfields = []
 				for x in range(0, 64):
 					if centaurpattern[x] > 0:
-						trigger = 1
-						tosend.append(board.rotateField(x))
-				if trigger == 1:
-					tosend[2] = len(tosend) + 1
-					tosend.append(board.checksum(tosend))
-					board.ser.write(tosend)
-				sendMilleniumCommand("l")
+						ledfields.append(x)
+				if len(ledfields) > 0:
+					board.ledArray(ledfields, speed=5, intensity=5)
+				sendMillenniumCommand("l")
 				handled = 1
 			if chr(cmd) == 'T':
 				# Reset. Just sleep for a bit :)
 				client_sock.recv(2)
-				sendMilleniumCommand("t")
+				sendMillenniumCommand("t")
 				sendstatewithoutrequest = 1
 				time.sleep(3)
 				handled = 1
 			if handled == 0:
-				print("unhandled")
-				print(chr(cmd))
+				log.info("unhandled")
+				log.info(chr(cmd))
 	except OSError:
 		pass
 
-	print("Disconnected.")
+	log.info("Disconnected.")
 
 	client_sock.close()
 	if kill == 0:
-		print("Waiting for connection on RFCOMM channel", port)
+		log.info(f"Waiting for connection on RFCOMM channel {port}")
 		connected = 0
 		while connected == 0 and kill == 0:
 			try:
 				client_sock, client_info = server_sock.accept()
 				connected = 1
 			except:
-				try:
-					board.sendPacket(b'\x94', b'')
-					expect = bytearray(
-						b'\xb1\x00\x06' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1,byteorder='big'))
-					resp = board.ser.read(10000)
-					resp = bytearray(resp)
-					if (resp != expect):
-						if (resp.hex() == "b10011065000140a0501000000007d4700"):
-							# BACK BUTTON PRESSED
-							kill = 1
-				except:
-					pass
+				# Key events are handled via keyCallback registered earlier
 				time.sleep(0.1)
 
 server_sock.close()
@@ -518,7 +465,7 @@ kill = 1
 os._exit(0)
 
 while True == False:
-	print("true loop")
+	log.info("true loop")
 	kill = 0
 	excount = 0
 	while kill == 0:
@@ -530,14 +477,14 @@ while True == False:
 			try:
 				data = bt.recv(1)
 				cmd = data[0] & 127
-				print(chr(cmd))
+				log.info(chr(cmd))
 				handled = 0
 				excount = 0
 				readsuccess = 1
 				time.sleep(0.1)
 			except Exception as e:
-				print("exception")
-				print(e)
+				log.info("exception")
+				log.info(e)
 				#if bt.is_open == False:
 				#	kill = 1
 				#if not exists("/dev/rfcomm0"):
@@ -548,42 +495,52 @@ while True == False:
 				if excount > 3:
 					kill = 1
 
-	bt.close()
-	print(bt.is_open)
-	print("killing rfcomm")
+	# Ensure Bluetooth socket is properly closed
+	try:
+		if bt is not None and hasattr(bt, 'close'):
+			bt.close()
+	except Exception:
+		pass
+	log.info("killing rfcomm")
 	for p in psutil.process_iter(attrs=['pid', 'name']):
 		if str(p.info["name"]) == "rfcomm":
 			p.kill()
 	iskilled = 0
-	print("checking killed")
+	log.info("checking killed")
 	while iskilled == 0:
 		iskilled = 1
 		for p in psutil.process_iter(attrs=['pid', 'name']):
 			if str(p.info["name"]) == "rfcomm":
 				iskilled = 0
 		time.sleep(0.1)
-	print("is killed. restarting")
+	log.info("is killed. restarting")
 	#os.system('service rfcomm start')
 	os.system('/usr/bin/rfcomm watch hci0 &')
 	restarted = 0
-	print("checking restart")
+	log.info("checking restart")
 	while restarted == 0:
 		for p in psutil.process_iter(attrs=['pid', 'name']):
 			if str(p.info["name"]) == "rfcomm":
-				print("found it")
+				log.info("found it")
 				restarted = 1
-		print("ran check")
+		log.info("ran check")
 		time.sleep(0.1)
-	print("restarted")
-	print("broke out")
+	log.info("restarted")
+	log.info("broke out")
 	#time.sleep(1)
 	while True:
 		time.sleep(0.1)
 		try:
+			# Ensure previous connection is closed before creating new one
+			if bt is not None and hasattr(bt, 'close') and hasattr(bt, 'is_open') and bt.is_open:
+				try:
+					bt.close()
+				except Exception:
+					pass
 			bt = serial.Serial("/dev/rfcomm0",baudrate=38400,timeout=60)
 			break
 		except:
 			pass
 	#time.sleep(3)
-	print("new serial connection")
-	print(bt.is_open)
+	log.info("new serial connection")
+	log.info(bt.is_open)

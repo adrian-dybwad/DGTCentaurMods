@@ -87,7 +87,7 @@ adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(1))
 
 Evidence from your codebase:
 ```python
-# From eboard.py and millenium.py:
+# From eboard.py and millennium.py:
 server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)  # Classic Bluetooth
 bluetooth.advertise_service(server_sock, "UARTClassicServer", ...)
 ```

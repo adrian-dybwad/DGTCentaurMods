@@ -1,4 +1,4 @@
-# Emulate the Millenium Chesslink protocol over BLE (Bluetooth Low Energy)
+# Emulate the Millennium Chesslink protocol over BLE (Bluetooth Low Energy)
 #
 # This file is part of the DGTCentaur Mods open source software
 # ( https://github.com/EdNekebno/DGTCentaur )
@@ -69,7 +69,7 @@ def keyCallback(key):
 		for x in range(0, 64):
 			resp = resp + bs[x]
 		log.info("sending status on change")
-		sendMilleniumCommand(resp)
+		sendMillenniumCommand(resp)
 
 def eventCallback(event):
 	global curturn
@@ -94,7 +94,7 @@ def eventCallback(event):
 		for x in range(0, 64):
 			resp = resp + bs[x]
 		log.info(resp)
-		sendMilleniumCommand(resp)
+		sendMillenniumCommand(resp)
 		board.ledsOff()
 	if event == gamemanager.EVENT_WHITE_TURN:
 		curturn = 1
@@ -130,7 +130,7 @@ def moveCallback(move):
 	for x in range(0, 64):
 		resp = resp + bs[x]
 	log.info("sending status on change")
-	sendMilleniumCommand(resp)
+	sendMillenniumCommand(resp)
 
 # Activate the epaper
 epaper.initEpaper()
@@ -312,7 +312,7 @@ def odd_par(b):
 		byte = b & 127
 	return byte
 
-def sendMilleniumCommand(txt):
+def sendMillenniumCommand(txt):
 	"""Send a Millennium protocol command via BLE"""
 	global UARTService
 	log.info("send command: " + txt)
@@ -350,7 +350,7 @@ def processMillenniumCommands():
 			if len(rx_buffer) < 3:
 				break
 			rx_buffer = rx_buffer[3:]  # Remove V + 2 checksum bytes
-			sendMilleniumCommand("v3130")
+			sendMillenniumCommand("v3130")
 			handled = True
 		
 		elif cmd == 'I':
@@ -360,7 +360,7 @@ def processMillenniumCommands():
 			data = rx_buffer[1:5]
 			log.info("hit i: " + data.hex())
 			rx_buffer = rx_buffer[7:]  # Remove I + 4 data + 2 checksum
-			sendMilleniumCommand("i0055mm\n")
+			sendMillenniumCommand("i0055mm\n")
 			handled = True
 		
 		elif cmd == 'S':
@@ -381,7 +381,7 @@ def processMillenniumCommands():
 			resp = 's'
 			for x in range(0, 64):
 				resp = resp + bs[x]
-			sendMilleniumCommand(resp)
+			sendMillenniumCommand(resp)
 			handled = True
 		
 		elif cmd == 'W':
@@ -399,7 +399,7 @@ def processMillenniumCommands():
 			log.info(f"Write E2ROM: address={address}, value={value}")
 			rx_buffer = rx_buffer[7:]  # Remove W + 4 hex + 2 checksum
 			E2ROM[address] = value
-			sendMilleniumCommand(str('w' + chr(h1) + chr(h2) + chr(h3) + chr(h4)))
+			sendMillenniumCommand(str('w' + chr(h1) + chr(h2) + chr(h3) + chr(h4)))
 			if address == 2 and (value & 0x01 == 1):
 				sendstatewithoutrequest = 0
 			handled = True
@@ -410,7 +410,7 @@ def processMillenniumCommands():
 				break
 			rx_buffer = rx_buffer[3:]  # Remove X + 2 checksum
 			board.ledsOff()
-			sendMilleniumCommand('x')
+			sendMillenniumCommand('x')
 			handled = True
 		
 		elif cmd == 'R':
@@ -426,7 +426,7 @@ def processMillenniumCommands():
 			h3 = h[2:3] if len(h) > 2 else '0'
 			h4 = h[3:4] if len(h) > 3 else '0'
 			rx_buffer = rx_buffer[5:]  # Remove R + 2 hex + 2 checksum
-			sendMilleniumCommand(str(chr(h1) + chr(h2) + str(h3) + str(h4)))
+			sendMillenniumCommand(str(chr(h1) + chr(h2) + str(h3) + str(h4)))
 			handled = True
 		
 		elif cmd == 'L':
@@ -493,7 +493,7 @@ def processMillenniumCommands():
 					ledfields.append(x)
 			if len(ledfields) > 0:
 				board.ledArray(ledfields, speed=5, intensity=5)
-			sendMilleniumCommand("l")
+			sendMillenniumCommand("l")
 			handled = True
 		
 		elif cmd == 'T':
@@ -501,7 +501,7 @@ def processMillenniumCommands():
 			if len(rx_buffer) < 3:
 				break
 			rx_buffer = rx_buffer[3:]  # Remove T + 2 checksum
-			sendMilleniumCommand("t")
+			sendMillenniumCommand("t")
 			sendstatewithoutrequest = 1
 			time.sleep(3)
 			handled = True
@@ -557,5 +557,5 @@ except Exception:
 log.info("Disconnected")
 time.sleep(1)
 
-log.info("Exiting millenium_ble.py")
+log.info("Exiting millennium_ble.py")
 

@@ -670,7 +670,7 @@ while True:
         if result == "dgtclassic":
             rc = run_external_script("game/eboard.py", start_key_polling=True)
         if result == "millennium":
-            rc = run_external_script("game/millenium.py", start_key_polling=True)
+            rc = run_external_script("game/millennium.py", start_key_polling=True)
     if result == "1v1Analysis":
         rc = run_external_script("game/1v1Analysis.py", start_key_polling=True)
     if result == "settings":
