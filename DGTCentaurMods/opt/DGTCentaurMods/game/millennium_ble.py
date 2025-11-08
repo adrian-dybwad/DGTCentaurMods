@@ -196,22 +196,62 @@ class UARTAdvertisement(Advertisement):
 			adapter = BleTools.find_adapter(bus)
 			log.info(f"Found Bluetooth adapter: {adapter}")
 			
+			# Get adapter properties interface
+			adapter_props = dbus.Interface(
+				bus.get_object("org.bluez", adapter),
+				"org.freedesktop.DBus.Properties")
+			
 			# Get adapter MAC address
 			try:
-				adapter_props = dbus.Interface(
-					bus.get_object("org.bluez", adapter),
-					"org.freedesktop.DBus.Properties")
 				mac_address = adapter_props.Get("org.bluez.Adapter1", "Address")
 				log.info(f"Bluetooth adapter MAC address: {mac_address}")
-				log.info("Note: BLE devices may show UUID/classid instead of MAC address in apps")
 			except Exception as e:
 				log.warning(f"Could not get MAC address: {e}")
+			
+			# Configure adapter to use public MAC address instead of random
+			# This is required for ChessLink to display MAC address instead of UUID
+			# and to prevent app freezing
+			try:
+				# Disable privacy mode to use public MAC address
+				try:
+					adapter_props.Set("org.bluez.Adapter1", "Privacy", dbus.Boolean(False))
+					log.info("Disabled adapter Privacy mode (using public MAC address)")
+				except dbus.exceptions.DBusException as e:
+					# Privacy property might not exist - try AddressType
+					log.info(f"Privacy property not available: {e}")
+					try:
+						adapter_props.Set("org.bluez.Adapter1", "AddressType", dbus.String("public"))
+						log.info("Set adapter AddressType to 'public'")
+					except dbus.exceptions.DBusException as e2:
+						log.info(f"AddressType property not available: {e2}")
+						# Try to configure via bluetoothctl commands
+						import subprocess
+						try:
+							# Disable privacy mode via bluetoothctl
+							proc = subprocess.Popen(['bluetoothctl'], 
+													stdin=subprocess.PIPE,
+													stdout=subprocess.PIPE,
+													stderr=subprocess.PIPE,
+													text=True)
+							proc.stdin.write("menu adapter\n")
+							proc.stdin.write("set-alias MILLENNIUM CHESS\n")
+							proc.stdin.write("back\n")
+							proc.stdin.write("exit\n")
+							proc.stdin.close()
+							proc.wait(timeout=3)
+							log.info("Configured adapter via bluetoothctl")
+						except Exception as e3:
+							log.warning(f"Could not configure via bluetoothctl: {e3}")
+			except Exception as e:
+				log.warning(f"Could not configure adapter for public MAC address: {e}")
+				log.warning("ChessLink may show UUID instead of MAC address and may freeze")
 			
 			ad_manager = dbus.Interface(
 				bus.get_object("org.bluez", adapter),
 				"org.bluez.LEAdvertisingManager1")
 			
 			# iOS/macOS compatibility options
+			# Also ensure we're using public address type in advertisement options
 			options = {
 				"MinInterval": dbus.UInt16(0x0014),  # 20ms
 				"MaxInterval": dbus.UInt16(0x0098),  # 152.5ms
@@ -550,11 +590,6 @@ log.info("Millennium BLE service registered and advertising")
 log.info("Waiting for BLE connection...")
 log.info("To verify BLE advertisement is working, run: sudo hcitool lescan")
 log.info("You should see 'MILLENNIUM CHESS' in the scan results")
-log.info("")
-log.info("NOTE: ChessLink may show a UUID/classid instead of MAC address.")
-log.info("This is normal BLE behavior - BLE devices often use random MAC addresses")
-log.info("for privacy, and apps may display service UUIDs or device identifiers instead.")
-log.info("The connection should still work correctly even if a UUID is displayed.")
 
 # Subscribe to game manager
 gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback)
