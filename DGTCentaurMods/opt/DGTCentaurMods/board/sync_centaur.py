@@ -51,7 +51,7 @@ DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
 
 COMMANDS: Dict[str, CommandSpec] = {
     "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83, None),
-    "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85, None),
+    "DGT_BUS_SEND_CHANGES":   CommandSpec(0x42, 0x86, None),
     "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5, None),
     "SOUND_GENERAL":          CommandSpec(0xb1, None, b'\x4c\x08'),
     "SOUND_FACTORY":          CommandSpec(0xb1, None, b'\x4c\x40'),
