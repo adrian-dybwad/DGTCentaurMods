@@ -196,6 +196,17 @@ class UARTAdvertisement(Advertisement):
 			adapter = BleTools.find_adapter(bus)
 			log.info(f"Found Bluetooth adapter: {adapter}")
 			
+			# Get adapter MAC address
+			try:
+				adapter_props = dbus.Interface(
+					bus.get_object("org.bluez", adapter),
+					"org.freedesktop.DBus.Properties")
+				mac_address = adapter_props.Get("org.bluez.Adapter1", "Address")
+				log.info(f"Bluetooth adapter MAC address: {mac_address}")
+				log.info("Note: BLE devices may show UUID/classid instead of MAC address in apps")
+			except Exception as e:
+				log.warning(f"Could not get MAC address: {e}")
+			
 			ad_manager = dbus.Interface(
 				bus.get_object("org.bluez", adapter),
 				"org.bluez.LEAdvertisingManager1")
@@ -539,6 +550,11 @@ log.info("Millennium BLE service registered and advertising")
 log.info("Waiting for BLE connection...")
 log.info("To verify BLE advertisement is working, run: sudo hcitool lescan")
 log.info("You should see 'MILLENNIUM CHESS' in the scan results")
+log.info("")
+log.info("NOTE: ChessLink may show a UUID/classid instead of MAC address.")
+log.info("This is normal BLE behavior - BLE devices often use random MAC addresses")
+log.info("for privacy, and apps may display service UUIDs or device identifiers instead.")
+log.info("The connection should still work correctly even if a UUID is displayed.")
 
 # Subscribe to game manager
 gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback)
