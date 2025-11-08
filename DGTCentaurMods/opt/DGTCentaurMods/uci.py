@@ -177,7 +177,7 @@ if os.uname().machine=="armv7l":
     graphson = 1
 
 # Expect the first argument to be 'white' 'black' or 'random' for what the player is playing
-computerarg = sys.argv[1]
+computerarg = sys.argv[1] if len(sys.argv) > 1 else "white"
 if computerarg == "white":
     computeronturn = 0  # Player is white, so computer is black (0 = black)
 if computerarg == "black":
@@ -186,7 +186,7 @@ if computerarg == "random":
     computeronturn = randint(0,1)
 
 # Arg2 is going to contain the name of our engine choice. We use this for database logging and to spawn the engine
-enginename = sys.argv[2]
+enginename = sys.argv[2] if len(sys.argv) > 2 else "stockfish_pi"
 log.info("enginename: " + enginename)
 ENGINE_PATH_NAME = "engines/" + enginename
 log.info("ENGINE_PATH_NAME: " + ENGINE_PATH_NAME)
