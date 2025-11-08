@@ -32,6 +32,10 @@ import threading
 import os
 import psutil
 import dbus
+try:
+	from gi.repository import GObject
+except ImportError:
+	import gobject as GObject
 from DGTCentaurMods.thirdparty.advertisement import Advertisement
 from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic
 from DGTCentaurMods.thirdparty.bletools import BleTools
@@ -752,6 +756,18 @@ log.info(f"Device MAC address: B8:27:EB:21:D2:51 (should be visible to ChessLink
 gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback)
 epaper.writeText(0,"Place pieces in")
 epaper.writeText(1,"Starting Pos")
+
+def check_kill_flag():
+	"""Periodically check kill flag and quit app if set"""
+	global kill, app
+	if kill:
+		log.info("Kill flag set, quitting application")
+		app.quit()
+		return False  # Stop the timeout
+	return True  # Continue checking
+
+# Start periodic check for kill flag (every 100ms)
+GObject.timeout_add(100, check_kill_flag)
 
 # Main loop - run BLE application mainloop
 try:
