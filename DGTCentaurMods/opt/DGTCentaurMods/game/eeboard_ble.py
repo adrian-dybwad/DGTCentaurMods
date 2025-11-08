@@ -32,6 +32,7 @@ from DGTCentaurMods.board.bluetooth_controller import BluetoothController
 from DGTCentaurMods.board.settings import Settings
 from DGTCentaurMods.thirdparty.advertisement import Advertisement
 from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic
+from DGTCentaurMods.thirdparty.bletools import BleTools
 
 GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
 
@@ -85,12 +86,46 @@ running = True
 ble_connected = False
 
 class UARTAdvertisement(Advertisement):
-    """BLE advertisement for UART service"""
+    """BLE advertisement for UART service - compatible with iOS, macOS, and Android"""
     def __init__(self, index):
         Advertisement.__init__(self, index, "peripheral")
-        self.add_local_name("DGT Centaur Mods BLE")
+        # Shorter name for better iOS/macOS compatibility
+        self.add_local_name("DGT Centaur BLE")
         self.include_tx_power = True
         self.add_service_uuid("5f040001-5866-11ec-bf63-0242ac130002")
+    
+    def register_ad_callback(self):
+        """Callback when advertisement is successfully registered"""
+        log.info("BLE advertisement registered successfully (iOS/macOS/Android compatible)")
+    
+    def register_ad_error_callback(self, error):
+        """Callback when advertisement registration fails"""
+        log.error(f"Failed to register BLE advertisement: {error}")
+    
+    def register(self):
+        """Register advertisement with iOS/macOS compatible options"""
+        bus = BleTools.get_bus()
+        adapter = BleTools.find_adapter(bus)
+        
+        ad_manager = dbus.Interface(
+            bus.get_object("org.bluez", adapter),
+            "org.bluez.LEAdvertisingManager1")
+        
+        # iOS/macOS compatibility options:
+        # - MinInterval: 20ms (0x0014) - iOS recommended starting interval
+        # - MaxInterval: 152.5ms (0x0098) - iOS compatible interval
+        # These intervals improve discoverability on iOS/macOS devices
+        options = {
+            "MinInterval": dbus.UInt16(0x0014),  # 20ms
+            "MaxInterval": dbus.UInt16(0x0098),  # 152.5ms
+        }
+        
+        log.info("Registering BLE advertisement with iOS/macOS compatible intervals (20ms-152.5ms)")
+        ad_manager.RegisterAdvertisement(
+            self.get_path(),
+            options,
+            reply_handler=self.register_ad_callback,
+            error_handler=self.register_ad_error_callback)
 
 class UARTService(Service):
     """BLE UART service for relaying data between BLE and serial"""
