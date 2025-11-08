@@ -90,7 +90,7 @@ class UARTAdvertisement(Advertisement):
     def __init__(self, index):
         Advertisement.__init__(self, index, "peripheral")
         # Shorter name for better iOS/macOS compatibility
-        self.add_local_name("DGT Centaur BLE")
+        self.add_local_name("Chess Link")
         self.include_tx_power = True
         self.add_service_uuid("5f040001-5866-11ec-bf63-0242ac130002")
     

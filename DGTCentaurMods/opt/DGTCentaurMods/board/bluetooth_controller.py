@@ -94,7 +94,7 @@ class BluetoothController:
         path = shutil.which('bluetoothctl') or '/usr/bin/bluetoothctl'
         return path
     
-    def __init__(self, device_name: str = "MILLENNIUM CHESS"):
+    def __init__(self, device_name: str = "Chess Link"):
         """
         Initialize Bluetooth controller.
         
