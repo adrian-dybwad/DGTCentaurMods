@@ -530,7 +530,8 @@ def processMillenniumCommands():
 		# Read command byte (strip parity)
 		cmd_byte = rx_buffer[0] & 127
 		cmd = chr(cmd_byte)
-		log.info(f"Processing command: {cmd} (0x{cmd_byte:02x})")
+
+		#log.info(f"Processing command: {cmd} (0x{cmd_byte:02x})")
 		
 		handled = False
 		
