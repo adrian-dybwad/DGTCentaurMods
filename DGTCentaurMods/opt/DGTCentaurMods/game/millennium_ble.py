@@ -187,6 +187,9 @@ class UARTAdvertisement(Advertisement):
 		"""Callback when advertisement is successfully registered"""
 		log.info("Millennium BLE advertisement registered successfully")
 		log.info("Device should now be discoverable as 'MILLENNIUM CHESS'")
+		log.info("If ChessLink shows UUID instead of MAC address, the UUID may be a device identifier")
+		log.info("The actual MAC address (B8:27:EB:21:D2:51) should be visible in BLE scan tools")
+		log.info("ChessLink may be using a device UUID for identification - this may cause app freezing")
 	
 	def register_ad_error_callback(self, error):
 		"""Callback when advertisement registration fails"""
@@ -218,15 +221,22 @@ class UARTAdvertisement(Advertisement):
 				for byte_str in mac_address.split(':'):
 					mac_bytes.append(int(byte_str, 16))
 				
-				# Add MAC address to manufacturer data (using a dummy manufacturer code)
+				# Add MAC address to manufacturer data and service data
 				# This might help ChessLink identify the device by MAC address
 				# Manufacturer code 0x0000 is reserved, using 0x0001 as placeholder
-				# Note: This is a workaround - the real solution is to ensure public address type
 				try:
 					self.add_manufacturer_data(0x0001, mac_bytes)
 					log.info(f"Added MAC address to manufacturer data: {mac_address}")
 				except Exception as e:
 					log.warning(f"Could not add MAC to manufacturer data: {e}")
+				
+				# Also add MAC address to service data for the Millennium service UUID
+				# This ensures the MAC is available in the service advertisement
+				try:
+					self.add_service_data("94f39d29-7d6d-437d-973b-fba39e49d4ee", mac_bytes)
+					log.info(f"Added MAC address to service data: {mac_address}")
+				except Exception as e:
+					log.warning(f"Could not add MAC to service data: {e}")
 			except Exception as e:
 				log.warning(f"Could not get MAC address: {e}")
 			
@@ -345,8 +355,29 @@ class UARTAdvertisement(Advertisement):
 			except Exception as e:
 				log.debug(f"Could not check/set adapter AddressType: {e}")
 			
+			# Verify LE address is set correctly before advertising
+			# This ensures the MAC address is used in BLE advertisements
+			try:
+				import subprocess
+				result = subprocess.run(
+					['hciconfig', 'hci0'],
+					capture_output=True,
+					text=True,
+					timeout=5
+				)
+				if result.returncode == 0:
+					output = result.stdout
+					if 'LE Address' in output or 'BD Address' in output:
+						log.info(f"LE/BD Address from hciconfig: {output[output.find('Address'):output.find('Address')+50]}")
+					# Check if we need to set the LE address
+					if mac_address and mac_address.replace(':', '') not in output.replace(' ', '').replace(':', ''):
+						log.warning("MAC address not found in hciconfig output - LE address may not be set correctly")
+			except Exception as e:
+				log.debug(f"Could not verify LE address via hciconfig: {e}")
+			
 			log.info("Registering Millennium BLE advertisement with iOS/macOS compatible intervals")
 			log.info(f"Advertisement path: {self.get_path()}")
+			log.info(f"Expected MAC address in advertisement: {mac_address if 'mac_address' in locals() else 'unknown'}")
 			ad_manager.RegisterAdvertisement(
 				self.get_path(),
 				options,
