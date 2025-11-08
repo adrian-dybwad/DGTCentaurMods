@@ -620,18 +620,31 @@ def processMillenniumCommands():
 			handled = True
 		
 		elif cmd == 'L':
-			# LED pattern - need 2 slot time + 81 LED bytes + 2 checksum = 85 bytes total
-			if len(rx_buffer) < 85:
+			# LED pattern - need 1 byte command + 2 slot time + 81 LED values (each 2 hex bytes) + 2 checksum = 167 bytes total
+			required_bytes = 1 + 2 + (81 * 2) + 2  # L + slot + 81*2 hex + checksum
+			if len(rx_buffer) < required_bytes:
 				break
 			# Skip slot time (2 bytes)
 			mpattern = bytearray([0] * 81)
+			# Process all 81 LED values (each encoded as 2 hex bytes)
+			led_processing_complete = True
 			for x in range(0, 81):
-				h1 = rx_buffer[3 + x*2] & 127
-				h2 = rx_buffer[4 + x*2] & 127
+				idx1 = 3 + x*2
+				idx2 = 4 + x*2
+				# Defensive bounds check to prevent IndexError (should not trigger due to initial check)
+				if idx2 >= len(rx_buffer):
+					log.warning(f"LED pattern buffer too short: need index {idx2}, have {len(rx_buffer)} bytes")
+					led_processing_complete = False
+					break
+				h1 = rx_buffer[idx1] & 127
+				h2 = rx_buffer[idx2] & 127
 				hexn = '0x' + chr(h1) + chr(h2)
 				v = int(str(hexn), 16)
 				mpattern[x] = v
-			rx_buffer = rx_buffer[85:]  # Remove L + 2 slot + 81*2 hex + 2 checksum
+			# Only process and remove bytes from buffer if we successfully processed all LED values
+			if not led_processing_complete:
+				break  # Wait for more data
+			rx_buffer = rx_buffer[required_bytes:]  # Remove L + 2 slot + 81*2 hex + 2 checksum
 			
 			# Convert to Centaur LED pattern
 			centaurpattern = bytearray([0] * 64)
