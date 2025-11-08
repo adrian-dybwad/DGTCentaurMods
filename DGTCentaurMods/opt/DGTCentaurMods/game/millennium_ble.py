@@ -170,41 +170,53 @@ class UARTAdvertisement(Advertisement):
 	"""BLE advertisement for Millennium ChessLink service"""
 	def __init__(self, index):
 		Advertisement.__init__(self, index, "peripheral")
-		# Use "Chess Link" for better compatibility with ChessLink app
-		self.add_local_name("Chess Link")
+		# Try "MILLENNIUM CHESS" as device name - this is what ChessLink might expect
+		# Also try shorter "Chess Link" if the full name doesn't work
+		self.add_local_name("MILLENNIUM CHESS")
 		self.include_tx_power = True
 		# Millennium ChessLink service UUID
 		self.add_service_uuid("94f39d29-7d6d-437d-973b-fba39e49d4ee")
+		log.info("BLE Advertisement initialized with name: MILLENNIUM CHESS")
+		log.info("BLE Advertisement service UUID: 94f39d29-7d6d-437d-973b-fba39e49d4ee")
 	
 	def register_ad_callback(self):
 		"""Callback when advertisement is successfully registered"""
 		log.info("Millennium BLE advertisement registered successfully")
+		log.info("Device should now be discoverable as 'MILLENNIUM CHESS'")
 	
 	def register_ad_error_callback(self, error):
 		"""Callback when advertisement registration fails"""
 		log.error(f"Failed to register Millennium BLE advertisement: {error}")
+		log.error("Check that BlueZ is running and BLE is enabled")
 	
 	def register(self):
 		"""Register advertisement with iOS/macOS compatible options"""
-		bus = BleTools.get_bus()
-		adapter = BleTools.find_adapter(bus)
-		
-		ad_manager = dbus.Interface(
-			bus.get_object("org.bluez", adapter),
-			"org.bluez.LEAdvertisingManager1")
-		
-		# iOS/macOS compatibility options
-		options = {
-			"MinInterval": dbus.UInt16(0x0014),  # 20ms
-			"MaxInterval": dbus.UInt16(0x0098),  # 152.5ms
-		}
-		
-		log.info("Registering Millennium BLE advertisement with iOS/macOS compatible intervals")
-		ad_manager.RegisterAdvertisement(
-			self.get_path(),
-			options,
-			reply_handler=self.register_ad_callback,
-			error_handler=self.register_ad_error_callback)
+		try:
+			bus = BleTools.get_bus()
+			adapter = BleTools.find_adapter(bus)
+			log.info(f"Found Bluetooth adapter: {adapter}")
+			
+			ad_manager = dbus.Interface(
+				bus.get_object("org.bluez", adapter),
+				"org.bluez.LEAdvertisingManager1")
+			
+			# iOS/macOS compatibility options
+			options = {
+				"MinInterval": dbus.UInt16(0x0014),  # 20ms
+				"MaxInterval": dbus.UInt16(0x0098),  # 152.5ms
+			}
+			
+			log.info("Registering Millennium BLE advertisement with iOS/macOS compatible intervals")
+			log.info(f"Advertisement path: {self.get_path()}")
+			ad_manager.RegisterAdvertisement(
+				self.get_path(),
+				options,
+				reply_handler=self.register_ad_callback,
+				error_handler=self.register_ad_error_callback)
+		except Exception as e:
+			log.error(f"Exception during BLE advertisement registration: {e}")
+			import traceback
+			log.error(traceback.format_exc())
 
 # BLE Service
 class UARTService(Service):
@@ -525,6 +537,8 @@ adv.register()
 
 log.info("Millennium BLE service registered and advertising")
 log.info("Waiting for BLE connection...")
+log.info("To verify BLE advertisement is working, run: sudo hcitool lescan")
+log.info("You should see 'MILLENNIUM CHESS' in the scan results")
 
 # Subscribe to game manager
 gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback)
