@@ -174,14 +174,15 @@ class UARTAdvertisement(Advertisement):
 		# Also try shorter "Chess Link" if the full name doesn't work
 		self.add_local_name("MILLENNIUM CHESS")
 		self.include_tx_power = True
-		# Millennium ChessLink service UUID
-		self.add_service_uuid("94f39d29-7d6d-437d-973b-fba39e49d4ee")
+		# Millennium ChessLink Transparent UART service UUID (correct BLE service)
+		# This is the actual service UUID used by Millennium ChessLink BLE
+		self.add_service_uuid("49535343-FE7D-4AE5-8FA9-9FAFD205E455")
 		
 		# Store MAC address for later use in advertisement
 		self.mac_address = None
 		
 		log.info("BLE Advertisement initialized with name: MILLENNIUM CHESS")
-		log.info("BLE Advertisement service UUID: 94f39d29-7d6d-437d-973b-fba39e49d4ee")
+		log.info("BLE Advertisement service UUID: 49535343-FE7D-4AE5-8FA9-9FAFD205E455 (Transparent UART)")
 	
 	def register_ad_callback(self):
 		"""Callback when advertisement is successfully registered"""
@@ -215,28 +216,11 @@ class UARTAdvertisement(Advertisement):
 				# Store MAC address in advertisement object
 				self.mac_address = mac_address
 				
-				# Convert MAC address to bytes for manufacturer data
-				# Format: B8:27:EB:21:D2:51 -> [0xB8, 0x27, 0xEB, 0x21, 0xD2, 0x51]
-				mac_bytes = []
-				for byte_str in mac_address.split(':'):
-					mac_bytes.append(int(byte_str, 16))
-				
-				# Add MAC address to manufacturer data and service data
-				# This might help ChessLink identify the device by MAC address
-				# Manufacturer code 0x0000 is reserved, using 0x0001 as placeholder
-				try:
-					self.add_manufacturer_data(0x0001, mac_bytes)
-					log.info(f"Added MAC address to manufacturer data: {mac_address}")
-				except Exception as e:
-					log.warning(f"Could not add MAC to manufacturer data: {e}")
-				
-				# Also add MAC address to service data for the Millennium service UUID
-				# This ensures the MAC is available in the service advertisement
-				try:
-					self.add_service_data("94f39d29-7d6d-437d-973b-fba39e49d4ee", mac_bytes)
-					log.info(f"Added MAC address to service data: {mac_address}")
-				except Exception as e:
-					log.warning(f"Could not add MAC to service data: {e}")
+				# Note: BLE advertisement has 31-byte limit
+				# Adding MAC to manufacturer/service data may exceed this limit
+				# The MAC address should be visible in the BLE scan results automatically
+				# when AddressType is 'public'
+				log.info(f"MAC address will be included in BLE advertisement automatically (AddressType: public)")
 			except Exception as e:
 				log.warning(f"Could not get MAC address: {e}")
 			
@@ -390,26 +374,27 @@ class UARTAdvertisement(Advertisement):
 
 # BLE Service
 class UARTService(Service):
-	"""BLE UART service for Millennium ChessLink protocol"""
+	"""BLE UART service for Millennium ChessLink protocol - Transparent UART service"""
 	tx_obj = None
 	
-	# Millennium ChessLink service UUID
-	UART_SVC_UUID = "94f39d29-7d6d-437d-973b-fba39e49d4ee"
+	# Millennium ChessLink Transparent UART service UUID (correct BLE service)
+	UART_SVC_UUID = "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
 	
 	def __init__(self, index):
 		Service.__init__(self, index, self.UART_SVC_UUID, True)
 		self.add_characteristic(UARTTXCharacteristic(self))
 		self.add_characteristic(UARTRXCharacteristic(self))
 
-# RX Characteristic - receives commands from BLE client
+# RX Characteristic - receives commands from BLE client (App TX → Peripheral RX)
 class UARTRXCharacteristic(Characteristic):
-	"""BLE RX characteristic - receives Millennium protocol commands"""
-	UARTRX_CHARACTERISTIC_UUID = "94f39d29-7d6d-437d-973b-fba39e49d4ef"
+	"""BLE RX characteristic - receives Millennium protocol commands from app"""
+	# Millennium ChessLink App TX → Peripheral RX characteristic UUID
+	UARTRX_CHARACTERISTIC_UUID = "49535343-8841-43F4-A8D4-ECBE34729BB3"
 	
 	def __init__(self, service):
 		Characteristic.__init__(
 			self, self.UARTRX_CHARACTERISTIC_UUID,
-			["write"], service)
+			["write", "write-without-response"], service)
 	
 	def WriteValue(self, value, options):
 		"""When the remote device writes data via BLE, process Millennium commands"""
@@ -436,10 +421,11 @@ class UARTRXCharacteristic(Characteristic):
 			log.error(traceback.format_exc())
 			raise
 
-# TX Characteristic - sends responses to BLE client
+# TX Characteristic - sends responses to BLE client (Peripheral TX → App RX)
 class UARTTXCharacteristic(Characteristic):
-	"""BLE TX characteristic - sends Millennium protocol responses"""
-	UARTTX_CHARACTERISTIC_UUID = "94f39d29-7d6d-437d-973b-fba39e49d4f0"
+	"""BLE TX characteristic - sends Millennium protocol responses via notifications"""
+	# Millennium ChessLink Peripheral TX → App RX characteristic UUID
+	UARTTX_CHARACTERISTIC_UUID = "49535343-1E4D-4BD9-BA61-23C647249616"
 	
 	def __init__(self, service):
 		Characteristic.__init__(
