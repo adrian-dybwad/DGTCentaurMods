@@ -170,7 +170,11 @@ epaper.writeText(1,'Device Now')
 start = time.time()
 
 # Create Bluetooth controller instance and start pairing thread
-bluetooth_controller = BluetoothController()
+# Use "MILLENNIUM CHESS" device name for ChessLink app compatibility
+bluetooth_controller = BluetoothController(device_name="MILLENNIUM CHESS")
+# Enable Bluetooth and set device name immediately for discovery
+bluetooth_controller.enable_bluetooth()
+bluetooth_controller.set_device_name("MILLENNIUM CHESS")
 pairThread = bluetooth_controller.start_pairing_thread()
 
 # Small delay to let bt-agent initialize before other operations
