@@ -298,17 +298,24 @@ class UARTRXCharacteristic(Characteristic):
 		if kill:
 			return
 		
-		log.info("Received message from BLE: " + str(value))
-		bytes_data = bytearray()
-		for i in range(0, len(value)):
-			bytes_data.append(value[i])
-		
-		log.debug(f"BLE -> Millennium: {' '.join(f'{b:02x}' for b in bytes_data)}")
-		
-		# Add to RX buffer and process commands
-		with rx_lock:
-			rx_buffer.extend(bytes_data)
-			processMillenniumCommands()
+		try:
+			log.info("RX Characteristic WriteValue called - received data from BLE client")
+			log.info("Received message from BLE: " + str(value))
+			bytes_data = bytearray()
+			for i in range(0, len(value)):
+				bytes_data.append(value[i])
+			
+			log.debug(f"BLE -> Millennium: {' '.join(f'{b:02x}' for b in bytes_data)}")
+			
+			# Add to RX buffer and process commands
+			with rx_lock:
+				rx_buffer.extend(bytes_data)
+				processMillenniumCommands()
+		except Exception as e:
+			log.error(f"Error in WriteValue: {e}")
+			import traceback
+			log.error(traceback.format_exc())
+			raise
 
 # TX Characteristic - sends responses to BLE client
 class UARTTXCharacteristic(Characteristic):
@@ -333,10 +340,17 @@ class UARTTXCharacteristic(Characteristic):
 	
 	def StartNotify(self):
 		"""Called when BLE client subscribes to notifications"""
-		log.info("BLE client started notifications")
-		UARTService.tx_obj = self
-		self.notifying = True
-		return self.notifying
+		try:
+			log.info("TX Characteristic StartNotify called - BLE client subscribing to notifications")
+			UARTService.tx_obj = self
+			self.notifying = True
+			log.info("Notifications enabled successfully")
+			return self.notifying
+		except Exception as e:
+			log.error(f"Error in StartNotify: {e}")
+			import traceback
+			log.error(traceback.format_exc())
+			raise
 	
 	def StopNotify(self):
 		"""Called when BLE client unsubscribes from notifications"""
@@ -357,9 +371,16 @@ class UARTTXCharacteristic(Characteristic):
 	
 	def ReadValue(self, options):
 		"""Read the current characteristic value"""
-		value = bytearray()
-		value.append(0)
-		return value
+		try:
+			log.info("TX Characteristic ReadValue called by BLE client")
+			value = bytearray()
+			value.append(0)
+			return value
+		except Exception as e:
+			log.error(f"Error in ReadValue: {e}")
+			import traceback
+			log.error(traceback.format_exc())
+			raise
 
 def odd_par(b):
 	"""Calculate odd parity for a byte"""
@@ -581,15 +602,32 @@ def processMillenniumCommands():
 running = True
 app = Application()
 app.add_service(UARTService(0))
-app.register()
 
+# Register the application first
+try:
+	app.register()
+	log.info("BLE application registered successfully")
+except Exception as e:
+	log.error(f"Failed to register BLE application: {e}")
+	import traceback
+	log.error(traceback.format_exc())
+	raise
+
+# Register advertisement
 adv = UARTAdvertisement(0)
-adv.register()
+try:
+	adv.register()
+	log.info("BLE advertisement registered successfully")
+except Exception as e:
+	log.error(f"Failed to register BLE advertisement: {e}")
+	import traceback
+	log.error(traceback.format_exc())
 
 log.info("Millennium BLE service registered and advertising")
 log.info("Waiting for BLE connection...")
 log.info("To verify BLE advertisement is working, run: sudo hcitool lescan")
 log.info("You should see 'MILLENNIUM CHESS' in the scan results")
+log.info(f"Device MAC address: B8:27:EB:21:D2:51 (should be visible to ChessLink)")
 
 # Subscribe to game manager
 gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback)
