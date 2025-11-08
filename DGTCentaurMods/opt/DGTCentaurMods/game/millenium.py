@@ -258,14 +258,14 @@ while connected == 0 and kill == 0:
 		client_sock, client_info = server_sock.accept()
 		connected = 1
 	except:
-		board.sendPacket(b'\x94', b'')
-		expect = bytearray(b'\xb1\x00\x06' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big'))
-		resp = board.ser.read(10000)
-		resp = bytearray(resp)
-		if (resp != expect):
-			if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0501000000007d47"):
-				# BACK BUTTON PRESSED
-				kill = 1
+		# board.sendCommand(b'\x94')
+		# expect = bytearray(b'\xb1\x00\x06' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1, byteorder='big'))
+		# resp = board.ser.read(10000)
+		# resp = bytearray(resp)
+		# if (resp != expect):
+		# 	if (resp.hex()[:-2] == "b10011" + "{:02x}".format(board.addr1) + "{:02x}".format(board.addr2) + "00140a0501000000007d47"):
+		# 		# BACK BUTTON PRESSED
+		# 		kill = 1
 		time.sleep(0.1)
 
 # Subscribe to the game manager to activate the previous functions
@@ -496,18 +496,18 @@ while kill == 0:
 				client_sock, client_info = server_sock.accept()
 				connected = 1
 			except:
-				try:
-					board.sendPacket(b'\x94', b'')
-					expect = bytearray(
-						b'\xb1\x00\x06' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1,byteorder='big'))
-					resp = board.ser.read(10000)
-					resp = bytearray(resp)
-					if (resp != expect):
-						if (resp.hex() == "b10011065000140a0501000000007d4700"):
-							# BACK BUTTON PRESSED
-							kill = 1
-				except:
-					pass
+				# try:
+				# 	board.sendPacket(b'\x94', b'')
+				# 	expect = bytearray(
+				# 		b'\xb1\x00\x06' + board.addr1.to_bytes(1, byteorder='big') + board.addr2.to_bytes(1,byteorder='big'))
+				# 	resp = board.ser.read(10000)
+				# 	resp = bytearray(resp)
+				# 	if (resp != expect):
+				# 		if (resp.hex() == "b10011065000140a0501000000007d4700"):
+				# 			# BACK BUTTON PRESSED
+				# 			kill = 1
+				# except:
+				# 	pass
 				time.sleep(0.1)
 
 server_sock.close()
