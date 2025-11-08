@@ -278,14 +278,72 @@ class UARTAdvertisement(Advertisement):
 				"MaxInterval": dbus.UInt16(0x0098),  # 152.5ms
 			}
 			
-			# Try to set address type to public if the option exists
-			# This might not be available in all BlueZ versions
+			# Check the actual AddressType value and try to set LE address to public MAC
 			try:
-				# Check if adapter is using public address
 				adapter_info = adapter_props.GetAll("org.bluez.Adapter1")
-				log.info(f"Adapter properties: {list(adapter_info.keys())}")
+				address_type = adapter_info.get("AddressType", "unknown")
+				mac_address = adapter_info.get("Address", "unknown")
+				log.info(f"Adapter AddressType: {address_type}")
+				log.info(f"Adapter MAC address: {mac_address}")
+				
+				if address_type != "public":
+					log.warning(f"Adapter AddressType is '{address_type}', not 'public'")
+					log.warning("Attempting to set LE address to public MAC address...")
+					
+					# Try to set the LE address to the public MAC using hciconfig
+					import subprocess
+					try:
+						# First, check current LE address
+						result_check = subprocess.run(
+							['hciconfig', 'hci0'],
+							capture_output=True,
+							text=True,
+							timeout=5
+						)
+						if result_check.returncode == 0:
+							log.info(f"Current hci0 config: {result_check.stdout[:200]}")
+						
+						# Set LE address to public MAC address
+						# Note: This may require the adapter to be down first
+						# Format: hciconfig hci0 leaddr B8:27:EB:21:D2:51
+						log.info(f"Setting LE address to: {mac_address}")
+						result = subprocess.run(
+							['sudo', 'hciconfig', 'hci0', 'leaddr', mac_address],
+							capture_output=True,
+							text=True,
+							timeout=5
+						)
+						if result.returncode == 0:
+							log.info(f"Successfully set LE address to public MAC: {mac_address}")
+							# Small delay to let it take effect
+							time.sleep(0.5)
+							# Verify it was set
+							result2 = subprocess.run(
+								['hciconfig', 'hci0'],
+								capture_output=True,
+								text=True,
+								timeout=5
+							)
+							if result2.returncode == 0:
+								log.info(f"LE address verification output: {result2.stdout[:300]}")
+						else:
+							log.warning(f"Failed to set LE address (return code {result.returncode})")
+							log.warning(f"Error output: {result.stderr}")
+							log.warning("ChessLink may still show UUID instead of MAC address")
+							log.warning("You may need to manually run: sudo hciconfig hci0 leaddr " + mac_address)
+					except FileNotFoundError:
+						log.warning("hciconfig not found - cannot set LE address")
+						log.warning("Install bluez-hcidump or ensure hciconfig is available")
+					except subprocess.TimeoutExpired:
+						log.warning("hciconfig command timed out")
+					except Exception as e:
+						log.warning(f"Error setting LE address: {e}")
+						import traceback
+						log.warning(traceback.format_exc())
+				else:
+					log.info("Adapter AddressType is 'public' - MAC address should be visible")
 			except Exception as e:
-				log.debug(f"Could not get all adapter properties: {e}")
+				log.debug(f"Could not check/set adapter AddressType: {e}")
 			
 			log.info("Registering Millennium BLE advertisement with iOS/macOS compatible intervals")
 			log.info(f"Advertisement path: {self.get_path()}")
