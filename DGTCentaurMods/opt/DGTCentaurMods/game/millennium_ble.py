@@ -718,6 +718,8 @@ def processMillenniumCommands():
 				rx_buffer = rx_buffer[1:]
 			else:
 				break
+		else:
+			log.info(f"Handled command: {cmd}")
 
 # Initialize BLE application
 running = True
