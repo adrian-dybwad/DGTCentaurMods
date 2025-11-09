@@ -405,8 +405,8 @@ def getChessState(field=None):
         return chess_state[field]
     return chess_state
 
-def sendCommand(command):
-    resp = controller.request_response(command)
+def sendCommand(command, data=None):
+    resp = controller.request_response(command, data)
     return resp
 
 def printChessState(state = None, loglevel = logging.INFO):
@@ -425,29 +425,6 @@ def printChessState(state = None, loglevel = logging.INFO):
     line += "\r\n+---+---+---+---+---+---+---+---+\n"
     log.log(loglevel, line)
 
-def getChargingState():
-    # Returns if the board is plugged into the charger or not
-    # 0 = not plugged in, 1 = plugged in, -1 = error in checking
-    resp = ""
-    timeout = time.time() + 5
-    while len(resp) < 7 and time.time() < timeout:
-        # Sending the board a packet starting with 152 gives battery info
-        sendPacket(bytearray([152]), b'')
-        try:
-            resp = ser.read(1000)
-        except:
-            pass
-        if len(resp) < 7:
-            pass
-        else:  
-            if resp[0] == 181:
-                vall = (resp[5] >> 5) & 7
-                if vall == 1:
-                    return 1
-                else:
-                    return 0
-    return - 1
-
 def getBatteryLevel():
     # batterylevel: a number 0 - 20 representing battery level of the board
     # 20 is fully charged. The board dies somewhere around a low of 1
@@ -457,8 +434,7 @@ def getBatteryLevel():
     batterylastchecked = time.time()
     val = resp[0]
     batterylevel = val & 0x1F
-    chargerconnected = 1 if ((val >> 5) & 0x07) in (1, 2) else 0    
-
+    chargerconnected = 1 if ((val >> 5) & 0x07) in (1, 2) else 0
 
 #
 # Miscellaneous functions - do they belong in this file?
