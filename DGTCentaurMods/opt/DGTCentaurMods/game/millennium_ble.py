@@ -407,8 +407,6 @@ class UARTRXCharacteristic(Characteristic):
 			return
 		
 		try:
-			log.info("RX Characteristic WriteValue called - received data from BLE client")
-			log.info("Received message from BLE: " + str(value))
 			bytes_data = bytearray()
 			for i in range(0, len(value)):
 				bytes_data.append(value[i])
