@@ -44,15 +44,15 @@ from DGTCentaurMods.board import time_utils
 @dataclass(frozen=True)
 class CommandSpec:
     cmd: bytes
-    expected_resp_type: int
+    expected_resp_type: int = None
     default_data: Optional[bytes] = None
 
 DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
 
 COMMANDS: Dict[str, CommandSpec] = {
-    "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83, None),
-    "DGT_BUS_SEND_CHANGES":   CommandSpec(0x42, 0x86, None),
-    "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5, None),
+    "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83),
+    "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85),
+    "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5),
     "SOUND_GENERAL":          CommandSpec(0xb1, None, b'\x4c\x08'),
     "SOUND_FACTORY":          CommandSpec(0xb1, None, b'\x4c\x40'),
     "SOUND_POWER_OFF":        CommandSpec(0xb1, None, b'\x4c\x08\x48\x08'),
@@ -62,9 +62,9 @@ COMMANDS: Dict[str, CommandSpec] = {
     "DGT_SLEEP":              CommandSpec(0xb2, 0xB1, b'\x0a'),
     "LED_OFF_CMD":            CommandSpec(0xb0, None, b'\x00'),
     "LED_FLASH_CMD":          CommandSpec(0xb0, None, b'\x05\x0a\x00\x01'),
-    "DGT_NOTIFY_EVENTS":      CommandSpec(0x58, 0xa3, None),
-    "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90, None),
-    "DGT_SEND_TRADEMARK":     CommandSpec(0x97, 0xb4, None),
+    "DGT_NOTIFY_EVENTS":      CommandSpec(0x58),
+    "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90),
+    "DGT_SEND_TRADEMARK":     CommandSpec(0x97, 0xb4),
 }
 
 # Fast lookups
