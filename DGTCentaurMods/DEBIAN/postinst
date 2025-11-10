@@ -281,6 +281,10 @@ function setPermissions {
     chown -R pi:pi ${DGTCM_PATH}
     if [[ -d "${CENTAUR}" ]]; then
         chown -R pi:root ${CENTAUR}
+        # Ensure centaur executable has execute permissions (Trixie compatibility)
+        if [[ -f "${CENTAUR}centaur" ]]; then
+            chmod +x "${CENTAUR}centaur"
+        fi
     fi
 
 }

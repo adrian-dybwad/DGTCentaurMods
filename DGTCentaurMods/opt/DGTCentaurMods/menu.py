@@ -658,8 +658,18 @@ while True:
         statusbar.stop()
         time.sleep(1)
         if os.path.exists(centaur_software):
-            # Use sh -c to bypass sudo secure_path restrictions (Trixie compatibility)
-            os.system(f"sudo sh -c '{centaur_software}'")
+            # Ensure file is executable (Trixie compatibility)
+            try:
+                os.chmod(centaur_software, 0o755)
+            except Exception as e:
+                log.warning(f"Could not set execute permissions on centaur: {e}")
+            # Change directory and use relative path (matches monitor script, bypasses sudo secure_path)
+            original_dir = os.getcwd()
+            try:
+                os.chdir("/home/pi/centaur")
+                subprocess.run(["sudo", "./centaur"], check=False)
+            finally:
+                os.chdir(original_dir)
         else:
             log.error(f"Centaur executable not found at {centaur_software}")
             epaper.writeText(0, "Centaur not found")
