@@ -658,7 +658,8 @@ while True:
         statusbar.stop()
         time.sleep(1)
         if os.path.exists(centaur_software):
-            os.system(f"sudo {centaur_software}")
+            # Use sh -c to bypass sudo secure_path restrictions (Trixie compatibility)
+            os.system(f"sudo sh -c '{centaur_software}'")
         else:
             log.error(f"Centaur executable not found at {centaur_software}")
             epaper.writeText(0, "Centaur not found")
