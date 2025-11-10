@@ -663,12 +663,43 @@ while True:
                 os.chmod(centaur_software, 0o755)
             except Exception as e:
                 log.warning(f"Could not set execute permissions on centaur: {e}")
+            
+            # Check file header to determine file type (file command shows "data")
+            # Read first few bytes to identify the format
+            file_type = "unknown"
+            try:
+                with open(centaur_software, "rb") as f:
+                    header = f.read(16)
+                    if header.startswith(b'\x7fELF'):
+                        file_type = "elf"
+                        log.info("Centaur file is ELF binary")
+                    elif header.startswith(b'#!'):
+                        file_type = "script"
+                        log.info("Centaur file is a script")
+                    elif header.startswith(b'\x03\xf3\r\n') or header.startswith(b'\x16\r\r\n'):
+                        file_type = "python_bytecode"
+                        log.info("Centaur file appears to be Python bytecode")
+                    else:
+                        log.warning(f"Centaur file header: {header.hex()[:32]}")
+            except Exception as e:
+                log.warning(f"Could not read file header: {e}")
+            
             # Change to centaur directory (binary may need to run from here for relative resources)
             os.chdir("/home/pi/centaur")
-            # Use sudo with -- to stop option processing and execute binary directly
-            # The -- tells sudo to stop option processing and pass the file directly to exec
-            # This prevents sudo from invoking a shell to interpret the file
-            subprocess.run(["sudo", "--", centaur_software], check=False)
+            
+            # Execute based on file type
+            if file_type == "elf":
+                # ELF binary - use exec to replace shell process
+                subprocess.run(["sudo", "sh", "-c", f"exec {centaur_software}"], check=False)
+            elif file_type == "python_bytecode":
+                # Python bytecode - try running with Python
+                log.warning("Attempting to run as Python bytecode (may not work)")
+                subprocess.run(["sudo", "python3", centaur_software], check=False)
+            else:
+                # Unknown type - try direct execution anyway (might work despite file command)
+                # Some binaries may not be recognized by file command but still executable
+                log.info("File type unknown, attempting direct execution")
+                subprocess.run(["sudo", "sh", "-c", f"exec {centaur_software}"], check=False)
         else:
             log.error(f"Centaur executable not found at {centaur_software}")
             epaper.writeText(0, "Centaur not found")
