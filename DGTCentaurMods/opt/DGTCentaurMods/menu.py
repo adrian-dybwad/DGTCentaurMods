@@ -663,9 +663,12 @@ while True:
                 os.chmod(centaur_software, 0o755)
             except Exception as e:
                 log.warning(f"Could not set execute permissions on centaur: {e}")
-            # Use absolute path with sudo to avoid shell interpretation of binary
-            # Using absolute path prevents sudo from invoking shell to resolve ./centaur
-            subprocess.run(["sudo", centaur_software], check=False)
+            # Change to centaur directory (binary may need to run from here for relative resources)
+            os.chdir("/home/pi/centaur")
+            # Use sudo with -- to stop option processing and execute binary directly
+            # The -- tells sudo to stop option processing and pass the file directly to exec
+            # This prevents sudo from invoking a shell to interpret the file
+            subprocess.run(["sudo", "--", centaur_software], check=False)
         else:
             log.error(f"Centaur executable not found at {centaur_software}")
             epaper.writeText(0, "Centaur not found")
