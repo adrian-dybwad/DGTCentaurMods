@@ -21,9 +21,7 @@ WORKDIR /centaur
 # Verify the binary exists and is executable (for debugging)
 RUN ls -la /centaur/centaur || echo "Note: /centaur/centaur will be mounted at runtime"
 
-# Set entrypoint to the centaur binary
-# The entire /home/pi/centaur directory is mounted at /centaur
-# This includes the binary, libraries (libpython3.5m.so.1.0, libexpat.so.1, etc.), 
-# and other resources the binary needs
-ENTRYPOINT ["/centaur/centaur"]
+# No entrypoint - allows command override for diagnostics
+# Default command runs the centaur binary
+CMD ["/centaur/centaur"]
 

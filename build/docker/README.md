@@ -63,7 +63,8 @@ sudo docker run --rm \
   -v /home/pi/centaur:/centaur:ro \
   -v /sys/class/gpio:/sys/class/gpio:ro \
   -w /centaur \
-  dgtcentaurmods/centaur-bullseye:latest
+  dgtcentaurmods/centaur-bullseye:latest \
+  /centaur/centaur
 ```
 
 To check the exit code:
@@ -188,19 +189,29 @@ sudo docker run --rm --privileged \
   bash /diagnose.sh
 ```
 
-**Note**: If the script doesn't produce output, try running commands individually:
-```bash
-# Check if binary exists
-sudo docker run --rm --privileged \
-  -v /home/pi/centaur:/centaur:ro \
-  dgtcentaurmods/centaur-bullseye:latest \
-  ls -la /centaur/centaur
+**Note**: If commands don't produce output, try these simpler tests:
 
-# Check library dependencies
-sudo docker run --rm --privileged \
+```bash
+# Test 1: Basic container execution
+sudo docker run --rm dgtcentaurmods/centaur-bullseye:latest echo "Container works"
+
+# Test 2: Check if volume mount works
+sudo docker run --rm \
   -v /home/pi/centaur:/centaur:ro \
   dgtcentaurmods/centaur-bullseye:latest \
-  sh -c "apt-get update && apt-get install -y binutils && ldd /centaur/centaur"
+  /bin/bash -c "ls -la /centaur/ | head -10"
+
+# Test 3: Check binary exists
+sudo docker run --rm \
+  -v /home/pi/centaur:/centaur:ro \
+  dgtcentaurmods/centaur-bullseye:latest \
+  /bin/bash -c "test -f /centaur/centaur && echo 'Binary exists' || echo 'Binary NOT found'"
+
+# Test 4: Check library dependencies (requires rebuilding image with binutils)
+sudo docker run --rm \
+  -v /home/pi/centaur:/centaur:ro \
+  dgtcentaurmods/centaur-bullseye:latest \
+  /bin/bash -c "apt-get update -qq && apt-get install -y -qq binutils > /dev/null 2>&1 && ldd /centaur/centaur"
 ```
 
 4. **Run with strace to see system calls**:

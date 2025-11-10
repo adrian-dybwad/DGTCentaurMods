@@ -463,7 +463,8 @@ def run_centaur_in_docker(centaur_path="/home/pi/centaur/centaur"):
             "-v", "/home/pi/centaur:/centaur:ro",
             "-v", "/sys/class/gpio:/sys/class/gpio:ro",
             "-w", "/centaur",
-            "dgtcentaurmods/centaur-bullseye:latest"
+            "dgtcentaurmods/centaur-bullseye:latest",
+            "/centaur/centaur"  # Explicitly specify the command to run
         ]
         
         log.info(f"Launching centaur in Docker: {' '.join(docker_cmd)}")
