@@ -425,29 +425,6 @@ def printChessState(state = None, loglevel = logging.INFO):
     line += "\r\n+---+---+---+---+---+---+---+---+\n"
     log.log(loglevel, line)
 
-def getChargingState():
-    # Returns if the board is plugged into the charger or not
-    # 0 = not plugged in, 1 = plugged in, -1 = error in checking
-    resp = ""
-    timeout = time.time() + 5
-    while len(resp) < 7 and time.time() < timeout:
-        # Sending the board a packet starting with 152 gives battery info
-        sendPacket(bytearray([152]), b'')
-        try:
-            resp = ser.read(1000)
-        except:
-            pass
-        if len(resp) < 7:
-            pass
-        else:  
-            if resp[0] == 181:
-                vall = (resp[5] >> 5) & 7
-                if vall == 1:
-                    return 1
-                else:
-                    return 0
-    return - 1
-
 def getBatteryLevel():
     # batterylevel: a number 0 - 20 representing battery level of the board
     # 20 is fully charged. The board dies somewhere around a low of 1
@@ -620,7 +597,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 if time.time() - batterylastchecked > 15:
                     # Every 15 seconds check the battery details
                     batterylastchecked = time.time()
-                    #getBatteryLevel()
+                    getBatteryLevel()
             except:
                 pass
             time.sleep(0.05)
