@@ -66,6 +66,8 @@ sudo docker run --rm \
   dgtcentaurmods/centaur-bullseye:latest
 ```
 
+**Note**: The entire `/home/pi/centaur` directory is mounted (not just the binary) because the centaur executable requires access to libraries, configuration files, and other resources in that directory.
+
 ## Hardware Access
 
 The container requires access to:

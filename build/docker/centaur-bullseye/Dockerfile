@@ -7,10 +7,13 @@ RUN apt-get update && \
     libc6 \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory to /centaur (where the binary will be mounted)
+# Set working directory to /centaur (where the entire centaur directory will be mounted)
+# The centaur binary and all its libraries/resources are in this directory
 WORKDIR /centaur
 
 # Set entrypoint to the centaur binary
-# The binary will be mounted from the host at /home/pi/centaur/centaur
+# The entire /home/pi/centaur directory is mounted at /centaur
+# This includes the binary, libraries (libpython3.5m.so.1.0, libexpat.so.1, etc.), 
+# and other resources the binary needs
 ENTRYPOINT ["/centaur/centaur"]
 

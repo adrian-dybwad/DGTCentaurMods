@@ -452,6 +452,7 @@ def run_centaur_in_docker(centaur_path="/home/pi/centaur/centaur"):
     original_handler = signal.signal(signal.SIGINT, signal_handler)
     try:
         # Docker run command with full hardware access
+        # Mount entire /home/pi/centaur directory (not just the binary) for libraries and resources
         docker_cmd = [
             "sudo", "docker", "run", "--rm",
             "--privileged",
@@ -466,19 +467,19 @@ def run_centaur_in_docker(centaur_path="/home/pi/centaur/centaur"):
         ]
         
         log.info(f"Launching centaur in Docker: {' '.join(docker_cmd)}")
-        container_process = subprocess.Popen(docker_cmd, 
-                                            stdout=subprocess.PIPE,
-                                            stderr=subprocess.PIPE)
+        # Don't capture output - let it go to terminal for debugging
+        # The binary may need direct stdout/stderr access
+        container_process = subprocess.Popen(docker_cmd)
         
         # Wait for container to complete
         try:
-            stdout, stderr = container_process.communicate()
-            return_code = container_process.returncode
+            return_code = container_process.wait()
             
             if return_code != 0:
                 log.warning(f"Docker container exited with code {return_code}")
-                if stderr:
-                    log.warning(f"Docker stderr: {stderr.decode('utf-8', errors='ignore')[:500]}")
+                if return_code == 139:
+                    log.error("Segmentation fault in Docker container - binary may still be incompatible")
+                    log.error("Check if all required files are in /home/pi/centaur directory")
             
             return return_code
         except KeyboardInterrupt:
