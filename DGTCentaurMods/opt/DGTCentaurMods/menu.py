@@ -663,13 +663,11 @@ while True:
                 os.chmod(centaur_software, 0o755)
             except Exception as e:
                 log.warning(f"Could not set execute permissions on centaur: {e}")
-            # Change directory and use relative path (matches monitor script, bypasses sudo secure_path)
-            original_dir = os.getcwd()
-            try:
-                os.chdir("/home/pi/centaur")
-                subprocess.run(["sudo", "./centaur"], check=False)
-            finally:
-                os.chdir(original_dir)
+            # Change directory and use relative path (bypasses sudo secure_path, Trixie compatibility)
+            # Don't restore directory since we exit immediately after
+            os.chdir("/home/pi/centaur")
+            # Use os.system to launch interactive application (blocks until process completes)
+            os.system("sudo ./centaur")
         else:
             log.error(f"Centaur executable not found at {centaur_software}")
             epaper.writeText(0, "Centaur not found")
