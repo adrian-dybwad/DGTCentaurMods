@@ -657,8 +657,13 @@ while True:
         board.cleanup(leds_off=True)
         statusbar.stop()
         time.sleep(1)
-        os.chdir("/home/pi/centaur")
-        os.system("sudo ./centaur")
+        if os.path.exists(centaur_software):
+            os.system(f"sudo {centaur_software}")
+        else:
+            log.error(f"Centaur executable not found at {centaur_software}")
+            epaper.writeText(0, "Centaur not found")
+            time.sleep(2)
+            continue
         # Once started we cannot return to DGTCentaurMods, we can kill that
         time.sleep(3)
         os.system("sudo systemctl stop DGTCentaurMods.service")
@@ -670,7 +675,7 @@ while True:
         if result == "dgtclassic":
             rc = run_external_script("game/eboard.py", start_key_polling=True)
         if result == "millennium":
-            rc = run_external_script("game/millennium.py", start_key_polling=True)
+            rc = run_external_script("game/millennium_ble.py", start_key_polling=True)
     if result == "1v1Analysis":
         rc = run_external_script("game/1v1Analysis.py", start_key_polling=True)
     if result == "settings":
