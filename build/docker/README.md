@@ -66,6 +66,21 @@ sudo docker run --rm \
   dgtcentaurmods/centaur-bullseye:latest
 ```
 
+To check the exit code:
+```bash
+sudo docker run --rm \
+  --privileged \
+  --device=/dev/serial0 \
+  --device=/dev/gpiomem \
+  --device=/dev/spidev0.0 \
+  --device=/dev/spidev0.1 \
+  -v /home/pi/centaur:/centaur:ro \
+  -v /sys/class/gpio:/sys/class/gpio:ro \
+  -w /centaur \
+  dgtcentaurmods/centaur-bullseye:latest
+echo "Exit code: $?"
+```
+
 **Note**: The entire `/home/pi/centaur` directory is mounted (not just the binary) because the centaur executable requires access to libraries, configuration files, and other resources in that directory.
 
 ## Hardware Access

@@ -467,9 +467,11 @@ def run_centaur_in_docker(centaur_path="/home/pi/centaur/centaur"):
         ]
         
         log.info(f"Launching centaur in Docker: {' '.join(docker_cmd)}")
-        # Don't capture output - let it go to terminal for debugging
-        # The binary may need direct stdout/stderr access
-        container_process = subprocess.Popen(docker_cmd)
+        # Run Docker container - don't capture output so binary can interact with terminal/display
+        # The centaur binary needs direct access to stdout/stderr for display updates
+        container_process = subprocess.Popen(docker_cmd,
+                                            stdout=None,  # Don't capture - let it go to terminal
+                                            stderr=None)  # Don't capture - let it go to terminal
         
         # Wait for container to complete
         try:
@@ -478,8 +480,14 @@ def run_centaur_in_docker(centaur_path="/home/pi/centaur/centaur"):
             if return_code != 0:
                 log.warning(f"Docker container exited with code {return_code}")
                 if return_code == 139:
-                    log.error("Segmentation fault in Docker container - binary may still be incompatible")
-                    log.error("Check if all required files are in /home/pi/centaur directory")
+                    log.error("Segmentation fault in Docker container")
+                    log.error("Binary may still be incompatible or missing required files")
+                elif return_code == 1:
+                    log.error("Docker container failed - check Docker logs")
+                else:
+                    log.warning(f"Container exited with unexpected code: {return_code}")
+            else:
+                log.info("Docker container completed successfully")
             
             return return_code
         except KeyboardInterrupt:
