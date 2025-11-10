@@ -179,12 +179,28 @@ sudo docker run --rm --privileged \
 
 3. **Run diagnostic script to check what's missing**:
 ```bash
+cd ~/DGTCentaurMods/build
 sudo docker run --rm --privileged \
   -v /home/pi/centaur:/centaur:ro \
   -w /centaur \
-  -v $(pwd)/build/docker/centaur-bullseye/diagnose.sh:/diagnose.sh:ro \
+  -v $(pwd)/docker/centaur-bullseye/diagnose.sh:/diagnose.sh:ro \
   dgtcentaurmods/centaur-bullseye:latest \
   bash /diagnose.sh
+```
+
+**Note**: If the script doesn't produce output, try running commands individually:
+```bash
+# Check if binary exists
+sudo docker run --rm --privileged \
+  -v /home/pi/centaur:/centaur:ro \
+  dgtcentaurmods/centaur-bullseye:latest \
+  ls -la /centaur/centaur
+
+# Check library dependencies
+sudo docker run --rm --privileged \
+  -v /home/pi/centaur:/centaur:ro \
+  dgtcentaurmods/centaur-bullseye:latest \
+  sh -c "apt-get update && apt-get install -y binutils && ldd /centaur/centaur"
 ```
 
 4. **Run with strace to see system calls**:

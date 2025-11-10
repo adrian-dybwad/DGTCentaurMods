@@ -1,7 +1,8 @@
 #!/bin/bash
 # Diagnostic script to check what's missing for the centaur binary in Docker
 
-set -e
+# Don't exit on error - we want to see all diagnostics
+set +e
 
 echo "=== Centaur Binary Diagnostic ==="
 echo ""
@@ -22,7 +23,7 @@ if command -v ldd &> /dev/null; then
     ldd /centaur/centaur || true
 else
     echo "ldd not available, installing..."
-    apt-get update && apt-get install -y binutils
+    apt-get update -qq && apt-get install -y -qq binutils > /dev/null 2>&1
     ldd /centaur/centaur || true
 fi
 echo ""
@@ -71,10 +72,9 @@ if command -v strace &> /dev/null; then
     timeout 2 strace -e trace=all /centaur/centaur 2>&1 | tail -20 || true
 else
     echo "strace not available, installing..."
-    apt-get update && apt-get install -y strace
+    apt-get update -qq && apt-get install -y -qq strace > /dev/null 2>&1
     timeout 2 strace -e trace=all /centaur/centaur 2>&1 | tail -20 || true
 fi
 echo ""
 
 echo "=== Diagnostic Complete ==="
-
