@@ -317,6 +317,188 @@ show_welcome()
 epaper.quickClear()
 
 
+def check_docker_available():
+    """Check if Docker is installed and daemon is running."""
+    try:
+        # Check if docker command exists
+        result = subprocess.run(["docker", "--version"], 
+                              capture_output=True, text=True, timeout=2)
+        if result.returncode != 0:
+            return False, "Docker command not found"
+        
+        # Check if Docker daemon is running
+        result = subprocess.run(["docker", "info"], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode != 0:
+            return False, "Docker daemon is not running"
+        
+        return True, None
+    except FileNotFoundError:
+        return False, "Docker is not installed"
+    except subprocess.TimeoutExpired:
+        return False, "Docker daemon check timed out"
+    except Exception as e:
+        return False, f"Docker check failed: {str(e)}"
+
+
+def check_docker_image_exists(image_name="dgtcentaurmods/centaur-bullseye:latest"):
+    """Check if Docker image exists."""
+    try:
+        result = subprocess.run(["docker", "images", "-q", image_name],
+                              capture_output=True, text=True, timeout=5)
+        return result.returncode == 0 and result.stdout.strip() != ""
+    except Exception:
+        return False
+
+
+def build_docker_image(image_name="dgtcentaurmods/centaur-bullseye:latest"):
+    """Build Docker image if it doesn't exist."""
+    build_script = str(pathlib.Path(__file__).parent.parent.parent.parent / 
+                      "build" / "docker" / "build-centaur-container.sh")
+    
+    if not os.path.exists(build_script):
+        log.error(f"Docker build script not found: {build_script}")
+        return False, "Build script not found"
+    
+    log.info("Building Docker image for centaur (this may take a few minutes)...")
+    epaper.writeText(0, "Building Docker")
+    epaper.writeText(1, "image...")
+    
+    try:
+        result = subprocess.run(["bash", build_script],
+                              capture_output=True, text=True, timeout=600)
+        if result.returncode == 0:
+            log.info("Docker image built successfully")
+            return True, None
+        else:
+            log.error(f"Docker build failed: {result.stderr}")
+            return False, result.stderr
+    except subprocess.TimeoutExpired:
+        log.error("Docker build timed out")
+        return False, "Build timed out"
+    except Exception as e:
+        log.error(f"Docker build error: {e}")
+        return False, str(e)
+
+
+def run_centaur_in_docker(centaur_path="/home/pi/centaur/centaur"):
+    """Run centaur binary in Docker container with full hardware access."""
+    container_process = None
+    interrupted = False
+    
+    def signal_handler(signum, frame):
+        """Handle Ctrl+C by killing Docker container"""
+        nonlocal container_process, interrupted
+        if interrupted:
+            # Already handling interrupt, force kill immediately
+            if container_process is not None:
+                try:
+                    container_process.kill()
+                except:
+                    pass
+            # Kill any running containers
+            try:
+                result = subprocess.run(["docker", "ps", "-q", "--filter", "ancestor=dgtcentaurmods/centaur-bullseye:latest"],
+                                      capture_output=True, text=True, timeout=2)
+                if result.stdout.strip():
+                    container_ids = result.stdout.strip().split('\n')
+                    for cid in container_ids:
+                        subprocess.run(["docker", "kill", cid], timeout=5)
+            except:
+                pass
+            os._exit(130)
+            return
+        
+        interrupted = True
+        if container_process is not None:
+            # Try to terminate gracefully
+            try:
+                container_process.terminate()
+            except:
+                pass
+            
+            # Kill any running containers
+            try:
+                result = subprocess.run(["docker", "ps", "-q", "--filter", "ancestor=dgtcentaurmods/centaur-bullseye:latest"],
+                                      capture_output=True, text=True, timeout=2)
+                if result.stdout.strip():
+                    container_ids = result.stdout.strip().split('\n')
+                    for cid in container_ids:
+                        subprocess.run(["docker", "kill", cid], timeout=5)
+            except:
+                pass
+            
+            # Force kill after delay if still running
+            def force_kill_after_delay():
+                time.sleep(1.5)
+                if container_process.poll() is None:
+                    try:
+                        container_process.kill()
+                    except:
+                        pass
+                # Kill any remaining containers
+                try:
+                    result = subprocess.run(["docker", "ps", "-q", "--filter", "ancestor=dgtcentaurmods/centaur-bullseye:latest"],
+                                          capture_output=True, text=True, timeout=2)
+                    if result.stdout.strip():
+                        container_ids = result.stdout.strip().split('\n')
+                        for cid in container_ids:
+                            subprocess.run(["docker", "kill", cid], timeout=5)
+                except:
+                    pass
+            threading.Thread(target=force_kill_after_delay, daemon=True).start()
+    
+    # Register signal handler
+    original_handler = signal.signal(signal.SIGINT, signal_handler)
+    try:
+        # Docker run command with full hardware access
+        docker_cmd = [
+            "sudo", "docker", "run", "--rm",
+            "--privileged",
+            "--device=/dev/serial0",
+            "--device=/dev/gpiomem",
+            "--device=/dev/spidev0.0",
+            "--device=/dev/spidev0.1",
+            "-v", "/home/pi/centaur:/centaur:ro",
+            "-v", "/sys/class/gpio:/sys/class/gpio:ro",
+            "-w", "/centaur",
+            "dgtcentaurmods/centaur-bullseye:latest"
+        ]
+        
+        log.info(f"Launching centaur in Docker: {' '.join(docker_cmd)}")
+        container_process = subprocess.Popen(docker_cmd, 
+                                            stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE)
+        
+        # Wait for container to complete
+        try:
+            stdout, stderr = container_process.communicate()
+            return_code = container_process.returncode
+            
+            if return_code != 0:
+                log.warning(f"Docker container exited with code {return_code}")
+                if stderr:
+                    log.warning(f"Docker stderr: {stderr.decode('utf-8', errors='ignore')[:500]}")
+            
+            return return_code
+        except KeyboardInterrupt:
+            log.info("Docker container interrupted")
+            return 130
+    finally:
+        # Restore original signal handler
+        signal.signal(signal.SIGINT, original_handler)
+        # Clean up any remaining containers
+        try:
+            result = subprocess.run(["docker", "ps", "-q", "--filter", "ancestor=dgtcentaurmods/centaur-bullseye:latest"],
+                                  capture_output=True, text=True, timeout=2)
+            if result.stdout.strip():
+                container_ids = result.stdout.strip().split('\n')
+                for cid in container_ids:
+                    subprocess.run(["docker", "kill", cid], timeout=5)
+        except:
+            pass
+
+
 def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:
     process = None
     interrupted = False
@@ -707,8 +889,29 @@ while True:
             
             # Execute based on file type
             if file_type == "elf":
-                # ELF binary - use exec to replace shell process
-                subprocess.run(["sudo", "sh", "-c", f"exec {centaur_software}"], check=False)
+                # ELF binary - try Docker first (for Trixie compatibility), fallback to direct execution
+                docker_available, docker_error = check_docker_available()
+                
+                if docker_available:
+                    # Check if Docker image exists
+                    if not check_docker_image_exists():
+                        log.info("Docker image not found, attempting to build...")
+                        build_success, build_error = build_docker_image()
+                        if not build_success:
+                            log.error(f"Failed to build Docker image: {build_error}")
+                            epaper.writeText(0, "Docker build")
+                            epaper.writeText(1, "failed")
+                            time.sleep(3)
+                            continue
+                    
+                    # Run via Docker
+                    log.info("Running centaur in Docker container")
+                    run_centaur_in_docker(centaur_software)
+                else:
+                    # Docker not available, try direct execution (may fail on Trixie)
+                    log.warning(f"Docker not available: {docker_error}, attempting direct execution")
+                    log.warning("Direct execution may fail on Trixie due to binary incompatibility")
+                    subprocess.run(["sudo", "sh", "-c", f"exec {centaur_software}"], check=False)
             elif file_type == "python_bytecode":
                 # Python bytecode - try running with Python
                 log.warning("Attempting to run as Python bytecode (may not work)")
