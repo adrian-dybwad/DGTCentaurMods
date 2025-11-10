@@ -666,8 +666,9 @@ while True:
             # Change directory and use relative path (bypasses sudo secure_path, Trixie compatibility)
             # Don't restore directory since we exit immediately after
             os.chdir("/home/pi/centaur")
-            # Use os.system to launch interactive application (blocks until process completes)
-            os.system("sudo ./centaur")
+            # Use subprocess with shell=False to execute binary directly (avoids shell interpretation)
+            # This prevents shell from trying to interpret binary as script
+            subprocess.run(["sudo", "./centaur"], check=False)
         else:
             log.error(f"Centaur executable not found at {centaur_software}")
             epaper.writeText(0, "Centaur not found")
