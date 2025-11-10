@@ -149,12 +149,59 @@ newgrp docker
 
 ### Centaur Still Segfaults in Container
 
-**Error**: Segmentation fault even in Docker
+**Error**: Segmentation fault (exit code 139) even in Docker
 
-**Solution**:
-- Verify the centaur binary is not corrupted (check file size, checksum)
-- Ensure the binary is the correct Bullseye version
-- Check container logs: `docker logs <container-id>`
+**Possible Causes**:
+1. Binary is corrupted or wrong version
+2. Missing libraries in container
+3. Kernel interface incompatibility (container uses host kernel, not Bullseye kernel)
+4. Libraries in `/home/pi/centaur` are also incompatible
+
+**Debugging Steps**:
+
+1. **Check if binary is accessible in container**:
+```bash
+sudo docker run --rm --privileged \
+  -v /home/pi/centaur:/centaur:ro \
+  -w /centaur \
+  dgtcentaurmods/centaur-bullseye:latest \
+  ls -la /centaur/centaur
+```
+
+2. **Check library dependencies in container**:
+```bash
+sudo docker run --rm --privileged \
+  -v /home/pi/centaur:/centaur:ro \
+  -w /centaur \
+  dgtcentaurmods/centaur-bullseye:latest \
+  ldd /centaur/centaur
+```
+
+3. **Run diagnostic script to check what's missing**:
+```bash
+sudo docker run --rm --privileged \
+  -v /home/pi/centaur:/centaur:ro \
+  -w /centaur \
+  -v $(pwd)/build/docker/centaur-bullseye/diagnose.sh:/diagnose.sh:ro \
+  dgtcentaurmods/centaur-bullseye:latest \
+  bash /diagnose.sh
+```
+
+4. **Run with strace to see system calls**:
+```bash
+sudo docker run --rm --privileged \
+  --device=/dev/serial0 \
+  --device=/dev/gpiomem \
+  --device=/dev/spidev0.0 \
+  --device=/dev/spidev0.1 \
+  -v /home/pi/centaur:/centaur:ro \
+  -v /sys/class/gpio:/sys/class/gpio:ro \
+  -w /centaur \
+  dgtcentaurmods/centaur-bullseye:latest \
+  sh -c "apt-get update && apt-get install -y strace && strace /centaur/centaur 2>&1 | tail -50"
+```
+
+**Important Note**: Docker containers share the host kernel. Even though the container has Bullseye userspace libraries, it's still using Trixie's kernel. If the binary requires specific kernel interfaces that changed between Bullseye and Trixie, it may still fail. This is a fundamental limitation of Docker - it cannot change the kernel version.
 
 ## Manual Testing
 
