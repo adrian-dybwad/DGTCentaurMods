@@ -189,6 +189,8 @@ sudo docker run --rm --privileged \
   bash /diagnose.sh
 ```
 
+**Note**: If you get "/diagnose.sh: Is a directory", check the path. From `~/DGTCentaurMods/build`, the correct path is `$(pwd)/docker/centaur-bullseye/diagnose.sh` (not `build/docker/...`).
+
 **Note**: If commands don't produce output, try these simpler tests:
 
 ```bash
@@ -207,11 +209,20 @@ sudo docker run --rm \
   dgtcentaurmods/centaur-bullseye:latest \
   /bin/bash -c "test -f /centaur/centaur && echo 'Binary exists' || echo 'Binary NOT found'"
 
-# Test 4: Check library dependencies (requires rebuilding image with binutils)
+# Test 4: Check library dependencies
 sudo docker run --rm \
   -v /home/pi/centaur:/centaur:ro \
   dgtcentaurmods/centaur-bullseye:latest \
   /bin/bash -c "apt-get update -qq && apt-get install -y -qq binutils > /dev/null 2>&1 && ldd /centaur/centaur"
+
+# Test 5: Run diagnostic script (from ~/DGTCentaurMods/build directory)
+cd ~/DGTCentaurMods/build
+sudo docker run --rm --privileged \
+  -v /home/pi/centaur:/centaur:ro \
+  -w /centaur \
+  -v $(pwd)/docker/centaur-bullseye/diagnose.sh:/diagnose.sh:ro \
+  dgtcentaurmods/centaur-bullseye:latest \
+  bash /diagnose.sh
 ```
 
 4. **Run with strace to see system calls**:
@@ -229,6 +240,47 @@ sudo docker run --rm --privileged \
 ```
 
 **Important Note**: Docker containers share the host kernel. Even though the container has Bullseye userspace libraries, it's still using Trixie's kernel. If the binary requires specific kernel interfaces that changed between Bullseye and Trixie, it may still fail. This is a fundamental limitation of Docker - it cannot change the kernel version.
+
+### Diagnostic Results Analysis
+
+Based on the diagnostic output, the binary:
+- ✓ Has all required libraries
+- ✓ Has all required directories and files
+- ✗ Crashes with SIGSEGV after loading libssl.so.1.1 and libcrypto.so.1.1
+
+The crash occurs at memory address `0xf575d43c` after successfully loading all libraries. This indicates a **kernel interface incompatibility** rather than a missing library issue. The binary was compiled for Bullseye's kernel, but Docker containers use the host (Trixie) kernel.
+
+**This is a fundamental limitation**: Docker cannot change the kernel version. The binary needs to run on a Bullseye kernel to work properly.
+
+### Alternative Solutions
+
+Since Docker cannot solve the kernel compatibility issue, consider:
+
+1. **Use Bullseye on the host** (recommended)
+   - Install Debian Bullseye instead of Trixie
+   - The binary will work natively
+
+2. **Use a VM with Bullseye** (Not viable on Pi Zero)
+   - **Raspberry Pi 4 and later**: Support ARM virtualization (KVM/QEMU)
+   - **Pi Zero/Pi Zero 2 W**: **NOT VIABLE** - insufficient memory (512MB total, VM needs 512MB-1GB)
+   - **Implementation**: See `build/vm/README.md` for detailed VM solution proposal
+   - **Challenges**:
+     - **Memory**: Pi Zero has only 512MB total - VM requires 512MB-1GB minimum
+     - **KVM**: Not available on Pi Zero - would run in slow emulation mode
+     - Hardware access complexity: Serial port can be passed, but GPIO/SPI require a proxy daemon
+     - ARM-on-ARM virtualization is possible but slower than native
+     - May not be practical for real-time chess board communication
+     - Requires custom hardware proxy for GPIO/SPI access
+   - **Status**: Proof-of-concept scripts provided, but not viable on Pi Zero hardware
+   - **Conclusion**: **VM is impossible on Pi Zero** - use Bullseye directly on the host instead
+
+3. **Wait for a Trixie-compatible binary**
+   - If DGT releases a version compiled for Trixie
+   - Or recompile the source code for Trixie
+
+4. **Use the original SD card**
+   - The original SD card with Bullseye should work
+   - Copy the working system to a new SD card if needed
 
 ## Manual Testing
 

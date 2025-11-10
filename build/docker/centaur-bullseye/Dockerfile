@@ -6,6 +6,8 @@ FROM arm32v7/debian:bullseye
 # - libc6 (libc.so.6, libdl.so.2, libpthread.so.0, libm.so.6)
 # - libgcc1 (libgcc_s.so.1)
 # - Additional libraries that might be needed at runtime
+# NOTE: All libraries are found, but the binary still crashes due to kernel
+# interface incompatibility (Docker containers share the host kernel)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libc6 \
