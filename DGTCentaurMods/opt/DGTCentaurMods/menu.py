@@ -667,7 +667,15 @@ while True:
             # Check file header to determine file type (file command shows "data")
             # Read first few bytes to identify the format
             file_type = "unknown"
+            file_size = 0
             try:
+                file_size = os.path.getsize(centaur_software)
+                log.info(f"Centaur file size: {file_size} bytes")
+                if file_size == 0:
+                    log.error("Centaur file is empty!")
+                    epaper.writeText(0, "Centaur file empty")
+                    time.sleep(2)
+                    continue
                 with open(centaur_software, "rb") as f:
                     header = f.read(16)
                     if header.startswith(b'\x7fELF'):
@@ -679,6 +687,16 @@ while True:
                     elif header.startswith(b'\x03\xf3\r\n') or header.startswith(b'\x16\r\r\n'):
                         file_type = "python_bytecode"
                         log.info("Centaur file appears to be Python bytecode")
+                    elif header == b'\x00' * 16:
+                        log.warning("Centaur file header is all zeros - file may be corrupted or encrypted")
+                        # Check if file has any non-zero content
+                        f.seek(0)
+                        sample = f.read(min(1024, file_size))
+                        if sample == b'\x00' * len(sample):
+                            log.error("Centaur file appears to be all zeros - likely corrupted")
+                            epaper.writeText(0, "Centaur corrupted")
+                            time.sleep(2)
+                            continue
                     else:
                         log.warning(f"Centaur file header: {header.hex()[:32]}")
             except Exception as e:
@@ -696,10 +714,23 @@ while True:
                 log.warning("Attempting to run as Python bytecode (may not work)")
                 subprocess.run(["sudo", "python3", centaur_software], check=False)
             else:
-                # Unknown type - try direct execution anyway (might work despite file command)
-                # Some binaries may not be recognized by file command but still executable
-                log.info("File type unknown, attempting direct execution")
-                subprocess.run(["sudo", "sh", "-c", f"exec {centaur_software}"], check=False)
+                # File header is all zeros - file may be corrupted, encrypted, or need special loader
+                # Try using ld.so (dynamic linker) in case it's a valid binary that file doesn't recognize
+                log.warning("File header is all zeros - may be corrupted or need special handling")
+                log.info("Attempting execution via dynamic linker")
+                try:
+                    # Try with ld.so in case it's a valid binary
+                    subprocess.run(["sudo", "/lib/ld-linux-armhf.so.3", centaur_software], check=False)
+                except FileNotFoundError:
+                    # Try alternative ld.so path
+                    try:
+                        subprocess.run(["sudo", "/lib/ld-linux.so.3", centaur_software], check=False)
+                    except FileNotFoundError:
+                        # Last resort: try direct execution (will likely fail but worth trying)
+                        log.error("Could not find dynamic linker, file may be corrupted or incompatible with Trixie")
+                        epaper.writeText(0, "Centaur file error")
+                        epaper.writeText(1, "Check logs")
+                        time.sleep(3)
         else:
             log.error(f"Centaur executable not found at {centaur_software}")
             epaper.writeText(0, "Centaur not found")
