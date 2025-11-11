@@ -28,8 +28,9 @@ sudo stty -F "$REAL" 1000000
 # waitslave ensures connection is established before data transfer
 # ignoreeof on PTY side prevents exit when slave closes
 # Use raw on PTY side for binary data
-# Use raw on real device side too, remove stty option
-# Use -v for verbose to see both directions
-sudo socat -d -d -v -x \
+# Use raw on real device side too
+# -v shows direction indicators (> and <), -x shows hex bytes
+# Preserve first character when it is < or >, remove separator lines
+sudo socat -v -x \
   pty,raw,echo=0,link="$DEV",waitslave,mode=666,ignoreeof \
-  "$REAL",raw,echo=0,clocal=1,hupcl=0
+  "$REAL",raw,echo=0,clocal=1,hupcl=0 2>&1 | sed -E 's/^([><]).*/\1/' | grep -v '^--$'
