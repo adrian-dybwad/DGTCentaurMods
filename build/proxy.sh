@@ -30,7 +30,7 @@ sudo stty -F "$REAL" 1000000
 # Use raw on PTY side for binary data
 # Use raw on real device side too
 # -v shows direction indicators (> and <), -x shows hex bytes
-# Preserve first character when it is < or >, remove separator lines
+# Preserve first character when it is < or >, join with next line, remove separator lines
 sudo socat -v -x \
   pty,raw,echo=0,link="$DEV",waitslave,mode=666,ignoreeof \
-  "$REAL",raw,echo=0,clocal=1,hupcl=0 2>&1 | sed -E 's/^([><]).*/\1/' | grep -v '^--$'
+  "$REAL",raw,echo=0,clocal=1,hupcl=0 2>&1 | sed -E 's/^([><]).*/\1/' | grep -v '^--$' | awk '/^[><]$/ {dir=$0; getline; print dir " " $0; next} {print}'
