@@ -56,11 +56,32 @@ def relay_hw_to_virtual(real_ser, monitor_ser):
             data = real_ser.read(1000)
             if data:
                 log_message("HW->CENTAUR", data)
-                monitor_ser.write(data)
-                monitor_ser.flush()
+                try:
+                    monitor_ser.write(data)
+                    monitor_ser.flush()
+                except Exception as e:
+                    if running:
+                        print(f"Error writing to monitor port: {e}")
+            # Always sleep after read attempt to prevent CPU spinning
             time.sleep(0.001)
         except serial.SerialTimeoutException:
+            # Timeout is normal when no data is available
             time.sleep(0.001)
+        except OSError as e:
+            # During shutdown, ports may be closed - ignore errors if not running
+            if not running:
+                break
+            # "device reports readiness to read but returned no data" is a non-fatal error
+            # that can happen with serial ports - just continue, don't break
+            error_str = str(e).lower()
+            if "no data" in error_str or "disconnected" in error_str:
+                # Non-fatal error, just continue
+                time.sleep(0.001)
+                continue
+            # For other OSErrors, log and break
+            if running:
+                print(f"Error in HW->CENTAUR relay: {e}")
+            break
         except Exception as e:
             if running:
                 print(f"Error in HW->CENTAUR relay: {e}")
@@ -74,11 +95,32 @@ def relay_virtual_to_hw(real_ser, monitor_ser):
             data = monitor_ser.read(1000)
             if data:
                 log_message("CENTAUR->HW", data)
-                real_ser.write(data)
-                real_ser.flush()
+                try:
+                    real_ser.write(data)
+                    real_ser.flush()
+                except Exception as e:
+                    if running:
+                        print(f"Error writing to hardware port: {e}")
+            # Always sleep after read attempt to prevent CPU spinning
             time.sleep(0.001)
         except serial.SerialTimeoutException:
+            # Timeout is normal when no data is available
             time.sleep(0.001)
+        except OSError as e:
+            # During shutdown, ports may be closed - ignore errors if not running
+            if not running:
+                break
+            # "device reports readiness to read but returned no data" is a non-fatal error
+            # that can happen with serial ports - just continue, don't break
+            error_str = str(e).lower()
+            if "no data" in error_str or "disconnected" in error_str:
+                # Non-fatal error, just continue
+                time.sleep(0.001)
+                continue
+            # For other OSErrors, log and break
+            if running:
+                print(f"Error in CENTAUR->HW relay: {e}")
+            break
         except Exception as e:
             if running:
                 print(f"Error in CENTAUR->HW relay: {e}")
@@ -118,17 +160,35 @@ def replace_serial0():
     try:
         # Remove existing /dev/serial0
         os.system("sudo rm -f /dev/serial0")
+        time.sleep(0.1)  # Give it a moment
         
-        # Create symlink from /dev/serial0 to virtual port
-        result = os.system(f"sudo ln -sf {VIRTUAL_PORT_FOR_CENTAUR} /dev/serial0")
+        # Get absolute path for the virtual port
+        abs_virtual_port = os.path.abspath(VIRTUAL_PORT_FOR_CENTAUR)
+        
+        # Create symlink from /dev/serial0 to virtual port (use absolute path)
+        result = os.system(f"sudo ln -sf {abs_virtual_port} /dev/serial0")
         if result != 0:
             print(f"Warning: Failed to create symlink (result={result})")
+        
+        time.sleep(0.1)  # Give it a moment to settle
         
         # Verify it was created
         if os.path.exists("/dev/serial0") and os.path.islink("/dev/serial0"):
             actual_target = os.readlink("/dev/serial0")
-            if actual_target == VIRTUAL_PORT_FOR_CENTAUR:
-                return True
+            # Resolve to absolute path for comparison
+            if os.path.isabs(actual_target):
+                resolved_target = actual_target
+            else:
+                # If relative, resolve it
+                resolved_target = os.path.abspath(os.path.join(os.path.dirname("/dev/serial0"), actual_target))
+            
+            if resolved_target == abs_virtual_port or actual_target == VIRTUAL_PORT_FOR_CENTAUR:
+                # Also verify the target exists and is accessible
+                if os.path.exists(VIRTUAL_PORT_FOR_CENTAUR):
+                    return True
+                else:
+                    print(f"ERROR: Target {VIRTUAL_PORT_FOR_CENTAUR} does not exist")
+                    return False
             else:
                 print(f"WARNING: symlink points to {actual_target}, expected {VIRTUAL_PORT_FOR_CENTAUR}")
                 return False
@@ -137,6 +197,8 @@ def replace_serial0():
             return False
     except Exception as e:
         print(f"Error setting up serial0 symlink: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def restore_serial0():
@@ -276,16 +338,34 @@ def main():
     # Open serial ports
     print("\nOpening serial ports...")
     try:
-        # Hardware port - read/write
-        real_ser = serial.Serial(REAL_SERIAL_PORT, baudrate=1000000, timeout=0.1)
+        # Hardware port - read/write (use longer timeout like original)
+        real_ser = serial.Serial(REAL_SERIAL_PORT, baudrate=1000000, timeout=0.2)
         print(f"Opened {REAL_SERIAL_PORT} (hardware)")
         
-        # Monitor port - open via symlink (FIXED: use symlink, not resolved path)
+        # Monitor port - open the actual PTY device (resolve symlink)
         # When we write to monitor_port, socat forwards it to centaur_port (where centaur reads)
         # When centaur writes to centaur_port, socat forwards it to monitor_port (where we read)
-        monitor_ser = serial.Serial(monitor_port, baudrate=1000000, timeout=0.1, write_timeout=0.1)
-        print(f"Opened {monitor_port} (monitor - we read/write here)")
+        # We need to open the actual PTY device, not the symlink, for proper communication
+        actual_monitor_pty = os.readlink(monitor_port) if os.path.islink(monitor_port) else monitor_port
+        print(f"Monitor port symlink: {monitor_port} -> {actual_monitor_pty}")
+        monitor_ser = serial.Serial(actual_monitor_pty, baudrate=1000000, timeout=0.2, write_timeout=0.2)
+        print(f"Opened {actual_monitor_pty} (monitor - we read/write here)")
         print(f"{centaur_port} is used by centaur via /dev/serial0 (we don't open it)")
+        
+        # Verify socat is still running
+        if socat_process and socat_process.poll() is not None:
+            print(f"ERROR: socat process exited with code {socat_process.poll()}")
+            cleanup()
+            return 1
+        
+        # Verify /dev/serial0 points to centaur_port
+        if os.path.islink("/dev/serial0"):
+            serial0_target = os.readlink("/dev/serial0")
+            print(f"/dev/serial0 -> {serial0_target}")
+            if serial0_target != centaur_port:
+                print(f"WARNING: /dev/serial0 points to {serial0_target}, expected {centaur_port}")
+        else:
+            print("WARNING: /dev/serial0 is not a symlink")
         
     except Exception as e:
         print(f"Failed to open serial ports: {e}")
@@ -322,6 +402,22 @@ def main():
                                            stdout=subprocess.PIPE, 
                                            stderr=subprocess.PIPE,
                                            preexec_fn=os.setsid)
+    
+    # Give centaur a moment to start and open the serial port
+    time.sleep(0.5)
+    
+    # Verify socat is still running after centaur starts
+    if socat_process and socat_process.poll() is not None:
+        print(f"ERROR: socat process exited with code {socat_process.poll()}")
+        # Try to read stderr to see why
+        try:
+            stderr_output = socat_process.stderr.read()
+            if stderr_output:
+                print(f"socat stderr: {stderr_output.decode('utf-8', errors='ignore')}")
+        except:
+            pass
+        cleanup()
+        return 1
     
     # Monitor until centaur exits or we get a signal
     try:
