@@ -12,6 +12,21 @@ sudo fuser -k "$DEV" 2>/dev/null || true
 sudo fuser -k "$REAL" 2>/dev/null || true
 sleep 0.5
 
+# Cleanup function to restore device on exit
+cleanup() {
+  # Remove symlink if it exists
+  if [ -L "$DEV" ]; then
+    sudo rm -f "$DEV" 2>/dev/null || true
+  fi
+  # Restore real device if it exists
+  if [ -e "$REAL" ]; then
+    sudo mv "$REAL" "$DEV" 2>/dev/null || true
+  fi
+}
+
+# Set trap to cleanup on exit
+trap cleanup EXIT INT TERM
+
 # If the "real" device doesn't exist yet, move the real one aside
 if [ ! -e "$REAL" ]; then
   sudo mv "$DEV" "$REAL"
