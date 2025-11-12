@@ -647,13 +647,6 @@ class SyncCentaur:
                     log.info(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
                     self.ledsOff()
                     self.beep(command.SOUND_POWER_ON)
-                    
-                    resp = self.request_response(command.DGT_BUS_SEND_SNAPSHOT_F0)
-                    log.info(f"Discovery: RESPONSE FROM F0 - {' '.join(f'{b:02x}' for b in resp)}")
-                    resp = self.request_response(command.DGT_BUS_SEND_SNAPSHOT_F4)
-                    log.info(f"Discovery: RESPONSE FROM F4 - {' '.join(f'{b:02x}' for b in resp)}")
-                    resp = self.request_response(command.DGT_BUS_SEND_96)
-                    log.info(f"Discovery: RESPONSE FROM 96 - {' '.join(f'{b:02x}' for b in resp)}")
                 else:
                     log.info(f"Discovery: ERROR - addr1={hex(self.addr1)}, addr2={hex(self.addr2)} does not match packet {packet[3]} {packet[4]}")
                     self.addr1 = 0x00
