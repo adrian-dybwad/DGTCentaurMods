@@ -620,6 +620,7 @@ class SyncCentaur:
         if self.ready:
             return
         
+        print(f"Discovery: packet: {' '.join(f'{b:02x}' for b in packet)}")
         # Called from run_background() with no packet
         if packet is None:
             log.info("Discovery: STARTING")
