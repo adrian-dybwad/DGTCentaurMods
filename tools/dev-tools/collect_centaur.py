@@ -337,13 +337,28 @@ def write_csv_row(writer, rec: Dict[str, Any]):
 
 def write_templates_summary(outdir: str, jsonl_path: str):
     """
-    Compute a simple per-(piece,color) centroid over two robust features:
-    - f0_total_non7f_bytes
-    - f0_total_energy
-    Write JSON + CSV so we can iterate quickly.
+    Pure-Python summary (no pandas).
+    Builds per-(piece,color) stats over:
+      - f0_total_non7f_bytes
+      - f0_total_energy
+    Writes templates_summary.json and templates_summary.csv
     """
-    import pandas as pd
-    rows = []
+    PIECES = ["P","N","B","R","Q","K"]
+    import math
+
+    def mean(xs):
+        xs = [float(x) for x in xs]
+        return sum(xs)/len(xs) if xs else float('nan')
+
+    def stdev(xs):
+        xs = [float(x) for x in xs]
+        n = len(xs)
+        if n < 2: return float('nan')
+        mu = mean(xs)
+        var = sum((x-mu)**2 for x in xs)/(n-1)
+        return math.sqrt(var)
+
+    groups = {}  # (piece,color) -> {"non7f":[], "energy":[]}
     with open(jsonl_path, "r", encoding="utf-8") as f:
         for line in f:
             rec = json.loads(line)
@@ -354,53 +369,57 @@ def write_templates_summary(outdir: str, jsonl_path: str):
             color = (meta.get("label_color") or "").lower()
             if piece not in PIECES or color not in ("w","b"):
                 continue
-            rows.append({
-                "piece": piece,
-                "color": color,
-                "f0_total_non7f_bytes": rec.get("f0_total_non7f_bytes"),
-                "f0_total_energy": rec.get("f0_total_energy"),
-            })
-    if not rows:
+            non7f = rec.get("f0_total_non7f_bytes")
+            energy = rec.get("f0_total_energy")
+            if non7f is None or energy is None:
+                continue
+            groups.setdefault((piece,color), {"non7f":[], "energy":[]})
+            groups[(piece,color)]["non7f"].append(non7f)
+            groups[(piece,color)]["energy"].append(energy)
+
+    if not groups:
         print("No labeled single-piece rows found; templates summary skipped.")
         return
-    df = pd.DataFrame(rows).dropna()
-    grp = df.groupby(["piece","color"])
-    summary = grp.agg(
-        count=("f0_total_energy","count"),
-        non7f_mean=("f0_total_non7f_bytes","mean"),
-        non7f_std=("f0_total_non7f_bytes","std"),
-        energy_mean=("f0_total_energy","mean"),
-        energy_std=("f0_total_energy","std"),
-        non7f_min=("f0_total_non7f_bytes","min"),
-        non7f_max=("f0_total_non7f_bytes","max"),
-        energy_min=("f0_total_energy","min"),
-        energy_max=("f0_total_energy","max"),
-    ).reset_index()
 
-    # Save CSV
-    summ_csv = os.path.join(outdir, "templates_summary.csv")
-    summary.to_csv(summ_csv, index=False)
+    # Write CSV
+    csv_path = os.path.join(outdir, "templates_summary.csv")
+    with open(csv_path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["piece","color","count",
+                    "non7f_mean","non7f_std","non7f_min","non7f_max",
+                    "energy_mean","energy_std","energy_min","energy_max"])
+        for (piece,color), vals in sorted(groups.items()):
+            n = len(vals["non7f"])
+            non7f_mean = mean(vals["non7f"])
+            non7f_std  = stdev(vals["non7f"])
+            energy_mean = mean(vals["energy"])
+            energy_std  = stdev(vals["energy"])
+            w.writerow([
+                piece, color, n,
+                f"{non7f_mean:.6g}", f"{non7f_std:.6g}", min(vals["non7f"]), max(vals["non7f"]),
+                f"{energy_mean:.6g}", f"{energy_std:.6g}", min(vals["energy"]), max(vals["energy"]),
+            ])
 
-    # Save JSON
-    summ_json = os.path.join(outdir, "templates_summary.json")
-    # Build a compact dict keyed by f"{piece}{color}"
+    # Write JSON
+    json_path = os.path.join(outdir, "templates_summary.json")
     comp = {}
-    for _, r in summary.iterrows():
-        key = f"{r['piece']}{r['color']}"
+    for (piece,color), vals in groups.items():
+        key = f"{piece}{color}"
         comp[key] = {
-            "count": int(r["count"]),
-            "non7f_mean": float(r["non7f_mean"]),
-            "non7f_std": None if pd.isna(r["non7f_std"]) else float(r["non7f_std"]),
-            "energy_mean": float(r["energy_mean"]),
-            "energy_std": None if pd.isna(r["energy_std"]) else float(r["energy_std"]),
-            "non7f_min": float(r["non7f_min"]),
-            "non7f_max": float(r["non7f_max"]),
-            "energy_min": float(r["energy_min"]),
-            "energy_max": float(r["energy_max"]),
+            "count": len(vals["non7f"]),
+            "non7f_mean": mean(vals["non7f"]),
+            "non7f_std": stdev(vals["non7f"]),
+            "energy_mean": mean(vals["energy"]),
+            "energy_std": stdev(vals["energy"]),
+            "non7f_min": min(vals["non7f"]),
+            "non7f_max": max(vals["non7f"]),
+            "energy_min": min(vals["energy"]),
+            "energy_max": max(vals["energy"]),
         }
-    with open(summ_json, "w", encoding="utf-8") as fh:
+    with open(json_path, "w", encoding="utf-8") as fh:
         json.dump(comp, fh, indent=2)
-    print(f"Templates summary written:\n- {summ_csv}\n- {summ_json}")
+
+    print(f"Templates summary written:\n- {csv_path}\n- {json_path}")
 
 # ------------------------- CLI and main -------------------------
 
