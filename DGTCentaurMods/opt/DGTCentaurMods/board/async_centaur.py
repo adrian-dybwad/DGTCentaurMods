@@ -107,10 +107,10 @@ DGT_PIECE_EVENT_RESP = 0x8e # This identifies a piece detection event
 
 COMMANDS: Dict[str, CommandSpec] = {
 
-    "DGT_BUS_SEND_87":        CommandSpec(0x87, 0x87),
-    "DGT_BUS_SEND_SNAPSHOT":  CommandSpec(0xf0, 0xF0, b'\x7f'),
-    "DGT_BUS_SEND_SNAPSHOT_F4":  CommandSpec(0xf4, 0xF4, b'\x7f'),
-    "DGT_BUS_SEND_96":  CommandSpec(0x96, 0xb2),
+    "DGT_BUS_SEND_87":        CommandSpec(0x87, 0x87), # Sent after initial init but before ADDR1 ADDR2 is populated. This is a SHORT command.
+    "DGT_BUS_SEND_SNAPSHOT_F0":  CommandSpec(0xf0, 0xF0, b'\x7f'), # Sent after initial ledsOff().
+    "DGT_BUS_SEND_SNAPSHOT_F4":  CommandSpec(0xf4, 0xF4, b'\x7f'), # Sent after F0 is called.
+    "DGT_BUS_SEND_96":  CommandSpec(0x96, 0xb2), # Sent after F4 is called. This is a SHORT command.
 
     #"DGT_BUS_SEND_STATE_NOCS": CommandSpec(0x42, 0x86, b'\x7f'),
     "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83, None),
