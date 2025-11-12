@@ -286,8 +286,6 @@ def changedCallback(piece_event, field, time_in_seconds):
 # Turn Leds off, beep, clear DGT Centaur Serial
 # Initialise the epaper display - after which functions in epaper.py are available but you can also draw to the
 # image epaper.epaperbuffer to change the screen.
-board.ledsOff()
-board.beep(board.SOUND_POWER_ON)
 epaper.initEpaper(1)
 statusbar = epaper.statusBar()
 statusbar.start()
