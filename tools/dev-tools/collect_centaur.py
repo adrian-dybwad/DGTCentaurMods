@@ -46,7 +46,7 @@ import os
 import sys
 from typing import List, Tuple, Dict, Any
 
-from DGTCentaurMods.board import Board
+from DGTCentaurMods.board import board as Board
 from DGTCentaurMods.board.sync_centaur import command
 from DGTCentaurMods.board.logging import log
 
