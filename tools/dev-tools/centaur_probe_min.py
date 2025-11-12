@@ -198,10 +198,10 @@ def build_from_command_name(name: str, addr1: int, addr2: int) -> Optional[bytes
     default_data = getattr(spec, 'default_data', None)
     if not cmd_bytes:
         return None
-    if len(cmd_bytes) == 1:
-        return build_short(cmd_bytes[0], addr1, addr2)
+    #if len(cmd_bytes) == 1:
+    #    return build_short(cmd_bytes[0], addr1, addr2)
     # Full-header command: first byte is type, rest contains old len we recompute
-    return build_full_from_type0(cmd_bytes[0], addr1, addr2, default_data or b'')
+    return build_full_from_type0(cmd_bytes, addr1, addr2, default_data or b'')
 
 
 def parse_hex_byte(s: str) -> Optional[int]:
