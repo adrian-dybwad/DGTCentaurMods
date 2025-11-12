@@ -46,6 +46,15 @@ import os
 import sys
 from typing import List, Tuple, Dict, Any
 
+# Ensure we import the repo package first (not a system-installed copy)
+try:
+    REPO_OPT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'DGTCentaurMods', 'opt'))
+    if REPO_OPT not in sys.path:
+        sys.path.insert(0, REPO_OPT)
+except Exception:
+    pass
+
+
 from DGTCentaurMods.board import board as Board
 from DGTCentaurMods.board.sync_centaur import command
 from DGTCentaurMods.board.logging import log
