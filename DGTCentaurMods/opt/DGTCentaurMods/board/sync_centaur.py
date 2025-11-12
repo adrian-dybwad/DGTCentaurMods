@@ -272,6 +272,8 @@ class SyncCentaur:
     
     def _try_packet_detection(self, byte):
         """Handle checksum-validated packets, returns True if packet complete"""
+        print(f"try_packet_detection: len(self.response_buffer): {len(self.response_buffer)}")
+        print(f"try_packet_detection: self.response_buffer: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
         if len(self.response_buffer) >= 3:
             len_hi, len_lo = self.response_buffer[1], self.response_buffer[2]
             declared_length = ((len_hi & 0x7F) << 7) | (len_lo & 0x7F)
@@ -620,7 +622,6 @@ class SyncCentaur:
         if self.ready:
             return
         
-        print(f"Discovery: packet: {' '.join(f'{b:02x}' for b in packet)}")
         # Called from run_background() with no packet
         if packet is None:
             log.info("Discovery: STARTING")
