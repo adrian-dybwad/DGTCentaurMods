@@ -318,11 +318,11 @@ class SyncCentaur:
                 return
             
             self._route_packet_to_handler(packet)
-        finally:
-            if packet[0] == DGT_PIECE_EVENT_RESP:
-                self.sendPacket(command.DGT_BUS_SEND_CHANGES)
-            else:
-                self.sendPacket(command.DGT_NOTIFY_EVENTS)
+        # finally:
+        #     if packet[0] == DGT_PIECE_EVENT_RESP:
+        #         self.sendPacket(command.DGT_BUS_SEND_CHANGES)
+        #     else:
+        #         self.sendPacket(command.DGT_NOTIFY_EVENTS)
     
     def _try_deliver_to_waiter(self, packet):
         """Try to deliver packet to waiting request, returns True if delivered"""
