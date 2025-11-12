@@ -33,6 +33,7 @@ import signal
 from DGTCentaurMods.display.ui_components import AssetManager
 
 from DGTCentaurMods.board import *
+from DGTCentaurMods.board.sync_centaur import command
 from DGTCentaurMods.display import epaper
 from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.board.logging import log
@@ -296,11 +297,11 @@ threading.Timer(300, update.main).start()
 # field activity
 board.subscribeEvents(keyPressed, changedCallback, timeout=900)
 board.printChessState()
-resp = board.request_response(command.DGT_BUS_SEND_SNAPSHOT_F0)
+resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
 log.info(f"Discovery: RESPONSE FROM F0 - {' '.join(f'{b:02x}' for b in resp)}")
-resp = board.request_response(command.DGT_BUS_SEND_SNAPSHOT_F4)
+resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F4)
 log.info(f"Discovery: RESPONSE FROM F4 - {' '.join(f'{b:02x}' for b in resp)}")
-resp = board.request_response(command.DGT_BUS_SEND_96)
+resp = board.sendCommand(command.DGT_BUS_SEND_96)
 log.info(f"Discovery: RESPONSE FROM 96 - {' '.join(f'{b:02x}' for b in resp)}")
 
 
