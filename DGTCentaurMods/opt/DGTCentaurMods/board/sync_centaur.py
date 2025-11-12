@@ -305,19 +305,19 @@ class SyncCentaur:
         self.response_buffer = bytearray()
         self.packet_count += 1
         
-        try:
-            truncated_packet = packet[:50]
-            log.info(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
-            # Handle discovery or route to handler
-            if not self.ready:
-                self._discover_board_address(packet)
-                return
-            
-            # Try delivering to waiter first
-            if self._try_deliver_to_waiter(packet):
-                return
-            
-            self._route_packet_to_handler(packet)
+        #try:
+        truncated_packet = packet[:50]
+        log.info(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
+        # Handle discovery or route to handler
+        if not self.ready:
+            self._discover_board_address(packet)
+            return
+        
+        # Try delivering to waiter first
+        if self._try_deliver_to_waiter(packet):
+            return
+        
+        self._route_packet_to_handler(packet)
         # finally:
         #     if packet[0] == DGT_PIECE_EVENT_RESP:
         #         self.sendPacket(command.DGT_BUS_SEND_CHANGES)
