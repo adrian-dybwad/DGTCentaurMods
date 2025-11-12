@@ -170,7 +170,25 @@ class JetsonNano:
         self.GPIO.cleanup()
 
 
-if os.path.exists('/sys/bus/platform/drivers/rpi-gpiomem'):
+def is_raspberry_pi():
+    """Detect if running on Raspberry Pi hardware."""
+    # Check multiple indicators
+    if os.path.exists('/sys/bus/platform/drivers/rpi-gpiomem'):
+        return True
+    if os.path.exists('/proc/device-tree/model'):
+        with open('/proc/device-tree/model', 'r') as f:
+            model = f.read().lower()
+            if 'raspberry pi' in model:
+                return True
+    # Try importing RPi.GPIO as definitive test
+    try:
+        import RPi.GPIO
+        return True
+    except (ImportError, RuntimeError):
+        pass
+    return False
+
+if is_raspberry_pi():
     implementation = RaspberryPi()
 else:
     implementation = JetsonNano()
