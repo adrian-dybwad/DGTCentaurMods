@@ -578,8 +578,8 @@ class SyncCentaur:
         tosend = self.buildPacket(spec.cmd, eff_data)
         log.info(f"sendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
-        if self.ready and spec.expected_resp_type is None and command_name != command.DGT_NOTIFY_EVENTS:
-            self.sendPacket(command.DGT_NOTIFY_EVENTS)
+        #if self.ready and spec.expected_resp_type is None and command_name != command.DGT_NOTIFY_EVENTS:
+        #    self.sendPacket(command.DGT_NOTIFY_EVENTS)
     
     def buildPacket(self, command, data):
         """Build a complete packet with command, addresses, data, and checksum"""
