@@ -295,7 +295,7 @@ threading.Timer(300, update.main).start()
 # Subscribe to board events. First parameter is the function for key presses. The second is the function for
 # field activity
 board.subscribeEvents(keyPressed, changedCallback, timeout=900)
-board.printBoardState()
+board.printChessState()
 resp = board.request_response(command.DGT_BUS_SEND_SNAPSHOT_F0)
 log.info(f"Discovery: RESPONSE FROM F0 - {' '.join(f'{b:02x}' for b in resp)}")
 resp = board.request_response(command.DGT_BUS_SEND_SNAPSHOT_F4)
