@@ -1,29 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 """
-Centaur ASCII board: robust occupancy + optional learning-based F0→square mapping + simple classification.
+Centaur ASCII board with robust 83-occupancy via learned bit mapping,
+plus optional F0 classification (if you have templates + F0→square mapping).
 
-- Always shows square occupancy from STATE(83).
-- Optional "learn mapping" mode: with exactly one occupied square, associate the most-changed F0 "bucket"
-  with that square; store mapping to f0_square_map.json. Repeat across many squares to complete mapping.
-- If mapping exists (and optional templates_summary.json provided), attempt piece classification per square.
-- Prompts Y/n to redraw after you move pieces.
+Two modes:
+  1) --learn-83-map : learn which BIT in the 83 payload corresponds to which square.
+     It guides you: empty board -> place single piece on asked square -> remove -> next square...
+     For each step we XOR two 83 payloads to find the toggled bit. Saves map to 83_bit_map.json
+  2) Default (draw): use learned 83 map to render ASCII occupancy. If --templates and --f0-map are
+     provided, also classify piece types per occupied square.
 
 Requires:
-from DGTCentaurMods.board import board
-from DGTCentaurMods.board.sync_centaur import command
-from DGTCentaurMods.board.logging import log
+  from DGTCentaurMods.board import board
+  from DGTCentaurMods.board.sync_centaur import command
+  from DGTCentaurMods.board.logging import log
 """
 
-import argparse
-import json
-import os
-import sys
-import time
+import argparse, json, os, sys, time
 from typing import Dict, List, Tuple, Optional
 
-# Ensure repo import path
+# Prefer project repo modules if running inside the repo
 try:
     REPO_OPT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'DGTCentaurMods', 'opt'))
     if REPO_OPT not in sys.path:
@@ -38,31 +35,37 @@ from DGTCentaurMods.board.logging import log
 FILES = "abcdefgh"
 RANKS = "12345678"
 
-# -------------------- Utils --------------------
+# -------------------- Utilities --------------------
 
 def strip_header(msg: bytes, expect_first: int) -> bytes:
+    # 83 / F0 / F4 / B2 packets on Centaur begin with a short header; empirically 5 bytes works.
     if len(msg) >= 5 and msg[0] == expect_first:
         return msg[5:]
     return msg
 
-def squares_grid(orientation: str) -> List[str]:
-    # Board print orientation only (not F0 mapping!)
-    order = []
-    ranks = list(reversed(RANKS)) if orientation == "white-bottom" else list(RANKS)
-    for r in ranks:
-        for f in FILES:
-            order.append(f"{f}{r}")
-    return order
+def to_bits_le(data: bytes) -> List[int]:
+    """Expand payload to a list of bits (little-endian per byte: bit0 is LSB)."""
+    bits = []
+    for b in data:
+        for k in range(8):
+            bits.append((b >> k) & 1)
+    return bits
 
-def format_board(assignments: Dict[str, str], orientation: str) -> str:
-    rows = []
-    ranks = list(reversed(RANKS)) if orientation == "white-bottom" else list(RANKS)
-    rows.append("    " + " ".join(FILES))
-    rows.append("    " + "-" * (len(FILES)*2 - 1))
-    for r in ranks:
-        line = [assignments.get(f"{f}{r}", ".") for f in FILES]
-        rows.append(f"{r} | " + " ".join(line))
-    return "\n".join(rows)
+def from_bits(bits: List[int]) -> bytes:
+    out = bytearray()
+    for i in range(0, len(bits), 8):
+        v = 0
+        for k in range(8):
+            if i + k < len(bits) and bits[i+k]:
+                v |= (1 << k)
+        out.append(v)
+    return bytes(out)
+
+def save_json(path: str, obj: dict):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, indent=2)
+    os.replace(tmp, path)
 
 def load_json(path: str) -> dict:
     try:
@@ -71,11 +74,23 @@ def load_json(path: str) -> dict:
     except Exception:
         return {}
 
-def save_json(path: str, obj: dict):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(obj, fh, indent=2)
-    os.replace(tmp, path)
+def squares_visual_order(orientation: str) -> List[str]:
+    order = []
+    ranks = list(reversed(RANKS)) if orientation == "white-bottom" else list(RANKS)
+    for r in ranks:
+        for f in FILES:
+            order.append(f"{f}{r}")
+    return order
+
+def format_board(assignments: Dict[str,str], orientation: str) -> str:
+    lines = []
+    ranks = list(reversed(RANKS)) if orientation == "white-bottom" else list(RANKS)
+    lines.append("    " + " ".join(FILES))
+    lines.append("    " + "-" * (len(FILES)*2 - 1))
+    for r in ranks:
+        row = [assignments.get(f"{f}{r}", ".") for f in FILES]
+        lines.append(f"{r} | " + " ".join(row))
+    return "\n".join(lines)
 
 def prompt_yes_no(msg: str, default_yes: bool = True) -> bool:
     while True:
@@ -86,211 +101,190 @@ def prompt_yes_no(msg: str, default_yes: bool = True) -> bool:
         if ans in ("n","no"): return False
         print("Please answer Y or n.")
 
-# -------------------- F0 handling --------------------
+# -------------------- Raw device calls --------------------
+
+def get_state_payload() -> bytes:
+    resp_state = board.sendCommand(command.DGT_BUS_SEND_STATE)
+    return strip_header(resp_state, 0x83)
+
+def get_f0_payload() -> bytes:
+    resp_f0 = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
+    return strip_header(resp_f0, 0xF0)
+
+# -------------------- F0 helpers (optional classifier path) --------------------
 
 def split_f0_groups(f0_payload: bytes, sentinel: int = 0x7F) -> List[bytes]:
-    """
-    DGT F0 is NOT 64-per-square. Treat 0x7F as a group separator and keep variable-length groups.
-    We'll *learn* which group index maps to which square using one-piece diffs.
-    """
     out, cur = [], []
     for x in f0_payload:
         if x == sentinel:
-            if cur:
-                out.append(bytes(cur)); cur = []
+            if cur: out.append(bytes(cur)); cur = []
         else:
             cur.append(x)
     if cur: out.append(bytes(cur))
     return out
 
-def bucket_features(b: bytes) -> Tuple[int, int]:
-    # Keep it simple: (length, energy)
-    return len(b), sum(b)
-
-def vector_diff_energy(a: bytes, b: bytes) -> int:
-    # Compare two groups by absolute energy difference
-    return abs(sum(a) - sum(b))
-
-# -------------------- STATE(83) occupancy --------------------
-
-def get_state_83() -> List[int]:
-    """
-    Return 64-length occupancy array (0/1) in **visual order** a8..h1 for white-bottom orientation.
-    The 83 payload you've captured is 45 bytes; we only need the occupancy bytes the board prints.
-    We'll rely on board.printChessState() + DGT_BUS_SEND_STATE => 83 payload which is already in
-    an 8x8 logical order used in your logs. We'll parse and flatten as rank-major (a8..h1).
-    """
-    resp_state = board.sendCommand(command.DGT_BUS_SEND_STATE)
-    payload = strip_header(resp_state, 0x83)
-    # In your logs, you print an 8x8 of 0/1; payload is 45 bytes where each byte corresponds to something.
-    # Empirically, the last 64 nibbles correspond to the board squares. We'll do a simple approach:
-    # Count bytes, and if payload has >=64 bytes we take the last 64. Otherwise we can't decode; fall back to zeros.
-    if len(payload) >= 64:
-        occ = list(payload[-64:])
-    else:
-        # Fallback: treat any nonzero as occupied, pad to 64 if needed
-        occ = [0]*64
-        for i, v in enumerate(payload[:64]):
-            occ[i] = 1 if v != 0 else 0
-    # Normalize to 0/1
-    occ = [1 if x != 0 else 0 for x in occ]
-    return occ
-
-def occ_to_assignments(occ: List[int], orientation: str, unknown_char: str = "?") -> Dict[str, str]:
-    """
-    Return dict of square->char where occupied squares are marked with unknown_char,
-    empty squares with '.'; orientation affects only display order.
-    """
-    sqs = squares_grid(orientation)  # visual order a8..h1 or a1..h8 for drawing only
-    if len(occ) != 64:
-        occ = (occ + [0]*64)[:64]
-    return {sqs[i]: (unknown_char if occ[i] else ".") for i in range(64)}
-
-# -------------------- Learning-based mapping --------------------
-
-def learn_mapping_step(prev_f0_groups: List[bytes],
-                       cur_f0_groups: List[bytes],
-                       occ_squares_now: List[str],
-                       mapping: Dict[str, int]) -> Tuple[Dict[str,int], str]:
-    """
-    If exactly one occupied square exists, find the MOST CHANGED F0 group vs previous snapshot
-    and bind that group_index -> square (if not already bound).
-    Return (possibly updated mapping, message).
-    """
-    if len(occ_squares_now) != 1:
-        return mapping, "Mapping: need exactly one occupied square to learn (found %d)" % len(occ_squares_now)
-
-    if not prev_f0_groups or not cur_f0_groups:
-        return mapping, "Mapping: no previous/cur F0 groups to diff."
-
-    # Compare by energy difference; handle unequal group counts by min length
-    n = min(len(prev_f0_groups), len(cur_f0_groups))
-    if n == 0:
-        return mapping, "Mapping: zero F0 groups to compare."
-
-    diffs = [vector_diff_energy(prev_f0_groups[i], cur_f0_groups[i]) for i in range(n)]
-    best_idx = max(range(n), key=lambda i: diffs[i])
-    target_sq = occ_squares_now[0]
-
-    # Don’t overwrite an existing mapping unless user wants to; for now overwrite only if unmapped
-    if target_sq in mapping and mapping[target_sq] != best_idx:
-        return mapping, f"Mapping: square {target_sq} already mapped to group {mapping[target_sq]} (kept). Suggested {best_idx}."
-
-    mapping[target_sq] = best_idx
-    return mapping, f"Mapped {target_sq} -> group {best_idx} (Δenergy={diffs[best_idx]})"
-
-# -------------------- Classification --------------------
-
-def classify_from_group(group: bytes, templates: dict, min_len: int, min_energy: int) -> str:
-    length = len(group)
-    energy = sum(group)
-    if length < min_len and energy < min_energy:
+def classify_group(group: bytes, templates: dict, min_len=20, min_energy=1200) -> str:
+    L = len(group); E = sum(group)
+    if L < min_len and E < min_energy:
         return "."
     if not templates:
-        return "?"  # unknown type but occupied
-    best_label, best_d = "?", float("inf")
+        return "?"
+    best, best_d = "?", float("inf")
     for key, stats in templates.items():
-        mu_len = stats.get("non7f_mean"); mu_eng = stats.get("energy_mean")
-        sd_len = stats.get("non7f_std") or 0.0; sd_eng = stats.get("energy_std") or 0.0
-        if mu_len is None or mu_eng is None: continue
-        if sd_len and sd_eng:
-            d = ((length - mu_len)/sd_len)**2 + ((energy - mu_eng)/sd_eng)**2
+        muL, muE = stats.get("non7f_mean"), stats.get("energy_mean")
+        sdL = stats.get("non7f_std") or 0.0
+        sdE = stats.get("energy_std") or 0.0
+        if muL is None or muE is None: continue
+        if sdL and sdE:
+            d = ((L-muL)/sdL)**2 + ((E-muE)/sdE)**2
         else:
-            d = ((length - mu_len)/10.0)**2 + ((energy - mu_eng)/200.0)**2
+            d = ((L-muL)/10.0)**2 + ((E-muE)/200.0)**2
         if d < best_d:
             best_d = d
-            best_label = key[0].upper()
-    return best_label
+            best = key[0].upper()
+    return best
+
+# -------------------- 83 OCCUPANCY: learning + decode --------------------
+
+def learn_83_map_one_square(target_square: str, current_map: Dict[str,int]) -> Tuple[Dict[str,int], str]:
+    """
+    Guide: ensure board EMPTY, capture baseline; place ONE piece on target_square; capture again.
+    XOR bitfields to find the toggled bit index; record mapping {square: bit_index}.
+    """
+    input(f"\nPrepare to map {target_square}: make sure the board is EMPTY, then press Enter...")
+
+    # baseline (empty)
+    base_payload = get_state_payload()
+    base_bits = to_bits_le(base_payload)
+
+    input("Now place ONE piece on the target square and press Enter...")
+
+    # occupied
+    occ_payload = get_state_payload()
+    occ_bits = to_bits_le(occ_payload)
+
+    # Pad to same length
+    n = max(len(base_bits), len(occ_bits))
+    base_bits += [0]*(n - len(base_bits))
+    occ_bits  += [0]*(n - len(occ_bits))
+
+    # XOR to find change
+    diff = [ (a ^ b) for a,b in zip(base_bits, occ_bits) ]
+    idxs = [i for i,b in enumerate(diff) if b]
+
+    if len(idxs) == 1:
+        bit_index = idxs[0]
+        # Avoid overwriting an existing different mapping without warning
+        if target_square in current_map and current_map[target_square] != bit_index:
+            msg = f"Square {target_square} already mapped to bit {current_map[target_square]} (kept). Suggested {bit_index}."
+        else:
+            current_map[target_square] = bit_index
+            msg = f"Mapped {target_square} -> bit {bit_index}"
+    elif len(idxs) == 0:
+        msg = "No bit differences detected. Make sure only ONE piece was added, and it changed occupancy."
+    else:
+        # More than one bit changed (board noise or filtering). Pick the strongest region if needed.
+        msg = f"{len(idxs)} bits changed; try again with a clean add/remove on a stable square."
+
+    return current_map, msg
+
+def decode_occupancy_from_83(bit_map: Dict[str,int]) -> Dict[str,int]:
+    """
+    Using learned bit_map {square: bit_index}, read 83 payload, expand bits,
+    and set occupancy per mapped square. Unmapped squares => 0.
+    """
+    payload = get_state_payload()
+    bits = to_bits_le(payload)
+    occ = {}
+    for sq, idx in bit_map.items():
+        occ[sq] = 1 if idx < len(bits) and bits[idx] else 0
+    return occ
 
 # -------------------- Main loop --------------------
 
-def draw_once(args, last_f0_groups, mapping) -> Tuple[str, List[bytes], Dict[str,int]]:
-    # STATE 83 occupancy
-    resp_state = board.sendCommand(command.DGT_BUS_SEND_STATE)
-    s83 = strip_header(resp_state, 0x83)
-    # Try to render occupancy robustly
-    occ = get_state_83()
-    # F0
-    resp_f0 = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
-    f0_payload = strip_header(resp_f0, 0xF0)
-    groups = split_f0_groups(f0_payload, sentinel=0x7F)
+def draw_once(args, bit_map, f0_map, templates) -> str:
+    # Decode occupancy via learned 83 mapping (if available); else show '?' everywhere
+    if bit_map:
+        occ = decode_occupancy_from_83(bit_map)
+    else:
+        occ = {}
 
-    # Build visual assignments from occupancy first (safe, reliable)
-    assignments = occ_to_assignments(occ, args.orientation, unknown_char="?")
+    # Optional F0 classification if both mapping and templates provided
+    labels: Dict[str,str] = {}
+    if bit_map and f0_map and templates:
+        f0_groups = split_f0_groups(get_f0_payload(), 0x7F)
+        for sq, gidx in f0_map.items():
+            if gidx is None or gidx < 0 or gidx >= len(f0_groups):
+                continue
+            if occ.get(sq, 0) == 1:
+                labels[sq] = classify_group(f0_groups[gidx], templates)
+            else:
+                labels[sq] = "."  # empty square wins over group classification
+    else:
+        # Occupancy only
+        for sq in (bit_map.keys() if bit_map else []):
+            labels[sq] = "?" if occ.get(sq,0)==1 else "."
 
-    # Optional learning
-    if args.learn_map:
-        # Which squares are occupied now?
-        sqs = squares_grid(args.orientation)  # just for indexing; same visual order as occ list
-        occ_squares_now = [sqs[i] for i, v in enumerate(occ) if v]
-        mapping, msg = learn_mapping_step(last_f0_groups, groups, occ_squares_now, mapping)
-        print(msg)
-        if args.map_out:
-            save_json(args.map_out, mapping)
+    # Build ASCII drawing in requested orientation
+    vis_squares = squares_visual_order(args.orientation)
+    assign = {}
+    for sq in vis_squares:
+        if sq in labels:
+            assign[sq] = labels[sq]
+        elif sq in occ:
+            assign[sq] = "?" if occ[sq] else "."
+        else:
+            assign[sq] = "?"  # unknown until mapped
 
-    # Optional classification if mapping + templates present
-    if args.map_in and os.path.exists(args.map_in):
-        mapping = load_json(args.map_in) if not mapping else mapping
-    templates = load_json(args.templates) if args.templates else {}
-
-    if mapping and templates:
-        # For each mapped square -> group index, classify and write a letter onto that square (if occupied)
-        for sq, gi in mapping.items():
-            if 0 <= gi < len(groups):
-                label = classify_from_group(groups[gi], templates, args.min_len, args.min_energy)
-                # Only overwrite if the square is actually occupied per 83
-                # If empty but classifier says piece, we’ll trust 83 and leave '.'
-                # (avoids ghosting when group changes reflect other board conditions)
-                # If occupied but classifier returns '.', show '?' to indicate unknown type
-                # otherwise show predicted letter
-                # Determine square orientation index to check occupancy:
-                grid = squares_grid(args.orientation)
-                try:
-                    idx = grid.index(sq)
-                    if occ[idx]:
-                        assignments[sq] = label if label not in (".", "") else "?"
-                except ValueError:
-                    pass
-
-    # Render ASCII
-    ascii_board = format_board(assignments, args.orientation)
-    return ascii_board, groups, mapping
+    return format_board(assign, args.orientation)
 
 def parse_args():
-    ap = argparse.ArgumentParser(description="Centaur ASCII board with 83 occupancy + learnable F0 mapping.")
+    ap = argparse.ArgumentParser(description="Centaur ASCII board via learned 83 bit mapping + optional F0 classification.")
     ap.add_argument("--orientation", choices=["white-bottom","black-bottom"], default="white-bottom")
-    ap.add_argument("--templates", type=str, default="", help="templates_summary.json (optional) for piece type classification")
-    # Mapping
-    ap.add_argument("--learn-map", action="store_true", help="Enable learning: single occupied square binds to most-changed F0 group")
-    ap.add_argument("--map-in", type=str, default="", help="Existing mapping file (f0_square_map.json)")
-    ap.add_argument("--map-out", type=str, default="f0_square_map.json", help="Where to write learned mapping")
-    # Thresholds used in classification only
-    ap.add_argument("--min-energy", type=int, default=1200)
-    ap.add_argument("--min-len", type=int, default=20)
+    # 83 bit mapping
+    ap.add_argument("--learn-83-map", action="store_true", help="Interactive: map 83 payload bits to squares (one-piece XOR).")
+    ap.add_argument("--map83-in", type=str, default="83_bit_map.json", help="Load existing 83 bit map.")
+    ap.add_argument("--map83-out", type=str, default="83_bit_map.json", help="Save learned 83 bit map.")
+    ap.add_argument("--squares", type=str, default="a1,b1,c1,d1,e1,f1,g1,h1,a2,h2",
+                    help="Squares to learn (comma or space separated).")
+    # Optional F0 classification (requires separately learned F0->square group map)
+    ap.add_argument("--templates", type=str, default="", help="templates_summary.json (optional)")
+    ap.add_argument("--f0-map", type=str, default="", help="Existing F0 group map (square->group_index)")
     return ap.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
-    if args.map_in and os.path.exists(args.map_in):
-        mapping = load_json(args.map_in)
-        print(f"Loaded mapping from {args.map_in} with {len(mapping)} entries.")
-    else:
-        mapping = {}
 
-    last_groups: List[bytes] = []
+    # Load existing maps/templates
+    bit_map = load_json(args.map83_in) if os.path.exists(args.map83_in) else {}
+    f0_map  = load_json(args.f0_map) if args.f0_map and os.path.exists(args.f0_map) else {}
+    templates = load_json(args.templates) if args.templates else {}
 
+    if args.learn_83_map:
+        # Normalize target squares
+        targets = [t.strip().lower() for chunk in args.squares.split(",") for t in chunk.split()]
+        targets = [t for t in targets if len(t)==2 and t[0] in FILES and t[1] in RANKS]
+        print("83 mapping wizard: for each prompted square, do:")
+        print("  1) Ensure EMPTY board, press Enter.")
+        print("  2) Place ONE piece on the prompted square, press Enter.")
+        print("  3) Mapping will record the toggled bit.\n")
+        for sq in targets:
+            bit_map, msg = learn_83_map_one_square(sq, bit_map)
+            print(msg)
+            save_json(args.map83_out, bit_map)
+        print(f"\nSaved 83 bit map with {len(bit_map)} entries to {args.map83_out}.")
+        sys.exit(0)
+
+    # Draw loop
     while True:
         try:
-            # helpful log of current 83 view
-            try:
-                board.printChessState()
-            except Exception as e:
-                log.warning(f"printChessState() failed (continuing): {e}")
-
-            ascii_board, groups, mapping = draw_once(args, last_groups, mapping)
-            print("\nDetected board (83 occupancy + optional mapping/classification):")
+            board.printChessState()  # helpful live reading in logs
+        except Exception as e:
+            log.warning(f"printChessState() failed: {e}")
+        try:
+            ascii_board = draw_once(args, bit_map, f0_map, templates)
+            print("\nDetected board (83-mapped occupancy; '?' means unmapped or unknown type):")
             print(ascii_board)
-            last_groups = groups
         except Exception as e:
             print(f"\nERROR: {e}", file=sys.stderr)
 
