@@ -1,26 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 """
-Centaur ASCII board with robust 83-occupancy via learned bit mapping,
-plus optional F0 classification (if you have templates + F0→square mapping).
+Centaur ASCII board using reliable 83 layout (raw a8→h1, flip rows to chess order).
+Optionally overlays piece letters if you also supply F0 templates + an f0 square-map.
 
-Two modes:
-  1) --learn-83-map : learn which BIT in the 83 payload corresponds to which square.
-     It guides you: empty board -> place single piece on asked square -> remove -> next square...
-     For each step we XOR two 83 payloads to find the toggled bit. Saves map to 83_bit_map.json
-  2) Default (draw): use learned 83 map to render ASCII occupancy. If --templates and --f0-map are
-     provided, also classify piece types per occupied square.
-
-Requires:
-  from DGTCentaurMods.board import board
-  from DGTCentaurMods.board.sync_centaur import command
-  from DGTCentaurMods.board.logging import log
+Usage:
+  python draw_centaur_board.py
+  python draw_centaur_board.py --templates templates_summary.json --f0-map f0_square_map.json
 """
 
-import argparse, json, os, sys, time
-from typing import Dict, List, Tuple, Optional
+import argparse, json, os, sys
+from typing import Dict, List, Optional, Tuple
 
-# Prefer project repo modules if running inside the repo
+# Prefer repo code first
 try:
     REPO_OPT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'DGTCentaurMods', 'opt'))
     if REPO_OPT not in sys.path:
@@ -35,44 +28,16 @@ from DGTCentaurMods.board.logging import log
 FILES = "abcdefgh"
 RANKS = "12345678"
 
-# -------------------- Utilities --------------------
+# ---------- helpers ----------
 
-def strip_header(msg: bytes, expect_first: int) -> bytes:
-    # 83 / F0 / F4 / B2 packets on Centaur begin with a short header; empirically 5 bytes works.
-    if len(msg) >= 5 and msg[0] == expect_first:
-        return msg[5:]
-    return msg
-
-def to_bits_le(data: bytes) -> List[int]:
-    """Expand payload to a list of bits (little-endian per byte: bit0 is LSB)."""
-    bits = []
-    for b in data:
-        for k in range(8):
-            bits.append((b >> k) & 1)
-    return bits
-
-def from_bits(bits: List[int]) -> bytes:
-    out = bytearray()
-    for i in range(0, len(bits), 8):
-        v = 0
-        for k in range(8):
-            if i + k < len(bits) and bits[i+k]:
-                v |= (1 << k)
-        out.append(v)
-    return bytes(out)
-
-def save_json(path: str, obj: dict):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(obj, fh, indent=2)
-    os.replace(tmp, path)
-
-def load_json(path: str) -> dict:
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except Exception:
-        return {}
+def prompt_yes_no(msg: str, default_yes: bool = True) -> bool:
+    while True:
+        ans = input(f"{msg} [{'Y/n' if default_yes else 'y/N'}] ").strip().lower()
+        if ans == "" and default_yes: return True
+        if ans == "" and not default_yes: return False
+        if ans in ("y","yes"): return True
+        if ans in ("n","no"): return False
+        print("Please answer Y or n.")
 
 def squares_visual_order(orientation: str) -> List[str]:
     order = []
@@ -92,26 +57,73 @@ def format_board(assignments: Dict[str,str], orientation: str) -> str:
         lines.append(f"{r} | " + " ".join(row))
     return "\n".join(lines)
 
-def prompt_yes_no(msg: str, default_yes: bool = True) -> bool:
-    while True:
-        ans = input(f"{msg} [{'Y/n' if default_yes else 'y/N'}] ").strip().lower()
-        if ans == "" and default_yes: return True
-        if ans == "" and not default_yes: return False
-        if ans in ("y","yes"): return True
-        if ans in ("n","no"): return False
-        print("Please answer Y or n.")
+def load_json(path: str) -> dict:
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
 
-# -------------------- Raw device calls --------------------
+# ---------- 83 → chess order (reliable occupancy) ----------
 
-def get_state_payload() -> bytes:
-    resp_state = board.sendCommand(command.DGT_BUS_SEND_STATE)
-    return strip_header(resp_state, 0x83)
+def get_chess_state_from_module() -> Optional[List[int]]:
+    """
+    If your board module exposes getChessState(), use it directly.
+    Falls back to None if not available.
+    """
+    try:
+        # Many of your logs already use board.printChessState(); often getChessState() exists too.
+        return list(board.getChessState())  # 64 ints, chess order 0=a1 .. 63=h8
+    except Exception:
+        return None
 
-def get_f0_payload() -> bytes:
-    resp_f0 = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
-    return strip_header(resp_f0, 0xF0)
+def get_chess_state_from_raw() -> Optional[List[int]]:
+    """
+    Fallback: if getChessState() isn't available, grab the raw 64-element board state
+    (a8..h1) and flip the rows to chess order (a1..h8), per your mapping.
 
-# -------------------- F0 helpers (optional classifier path) --------------------
+    NOTE: This assumes your board module provides getBoardState() with 64 entries.
+    """
+    try:
+        raw = list(board.getBoardState())   # 64 ints, raw a8..h1
+    except Exception:
+        return None
+    if len(raw) != 64:
+        return None
+    chess = [0]*64
+    for i in range(64):
+        raw_row = i // 8
+        raw_col = i % 8
+        chess_row = 7 - raw_row   # invert rows
+        chess_col = raw_col
+        chess_idx = chess_row*8 + chess_col
+        chess[chess_idx] = raw[i]
+    return chess
+
+def get_occupancy_chess_order() -> List[int]:
+    """
+    Returns a 64-int list (0/1) in chess order (a1..h8).
+    Tries getChessState() first, then raw→chess flip fallback.
+    """
+    st = get_chess_state_from_module()
+    if st is None:
+        st = get_chess_state_from_raw()
+    if st is None or len(st) != 64:
+        # last resort: call printChessState() for your logs and return all zeros
+        try:
+            board.printChessState()
+        except Exception:
+            pass
+        return [0]*64
+    # Normalize to 0/1
+    return [1 if int(x) != 0 else 0 for x in st]
+
+# ---------- optional F0 overlay ----------
+
+def strip_header(msg: bytes, expect_first: int) -> bytes:
+    if len(msg) >= 5 and msg[0] == expect_first:
+        return msg[5:]
+    return msg
 
 def split_f0_groups(f0_payload: bytes, sentinel: int = 0x7F) -> List[bytes]:
     out, cur = [], []
@@ -123,17 +135,17 @@ def split_f0_groups(f0_payload: bytes, sentinel: int = 0x7F) -> List[bytes]:
     if cur: out.append(bytes(cur))
     return out
 
-def classify_group(group: bytes, templates: dict, min_len=20, min_energy=1200) -> str:
+def classify_group(group: bytes, stats: dict, min_len=20, min_energy=1200) -> str:
     L = len(group); E = sum(group)
     if L < min_len and E < min_energy:
         return "."
-    if not templates:
+    if not stats:
         return "?"
     best, best_d = "?", float("inf")
-    for key, stats in templates.items():
-        muL, muE = stats.get("non7f_mean"), stats.get("energy_mean")
-        sdL = stats.get("non7f_std") or 0.0
-        sdE = stats.get("energy_std") or 0.0
+    for key, s in stats.items():
+        muL, muE = s.get("non7f_mean"), s.get("energy_mean")
+        sdL = s.get("non7f_std") or 0.0
+        sdE = s.get("energy_std") or 0.0
         if muL is None or muE is None: continue
         if sdL and sdE:
             d = ((L-muL)/sdL)**2 + ((E-muE)/sdE)**2
@@ -144,149 +156,80 @@ def classify_group(group: bytes, templates: dict, min_len=20, min_energy=1200) -
             best = key[0].upper()
     return best
 
-# -------------------- 83 OCCUPANCY: learning + decode --------------------
-
-def learn_83_map_one_square(target_square: str, current_map: Dict[str,int]) -> Tuple[Dict[str,int], str]:
+def try_overlay_f0_letters(assign: Dict[str,str],
+                           orientation: str,
+                           templates_path: Optional[str],
+                           f0_map_path: Optional[str]) -> None:
     """
-    Guide: ensure board EMPTY, capture baseline; place ONE piece on target_square; capture again.
-    XOR bitfields to find the toggled bit index; record mapping {square: bit_index}.
+    If both templates and an f0 square map exist, overlay letters on occupied squares.
+    f0_map: { "a1": group_index, ... }
     """
-    input(f"\nPrepare to map {target_square}: make sure the board is EMPTY, then press Enter...")
+    if not templates_path or not f0_map_path:
+        return
+    templates = load_json(templates_path)
+    f0_map = load_json(f0_map_path)
+    if not templates or not f0_map:
+        return
 
-    # baseline (empty)
-    base_payload = get_state_payload()
-    base_bits = to_bits_le(base_payload)
+    # Capture F0 once
+    resp_f0 = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
+    f0 = strip_header(resp_f0, 0xF0)
+    groups = split_f0_groups(f0, 0x7F)
 
-    input("Now place ONE piece on the target square and press Enter...")
-
-    # occupied
-    occ_payload = get_state_payload()
-    occ_bits = to_bits_le(occ_payload)
-
-    # Pad to same length
-    n = max(len(base_bits), len(occ_bits))
-    base_bits += [0]*(n - len(base_bits))
-    occ_bits  += [0]*(n - len(occ_bits))
-
-    # XOR to find change
-    diff = [ (a ^ b) for a,b in zip(base_bits, occ_bits) ]
-    idxs = [i for i,b in enumerate(diff) if b]
-
-    if len(idxs) == 1:
-        bit_index = idxs[0]
-        # Avoid overwriting an existing different mapping without warning
-        if target_square in current_map and current_map[target_square] != bit_index:
-            msg = f"Square {target_square} already mapped to bit {current_map[target_square]} (kept). Suggested {bit_index}."
+    # Only overlay on squares we already marked as occupied ('.' vs '?')
+    for sq, gi in f0_map.items():
+        if not isinstance(gi, int) or gi < 0 or gi >= len(groups):
+            continue
+        if assign.get(sq) in (".",):  # empty stays empty
+            continue
+        label = classify_group(groups[gi], templates)
+        if label not in (".", ""):
+            assign[sq] = label
         else:
-            current_map[target_square] = bit_index
-            msg = f"Mapped {target_square} -> bit {bit_index}"
-    elif len(idxs) == 0:
-        msg = "No bit differences detected. Make sure only ONE piece was added, and it changed occupancy."
-    else:
-        # More than one bit changed (board noise or filtering). Pick the strongest region if needed.
-        msg = f"{len(idxs)} bits changed; try again with a clean add/remove on a stable square."
+            # occupied but unknown type
+            assign[sq] = "?"
 
-    return current_map, msg
+# ---------- main loop ----------
 
-def decode_occupancy_from_83(bit_map: Dict[str,int]) -> Dict[str,int]:
-    """
-    Using learned bit_map {square: bit_index}, read 83 payload, expand bits,
-    and set occupancy per mapped square. Unmapped squares => 0.
-    """
-    payload = get_state_payload()
-    bits = to_bits_le(payload)
-    occ = {}
-    for sq, idx in bit_map.items():
-        occ[sq] = 1 if idx < len(bits) and bits[idx] else 0
-    return occ
-
-# -------------------- Main loop --------------------
-
-def draw_once(args, bit_map, f0_map, templates) -> str:
-    # Decode occupancy via learned 83 mapping (if available); else show '?' everywhere
-    if bit_map:
-        occ = decode_occupancy_from_83(bit_map)
-    else:
-        occ = {}
-
-    # Optional F0 classification if both mapping and templates provided
-    labels: Dict[str,str] = {}
-    if bit_map and f0_map and templates:
-        f0_groups = split_f0_groups(get_f0_payload(), 0x7F)
-        for sq, gidx in f0_map.items():
-            if gidx is None or gidx < 0 or gidx >= len(f0_groups):
-                continue
-            if occ.get(sq, 0) == 1:
-                labels[sq] = classify_group(f0_groups[gidx], templates)
-            else:
-                labels[sq] = "."  # empty square wins over group classification
-    else:
-        # Occupancy only
-        for sq in (bit_map.keys() if bit_map else []):
-            labels[sq] = "?" if occ.get(sq,0)==1 else "."
-
-    # Build ASCII drawing in requested orientation
-    vis_squares = squares_visual_order(args.orientation)
-    assign = {}
-    for sq in vis_squares:
-        if sq in labels:
-            assign[sq] = labels[sq]
-        elif sq in occ:
-            assign[sq] = "?" if occ[sq] else "."
-        else:
-            assign[sq] = "?"  # unknown until mapped
-
-    return format_board(assign, args.orientation)
-
-def parse_args():
-    ap = argparse.ArgumentParser(description="Centaur ASCII board via learned 83 bit mapping + optional F0 classification.")
+def main():
+    ap = argparse.ArgumentParser(description="ASCII board via reliable 83 layout + optional F0 overlay.")
     ap.add_argument("--orientation", choices=["white-bottom","black-bottom"], default="white-bottom")
-    # 83 bit mapping
-    ap.add_argument("--learn-83-map", action="store_true", help="Interactive: map 83 payload bits to squares (one-piece XOR).")
-    ap.add_argument("--map83-in", type=str, default="83_bit_map.json", help="Load existing 83 bit map.")
-    ap.add_argument("--map83-out", type=str, default="83_bit_map.json", help="Save learned 83 bit map.")
-    ap.add_argument("--squares", type=str, default="a1,b1,c1,d1,e1,f1,g1,h1,a2,h2",
-                    help="Squares to learn (comma or space separated).")
-    # Optional F0 classification (requires separately learned F0->square group map)
     ap.add_argument("--templates", type=str, default="", help="templates_summary.json (optional)")
-    ap.add_argument("--f0-map", type=str, default="", help="Existing F0 group map (square->group_index)")
-    return ap.parse_args()
+    ap.add_argument("--f0-map",   type=str, default="", help="square→group_index JSON (optional)")
+    args = ap.parse_args()
 
-if __name__ == "__main__":
-    args = parse_args()
-
-    # Load existing maps/templates
-    bit_map = load_json(args.map83_in) if os.path.exists(args.map83_in) else {}
-    f0_map  = load_json(args.f0_map) if args.f0_map and os.path.exists(args.f0_map) else {}
-    templates = load_json(args.templates) if args.templates else {}
-
-    if args.learn_83_map:
-        # Normalize target squares
-        targets = [t.strip().lower() for chunk in args.squares.split(",") for t in chunk.split()]
-        targets = [t for t in targets if len(t)==2 and t[0] in FILES and t[1] in RANKS]
-        print("83 mapping wizard: for each prompted square, do:")
-        print("  1) Ensure EMPTY board, press Enter.")
-        print("  2) Place ONE piece on the prompted square, press Enter.")
-        print("  3) Mapping will record the toggled bit.\n")
-        for sq in targets:
-            bit_map, msg = learn_83_map_one_square(sq, bit_map)
-            print(msg)
-            save_json(args.map83_out, bit_map)
-        print(f"\nSaved 83 bit map with {len(bit_map)} entries to {args.map83_out}.")
-        sys.exit(0)
-
-    # Draw loop
     while True:
         try:
-            board.printChessState()  # helpful live reading in logs
-        except Exception as e:
-            log.warning(f"printChessState() failed: {e}")
-        try:
-            ascii_board = draw_once(args, bit_map, f0_map, templates)
-            print("\nDetected board (83-mapped occupancy; '?' means unmapped or unknown type):")
-            print(ascii_board)
+            # Reliable occupancy
+            occ = get_occupancy_chess_order()  # 64 ints, chess order a1..h8
+            # Build assignments from occupancy
+            assign: Dict[str,str] = {}
+            vis = squares_visual_order(args.orientation)
+            # vis is in rank-8→1 order for white-bottom (display order);
+            # our occ list is in chess order a1..h8 (index 0 is a1).
+            # Fill by coordinates directly:
+            for sq in vis:
+                f, r = sq[0], int(sq[1])
+                file_idx = FILES.index(f)
+                rank_idx = r - 1
+                idx = rank_idx * 8 + file_idx  # chess order a1..h8
+                assign[sq] = "?" if occ[idx] else "."
+
+            # Optional: overlay piece letters using F0
+            try_overlay_f0_letters(assign, args.orientation, args.templates or None, args.f0_map or None)
+
+            # Print board
+            try:
+                board.printChessState()  # also show your module’s 0/1 matrix in logs
+            except Exception:
+                pass
+            print("\nDetected board (83-based occupancy; '?'=occupied, '.'=empty):")
+            print(format_board(assign, args.orientation))
         except Exception as e:
             print(f"\nERROR: {e}", file=sys.stderr)
 
         if not prompt_yes_no("\nRedraw after moving pieces?", default_yes=True):
             break
+
+if __name__ == "__main__":
+    main()
