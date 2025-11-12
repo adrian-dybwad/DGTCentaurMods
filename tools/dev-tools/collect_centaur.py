@@ -2,37 +2,21 @@
 # -*- coding: utf-8 -*-
 
 """
-Centaur F0/F4/96 Data Collector + Interactive Labeling
+Centaur F0/F4/96 Data Collector + Interactive Labeling (extended)
 
-What this does
---------------
-- Guides you through a test plan to collect:
-  1) Empty-board baseline
-  2) Full starting position
-  3) Single-piece labeled captures (rook/knight/bishop/queen/king/pawn on specific squares)
-  4) (Optional) Custom FENs you provide via CLI
+NEW:
+- Configurable single-piece sweep: --pieces, --colors, --squares, --per-square-repeats
+- Plan switches: --no-empty, --no-startpos, --plan-only-single
+- Flow: --auto-advance (skip per-capture prompts inside steps)
+- Occupancy sanity check (retry option)
+- Templates summary written at end (centroids over simple robust features)
 
-- For each capture, records:
-  * STATE (82 -> 83)
-  * F0 (features)
-  * F4 (calibration/baseline; persistent)
-  * 96 -> b2 (telemetry/counters)
-  * Timestamp + label
-  * For labeled single-piece captures: piece type and square you placed
+Existing:
+- Guided plan with empty baseline, startpos, and labeled single-piece captures
+- Records STATE(83), F0, F4, 96->b2, timestamps, and metadata
+- Saves JSONL (full) and CSV (summary)
 
-- Saves:
-  * JSONL: one JSON object per capture with raw hex and derived metrics
-  * CSV: compact summary per capture
-
-Usage examples
---------------
-  python collect_centaur.py                       # run the guided plan
-  python collect_centaur.py --skip-plan --fen "8/8/8/8/8/8/8/8 w - - 0 1"
-  python collect_centaur.py --fens my_fens.txt --repeat 2 --label "trial_A"
-  python collect_centaur.py --skip-confirm --repeat 3
-
-Requires
---------
+Requires:
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.sync_centaur import command
 from DGTCentaurMods.board.logging import log
@@ -44,7 +28,7 @@ import datetime as dt
 import json
 import os
 import sys
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Iterable
 
 # Ensure we import the repo package first (not a system-installed copy)
 try:
@@ -53,7 +37,6 @@ try:
         sys.path.insert(0, REPO_OPT)
 except Exception:
     pass
-
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.sync_centaur import command
@@ -65,13 +48,7 @@ from DGTCentaurMods.board.logging import log
 def bytes_to_hex(b: bytes) -> str:
     return " ".join(f"{x:02x}" for x in b)
 
-
 def split_f0_buckets(f0_payload: bytes, sentinel: int = 0x7F) -> List[bytes]:
-    """
-    Split F0 payload into “buckets” separated by 0x7F. This is a pragmatic way to
-    summarize features without assuming exact square mapping yet.
-    Empty buckets are omitted.
-    """
     out, cur = [], []
     for x in f0_payload:
         if x == sentinel:
@@ -84,38 +61,22 @@ def split_f0_buckets(f0_payload: bytes, sentinel: int = 0x7F) -> List[bytes]:
         out.append(bytes(cur))
     return out
 
-
 def bucket_metrics(b: bytes) -> Tuple[int, int, int]:
-    """
-    Quick bucket features:
-      - length (#bytes)
-      - energy (sum of bytes)
-      - nnz (non-zero count)
-    """
     length = len(b)
     energy = sum(b)
     nnz = sum(1 for x in b if x != 0)
     return length, energy, nnz
 
-
 def strip_header(msg: bytes, expect_first: int) -> bytes:
-    """
-    In traces, messages often look like:
-      [type][??][id_hi][id_lo]...[payload...]
-    where the first 5 bytes are meta. We'll conservatively drop 5 bytes if the
-    first byte matches the expected type and len >= 5. Otherwise return as-is.
-    """
     if len(msg) >= 5 and msg[0] == expect_first:
         return msg[5:]
     return msg
-
 
 def ensure_outdir(base_out: str) -> str:
     ts = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     outdir = os.path.join(base_out, f"centaur_capture_{ts}")
     os.makedirs(outdir, exist_ok=True)
     return outdir
-
 
 def prompt_yes_no(msg: str, default_yes: bool = True) -> bool:
     while True:
@@ -130,14 +91,19 @@ def prompt_yes_no(msg: str, default_yes: bool = True) -> bool:
             return False
         print("Please answer Y or n.")
 
+def parse_list_arg(val: str) -> List[str]:
+    """
+    Accept comma or space separated values. Return [] if empty/None.
+    """
+    if not val:
+        return []
+    # split on comma or whitespace
+    parts = [p.strip() for chunk in val.split(",") for p in chunk.split()]
+    return [p for p in parts if p]
 
 # ------------------------- Board capture -------------------------
 
 def capture_once(fen: str, label: str, extra_meta: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Execute one full capture sequence for a given state.
-    Returns a dict containing raw hex and derived stats.
-    """
     # STATE (82 -> 83)
     resp_state = board.sendCommand(command.DGT_BUS_SEND_STATE)
     log.info(f"STATE 83: {' '.join(f'{b:02x}' for b in resp_state)}")
@@ -165,7 +131,7 @@ def capture_once(fen: str, label: str, extra_meta: Dict[str, Any]) -> Dict[str, 
     total_non7f = sum(len(b) for b in buckets)
     total_energy = sum(sum(b) for b in buckets)
 
-    # Occupancy quick stats (we intentionally don't assume square mapping here)
+    # Occupancy quick stats
     occupancy_len = len(s83_payload)
     occupancy_nonzero = sum(1 for x in s83_payload if x != 0)
 
@@ -186,25 +152,26 @@ def capture_once(fen: str, label: str, extra_meta: Dict[str, Any]) -> Dict[str, 
         "f0_bucket_count": len(buckets),
         "f0_total_non7f_bytes": total_non7f,
         "f0_total_energy": total_energy,
-        "f0_bucket_stats": bucket_stats,  # list of (length, energy, nnz)
+        "f0_bucket_stats": bucket_stats,
         "occupancy_payload_len": occupancy_len,
         "occupancy_nonzero_bytes": occupancy_nonzero,
     }
     return record
-
 
 # ------------------------- Guided plan -------------------------
 
 START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 EMPTY_FEN = "8/8/8/8/8/8/8/8 w - - 0 1"
 
-PIECES = ["P", "N", "B", "R", "Q", "K"]  # (white); we’ll record color separately
+PIECES = ["P", "N", "B", "R", "Q", "K"]
 FILES = "abcdefgh"
 RANKS = "12345678"
 
 def valid_square(s: str) -> bool:
     return len(s) == 2 and s[0] in FILES and s[1] in RANKS
 
+def piece_name(p: str) -> str:
+    return {"P":"pawn","N":"knight","B":"bishop","R":"rook","Q":"queen","K":"king"}.get(p.upper(), p)
 
 def prompt_user_setup(title: str, fen: str, instructions: str, skip_confirm: bool) -> bool:
     print("\n==================================================")
@@ -212,143 +179,111 @@ def prompt_user_setup(title: str, fen: str, instructions: str, skip_confirm: boo
     print(f"Target FEN:\n  {fen}")
     print(f"Instructions:\n  {instructions}")
     try:
-        board.printChessState()  # helpful live readout in your logger
+        board.printChessState()
     except Exception as e:
         log.warning(f"printChessState() failed (continuing): {e}")
-
     if skip_confirm:
         return True
     return prompt_yes_no("Ready to capture?", default_yes=True)
 
-
-def run_guided_plan(out_jsonl, out_csv, label: str, repeat: int, skip_confirm: bool):
-    """
-    A 12-step plan:
-      1) Empty board baseline
-      2) Full starting position
-      3-12) Single-piece labeled captures (white): R,N,B,Q,K,P on specified squares
-    Feel free to answer 'n' to skip any step on the fly.
-    """
+def plan_single_piece_steps(
+    pieces: Iterable[str],
+    colors: Iterable[str],
+    squares: Iterable[str],
+) -> List[Dict[str, Any]]:
     steps: List[Dict[str, Any]] = []
+    for color in colors:
+        for p in pieces:
+            for sq in squares:
+                steps.append({
+                    "title": f"Labeled single-piece ({piece_name(p)} {('white' if color=='w' else 'black')} on {sq})",
+                    "fen": EMPTY_FEN,
+                    "instructions": f"Place exactly ONE {('white' if color=='w' else 'black')} {piece_name(p)} on {sq}. Leave all other squares empty.",
+                    "mode": "label_single_piece",
+                    "piece": p.upper(),
+                    "square": sq.lower(),
+                    "color": color.lower()
+                })
+    return steps
 
-    # 1) Empty board
-    steps.append({
-        "title": "Step 1: Empty-board baseline",
-        "fen": EMPTY_FEN,
-        "instructions": "Remove all pieces from the board.",
-        "mode": "guided_fen"
-    })
-
-    # 2) Full start position
-    steps.append({
-        "title": "Step 2: Full starting position",
-        "fen": START_FEN,
-        "instructions": "Set up the full chess starting position: white on your side (ranks 1-2).",
-        "mode": "guided_fen"
-    })
-
-    # 3-12) Labeled single-piece captures (white)
-    # choose squares spaced apart to reduce bleed; adjust if you prefer others
-    labeled_single_piece_plan = [
-        ("R", "a1"),
-        ("N", "b1"),
-        ("B", "c1"),
-        ("Q", "d1"),
-        ("K", "e1"),
-        ("P", "a2"),
-        ("P", "d2"),
-        ("P", "e2"),
-        ("P", "h2"),
-        ("B", "f1"),
-    ]
-    for idx, (p, sq) in enumerate(labeled_single_piece_plan, start=3):
-        fen = EMPTY_FEN  # single-piece tests start from empty board
-        steps.append({
-            "title": f"Step {idx}: Single-piece labeled capture ({p} on {sq})",
-            "fen": fen,
-            "instructions": f"Place exactly ONE white {piece_name(p)} on {sq}. Leave all other squares empty.",
-            "mode": "label_single_piece",
-            "piece": p,
-            "square": sq,
-            "color": "w"
-        })
-
-    # Run steps
+def run_steps(out_jsonl, out_csv, label: str, repeat: int, skip_confirm: bool, auto_advance: bool, steps: List[Dict[str, Any]]):
     cw = csv_writer(out_csv)
     total = 0
     for step in steps:
         title = step["title"]
-        fen = step["fen"]
-        instructions = step["instructions"]
+        fen = step.get("fen", EMPTY_FEN)
+        instructions = step.get("instructions", "")
         mode = step["mode"]
 
         if not prompt_user_setup(title, fen, instructions, skip_confirm):
             print("Skipped.")
             continue
 
-        # For single-piece mode, we’ll re-ask piece/square in case you want to override on the fly
         extra_meta = {"mode": mode}
 
+        # Allow on-the-fly override for labeled single-piece steps
         if mode == "label_single_piece":
-            print(f"Planned piece: {step['piece']} (white), square: {step['square']}")
-            if not prompt_yes_no("Use the planned piece/square?", default_yes=True):
-                piece = input("Enter piece type [P,N,B,R,Q,K]: ").strip().upper()
+            planned_piece = step["piece"]
+            planned_square = step["square"]
+            planned_color = step["color"]
+            print(f"Planned: {piece_name(planned_piece)} on {planned_square} ({'white' if planned_color=='w' else 'black'})")
+            if not prompt_yes_no("Use the planned piece/square/color?", default_yes=True):
+                piece = input("Enter piece type [P,N,B,R,Q,K]: ").strip().upper() or planned_piece
                 if piece not in PIECES:
                     print("Invalid piece; defaulting to planned.")
-                    piece = step["piece"]
-                square = input("Enter square (e.g., e4): ").strip().lower()
+                    piece = planned_piece
+                square = input("Enter square (e.g., e4): ").strip().lower() or planned_square
                 if not valid_square(square):
                     print("Invalid square; defaulting to planned.")
-                    square = step["square"]
+                    square = planned_square
+                color = (input("Enter color [w/b]: ").strip().lower() or planned_color)
+                if color not in ("w","b"):
+                    print("Invalid color; defaulting to planned.")
+                    color = planned_color
             else:
-                piece = step["piece"]
-                square = step["square"]
+                piece, square, color = planned_piece, planned_square, planned_color
 
             extra_meta.update({
                 "label_piece": piece,
-                "label_color": "w",
+                "label_color": color,
                 "label_square": square
             })
-            print(f"→ Recording as: {piece_name(piece)} on {square} (white)")
+            print(f"→ Recording as: {piece_name(piece)} on {square} ({'white' if color=='w' else 'black'})")
 
-        # Repeat captures if requested
-        for i in range(repeat):
+        # Inner repeats per step
+        attempt = 0
+        while attempt < repeat:
+            if not auto_advance and attempt > 0:
+                if not prompt_yes_no("Capture another repeat for this step?", default_yes=True):
+                    break
+
             try:
                 rec = capture_once(fen, label, extra_meta)
             except Exception as e:
-                log.error(f"Capture failed ({title}, attempt {i+1}/{repeat}): {e}")
+                log.error(f"Capture failed ({title}, attempt {attempt+1}/{repeat}): {e}")
+                if not prompt_yes_no("Retry this attempt?", default_yes=True):
+                    break
                 continue
 
-            # For single-piece steps, do a sanity check on occupancy
+            # For labeled steps, sanity-check occupancy: we expect exactly 1 nonzero byte
             if mode == "label_single_piece":
                 occ_nz = rec.get("occupancy_nonzero_bytes", 0)
-                if occ_nz <= 0:
-                    print("WARNING: Occupancy suggests no pieces detected (0 nonzero bytes). "
-                          "Ensure exactly one piece is on the board.")
-                # We can't decode to exact square here yet, but we keep full STATE/F0 for later mapping.
+                if occ_nz != 1:
+                    print(f"WARNING: Occupancy suggests {occ_nz} nonzero byte(s), expected exactly 1.")
+                    if prompt_yes_no("Retry this capture?", default_yes=True):
+                        continue  # retry without incrementing attempt
 
-            # Write outputs
+            # Persist
             out_jsonl.write(json.dumps(rec) + "\n")
             out_jsonl.flush()
             write_csv_row(cw, rec)
 
             total += 1
-            print(f"Captured {total}: {title} (attempt {i+1}/{repeat})")
+            attempt += 1
+            print(f"Captured {total}: {title} (repeat {attempt}/{repeat})")
 
-    print("\nGuided plan complete.")
+    print("\nPlan complete.")
     print(f"Saved {total} capture(s) in this run.")
-
-
-def piece_name(p: str) -> str:
-    return {
-        "P": "pawn",
-        "N": "knight",
-        "B": "bishop",
-        "R": "rook",
-        "Q": "queen",
-        "K": "king",
-    }.get(p.upper(), p)
-
 
 # ------------------------- CSV handling -------------------------
 
@@ -378,7 +313,6 @@ def csv_writer(csv_file):
     return writer
 
 def write_csv_row(writer, rec: Dict[str, Any]):
-    # Flatten a couple of meta fields for convenience
     flat = {
         "timestamp": rec.get("timestamp", ""),
         "label": rec.get("label", ""),
@@ -399,21 +333,108 @@ def write_csv_row(writer, rec: Dict[str, Any]):
     }
     writer.writerow(flat)
 
+# ------------------------- Templates summary -------------------------
+
+def write_templates_summary(outdir: str, jsonl_path: str):
+    """
+    Compute a simple per-(piece,color) centroid over two robust features:
+    - f0_total_non7f_bytes
+    - f0_total_energy
+    Write JSON + CSV so we can iterate quickly.
+    """
+    import pandas as pd
+    rows = []
+    with open(jsonl_path, "r", encoding="utf-8") as f:
+        for line in f:
+            rec = json.loads(line)
+            meta = rec.get("meta") or {}
+            if meta.get("mode") != "label_single_piece":
+                continue
+            piece = (meta.get("label_piece") or "").upper()
+            color = (meta.get("label_color") or "").lower()
+            if piece not in PIECES or color not in ("w","b"):
+                continue
+            rows.append({
+                "piece": piece,
+                "color": color,
+                "f0_total_non7f_bytes": rec.get("f0_total_non7f_bytes"),
+                "f0_total_energy": rec.get("f0_total_energy"),
+            })
+    if not rows:
+        print("No labeled single-piece rows found; templates summary skipped.")
+        return
+    df = pd.DataFrame(rows).dropna()
+    grp = df.groupby(["piece","color"])
+    summary = grp.agg(
+        count=("f0_total_energy","count"),
+        non7f_mean=("f0_total_non7f_bytes","mean"),
+        non7f_std=("f0_total_non7f_bytes","std"),
+        energy_mean=("f0_total_energy","mean"),
+        energy_std=("f0_total_energy","std"),
+        non7f_min=("f0_total_non7f_bytes","min"),
+        non7f_max=("f0_total_non7f_bytes","max"),
+        energy_min=("f0_total_energy","min"),
+        energy_max=("f0_total_energy","max"),
+    ).reset_index()
+
+    # Save CSV
+    summ_csv = os.path.join(outdir, "templates_summary.csv")
+    summary.to_csv(summ_csv, index=False)
+
+    # Save JSON
+    summ_json = os.path.join(outdir, "templates_summary.json")
+    # Build a compact dict keyed by f"{piece}{color}"
+    comp = {}
+    for _, r in summary.iterrows():
+        key = f"{r['piece']}{r['color']}"
+        comp[key] = {
+            "count": int(r["count"]),
+            "non7f_mean": float(r["non7f_mean"]),
+            "non7f_std": None if pd.isna(r["non7f_std"]) else float(r["non7f_std"]),
+            "energy_mean": float(r["energy_mean"]),
+            "energy_std": None if pd.isna(r["energy_std"]) else float(r["energy_std"]),
+            "non7f_min": float(r["non7f_min"]),
+            "non7f_max": float(r["non7f_max"]),
+            "energy_min": float(r["energy_min"]),
+            "energy_max": float(r["energy_max"]),
+        }
+    with open(summ_json, "w", encoding="utf-8") as fh:
+        json.dump(comp, fh, indent=2)
+    print(f"Templates summary written:\n- {summ_csv}\n- {summ_json}")
 
 # ------------------------- CLI and main -------------------------
 
 def parse_args():
-    ap = argparse.ArgumentParser(description="Capture DGT Centaur F0/F4/96 snapshots with guided labeling.")
+    ap = argparse.ArgumentParser(description="Capture DGT Centaur F0/F4/96 snapshots with guided labeling (extended).")
     g = ap.add_mutually_exclusive_group(required=False)
     g.add_argument("--fen", type=str, help="Single FEN to capture (skips guided plan).")
     g.add_argument("--fens", type=str, help="Path to file with one FEN per line (skips guided plan).")
+
+    # Plan composition
+    ap.add_argument("--no-empty", action="store_true", help="Skip empty-board baseline step.")
+    ap.add_argument("--no-startpos", action="store_true", help="Skip full starting position step.")
+    ap.add_argument("--plan-only-single", action="store_true", help="Run only the single-piece plan.")
+
+    # Single-piece sweep controls
+    ap.add_argument("--pieces", type=str, default="P,N,B,R,Q,K",
+                    help="Pieces to capture (comma/space separated). Default: P,N,B,R,Q,K")
+    ap.add_argument("--colors", type=str, default="w",
+                    help="Colors to capture: w,b (comma/space separated). Default: w")
+    ap.add_argument("--squares", type=str, default="a1,c1,e1,a2,d2,h2",
+                    help="Squares to use for single-piece captures (comma/space separated).")
+    ap.add_argument("--per-square-repeats", type=int, default=1,
+                    help="Number of captures per (piece,color,square). Default: 1")
+
+    # Flow
+    ap.add_argument("--repeat", type=int, default=1, help="Number of captures per generic step/FEN (legacy).")
+    ap.add_argument("--auto-advance", action="store_true", help="Skip prompts between repeats inside a step.")
     ap.add_argument("--skip-plan", action="store_true", help="Skip the guided plan and only run --fen/--fens if provided.")
-    ap.add_argument("--repeat", type=int, default=1, help="Number of captures per step/FEN (default: 1).")
+    ap.add_argument("--skip-confirm", action="store_true", help="Do not prompt Y/n before steps.")
+
+    # Output & labeling
     ap.add_argument("--out", type=str, default=".", help="Base output directory (default: current dir).")
     ap.add_argument("--label", type=str, default="", help="Optional label to tag each capture (e.g., 'cal_A').")
-    ap.add_argument("--skip-confirm", action="store_true", help="Do not prompt Y/n before captures.")
     return ap.parse_args()
-
 
 def load_fens(args) -> List[str]:
     if args.fen:
@@ -431,7 +452,6 @@ def load_fens(args) -> List[str]:
         return fens
     return []
 
-
 def main():
     args = parse_args()
     outdir = ensure_outdir(args.out)
@@ -442,14 +462,9 @@ def main():
     print(f"JSONL: {jsonl_path}")
     print(f"CSV:   {csv_path}")
 
-    # Board module initializes its global controller on import
-    # No need to instantiate - just use board.sendCommand() and board.printChessState()
-
     with open(jsonl_path, "w", encoding="utf-8") as jfh, open(csv_path, "w", newline="", encoding="utf-8") as cfh:
-        # CSV writer
         cw = csv_writer(cfh)
 
-        # If user provided FENs explicitly, run those (optionally skipping the guided plan)
         custom_fens = load_fens(args)
         ran_anything = False
 
@@ -459,15 +474,62 @@ def main():
             else:
                 print("\nRunning ONLY your provided FENs (guided plan skipped).")
 
+        # ----- Guided plan -----
         if not args.skip_plan:
-            run_guided_plan(jfh, cfh, args.label, args.repeat, args.skip_confirm)
-            ran_anything = True
+            steps: List[Dict[str, Any]] = []
 
-        # Now run user-specified FENs, if any
+            # Baselines unless suppressed or plan-only-single
+            if not args.plan_only_single and not args.no_empty:
+                steps.append({
+                    "title": "Empty-board baseline",
+                    "fen": EMPTY_FEN,
+                    "instructions": "Remove all pieces from the board.",
+                    "mode": "guided_fen",
+                })
+            if not args.plan_only_single and not args.no_startpos:
+                steps.append({
+                    "title": "Full starting position",
+                    "fen": START_FEN,
+                    "instructions": "Set up the full chess starting position: white on your side (ranks 1-2).",
+                    "mode": "guided_fen",
+                })
+
+            # Single-piece sweep
+            sweep_pieces = [p.upper() for p in parse_list_arg(args.pieces) if p.upper() in PIECES]
+            sweep_colors = [c.lower() for c in parse_list_arg(args.colors) if c.lower() in ("w","b")]
+            sweep_squares = [s.lower() for s in parse_list_arg(args.squares) if valid_square(s.lower())]
+
+            if not sweep_pieces:
+                sweep_pieces = PIECES[:]  # default fallback
+            if not sweep_colors:
+                sweep_colors = ["w"]
+            if not sweep_squares:
+                sweep_squares = ["a1","c1","e1","a2","d2","h2"]
+
+            single_steps = plan_single_piece_steps(sweep_pieces, sweep_colors, sweep_squares)
+            # We encode the per-square repeats on the step itself so run_steps can use it via 'repeat'
+            # but we'll pass args.per_square_repeats as 'repeat' when executing the single-steps.
+            # Baselines use args.repeat as before.
+
+            # Run baseline steps with args.repeat
+            baseline_steps = [s for s in steps if s["mode"] == "guided_fen"]
+            if baseline_steps:
+                run_steps(jfh, cfh, args.label, repeat=args.repeat, skip_confirm=args.skip_confirm,
+                          auto_advance=args.auto_advance, steps=baseline_steps)
+                ran_anything = True
+
+            # Run single-piece steps with per-square repeats
+            if single_steps:
+                run_steps(jfh, cfh, args.label, repeat=args.per_square_repeats, skip_confirm=args.skip_confirm,
+                          auto_advance=args.auto_advance, steps=single_steps)
+                ran_anything = True
+
+        # ----- Custom FENs -----
         for fen in custom_fens:
             title = "Custom FEN capture"
             instructions = "Set up the position as shown."
             if prompt_user_setup(title, fen, instructions, args.skip_confirm):
+                # Use args.repeat for custom FENs
                 for i in range(args.repeat):
                     rec = capture_once(fen, args.label, extra_meta={"mode": "custom_fen"})
                     jfh.write(json.dumps(rec) + "\n")
@@ -481,11 +543,14 @@ def main():
         if not ran_anything:
             print("\nNo work performed (you skipped the guided plan and provided no FENs).")
 
+    # Build quick templates summary (from JSONL) for immediate iteration
+    write_templates_summary(outdir, jsonl_path)
+
     print("\nDone.")
     print(f"- JSONL (full details): {jsonl_path}")
     print(f"- CSV  (summary):       {csv_path}")
-    print("Send me the JSONL/CSV and I’ll analyze separability and sketch the first per-piece templates.")
-
+    print(f"- Templates summary:    {os.path.join(outdir, 'templates_summary.{json,csv}')}")
+    print("Send me the JSONL/CSV and templates summary; I’ll iterate on per-piece templates next.")
 
 if __name__ == "__main__":
     main()
