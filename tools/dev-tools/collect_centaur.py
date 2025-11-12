@@ -33,7 +33,7 @@ Usage examples
 
 Requires
 --------
-from DGTCentaurMods.board import Board
+from DGTCentaurMods.board import board
 from DGTCentaurMods.board.sync_centaur import command
 from DGTCentaurMods.board.logging import log
 """
@@ -55,7 +55,7 @@ except Exception:
     pass
 
 
-from DGTCentaurMods.board import board as Board
+from DGTCentaurMods.board import board
 from DGTCentaurMods.board.sync_centaur import command
 from DGTCentaurMods.board.logging import log
 
@@ -133,7 +133,7 @@ def prompt_yes_no(msg: str, default_yes: bool = True) -> bool:
 
 # ------------------------- Board capture -------------------------
 
-def capture_once(board: Board, fen: str, label: str, extra_meta: Dict[str, Any]) -> Dict[str, Any]:
+def capture_once(fen: str, label: str, extra_meta: Dict[str, Any]) -> Dict[str, Any]:
     """
     Execute one full capture sequence for a given state.
     Returns a dict containing raw hex and derived stats.
@@ -206,7 +206,7 @@ def valid_square(s: str) -> bool:
     return len(s) == 2 and s[0] in FILES and s[1] in RANKS
 
 
-def prompt_user_setup(board: Board, title: str, fen: str, instructions: str, skip_confirm: bool) -> bool:
+def prompt_user_setup(title: str, fen: str, instructions: str, skip_confirm: bool) -> bool:
     print("\n==================================================")
     print(f"{title}")
     print(f"Target FEN:\n  {fen}")
@@ -221,7 +221,7 @@ def prompt_user_setup(board: Board, title: str, fen: str, instructions: str, ski
     return prompt_yes_no("Ready to capture?", default_yes=True)
 
 
-def run_guided_plan(board: Board, out_jsonl, out_csv, label: str, repeat: int, skip_confirm: bool):
+def run_guided_plan(out_jsonl, out_csv, label: str, repeat: int, skip_confirm: bool):
     """
     A 12-step plan:
       1) Empty board baseline
@@ -282,7 +282,7 @@ def run_guided_plan(board: Board, out_jsonl, out_csv, label: str, repeat: int, s
         instructions = step["instructions"]
         mode = step["mode"]
 
-        if not prompt_user_setup(board, title, fen, instructions, skip_confirm):
+        if not prompt_user_setup(title, fen, instructions, skip_confirm):
             print("Skipped.")
             continue
 
@@ -314,7 +314,7 @@ def run_guided_plan(board: Board, out_jsonl, out_csv, label: str, repeat: int, s
         # Repeat captures if requested
         for i in range(repeat):
             try:
-                rec = capture_once(board, fen, label, extra_meta)
+                rec = capture_once(fen, label, extra_meta)
             except Exception as e:
                 log.error(f"Capture failed ({title}, attempt {i+1}/{repeat}): {e}")
                 continue
@@ -442,11 +442,8 @@ def main():
     print(f"JSONL: {jsonl_path}")
     print(f"CSV:   {csv_path}")
 
-    try:
-        board = Board()
-    except Exception as e:
-        print(f"Failed to initialize Board(): {e}", file=sys.stderr)
-        sys.exit(1)
+    # Board module initializes its global controller on import
+    # No need to instantiate - just use board.sendCommand() and board.printChessState()
 
     with open(jsonl_path, "w", encoding="utf-8") as jfh, open(csv_path, "w", newline="", encoding="utf-8") as cfh:
         # CSV writer
@@ -463,16 +460,16 @@ def main():
                 print("\nRunning ONLY your provided FENs (guided plan skipped).")
 
         if not args.skip_plan:
-            run_guided_plan(board, jfh, cfh, args.label, args.repeat, args.skip_confirm)
+            run_guided_plan(jfh, cfh, args.label, args.repeat, args.skip_confirm)
             ran_anything = True
 
         # Now run user-specified FENs, if any
         for fen in custom_fens:
             title = "Custom FEN capture"
             instructions = "Set up the position as shown."
-            if prompt_user_setup(board, title, fen, instructions, args.skip_confirm):
+            if prompt_user_setup(title, fen, instructions, args.skip_confirm):
                 for i in range(args.repeat):
-                    rec = capture_once(board, fen, args.label, extra_meta={"mode": "custom_fen"})
+                    rec = capture_once(fen, args.label, extra_meta={"mode": "custom_fen"})
                     jfh.write(json.dumps(rec) + "\n")
                     jfh.flush()
                     write_csv_row(cw, rec)
