@@ -50,6 +50,7 @@ class CommandSpec:
 DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
 
 COMMANDS: Dict[str, CommandSpec] = {
+    "DGT_BUS_SEND_87":        CommandSpec(0x87, 0x87, None),
     "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83, None),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85, None),
     "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5, None),
@@ -622,26 +623,31 @@ class SyncCentaur:
         # Called from run_background() with no packet
         if packet is None:
             log.info("Discovery: STARTING")
-            self.sendPacket(command.DGT_RETURN_BUSADRES)
+            self.ser.write(0x4d)
+            self.ser.write(0x4e)
+            self.sendPacket(command.DGT_BUS_SEND_87)
+            #self.sendPacket(command.DGT_RETURN_BUSADRES)
             return
         
         log.info(f"Discovery: packet: {' '.join(f'{b:02x}' for b in packet)}")
         # Called from processResponse() with a complete packet
-        if packet[0] == 0x90:
+        if packet[0] == 0x87:
             if self.addr1 == 0x00 and self.addr2 == 0x00:
+                self.sendPacket(command.DGT_BUS_SEND_87)
                 self.addr1 = packet[3]
                 self.addr2 = packet[4]
             else:
                 if self.addr1 == packet[3] and self.addr2 == packet[4]:
                     self.ready = True
-                    self.sendPacket(command.DGT_NOTIFY_EVENTS)
+                    #self.sendPacket(command.DGT_NOTIFY_EVENTS)
                     log.info(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
+                    self.ledsOff()
                 else:
                     log.info(f"Discovery: ERROR - addr1={hex(self.addr1)}, addr2={hex(self.addr2)} does not match packet {packet[3]} {packet[4]}")
                     self.addr1 = 0x00
                     self.addr2 = 0x00
                     log.info("Discovery: RETRY")
-                    self.sendPacket(command.DGT_RETURN_BUSADRES)
+                    self.sendPacket(command.DGT_BUS_SEND_87)
                     return
     
     def cleanup(self, leds_off: bool = True):
