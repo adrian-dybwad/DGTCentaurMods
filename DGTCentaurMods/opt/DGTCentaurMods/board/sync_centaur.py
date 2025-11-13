@@ -44,7 +44,7 @@ from DGTCentaurMods.board import time_utils
 @dataclass(frozen=True)
 class CommandSpec:
     cmd: bytes
-    expected_resp_type: int
+    expected_resp_type: int = None
     default_data: Optional[bytes] = None
 
 DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
