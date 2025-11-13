@@ -67,7 +67,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     "DGT_SLEEP":              CommandSpec(0xb2, 0xB1, b'\x0a'),
     "LED_OFF_CMD":            CommandSpec(0xb0, None, b'\x00'),
     "LED_FLASH_CMD":          CommandSpec(0xb0, None, b'\x05\x0a\x00\x01'),
-    "DGT_NOTIFY_EVENTS":      CommandSpec(0x58, 0xa3, None),
+    "DGT_NOTIFY_EVENTS":      CommandSpec(0x58),
     "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90, None),
     "DGT_SEND_TRADEMARK":     CommandSpec(0x97, 0xb4, None),
 }
