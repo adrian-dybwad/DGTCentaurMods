@@ -396,7 +396,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
     fieldname = chess.square_name(field)
     pc = cboard.color_at(field)
 
-    log.info(f"[gamemanager.fieldcallback] piece_event={piece_event} field={field} fieldname={fieldname} color_at={"White" if pc else "Black"} time_in_seconds={time_in_seconds}")
+    log.info(f"[gamemanager.fieldcallback] piece_event={piece_event} field={field} fieldname={fieldname} color_at={'White' if pc else 'Black'} time_in_seconds={time_in_seconds}")
     global cboard
     global curturn
     global movecallbackfunction
