@@ -30,7 +30,7 @@ except Exception as e:
     print(f"Warning: Could not add repo path: {e}")
 
 try:
-    import board
+    from DGTCentaurMods.board import board
 except ImportError as e:
     print(f"Failed to import board module: {e}")
     print("Make sure you're running from the project root and the board module is available.")
