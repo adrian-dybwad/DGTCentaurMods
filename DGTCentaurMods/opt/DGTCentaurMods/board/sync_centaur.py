@@ -48,6 +48,7 @@ class CommandSpec:
     default_data: Optional[bytes] = None
 
 DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
+DGT_KEY_EVENTS_RESP = 0xa3 # Identifies a key event
 
 COMMANDS: Dict[str, CommandSpec] = {
     "DGT_BUS_SEND_87":        CommandSpec(0x87, 0x87), # Sent after initial init but before ADDR1 ADDR2 is populated. This is a SHORT command.
@@ -55,9 +56,9 @@ COMMANDS: Dict[str, CommandSpec] = {
     "DGT_BUS_SEND_SNAPSHOT_F4":  CommandSpec(0xf4, 0xF4, b'\x7f'), # Sent after F0 is called.
     "DGT_BUS_SEND_96":  CommandSpec(0x96, 0xb2), # Sent after F4 is called. This is a SHORT command.
 
-    "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83, None),
-    "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85, None),
-    "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5, None),
+    "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83),
+    "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85),
+    "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5),
     "SOUND_GENERAL":          CommandSpec(0xb1, None, b'\x4c\x08'),
     "SOUND_FACTORY":          CommandSpec(0xb1, None, b'\x4c\x40'),
     "SOUND_POWER_OFF":        CommandSpec(0xb1, None, b'\x4c\x08\x48\x08'),
@@ -68,8 +69,8 @@ COMMANDS: Dict[str, CommandSpec] = {
     "LED_OFF_CMD":            CommandSpec(0xb0, None, b'\x00'),
     "LED_FLASH_CMD":          CommandSpec(0xb0, None, b'\x05\x0a\x00\x01'),
     "DGT_NOTIFY_EVENTS":      CommandSpec(0x58),
-    "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90, None),
-    "DGT_SEND_TRADEMARK":     CommandSpec(0x97, 0xb4, None),
+    "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90),
+    "DGT_SEND_TRADEMARK":     CommandSpec(0x97, 0xb4),
 }
 
 # Fast lookups
@@ -84,7 +85,6 @@ globals().update({f"{name}_DATA": spec.default_data for name, spec in COMMANDS.i
 # Explicit definitions for linter (already exported above, but needed for static analysis)
 DGT_BUS_SEND_CHANGES_RESP = COMMANDS["DGT_BUS_SEND_CHANGES"].expected_resp_type
 DGT_BUS_SEND_STATE_RESP = COMMANDS["DGT_BUS_SEND_STATE"].expected_resp_type
-DGT_NOTIFY_EVENTS_RESP = COMMANDS["DGT_NOTIFY_EVENTS"].expected_resp_type
 
 # Export name namespace for commands, e.g. command.LED_OFF_CMD -> "LED_OFF_CMD"
 command = SimpleNamespace(**{name: name for name in COMMANDS.keys()})
@@ -220,7 +220,7 @@ class SyncCentaur:
             self.ser = serial.Serial("/dev/pts/2", baudrate=1000000, timeout=5.0)
         else:
             try:
-                self.ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
+                self.ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=5.0)
                 self.ser.isOpen()
             except:
                 self.ser.close()
@@ -288,8 +288,8 @@ class SyncCentaur:
                         self.on_packet_complete(self.response_buffer)
                         return True
                     else:
-                        if self.response_buffer[0] == DGT_NOTIFY_EVENTS_RESP:
-                            log.info(f"DGT_NOTIFY_EVENTS_RESP: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                        if self.response_buffer[0] == DGT_KEY_EVENTS_RESP:
+                            log.info(f"DGT_KEY_EVENTS_RESP: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                             self.handle_key_payload(self.response_buffer[1:])
                             self.response_buffer = bytearray()
                             self.packet_count += 1
@@ -449,7 +449,7 @@ class SyncCentaur:
         """Process requests from FIFO queue"""
         while self.listener_running:
             try:
-                request = self._request_queue.get(timeout=0.1)
+                request = self._request_queue.get(timeout=5.0)
                 if request is None:
                     continue
                 
@@ -526,7 +526,7 @@ class SyncCentaur:
         
         # Wait for result
         try:
-            status, result = result_queue.get(timeout=timeout + 1.0)
+            status, result = result_queue.get(timeout=timeout + 5.0)
             if status == 'success':
                 return result
             else:
@@ -673,7 +673,7 @@ class SyncCentaur:
             self.listener_running = False
             t = getattr(self, "listener_thread", None)
             if t and t.is_alive():
-                t.join(timeout=1.0)
+                t.join(timeout=5.0)
         except Exception:
             pass
     
