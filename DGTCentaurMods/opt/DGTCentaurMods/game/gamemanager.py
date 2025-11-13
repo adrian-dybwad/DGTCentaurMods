@@ -88,8 +88,10 @@ correction_just_exited = False  # Flag to suppress stale events immediately afte
 def collectBoardState():
     # Append the board state to boardstates
     global boardstates
+    global cboard
     log.info(f"[gamemanager.collectBoardState] Collecting board state")
     boardstates.append(board.getChessState())
+    print(cboard)
 
 def waitForPromotionChoice():
     """Wait for user to select promotion piece via button press"""
