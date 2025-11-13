@@ -566,7 +566,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
             )
             session.add(gamemove)
             session.commit()
-            collectBoardState()
+            #collectBoardState()
             legalsquares = []
             sourcesq = -1
             board.ledsOff()
