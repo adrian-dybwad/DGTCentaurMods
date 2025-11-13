@@ -393,10 +393,6 @@ def fieldcallback(piece_event, field, time_in_seconds):
     # field = square + 1 # Convert to positive field number
     # if piece_event == 1: # PLACE
     #     field = ((square + 1) * -1) # Convert to negative field number
-    fieldname = chess.square_name(field)
-    pc = cboard.color_at(field)
-
-    log.info(f"[gamemanager.fieldcallback] piece_event={piece_event} field={field} fieldname={fieldname} color_at={'White' if pc else 'Black'} time_in_seconds={time_in_seconds}")
     global cboard
     global curturn
     global movecallbackfunction
@@ -410,6 +406,12 @@ def fieldcallback(piece_event, field, time_in_seconds):
     global gamedbid
     global session
     global showingpromotion
+
+    fieldname = chess.square_name(field)
+    pc = cboard.color_at(field)
+
+    log.info(f"[gamemanager.fieldcallback] piece_event={piece_event} field={field} fieldname={fieldname} color_at={'White' if pc else 'Black'} time_in_seconds={time_in_seconds}")
+
     lift = 0
     place = 0
     if piece_event == 0:
