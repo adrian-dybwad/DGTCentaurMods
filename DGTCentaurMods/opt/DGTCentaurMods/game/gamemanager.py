@@ -393,8 +393,10 @@ def fieldcallback(piece_event, field, time_in_seconds):
     # field = square + 1 # Convert to positive field number
     # if piece_event == 1: # PLACE
     #     field = ((square + 1) * -1) # Convert to negative field number
+    fieldname = chess.square_name(field)
+    pc = cboard.color_at(field)
 
-    log.info(f"[gamemanager.fieldcallback] piece_event={piece_event} field={field} time_in_seconds={time_in_seconds}")
+    log.info(f"[gamemanager.fieldcallback] piece_event={piece_event} field={field} fieldname={fieldname} color_at={pc == True if "White" else "Black"} time_in_seconds={time_in_seconds}")
     global cboard
     global curturn
     global movecallbackfunction
@@ -418,16 +420,11 @@ def fieldcallback(piece_event, field, time_in_seconds):
     # field = field - 1
     # No extra index remapping here; LED helpers expect chess indices 0(a1)..63(h8)
     # Check the piece colour against the current turn
-    log.info(f"[gamemanager.fieldcallback] Field: {field}")
-    pc = cboard.color_at(field)
-    log.info(f"[gamemanager.fieldcallback] Piece colour: {pc}")
     vpiece = 0
     if curturn == 0 and pc == False:
         vpiece = 1
     if curturn == 1 and pc == True:
         vpiece = 1
-    fieldname = chess.square_name(field)
-    log.info(f"[gamemanager.fieldcallback] Fieldname: {fieldname}")
     legalmoves = cboard.legal_moves
     lmoves = list(legalmoves)
     if lift == 1 and field not in legalsquares and sourcesq < 0 and vpiece == 1:
@@ -516,8 +513,6 @@ def fieldcallback(piece_event, field, time_in_seconds):
         if not is_takeback:
             guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece)
     
-    log.info(f"[gamemanager.fieldcallback] field: {field}")
-    log.info(f"[gamemanager.fieldcallback] legalsquares: {legalsquares}")
     if place == 1 and field in legalsquares:
         log.info(f"[gamemanager.fieldcallback] Making move")
         if field == sourcesq:
