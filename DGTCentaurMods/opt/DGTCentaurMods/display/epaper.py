@@ -51,6 +51,7 @@ lastepaperbytes = b''
 first = 1
 event_refresh = threading.Event()
 screeninverted = 0
+disabled = True
 
 def compute_changed_region(prev_bytes: bytes, curr_bytes: bytes) -> tuple[int, int]:
     """
@@ -302,7 +303,10 @@ def clearScreen():
     first = 0    
     unPauseEpaper()
 
-def drawBoard(pieces, startrow=2):         
+def drawBoard(pieces, startrow=2):    
+    if disabled:
+        return
+
     global epaperbuffer
     draw = ImageDraw.Draw(epaperbuffer)
     chessfont = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
@@ -349,6 +353,8 @@ def drawBoard(pieces, startrow=2):
 
 def drawFen(fen, startrow=2):
     # As drawboard but draws a fen
+    if disabled:
+        return
     curfen = fen
     curfen = curfen.replace("/", "")
     curfen = curfen.replace("1", " ")
@@ -558,6 +564,8 @@ class MenuDraw:
 
 
     def draw_page(self, title, items):
+        if disabled:
+            return
         log.debug('-------------')
         log.debug(title)
         log.debug('-------------')
