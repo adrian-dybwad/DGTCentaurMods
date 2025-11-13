@@ -303,7 +303,8 @@ def clearScreen():
     first = 0    
     unPauseEpaper()
 
-def drawBoard(pieces, startrow=2):    
+def drawBoard(pieces, startrow=2): 
+    global disabled
     if disabled:
         return
 
@@ -353,6 +354,7 @@ def drawBoard(pieces, startrow=2):
 
 def drawFen(fen, startrow=2):
     # As drawboard but draws a fen
+    global disabled
     if disabled:
         return
     curfen = fen
