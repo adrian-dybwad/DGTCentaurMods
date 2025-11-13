@@ -73,17 +73,11 @@ def cleanup():
     
     # Remove symlink if it exists
     if os.path.islink(DEV):
-        try:
-            os.unlink(DEV)
-        except Exception:
-            pass
+        run_command(["sudo", "rm", "-f", DEV], ignore_errors=True)
     
     # Restore real device if it exists
     if os.path.exists(REAL):
-        try:
-            os.rename(REAL, DEV)
-        except Exception:
-            pass
+        run_command(["sudo", "mv", REAL, DEV], ignore_errors=True)
 
 
 def signal_handler(signum, frame):
@@ -145,10 +139,9 @@ def main():
     
     # If the "real" device doesn't exist yet, move the real one aside
     if not os.path.exists(REAL):
-        try:
-            os.rename(DEV, REAL)
-        except Exception as e:
-            print(f"Error moving {DEV} to {REAL}: {e}", file=sys.stderr)
+        result = run_command(["sudo", "mv", DEV, REAL], ignore_errors=False)
+        if result is None or result.returncode != 0:
+            print(f"Error moving {DEV} to {REAL}", file=sys.stderr)
             sys.exit(1)
     
     # Ensure the real device is ready and not locked
