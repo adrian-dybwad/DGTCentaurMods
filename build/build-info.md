@@ -114,6 +114,13 @@ Debugging
 sudo journalctl -u dgt* -f
 ```
 
+Rename the host
+
+```
+sudo hostnamectl set-hostname "dgt"
+```
+
+
 Use `systemctl list-units | grep dgt` to discover exact service names your build installed.
 
 Remove old ssh key
@@ -129,3 +136,4 @@ cd ~
 sudo python DGTCentaurMods/tools/card-setup-tool/firstboot.py
 
 ```
+
