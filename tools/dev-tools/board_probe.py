@@ -31,6 +31,8 @@ except Exception as e:
 
 try:
     from DGTCentaurMods.board import board
+    from DGTCentaurMods.board.sync_centaur import command
+    from DGTCentaurMods.board.logging import log
 except ImportError as e:
     print(f"Failed to import board module: {e}")
     print("Make sure you're running from the project root and the board module is available.")
