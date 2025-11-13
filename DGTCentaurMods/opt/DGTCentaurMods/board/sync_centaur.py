@@ -116,50 +116,68 @@ __all__ = ['SyncCentaur', 'DGT_BUS_SEND_CHANGES', 'DGT_SEND_BATTERY_INFO', 'DGT_
 
 def _set_thread_priority_higher():
     """
-    Set the current thread to higher priority on Linux.
-    Uses pthread_setschedparam to set SCHED_FIFO scheduling with priority 50.
-    Falls back gracefully on non-Linux systems or if permission is denied.
+    Set the current thread to higher priority on Linux to reduce serial communication delays.
+    
+    Attempts multiple methods in order:
+    1. SCHED_FIFO with priority 50 (requires root or CAP_SYS_NICE)
+    2. Process nice value adjustment (requires root or CAP_SYS_NICE)
+    
+    Falls back gracefully if permissions are insufficient. The system will work
+    without priority boost, but may experience delays during eink display updates.
+    
+    To enable priority boost, run with:
+    - sudo (root privileges), or
+    - setcap CAP_SYS_NICE+ep on the Python binary, or
+    - add to systemd service: AmbientCapabilities=CAP_SYS_NICE
     """
     if sys.platform != 'linux':
         return
     
+    priority_set = False
+    
+    # Method 1: Try SCHED_FIFO (real-time scheduling, highest priority)
     try:
-        # Load libpthread
         libpthread = ctypes.CDLL(ctypes.util.find_library('pthread'))
         
-        # Define structures and constants
         SCHED_FIFO = 1
         
         class sched_param(ctypes.Structure):
             _fields_ = [('sched_priority', ctypes.c_int)]
         
-        # Get current thread ID
         pthread_self = libpthread.pthread_self
         pthread_self.restype = ctypes.c_ulong
         
-        # Set scheduling policy
         pthread_setschedparam = libpthread.pthread_setschedparam
         pthread_setschedparam.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.POINTER(sched_param)]
         pthread_setschedparam.restype = ctypes.c_int
         
-        # Try to set SCHED_FIFO with priority 50 (higher priority)
-        # If that fails due to permissions, try SCHED_OTHER with nice value
         thread_id = pthread_self()
         param = sched_param(50)
         
         result = pthread_setschedparam(thread_id, SCHED_FIFO, ctypes.byref(param))
         if result == 0:
-            log.debug("Serial listener thread set to SCHED_FIFO priority 50")
-        else:
-            # Fallback: try to set nice value (affects process, but better than nothing)
-            try:
-                os.nice(-10)  # Increase priority (lower nice value = higher priority)
-                log.debug("Serial listener thread priority increased via nice value")
-            except (OSError, PermissionError):
-                log.debug("Could not set thread priority (requires root or CAP_SYS_NICE)")
-    except (OSError, AttributeError, Exception) as e:
-        # Gracefully handle any errors (missing library, permission denied, etc.)
-        log.debug(f"Could not set thread priority: {e}")
+            log.info("Serial listener thread priority set to SCHED_FIFO (priority 50)")
+            priority_set = True
+    except (OSError, AttributeError):
+        pass  # Try next method
+    except Exception as e:
+        log.debug(f"Error attempting SCHED_FIFO priority: {e}")
+    
+    # Method 2: Try process nice value adjustment (if SCHED_FIFO failed)
+    if not priority_set:
+        try:
+            # Try to decrease nice value (increase priority)
+            # This affects the whole process, not just the thread
+            current_nice = os.nice(0)  # Get current nice value
+            os.nice(-10)  # Decrease by 10 (increase priority)
+            log.info(f"Serial listener thread priority increased via nice value (was {current_nice}, now {current_nice - 10})")
+            priority_set = True
+        except (OSError, PermissionError):
+            # Both methods failed - log at debug level since this is expected without privileges
+            log.debug("Thread priority boost unavailable (requires root or CAP_SYS_NICE). "
+                     "Serial communication may experience delays during eink display updates.")
+        except Exception as e:
+            log.debug(f"Unexpected error setting nice value: {e}")
 
 
 class SyncCentaur:
