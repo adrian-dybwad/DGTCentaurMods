@@ -309,24 +309,24 @@ class SyncCentaur:
         self.response_buffer = bytearray()
         self.packet_count += 1
         
-        #try:
-        truncated_packet = packet[:50]
-        log.info(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
-        # Handle discovery or route to handler
-        if not self.ready:
-            self._discover_board_address(packet)
-            return
-        
-        # Try delivering to waiter first
-        if self._try_deliver_to_waiter(packet):
-            return
-        
-        self._route_packet_to_handler(packet)
-        # finally:
-        #     if packet[0] == DGT_PIECE_EVENT_RESP:
-        #         self.sendPacket(command.DGT_BUS_SEND_CHANGES)
-        #     else:
-        #         self.sendPacket(command.DGT_NOTIFY_EVENTS)
+        try:
+            truncated_packet = packet[:50]
+            log.info(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
+            # Handle discovery or route to handler
+            if not self.ready:
+                self._discover_board_address(packet)
+                return
+            
+            # Try delivering to waiter first
+            if self._try_deliver_to_waiter(packet):
+                return
+            
+            self._route_packet_to_handler(packet)
+        finally:
+            if packet[0] == DGT_PIECE_EVENT_RESP:
+                self.sendPacket(command.DGT_BUS_SEND_CHANGES)
+            else:
+                self.sendPacket(command.DGT_NOTIFY_EVENTS)
     
     def _try_deliver_to_waiter(self, packet):
         """Try to deliver packet to waiting request, returns True if delivered"""
@@ -582,8 +582,8 @@ class SyncCentaur:
         tosend = self.buildPacket(spec.cmd, eff_data)
         log.info(f"sendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
-        #if self.ready and spec.expected_resp_type is None and command_name != command.DGT_NOTIFY_EVENTS:
-        #    self.sendPacket(command.DGT_NOTIFY_EVENTS)
+        if self.ready and spec.expected_resp_type is None and command_name != command.DGT_NOTIFY_EVENTS:
+            self.sendPacket(command.DGT_NOTIFY_EVENTS)
     
     def buildPacket(self, command, data):
         """Build a complete packet with command, addresses, data, and checksum"""
@@ -643,7 +643,7 @@ class SyncCentaur:
             else:
                 if self.addr1 == packet[3] and self.addr2 == packet[4]:
                     self.ready = True
-                    #self.sendPacket(command.DGT_NOTIFY_EVENTS)
+                    self.sendPacket(command.DGT_NOTIFY_EVENTS)
                     log.info(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
                     self.ledsOff()
                     self.beep(command.SOUND_POWER_ON)
