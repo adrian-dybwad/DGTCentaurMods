@@ -303,6 +303,8 @@ resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F4)
 log.info(f"Discovery: RESPONSE FROM F4 - {' '.join(f'{b:02x}' for b in resp)}")
 resp = board.sendCommand(command.DGT_BUS_SEND_96)
 log.info(f"Discovery: RESPONSE FROM 96 - {' '.join(f'{b:02x}' for b in resp)}")
+resp = board.sendCommand(command.DGT_BUS_SEND_STATE)
+log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
 
 
 def show_welcome():
