@@ -39,10 +39,6 @@ from types import SimpleNamespace
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board import time_utils
 
-USE_NOTIFY_EVENTS = False
-
-
-
 # Unified command registry
 @dataclass(frozen=True)
 class CommandSpec:
@@ -71,7 +67,8 @@ COMMANDS: Dict[str, CommandSpec] = {
     "DGT_SLEEP":              CommandSpec(0xb2, 0xB1, b'\x0a'),
     "LED_OFF_CMD":            CommandSpec(0xb0, None, b'\x00'),
     "LED_FLASH_CMD":          CommandSpec(0xb0, None, b'\x05\x0a\x00\x01'),
-    "DGT_NOTIFY_EVENTS":      CommandSpec(0x58),
+    "DGT_NOTIFY_EVENTS_58":      CommandSpec(0x58),
+    "DGT_NOTIFY_EVENTS_43":      CommandSpec(0x43),
     "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90),
     "DGT_SEND_TRADEMARK":     CommandSpec(0x97, 0xb4),
 }
@@ -91,6 +88,8 @@ DGT_BUS_SEND_STATE_RESP = COMMANDS["DGT_BUS_SEND_STATE"].expected_resp_type
 
 # Export name namespace for commands, e.g. command.LED_OFF_CMD -> "LED_OFF_CMD"
 command = SimpleNamespace(**{name: name for name in COMMANDS.keys()})
+
+DGT_NOTIFY_EVENTS = command.DGT_NOTIFY_EVENTS_43
 
 # Start-of-packet type bytes derived from registry (responses) + discovery types
 OTHER_START_TYPES = {0x87, 0x93}
@@ -326,11 +325,11 @@ class SyncCentaur:
             
             self._route_packet_to_handler(packet)
         finally:
-            if USE_NOTIFY_EVENTS:
+            if DGT_NOTIFY_EVENTS:
                 if packet[0] == DGT_PIECE_EVENT_RESP:
                     self.sendPacket(command.DGT_BUS_SEND_CHANGES)
                 else:
-                    self.sendPacket(command.DGT_NOTIFY_EVENTS)
+                    self.sendPacket(DGT_NOTIFY_EVENTS)
     
     def _try_deliver_to_waiter(self, packet):
         """Try to deliver packet to waiting request, returns True if delivered"""
@@ -586,8 +585,8 @@ class SyncCentaur:
         tosend = self.buildPacket(spec.cmd, eff_data)
         log.info(f"sendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
-        if USE_NOTIFY_EVENTS and self.ready and spec.expected_resp_type is None and command_name != command.DGT_NOTIFY_EVENTS:
-            self.sendPacket(command.DGT_NOTIFY_EVENTS)
+        if DGT_NOTIFY_EVENTS and self.ready and spec.expected_resp_type is None and command_name != command.DGT_NOTIFY_EVENTS:
+            self.sendPacket(DGT_NOTIFY_EVENTS)
     
     def buildPacket(self, command, data):
         """Build a complete packet with command, addresses, data, and checksum"""
@@ -647,8 +646,8 @@ class SyncCentaur:
             else:
                 if self.addr1 == packet[3] and self.addr2 == packet[4]:
                     self.ready = True
-                    if USE_NOTIFY_EVENTS:
-                        self.sendPacket(command.DGT_NOTIFY_EVENTS)
+                    if DGT_NOTIFY_EVENTS:
+                        self.sendPacket(DGT_NOTIFY_EVENTS)
                     log.info(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
                     self.ledsOff()
                     self.beep(command.SOUND_POWER_ON)
