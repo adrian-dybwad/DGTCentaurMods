@@ -372,20 +372,19 @@ class SyncCentaur:
         """Route packet to appropriate handler based on type"""
         try:
             payload = self._extract_payload(packet)
-            if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
-                self.handle_board_payload(payload)
-            elif packet[0] == DGT_PIECE_EVENT_RESP:
-                log.debug(f"Piece event detected (0x8e), waiting for DGT_BUS_SEND_CHANGES response")
-                if DGT_NOTIFY_EVENTS is None:
+            if len(payload) > 0:
+                if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
                     self.handle_board_payload(payload)
-            elif packet[0] == DGT_BUS_POLL_KEYS_RESP:
-                log.debug(f"Key event detected (0xB1), waiting for DGT_BUS_POLL_KEYS response")
-                if DGT_NOTIFY_EVENTS is None:
-                    self.handle_key_payload(payload)
-            elif packet[0] == DGT_BUS_SEND_STATE_RESP:
-                log.debug(f"Unsolicited board state packet (0x83) - no active waiter")
-            else:
-                log.info(f"Unknown packet type: {' '.join(f'{b:02x}' for b in packet)}")
+                elif packet[0] == DGT_PIECE_EVENT_RESP:
+                    if DGT_NOTIFY_EVENTS is None:
+                        self.handle_board_payload(payload)
+                elif packet[0] == DGT_BUS_POLL_KEYS_RESP:
+                    if DGT_NOTIFY_EVENTS is None:
+                        self.handle_key_payload(payload)
+                elif packet[0] == DGT_BUS_SEND_STATE_RESP:
+                    log.debug(f"Unsolicited board state packet (0x83) - no active waiter")
+                else:
+                    log.info(f"Unknown packet type: {' '.join(f'{b:02x}' for b in packet)}")
         except Exception as e:
             log.error(f"Error: {e}")
     
