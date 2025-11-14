@@ -328,8 +328,8 @@ class SyncCentaur:
         
         try:
             truncated_packet = packet[:50]
-            if packet[0] != DGT_PIECE_EVENT_RESP and packet[0] != DGT_KEY_EVENTS_RESP:
-                log.info(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
+            #if packet[0] != DGT_PIECE_EVENT_RESP and packet[0] != DGT_KEY_EVENTS_RESP:
+            log.info(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
             # Handle discovery or route to handler
             if not self.ready:
                 self._discover_board_address(packet)
