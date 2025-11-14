@@ -328,7 +328,8 @@ class SyncCentaur:
         
         try:
             truncated_packet = packet[:50]
-            log.info(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
+            if packet[0] != DGT_PIECE_EVENT_RESP and packet[0] != DGT_KEY_EVENTS_RESP:
+                log.info(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
             # Handle discovery or route to handler
             if not self.ready:
                 self._discover_board_address(packet)
@@ -624,7 +625,8 @@ class SyncCentaur:
             raise KeyError(f"Unknown command name: {command_name}")
         eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
         tosend = self.buildPacket(spec.cmd, eff_data)
-        log.info(f"_send_command: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
+        if command_name != command.DGT_BUS_SEND_CHANGES and command_name != command.DGT_BUS_POLL_KEYS:
+            log.info(f"_send_command: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
         if DGT_NOTIFY_EVENTS and self.ready and spec.expected_resp_type is None and command_name != DGT_NOTIFY_EVENTS:
             self.sendCommand(DGT_NOTIFY_EVENTS)
