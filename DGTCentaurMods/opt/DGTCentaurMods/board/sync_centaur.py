@@ -89,7 +89,7 @@ DGT_BUS_POLL_KEYS_RESP = COMMANDS["DGT_BUS_POLL_KEYS"].expected_resp_type
 # Export name namespace for commands, e.g. command.LED_OFF_CMD -> "LED_OFF_CMD"
 command = SimpleNamespace(**{name: name for name in COMMANDS.keys()})
 
-DGT_NOTIFY_EVENTS = command.DGT_NOTIFY_EVENTS_43
+DGT_NOTIFY_EVENTS = None # command.DGT_NOTIFY_EVENTS_43
 
 if DGT_NOTIFY_EVENTS is not None:
     DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
