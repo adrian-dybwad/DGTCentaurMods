@@ -79,13 +79,12 @@ class SimpleCentaur:
     """DGT Centaur Simple Board Controller
     
     Minimal implementation that:
-    - Discovers the board
+    - Bypasses discovery and uses fixed addresses (addr1=0x3e, addr2=0x5e)
     - Constructs packets for commands
     - Sends commands and outputs return bytes directly to serial port
     
     Usage:
         centaur = SimpleCentaur(developer_mode=False)
-        centaur.discover_board()
         centaur.sendCommand("DGT_BUS_SEND_STATE")
     """
     
@@ -97,10 +96,10 @@ class SimpleCentaur:
             developer_mode (bool): If True, use virtual serial ports via socat
         """
         self.ser = None
-        self.addr1 = 0x00
-        self.addr2 = 0x00
+        self.addr1 = 0x3e
+        self.addr2 = 0x5e
         self.developer_mode = developer_mode
-        self.ready = False
+        self.ready = True
         
         self._initialize()
     
