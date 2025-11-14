@@ -129,7 +129,7 @@ class SimpleCentaur:
         self.listener_thread.start()
         log.info("Serial listener thread started")
 
-        
+
     
     def _listener_thread(self):
         """Continuously listen for data on the serial port and print it"""
@@ -232,16 +232,6 @@ class SimpleCentaur:
         
         # Send the command
         self.sendPacket(command_name, data)
-        
-        # Wait a bit for response
-        time.sleep(0.1)
-        
-        # Read and output any return bytes directly
-        response = self.ser.read(1000)  # Read up to 1000 bytes
-        
-        if response:
-            log.info(f"Response bytes: {' '.join(f'{b:02x}' for b in response)}")
-            return response
         
         return b''
     
