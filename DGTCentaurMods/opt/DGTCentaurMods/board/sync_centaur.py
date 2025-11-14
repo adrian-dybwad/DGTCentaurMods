@@ -166,6 +166,7 @@ class SyncCentaur:
         # Limit queue size to prevent unbounded memory growth
         self._request_queue = queue.Queue(maxsize=100)
         self._request_processor_thread = None
+        self._last_command = None
         
         # Key polling thread
         self._key_polling_thread = None
@@ -643,9 +644,14 @@ class SyncCentaur:
         if not spec:
             raise KeyError(f"Unknown command name: {command_name}")
         
+        # Skip if new command == previous command == DGT_NOTIFY_EVENTS
+        if command_name == self._last_command == DGT_NOTIFY_EVENTS:
+            return
+        
         # Queue the command without a result queue (non-blocking, no return value)
         try:
             self._request_queue.put_nowait((command_name, data, timeout, None))
+            self._last_command = command_name
         except queue.Full:
             log.error(f"Request queue full, cannot queue command {command_name}")
     
