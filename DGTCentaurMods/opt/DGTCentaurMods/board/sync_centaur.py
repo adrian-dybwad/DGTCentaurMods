@@ -84,13 +84,14 @@ globals().update({f"{name}_DATA": spec.default_data for name, spec in COMMANDS.i
 # Explicit definitions for linter (already exported above, but needed for static analysis)
 DGT_BUS_SEND_CHANGES_RESP = COMMANDS["DGT_BUS_SEND_CHANGES"].expected_resp_type
 DGT_BUS_SEND_STATE_RESP = COMMANDS["DGT_BUS_SEND_STATE"].expected_resp_type
+DGT_BUS_POLL_KEYS_RESP = COMMANDS["DGT_BUS_POLL_KEYS"].expected_resp_type
 
 # Export name namespace for commands, e.g. command.LED_OFF_CMD -> "LED_OFF_CMD"
 command = SimpleNamespace(**{name: name for name in COMMANDS.keys()})
 
 DGT_NOTIFY_EVENTS = None #command.DGT_NOTIFY_EVENTS_43
 
-if DGT_NOTIFY_EVENTS:
+if DGT_NOTIFY_EVENTS is not None:
     DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
     DGT_KEY_EVENTS_RESP = 0xa3 # Identifies a key event
 else:
@@ -328,8 +329,8 @@ class SyncCentaur:
         
         try:
             truncated_packet = packet[:50]
-            #if packet[0] != DGT_PIECE_EVENT_RESP and packet[0] != DGT_KEY_EVENTS_RESP:
-            log.info(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
+            if packet[0] != DGT_PIECE_EVENT_RESP and packet[0] != DGT_KEY_EVENTS_RESP:
+                log.info(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
             # Handle discovery or route to handler
             if not self.ready:
                 self._discover_board_address(packet)
@@ -341,7 +342,7 @@ class SyncCentaur:
             
             self._route_packet_to_handler(packet)
         finally:
-            if DGT_NOTIFY_EVENTS:
+            if DGT_NOTIFY_EVENTS is not None:
                 if packet[0] == DGT_PIECE_EVENT_RESP:
                     self.sendCommand(command.DGT_BUS_SEND_CHANGES)
                 else:
@@ -375,6 +376,12 @@ class SyncCentaur:
                 self.handle_board_payload(payload)
             elif packet[0] == DGT_PIECE_EVENT_RESP:
                 log.debug(f"Piece event detected (0x8e), waiting for DGT_BUS_SEND_CHANGES response")
+                if DGT_NOTIFY_EVENTS is None:
+                    self.handle_board_payload(payload)
+            elif packet[0] == DGT_BUS_POLL_KEYS_RESP:
+                log.debug(f"Key event detected (0xB1), waiting for DGT_BUS_POLL_KEYS response")
+                if DGT_NOTIFY_EVENTS is None:
+                    self.handle_key_payload(payload)
             elif packet[0] == DGT_BUS_SEND_STATE_RESP:
                 log.debug(f"Unsolicited board state packet (0x83) - no active waiter")
             else:
@@ -625,7 +632,7 @@ class SyncCentaur:
         if command_name != command.DGT_BUS_SEND_CHANGES and command_name != command.DGT_BUS_POLL_KEYS:
             log.info(f"_send_command: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
-        if DGT_NOTIFY_EVENTS and self.ready and spec.expected_resp_type is None and command_name != DGT_NOTIFY_EVENTS:
+        if DGT_NOTIFY_EVENTS is not None and self.ready and spec.expected_resp_type is None and command_name != DGT_NOTIFY_EVENTS:
             self.sendCommand(DGT_NOTIFY_EVENTS)
     
     def sendCommand(self, command_name: str, data: Optional[bytes] = None, timeout: float = 10.0):
@@ -717,7 +724,7 @@ class SyncCentaur:
             else:
                 if self.addr1 == packet[3] and self.addr2 == packet[4]:
                     self.ready = True
-                    if DGT_NOTIFY_EVENTS:
+                    if DGT_NOTIFY_EVENTS is not None:
                         self.sendCommand(DGT_NOTIFY_EVENTS)
                     log.info(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
                     self.ledsOff()
