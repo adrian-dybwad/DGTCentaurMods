@@ -647,9 +647,14 @@ class SyncCentaur:
         if command_name == self._last_command == DGT_NOTIFY_EVENTS:
             return
         
-        # Queue the command without a result queue (non-blocking, no return value)
+        # If command has an expected response, create a result queue like request_response
+        result_queue = None
+        if spec.expected_resp_type is not None:
+            result_queue = queue.Queue(maxsize=1)
+        
+        # Queue the command (non-blocking, no return value to caller)
         try:
-            self._request_queue.put_nowait((command_name, data, timeout, None))
+            self._request_queue.put_nowait((command_name, data, timeout, result_queue))
             self._last_command = command_name
         except queue.Full:
             log.error(f"Request queue full, cannot queue command {command_name}")
