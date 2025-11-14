@@ -501,9 +501,16 @@ class SyncCentaur:
                 command_name, data, timeout, result_queue = request
                 
                 try:
-                    payload = self._execute_request(command_name, data, timeout)
+                    # For blocking requests (request_response), create internal queue for waiter mechanism
+                    # For non-blocking requests (sendCommand), pass None to skip waiter
                     if result_queue is not None:
+                        # Create internal queue for waiter mechanism
+                        internal_queue = queue.Queue(maxsize=1)
+                        payload = self._execute_request(command_name, data, timeout, internal_queue)
                         result_queue.put(('success', payload))
+                    else:
+                        # For non-blocking (sendCommand), pass None to skip waiter
+                        payload = self._execute_request(command_name, data, timeout, None)
                 except Exception as e:
                     if result_queue is not None:
                         result_queue.put(('error', e))
@@ -514,8 +521,16 @@ class SyncCentaur:
             except Exception as e:
                 log.error(f"Request processor error: {e}")
     
-    def _execute_request(self, command_name: str, data: Optional[bytes], timeout: float):
-        """Execute a single request synchronously"""
+    def _execute_request(self, command_name: str, data: Optional[bytes], timeout: float, result_queue: Optional[queue.Queue] = None):
+        """Execute a single request synchronously
+        
+        Args:
+            command_name: command name to send
+            data: optional payload bytes
+            timeout: timeout for response (only used if result_queue is provided)
+            result_queue: if None (from sendCommand), don't set up waiter - let response route normally.
+                         if provided (from request_response), set up waiter and wait for response.
+        """
         spec = CMD_BY_NAME.get(command_name)
         if not spec:
             raise KeyError(f"Unknown command name: {command_name}")
@@ -528,8 +543,12 @@ class SyncCentaur:
             self._send_command(command_name, eff_data)
             return b''
         
-        # Create waiter
-        result_queue = queue.Queue(maxsize=1)
+        # If result_queue is None (from sendCommand), don't set up waiter - let response route normally
+        if result_queue is None:
+            self._send_command(command_name, eff_data)
+            return b''  # Response will be handled by _route_packet_to_handler
+        
+        # Create waiter for blocking requests (request_response)
         with self._waiter_lock:
             if self._response_waiter is not None:
                 log.warning("Warning: waiter still set")
