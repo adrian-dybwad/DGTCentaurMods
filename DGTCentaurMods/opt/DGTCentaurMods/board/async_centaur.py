@@ -108,7 +108,6 @@ DGT_PIECE_EVENT_RESP = 0x8e # This identifies a piece detection event
 COMMANDS: Dict[str, CommandSpec] = {
 
     "DGT_BUS_SEND_94":        CommandSpec(0x94, 0xb1), # Sent after initial init but before ADDR1 ADDR2 is populated. This is a SHORT command.
-    "DGT_BUS_SEND_94":        CommandSpec(0x94, 0xb1), # Sent after initial init but before ADDR1 ADDR2 is populated. This is a SHORT command.
 
     "DGT_BUS_SEND_87":        CommandSpec(0x87, 0x87), # Sent after initial init but before ADDR1 ADDR2 is populated. This is a SHORT command.
     "DGT_BUS_SEND_SNAPSHOT_F0":  CommandSpec(0xf0, 0xF0, b'\x7f'), # Sent after initial ledsOff().
@@ -1133,7 +1132,7 @@ class AsyncCentaur:
             self.listener_running = False
             t = getattr(self, "listener_thread", None)
             if t and t.is_alive():
-                t.join(timeout=1.0)
+                t.join(timeout=2.0)
         except Exception:
             pass
 

@@ -254,7 +254,7 @@ def sendCustomBeep(data: bytes):
     Args:
         data: Custom beep pattern bytes (e.g., b'\x50\x08\x00\x08\x59\x08\x00')
     """
-    controller.sendPacket(command.SOUND_GENERAL, data)
+    controller.sendCommand(command.SOUND_GENERAL, data)
 
 def sendCustomLedArray(data: bytes):
     """
@@ -263,7 +263,7 @@ def sendCustomLedArray(data: bytes):
     Args:
         data: Custom LED array data bytes (e.g., b'\x05\x12\x00\x05' followed by square indices)
     """
-    controller.sendPacket(command.LED_FLASH_CMD, data)
+    controller.sendCommand(command.LED_FLASH_CMD, data)
 
 def shutdown():
     """

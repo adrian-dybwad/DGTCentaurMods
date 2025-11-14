@@ -46,8 +46,6 @@ class CommandSpec:
     expected_resp_type: int = None
     default_data: Optional[bytes] = None
 
-DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
-DGT_KEY_EVENTS_RESP = 0xa3 # Identifies a key event
 
 COMMANDS: Dict[str, CommandSpec] = {
     "DGT_BUS_SEND_87":        CommandSpec(0x87, 0x87), # Sent after initial init but before ADDR1 ADDR2 is populated. This is a SHORT command.
@@ -57,6 +55,7 @@ COMMANDS: Dict[str, CommandSpec] = {
 
     "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85),
+    "DGT_BUS_POLL_KEYS":      CommandSpec(0x94, 0xB1),
     "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5),
     "SOUND_GENERAL":          CommandSpec(0xb1, None, b'\x4c\x08'),
     "SOUND_FACTORY":          CommandSpec(0xb1, None, b'\x4c\x40'),
@@ -90,6 +89,13 @@ DGT_BUS_SEND_STATE_RESP = COMMANDS["DGT_BUS_SEND_STATE"].expected_resp_type
 command = SimpleNamespace(**{name: name for name in COMMANDS.keys()})
 
 DGT_NOTIFY_EVENTS = command.DGT_NOTIFY_EVENTS_43
+
+if DGT_NOTIFY_EVENTS:
+    DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
+    DGT_KEY_EVENTS_RESP = 0xa3 # Identifies a key event
+else:
+    DGT_PIECE_EVENT_RESP = 0x85
+    DGT_KEY_EVENTS_RESP = 0xB1
 
 # Start-of-packet type bytes derived from registry (responses) + discovery types
 OTHER_START_TYPES = {0x87, 0x93}
@@ -161,6 +167,9 @@ class SyncCentaur:
         self._request_queue = queue.Queue(maxsize=100)
         self._request_processor_thread = None
         
+        # Key polling thread
+        self._key_polling_thread = None
+        
         # Piece event listener (marker 0x40/0x41 0..63, time_in_seconds)
         self._piece_listener = None
         
@@ -191,6 +200,11 @@ class SyncCentaur:
         # Start request processor thread
         self._request_processor_thread = threading.Thread(target=self._request_processor, daemon=True)
         self._request_processor_thread.start()
+        
+        # Start key polling thread only if DGT_NOTIFY_EVENTS is None
+        if DGT_NOTIFY_EVENTS is None:
+            self._key_polling_thread = threading.Thread(target=self._key_polling_worker, name="key-polling", daemon=True)
+            self._key_polling_thread.start()
         
         # THEN send discovery commands
         log.info("Starting discovery...")
@@ -327,9 +341,9 @@ class SyncCentaur:
         finally:
             if DGT_NOTIFY_EVENTS:
                 if packet[0] == DGT_PIECE_EVENT_RESP:
-                    self.sendPacket(command.DGT_BUS_SEND_CHANGES)
+                    self.sendCommand(command.DGT_BUS_SEND_CHANGES)
                 else:
-                    self.sendPacket(DGT_NOTIFY_EVENTS)
+                    self.sendCommand(DGT_NOTIFY_EVENTS)
     
     def _try_deliver_to_waiter(self, packet):
         """Try to deliver packet to waiting request, returns True if delivered"""
@@ -448,6 +462,28 @@ class SyncCentaur:
             except Exception as e:
                 log.error(f"[SyncCentaur] callback worker loop error: {e}")
     
+    def _key_polling_worker(self):
+        """Poll for key events in a loop"""
+        while self.listener_running:
+            try:
+                # Wait for board to be ready before polling
+                if not self.ready:
+                    time.sleep(0.1)
+                    continue
+                
+                # Poll for keys
+                payload = self.request_response(command.DGT_BUS_POLL_KEYS, timeout=1.0)
+                
+                # If we got a non-empty response, handle it
+                if payload is not None and len(payload) > 0:
+                    self.handle_key_payload(payload)
+                
+                # Small delay to avoid hammering the board
+                time.sleep(0.05)
+            except Exception as e:
+                log.error(f"[SyncCentaur] key polling error: {e}")
+                time.sleep(0.1)
+    
     def _request_processor(self):
         """Process requests from FIFO queue"""
         while self.listener_running:
@@ -460,9 +496,13 @@ class SyncCentaur:
                 
                 try:
                     payload = self._execute_request(command_name, data, timeout)
-                    result_queue.put(('success', payload))
+                    if result_queue is not None:
+                        result_queue.put(('success', payload))
                 except Exception as e:
-                    result_queue.put(('error', e))
+                    if result_queue is not None:
+                        result_queue.put(('error', e))
+                    else:
+                        log.error(f"Error executing queued command {command_name}: {e}")
             except queue.Empty:
                 continue
             except Exception as e:
@@ -479,7 +519,7 @@ class SyncCentaur:
         
         # If no response expected, just send and return
         if expected_type is None:
-            self.sendPacket(command_name, eff_data)
+            self._send_command(command_name, eff_data)
             return b''
         
         # Create waiter
@@ -491,7 +531,7 @@ class SyncCentaur:
             self._response_waiter = {'expected_type': expected_type, 'queue': result_queue}
         
         # Send command
-        self.sendPacket(command_name, eff_data)
+        self._send_command(command_name, eff_data)
         
         # Wait for response
         try:
@@ -568,7 +608,7 @@ class SyncCentaur:
         self._last_key = None
         return last_key
     
-    def sendPacket(self, command_name: str, data: Optional[bytes] = None):
+    def _send_command(self, command_name: str, data: Optional[bytes] = None):
         """
         Send a packet to the board using a command name.
         
@@ -583,10 +623,31 @@ class SyncCentaur:
             raise KeyError(f"Unknown command name: {command_name}")
         eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
         tosend = self.buildPacket(spec.cmd, eff_data)
-        log.info(f"sendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
+        log.info(f"_send_command: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
         self.ser.write(tosend)
         if DGT_NOTIFY_EVENTS and self.ready and spec.expected_resp_type is None and command_name != DGT_NOTIFY_EVENTS:
-            self.sendPacket(DGT_NOTIFY_EVENTS)
+            self.sendCommand(DGT_NOTIFY_EVENTS)
+    
+    def sendCommand(self, command_name: str, data: Optional[bytes] = None, timeout: float = 10.0):
+        """
+        Queue a command to be sent asynchronously without waiting for a response.
+        
+        Args:
+            command_name: command name in COMMANDS (e.g., "LED_OFF_CMD")
+            data: bytes for data payload; if None, use default_data from the named command if available
+            timeout: timeout for the command execution (used internally, not returned to caller)
+        """
+        if not isinstance(command_name, str):
+            raise TypeError("sendCommand2 requires a command name (str), e.g. command.LED_OFF_CMD")
+        spec = CMD_BY_NAME.get(command_name)
+        if not spec:
+            raise KeyError(f"Unknown command name: {command_name}")
+        
+        # Queue the command without a result queue (non-blocking, no return value)
+        try:
+            self._request_queue.put_nowait((command_name, data, timeout, None))
+        except queue.Full:
+            log.error(f"Request queue full, cannot queue command {command_name}")
     
     def buildPacket(self, command, data):
         """Build a complete packet with command, addresses, data, and checksum"""
@@ -632,7 +693,7 @@ class SyncCentaur:
             log.info("Discovery: STARTING")
             self.ser.write(0x4d)
             self.ser.write(0x4e)
-            self.sendPacket(command.DGT_BUS_SEND_87)
+            self.sendCommand(command.DGT_BUS_SEND_87)
             #self.sendPacket(command.DGT_RETURN_BUSADRES)
             return
         
@@ -640,14 +701,14 @@ class SyncCentaur:
         # Called from processResponse() with a complete packet
         if packet[0] == 0x87:
             if self.addr1 == 0x00 and self.addr2 == 0x00:
-                self.sendPacket(command.DGT_BUS_SEND_87)
+                self.sendCommand(command.DGT_BUS_SEND_87)
                 self.addr1 = packet[3]
                 self.addr2 = packet[4]
             else:
                 if self.addr1 == packet[3] and self.addr2 == packet[4]:
                     self.ready = True
                     if DGT_NOTIFY_EVENTS:
-                        self.sendPacket(DGT_NOTIFY_EVENTS)
+                        self.sendCommand(DGT_NOTIFY_EVENTS)
                     log.info(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
                     self.ledsOff()
                     self.beep(command.SOUND_POWER_ON)
@@ -656,7 +717,7 @@ class SyncCentaur:
                     self.addr1 = 0x00
                     self.addr2 = 0x00
                     log.info("Discovery: RETRY")
-                    self.sendPacket(command.DGT_BUS_SEND_87)
+                    self.sendCommand(command.DGT_BUS_SEND_87)
                     return
     
     def cleanup(self, leds_off: bool = True):
@@ -733,10 +794,10 @@ class SyncCentaur:
         self._last_key = None
     
     def beep(self, sound_name: str):
-        self.sendPacket(sound_name)
+        self.sendCommand(sound_name)
     
     def ledsOff(self):
-        self.sendPacket(command.LED_OFF_CMD)
+        self.sendCommand(command.LED_OFF_CMD)
     
     def ledArray(self, inarray, speed=3, intensity=5):
         data = bytearray([0x05])
@@ -745,28 +806,28 @@ class SyncCentaur:
         data.append(intensity)
         for i in range(0, len(inarray)):
             data.append(inarray[i])
-        self.sendPacket(command.LED_FLASH_CMD, data)
+        self.sendCommand(command.LED_FLASH_CMD, data)
     
     def ledFromTo(self, lfrom, lto, intensity=5):
         data = bytearray([0x05, 0x03, 0x00])
         data.append(intensity)
         data.append(lfrom)
         data.append(lto)
-        self.sendPacket(command.LED_FLASH_CMD, data)
+        self.sendCommand(command.LED_FLASH_CMD, data)
     
     def led(self, num, intensity=5):
         data = bytearray([0x05, 0x0a, 0x01])
         data.append(intensity)
         data.append(num)
-        self.sendPacket(command.LED_FLASH_CMD, data)
+        self.sendCommand(command.LED_FLASH_CMD, data)
     
     def ledFlash(self):
-        self.sendPacket(command.LED_FLASH_CMD)
+        self.sendCommand(command.LED_FLASH_CMD)
     
     def sleep(self):
         """Sleep the controller"""
         log.info(f"sleep")
-        self.sendPacket(command.DGT_SLEEP)
+        self.sendCommand(command.DGT_SLEEP)
             
     def _draw_piece_events_from_payload(self, payload: bytes):
         """Print a compact list of piece events extracted from the payload"""
