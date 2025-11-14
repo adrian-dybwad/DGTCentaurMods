@@ -32,6 +32,8 @@ import threading
 import os
 import psutil
 import dbus
+import signal
+import sys
 try:
 	from gi.repository import GObject
 except ImportError:
@@ -44,6 +46,7 @@ GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
 
 # Global state
 kill = 0
+cleaned_up = False
 E2ROM = bytearray([0] * 256)
 sendstatewithoutrequest = 1
 curturn = 1
@@ -757,12 +760,104 @@ gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback)
 epaper.writeText(0,"Place pieces in")
 epaper.writeText(1,"Starting Pos")
 
+def cleanup():
+	"""Clean up BLE services, advertisements, and resources before exit."""
+	global kill, app, adv, bluetooth_controller, pairThread, cleaned_up
+	if cleaned_up:
+		return
+	cleaned_up = True
+	try:
+		log.info("Cleaning up Millennium BLE services...")
+		kill = 1
+		
+		# Stop BLE notifications
+		if UARTService.tx_obj is not None:
+			try:
+				UARTService.tx_obj.StopNotify()
+				log.info("BLE notifications stopped")
+			except Exception as e:
+				log.debug(f"Error stopping notify: {e}")
+		
+		# Unregister BLE advertisement
+		try:
+			if 'adv' in globals() and adv is not None:
+				bus = BleTools.get_bus()
+				adapter = BleTools.find_adapter(bus)
+				if adapter:
+					ad_manager = dbus.Interface(
+						bus.get_object("org.bluez", adapter),
+						"org.bluez.LEAdvertisingManager1")
+					ad_manager.UnregisterAdvertisement(adv.get_path())
+					log.info("BLE advertisement unregistered")
+		except Exception as e:
+			log.debug(f"Error unregistering advertisement: {e}")
+		
+		# Unregister BLE application
+		try:
+			if 'app' in globals() and app is not None:
+				bus = BleTools.get_bus()
+				adapter = BleTools.find_adapter(bus)
+				if adapter:
+					service_manager = dbus.Interface(
+						bus.get_object("org.bluez", adapter),
+						"org.bluez.GattManager1")
+					service_manager.UnregisterApplication(app.get_path())
+					log.info("BLE application unregistered")
+		except Exception as e:
+			log.debug(f"Error unregistering application: {e}")
+		
+		# Stop Bluetooth controller pairing thread
+		try:
+			if 'bluetooth_controller' in globals() and bluetooth_controller is not None:
+				bluetooth_controller.stop_pairing_thread()
+				log.info("Bluetooth pairing thread stopped")
+		except Exception as e:
+			log.debug(f"Error stopping pairing thread: {e}")
+		
+		# Unsubscribe from game manager
+		try:
+			gamemanager.unsubscribeGame()
+			log.info("Unsubscribed from game manager")
+		except Exception as e:
+			log.debug(f"Error unsubscribing from game manager: {e}")
+		
+		# Turn off LEDs
+		try:
+			board.ledsOff()
+		except Exception as e:
+			log.debug(f"Error turning off LEDs: {e}")
+		
+		log.info("Cleanup completed")
+	except Exception as e:
+		log.error(f"Error in cleanup: {e}")
+		import traceback
+		log.error(traceback.format_exc())
+
+def signal_handler(signum, frame):
+	"""Handle termination signals."""
+	log.info(f"Received signal {signum}, cleaning up...")
+	cleanup()
+	try:
+		if 'app' in globals() and app is not None:
+			app.quit()
+	except Exception:
+		pass
+	sys.exit(0)
+
+# Register signal handlers for graceful shutdown
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
 def check_kill_flag():
 	"""Periodically check kill flag and quit app if set"""
 	global kill, app
 	if kill:
-		log.info("Kill flag set, quitting application")
-		app.quit()
+		log.info("Kill flag set, cleaning up and quitting application")
+		cleanup()
+		try:
+			app.quit()
+		except Exception:
+			pass
 		return False  # Stop the timeout
 	return True  # Continue checking
 
@@ -774,26 +869,29 @@ try:
 	app.run()
 except KeyboardInterrupt:
 	log.info("Keyboard interrupt received")
-	kill = 1
 	running = False
 except Exception as e:
 	log.error(f"Error in main loop: {e}")
-	kill = 1
+	import traceback
+	log.error(traceback.format_exc())
 	running = False
 
 # Cleanup
 log.info("Shutting down...")
-kill = 1
 running = False
+cleanup()
+
+# Give cleanup time to complete
 time.sleep(0.5)
 
 try:
-	app.quit()
+	if 'app' in globals() and app is not None:
+		app.quit()
 except Exception:
 	pass
 
 log.info("Disconnected")
-time.sleep(1)
+time.sleep(0.5)
 
 log.info("Exiting millennium_ble.py")
 
