@@ -128,6 +128,8 @@ class SimpleCentaur:
         self.listener_thread = threading.Thread(target=self._listener_thread, daemon=True)
         self.listener_thread.start()
         log.info("Serial listener thread started")
+
+        
     
     def _listener_thread(self):
         """Continuously listen for data on the serial port and print it"""
@@ -137,7 +139,7 @@ class SimpleCentaur:
                 if self.ser and self.ser.is_open:
                     byte = self.ser.read(1)
                     if byte:
-                        print(f"[SERIAL IN] {byte[0]:02x}")
+                        log.info(f"[SERIAL IN] {byte[0]:02x}")
                 else:
                     time.sleep(0.1)
             except Exception as e:
