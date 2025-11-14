@@ -169,7 +169,7 @@ class SyncCentaur:
         self._last_command = None
         
         # Key polling thread
-        self._key_polling_thread = None
+        self._polling_thread = None
         
         # Piece event listener (marker 0x40/0x41 0..63, time_in_seconds)
         self._piece_listener = None
@@ -204,8 +204,8 @@ class SyncCentaur:
         
         # Start key polling thread only if DGT_NOTIFY_EVENTS is None
         if DGT_NOTIFY_EVENTS is None:
-            self._key_polling_thread = threading.Thread(target=self._key_polling_worker, name="key-polling", daemon=True)
-            self._key_polling_thread.start()
+            self._polling_thread = threading.Thread(target=self._polling_worker, name="key-polling", daemon=True)
+            self._polling_thread.start()
         
         # THEN send discovery commands
         log.info("Starting discovery...")
@@ -464,8 +464,8 @@ class SyncCentaur:
             except Exception as e:
                 log.error(f"[SyncCentaur] callback worker loop error: {e}")
     
-    def _key_polling_worker(self):
-        """Poll for key events in a loop"""
+    def _polling_worker(self):
+        """Poll for events in a loop"""
         while self.listener_running:
             try:
                 # Wait for board to be ready before polling
@@ -474,16 +474,13 @@ class SyncCentaur:
                     continue
                 
                 # Poll for keys
-                payload = self.request_response(command.DGT_BUS_POLL_KEYS, timeout=1.0)
-                
-                # If we got a non-empty response, handle it
-                if payload is not None and len(payload) > 0:
-                    self.handle_key_payload(payload)
-                
+                self.sendCommand(command.DGT_BUS_POLL_KEYS)
+                # Poll for piece events
+                self.sendCommand(command.DGT_BUS_SEND_CHANGES)
                 # Small delay to avoid hammering the board
                 time.sleep(0.05)
             except Exception as e:
-                log.error(f"[SyncCentaur] key polling error: {e}")
+                log.error(f"[SyncCentaur] polling worker error: {e}")
                 time.sleep(0.1)
     
     def _request_processor(self):
