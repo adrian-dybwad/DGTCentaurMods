@@ -51,7 +51,7 @@ lastepaperbytes = b''
 first = 1
 event_refresh = threading.Event()
 screeninverted = 0
-disabled = True
+disabled = False
 
 def compute_changed_region(prev_bytes: bytes, curr_bytes: bytes) -> tuple[int, int]:
     """
