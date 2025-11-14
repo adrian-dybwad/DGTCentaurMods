@@ -370,6 +370,7 @@ class SyncCentaur:
     
     def _route_packet_to_handler(self, packet):
         """Route packet to appropriate handler based on type"""
+        log.info(f"_route_packet_to_handler: packet: {' '.join(f'{b:02x}' for b in packet)}")
         try:
             payload = self._extract_payload(packet)
             if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
