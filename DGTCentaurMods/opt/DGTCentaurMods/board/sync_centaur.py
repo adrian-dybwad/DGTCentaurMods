@@ -168,7 +168,7 @@ class SyncCentaur:
         self._request_processor_thread = None
         self._last_command = None
         
-        # Key polling thread
+        # polling thread
         self._polling_thread = None
         
         # Piece event listener (marker 0x40/0x41 0..63, time_in_seconds)
@@ -204,7 +204,7 @@ class SyncCentaur:
         
         # Start key polling thread only if DGT_NOTIFY_EVENTS is None
         if DGT_NOTIFY_EVENTS is None:
-            self._polling_thread = threading.Thread(target=self._polling_worker, name="key-polling", daemon=True)
+            self._polling_thread = threading.Thread(target=self._polling_worker, name="polling", daemon=True)
             self._polling_thread.start()
         
         # THEN send discovery commands
