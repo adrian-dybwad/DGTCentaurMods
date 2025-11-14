@@ -122,14 +122,6 @@ def interactive_mode(centaur):
     print("  q                     - Quit")
     print()
 
-    resp = centaur.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
-    log.info(f"Discovery: RESPONSE FROM F0 - {' '.join(f'{b:02x}' for b in resp)}")
-    resp = centaur.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F4)
-    log.info(f"Discovery: RESPONSE FROM F4 - {' '.join(f'{b:02x}' for b in resp)}")
-    resp = centaur.sendCommand(command.DGT_BUS_SEND_96)
-    log.info(f"Discovery: RESPONSE FROM 96 - {' '.join(f'{b:02x}' for b in resp)}")
-    resp = centaur.sendCommand(command.DGT_BUS_SEND_STATE)
-    log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
 
     while True:
         try:
@@ -159,6 +151,20 @@ def interactive_mode(centaur):
                 print(f"Ready: {centaur.ready}")
                 print(f"Address: addr1={hex(centaur.addr1)}, addr2={hex(centaur.addr2)}")
                 print(f"Developer mode: {centaur.developer_mode}")
+
+                resp = centaur.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
+                log.info(f"Discovery: RESPONSE FROM F0 - {' '.join(f'{b:02x}' for b in resp)}")
+                centaur.sendPacket(command.DGT_NOTIFY_EVENTS_58)
+                resp = centaur.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F4)
+                log.info(f"Discovery: RESPONSE FROM F4 - {' '.join(f'{b:02x}' for b in resp)}")
+                centaur.sendPacket(command.DGT_NOTIFY_EVENTS_58)
+                resp = centaur.sendCommand(command.DGT_BUS_SEND_96)
+                log.info(f"Discovery: RESPONSE FROM 96 - {' '.join(f'{b:02x}' for b in resp)}")
+                centaur.sendPacket(command.DGT_NOTIFY_EVENTS_58)
+                resp = centaur.sendCommand(command.DGT_BUS_SEND_STATE)
+                log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
+                centaur.sendPacket(command.DGT_NOTIFY_EVENTS_58)
+
             except Exception as e:
                 print(f"Error: {e}")
         elif cmd == "LIST":
