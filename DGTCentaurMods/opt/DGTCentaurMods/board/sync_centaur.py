@@ -201,10 +201,9 @@ class SyncCentaur:
         self._request_processor_thread = threading.Thread(target=self._request_processor, daemon=True)
         self._request_processor_thread.start()
         
-        # Start key polling thread only if DGT_NOTIFY_EVENTS is None
-        if DGT_NOTIFY_EVENTS is None:
-            self._key_polling_thread = threading.Thread(target=self._key_polling_worker, name="key-polling", daemon=True)
-            self._key_polling_thread.start()
+        # Start key polling thread
+        self._key_polling_thread = threading.Thread(target=self._key_polling_worker, name="key-polling", daemon=True)
+        self._key_polling_thread.start()
         
         # THEN send discovery commands
         log.info("Starting discovery...")
@@ -693,7 +692,7 @@ class SyncCentaur:
             log.info("Discovery: STARTING")
             self.ser.write(0x4d)
             self.ser.write(0x4e)
-            self.sendCommand(command.DGT_BUS_SEND_87)
+            self._send_command(command.DGT_BUS_SEND_87)
             #self.sendPacket(command.DGT_RETURN_BUSADRES)
             return
         
@@ -701,7 +700,7 @@ class SyncCentaur:
         # Called from processResponse() with a complete packet
         if packet[0] == 0x87:
             if self.addr1 == 0x00 and self.addr2 == 0x00:
-                self.sendCommand(command.DGT_BUS_SEND_87)
+                self._send_command(command.DGT_BUS_SEND_87)
                 self.addr1 = packet[3]
                 self.addr2 = packet[4]
             else:
@@ -717,7 +716,7 @@ class SyncCentaur:
                     self.addr1 = 0x00
                     self.addr2 = 0x00
                     log.info("Discovery: RETRY")
-                    self.sendCommand(command.DGT_BUS_SEND_87)
+                    self._send_command(command.DGT_BUS_SEND_87)
                     return
     
     def cleanup(self, leds_off: bool = True):
