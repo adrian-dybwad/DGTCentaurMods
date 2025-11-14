@@ -201,9 +201,10 @@ class SyncCentaur:
         self._request_processor_thread = threading.Thread(target=self._request_processor, daemon=True)
         self._request_processor_thread.start()
         
-        # Start key polling thread
-        self._key_polling_thread = threading.Thread(target=self._key_polling_worker, name="key-polling", daemon=True)
-        self._key_polling_thread.start()
+        # Start key polling thread only if DGT_NOTIFY_EVENTS is None
+        if DGT_NOTIFY_EVENTS is None:
+            self._key_polling_thread = threading.Thread(target=self._key_polling_worker, name="key-polling", daemon=True)
+            self._key_polling_thread.start()
         
         # THEN send discovery commands
         log.info("Starting discovery...")
