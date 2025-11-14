@@ -29,6 +29,7 @@
 import serial
 import time
 import os
+import threading
 from dataclasses import dataclass
 from typing import Dict, Optional
 from types import SimpleNamespace
@@ -100,6 +101,8 @@ class SimpleCentaur:
         self.addr2 = 0x5e
         self.developer_mode = developer_mode
         self.ready = True
+        self.listener_running = True
+        self.listener_thread = None
         
         self._initialize()
     
@@ -119,6 +122,28 @@ class SimpleCentaur:
                 self.ser.open()
         
         log.info("Serial port opened successfully")
+        
+        # Start listener thread
+        self.listener_running = True
+        self.listener_thread = threading.Thread(target=self._listener_thread, daemon=True)
+        self.listener_thread.start()
+        log.info("Serial listener thread started")
+    
+    def _listener_thread(self):
+        """Continuously listen for data on the serial port and print it"""
+        log.info("Listening for serial data...")
+        while self.listener_running:
+            try:
+                if self.ser and self.ser.is_open:
+                    byte = self.ser.read(1)
+                    if byte:
+                        print(f"[SERIAL IN] {byte[0]:02x}")
+                else:
+                    time.sleep(0.1)
+            except Exception as e:
+                if self.listener_running:
+                    log.error(f"Listener error: {e}")
+                time.sleep(0.1)
     
     def discover_board(self):
         """
@@ -219,7 +244,13 @@ class SimpleCentaur:
         return b''
     
     def cleanup(self):
-        """Close serial port"""
+        """Close serial port and stop listener thread"""
+        # Stop listener thread
+        self.listener_running = False
+        if self.listener_thread and self.listener_thread.is_alive():
+            self.listener_thread.join(timeout=2.0)
+            log.info("Listener thread stopped")
+        
         if self.ser:
             try:
                 self.ser.close()
