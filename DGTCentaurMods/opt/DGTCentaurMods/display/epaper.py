@@ -164,8 +164,8 @@ def loadingScreen():
 def welcomeScreen():
     global epaperbuffer
     global lastepaperbytes
-    # Reset buffer comparison to force update
-    lastepaperbytes = b''
+    # Pause updates while modifying buffer
+    pauseEpaper()
     statusBar().print()
     filename = str(AssetManager.get_resource_path("logo_mods_screen.jpg"))
     lg = Image.open(filename)
@@ -177,6 +177,9 @@ def welcomeScreen():
     x,y = 75,200
     draw.line((6+x,y+16,16+x,y+4), fill=0, width=5)
     draw.line((2+x,y+10, 8+x,y+16), fill=0, width=5)
+    # Reset buffer comparison to force update when unpaused
+    lastepaperbytes = b''
+    unPauseEpaper()
 
 
 def standbyScreen(show):
@@ -448,13 +451,14 @@ def resignDrawMenu(row):
     
 def quickClear():
     # Assumes the screen is in partial mode and makes it white
-    # Clear both buffer and hardware to keep them in sync
+    # Clear buffer and let update thread handle display
     global epaperbuffer
+    global lastepaperbytes
     pauseEpaper()
     draw = ImageDraw.Draw(epaperbuffer)
     draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
-    # Use Python implementation to avoid dimming issues
-    epd.Clear(0xFF)  # Clear to white
+    # Reset buffer comparison to force update thread to detect change
+    lastepaperbytes = b''
     unPauseEpaper()    
     
 def drawWindow(x, y, w, data):
