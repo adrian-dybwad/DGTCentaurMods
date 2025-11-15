@@ -502,41 +502,64 @@ class GameManager:
         field_name = chess.square_name(field)
         piece_color = self._board.color_at(field)
         
-        log.info(f"[GameManager] piece_event={'LIFT' if lift else 'PLACE'} field={field} fieldname={field_name} color_at={'White' if piece_color else 'Black'}")
+        log.info(f"[GameManager] piece_event={'LIFT' if lift else 'PLACE'} field={field} fieldname={field_name} color_at={'White' if piece_color == chess.WHITE else 'Black' if piece_color == chess.BLACK else 'None'}")
         
-        # Check if piece color matches current turn
-        vpiece = (self._board.turn == chess.WHITE) == (piece_color == True)
+        # Check if piece color matches current turn (handle None case for empty squares)
+        if piece_color is None:
+            # Empty square - can't determine if it's valid piece
+            if place:
+                # On place, check if we have a source square (move in progress)
+                if self._source_square is not None:
+                    # This is a valid move placement
+                    pass
+                else:
+                    # No source square, might be stale event
+                    if not self._correction_just_exited:
+                        log.info(f"[GameManager] Ignoring PLACE event on empty square {field} (no source square)")
+                        return
+            else:
+                # Lift from empty square - shouldn't happen but ignore it
+                log.warning(f"[GameManager] LIFT event on empty square {field}")
+                return
+        
+        vpiece = (self._board.turn == chess.WHITE) == (piece_color == chess.WHITE)
         
         # Handle lift events
         if lift:
             self._correction_just_exited = False
             
-            if field not in self._legal_squares and self._source_square is None and vpiece:
+            if vpiece and self._source_square is None:
                 # Generate legal squares for this piece
                 self._legal_squares = self._calculate_legal_squares(field)
                 self._source_square = field
+                log.info(f"[GameManager] Lifted piece at {field_name}, legal squares: {[chess.square_name(sq) for sq in self._legal_squares]}")
             
             # Track opposing side lifts
             if not vpiece:
                 self._opponent_source_square = field
+                log.info(f"[GameManager] Opponent piece lifted at {field_name}")
         
         # Handle opponent piece placement back
         if place and not vpiece and self._opponent_source_square is not None and field == self._opponent_source_square:
             board.ledsOff()
             self._opponent_source_square = None
+            log.info(f"[GameManager] Opponent piece placed back at {field_name}")
+            return
         
         # Handle forced move
         if self._forced_move_active and lift and vpiece:
             if field_name != self._forced_move[0:2]:
                 # Wrong piece lifted for forced move
                 self._legal_squares = [field]
+                log.warning(f"[GameManager] Wrong piece lifted for forced move. Expected {self._forced_move[0:2]}, got {field_name}")
             else:
                 # Correct piece, limit legal squares to target
                 target = self._forced_move[2:4]
                 target_sq = chess.parse_square(target)
                 self._legal_squares = [target_sq]
+                log.info(f"[GameManager] Correct piece lifted for forced move {self._forced_move}")
         
-        # Ignore stale PLACE events without corresponding LIFT
+        # Ignore stale PLACE events without corresponding LIFT (but allow if we have source square)
         if place and self._source_square is None and self._opponent_source_square is None:
             if self._correction_just_exited:
                 # Ignore stale events immediately after correction exit
@@ -545,22 +568,30 @@ class GameManager:
                     self._correction_just_exited = False
                     return
             else:
-                log.info(f"[GameManager] Ignoring stale PLACE event for field {field} (no corresponding LIFT)")
+                log.info(f"[GameManager] Ignoring stale PLACE event for field {field} (no corresponding LIFT, source_square={self._source_square})")
                 return
         
-        # Handle illegal placement
-        if place and field not in self._legal_squares:
-            board.beep(board.SOUND_WRONG_MOVE)
-            log.warning(f"[GameManager] Piece placed on illegal square {field}")
-            is_takeback = self._check_takeback()
-            if not is_takeback:
-                self._enter_correction_mode()
-                current_state = bytearray(board.getChessState())
-                if self._board_states:
-                    self._provide_correction_guidance(current_state, self._board_states[-1])
-        
-        # Handle legal placement
-        if place and field in self._legal_squares:
+        # Handle placement events
+        if place:
+            # Check if we have a source square (move in progress)
+            if self._source_square is None:
+                # No source square - this shouldn't happen if we got past the stale event check
+                log.warning(f"[GameManager] PLACE event without source square at {field_name}")
+                return
+            
+            # Check if placement is legal
+            if field not in self._legal_squares:
+                board.beep(board.SOUND_WRONG_MOVE)
+                log.warning(f"[GameManager] Piece placed on illegal square {field_name}. Legal squares: {[chess.square_name(sq) for sq in self._legal_squares]}")
+                is_takeback = self._check_takeback()
+                if not is_takeback:
+                    self._enter_correction_mode()
+                    current_state = bytearray(board.getChessState())
+                    if self._board_states:
+                        self._provide_correction_guidance(current_state, self._board_states[-1])
+                return
+            
+            # Legal placement - process the move
             log.info(f"[GameManager] Making move")
             if field == self._source_square:
                 # Piece placed back on source
