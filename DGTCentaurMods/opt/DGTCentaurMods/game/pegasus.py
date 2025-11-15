@@ -55,7 +55,8 @@ def displayLogo():
     filename = str(AssetManager.get_resource_path("logo_mods_screen.jpg"))
     lg = Image.open(filename)
     lg = lg.resize((48,112))
-    return epaper.epaperbuffer.paste(lg,(0,20))
+    with epaper.buffer_lock:
+        return epaper.epaperbuffer.paste(lg,(0,20))
 
 statusbar.print()
 epaper.writeText(1,"           PEGASUS")

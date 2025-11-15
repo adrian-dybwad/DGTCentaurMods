@@ -132,7 +132,8 @@ def select_from_list_epaper(
     i = max(0, min(highlight_index, len(items) - 1))
     base = _frame(i)
     # Use the existing epaper system to display the frame
-    epaper.epaperbuffer.paste(base, (0, 0))
+    with epaper.buffer_lock:
+        epaper.epaperbuffer.paste(base, (0, 0))
     # Don't call refresh() - let the background thread handle updates
 
     # ----- loop ---------------------------------------------------------------
@@ -197,7 +198,8 @@ def select_from_list_epaper(
             frame = _frame(i)
             try:
                 # Use the existing epaper system to update the display
-                epaper.epaperbuffer.paste(frame, (0, 0))
+                with epaper.buffer_lock:
+                    epaper.epaperbuffer.paste(frame, (0, 0))
                 # Don't call refresh() - let the background thread handle updates
                 # The epaperUpdate thread will automatically detect changes and update
                 # Reduced delay for better responsiveness
