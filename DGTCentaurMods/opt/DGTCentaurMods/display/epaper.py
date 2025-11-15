@@ -27,7 +27,6 @@
 
 from DGTCentaurMods.board import centaur,board
 from DGTCentaurMods.display import epd2in9d
-from DGTCentaurMods.display.epaper_driver import epaperDriver
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.config import paths
 import os, time
@@ -35,8 +34,6 @@ from PIL import Image, ImageDraw, ImageFont
 import pathlib
 import threading
 from DGTCentaurMods.board.logging import log
-
-driver = epaperDriver()
 
 font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
 # Screenbuffer is what we want to display on the screen
@@ -143,7 +140,7 @@ def epaperUpdate():
         sleepcount = sleepcount + 1
         if sleepcount == 15000 and screensleep == 0:
             screensleep = 1
-            driver.sleepDisplay()       
+            epd.sleep()       
         time.sleep(0.1)
 
 def refresh():
@@ -268,7 +265,7 @@ def stopEpaper():
     time.sleep(3)
     kill = 1
     time.sleep(2)
-    driver.sleepDisplay()
+    epd.sleep()
 
 def killEpaper():
     global kill
@@ -606,81 +603,41 @@ class MenuDraw:
             log.debug(item)
             row += 1
         self.statusbar.print()
-        # draw epaperbuffer to the screen
+        # Use manufacturer API to display image
         im = epaperbuffer.copy()
         if screeninverted == 0:
             im = im.transpose(Image.FLIP_TOP_BOTTOM)
             im = im.transpose(Image.FLIP_LEFT_RIGHT)
-        bytes = im.tobytes()
         paths.write_epaper_static_jpg(epaperbuffer)
-        epd.send_command(0x91)
-        epd.send_command(0x90)
-        epd.send_data(0)
-        epd.send_data(127)
-        epd.send_data(0)
-        epd.send_data(0)
-        epd.send_data(1)
-        epd.send_data(35)
-        epd.send_command(0x10)
-        for i in range(0, 4672):
-            epd.send_data(bytes[i] ^ 255)
-        epd.send_command(0x13)
-        for i in range(0, 4672):
-            epd.send_data(bytes[i])
-        epd.send_command(0x12)
-        time.sleep(0.5)
+        # Use DisplayPartial per manufacturer API
+        epd.DisplayPartial(epd.getbuffer(im))
 
 
     def highlight(self, index, rollaround = 0):
+        global epaperbuffer
         if rollaround == 1:
-            epd.send_command(0x91)
-            epd.send_command(0x90)
-            epd.send_data(120)
-            epd.send_data(120+5)
-            epd.send_data(0)
-            epd.send_data(0)
-            epd.send_data(0)
-            epd.send_data(252)
-            epd.send_command(0x28)
-            epd.send_command(0x10)
-            for i in range(0, 252):
-                epd.send_data(0x00)
-            epd.send_command(0x13)
-            for i in range(0, 252):
-                epd.send_data(0xFF)
-            epd.send_command(0x12) 
-            time.sleep(0.3)
+            # Clear rollaround region using manufacturer API
+            y0 = 0
+            y1 = 252
+            region_img = epaperbuffer.crop((0, y0, 128, y1))
+            if screeninverted == 0:
+                region_img = region_img.transpose(Image.FLIP_TOP_BOTTOM)
+                region_img = region_img.transpose(Image.FLIP_LEFT_RIGHT)
+            epd.DisplayRegion(y0, y1, epd.getbuffer(region_img))
+        # Update highlight indicator using manufacturer API
         pos = 296 - (78 + (index * 20))
         draw = ImageDraw.Draw(epaperbuffer)
         draw.rectangle([(0, 40), (8, 191)], fill = 255, outline = 255)
         draw.rectangle([(2,((index + 2) * 20) + 5), (8, ((index+2) * 20) + 14)], fill = 0, outline = 0)
         paths.write_epaper_static_jpg(epaperbuffer)
-        epd.send_command(0x91) # Enter partial mode
-        epd.send_command(0x90) # Set resolution
-        epd.send_data(120) #x start
-        epd.send_data(120+5) #x end
-        epd.send_data(0) #y start high
-        epd.send_data(pos) #y start low
-        pos = pos + 23 + 8 + 20
+        # Calculate region bounds
+        y_start = pos
+        y_end = pos + 23 + 8 + 20
         if index == 0:
-            pos = pos - 20
-        epd.send_data(pos//256) #y end high
-        epd.send_data((pos % 256))  # y end low
-        epd.send_command(0x28) # Send data
-        epd.send_command(0x10) # buffer
-        for i in range(0, 23):
-            epd.send_data(0x00)
-        for i in range(0, 8):
-            epd.send_data(0xFF)
-        if index > 0:
-            for i in range(0, 21):
-                epd.send_data(0x00)
-        epd.send_command(0x13) # buffer
-        for i in range(0, 23):
-            epd.send_data(0xFF)
-        for i in range(0, 8):
-            epd.send_data(0x00)
-        if index > 0:
-            for i in range(0, 21):
-                epd.send_data(0xFF)
-        epd.send_command(0x12) #display
+            y_end = y_end - 20
+        # Extract region from buffer and use manufacturer API
+        region_img = epaperbuffer.crop((120, y_start, 125, y_end))
+        if screeninverted == 0:
+            region_img = region_img.transpose(Image.FLIP_TOP_BOTTOM)
+            region_img = region_img.transpose(Image.FLIP_LEFT_RIGHT)
+        epd.DisplayRegion(y_start, y_end, epd.getbuffer(region_img))
