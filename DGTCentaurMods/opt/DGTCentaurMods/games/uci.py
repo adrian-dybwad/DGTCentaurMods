@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.games import manager
-from DGTCentaurMods.display import epaper
+from DGTCentaurMods.display.display_manager import display_manager
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
