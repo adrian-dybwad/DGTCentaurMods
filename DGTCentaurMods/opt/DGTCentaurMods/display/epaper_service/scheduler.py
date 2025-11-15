@@ -58,21 +58,25 @@ class RefreshScheduler:
                     batch.append(self._queue.popleft())
             if not batch:
                 continue
+            panel_width = getattr(self._driver, "width", self._framebuffer.width)
+            panel_height = getattr(self._driver, "height", self._framebuffer.height)
             # If any request demands a full refresh, perform one and settle all futures.
             if any(region is None for region, _ in batch):
                 image = self._framebuffer.snapshot()
-                self._driver.full_refresh(image)
+                rotated = _rotate_180(image)
+                self._driver.full_refresh(rotated)
                 for _, fut in batch:
                     fut.set_result("full")
                 continue
             # Otherwise merge regions and issue partials
             merged = _merge_regions([region for region, _ in batch if region is not None])
-            panel_width = getattr(self._driver, "width", self._framebuffer.width)
-            panel_height = getattr(self._driver, "height", self._framebuffer.height)
             for region in merged:
                 expanded = _expand_region(region, panel_width, panel_height)
                 crop = self._framebuffer.snapshot().crop(expanded.to_box())
-                self._driver.partial_refresh(expanded.y1, expanded.y2, crop)
+                rotated = _rotate_180(crop)
+                y0 = panel_height - expanded.y2
+                y1 = panel_height - expanded.y1
+                self._driver.partial_refresh(y0, y1, rotated)
             for _, fut in batch:
                 fut.set_result("partial")
 
@@ -101,4 +105,9 @@ def _expand_region(region: Region, panel_width: int, panel_height: int) -> Regio
     y1 = max(0, (region.y1 // row_height) * row_height)
     y2 = min(panel_height, ((region.y2 + row_height - 1) // row_height) * row_height)
     return Region(0, y1, panel_width, y2)
+
+
+def _rotate_180(image: Image.Image) -> Image.Image:
+    """Rotate the logical buffer to match the panel orientation."""
+    return image.transpose(Image.ROTATE_180)
 
