@@ -68,13 +68,15 @@ def epaperUpdate():
         im = epaperbuffer.copy()
         im2 = im.copy()
         if epaperprocesschange == 1:
+            # Flip image to match display orientation before getting buffer
+            if screeninverted == 0:
+                im = im.transpose(Image.FLIP_TOP_BOTTOM)
+                im = im.transpose(Image.FLIP_LEFT_RIGHT)
+            # Use buffer from flipped image to match what will be displayed
             tepaperbytes = im.tobytes()
         if lastepaperbytes != tepaperbytes and epaperprocesschange == 1:
             filename = "lib/epaper.jpg"
             epaperbuffer.save(filename)
-            if screeninverted == 0:
-                im = im.transpose(Image.FLIP_TOP_BOTTOM)
-                im = im.transpose(Image.FLIP_LEFT_RIGHT)
             if epapermode == 0 or first == 1:
                 epd.DisplayPartial(epd.getbuffer(im))
                 first = 0
@@ -96,6 +98,7 @@ def epaperUpdate():
                 if rs >= re:
                     rs = 0
                     re = 295
+                # Crop from original unflipped buffer, then flip for display
                 bb = im2.crop((0, rs + 1, 128, re))
                 bb = bb.transpose(Image.FLIP_TOP_BOTTOM)
                 bb = bb.transpose(Image.FLIP_LEFT_RIGHT)

@@ -99,8 +99,13 @@ def epaperUpdate():
     global screeninverted
     global screensleep
     global sleepcount
-    log.debug("started epaper update thread")    
-    driver.display(epaperbuffer)    
+    log.debug("started epaper update thread")
+    # Use Python implementation for initial display to avoid dimming issues
+    im_init = epaperbuffer.copy()
+    if screeninverted == 0:
+        im_init = im_init.transpose(Image.FLIP_TOP_BOTTOM)
+        im_init = im_init.transpose(Image.FLIP_LEFT_RIGHT)
+    epd.display(epd.getbuffer(im_init))
     log.debug("epaper init image sent")
     tepaperbytes = b''
     screensleep = 0
@@ -294,8 +299,12 @@ def clearScreen():
     pauseEpaper()
     draw = ImageDraw.Draw(epaperbuffer)
     draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
-    driver.DisplayRegion(0, 295, epaperbuffer)
-    driver.clear()
+    # Use Python implementation for clear to avoid dimming issues
+    im_clear = epaperbuffer.copy()
+    if screeninverted == 0:
+        im_clear = im_clear.transpose(Image.FLIP_TOP_BOTTOM)
+        im_clear = im_clear.transpose(Image.FLIP_LEFT_RIGHT)
+    epd.Clear(0xFF)  # Clear to white
     first = 0    
     unPauseEpaper()
 

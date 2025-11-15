@@ -14,11 +14,13 @@ import io
 # Import epaper driver from DGTCentaurMods
 sys.path.insert(0, '/opt/DGTCentaurMods')
 try:
-    from DGTCentaurMods.display.epaper_driver import epaperDriver
-    driver = epaperDriver()
+    from DGTCentaurMods.display import epd2in9d
+    epd = epd2in9d.EPD()
+    driver_available = True
 except ImportError:
     print("Warning: Could not import epaper driver. Display updates will be logged only.")
-    driver = None
+    epd = None
+    driver_available = False
 
 PROXY_PORT = 8889
 
@@ -49,9 +51,9 @@ def handle_display_update(data):
         # Reconstruct image
         image = Image.frombytes(mode, (width, height), image_bytes)
         
-        if driver:
-            # Update hardware display
-            driver.display(driver.getbuffer(image))
+        if driver_available and epd:
+            # Update hardware display using Python implementation to avoid dimming issues
+            epd.DisplayPartial(epd.getbuffer(image))
             print(f"Display updated: {width}x{height} {mode}")
         else:
             print(f"Display update received (no driver): {width}x{height} {mode}")
@@ -66,10 +68,9 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
     
     # Initialize epaper driver if available
-    if driver:
+    if driver_available and epd:
         try:
-            driver.reset()
-            driver.init()
+            epd.init()
             print("Epaper driver initialized")
         except Exception as e:
             print(f"Warning: Could not initialize epaper driver: {e}")
