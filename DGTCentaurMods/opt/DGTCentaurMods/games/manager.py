@@ -299,11 +299,11 @@ class GameManager:
         
         from_square = (
             ((ord(uci_move[1:2]) - ord("1")) * BoardConstants.WIDTH) + 
-             (ord(uci_move[0:1]) - ord("a")))
+             (ord(uci_move[0:1]) - ord("a"))
         )
         to_square = (
             ((ord(uci_move[3:4]) - ord("1")) * BoardConstants.WIDTH) + 
-             (ord(uci_move[2:3]) - ord("a")))
+             (ord(uci_move[2:3]) - ord("a"))
         )
         
         return from_square, to_square
