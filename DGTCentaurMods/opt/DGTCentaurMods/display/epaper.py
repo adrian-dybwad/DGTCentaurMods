@@ -295,12 +295,13 @@ def clearScreen():
     global epaperbuffer
     global event_refresh
     global first
+    global lastepaperbytes
     #epaperbuffer = Image.new('1', (128, 296), 255)
     pauseEpaper()
     draw = ImageDraw.Draw(epaperbuffer)
     draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
-    # Don't clear hardware here - let the update thread handle it
-    # This ensures the buffer is properly synced before display
+    # Reset buffer comparison to force update thread to detect change
+    lastepaperbytes = b''
     first = 0    
     unPauseEpaper()
 

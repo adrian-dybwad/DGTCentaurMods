@@ -189,7 +189,9 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     global quickselect
     global event_key
     epaper.epapermode = 0
-    epaper.clearScreen()  
+    epaper.clearScreen()
+    # Give update thread time to process the clear before pausing again
+    time.sleep(0.15)
     
     selection = ""
     curmenu = actual_menu
@@ -257,8 +259,9 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
             y_pos = description_text_y + (i * 16)  # 16px line spacing
             draw.text((description_x, y_pos), line, font=small_font, fill=0)
     
-    epaper.unPauseEpaper()    
-    time.sleep(0.1)
+    epaper.unPauseEpaper()
+    # Give update thread time to detect and process the menu display
+    time.sleep(0.2)
     epaper.clearArea(0, 20 + shift, 17, 295)
     draw = ImageDraw.Draw(epaper.epaperbuffer)
     draw.polygon(
