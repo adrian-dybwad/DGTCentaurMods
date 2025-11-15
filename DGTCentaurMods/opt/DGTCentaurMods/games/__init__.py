@@ -1,2 +1,0 @@
-# DGTCentaurMods Games Module
-
