@@ -351,14 +351,33 @@ def _reset_move_state():
     board.ledsOff()
     forcemove = 0
 
+def _is_board_in_starting_position():
+    """
+    Check if physical board is in starting position.
+    
+    Returns:
+        bool: True if board matches starting position
+    """
+    current_state = board.getChessState()
+    if current_state is None or len(current_state) != BOARD_SIZE:
+        return False
+    return bytearray(current_state) == startstate
+
 def _is_game_active():
     """
     Check if game is in active state (not ended, not in correction mode).
+    Allows moves when board is in starting position (game setup).
     
     Returns:
-        bool: True if game is active and can accept moves
+        bool: True if game is active and can accept moves, or if setting up starting position
     """
     global cboard, correction_mode, gamedbid
+    
+    # If board is in starting position, allow moves (game setup or reset)
+    if _is_board_in_starting_position():
+        return True
+    
+    # Otherwise, check normal game state
     return (cboard.outcome() is None and 
             not correction_mode and
             gamedbid >= 0)
@@ -634,13 +653,23 @@ def fieldcallback(piece_event, field, time_in_seconds):
     lift = (piece_event == 0)
     place = (piece_event == 1)
     
+    # Check if board is currently in starting position (setup phase)
+    is_setting_up = _is_board_in_starting_position()
+    
     # Check if piece color matches current turn
     # vpiece = 1 if piece belongs to current player, 0 otherwise
+    # During setup, allow any piece to be moved
     vpiece = ((curturn == 0) == (piece_color == False)) or ((curturn == 1) == (piece_color == True))
+    if is_setting_up:
+        vpiece = 1  # Allow any piece during setup
     
     if lift and field not in legalsquares and sourcesq < 0 and vpiece:
-        # Generate a list of places this piece can move to
-        legalsquares = _calculate_legal_squares(field)
+        # During setup, allow piece to be placed anywhere
+        if is_setting_up:
+            legalsquares = list(range(BOARD_SIZE))  # Allow any square during setup
+        else:
+            # Generate a list of places this piece can move to
+            legalsquares = _calculate_legal_squares(field)
         sourcesq = field
     # Track opposing side lifts so we can guide returning them if moved
     if lift and not vpiece:
@@ -701,6 +730,13 @@ def fieldcallback(piece_event, field, time_in_seconds):
         correction_just_exited = False
     
     if place and field not in legalsquares:
+        # During setup, allow any placement - don't trigger warnings
+        if is_setting_up:
+            # Just reset move state and allow placement
+            sourcesq = -1
+            legalsquares = []
+            return
+        
         board.beep(board.SOUND_WRONG_MOVE)
         log.warning(f"[gamemanager.fieldcallback] Piece placed on illegal square {field}")
         is_takeback = checkLastBoardState()
@@ -708,7 +744,21 @@ def fieldcallback(piece_event, field, time_in_seconds):
             guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece)
     
     if place and field in legalsquares:
+        # Check if board is in starting position after this placement
+        # This handles both initial setup and reset during active game
+        if _is_board_in_starting_position():
+            log.info("[gamemanager.fieldcallback] Starting position detected after piece placement")
+            board.ledsOff()
+            _reset_move_state()
+            # If a game was in progress, reset it; otherwise prepare for new game
+            with _game_lock:
+                if gamedbid >= 0:
+                    log.info("[gamemanager.fieldcallback] Resetting active game for new game")
+                _reset_game()
+            return
+        
         # Check if game is still active before processing move
+        # Allow moves when board is in starting position (setup phase)
         if not _is_game_active():
             log.warning(f"[gamemanager.fieldcallback] Attempted move after game ended or in correction mode")
             board.beep(board.SOUND_WRONG_MOVE)
