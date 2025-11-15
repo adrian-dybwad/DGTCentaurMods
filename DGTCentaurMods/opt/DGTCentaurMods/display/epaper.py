@@ -33,6 +33,7 @@ import os, time
 from PIL import Image, ImageDraw, ImageFont
 import pathlib
 import threading
+from functools import wraps
 from DGTCentaurMods.board.logging import log
 
 font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
@@ -49,6 +50,14 @@ first = 1
 event_refresh = threading.Event()
 screeninverted = 0
 disabled = False
+buffer_lock = threading.RLock()
+
+def synchronized(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with buffer_lock:
+            return func(*args, **kwargs)
+    return wrapper
 
 def compute_changed_region(prev_bytes: bytes, curr_bytes: bytes) -> tuple[int, int]:
     """
@@ -99,7 +108,8 @@ def epaperUpdate():
     log.debug("started epaper update thread")
     # Use DisplayPartial for initial display to ensure SetPartReg is called
     # This sets up partial mode which is required for all updates
-    im_init = epaperbuffer.copy()
+    with buffer_lock:
+        im_init = epaperbuffer.copy()
     if screeninverted == 0:
         im_init = im_init.transpose(Image.FLIP_TOP_BOTTOM)
         im_init = im_init.transpose(Image.FLIP_LEFT_RIGHT)
@@ -111,7 +121,9 @@ def epaperUpdate():
     screensleep = 0
     sleepcount = 0
     while True and kill == 0:
-        im = epaperbuffer.copy()
+        with buffer_lock:
+            current_buffer = epaperbuffer.copy()
+        im = current_buffer.copy()
         im2 = im.copy()
         if epaperprocesschange == 1:
             # Flip image to match display orientation before getting buffer
@@ -127,7 +139,7 @@ def epaperUpdate():
                 epd.reset()
                 epd.init()
                 screensleep = 0
-            paths.write_epaper_static_jpg(epaperbuffer)
+            paths.write_epaper_static_jpg(current_buffer)
             # Use DisplayPartial with getbuffer for display (matches reference implementation)
             if epapermode == 0 or first == 1:
                 epd.DisplayPartial(epd.getbuffer(im))
@@ -148,6 +160,7 @@ def refresh():
     return
 
 
+@synchronized
 def loadingScreen():
     global epaperbuffer
     statusBar().print()
@@ -158,6 +171,7 @@ def loadingScreen():
     log.debug('Display loading screen')
     
 
+@synchronized
 def welcomeScreen():
     global epaperbuffer
     global lastepaperbytes
@@ -179,6 +193,7 @@ def welcomeScreen():
     unPauseEpaper()
 
 
+@synchronized
 def standbyScreen(show):
     global epaperbuffer
     f = '/tmp/epapersave.bmp'
@@ -247,6 +262,7 @@ def unPauseEpaper():
     lastepaperbytes = b''
     epaperprocesschange = 1
 
+@synchronized
 def stopEpaper():
     # Stop the epaper
     global lastepaperhash
@@ -271,6 +287,7 @@ def killEpaper():
     global kill
     kill = 1
 
+@synchronized
 def writeText(row,txt):
     # Write Text on a give line number
     global epaperbuffer
@@ -282,6 +299,7 @@ def writeText(row,txt):
     nimage.paste(image, (0, (row * 20)))
     epaperbuffer = nimage.copy()
 
+@synchronized
 def writeMenuTitle(title):
     # Write Text on a give line number
     global epaperbuffer
@@ -292,16 +310,19 @@ def writeMenuTitle(title):
     nimage.paste(image, (0, 20))
     epaperbuffer = nimage.copy()
 
+@synchronized
 def drawRectangle(x1, y1, x2, y2, fill, outline):
     # Draw a rectangle
     global epaperbuffer
     draw = ImageDraw.Draw(epaperbuffer)
     draw.rectangle([(x1, y1), (x2, y2)], fill=fill, outline=outline)
 
+@synchronized
 def clearArea(x1, y1, x2, y2):
     # Clears an area of the screen. In fact just draws a white rectangle
     drawRectangle(x1,y1,x2,y2,255,255)
 
+@synchronized
 def clearScreen():
     # Set the ePaper back to white
     global epaperbuffer
@@ -317,6 +338,7 @@ def clearScreen():
     first = 0    
     unPauseEpaper()
 
+@synchronized
 def drawBoard(pieces, startrow=2): 
     global disabled
     if disabled:
@@ -387,6 +409,7 @@ def drawFen(fen, startrow=2):
             nfen = nfen + curfen[((a-1)*8)+b]
     drawBoard(nfen, startrow)
 
+@synchronized
 def promotionOptions(row):
     # Draws the promotion options to the screen buffer
     global epaperbuffer
@@ -428,6 +451,7 @@ def promotionOptions(row):
         drawImagePartial(0, 270, timage)
         log.debug("drawn")
 
+@synchronized
 def resignDrawMenu(row):
     # Draws draw or resign options to the screen buffer
     global epaperbuffer
@@ -449,6 +473,7 @@ def resignDrawMenu(row):
         draw.polygon([(35+25, 3), (51+25, 3), (43+25, 18)], fill=0)
         drawImagePartial(0, 271, timage)
     
+@synchronized
 def quickClear():
     # Assumes the screen is in partial mode and makes it white
     # Clear buffer and let update thread handle display
@@ -461,6 +486,7 @@ def quickClear():
     lastepaperbytes = b''
     unPauseEpaper()    
     
+@synchronized
 def drawWindow(x, y, w, data):
     # Calling this function assumes the screen is already initialised
     # if using epaper.py, also pauseEpaper() should have been run
@@ -515,6 +541,7 @@ def drawWindow(x, y, w, data):
             dyoff = dyoff + 1
     paths.write_epaper_static_jpg(epaperbuffer)    
 
+@synchronized
 def drawImagePartial(x, y, img):
     # For backwards compatibility we just paste into the image here
     # the epaper code will take care of the partial drawing
@@ -522,6 +549,7 @@ def drawImagePartial(x, y, img):
     #drawWindow(x,y,width//8,list(img.tobytes()))
     epaperbuffer.paste(img,(x,y))
 
+@synchronized
 def drawBatteryIndicator():
     batteryindicator = "battery1"
     if board.batterylevel >= 6:

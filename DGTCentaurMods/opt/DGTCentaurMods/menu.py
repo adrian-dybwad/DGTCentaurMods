@@ -210,69 +210,72 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     # Print a fresh status bar.
     statusbar.print()
     epaper.pauseEpaper()
-    for k, v in actual_menu.items():
-        epaper.writeText(row, "    " + str(v))
-        row = row + 1
+    with epaper.buffer_lock:
+        for k, v in actual_menu.items():
+            epaper.writeText(row, "    " + str(v))
+            row = row + 1
     
     # Display description if provided
     if actual_description and actual_description.strip():
         # Create background rectangle covering the right side area
         description_y = (row * 20) + 2 + shift
         description_height = 108  # Height for description area (allows 9 lines: 9 * 12px)
-        draw = ImageDraw.Draw(epaper.epaperbuffer)
-        
-        # Draw background rectangle covering right side (from vertical line to screen edge)
-        draw.rectangle([17, description_y, 127, description_y + description_height], fill=255)
-        
-        # Position text with more space from vertical line
-        description_x = 22  # Start after vertical line (17) with 5px margin
-        description_text_y = description_y + 2  # Small margin from top
-        
-        # Use 16px font for description
-        small_font = ImageFont.truetype(epaper.AssetManager.get_resource_path("Font.ttc"), 16)
-        
-        # Wrap text to fit within the available width
-        max_width = 127 - description_x - 2  # Available width minus margins (now 103px)
-        words = actual_description.split()
-        lines = []
-        current_line = ""
-        
-        for word in words:
-            test_line = current_line + (" " if current_line else "") + word
-            bbox = draw.textbbox((0, 0), test_line, font=small_font)
-            text_width = bbox[2] - bbox[0]
+        with epaper.buffer_lock:
+            draw = ImageDraw.Draw(epaper.epaperbuffer)
             
-            if text_width <= max_width:
-                current_line = test_line
-            else:
-                if current_line:
-                    lines.append(current_line)
-                    current_line = word
+            # Draw background rectangle covering right side (from vertical line to screen edge)
+            draw.rectangle([17, description_y, 127, description_y + description_height], fill=255)
+            
+            # Position text with more space from vertical line
+            description_x = 22  # Start after vertical line (17) with 5px margin
+            description_text_y = description_y + 2  # Small margin from top
+            
+            # Use 16px font for description
+            small_font = ImageFont.truetype(epaper.AssetManager.get_resource_path("Font.ttc"), 16)
+            
+            # Wrap text to fit within the available width
+            max_width = 127 - description_x - 2  # Available width minus margins (now 103px)
+            words = actual_description.split()
+            lines = []
+            current_line = ""
+            
+            for word in words:
+                test_line = current_line + (" " if current_line else "") + word
+                bbox = draw.textbbox((0, 0), test_line, font=small_font)
+                text_width = bbox[2] - bbox[0]
+                
+                if text_width <= max_width:
+                    current_line = test_line
                 else:
-                    lines.append(word)  # Single word too long, add anyway
-        
-        if current_line:
-            lines.append(current_line)
-        
-        # Draw each line
-        for i, line in enumerate(lines[:9]):  # Limit to 9 lines max (fits in 108px height)
-            y_pos = description_text_y + (i * 16)  # 16px line spacing
-            draw.text((description_x, y_pos), line, font=small_font, fill=0)
+                    if current_line:
+                        lines.append(current_line)
+                        current_line = word
+                    else:
+                        lines.append(word)  # Single word too long, add anyway
+            
+            if current_line:
+                lines.append(current_line)
+            
+            # Draw each line
+            for i, line in enumerate(lines[:9]):  # Limit to 9 lines max (fits in 108px height)
+                y_pos = description_text_y + (i * 16)  # 16px line spacing
+                draw.text((description_x, y_pos), line, font=small_font, fill=0)
     
     epaper.unPauseEpaper()
     # Give update thread time to detect and process the menu display
     time.sleep(0.2)
-    epaper.clearArea(0, 20 + shift, 17, 295)
-    draw = ImageDraw.Draw(epaper.epaperbuffer)
-    draw.polygon(
-        [
-            (2, (menuitem * 20) + 2 + shift),
-            (2, (menuitem * 20) + 18 + shift),
-            (17, (menuitem * 20) + 10 + shift),
-        ],
-        fill=0,
-    )
-    draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
+    with epaper.buffer_lock:
+        epaper.clearArea(0, 20 + shift, 17, 295)
+        draw = ImageDraw.Draw(epaper.epaperbuffer)
+        draw.polygon(
+            [
+                (2, (menuitem * 20) + 2 + shift),
+                (2, (menuitem * 20) + 18 + shift),
+                (17, (menuitem * 20) + 10 + shift),
+            ],
+            fill=0,
+        )
+        draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
     statusbar.print()         
     try:
         event_key.wait()
@@ -1199,7 +1202,8 @@ while True:
         epaper.writeText(11, "Ver:" + version)        
         qr = Image.open(AssetManager.get_resource_path("qr-support.png"))
         qr = qr.resize((128, 128))
-        epaper.epaperbuffer.paste(qr, (0, 42))
+        with epaper.buffer_lock:
+            epaper.epaperbuffer.paste(qr, (0, 42))
         timeout = time.time() + 15
         while selection == "" and time.time() < timeout:
             if selection == "BTNTICK" or selection == "BTNBACK":
