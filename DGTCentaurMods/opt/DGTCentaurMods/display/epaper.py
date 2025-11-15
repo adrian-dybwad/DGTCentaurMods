@@ -158,6 +158,9 @@ def loadingScreen():
 
 def welcomeScreen():
     global epaperbuffer
+    global lastepaperbytes
+    # Reset buffer comparison to force update
+    lastepaperbytes = b''
     statusBar().print()
     filename = str(AssetManager.get_resource_path("logo_mods_screen.jpg"))
     lg = Image.open(filename)
@@ -169,6 +172,9 @@ def welcomeScreen():
     x,y = 75,200
     draw.line((6+x,y+16,16+x,y+4), fill=0, width=5)
     draw.line((2+x,y+10, 8+x,y+16), fill=0, width=5)
+    # Give update thread time to display the welcome screen
+    # Wait longer to ensure the display update completes
+    time.sleep(0.5)
 
 
 def standbyScreen(show):
