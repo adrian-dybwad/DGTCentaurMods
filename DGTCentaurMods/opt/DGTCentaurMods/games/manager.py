@@ -90,6 +90,7 @@ class GameManager:
         # Correction mode state
         self._correction_mode: bool = False
         self._correction_expected_state: Optional[bytearray] = None
+        self._correction_just_exited: bool = False  # Flag to suppress stale events after correction mode exits
         
         # Game info
         self._game_info = {
@@ -249,12 +250,14 @@ class GameManager:
         """Enter correction mode to guide user in fixing board state."""
         self._correction_mode = True
         self._correction_expected_state = self._board_states[-1] if self._board_states else None
+        self._correction_just_exited = False  # Clear flag when entering correction mode
         log.warning(f"[GameManager] Entered correction mode")
     
     def _exit_correction_mode(self) -> None:
         """Exit correction mode and resume normal game flow."""
         self._correction_mode = False
         self._correction_expected_state = None
+        self._correction_just_exited = True  # Set flag to suppress stale events immediately after exit
         log.warning("[GameManager] Exited correction mode")
         
         # Reset move state to ensure clean state after correction
@@ -406,15 +409,31 @@ class GameManager:
             return
         
         field_name = chess.square_name(field)
-        piece_color = self._cboard.color_at(field)
         is_lift = (piece_event == 0)
         is_place = (piece_event == 1)
         
-        # Check if piece belongs to current player
-        is_current_player_piece = (self._cboard.turn == chess.WHITE) == (piece_color == True)
+        # For lift events, check piece at the square
+        # For place events, check piece at source square (if we have one) or current square
+        if is_lift:
+            piece_color = self._cboard.color_at(field)
+        else:
+            # For place events, check the source square if we have one
+            if self._source_square is not None:
+                piece_color = self._cboard.color_at(self._source_square)
+            elif self._opponent_source_square is not None:
+                piece_color = self._cboard.color_at(self._opponent_source_square)
+            else:
+                piece_color = self._cboard.color_at(field)
+        
+        # Check if piece belongs to current player (only if piece_color is not None)
+        is_current_player_piece = False
+        if piece_color is not None:
+            is_current_player_piece = (self._cboard.turn == chess.WHITE) == (piece_color == True)
         
         log.info(f"[GameManager.field_callback] event={'LIFT' if is_lift else 'PLACE'} field={field} ({field_name}) "
-                 f"color={'White' if piece_color else 'Black'} turn={'White' if self._cboard.turn else 'Black'}")
+                 f"piece_color={'White' if piece_color == True else 'Black' if piece_color == False else 'None'} "
+                 f"turn={'White' if self._cboard.turn else 'Black'} "
+                 f"is_current_player={is_current_player_piece}")
         
         # Handle lift events
         if is_lift:
@@ -444,15 +463,15 @@ class GameManager:
         
         # Handle place events
         if is_place:
-            # Handle opponent piece placement back
-            if not is_current_player_piece and self._opponent_source_square is not None and field == self._opponent_source_square:
+            # Handle opponent piece placement back (check opponent source square first)
+            if self._opponent_source_square is not None and field == self._opponent_source_square:
                 board.ledsOff()
                 self._opponent_source_square = None
                 log.info(f"[GameManager] Opponent piece placed back at {field_name}")
                 return
             
-            # Handle opponent move completion
-            if not is_current_player_piece and self._opponent_source_square is not None and field != self._opponent_source_square:
+            # Handle opponent move completion (opponent placed piece on different square)
+            if self._opponent_source_square is not None and field != self._opponent_source_square:
                 # Opponent placed piece on a different square - detect the move
                 log.info(f"[GameManager] Opponent move detected: {chess.square_name(self._opponent_source_square)} to {field_name}")
                 time.sleep(0.3)  # Give board time to settle
@@ -534,10 +553,43 @@ class GameManager:
                 
                 return
             
-            # Ignore place events without corresponding lift (stale events)
+            # Ignore PLACE events without a corresponding LIFT (stale events from before reset)
+            # This prevents triggering correction mode when a PLACE event arrives after reset
+            # but before the piece is lifted again in the new game state
             if self._source_square is None and self._opponent_source_square is None:
-                log.debug(f"[GameManager] Ignoring stale PLACE event for field {field} (no corresponding LIFT)")
-                return
+                # After correction mode exits, there may be stale PLACE events from the correction process
+                # Ignore them unless it's a forced move source square (which we handle separately)
+                if self._correction_just_exited:
+                    # Check if this is the forced move source square - if so, we'll handle it below
+                    # Otherwise, ignore it as a stale event from correction
+                    if self._forced_move and self._computer_move and len(self._computer_move) >= MIN_UCI_MOVE_LENGTH:
+                        forced_source = chess.parse_square(self._computer_move[0:2])
+                        if field != forced_source:
+                            log.info(f"[GameManager] Ignoring stale PLACE event after correction exit for field {field} (not forced move source)")
+                            self._correction_just_exited = False  # Clear flag after ignoring first stale event
+                            return
+                    else:
+                        log.info(f"[GameManager] Ignoring stale PLACE event after correction exit for field {field}")
+                        self._correction_just_exited = False  # Clear flag after ignoring first stale event
+                        return
+                
+                # For forced moves, also ignore stale PLACE events on the source square
+                # (the forced move source square) before the LIFT has been processed
+                if self._forced_move and self._computer_move and len(self._computer_move) >= MIN_UCI_MOVE_LENGTH:
+                    forced_source = chess.parse_square(self._computer_move[0:2])
+                    if field == forced_source:
+                        log.info(f"[GameManager] Ignoring stale PLACE event for forced move source field {field} (no corresponding LIFT)")
+                        self._correction_just_exited = False  # Clear flag
+                        return
+                
+                if not self._forced_move:
+                    log.info(f"[GameManager] Ignoring stale PLACE event for field {field} (no corresponding LIFT)")
+                    self._correction_just_exited = False  # Clear flag
+                    return
+            
+            # Clear the flag once we process a valid event (LIFT)
+            if is_lift:
+                self._correction_just_exited = False
             
             # Only process moves for current player
             if self._source_square is None:
@@ -832,13 +884,13 @@ def get_manager() -> GameManager:
 def subscribe_game(event_callback: Callable, move_callback: Callable,
                   key_callback: Callable, takeback_callback: Optional[Callable] = None) -> None:
     """Subscribe to game manager events (backward compatibility function)."""
-    manager = get_manager()
-    manager.subscribe_event(event_callback)
-    manager.subscribe_move(move_callback)
-    manager.subscribe_key(key_callback)
+    gm = get_manager()
+    gm.subscribe_event(event_callback)
+    gm.subscribe_move(move_callback)
+    gm.subscribe_key(key_callback)
     if takeback_callback:
-        manager.subscribe_takeback(takeback_callback)
-    manager.start()
+        gm.subscribe_takeback(takeback_callback)
+    gm.start()
 
 
 def unsubscribe_game() -> None:
