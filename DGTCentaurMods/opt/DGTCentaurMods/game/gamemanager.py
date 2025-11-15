@@ -67,6 +67,9 @@ PROMOTION_DISPLAY_LINE = 13
 # Move constants
 MIN_UCI_MOVE_LENGTH = 4
 
+# Game constants
+STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
 kill = 0
 startstate = bytearray(b'\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01')
 keycallbackfunction = None
@@ -298,7 +301,6 @@ def _calculate_legal_squares(field):
         list: List of legal destination square indices, including the source square
     """
     global cboard
-    fieldname = chess.square_name(field)
     legalmoves = cboard.legal_moves
     legalsquares = [field]  # Include source square
     
@@ -307,6 +309,25 @@ def _calculate_legal_squares(field):
             legalsquares.append(move.to_square)
     
     return legalsquares
+
+def _reset_move_state():
+    """
+    Reset move-related state variables after a move is completed.
+    """
+    global legalsquares, sourcesq, forcemove
+    legalsquares = []
+    sourcesq = -1
+    board.ledsOff()
+    forcemove = 0
+
+def _double_beep():
+    """
+    Play two beeps with a short delay between them.
+    Used for game start/reset notifications.
+    """
+    board.beep(board.SOUND_GENERAL)
+    time.sleep(0.3)
+    board.beep(board.SOUND_GENERAL)
 
 def enter_correction_mode():
     """
@@ -650,10 +671,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
             session.add(gamemove)
             session.commit()
             collectBoardState()
-            legalsquares = []
-            sourcesq = -1
-            board.ledsOff()
-            forcemove = 0
+            _reset_move_state()
             if movecallbackfunction is not None:
                 movecallbackfunction(mv)
             board.beep(board.SOUND_GENERAL)
@@ -661,7 +679,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
             board.led(field)
             # Check the outcome
             outcome = cboard.outcome(claim_draw=True)
-            if outcome is None or outcome == "None" or outcome == 0:
+            if outcome is None:
                 # Switch the turn
                 _switch_turn_with_event()
             else:
@@ -741,11 +759,9 @@ def _reset_game():
         # Reset move-related state variables to prevent stale values from previous game/correction
         resetMoveState()
         curturn = 1
-        cboard = chess.Board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+        cboard.reset()
         paths.write_fen_log(cboard.fen())
-        board.beep(board.SOUND_GENERAL)
-        time.sleep(0.3)
-        board.beep(board.SOUND_GENERAL)
+        _double_beep()
         board.ledsOff()
         eventcallbackfunction(EVENT_NEW_GAME)
         eventcallbackfunction(EVENT_WHITE_TURN)
@@ -787,7 +803,6 @@ def clockThread():
     global kill
     global cboard
     global showingpromotion
-    STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
     while kill == 0:
         time.sleep(CLOCK_DECREMENT_SECONDS)  # epaper refresh rate means we can only have an accuracy of around 2 seconds
         if whitetime > 0 and curturn == 1 and cboard.fen() != STARTING_FEN:
