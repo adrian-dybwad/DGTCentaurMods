@@ -67,8 +67,10 @@ class RefreshScheduler:
                 continue
             # Otherwise merge regions and issue partials
             merged = _merge_regions([region for region, _ in batch if region is not None])
+            panel_width = getattr(self._driver, "width", self._framebuffer.width)
+            panel_height = getattr(self._driver, "height", self._framebuffer.height)
             for region in merged:
-                expanded = _expand_region(region, self._driver.height)
+                expanded = _expand_region(region, panel_width, panel_height)
                 crop = self._framebuffer.snapshot().crop(expanded.to_box())
                 self._driver.partial_refresh(expanded.y1, expanded.y2, crop)
             for _, fut in batch:
@@ -93,10 +95,10 @@ def _overlaps_vertically(a: Region, b: Region) -> bool:
     return not (a.y2 < b.y1 or b.y2 < a.y1)
 
 
-def _expand_region(region: Region, panel_height: int) -> Region:
+def _expand_region(region: Region, panel_width: int, panel_height: int) -> Region:
     # Controller rows align to 8-pixel increments.
     row_height = 8
     y1 = max(0, (region.y1 // row_height) * row_height)
     y2 = min(panel_height, ((region.y2 + row_height - 1) // row_height) * row_height)
-    return Region(region.x1, y1, region.x2, y2)
+    return Region(0, y1, panel_width, y2)
 
