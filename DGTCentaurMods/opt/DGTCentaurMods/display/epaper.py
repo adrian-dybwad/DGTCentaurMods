@@ -622,49 +622,53 @@ class MenuDraw:
         log.debug(title)
         log.debug('-------------')
         global epaperbuffer
-        draw = ImageDraw.Draw(epaperbuffer)
-        draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
-        writeMenuTitle(title)
-        row = 2
-        for item in items:
-            writeText(row, "  " + item)
-            log.debug(item)
-            row += 1
-        self.statusbar.print()
-        # Use manufacturer API to display image
-        im = epaperbuffer.copy()
+        with buffer_lock:
+            draw = ImageDraw.Draw(epaperbuffer)
+            draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
+            writeMenuTitle(title)
+            row = 2
+            for item in items:
+                writeText(row, "  " + item)
+                log.debug(item)
+                row += 1
+            self.statusbar.print()
+            im = epaperbuffer.copy()
+            paths.write_epaper_static_jpg(epaperbuffer)
+        # Use manufacturer API to display image after releasing lock
         if screeninverted == 0:
             im = im.transpose(Image.FLIP_TOP_BOTTOM)
             im = im.transpose(Image.FLIP_LEFT_RIGHT)
-        paths.write_epaper_static_jpg(epaperbuffer)
-        # Use DisplayPartial per manufacturer API
         epd.DisplayPartial(epd.getbuffer(im))
 
 
     def highlight(self, index, rollaround = 0):
         global epaperbuffer
-        if rollaround == 1:
-            # Clear rollaround region using manufacturer API
-            y0 = 0
-            y1 = 252
-            region_img = epaperbuffer.crop((0, y0, 128, y1))
+        with buffer_lock:
+            top_region = None
+            if rollaround == 1:
+                # Clear rollaround region using manufacturer API
+                y0 = 0
+                y1 = 252
+                top_region = epaperbuffer.crop((0, y0, 128, y1))
+            # Update highlight indicator using manufacturer API
+            pos = 296 - (78 + (index * 20))
+            draw = ImageDraw.Draw(epaperbuffer)
+            draw.rectangle([(0, 40), (8, 191)], fill = 255, outline = 255)
+            draw.rectangle([(2,((index + 2) * 20) + 5), (8, ((index+2) * 20) + 14)], fill = 0, outline = 0)
+            paths.write_epaper_static_jpg(epaperbuffer)
+            # Calculate region bounds
+            y_start = pos
+            y_end = pos + 23 + 8 + 20
+            if index == 0:
+                y_end = y_end - 20
+            # Extract region from buffer
+            region_img = epaperbuffer.crop((120, y_start, 125, y_end))
+        if rollaround == 1 and top_region is not None:
+            region_to_send = top_region
             if screeninverted == 0:
-                region_img = region_img.transpose(Image.FLIP_TOP_BOTTOM)
-                region_img = region_img.transpose(Image.FLIP_LEFT_RIGHT)
-            epd.DisplayRegion(y0, y1, epd.getbuffer(region_img))
-        # Update highlight indicator using manufacturer API
-        pos = 296 - (78 + (index * 20))
-        draw = ImageDraw.Draw(epaperbuffer)
-        draw.rectangle([(0, 40), (8, 191)], fill = 255, outline = 255)
-        draw.rectangle([(2,((index + 2) * 20) + 5), (8, ((index+2) * 20) + 14)], fill = 0, outline = 0)
-        paths.write_epaper_static_jpg(epaperbuffer)
-        # Calculate region bounds
-        y_start = pos
-        y_end = pos + 23 + 8 + 20
-        if index == 0:
-            y_end = y_end - 20
-        # Extract region from buffer and use manufacturer API
-        region_img = epaperbuffer.crop((120, y_start, 125, y_end))
+                region_to_send = region_to_send.transpose(Image.FLIP_TOP_BOTTOM)
+                region_to_send = region_to_send.transpose(Image.FLIP_LEFT_RIGHT)
+            epd.DisplayRegion(0, 252, epd.getbuffer(region_to_send))
         if screeninverted == 0:
             region_img = region_img.transpose(Image.FLIP_TOP_BOTTOM)
             region_img = region_img.transpose(Image.FLIP_LEFT_RIGHT)
