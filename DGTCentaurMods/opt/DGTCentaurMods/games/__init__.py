@@ -1,2 +1,2 @@
-# Games package for chess game management
+# Games package for DGTCentaur Mods
 
