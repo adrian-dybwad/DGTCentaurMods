@@ -26,6 +26,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.board import centaur,board
+from DGTCentaurMods.display import epd2in9d
 from DGTCentaurMods.display.epaper_driver import epaperDriver
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.config import paths
@@ -42,6 +43,7 @@ font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
 epaperbuffer = Image.new('1', (128, 296), 255) # You can also use pillow to directly change this image
 lastepaperhash = 0
 epaperprocesschange = 1
+epd = epd2in9d.EPD()
 epaperUpd = ""
 kill = 0
 epapermode = 0
@@ -98,13 +100,12 @@ def epaperUpdate():
     global screensleep
     global sleepcount
     log.debug("started epaper update thread")
-    # Use C driver for initial display - Python epd.display() may not work correctly
-    # The C driver handles the initial full display properly
+    # Use Python implementation for initial display to avoid dimming issues
     im_init = epaperbuffer.copy()
     if screeninverted == 0:
         im_init = im_init.transpose(Image.FLIP_TOP_BOTTOM)
         im_init = im_init.transpose(Image.FLIP_LEFT_RIGHT)
-    driver.display(driver.getbuffer(im_init))
+    epd.display(epd.getbuffer(im_init))
     log.debug("epaper init image sent")
     tepaperbytes = b''
     screensleep = 0
@@ -117,9 +118,9 @@ def epaperUpdate():
             if screeninverted == 0:
                 im = im.transpose(Image.FLIP_TOP_BOTTOM)
                 im = im.transpose(Image.FLIP_LEFT_RIGHT)
-            # Use C driver buffer format to match what will be displayed
+            # Use Python implementation buffer format to match what will be displayed
             # Buffer is calculated from the same flipped image that will be displayed
-            tepaperbytes = driver.getbuffer(im)
+            tepaperbytes = epd.getbuffer(im)
         if lastepaperbytes != tepaperbytes and epaperprocesschange == 1:
             log.debug("epaperUpdate: Display change detected, updating screen")
             sleepcount = 0
@@ -127,9 +128,10 @@ def epaperUpdate():
                 driver.reset()
                 screensleep = 0
             paths.write_epaper_static_jpg(epaperbuffer)
-            # Use C driver DisplayPartial - takes only the image, not y coordinates
-            log.debug("epaperUpdate: Using DisplayPartial (C driver)")
-            driver.DisplayPartial(im)
+            # Always use DisplayPartial to avoid DisplayRegion issues causing dimming
+            # Use Python implementation (epd) instead of C driver to avoid dimming issues
+            log.debug("epaperUpdate: Using DisplayPartial (Python implementation)")
+            epd.DisplayPartial(epd.getbuffer(im))
             first = 0                             
             lastepaperbytes = tepaperbytes
             #event_refresh.set() 
@@ -170,9 +172,6 @@ def welcomeScreen():
     x,y = 75,200
     draw.line((6+x,y+16,16+x,y+4), fill=0, width=5)
     draw.line((2+x,y+10, 8+x,y+16), fill=0, width=5)
-    # Give update thread time to display the welcome screen
-    # Wait longer to ensure the display update completes
-    time.sleep(0.5)
 
 
 def standbyScreen(show):
@@ -220,8 +219,11 @@ def initEpaper(mode = 0):
     epapermode = mode
     epaperbuffer = Image.new('1', (128, 296), 255)
     log.debug("init epaper")
+    # Initialize both drivers - C driver for hardware reset, Python for display
     driver.reset()
     driver.init()
+    # Initialize Python epd object for display operations
+    epd.init()
     epaperUpd = threading.Thread(target=epaperUpdate, args=())
     epaperUpd.daemon = True
     epaperUpd.start()
@@ -448,8 +450,8 @@ def quickClear():
     pauseEpaper()
     draw = ImageDraw.Draw(epaperbuffer)
     draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
-    # Use C driver clear
-    driver.clear()
+    # Use Python implementation to avoid dimming issues
+    epd.Clear(0xFF)  # Clear to white
     unPauseEpaper()    
     
 def drawWindow(x, y, w, data):

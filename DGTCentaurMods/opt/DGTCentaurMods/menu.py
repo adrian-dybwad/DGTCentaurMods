@@ -292,8 +292,6 @@ def changedCallback(piece_event, field, time_in_seconds):
 # Initialise the epaper display - after which functions in epaper.py are available but you can also draw to the
 # image epaper.epaperbuffer to change the screen.
 epaper.initEpaper(1)
-# Give the update thread time to complete initial display
-time.sleep(0.5)
 statusbar = epaper.statusBar()
 statusbar.start()
 update = centaur.UpdateSystem()
