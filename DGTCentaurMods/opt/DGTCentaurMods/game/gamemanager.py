@@ -237,19 +237,14 @@ def _switch_turn():
 
 def _switch_turn_with_event():
     """Switch the current turn and trigger appropriate event callback."""
-    global curturn, eventcallbackfunction
-    # Switch turn inside lock
+    global curturn
     with _game_lock:
         if curturn == 0:
             curturn = 1
-            event_to_trigger = EVENT_WHITE_TURN
+            _safe_callback(eventcallbackfunction, EVENT_WHITE_TURN)
         else:
             curturn = 0
-            event_to_trigger = EVENT_BLACK_TURN
-    
-    # Call callback OUTSIDE lock to avoid deadlock if callback accesses gamemanager
-    # Callbacks may call gamemanager functions which could try to acquire the same lock
-    _safe_callback(eventcallbackfunction, event_to_trigger)
+            _safe_callback(eventcallbackfunction, EVENT_BLACK_TURN)
 
 def _update_game_result(resultstr, termination, context=""):
     """
@@ -273,10 +268,9 @@ def _update_game_result(resultstr, termination, context=""):
         except Exception as e:
             log.error(f"[gamemanager.{context}] Database error updating result: {e}")
             session.rollback()
-    
-    # Call callback OUTSIDE lock to avoid deadlock if callback accesses gamemanager
-    # Callbacks may call gamemanager functions (like getBoard(), getFEN()) which could try to acquire the same lock
-    _safe_callback(eventcallbackfunction, termination)
+        
+        # Always trigger callback, even if DB update failed (for consistency)
+        _safe_callback(eventcallbackfunction, termination)
 
 def _handle_promotion(field, piece_name, forcemove):
     """
@@ -788,7 +782,6 @@ def fieldcallback(piece_event, field, time_in_seconds):
             # Piece has been moved - prepare move string first
             fromname = chess.square_name(sourcesq)
             toname = chess.square_name(field)
-            mv = None  # Initialize move variable
             
             # Use lock for critical section
             with _game_lock:
@@ -865,6 +858,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
                     return
                 
                 _reset_move_state()
+                _safe_callback(movecallbackfunction, mv)
                 board.beep(board.SOUND_GENERAL)
                 # Also light up the square moved to
                 board.led(field)
@@ -882,11 +876,6 @@ def fieldcallback(piece_event, field, time_in_seconds):
                     resultstr = str(cboard.result())
                     termination = str(outcome.termination)
                     _update_game_result(resultstr, termination, "fieldcallback")
-            
-            # Call move callback OUTSIDE the lock to avoid deadlock
-            # Move callback may call gamemanager functions (like getBoard(), getFEN()) which could try to acquire the same lock
-            if mv is not None:
-                _safe_callback(movecallbackfunction, mv)
 
 def resignGame(sideresigning):
     # Take care of updating the data for a resigned game and callback to the program with the
@@ -1136,15 +1125,11 @@ def setGameInfo(gi_event,gi_site,gi_round,gi_white,gi_black):
 
 def getBoard():
     """Get the current chess board state."""
-    global cboard
-    with _game_lock:
-        return cboard
+    return cboard
 
 def getFEN():
     """Get current board position as FEN string."""
-    global cboard
-    with _game_lock:
-        return cboard.fen()
+    return cboard.fen()
 
 def resetMoveState():
     """Reset all move-related state variables (forcemove, computermove, sourcesq, legalsquares)."""
