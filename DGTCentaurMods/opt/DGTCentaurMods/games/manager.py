@@ -573,6 +573,13 @@ class GameManager:
         
         # Handle placement events
         if place:
+            # Ensure we have a board state for validation
+            if not self._board_states:
+                log.warning("[GameManager] No board states available, collecting current state")
+                current_state = bytearray(board.getChessState())
+                if len(current_state) == BOARD_SIZE:
+                    self._board_states.append(current_state)
+            
             # Check if we have a source square (move in progress)
             if self._source_square is None:
                 # No source square - this shouldn't happen if we got past the stale event check
@@ -725,9 +732,16 @@ class GameManager:
             board.beep(board.SOUND_GENERAL)
             board.ledsOff()
             
-            # Collect initial board state
-            self._board_states = []
-            self._board_states.append(bytearray(board.getChessState()))
+            # Collect initial board state (ensure we always have at least one state)
+            current_state = bytearray(board.getChessState())
+            if len(current_state) == BOARD_SIZE:
+                self._board_states = [current_state]
+                log.info("[GameManager] Collected board state after reset")
+            else:
+                log.warning(f"[GameManager] Invalid board state length: {len(current_state)}")
+                # Keep existing state if available, otherwise use starting state
+                if not self._board_states:
+                    self._board_states = [STARTING_STATE]
             
             # Notify new game
             self._notify_event(GameEvent.NEW_GAME)
@@ -772,6 +786,16 @@ class GameManager:
         board.ledsOff()
         log.info("[GameManager] Subscribing to board events")
         
+        # Collect initial board state BEFORE subscribing to events
+        # This ensures we have a baseline for move detection
+        try:
+            initial_state = bytearray(board.getChessState())
+            if len(initial_state) == BOARD_SIZE:
+                self._board_states.append(initial_state)
+                log.info("[GameManager] Collected initial board state")
+        except Exception as e:
+            log.warning(f"[GameManager] Could not collect initial board state: {e}")
+        
         try:
             board.subscribeEvents(self._key_callback, self._field_callback)
         except Exception as e:
@@ -780,10 +804,19 @@ class GameManager:
             traceback.print_exc()
             return
         
-        # Check for starting position
+        # Small delay to ensure board is ready
+        time.sleep(0.2)
+        
+        # Check for starting position and reset if needed
         current_state = bytearray(board.getChessState())
-        if bytearray(current_state) == STARTING_STATE:
+        if len(current_state) == BOARD_SIZE and bytearray(current_state) == STARTING_STATE:
+            log.info("[GameManager] Starting position detected, resetting game")
             self.reset_game()
+        else:
+            # Not in starting position - still need to ensure we have a board state
+            if not self._board_states:
+                log.warning("[GameManager] No board state collected, collecting current state")
+                self._board_states.append(current_state)
         
         # Main loop
         while not self._kill_event.is_set():
