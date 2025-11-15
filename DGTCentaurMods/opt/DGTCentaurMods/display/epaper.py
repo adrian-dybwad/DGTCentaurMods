@@ -29,7 +29,7 @@ from DGTCentaurMods.board import centaur,board
 from DGTCentaurMods.display import epd2in9d
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.config import paths
-import os, time
+import os, time, hashlib, inspect
 from PIL import Image, ImageDraw, ImageFont
 import pathlib
 import threading
@@ -41,7 +41,61 @@ font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
 epaperbuffer = Image.new('1', (128, 296), 255) # You can also use pillow to directly change this image
 lastepaperhash = 0
 epaperprocesschange = 1
-epd = epd2in9d.EPD()
+def _buffer_signature(data) -> str:
+    try:
+        if isinstance(data, bytes):
+            payload = data
+        else:
+            payload = bytes(data)
+        return hashlib.sha1(payload).hexdigest()[:8]
+    except Exception:
+        try:
+            return f"len={len(data)}"
+        except Exception:
+            return "len=?"
+
+def _caller():
+    stack = inspect.stack()
+    # stack[0] is _caller, stack[1] is logger helper, stack[2] is actual caller
+    if len(stack) > 2:
+        frame = stack[2]
+        return f"{frame.function}:{frame.lineno}"
+    return "unknown"
+
+def _log_epd_event(action, buffer_data=None, extra=""):
+    sig = _buffer_signature(buffer_data) if buffer_data is not None else "n/a"
+    log.debug("EPD.%s hash=%s src=%s %s", action, sig, _caller(), extra)
+
+class InstrumentedEPD(epd2in9d.EPD):
+    def DisplayPartial(self, image):
+        _log_epd_event("DisplayPartial", image)
+        return super().DisplayPartial(image)
+
+    def DisplayRegion(self, y0, y1, image):
+        _log_epd_event(f"DisplayRegion[{y0}:{y1}]", image)
+        return super().DisplayRegion(y0, y1, image)
+
+    def display(self, image):
+        _log_epd_event("DisplayFull", image)
+        return super().display(image)
+
+    def Clear(self, color):
+        _log_epd_event("Clear", None, f"color={color}")
+        return super().Clear(color)
+
+    def init(self):
+        log.debug("EPD.init called")
+        return super().init()
+
+    def reset(self):
+        log.debug("EPD.reset called")
+        return super().reset()
+
+    def sleep(self):
+        log.debug("EPD.sleep called")
+        return super().sleep()
+
+epd = InstrumentedEPD()
 epaperUpd = ""
 kill = 0
 epapermode = 0
@@ -113,10 +167,12 @@ def epaperUpdate():
     if screeninverted == 0:
         im_init = im_init.transpose(Image.FLIP_TOP_BOTTOM)
         im_init = im_init.transpose(Image.FLIP_LEFT_RIGHT)
+    init_bytes = im_init.tobytes()
+    log.debug("epaperUpdate initial push hash=%s", _buffer_signature(init_bytes))
     epd.DisplayPartial(epd.getbuffer(im_init))
     log.debug("epaper init image sent")
     # Initialize with the initial image bytes for comparison
-    lastepaperbytes = im_init.tobytes()
+    lastepaperbytes = init_bytes
     tepaperbytes = b''
     screensleep = 0
     sleepcount = 0
@@ -133,7 +189,12 @@ def epaperUpdate():
             # Use image bytes for comparison (matches reference implementation)
             tepaperbytes = im.tobytes()
         if lastepaperbytes != tepaperbytes and epaperprocesschange == 1:
-            log.debug("epaperUpdate: Display change detected, updating screen")
+            log.debug(
+                "epaperUpdate: Display change detected hash=%s mode=%s first=%s",
+                _buffer_signature(tepaperbytes),
+                epapermode,
+                first,
+            )
             sleepcount = 0
             if screensleep == 1:
                 epd.reset()
