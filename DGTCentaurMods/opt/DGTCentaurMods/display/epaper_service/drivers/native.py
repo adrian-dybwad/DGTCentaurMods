@@ -16,7 +16,10 @@ class NativeDriver(DriverBase):
     """
 
     def __init__(self) -> None:
-        lib_path = pathlib.Path(__file__).resolve().parent.parent / "epaperDriver.so"
+        # epaperDriver.so still lives alongside display modules (../epaperDriver.so)
+        lib_path = pathlib.Path(__file__).resolve().parents[2] / "epaperDriver.so"
+        if not lib_path.exists():
+            raise FileNotFoundError(f"Native ePaper driver not found at {lib_path}")
         self._dll = CDLL(str(lib_path))
         self._dll.openDisplay()
 
