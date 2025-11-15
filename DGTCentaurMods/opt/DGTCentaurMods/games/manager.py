@@ -404,10 +404,6 @@ class GameManager:
     
     def _field_callback(self, piece_event: int, field: int, time_in_seconds: float) -> None:
         """Handle field events (piece lift/place)."""
-        if self._correction_mode:
-            self._correction_field_callback(piece_event, field, time_in_seconds)
-            return
-        
         field_name = chess.square_name(field)
         is_lift = (piece_event == 0)
         is_place = (piece_event == 1)
@@ -471,7 +467,8 @@ class GameManager:
                 return
             
             # Handle opponent move completion (opponent placed piece on different square)
-            if self._opponent_source_square is not None and field != self._opponent_source_square:
+            # Only process if this is actually an opponent piece (not current player)
+            if self._opponent_source_square is not None and field != self._opponent_source_square and not is_current_player_piece:
                 # Opponent placed piece on a different square - detect the move
                 log.info(f"[GameManager] Opponent move detected: {chess.square_name(self._opponent_source_square)} to {field_name}")
                 time.sleep(0.3)  # Give board time to settle
@@ -553,47 +550,43 @@ class GameManager:
                 
                 return
             
-            # Ignore PLACE events without a corresponding LIFT (stale events from before reset)
-            # This prevents triggering correction mode when a PLACE event arrives after reset
-            # but before the piece is lifted again in the new game state
-            if self._source_square is None and self._opponent_source_square is None:
-                # After correction mode exits, there may be stale PLACE events from the correction process
-                # Ignore them unless it's a forced move source square (which we handle separately)
+            # Only process player moves if we have a source square (piece was lifted)
+            # But first check for stale events
+            if self._source_square is None:
+                # Check if this might be a stale event after correction mode
                 if self._correction_just_exited:
-                    # Check if this is the forced move source square - if so, we'll handle it below
-                    # Otherwise, ignore it as a stale event from correction
+                    # After correction mode exits, ignore stale PLACE events
                     if self._forced_move and self._computer_move and len(self._computer_move) >= MIN_UCI_MOVE_LENGTH:
                         forced_source = chess.parse_square(self._computer_move[0:2])
                         if field != forced_source:
-                            log.info(f"[GameManager] Ignoring stale PLACE event after correction exit for field {field} (not forced move source)")
-                            self._correction_just_exited = False  # Clear flag after ignoring first stale event
+                            log.info(f"[GameManager] Ignoring stale PLACE event after correction exit for field {field}")
+                            self._correction_just_exited = False
                             return
                     else:
                         log.info(f"[GameManager] Ignoring stale PLACE event after correction exit for field {field}")
-                        self._correction_just_exited = False  # Clear flag after ignoring first stale event
+                        self._correction_just_exited = False
                         return
                 
-                # For forced moves, also ignore stale PLACE events on the source square
-                # (the forced move source square) before the LIFT has been processed
+                # For forced moves, allow PLACE on source square even without LIFT (piece might already be lifted)
                 if self._forced_move and self._computer_move and len(self._computer_move) >= MIN_UCI_MOVE_LENGTH:
                     forced_source = chess.parse_square(self._computer_move[0:2])
                     if field == forced_source:
-                        log.info(f"[GameManager] Ignoring stale PLACE event for forced move source field {field} (no corresponding LIFT)")
-                        self._correction_just_exited = False  # Clear flag
+                        # This is the forced move source - set it up
+                        self._source_square = field
+                        target = chess.parse_square(self._computer_move[2:4])
+                        self._legal_squares = [target]
+                        log.info(f"[GameManager] Forced move: setting up source square {field_name} -> {chess.square_name(target)}")
+                    else:
+                        log.info(f"[GameManager] Ignoring PLACE event for field {field} - no source square and not forced move source")
                         return
-                
-                if not self._forced_move:
-                    log.info(f"[GameManager] Ignoring stale PLACE event for field {field} (no corresponding LIFT)")
-                    self._correction_just_exited = False  # Clear flag
+                else:
+                    # No source square and not a forced move - this is a stale event
+                    log.info(f"[GameManager] Ignoring PLACE event for field {field} - no corresponding LIFT")
                     return
             
             # Clear the flag once we process a valid event (LIFT)
             if is_lift:
                 self._correction_just_exited = False
-            
-            # Only process moves for current player
-            if self._source_square is None:
-                return
             
             # Check if move is legal
             if field not in self._legal_squares:
@@ -792,13 +785,20 @@ class GameManager:
         self._computer_move = None
         self._reset_move_state()
     
+    def _field_callback_wrapper(self, piece_event: int, field: int, time_in_seconds: float) -> None:
+        """Wrapper for field callback that handles correction mode routing."""
+        if self._correction_mode:
+            self._correction_field_callback(piece_event, field, time_in_seconds)
+        else:
+            self._field_callback(piece_event, field, time_in_seconds)
+    
     def _game_thread(self) -> None:
         """Main game thread that subscribes to board events."""
         board.ledsOff()
         log.info("[GameManager] Starting game thread, subscribing to board events")
         
         try:
-            board.subscribeEvents(self._key_callback, self._field_callback)
+            board.subscribeEvents(self._key_callback, self._field_callback_wrapper)
         except Exception as e:
             log.error(f"[GameManager] Error subscribing to board events: {e}")
             return
@@ -835,6 +835,10 @@ class GameManager:
             self._game_info['source'] = inspect.getsourcefile(sys._getframe(1)) or 'unknown'
         except Exception as e:
             log.error(f"[GameManager] Error initializing database session: {e}")
+        
+        # Collect initial board state before starting thread
+        self._board_states = []
+        self._collect_board_state()
         
         self._kill = False
         self._game_thread = threading.Thread(target=self._game_thread, daemon=True)

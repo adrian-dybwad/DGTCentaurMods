@@ -690,7 +690,10 @@ class UCIHandler:
             time.sleep(1)
             self._event_callback(manager.EVENT_NEW_GAME)
             time.sleep(1)
-            self._event_callback(manager.EVENT_WHITE_TURN)
+            # Only trigger WHITE_TURN if computer is NOT white (let player move first)
+            # If computer is white, wait for manager to detect starting position and trigger turn
+            if self._computer_color != chess.WHITE:
+                self._event_callback(manager.EVENT_WHITE_TURN)
             
             # Main loop
             while not self._kill:
