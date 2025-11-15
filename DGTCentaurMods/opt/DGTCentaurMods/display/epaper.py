@@ -100,12 +100,13 @@ def epaperUpdate():
     global screensleep
     global sleepcount
     log.debug("started epaper update thread")
-    # Use Python implementation for initial display to avoid dimming issues
+    # Use C driver for initial display - Python epd.display() may not work correctly
+    # The C driver handles the initial full display properly
     im_init = epaperbuffer.copy()
     if screeninverted == 0:
         im_init = im_init.transpose(Image.FLIP_TOP_BOTTOM)
         im_init = im_init.transpose(Image.FLIP_LEFT_RIGHT)
-    epd.display(epd.getbuffer(im_init))
+    driver.display(driver.getbuffer(im_init))
     log.debug("epaper init image sent")
     tepaperbytes = b''
     screensleep = 0
@@ -128,10 +129,10 @@ def epaperUpdate():
                 driver.reset()
                 screensleep = 0
             paths.write_epaper_static_jpg(epaperbuffer)
-            # Always use DisplayPartial to avoid DisplayRegion issues causing dimming
-            # Use Python implementation (epd) instead of C driver to avoid dimming issues
-            log.debug("epaperUpdate: Using DisplayPartial (Python implementation)")
-            epd.DisplayPartial(epd.getbuffer(im))
+            # Use C driver DisplayPartial - Python implementation may not be working correctly
+            # driver.DisplayPartial expects (y_start, y_end, image)
+            log.debug("epaperUpdate: Using DisplayPartial (C driver)")
+            driver.DisplayPartial(0, 295, im)
             first = 0                             
             lastepaperbytes = tepaperbytes
             #event_refresh.set() 
@@ -223,7 +224,9 @@ def initEpaper(mode = 0):
     epaperbuffer = Image.new('1', (128, 296), 255)
     log.debug("init epaper")
     driver.reset()
-    driver.init()      
+    driver.init()
+    # Also initialize Python epd object for display methods
+    epd.init()
     epaperUpd = threading.Thread(target=epaperUpdate, args=())
     epaperUpd.daemon = True
     epaperUpd.start()
