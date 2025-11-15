@@ -29,7 +29,7 @@
 # TODO
 
 from DGTCentaurMods.board import *
-from DGTCentaurMods.display import epaper
+from DGTCentaurMods.display.epaper_service import service, widgets
 from DGTCentaurMods.db import models
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, MetaData, func, select
@@ -257,12 +257,12 @@ def _handle_promotion(field, piece_name, forcemove):
     
     board.beep(board.SOUND_GENERAL)
     if forcemove == 0:
-        screenback = epaper.epaperbuffer.copy()
+        screenback = service.snapshot()
         showingpromotion = True
-        epaper.promotionOptions(PROMOTION_DISPLAY_LINE)
+        widgets.promotion_options(PROMOTION_DISPLAY_LINE)
         promotion_choice = waitForPromotionChoice()
         showingpromotion = False
-        epaper.epaperbuffer = screenback.copy()
+        service.blit(screenback, 0, 0)
         return promotion_choice
     return ""
 
@@ -526,15 +526,15 @@ def keycallback(key_pressed):
             # If we're not already in the menu and the user presses the question mark
             # key then let's bring up the menu
             inmenu = 1
-            epaper.resignDrawMenu(14)
+            widgets.resign_draw_menu(14)
         if inmenu == 1 and key_pressed == board.Key.BACK:
-            epaper.writeText(14,"                   ")
+            widgets.write_text(14, "                   ")
         if inmenu == 1 and key_pressed == board.Key.UP:
-            epaper.writeText(14,"                   ")
+            widgets.write_text(14, "                   ")
             eventcallbackfunction(EVENT_REQUEST_DRAW)
             inmenu = 0
         if inmenu == 1 and key_pressed == board.Key.DOWN:
-            epaper.writeText(14,"                   ")
+            widgets.write_text(14, "                   ")
             eventcallbackfunction(EVENT_RESIGN_GAME)
             inmenu = 0
 
@@ -804,7 +804,7 @@ def clockThread():
             blacktime = blacktime - CLOCK_DECREMENT_SECONDS
         if not showingpromotion:
             timestr = _format_time(whitetime, blacktime)
-            epaper.writeText(CLOCK_DISPLAY_LINE, timestr)
+            widgets.write_text(CLOCK_DISPLAY_LINE, timestr)
 
 whitetime = 0
 blacktime = 0
@@ -818,7 +818,7 @@ def setClock(white,black):
 def startClock():
     # Start the clock. It writes to CLOCK_DISPLAY_LINE
     timestr = _format_time(whitetime, blacktime)
-    epaper.writeText(CLOCK_DISPLAY_LINE, timestr)
+    widgets.write_text(CLOCK_DISPLAY_LINE, timestr)
     clockthread = threading.Thread(target=clockThread, args=())
     clockthread.daemon = True
     clockthread.start()
