@@ -1,159 +1,540 @@
 """
-UCI chess engine interface with event-driven architecture.
+UCI engine interface for chess games.
 
-Reacts to game events, manages engine lifecycle, handles UI/display,
-and coordinates between the game manager and chess engines.
-
-This file is part of the DGTCentaur Mods open source software
-( https://github.com/EdNekebno/DGTCentaur )
-
-DGTCentaur Mods is free software: you can redistribute
-it and/or modify it under the terms of the GNU General Public
-License as published by the Free Software Foundation, either
-version 3 of the License, or (at your option) any later version.
-
-DGTCentaur Mods is distributed in the hope that it will
-be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
-of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this file.  If not, see
-
-https://github.com/EdNekebno/DGTCentaur/blob/master/LICENSE.md
-
-This and any other notices must remain intact and unaltered in any
-distribution, modification, variant, or derivative of this software.
+Manages engine lifecycle, UI/display, and reacts to game events from GameManager.
 """
-
-import sys
-import os
-import signal
-import time
-import threading
-import pathlib
-import configparser
-from random import randint
-from typing import Optional
-
-import chess
-import chess.engine
-from PIL import Image, ImageDraw, ImageFont
 
 from DGTCentaurMods.games.manager import GameManager, GameEvent
 from DGTCentaurMods.display import epaper
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
-
-# Constants
-MAX_SCOREHISTORY_SIZE = 200
+import chess
+import chess.engine
+import sys
+import pathlib
+import os
+import threading
+import signal
+import time
+import configparser
+from random import randint
+from PIL import Image, ImageDraw, ImageFont
+from typing import Optional
 
 
 class UCIEngine:
     """
-    Manages UCI chess engine lifecycle and move calculation.
+    UCI engine interface for playing chess against an engine.
     
-    Handles engine startup, configuration, move calculation, and cleanup.
+    Manages engine lifecycle, display updates, and reacts to game events.
     """
     
-    def __init__(self, engine_path: str, analysis_engine_path: Optional[str] = None):
+    def __init__(self, player_color: str, engine_name: str, uci_options_desc: Optional[str] = None):
         """
-        Initialize UCI engine.
+        Initialize UCI engine interface.
         
         Args:
-            engine_path: Path to main chess engine executable
-            analysis_engine_path: Optional path to analysis engine (for evaluation graphs)
+            player_color: 'white', 'black', or 'random' for player's color
+            engine_name: Name of the engine executable
+            uci_options_desc: Optional UCI options description/section name
         """
-        self._engine_path = engine_path
-        self._analysis_engine_path = analysis_engine_path
-        self._engine: Optional[chess.engine.SimpleEngine] = None
+        # Determine player and computer colors
+        if player_color == "white":
+            self._computer_color = chess.BLACK  # Computer plays black
+            self._player_color = chess.WHITE
+        elif player_color == "black":
+            self._computer_color = chess.WHITE  # Computer plays white
+            self._player_color = chess.BLACK
+        elif player_color == "random":
+            self._computer_color = randint(0, 1)
+            self._player_color = not self._computer_color
+        else:
+            self._computer_color = chess.BLACK
+            self._player_color = chess.WHITE
+        
+        self._engine_name = engine_name
+        self._uci_options_desc = uci_options_desc or "Default"
+        
+        # Engine instances
         self._analysis_engine: Optional[chess.engine.SimpleEngine] = None
+        self._play_engine: Optional[chess.engine.SimpleEngine] = None
+        
+        # Game manager
+        self._manager = GameManager()
+        
+        # State
+        self._kill = False
+        self._current_turn = chess.WHITE
         self._uci_options = {}
+        self._score_history = []
+        self._graphs_enabled = os.uname().machine == "armv7l"  # Enable on Pi Zero 2W
+        self._first_move = True
+        
+        # Cleanup flag
         self._cleaned_up = False
-    
-    def start(self, uci_options: dict = None):
-        """
-        Start the engines.
         
-        Args:
-            uci_options: Dictionary of UCI options to configure
-        """
-        if uci_options:
-            self._uci_options = uci_options
+        # Initialize engines
+        self._initialize_engines()
         
+        # Setup signal handlers
+        signal.signal(signal.SIGINT, self._cleanup_and_exit)
         try:
-            log.info(f"Starting engine: {self._engine_path}")
-            self._engine = chess.engine.SimpleEngine.popen_uci(self._engine_path)
-            
-            if self._uci_options:
-                log.info(f"Configuring engine with options: {self._uci_options}")
-                self._engine.configure(self._uci_options)
-            
-            if self._analysis_engine_path:
-                log.info(f"Starting analysis engine: {self._analysis_engine_path}")
-                self._analysis_engine = chess.engine.SimpleEngine.popen_uci(
-                    self._analysis_engine_path, timeout=None
-                )
+            signal.signal(signal.SIGTERM, self._cleanup_and_exit)
+        except Exception:
+            pass
+        
+        # Subscribe to game manager events
+        self._manager.subscribe_event(self._on_game_event)
+        self._manager.subscribe_move(self._on_move)
+        self._manager.subscribe_key(self._on_key)
+        
+        # Initialize display
+        epaper.initEpaper()
+    
+    def _initialize_engines(self):
+        """Initialize chess engines."""
+        # Engine paths
+        base_path = pathlib.Path(__file__).parent.parent
+        ct800_path = str((base_path / "engines" / "ct800").resolve())
+        engine_path = str((base_path / "engines" / self._engine_name).resolve())
+        uci_file_path = engine_path + ".uci"
+        
+        log.info(f"Analysis engine: {ct800_path}")
+        log.info(f"Play engine: {engine_path}")
+        
+        # Initialize analysis engine (for evaluation graphs)
+        try:
+            self._analysis_engine = chess.engine.SimpleEngine.popen_uci(ct800_path, timeout=None)
         except Exception as e:
-            log.error(f"Error starting engine: {e}")
+            log.error(f"Error initializing analysis engine: {e}")
+        
+        # Initialize play engine
+        try:
+            self._play_engine = chess.engine.SimpleEngine.popen_uci(engine_path)
+        except Exception as e:
+            log.error(f"Error initializing play engine: {e}")
             raise
+        
+        # Load UCI options
+        self._load_uci_options(uci_file_path)
+        
+        # Set game info
+        if self._computer_color == chess.WHITE:
+            self._manager.set_game_info(
+                event=self._uci_options_desc,
+                white=self._engine_name,
+                black="Player"
+            )
+        else:
+            self._manager.set_game_info(
+                event=self._uci_options_desc,
+                white="Player",
+                black=self._engine_name
+            )
     
-    def calculate_move(self, board_state: chess.Board, time_limit: float = 5.0) -> Optional[chess.Move]:
-        """
-        Calculate the best move for the current position.
-        
-        Args:
-            board_state: Current chess board state
-            time_limit: Time limit in seconds for move calculation
-        
-        Returns:
-            Best move or None if calculation fails
-        """
-        if not self._engine:
-            log.error("Engine not started")
-            return None
-        
-        try:
-            limit = chess.engine.Limit(time=time_limit)
-            result = self._engine.play(board_state, limit, info=chess.engine.INFO_ALL)
-            return result.move
-        except Exception as e:
-            log.error(f"Error calculating move: {e}")
-            return None
-    
-    def analyze(self, board_state: chess.Board, time_limit: float = 0.5) -> Optional[dict]:
-        """
-        Analyze the current position for evaluation.
-        
-        Args:
-            board_state: Current chess board state
-            time_limit: Time limit in seconds for analysis
-        
-        Returns:
-            Analysis info dict or None if analysis fails
-        """
-        engine = self._analysis_engine if self._analysis_engine else self._engine
-        if not engine:
-            return None
-        
-        try:
-            limit = chess.engine.Limit(time=time_limit)
-            info = engine.analyse(board_state, limit)
-            return info
-        except Exception as e:
-            log.error(f"Error analyzing position: {e}")
-            return None
-    
-    def cleanup(self):
-        """Clean up engines safely."""
-        if self._cleaned_up:
+    def _load_uci_options(self, uci_file_path: str):
+        """Load UCI options from file."""
+        if not os.path.exists(uci_file_path):
+            log.warning(f"UCI file not found: {uci_file_path}, using default settings")
             return
         
-        self._cleaned_up = True
+        try:
+            config = configparser.ConfigParser()
+            config.optionxform = str
+            config.read(uci_file_path)
+            
+            if config.has_section(self._uci_options_desc):
+                for item in config.items(self._uci_options_desc):
+                    self._uci_options[item[0]] = item[1]
+            elif config.has_section("DEFAULT"):
+                for item in config.items("DEFAULT"):
+                    self._uci_options[item[0]] = item[1]
+                self._uci_options_desc = "Default"
+            
+            # Filter out non-UCI metadata fields
+            NON_UCI_FIELDS = ['Description']
+            self._uci_options = {k: v for k, v in self._uci_options.items() if k not in NON_UCI_FIELDS}
+            
+            log.info(f"Loaded UCI options: {self._uci_options}")
+        except Exception as e:
+            log.error(f"Error loading UCI options: {e}")
+    
+    def _on_game_event(self, event: GameEvent):
+        """Handle game events from manager."""
+        try:
+            if event == GameEvent.NEW_GAME:
+                log.info("NEW_GAME event received")
+                self._handle_new_game()
+            elif event == GameEvent.WHITE_TURN:
+                self._current_turn = chess.WHITE
+                log.info(f"WHITE_TURN event: current_turn={self._current_turn}, computer_color={self._computer_color}")
+                self._handle_turn_change()
+            elif event == GameEvent.BLACK_TURN:
+                self._current_turn = chess.BLACK
+                log.info(f"BLACK_TURN event: current_turn={self._current_turn}, computer_color={self._computer_color}")
+                self._handle_turn_change()
+            elif event == GameEvent.GAME_OVER:
+                self._handle_game_over()
+            elif event == GameEvent.TAKEBACK:
+                self._handle_takeback()
+        except Exception as e:
+            log.error(f"Error handling game event: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _on_move(self, move: str):
+        """Handle move events from manager."""
+        try:
+            log.info(f"Move made: {move}")
+            self._draw_board()
+        except Exception as e:
+            log.error(f"Error handling move: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _on_key(self, key: board.Key):
+        """Handle key press events."""
+        try:
+            log.info(f"Key pressed: {key}")
+            if key == board.Key.BACK:
+                self._kill = True
+            elif key == board.Key.DOWN:
+                self._graphs_enabled = False
+                self._clear_graphs()
+            elif key == board.Key.UP:
+                self._graphs_enabled = True
+                self._first_move = True
+                if self._analysis_engine:
+                    info = self._analysis_engine.analyse(
+                        self._manager.get_board(),
+                        chess.engine.Limit(time=0.5)
+                    )
+                    self._draw_evaluation_graphs(info)
+        except Exception as e:
+            log.error(f"Error handling key: {e}")
+    
+    def _handle_new_game(self):
+        """Handle new game event."""
+        log.info("Handling new game")
+        self._manager.reset_move_state()
+        board.ledsOff()
+        self._manager.reset_move_state()
+        epaper.quickClear()
+        self._score_history = []
+        self._current_turn = chess.WHITE
+        self._first_move = True
+        self._draw_board()
         
+        if self._graphs_enabled and self._analysis_engine:
+            try:
+                info = self._analysis_engine.analyse(
+                    self._manager.get_board(),
+                    chess.engine.Limit(time=0.1)
+                )
+                self._draw_evaluation_graphs(info)
+            except Exception as e:
+                log.error(f"Error drawing initial evaluation: {e}")
+    
+    def _handle_turn_change(self):
+        """Handle turn change event."""
+        self._draw_board()
+        
+        # Draw evaluation graphs if enabled
+        if self._graphs_enabled and self._analysis_engine:
+            try:
+                info = self._analysis_engine.analyse(
+                    self._manager.get_board(),
+                    chess.engine.Limit(time=0.5)
+                )
+                epaper.pauseEpaper()
+                self._draw_evaluation_graphs(info)
+                epaper.unPauseEpaper()
+            except Exception as e:
+                log.error(f"Error drawing evaluation: {e}")
+        
+        # Check if it's computer's turn
+        if self._current_turn == self._computer_color:
+            self._make_computer_move()
+    
+    def _handle_game_over(self):
+        """Handle game over event."""
+        log.info("Game over")
+        result = self._manager.get_board().result()
+        
+        # Display termination message
+        outcome = self._manager.get_board().outcome(claim_draw=True)
+        if outcome:
+            termination = str(outcome.termination)
+            self._display_termination(termination)
+        
+        # Display end screen
+        self._display_end_screen(result)
+        
+        # Wait before exiting
+        time.sleep(10)
+        self._kill = True
+    
+    def _handle_takeback(self):
+        """Handle takeback event."""
+        log.info("Takeback detected")
+        self._manager.reset_move_state()
+        board.ledsOff()
+        
+        # Update turn
+        if self._current_turn == chess.WHITE:
+            self._current_turn = chess.BLACK
+        else:
+            self._current_turn = chess.WHITE
+        
+        # Trigger turn event
+        if self._current_turn == chess.WHITE:
+            self._on_game_event(GameEvent.WHITE_TURN)
+        else:
+            self._on_game_event(GameEvent.BLACK_TURN)
+    
+    def _make_computer_move(self):
+        """Make computer's move."""
+        if not self._play_engine:
+            log.error("Play engine not available")
+            return
+        
+        try:
+            log.info(f"Computer's turn! Current FEN: {self._manager.get_fen()}")
+            
+            # Configure engine with UCI options
+            if self._uci_options:
+                self._play_engine.configure(self._uci_options)
+            
+            # Get move from engine
+            limit = chess.engine.Limit(time=5)
+            result = self._play_engine.play(
+                self._manager.get_board(),
+                limit,
+                info=chess.engine.INFO_ALL
+            )
+            
+            move = result.move
+            move_str = str(move)
+            log.info(f"Engine move: {move_str}")
+            
+            # Set forced move for player to execute
+            self._manager.set_forced_move(move_str, forced=True)
+            
+        except Exception as e:
+            log.error(f"Error making computer move: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _draw_board(self):
+        """Draw the current board state on the display."""
+        try:
+            fen = self._manager.get_fen()
+            log.debug(f"Drawing board with FEN: {fen[:20]}...")
+            
+            # Parse FEN
+            fen_parts = fen.split()
+            board_fen = fen_parts[0]
+            
+            # Convert FEN to display format
+            board_fen = board_fen.replace("/", "")
+            for i in range(1, 9):
+                board_fen = board_fen.replace(str(i), " " * i)
+            
+            # Rotate board for display (rank 8 at top)
+            nfen = ""
+            for rank in range(8, 0, -1):
+                for file in range(8):
+                    idx = ((rank - 1) * 8) + file
+                    nfen += board_fen[idx]
+            
+            # Draw board
+            board_img = Image.new('1', (128, 128), 255)
+            draw = ImageDraw.Draw(board_img)
+            chessfont = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
+            
+            for square_idx in range(64):
+                pos = (square_idx - 63) * -1
+                row = 16 * (pos // 8)
+                col = (square_idx % 8) * 16
+                
+                # Calculate sprite position
+                r = square_idx // 8
+                c = square_idx % 8
+                px = 0
+                py = 0
+                
+                # Checkerboard pattern
+                if (r // 2 == r / 2 and c // 2 == c / 2) or (r // 2 != r / 2 and c // 2 != c / 2):
+                    py = 16
+                
+                # Piece sprite offset
+                piece_char = nfen[square_idx]
+                piece_offsets = {
+                    'P': 16, 'R': 32, 'N': 48, 'B': 64, 'Q': 80, 'K': 96,
+                    'p': 112, 'r': 128, 'n': 144, 'b': 160, 'q': 176, 'k': 192
+                }
+                px = piece_offsets.get(piece_char, 0)
+                
+                # Draw piece
+                if px > 0:
+                    piece = chessfont.crop((px, py, px + 16, py + 16))
+                    if self._computer_color == chess.WHITE:
+                        piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
+                        piece = piece.transpose(Image.FLIP_LEFT_RIGHT)
+                    board_img.paste(piece, (col, row))
+            
+            draw.rectangle([(0, 0), (127, 127)], fill=None, outline='black')
+            epaper.drawImagePartial(0, 81, board_img)
+            
+        except Exception as e:
+            log.error(f"Error drawing board: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _draw_evaluation_graphs(self, info):
+        """Draw evaluation graphs."""
+        if not self._graphs_enabled:
+            return
+        
+        try:
+            if "score" not in info:
+                return
+            
+            # Parse score
+            score_str = str(info["score"])
+            score_val = 0
+            
+            if "Mate" in score_str:
+                mate_str = score_str[13:24]
+                mate_str = mate_str[1:mate_str.find(")")]
+                score_val = float(mate_str)
+                score_val = score_val * 100000
+            else:
+                score_str_val = score_str[11:24]
+                score_str_val = score_str_val[1:score_str_val.find(")")]
+                score_val = float(score_str_val)
+                score_val = score_val / 100
+            
+            if "BLACK" in score_str:
+                score_val = score_val * -1
+            
+            # Add to history
+            if not self._first_move:
+                self._score_history.append(score_val)
+                if len(self._score_history) > 200:
+                    self._score_history.pop(0)
+            else:
+                self._first_move = False
+            
+            # Draw graphs
+            image = Image.new('1', (128, 80), 255)
+            draw = ImageDraw.Draw(image)
+            font12 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 12)
+            
+            # Score text
+            txt = "{:5.1f}".format(score_val)
+            if score_val > 999:
+                txt = ""
+            if "Mate" in score_str:
+                txt = "Mate in " + "{:2.0f}".format(abs(score_val / 100000))
+            
+            draw.text((50, 12), txt, font=font12, fill=0)
+            draw.rectangle([(0, 1), (127, 11)], fill=None, outline='black')
+            
+            # Score indicator
+            clamped_score = max(-12, min(12, score_val))
+            offset = (128 / 25) * (clamped_score + 12)
+            if offset < 128:
+                draw.rectangle([(offset, 1), (127, 11)], fill=0, outline='black')
+            
+            # Bar chart
+            if len(self._score_history) > 0:
+                draw.line([(0, 50), (128, 50)], fill=0, width=1)
+                barwidth = min(8, 128 / len(self._score_history))
+                baroffset = 0
+                for score in self._score_history:
+                    y_calc = 50 - (score * 2)
+                    y0 = min(50, y_calc)
+                    y1 = max(50, y_calc)
+                    col = 255 if score >= 0 else 0
+                    draw.rectangle([(baroffset, y0), (baroffset + barwidth, y1)], fill=col, outline='black')
+                    baroffset += barwidth
+            
+            # Turn indicator
+            tmp = image.copy()
+            dr2 = ImageDraw.Draw(tmp)
+            if self._current_turn == chess.WHITE:
+                dr2.ellipse((119, 14, 126, 21), fill=0, outline=0)
+            epaper.drawImagePartial(0, 209, tmp)
+            
+            if self._current_turn == chess.BLACK:
+                draw.ellipse((119, 14, 126, 21), fill=0, outline=0)
+            
+            image = image.transpose(Image.FLIP_TOP_BOTTOM)
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
+            epaper.drawImagePartial(0, 1, image)
+            
+        except Exception as e:
+            log.error(f"Error drawing evaluation graphs: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _clear_graphs(self):
+        """Clear evaluation graphs."""
+        image = Image.new('1', (128, 80), 255)
+        epaper.drawImagePartial(0, 209, image)
+        epaper.drawImagePartial(0, 1, image)
+    
+    def _display_termination(self, termination: str):
+        """Display game termination message."""
+        try:
+            termination_text = termination[12:] if termination.startswith("Termination.") else termination
+            
+            image = Image.new('1', (128, 12), 255)
+            draw = ImageDraw.Draw(image)
+            font12 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 12)
+            draw.text((30, 0), termination_text, font=font12, fill=0)
+            epaper.drawImagePartial(0, 221, image)
+            time.sleep(0.3)
+            image = image.transpose(Image.FLIP_TOP_BOTTOM)
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
+            epaper.drawImagePartial(0, 57, image)
+            epaper.quickClear()
+        except Exception as e:
+            log.error(f"Error displaying termination: {e}")
+    
+    def _display_end_screen(self, result: str):
+        """Display end game screen."""
+        try:
+            image = Image.new('1', (128, 292), 255)
+            draw = ImageDraw.Draw(image)
+            font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
+            
+            draw.text((0, 0), "   GAME OVER", font=font18, fill=0)
+            draw.text((0, 20), "          " + result, font=font18, fill=0)
+            
+            # Score history graph
+            if len(self._score_history) > 0:
+                draw.line([(0, 114), (128, 114)], fill=0, width=1)
+                barwidth = min(8, 128 / len(self._score_history))
+                baroffset = 0
+                for score in self._score_history:
+                    col = 255 if score >= 0 else 0
+                    y_calc = 114 - (score * 4)
+                    y0 = min(114, y_calc)
+                    y1 = max(114, y_calc)
+                    draw.rectangle([(baroffset, y0), (baroffset + barwidth, y1)], fill=col, outline='black')
+                    baroffset += barwidth
+            
+            epaper.drawImagePartial(0, 0, image)
+        except Exception as e:
+            log.error(f"Error displaying end screen: {e}")
+    
+    def _cleanup_engines(self):
+        """Clean up engine processes."""
         def cleanup_engine(engine, name):
-            """Safely quit an engine with timeout."""
+            """Safely quit an engine."""
             if engine is None:
                 return
             
@@ -164,9 +545,6 @@ class UCIEngine:
                 def quit_thread():
                     try:
                         engine.quit()
-                        quit_done.set()
-                    except KeyboardInterrupt:
-                        quit_error.append("KeyboardInterrupt")
                         quit_done.set()
                     except Exception as e:
                         quit_error.append(str(e))
@@ -196,524 +574,84 @@ class UCIEngine:
                             pass
                 elif quit_error:
                     log.debug(f"{name} quit() raised: {quit_error[0]}")
-            except KeyboardInterrupt:
-                log.warning(f"{name} interrupted during cleanup setup")
             except Exception as e:
                 log.warning(f"Error cleaning up {name}: {e}")
         
-        cleanup_engine(self._engine, "engine")
         cleanup_engine(self._analysis_engine, "analysis_engine")
-
-
-class UCIGame:
-    """
-    Main UCI game controller.
+        cleanup_engine(self._play_engine, "play_engine")
     
-    Coordinates between game manager, engines, and display.
-    """
-    
-    def __init__(self, player_color: str, engine_name: str, uci_options_desc: str = "Default"):
-        """
-        Initialize UCI game.
+    def _cleanup_and_exit(self, signum=None, frame=None):
+        """Clean up resources and exit gracefully."""
+        if self._cleaned_up:
+            os._exit(0)
         
-        Args:
-            player_color: "white", "black", or "random"
-            engine_name: Name of engine executable (without path)
-            uci_options_desc: Description/section name for UCI options
-        """
-        # Determine computer color
-        if player_color == "white":
-            self._computer_color = chess.BLACK
-        elif player_color == "black":
-            self._computer_color = chess.WHITE
-        else:  # random
-            self._computer_color = randint(0, 1)
+        log.info(">>> Cleaning up and exiting...")
+        self._kill = True
+        self._cleaned_up = True
         
-        # Setup engine paths
-        engine_dir = pathlib.Path(__file__).parent.parent / "engines"
-        ct800_path = str((engine_dir / "ct800").resolve())
-        engine_path = str((engine_dir / engine_name).resolve())
-        uci_file_path = engine_path + ".uci"
-        
-        log.info(f"Engine path: {engine_path}")
-        log.info(f"Analysis engine path: {ct800_path}")
-        log.info(f"UCI options file: {uci_file_path}")
-        
-        # Load UCI options
-        uci_options = {}
-        if os.path.exists(uci_file_path):
-            config = configparser.ConfigParser()
-            config.optionxform = str
-            config.read(uci_file_path)
-            
-            section = uci_options_desc if config.has_section(uci_options_desc) else "Default"
-            if config.has_section(section):
-                for key, value in config.items(section):
-                    if key != 'Description':
-                        uci_options[key] = value
-                log.info(f"Loaded UCI options from section '{section}': {uci_options}")
-            else:
-                log.warning(f"Section '{uci_options_desc}' not found, using Default")
-        
-        # Initialize components
-        self._game_manager = GameManager()
-        self._engine = UCIEngine(engine_path, ct800_path)
-        self._engine.start(uci_options)
-        
-        # Game state
-        self._kill_event = threading.Event()
-        self._current_turn = chess.WHITE
-        self._graphs_enabled = os.uname().machine == "armv7l"  # Enable on Pi Zero 2W
-        self._score_history = []
-        self._first_move = True
-        
-        # Setup game info
-        white_name = "Player" if self._computer_color == chess.BLACK else engine_name
-        black_name = engine_name if self._computer_color == chess.BLACK else "Player"
-        self._game_manager.set_game_info(
-            source="uci",
-            event=uci_options_desc,
-            white=white_name,
-            black=black_name
-        )
-        
-        # Subscribe to events
-        self._game_manager.subscribe_event(self._on_game_event)
-        self._game_manager.subscribe_move(self._on_move)
-        self._game_manager.subscribe_key(self._on_key)
-        self._game_manager.subscribe_takeback(self._on_takeback)
-        
-        # Initialize display
-        epaper.initEpaper()
-    
-    def _on_game_event(self, event: GameEvent, data: dict):
-        """Handle game events."""
         try:
-            log.info(f"[UCIGame] Event: {event}, data: {data}")
-            
-            if event == GameEvent.NEW_GAME:
-                self._handle_new_game()
-            elif event == GameEvent.WHITE_TURN:
-                self._handle_turn(chess.WHITE)
-            elif event == GameEvent.BLACK_TURN:
-                self._handle_turn(chess.BLACK)
-            elif event == GameEvent.GAME_OVER:
-                self._handle_game_over(data)
-            elif event == GameEvent.RESIGN:
-                self._handle_resign(data)
-            elif event == GameEvent.REQUEST_DRAW:
-                self._handle_draw()
-        
+            self._cleanup_engines()
+            board.ledsOff()
+            board.unPauseEvents()
+            self._manager.reset_move_state()
+            self._manager.stop()
+            board.cleanup(leds_off=True)
+        except KeyboardInterrupt:
+            log.warning(">>> Interrupted during cleanup, forcing exit")
+            os._exit(1)
         except Exception as e:
-            log.error(f"[UCIGame] Error handling game event: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def _handle_new_game(self):
-        """Handle new game event."""
-        log.info("[UCIGame] New game started")
-        self._score_history = []
-        self._first_move = True
-        self._current_turn = chess.WHITE
+            log.warning(f">>> Error during cleanup: {e}")
         
-        epaper.quickClear()
-        epaper.pauseEpaper()
-        self._draw_board(self._game_manager.get_fen())
-        
-        if self._graphs_enabled:
-            info = self._engine.analyze(self._game_manager.get_board(), time_limit=0.1)
-            if info:
-                self._draw_evaluation_graphs(info)
-        
-        epaper.unPauseEpaper()
-    
-    def _handle_turn(self, turn: chess.Color):
-        """Handle turn change event."""
-        self._current_turn = turn
-        log.info(f"[UCIGame] Turn: {'White' if turn == chess.WHITE else 'Black'}")
-        
-        # Draw board
-        self._draw_board(self._game_manager.get_fen())
-        
-        # Show evaluation graphs if enabled
-        if self._graphs_enabled:
-            info = self._engine.analyze(self._game_manager.get_board(), time_limit=0.5)
-            if info:
-                epaper.pauseEpaper()
-                self._draw_evaluation_graphs(info)
-                epaper.unPauseEpaper()
-        
-        # If it's the computer's turn, calculate and set move
-        if turn == self._computer_color:
-            log.info("[UCIGame] Computer's turn - calculating move")
-            move = self._engine.calculate_move(self._game_manager.get_board(), time_limit=5.0)
-            if move:
-                uci_move = move.uci()
-                log.info(f"[UCIGame] Computer move: {uci_move}")
-                self._game_manager.set_forced_move(uci_move, forced=True)
-            else:
-                log.error("[UCIGame] Failed to calculate move")
-    
-    def _handle_game_over(self, data: dict):
-        """Handle game over event."""
-        termination = data.get('termination', 'Unknown')
-        result = data.get('result', 'Unknown')
-        
-        log.info(f"[UCIGame] Game over: {termination}, result: {result}")
-        
-        # Display termination message
-        image = Image.new('1', (128, 12), 255)
-        draw = ImageDraw.Draw(image)
-        font12 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 12)
-        txt = termination.replace("Termination.", "")
-        draw.text((30, 0), txt, font=font12, fill=0)
-        epaper.drawImagePartial(0, 221, image)
-        time.sleep(0.3)
-        image = image.transpose(Image.FLIP_TOP_BOTTOM)
-        image = image.transpose(Image.FLIP_LEFT_RIGHT)
-        epaper.drawImagePartial(0, 57, image)
-        
-        # Display end screen
-        epaper.quickClear()
-        image = Image.new('1', (128, 292), 255)
-        draw = ImageDraw.Draw(image)
-        font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
-        draw.text((0, 0), "   GAME OVER", font=font18, fill=0)
-        draw.text((0, 20), "          " + result, font=font18, fill=0)
-        
-        # Draw score history if available
-        if len(self._score_history) > 0:
-            draw.line([(0, 114), (128, 114)], fill=0, width=1)
-            barwidth = 128 / len(self._score_history)
-            if barwidth > 8:
-                barwidth = 8
-            baroffset = 0
-            for score in self._score_history:
-                col = 255 if score >= 0 else 0
-                y_calc = 114 - (score * 4)
-                y0 = min(114, y_calc)
-                y1 = max(114, y_calc)
-                draw.rectangle([(baroffset, y0), (baroffset + barwidth, y1)], fill=col, outline='black')
-                baroffset += barwidth
-        
-        epaper.drawImagePartial(0, 0, image)
-        time.sleep(10)
-        
-        self._kill_event.set()
-    
-    def _handle_resign(self, data: dict):
-        """Handle resignation."""
-        result = data.get('result', 'Unknown')
-        log.info(f"[UCIGame] Resignation: {result}")
-        self._kill_event.set()
-    
-    def _handle_draw(self):
-        """Handle draw offer/acceptance."""
-        log.info("[UCIGame] Draw")
-        self._kill_event.set()
-    
-    def _on_move(self, move: str):
-        """Handle move event."""
-        log.info(f"[UCIGame] Move made: {move}")
-        self._draw_board(self._game_manager.get_fen())
-    
-    def _on_key(self, key: board.Key):
-        """Handle key press event."""
-        log.info(f"[UCIGame] Key pressed: {key}")
-        
-        if key == board.Key.BACK:
-            self._kill_event.set()
-        elif key == board.Key.DOWN:
-            # Disable graphs
-            self._graphs_enabled = False
-            image = Image.new('1', (128, 80), 255)
-            epaper.drawImagePartial(0, 209, image)
-            epaper.drawImagePartial(0, 1, image)
-        elif key == board.Key.UP:
-            # Enable graphs
-            self._graphs_enabled = True
-            self._first_move = True
-            info = self._engine.analyze(self._game_manager.get_board(), time_limit=0.5)
-            if info:
-                self._draw_evaluation_graphs(info)
-    
-    def _on_takeback(self):
-        """Handle takeback event."""
-        log.info("[UCIGame] Takeback detected")
-        self._game_manager.clear_forced_move()
-        board.ledsOff()
-        
-        # Switch turn and trigger appropriate event
-        if self._current_turn == chess.WHITE:
-            self._current_turn = chess.BLACK
-            self._handle_turn(chess.BLACK)
-        else:
-            self._current_turn = chess.WHITE
-            self._handle_turn(chess.WHITE)
-    
-    def _draw_board(self, fen: str):
-        """
-        Draw the chess board on the display.
-        
-        Args:
-            fen: FEN string representing the board position
-        """
-        try:
-            log.info(f"[UCIGame] Drawing board with FEN: {fen[:20]}...")
-            
-            # Parse FEN
-            curfen = str(fen).split()[0]  # Get only position part
-            curfen = curfen.replace("/", "")
-            curfen = curfen.replace("1", " ")
-            curfen = curfen.replace("2", "  ")
-            curfen = curfen.replace("3", "   ")
-            curfen = curfen.replace("4", "    ")
-            curfen = curfen.replace("5", "     ")
-            curfen = curfen.replace("6", "      ")
-            curfen = curfen.replace("7", "       ")
-            curfen = curfen.replace("8", "        ")
-            
-            # Reorder for display (rank 8 to rank 1)
-            nfen = ""
-            for rank in range(8, 0, -1):
-                for file in range(0, 8):
-                    nfen += curfen[((rank - 1) * 8) + file]
-            
-            # Draw board
-            lboard = Image.new('1', (128, 128), 255)
-            draw = ImageDraw.Draw(lboard)
-            chessfont = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
-            
-            for x in range(64):
-                pos = (x - 63) * -1
-                row = (16 * (pos // 8))
-                col = (x % 8) * 16
-                px = 0
-                r = x // 8
-                c = x % 8
-                py = 0
-                
-                # Determine square color
-                if (r // 2 == r / 2 and c // 2 == c / 2) or (r // 2 != r / 2 and c // 2 != c / 2):
-                    py += 16
-                
-                # Map piece to sprite position
-                piece = nfen[x]
-                piece_map = {
-                    'P': 16, 'R': 32, 'N': 48, 'B': 64, 'Q': 80, 'K': 96,
-                    'p': 112, 'r': 128, 'n': 144, 'b': 160, 'q': 176, 'k': 192
-                }
-                px = piece_map.get(piece, 0)
-                
-                if px > 0:
-                    piece_img = chessfont.crop((px, py, px + 16, py + 16))
-                    if self._computer_color == chess.WHITE:
-                        piece_img = piece_img.transpose(Image.FLIP_TOP_BOTTOM)
-                        piece_img = piece_img.transpose(Image.FLIP_LEFT_RIGHT)
-                    lboard.paste(piece_img, (col, row))
-            
-            draw.rectangle([(0, 0), (127, 127)], fill=None, outline='black')
-            epaper.drawImagePartial(0, 81, lboard)
-        
-        except Exception as e:
-            log.error(f"[UCIGame] Error drawing board: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def _draw_evaluation_graphs(self, info: dict):
-        """
-        Draw evaluation graphs on the display.
-        
-        Args:
-            info: Analysis info from engine
-        """
-        if "score" not in info:
-            return
-        
-        if not self._graphs_enabled:
-            image = Image.new('1', (128, 80), 255)
-            epaper.drawImagePartial(0, 209, image)
-            epaper.drawImagePartial(0, 1, image)
-            return
-        
-        # Parse score
-        sc = str(info["score"])
-        sval = 0
-        
-        if "Mate" in sc:
-            sval = sc[13:24]
-            sval = sval[1:sval.find(")")]
-        else:
-            sval = sc[11:24]
-            sval = sval[1:sval.find(")")]
-        
-        sval = float(sval)
-        sval = sval / 100
-        
-        if "BLACK" in sc:
-            sval = sval * -1
-        
-        # Draw evaluation bars
-        image = Image.new('1', (128, 80), 255)
-        draw = ImageDraw.Draw(image)
-        font12 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 12)
-        
-        txt = "{:5.1f}".format(sval)
-        if sval > 999:
-            txt = ""
-        if "Mate" in sc:
-            txt = "Mate in " + "{:2.0f}".format(abs(sval * 100))
-            sval = sval * 100000
-        
-        draw.text((50, 12), txt, font=font12, fill=0)
-        draw.rectangle([(0, 1), (127, 11)], fill=None, outline='black')
-        
-        # Calculate indicator position
-        if sval > 12:
-            sval = 12
-        if sval < -12:
-            sval = -12
-        
-        if not self._first_move:
-            self._score_history.append(sval)
-            if len(self._score_history) > MAX_SCOREHISTORY_SIZE:
-                self._score_history.pop(0)
-        else:
-            self._first_move = False
-        
-        offset = (128 / 25) * (sval + 12)
-        if offset < 128:
-            draw.rectangle([(offset, 1), (127, 11)], fill=0, outline='black')
-        
-        # Draw bar chart
-        if len(self._score_history) > 0:
-            draw.line([(0, 50), (128, 50)], fill=0, width=1)
-            barwidth = 128 / len(self._score_history)
-            if barwidth > 8:
-                barwidth = 8
-            baroffset = 0
-            for score in self._score_history:
-                col = 255 if score >= 0 else 0
-                y_calc = 50 - (score * 2)
-                y0 = min(50, y_calc)
-                y1 = max(50, y_calc)
-                draw.rectangle([(baroffset, y0), (baroffset + barwidth, y1)], fill=col, outline='black')
-                baroffset += barwidth
-        
-        # Draw turn indicator
-        tmp = image.copy()
-        dr2 = ImageDraw.Draw(tmp)
-        if self._current_turn == chess.WHITE:
-            dr2.ellipse((119, 14, 126, 21), fill=0, outline=0)
-        epaper.drawImagePartial(0, 209, tmp)
-        
-        if self._current_turn == chess.BLACK:
-            draw.ellipse((119, 14, 126, 21), fill=0, outline=0)
-        
-        image = image.transpose(Image.FLIP_TOP_BOTTOM)
-        image = image.transpose(Image.FLIP_LEFT_RIGHT)
-        epaper.drawImagePartial(0, 1, image)
+        log.info("Goodbye!")
+        sys.exit(0)
     
     def run(self):
-        """Run the UCI game."""
-        log.info("[UCIGame] Starting UCI game")
-        
-        # Start game manager
-        self._game_manager.start()
-        
-        # Check for starting position and trigger new game if needed
-        current_state = bytearray(board.getChessState())
-        starting_state = bytearray(b'\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01')
-        
-        if bytearray(current_state) == starting_state:
-            log.info("[UCIGame] Starting position detected, triggering new game")
-            self._game_manager.reset_game()
-        
-        # Main loop
+        """Run the UCI engine interface."""
         try:
-            while not self._kill_event.is_set():
+            # Start game manager
+            self._manager.start()
+            
+            # Check for starting position and trigger new game if needed
+            current_state = bytearray(board.getChessState())
+            starting_state = bytearray(
+                b'\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01'
+                b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+                b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+                b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+                b'\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01'
+            )
+            if bytearray(current_state) == starting_state:
+                log.info("Starting position detected, triggering new game")
+                self._on_game_event(GameEvent.NEW_GAME)
+                time.sleep(0.5)
+                self._on_game_event(GameEvent.WHITE_TURN)
+            
+            # Main loop
+            while not self._kill:
                 time.sleep(0.1)
+        
         except KeyboardInterrupt:
             log.info("\n>>> Caught KeyboardInterrupt, cleaning up...")
-            self._kill_event.set()
+            self._cleanup_and_exit()
+        except Exception as e:
+            log.error(f"Error in main loop: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
-            self.cleanup()
-    
-    def cleanup(self):
-        """Clean up resources."""
-        log.info("[UCIGame] Cleaning up")
-        
-        try:
-            board.ledsOff()
-        except:
-            pass
-        
-        try:
-            board.unPauseEvents()
-        except:
-            pass
-        
-        try:
-            self._game_manager.clear_forced_move()
-        except:
-            pass
-        
-        try:
-            self._game_manager.stop()
-        except:
-            pass
-        
-        try:
-            self._engine.cleanup()
-        except:
-            pass
-        
-        try:
-            board.cleanup(leds_off=True)
-        except:
-            pass
-        
-        log.info("[UCIGame] Cleanup complete")
-
-
-def cleanup_and_exit(signum=None, frame=None):
-    """Signal handler for graceful exit."""
-    log.info(">>> Cleaning up and exiting...")
-    sys.exit(0)
+            self._cleanup_and_exit()
 
 
 def main():
     """Main entry point."""
-    # Register signal handlers
-    signal.signal(signal.SIGINT, cleanup_and_exit)
-    try:
-        signal.signal(signal.SIGTERM, cleanup_and_exit)
-    except Exception:
-        pass
-    
-    # Parse command line arguments
+    # Parse arguments (same as original uci.py)
     player_color = sys.argv[1] if len(sys.argv) > 1 else "white"
     engine_name = sys.argv[2] if len(sys.argv) > 2 else "stockfish_pi"
-    uci_options_desc = sys.argv[3] if len(sys.argv) > 3 else "Default"
+    uci_options_desc = sys.argv[3] if len(sys.argv) > 3 else None
     
-    log.info(f"Player color: {player_color}")
-    log.info(f"Engine: {engine_name}")
-    log.info(f"UCI options: {uci_options_desc}")
+    log.info(f"Starting UCI engine: player={player_color}, engine={engine_name}, options={uci_options_desc}")
     
-    # Create and run game
-    game = UCIGame(player_color, engine_name, uci_options_desc)
-    
-    try:
-        game.run()
-    except KeyboardInterrupt:
-        log.info("\n>>> Interrupted, cleaning up...")
-    except Exception as e:
-        log.error(f"Error running game: {e}")
-        import traceback
-        traceback.print_exc()
-    finally:
-        game.cleanup()
-        log.info("Goodbye!")
+    uci = UCIEngine(player_color, engine_name, uci_options_desc)
+    uci.run()
 
 
 if __name__ == "__main__":
