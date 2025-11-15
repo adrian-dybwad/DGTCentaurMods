@@ -1,11 +1,12 @@
 """
-Games package for DGTCentaur Mods.
+Games module for chess game management and UCI engine interface.
 
-Provides chess game management and UCI engine integration.
+This module provides clean, refactored implementations of chess game
+management and UCI engine interfaces.
 """
 
 from DGTCentaurMods.games.manager import GameManager, GameEvent
-from DGTCentaurMods.games.uci import UCIHandler
+from DGTCentaurMods.games.uci import UCIEngine
 
-__all__ = ['GameManager', 'GameEvent', 'UCIHandler']
+__all__ = ['GameManager', 'GameEvent', 'UCIEngine']
 
