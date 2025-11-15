@@ -33,9 +33,41 @@ from PIL import Image
 from DGTCentaurMods.display.display_manager import display_manager
 from DGTCentaurMods.display.display_types import UpdateMode, BOARD_START_ROW
 
-# For backward compatibility, expose the global buffer
-# Note: This returns a COPY, modifications won't affect display
-epaperbuffer = display_manager.get_buffer()
+# Auto-initialize DisplayManager when this module is imported
+# This ensures backward compatibility with code that expects epaper to "just work"
+try:
+    if display_manager.state.value == "uninitialized":
+        display_manager.initialize(mode=UpdateMode.PARTIAL)  # Use PARTIAL mode (fast updates)
+except Exception as e:
+    from DGTCentaurMods.board.logging import log
+    log.error(f"Failed to auto-initialize display: {e}")
+
+# For backward compatibility, provide direct access to the live buffer
+# This allows legacy code to modify the buffer directly
+epaperbuffer = display_manager.buffer
+
+# Module-level variable for epapermode (for menu compatibility)
+# When menu sets this, it should affect the display manager
+_epapermode = 1
+
+class _EpaperModeDescriptor:
+    """Descriptor to sync epapermode with DisplayManager."""
+    def __get__(self, obj, objtype=None):
+        global _epapermode
+        return _epapermode
+    
+    def __set__(self, obj, value):
+        global _epapermode
+        _epapermode = value
+        # Sync with display manager
+        # mode 0 = PARTIAL, mode 1 = region updates (still partial)
+        # Both are fast, no need to change DisplayManager mode
+
+# Create the epapermode property
+epapermode = _EpaperModeDescriptor()
+
+# But we need module-level assignment to work, so just use a simple variable
+epapermode = 1
 
 # Status bar class wrapper
 class statusBar:
