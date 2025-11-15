@@ -118,9 +118,9 @@ def epaperUpdate():
             if screeninverted == 0:
                 im = im.transpose(Image.FLIP_TOP_BOTTOM)
                 im = im.transpose(Image.FLIP_LEFT_RIGHT)
-            # Use driver buffer format to keep buffer size consistent across frames
+            # Use Python implementation buffer format to match what will be displayed
             # Buffer is calculated from the same flipped image that will be displayed
-            tepaperbytes = driver.getbuffer(im)
+            tepaperbytes = epd.getbuffer(im)
         if lastepaperbytes != tepaperbytes and epaperprocesschange == 1:
             log.debug("epaperUpdate: Display change detected, updating screen")
             sleepcount = 0
@@ -441,8 +441,9 @@ def resignDrawMenu(row):
         drawImagePartial(0, 271, timage)
     
 def quickClear():
-    # Assumes the screen is in partial mode and makes it white    
-    driver.clear()    
+    # Assumes the screen is in partial mode and makes it white
+    # Use Python implementation to avoid dimming issues
+    epd.Clear(0xFF)  # Clear to white    
     
 def drawWindow(x, y, w, data):
     # Calling this function assumes the screen is already initialised
