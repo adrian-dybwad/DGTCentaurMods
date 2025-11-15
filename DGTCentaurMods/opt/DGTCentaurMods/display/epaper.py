@@ -47,7 +47,7 @@ epd = epd2in9d.EPD()
 epaperUpd = ""
 kill = 0
 epapermode = 0
-lastepaperbytes = b''
+lastepaperbytes = []
 first = 1
 event_refresh = threading.Event()
 screeninverted = 0
@@ -107,7 +107,9 @@ def epaperUpdate():
         im_init = im_init.transpose(Image.FLIP_LEFT_RIGHT)
     epd.display(epd.getbuffer(im_init))
     log.debug("epaper init image sent")
-    tepaperbytes = b''
+    # Initialize with the initial buffer so first comparison works correctly
+    lastepaperbytes = epd.getbuffer(im_init)
+    tepaperbytes = []
     screensleep = 0
     sleepcount = 0
     while True and kill == 0:
@@ -131,7 +133,8 @@ def epaperUpdate():
             # Always use DisplayPartial to avoid DisplayRegion issues causing dimming
             # Use Python implementation (epd) instead of C driver to avoid dimming issues
             log.debug("epaperUpdate: Using DisplayPartial (Python implementation)")
-            epd.DisplayPartial(epd.getbuffer(im))
+            # Reuse the buffer we already calculated for comparison
+            epd.DisplayPartial(tepaperbytes)
             first = 0                             
             lastepaperbytes = tepaperbytes
             #event_refresh.set() 
@@ -160,7 +163,7 @@ def welcomeScreen():
     global epaperbuffer
     global lastepaperbytes
     # Reset buffer comparison to force update
-    lastepaperbytes = b''
+    lastepaperbytes = []
     statusBar().print()
     filename = str(AssetManager.get_resource_path("logo_mods_screen.jpg"))
     lg = Image.open(filename)
@@ -307,7 +310,7 @@ def clearScreen():
     draw = ImageDraw.Draw(epaperbuffer)
     draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
     # Reset buffer comparison to force update thread to detect change
-    lastepaperbytes = b''
+    lastepaperbytes = []
     first = 0    
     unPauseEpaper()
 
