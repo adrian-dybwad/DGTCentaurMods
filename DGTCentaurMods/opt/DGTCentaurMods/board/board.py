@@ -422,7 +422,7 @@ def printChessState(state = None, loglevel = logging.INFO):
         x = rank * 8  # Starting index for this rank
         line += "\r\n"
         for y in range(0, 8):
-            line += " " + str(state[x + y]) if state[x + y] != 0 else "." + " "
+            line += " " + str(state[x + y]) if state[x + y] != 0 else " ."
     line += "\r\n\n"
     log.log(loglevel, line)
 
