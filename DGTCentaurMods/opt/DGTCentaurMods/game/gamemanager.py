@@ -257,14 +257,12 @@ def _handle_promotion(field, piece_name, forcemove):
     
     board.beep(board.SOUND_GENERAL)
     if forcemove == 0:
-        with epaper.buffer_lock:
-            screenback = epaper.epaperbuffer.copy()
+        screenback = epaper.epaperbuffer.copy()
         showingpromotion = True
         epaper.promotionOptions(PROMOTION_DISPLAY_LINE)
         promotion_choice = waitForPromotionChoice()
         showingpromotion = False
-        with epaper.buffer_lock:
-            epaper.epaperbuffer = screenback.copy()
+        epaper.epaperbuffer = screenback.copy()
         return promotion_choice
     return ""
 

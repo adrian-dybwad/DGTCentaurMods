@@ -121,8 +121,7 @@ def getText(title="Enter text"):
                             ch = lchars[row * 8 + col]
                             draw.text((col * 16, 80 + row * 20), ch, font=board.font18, fill=0)
                     # Update the display buffer - background thread will handle refresh
-                    with epaper.buffer_lock:
-                        epaper.epaperbuffer.paste(image, (0, 0))
+                    epaper.epaperbuffer.paste(image, (0, 0))
                     log.info("Display buffer updated")
                 except Exception as e:
                     log.error(f"Failed to render display: {e}")
@@ -173,7 +172,7 @@ def getText(title="Enter text"):
                                         log.info("No characters to delete")
                                 elif btn == board.Key.TICK:
                                     board.beep(board.SOUND_GENERAL)
-                                    epaper.clearScreen()
+                                    board.clearScreen()
                                     time.sleep(0.2)
                                     log.info(f"Text input confirmed: '{typed}'")
                                     return typed

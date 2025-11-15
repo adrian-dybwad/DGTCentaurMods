@@ -27,75 +27,23 @@
 
 from DGTCentaurMods.board import centaur,board
 from DGTCentaurMods.display import epd2in9d
+from DGTCentaurMods.display.epaper_driver import epaperDriver
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.config import paths
-import os, time, hashlib, inspect
+import os, time
 from PIL import Image, ImageDraw, ImageFont
 import pathlib
 import threading
-from functools import wraps
 from DGTCentaurMods.board.logging import log
+
+driver = epaperDriver()
 
 font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
 # Screenbuffer is what we want to display on the screen
 epaperbuffer = Image.new('1', (128, 296), 255) # You can also use pillow to directly change this image
 lastepaperhash = 0
 epaperprocesschange = 1
-def _buffer_signature(data) -> str:
-    try:
-        if isinstance(data, bytes):
-            payload = data
-        else:
-            payload = bytes(data)
-        return hashlib.sha1(payload).hexdigest()[:8]
-    except Exception:
-        try:
-            return f"len={len(data)}"
-        except Exception:
-            return "len=?"
-
-def _caller():
-    stack = inspect.stack()
-    # stack[0] is _caller, stack[1] is logger helper, stack[2] is actual caller
-    if len(stack) > 2:
-        frame = stack[2]
-        return f"{frame.function}:{frame.lineno}"
-    return "unknown"
-
-def _log_epd_event(action, buffer_data=None, extra=""):
-    sig = _buffer_signature(buffer_data) if buffer_data is not None else "n/a"
-    log.debug("EPD.%s hash=%s src=%s %s", action, sig, _caller(), extra)
-
-class InstrumentedEPD(epd2in9d.EPD):
-    def DisplayPartial(self, image):
-        _log_epd_event("DisplayPartial", image)
-        return super().DisplayPartial(image)
-
-    def DisplayRegion(self, y0, y1, image):
-        _log_epd_event(f"DisplayRegion[{y0}:{y1}]", image)
-        return super().DisplayRegion(y0, y1, image)
-
-    def display(self, image):
-        _log_epd_event("DisplayFull", image)
-        return super().display(image)
-
-    def Clear(self, color):
-        _log_epd_event("Clear", None, f"color={color}")
-        return super().Clear(color)
-
-    def init(self):
-        log.debug("EPD.init called")
-        return super().init()
-
-    def reset(self):
-        log.debug("EPD.reset called")
-        return super().reset()
-
-    def sleep(self):
-        log.debug("EPD.sleep called")
-        return super().sleep()
-
-epd = InstrumentedEPD()
+epd = epd2in9d.EPD()
 epaperUpd = ""
 kill = 0
 epapermode = 0
@@ -104,14 +52,6 @@ first = 1
 event_refresh = threading.Event()
 screeninverted = 0
 disabled = False
-buffer_lock = threading.RLock()
-
-def synchronized(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        with buffer_lock:
-            return func(*args, **kwargs)
-    return wrapper
 
 def compute_changed_region(prev_bytes: bytes, curr_bytes: bytes) -> tuple[int, int]:
     """
@@ -159,61 +99,45 @@ def epaperUpdate():
     global screeninverted
     global screensleep
     global sleepcount
-    log.debug("started epaper update thread")
-    # Use DisplayPartial for initial display to ensure SetPartReg is called
-    # This sets up partial mode which is required for all updates
-    with buffer_lock:
-        im_init = epaperbuffer.copy()
-    if screeninverted == 0:
-        im_init = im_init.transpose(Image.FLIP_TOP_BOTTOM)
-        im_init = im_init.transpose(Image.FLIP_LEFT_RIGHT)
-    init_bytes = im_init.tobytes()
-    log.debug("epaperUpdate initial push hash=%s", _buffer_signature(init_bytes))
-    epd.DisplayPartial(epd.getbuffer(im_init))
+    log.debug("started epaper update thread")    
+    driver.display(epaperbuffer)    
     log.debug("epaper init image sent")
-    # Initialize with the initial image bytes for comparison
-    lastepaperbytes = init_bytes
     tepaperbytes = b''
     screensleep = 0
     sleepcount = 0
     while True and kill == 0:
-        with buffer_lock:
-            current_buffer = epaperbuffer.copy()
-        im = current_buffer.copy()
+        im = epaperbuffer.copy()
         im2 = im.copy()
         if epaperprocesschange == 1:
-            # Flip image to match display orientation before getting buffer
-            if screeninverted == 0:
-                im = im.transpose(Image.FLIP_TOP_BOTTOM)
-                im = im.transpose(Image.FLIP_LEFT_RIGHT)
-            # Use image bytes for comparison (matches reference implementation)
-            tepaperbytes = im.tobytes()
+            # Use driver buffer format to keep buffer size consistent across frames
+            tepaperbytes = driver.getbuffer(im)
         if lastepaperbytes != tepaperbytes and epaperprocesschange == 1:
-            log.debug(
-                "epaperUpdate: Display change detected hash=%s mode=%s first=%s",
-                _buffer_signature(tepaperbytes),
-                epapermode,
-                first,
-            )
+            log.debug("epaperUpdate: Display change detected, updating screen")
             sleepcount = 0
             if screensleep == 1:
-                epd.reset()
-                epd.init()
+                driver.reset()
                 screensleep = 0
-            paths.write_epaper_static_jpg(current_buffer)
-            # Use DisplayPartial with getbuffer for display (matches reference implementation)
-            if epapermode == 0 or first == 1:
-                epd.DisplayPartial(epd.getbuffer(im))
+            paths.write_epaper_static_jpg(epaperbuffer)
+            if screeninverted == 0:
+                im = im.transpose(Image.FLIP_TOP_BOTTOM)
+                im = im.transpose(Image.FLIP_LEFT_RIGHT)                        
+            if epapermode == 0 or first == 1:                
+                log.debug("epaperUpdate: Using DisplayPartial")
+                driver.DisplayPartial(im)
                 first = 0
             else:
-                # Use DisplayPartial for all updates (reference uses DisplayRegion for mode 1)
-                epd.DisplayPartial(epd.getbuffer(im))
+                rs, re = compute_changed_region(lastepaperbytes, tepaperbytes)
+                log.info(f"epaperUpdate: Using DisplayRegion rs={rs}, re={re}")
+                bb = im2.crop((0, rs + 1, 128, re))
+                bb = bb.transpose(Image.FLIP_TOP_BOTTOM)
+                bb = bb.transpose(Image.FLIP_LEFT_RIGHT)                
+                driver.DisplayRegion(296 - re, 295 - rs, bb)                             
             lastepaperbytes = tepaperbytes
             #event_refresh.set() 
         sleepcount = sleepcount + 1
         if sleepcount == 15000 and screensleep == 0:
             screensleep = 1
-            epd.sleep()       
+            driver.sleepDisplay()       
         time.sleep(0.1)
 
 def refresh():
@@ -221,7 +145,6 @@ def refresh():
     return
 
 
-@synchronized
 def loadingScreen():
     global epaperbuffer
     statusBar().print()
@@ -232,12 +155,8 @@ def loadingScreen():
     log.debug('Display loading screen')
     
 
-@synchronized
 def welcomeScreen():
     global epaperbuffer
-    global lastepaperbytes
-    # Pause updates while modifying buffer
-    pauseEpaper()
     statusBar().print()
     filename = str(AssetManager.get_resource_path("logo_mods_screen.jpg"))
     lg = Image.open(filename)
@@ -249,12 +168,8 @@ def welcomeScreen():
     x,y = 75,200
     draw.line((6+x,y+16,16+x,y+4), fill=0, width=5)
     draw.line((2+x,y+10, 8+x,y+16), fill=0, width=5)
-    # Reset buffer comparison to force update when unpaused
-    lastepaperbytes = b''
-    unPauseEpaper()
 
 
-@synchronized
 def standbyScreen(show):
     global epaperbuffer
     f = '/tmp/epapersave.bmp'
@@ -300,9 +215,8 @@ def initEpaper(mode = 0):
     epapermode = mode
     epaperbuffer = Image.new('1', (128, 296), 255)
     log.debug("init epaper")
-    # Initialize Python epd object only (no C driver)
-    # epd.init() calls reset() internally, so no need for driver.reset()
-    epd.init()
+    driver.reset()
+    driver.init()      
     epaperUpd = threading.Thread(target=epaperUpdate, args=())
     epaperUpd.daemon = True
     epaperUpd.start()
@@ -318,12 +232,8 @@ def pauseEpaper():
 def unPauseEpaper():
     # Unpause previously paused epaper
     global epaperprocesschange
-    global lastepaperbytes
-    # Reset buffer comparison to force update thread to detect any changes made while paused
-    lastepaperbytes = b''
     epaperprocesschange = 1
 
-@synchronized
 def stopEpaper():
     # Stop the epaper
     global lastepaperhash
@@ -342,13 +252,12 @@ def stopEpaper():
     time.sleep(3)
     kill = 1
     time.sleep(2)
-    epd.sleep()
+    driver.sleepDisplay()
 
 def killEpaper():
     global kill
     kill = 1
 
-@synchronized
 def writeText(row,txt):
     # Write Text on a give line number
     global epaperbuffer
@@ -360,7 +269,6 @@ def writeText(row,txt):
     nimage.paste(image, (0, (row * 20)))
     epaperbuffer = nimage.copy()
 
-@synchronized
 def writeMenuTitle(title):
     # Write Text on a give line number
     global epaperbuffer
@@ -371,35 +279,30 @@ def writeMenuTitle(title):
     nimage.paste(image, (0, 20))
     epaperbuffer = nimage.copy()
 
-@synchronized
 def drawRectangle(x1, y1, x2, y2, fill, outline):
     # Draw a rectangle
     global epaperbuffer
     draw = ImageDraw.Draw(epaperbuffer)
     draw.rectangle([(x1, y1), (x2, y2)], fill=fill, outline=outline)
 
-@synchronized
 def clearArea(x1, y1, x2, y2):
     # Clears an area of the screen. In fact just draws a white rectangle
     drawRectangle(x1,y1,x2,y2,255,255)
 
-@synchronized
 def clearScreen():
     # Set the ePaper back to white
     global epaperbuffer
     global event_refresh
     global first
-    global lastepaperbytes
     #epaperbuffer = Image.new('1', (128, 296), 255)
     pauseEpaper()
     draw = ImageDraw.Draw(epaperbuffer)
     draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
-    # Reset buffer comparison to force update thread to detect change
-    lastepaperbytes = b''
+    driver.DisplayRegion(0, 295, epaperbuffer)
+    driver.clear()
     first = 0    
     unPauseEpaper()
 
-@synchronized
 def drawBoard(pieces, startrow=2): 
     global disabled
     if disabled:
@@ -470,7 +373,6 @@ def drawFen(fen, startrow=2):
             nfen = nfen + curfen[((a-1)*8)+b]
     drawBoard(nfen, startrow)
 
-@synchronized
 def promotionOptions(row):
     # Draws the promotion options to the screen buffer
     global epaperbuffer
@@ -512,7 +414,6 @@ def promotionOptions(row):
         drawImagePartial(0, 270, timage)
         log.debug("drawn")
 
-@synchronized
 def resignDrawMenu(row):
     # Draws draw or resign options to the screen buffer
     global epaperbuffer
@@ -534,20 +435,10 @@ def resignDrawMenu(row):
         draw.polygon([(35+25, 3), (51+25, 3), (43+25, 18)], fill=0)
         drawImagePartial(0, 271, timage)
     
-@synchronized
 def quickClear():
-    # Assumes the screen is in partial mode and makes it white
-    # Clear buffer and let update thread handle display
-    global epaperbuffer
-    global lastepaperbytes
-    pauseEpaper()
-    draw = ImageDraw.Draw(epaperbuffer)
-    draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
-    # Reset buffer comparison to force update thread to detect change
-    lastepaperbytes = b''
-    unPauseEpaper()    
+    # Assumes the screen is in partial mode and makes it white    
+    driver.clear()    
     
-@synchronized
 def drawWindow(x, y, w, data):
     # Calling this function assumes the screen is already initialised
     # if using epaper.py, also pauseEpaper() should have been run
@@ -602,7 +493,6 @@ def drawWindow(x, y, w, data):
             dyoff = dyoff + 1
     paths.write_epaper_static_jpg(epaperbuffer)    
 
-@synchronized
 def drawImagePartial(x, y, img):
     # For backwards compatibility we just paste into the image here
     # the epaper code will take care of the partial drawing
@@ -610,7 +500,6 @@ def drawImagePartial(x, y, img):
     #drawWindow(x,y,width//8,list(img.tobytes()))
     epaperbuffer.paste(img,(x,y))
 
-@synchronized
 def drawBatteryIndicator():
     batteryindicator = "battery1"
     if board.batterylevel >= 6:
@@ -683,54 +572,90 @@ class MenuDraw:
         log.debug(title)
         log.debug('-------------')
         global epaperbuffer
-        with buffer_lock:
-            draw = ImageDraw.Draw(epaperbuffer)
-            draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
-            writeMenuTitle(title)
-            row = 2
-            for item in items:
-                writeText(row, "  " + item)
-                log.debug(item)
-                row += 1
-            self.statusbar.print()
-            im = epaperbuffer.copy()
-            paths.write_epaper_static_jpg(epaperbuffer)
-        # Use manufacturer API to display image after releasing lock
+        draw = ImageDraw.Draw(epaperbuffer)
+        draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
+        writeMenuTitle(title)
+        row = 2
+        for item in items:
+            writeText(row, "  " + item)
+            log.debug(item)
+            row += 1
+        self.statusbar.print()
+        # draw epaperbuffer to the screen
+        im = epaperbuffer.copy()
         if screeninverted == 0:
             im = im.transpose(Image.FLIP_TOP_BOTTOM)
             im = im.transpose(Image.FLIP_LEFT_RIGHT)
-        epd.DisplayPartial(epd.getbuffer(im))
+        bytes = im.tobytes()
+        paths.write_epaper_static_jpg(epaperbuffer)
+        epd.send_command(0x91)
+        epd.send_command(0x90)
+        epd.send_data(0)
+        epd.send_data(127)
+        epd.send_data(0)
+        epd.send_data(0)
+        epd.send_data(1)
+        epd.send_data(35)
+        epd.send_command(0x10)
+        for i in range(0, 4672):
+            epd.send_data(bytes[i] ^ 255)
+        epd.send_command(0x13)
+        for i in range(0, 4672):
+            epd.send_data(bytes[i])
+        epd.send_command(0x12)
+        time.sleep(0.5)
 
 
     def highlight(self, index, rollaround = 0):
-        global epaperbuffer
-        with buffer_lock:
-            top_region = None
-            if rollaround == 1:
-                # Clear rollaround region using manufacturer API
-                y0 = 0
-                y1 = 252
-                top_region = epaperbuffer.crop((0, y0, 128, y1))
-            # Update highlight indicator using manufacturer API
-            pos = 296 - (78 + (index * 20))
-            draw = ImageDraw.Draw(epaperbuffer)
-            draw.rectangle([(0, 40), (8, 191)], fill = 255, outline = 255)
-            draw.rectangle([(2,((index + 2) * 20) + 5), (8, ((index+2) * 20) + 14)], fill = 0, outline = 0)
-            paths.write_epaper_static_jpg(epaperbuffer)
-            # Calculate region bounds
-            y_start = pos
-            y_end = pos + 23 + 8 + 20
-            if index == 0:
-                y_end = y_end - 20
-            # Extract region from buffer
-            region_img = epaperbuffer.crop((120, y_start, 125, y_end))
-        if rollaround == 1 and top_region is not None:
-            region_to_send = top_region
-            if screeninverted == 0:
-                region_to_send = region_to_send.transpose(Image.FLIP_TOP_BOTTOM)
-                region_to_send = region_to_send.transpose(Image.FLIP_LEFT_RIGHT)
-            epd.DisplayRegion(0, 252, epd.getbuffer(region_to_send))
-        if screeninverted == 0:
-            region_img = region_img.transpose(Image.FLIP_TOP_BOTTOM)
-            region_img = region_img.transpose(Image.FLIP_LEFT_RIGHT)
-        epd.DisplayRegion(y_start, y_end, epd.getbuffer(region_img))
+        if rollaround == 1:
+            epd.send_command(0x91)
+            epd.send_command(0x90)
+            epd.send_data(120)
+            epd.send_data(120+5)
+            epd.send_data(0)
+            epd.send_data(0)
+            epd.send_data(0)
+            epd.send_data(252)
+            epd.send_command(0x28)
+            epd.send_command(0x10)
+            for i in range(0, 252):
+                epd.send_data(0x00)
+            epd.send_command(0x13)
+            for i in range(0, 252):
+                epd.send_data(0xFF)
+            epd.send_command(0x12) 
+            time.sleep(0.3)
+        pos = 296 - (78 + (index * 20))
+        draw = ImageDraw.Draw(epaperbuffer)
+        draw.rectangle([(0, 40), (8, 191)], fill = 255, outline = 255)
+        draw.rectangle([(2,((index + 2) * 20) + 5), (8, ((index+2) * 20) + 14)], fill = 0, outline = 0)
+        paths.write_epaper_static_jpg(epaperbuffer)
+        epd.send_command(0x91) # Enter partial mode
+        epd.send_command(0x90) # Set resolution
+        epd.send_data(120) #x start
+        epd.send_data(120+5) #x end
+        epd.send_data(0) #y start high
+        epd.send_data(pos) #y start low
+        pos = pos + 23 + 8 + 20
+        if index == 0:
+            pos = pos - 20
+        epd.send_data(pos//256) #y end high
+        epd.send_data((pos % 256))  # y end low
+        epd.send_command(0x28) # Send data
+        epd.send_command(0x10) # buffer
+        for i in range(0, 23):
+            epd.send_data(0x00)
+        for i in range(0, 8):
+            epd.send_data(0xFF)
+        if index > 0:
+            for i in range(0, 21):
+                epd.send_data(0x00)
+        epd.send_command(0x13) # buffer
+        for i in range(0, 23):
+            epd.send_data(0xFF)
+        for i in range(0, 8):
+            epd.send_data(0x00)
+        if index > 0:
+            for i in range(0, 21):
+                epd.send_data(0xFF)
+        epd.send_command(0x12) #display

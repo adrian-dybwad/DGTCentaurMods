@@ -20,19 +20,20 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
+from DGTCentaurMods.board import board
 from DGTCentaurMods.board import centaur
 from DGTCentaurMods.display import epaper
-from DGTCentaurMods.ui.get_text_from_board import getText
 import os
 import time
 import sys
 import re
 import pathlib
 
-# Clear the display and prompt the user for a token via the centralized text input UI
-epaper.clearScreen()
-token = getText("API Token")
+board.initScreen()
 
-if token:
-    centaur.set_lichess_api(token)
-    os.system("sudo systemctl restart DGTCentaurMods.service")
+# Get the token
+token = board.getText("API Token")
+
+#Set key in config and restart the menu.
+centaur.set_lichess_api(token)
+os.system("sudo systemctl restart DGTCentaurMods.service")

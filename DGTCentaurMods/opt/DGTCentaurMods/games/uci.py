@@ -667,10 +667,6 @@ class UCIGame:
             draw = ImageDraw.Draw(lboard)
             chessfont = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
             
-            # Extract gray square pattern from sprite sheet (empty square area at py=16)
-            # Use the area before the first piece (x=0 to x=16, y=16 to y=32) for gray pattern
-            gray_square_pattern = chessfont.crop((0, 16, 16, 32))
-            
             for x in range(0, 64):
                 pos = (x - 63) * -1
                 row = (16 * (pos // 8))
@@ -713,17 +709,12 @@ class UCIGame:
                 if piece_char == "k":
                     px = 192
                 
-                # Draw gray square background for empty dark squares
-                if piece_char == " " and is_dark_square:
-                    lboard.paste(gray_square_pattern, (col, row))
-                
                 # Paste piece (pieces already have square backgrounds in sprite sheet)
-                if piece_char != " ":
-                    piece = chessfont.crop((px, py, px+16, py+16))
-                    if self.computer_color == chess.WHITE:
-                        piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
-                        piece = piece.transpose(Image.FLIP_LEFT_RIGHT)
-                    lboard.paste(piece, (col, row))
+                piece = chessfont.crop((px, py, px+16, py+16))
+                if self.computer_color == chess.WHITE:
+                    piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
+                    piece = piece.transpose(Image.FLIP_LEFT_RIGHT)
+                lboard.paste(piece, (col, row))
             
             draw.rectangle([(0, 0), (127, 127)], fill=None, outline='black')
             epaper.drawImagePartial(0, 81, lboard)

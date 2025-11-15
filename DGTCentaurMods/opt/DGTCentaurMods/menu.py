@@ -189,9 +189,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     global quickselect
     global event_key
     epaper.epapermode = 0
-    epaper.clearScreen()
-    # Give update thread time to process the clear before pausing again
-    time.sleep(0.15)
+    epaper.clearScreen()  
     
     selection = ""
     curmenu = actual_menu
@@ -210,72 +208,68 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     # Print a fresh status bar.
     statusbar.print()
     epaper.pauseEpaper()
-    with epaper.buffer_lock:
-        for k, v in actual_menu.items():
-            epaper.writeText(row, "    " + str(v))
-            row = row + 1
+    for k, v in actual_menu.items():
+        epaper.writeText(row, "    " + str(v))
+        row = row + 1
     
     # Display description if provided
     if actual_description and actual_description.strip():
         # Create background rectangle covering the right side area
         description_y = (row * 20) + 2 + shift
         description_height = 108  # Height for description area (allows 9 lines: 9 * 12px)
-        with epaper.buffer_lock:
-            draw = ImageDraw.Draw(epaper.epaperbuffer)
-            
-            # Draw background rectangle covering right side (from vertical line to screen edge)
-            draw.rectangle([17, description_y, 127, description_y + description_height], fill=255)
-            
-            # Position text with more space from vertical line
-            description_x = 22  # Start after vertical line (17) with 5px margin
-            description_text_y = description_y + 2  # Small margin from top
-            
-            # Use 16px font for description
-            small_font = ImageFont.truetype(epaper.AssetManager.get_resource_path("Font.ttc"), 16)
-            
-            # Wrap text to fit within the available width
-            max_width = 127 - description_x - 2  # Available width minus margins (now 103px)
-            words = actual_description.split()
-            lines = []
-            current_line = ""
-            
-            for word in words:
-                test_line = current_line + (" " if current_line else "") + word
-                bbox = draw.textbbox((0, 0), test_line, font=small_font)
-                text_width = bbox[2] - bbox[0]
-                
-                if text_width <= max_width:
-                    current_line = test_line
-                else:
-                    if current_line:
-                        lines.append(current_line)
-                        current_line = word
-                    else:
-                        lines.append(word)  # Single word too long, add anyway
-            
-            if current_line:
-                lines.append(current_line)
-            
-            # Draw each line
-            for i, line in enumerate(lines[:9]):  # Limit to 9 lines max (fits in 108px height)
-                y_pos = description_text_y + (i * 16)  # 16px line spacing
-                draw.text((description_x, y_pos), line, font=small_font, fill=0)
-    
-    epaper.unPauseEpaper()
-    # Give update thread time to detect and process the menu display
-    time.sleep(0.2)
-    with epaper.buffer_lock:
-        epaper.clearArea(0, 20 + shift, 17, 295)
         draw = ImageDraw.Draw(epaper.epaperbuffer)
-        draw.polygon(
-            [
-                (2, (menuitem * 20) + 2 + shift),
-                (2, (menuitem * 20) + 18 + shift),
-                (17, (menuitem * 20) + 10 + shift),
-            ],
-            fill=0,
-        )
-        draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
+        
+        # Draw background rectangle covering right side (from vertical line to screen edge)
+        draw.rectangle([17, description_y, 127, description_y + description_height], fill=255)
+        
+        # Position text with more space from vertical line
+        description_x = 22  # Start after vertical line (17) with 5px margin
+        description_text_y = description_y + 2  # Small margin from top
+        
+        # Use 16px font for description
+        small_font = ImageFont.truetype(epaper.AssetManager.get_resource_path("Font.ttc"), 16)
+        
+        # Wrap text to fit within the available width
+        max_width = 127 - description_x - 2  # Available width minus margins (now 103px)
+        words = actual_description.split()
+        lines = []
+        current_line = ""
+        
+        for word in words:
+            test_line = current_line + (" " if current_line else "") + word
+            bbox = draw.textbbox((0, 0), test_line, font=small_font)
+            text_width = bbox[2] - bbox[0]
+            
+            if text_width <= max_width:
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append(current_line)
+                    current_line = word
+                else:
+                    lines.append(word)  # Single word too long, add anyway
+        
+        if current_line:
+            lines.append(current_line)
+        
+        # Draw each line
+        for i, line in enumerate(lines[:9]):  # Limit to 9 lines max (fits in 108px height)
+            y_pos = description_text_y + (i * 16)  # 16px line spacing
+            draw.text((description_x, y_pos), line, font=small_font, fill=0)
+    
+    epaper.unPauseEpaper()    
+    time.sleep(0.1)
+    epaper.clearArea(0, 20 + shift, 17, 295)
+    draw = ImageDraw.Draw(epaper.epaperbuffer)
+    draw.polygon(
+        [
+            (2, (menuitem * 20) + 2 + shift),
+            (2, (menuitem * 20) + 18 + shift),
+            (17, (menuitem * 20) + 10 + shift),
+        ],
+        fill=0,
+    )
+    draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
     statusbar.print()         
     try:
         event_key.wait()
@@ -300,8 +294,6 @@ statusbar.start()
 update = centaur.UpdateSystem()
 log.info("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
-# Start with events paused so the welcome screen isn't dismissed by stale key events
-board.pauseEvents()
 # Subscribe to board events. First parameter is the function for key presses. The second is the function for
 # field activity
 board.subscribeEvents(keyPressed, changedCallback, timeout=900)
@@ -318,13 +310,8 @@ log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
 
 def show_welcome():
     global idle
-    global event_key
     epaper.welcomeScreen()
     idle = True
-    # Enable key events now that the welcome screen is visible
-    board.unPauseEvents()
-    # Ensure we wait for a fresh button press (clear any previous event)
-    event_key.clear()
     try:
         event_key.wait()
     except KeyboardInterrupt:
@@ -333,11 +320,10 @@ def show_welcome():
         raise  # Re-raise to exit program
     event_key.clear()
     idle = False
-    # Clear the welcome screen only after the user exits it
-    epaper.quickClear()
 
 
 show_welcome()
+epaper.quickClear()
 
 
 def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:
@@ -655,6 +641,10 @@ while True:
     if centaur.get_menuAbout() != "unchecked":
         menu.update({"About": "About"})                                
     result = doMenu(menu, "Main menu")
+    # epaper.epd.init()
+    # time.sleep(0.7)
+    # epaper.clearArea(0,0 + shift,128,295)
+    # time.sleep(1)
     if result == "SHUTDOWN":
         # Graceful shutdown requested via Ctrl+C
         try:
@@ -948,7 +938,8 @@ while True:
                 sys.exit()
             if result == "Reboot":
                 board.beep(board.SOUND_POWER_OFF)
-                epaper.clearScreen()
+                epaper.epd.init()
+                epaper.epd.HalfClear()
                 time.sleep(5)
                 epaper.stopEpaper()
                 time.sleep(2)
@@ -1197,8 +1188,7 @@ while True:
         epaper.writeText(11, "Ver:" + version)        
         qr = Image.open(AssetManager.get_resource_path("qr-support.png"))
         qr = qr.resize((128, 128))
-        with epaper.buffer_lock:
-            epaper.epaperbuffer.paste(qr, (0, 42))
+        epaper.epaperbuffer.paste(qr, (0, 42))
         timeout = time.time() + 15
         while selection == "" and time.time() < timeout:
             if selection == "BTNTICK" or selection == "BTNBACK":

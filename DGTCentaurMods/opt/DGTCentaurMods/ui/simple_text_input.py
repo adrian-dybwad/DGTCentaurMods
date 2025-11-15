@@ -126,8 +126,7 @@ def simple_text_input(
         
         # Update display with better error handling
         try:
-            with epaper.buffer_lock:
-                epaper.epaperbuffer.paste(img, (0, 0))
+            epaper.epaperbuffer.paste(img, (0, 0))
             # Don't call refresh() - let background thread handle it
         except Exception as e:
             logging.error(f"Failed to update display: {e}")
@@ -135,8 +134,7 @@ def simple_text_input(
             try:
                 epaper.initEpaper()
                 epaper.clearScreen()
-                with epaper.buffer_lock:
-                    epaper.epaperbuffer.paste(img, (0, 0))
+                epaper.epaperbuffer.paste(img, (0, 0))
             except Exception as e2:
                 logging.error(f"Failed to recover display: {e2}")
 

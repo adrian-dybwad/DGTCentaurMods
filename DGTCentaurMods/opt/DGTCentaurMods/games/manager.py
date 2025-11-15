@@ -305,14 +305,12 @@ class GameManager:
         
         board.beep(board.SOUND_GENERAL)
         if not is_forced:
-            with epaper.buffer_lock:
-                screen_backup = epaper.epaperbuffer.copy()
+            screen_backup = epaper.epaperbuffer.copy()
             self.is_showing_promotion = True
             epaper.promotionOptions(PROMOTION_DISPLAY_LINE)
             promotion_choice = self._wait_for_promotion_choice()
             self.is_showing_promotion = False
-            with epaper.buffer_lock:
-                epaper.epaperbuffer = screen_backup.copy()
+            epaper.epaperbuffer = screen_backup.copy()
             return promotion_choice
         return ""
     
