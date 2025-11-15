@@ -381,8 +381,6 @@ def sleep():
 # Board response - functions related to get something from the board
 #
 def getBoardState():
-    pre_command = controller.request_response(command.DGT_BUS_SEND_96)
-    log.info(f"PRE_COMMAND: {' '.join(f'{b:02x}' for b in pre_command)}")
     raw_boarddata = controller.request_response(command.DGT_BUS_SEND_STATE)
     return raw_boarddata
 
