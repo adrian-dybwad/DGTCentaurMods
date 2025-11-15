@@ -297,6 +297,8 @@ statusbar.start()
 update = centaur.UpdateSystem()
 log.info("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
+# Start with events paused so the welcome screen isn't dismissed by stale key events
+board.pauseEvents()
 # Subscribe to board events. First parameter is the function for key presses. The second is the function for
 # field activity
 board.subscribeEvents(keyPressed, changedCallback, timeout=900)
@@ -316,6 +318,8 @@ def show_welcome():
     global event_key
     epaper.welcomeScreen()
     idle = True
+    # Enable key events now that the welcome screen is visible
+    board.unPauseEvents()
     # Ensure we wait for a fresh button press (clear any previous event)
     event_key.clear()
     try:
