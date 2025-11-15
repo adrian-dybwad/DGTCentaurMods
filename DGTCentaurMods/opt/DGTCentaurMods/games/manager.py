@@ -442,11 +442,13 @@ class GameManager:
             if field_name != self._computer_move[0:2]:
                 # Wrong piece lifted for forced move
                 self._legal_squares = [field]
+                self._source_square = field
             else:
                 # Correct piece, limit legal squares to target
                 target = self._computer_move[2:4]
                 target_square = chess.parse_square(target)
                 self._legal_squares = [target_square]
+                self._source_square = field
         
         # Ignore stale PLACE events without corresponding LIFT
         if is_place and self._source_square < 0 and self._other_source_square < 0:
