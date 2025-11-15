@@ -245,6 +245,9 @@ def pauseEpaper():
 def unPauseEpaper():
     # Unpause previously paused epaper
     global epaperprocesschange
+    global lastepaperbytes
+    # Reset buffer comparison to force update thread to detect any changes made while paused
+    lastepaperbytes = b''
     epaperprocesschange = 1
 
 def stopEpaper():
