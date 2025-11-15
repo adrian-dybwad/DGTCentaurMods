@@ -368,142 +368,118 @@ class GameManager:
         field_name = chess.square_name(field)
         piece_color = self._board.color_at(field)
         
-        # Handle None case (no piece on square)
-        piece_color_str = "None" if piece_color is None else ("White" if piece_color else "Black")
-        log.info(f"[GameManager] piece_event={'LIFT' if lift else 'PLACE'} field={field} fieldname={field_name} color_at={piece_color_str}")
+        log.info(f"[GameManager] piece_event={'LIFT' if lift else 'PLACE'} field={field} fieldname={field_name} color_at={'White' if piece_color else ('Black' if piece_color is False else 'None')}")
         
-        # Check if piece belongs to current player
-        # piece_color is True for white, False for black, None if no piece
-        # For lift: check logical board (piece should still be there)
-        # For place: check logical board (piece will be there after move is made)
-        if piece_color is None:
-            # No piece on logical board - this can happen if piece was already moved
-            # or if checking during a place event before move is registered
-            # For lift events, this shouldn't happen normally
-            # For place events, we need to check the physical board state
-            if lift:
-                log.warning(f"[GameManager] No piece on logical board at {field} during LIFT - might be stale event")
-                return
-            # For place, we'll allow it if source_square is set (meaning a piece was lifted)
-            is_current_player_piece = False  # Will be determined by source_square
-        else:
-            is_current_player_piece = (self._board.turn == chess.WHITE) == (piece_color == True)
+        # Check if piece belongs to current player (exactly like original)
+        # vpiece = True if piece belongs to current player, False otherwise
+        # self._board.turn is chess.WHITE (True) or chess.BLACK (False)
+        # piece_color is True for white pieces, False for black pieces, None if no piece
+        is_current_player_piece = (self._board.turn == chess.WHITE) == (piece_color == True)
         
         # Handle lift events
         if lift:
             self._correction_just_exited = False  # Clear flag on valid lift
             
-            if is_current_player_piece:
-                # Current player's piece lifted
-                if self._source_square is None:
-                    # Start new move - recalculate legal squares based on current board state
-                    # This allows taking pieces even if opponent piece was lifted first
-                    self._legal_squares = self._calculate_legal_squares(field)
-                    self._source_square = field
-                    
-                    # If forced move, check if correct piece
-                    if self._is_forced_move and self._forced_move:
-                        expected_source = chess.parse_square(self._forced_move[0:2])
-                        if field != expected_source:
-                            # Wrong piece for forced move - only allow putting it back
-                            self._legal_squares = {field}
-                        else:
-                            # Correct piece - limit to target square
-                            target = chess.parse_square(self._forced_move[2:4])
-                            self._legal_squares = {target}
-            else:
-                # Opponent piece lifted - track it (allows taking pieces by lifting opponent piece first)
-                # This enables the "any piece can be lifted first" requirement
+            # Process lift if: field not in legal squares, no source square yet, and it's current player's piece
+            if field not in self._legal_squares and self._source_square is None and is_current_player_piece:
+                # Generate a list of places this piece can move to
+                self._legal_squares = self._calculate_legal_squares(field)
+                self._source_square = field
+                log.info(f"[GameManager] Current player piece lifted at {field}, legal squares: {self._legal_squares}")
+            
+            # Track opposing side lifts so we can guide returning them if moved
+            if not is_current_player_piece:
                 self._other_source_square = field
-                log.info(f"[GameManager] Opponent piece lifted at {field} - can be taken by current player's piece")
+                log.info(f"[GameManager] Opponent piece lifted at {field}")
+            
+            # Handle forced move logic
+            if self._is_forced_move and self._forced_move and is_current_player_piece:
+                # If this is a forced move (computer move) then the piece lifted should equal the start of forced_move
+                # otherwise set legalsquares so they can just put the piece back down!
+                if field_name != self._forced_move[0:2]:
+                    # Forced move but wrong piece lifted
+                    self._legal_squares = {field}
+                else:
+                    # Forced move, correct piece lifted, limit legal squares
+                    target = self._forced_move[2:4]
+                    tsq = chess.parse_square(target)
+                    self._legal_squares = {tsq}
         
         # Handle place events
         if place:
-            # Ignore stale PLACE events without corresponding LIFT
-            if self._source_square is None and self._other_source_square is None:
+            # If opponent piece is placed back on original square, turn LEDs off and reset
+            if not is_current_player_piece and self._other_source_square is not None and field == self._other_source_square:
+                board.ledsOff()
+                self._other_source_square = None
+                return
+            
+            # Ignore PLACE events without a corresponding LIFT (stale events from before reset)
+            # This prevents triggering correction mode when a PLACE event arrives after reset
+            # but before the piece is lifted again in the new game state
+            # Allow opponent piece placement back (othersourcesq >= 0) and forced moves
+            if place and self._source_square is None and self._other_source_square is None:
+                # After correction mode exits, there may be stale PLACE events from the correction process
+                # Ignore them unless it's a forced move source square (which we handle separately)
                 if self._correction_just_exited:
-                    # Check if this is forced move source square
+                    # Check if this is the forced move source square - if so, we'll handle it below
+                    # Otherwise, ignore it as a stale event from correction
                     if self._is_forced_move and self._forced_move and len(self._forced_move) >= 4:
                         forced_source = chess.parse_square(self._forced_move[0:2])
                         if field != forced_source:
-                            log.info(f"[GameManager] Ignoring stale PLACE event after correction exit for field {field}")
+                            log.info(f"[GameManager] Ignoring stale PLACE event after correction exit for field {field} (not forced move source)")
                             self._correction_just_exited = False
                             return
                     else:
                         log.info(f"[GameManager] Ignoring stale PLACE event after correction exit for field {field}")
                         self._correction_just_exited = False
                         return
-                else:
+                
+                # For forced moves, also ignore stale PLACE events on the source square
+                # (the forced move source square) before the LIFT has been processed
+                if self._is_forced_move and self._forced_move and len(self._forced_move) >= 4:
+                    forced_source = chess.parse_square(self._forced_move[0:2])
+                    if field == forced_source:
+                        log.info(f"[GameManager] Ignoring stale PLACE event for forced move source field {field} (no corresponding LIFT)")
+                        self._correction_just_exited = False
+                        return
+                if not self._is_forced_move:
                     log.info(f"[GameManager] Ignoring stale PLACE event for field {field} (no corresponding LIFT)")
+                    self._correction_just_exited = False
                     return
             
-            # Handle opponent piece placed back
-            # Check if this is the opponent piece that was lifted
-            if self._other_source_square is not None and field == self._other_source_square:
-                # Opponent piece placed back on original square
-                board.ledsOff()
-                self._other_source_square = None
+            # Check if move is illegal
+            if place and field not in self._legal_squares:
+                board.beep(board.SOUND_WRONG_MOVE)
+                log.warning(f"[GameManager] Piece placed on illegal square {field}")
+                is_takeback = self._check_takeback()
+                if not is_takeback:
+                    self._enter_correction_mode()
+                    current_state = bytearray(board.getChessState())
+                    if self._board_states:
+                        self._provide_correction_guidance(current_state, self._board_states[-1])
                 return
             
-            # Handle current player piece placement
-            # Check if we have a source square (piece was lifted) OR if this is a valid current player piece
-            if self._source_square is not None:
-                # We have a lifted piece - determine if it's current player's piece
-                # Check the source square's piece color (should still be in logical board)
-                source_piece_color = self._board.color_at(self._source_square)
-                if source_piece_color is None:
-                    # Piece was already moved in logical board - check if it matches current turn
-                    # This shouldn't happen normally, but handle it gracefully
-                    log.warning(f"[GameManager] Source square {self._source_square} has no piece in logical board")
-                    # Assume it's valid if we got this far
-                    is_current_player_move = True
-                else:
-                    is_current_player_move = (self._board.turn == chess.WHITE) == (source_piece_color == True)
-                
-                if not is_current_player_move:
-                    log.warning(f"[GameManager] Placed piece doesn't belong to current player - ignoring")
-                    return
-                
-                # Recalculate legal squares in case board state changed (e.g., opponent piece was lifted)
-                # This ensures captures work correctly even if opponent piece was lifted first
-                current_legal_squares = self._calculate_legal_squares(self._source_square)
-                if field not in current_legal_squares:
-                    # Illegal move
-                    board.beep(board.SOUND_WRONG_MOVE)
-                    log.warning(f"[GameManager] Piece placed on illegal square {field}")
-                    
-                    # Check for takeback
-                    if not self._check_takeback():
-                        # Not a takeback - guide misplaced piece
-                        self._enter_correction_mode()
-                        current_state = bytearray(board.getChessState())
-                        if self._board_states:
-                            self._provide_correction_guidance(current_state, self._board_states[-1])
-                    return
-                
-                # Update legal squares to current calculation
-                self._legal_squares = current_legal_squares
-                
-                # Legal move
+            # Legal move
+            if place and field in self._legal_squares:
+                log.info(f"[GameManager] Making move")
                 if field == self._source_square:
-                    # Piece placed back - cancel move
+                    # Piece has simply been placed back
                     board.ledsOff()
                     self._source_square = None
                     self._legal_squares = set()
                 else:
-                    # Make the move
+                    # Piece has been moved
                     from_name = chess.square_name(self._source_square)
                     to_name = chess.square_name(field)
                     piece_name = str(self._board.piece_at(self._source_square))
-                    
                     promotion_suffix = self._handle_promotion(field, piece_name, self._is_forced_move)
                     
-                    if self._is_forced_move and self._forced_move:
+                    if self._is_forced_move:
                         move_uci = self._forced_move
                     else:
                         move_uci = from_name + to_name + promotion_suffix
                     
-                    # Make the move
+                    # Make the move and update fen.log
                     move = chess.Move.from_uci(move_uci)
                     self._board.push(move)
                     paths.write_fen_log(self._board.fen())
@@ -529,19 +505,20 @@ class GameManager:
                     # Notify move
                     self._notify_move(move_uci)
                     board.beep(board.SOUND_GENERAL)
+                    # Also light up the square moved to
                     board.led(field)
                     
-                    # Check game outcome
+                    # Check the outcome
                     outcome = self._board.outcome(claim_draw=True)
                     if outcome is None:
-                        # Game continues - switch turn
+                        # Switch the turn
                         if self._board.turn == chess.WHITE:
                             self._notify_event(GameEvent.WHITE_TURN)
                         else:
                             self._notify_event(GameEvent.BLACK_TURN)
                     else:
-                        # Game over
                         board.beep(board.SOUND_GENERAL)
+                        # Update game result in database and trigger callback
                         result_str = str(self._board.result())
                         termination = str(outcome.termination)
                         
