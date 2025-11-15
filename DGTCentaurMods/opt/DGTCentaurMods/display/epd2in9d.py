@@ -225,7 +225,7 @@ class EPD:
         pixels = image_monocolor.load()
         # log.debug("imwidth = %d, imheight = %d",imwidth,imheight)
         if(imwidth == self.width and imheight == self.height):
-            log.debug("Vertical")
+            # Vertical orientation (128x296)
             for y in range(imheight):
                 for x in range(imwidth):
                     # Set the bits for the column of pixels at the current
@@ -234,7 +234,7 @@ class EPD:
                         buf[int((x + y * self.width) / 8)
                             ] &= ~(0x80 >> (x % 8))
         elif(imwidth == self.height and imheight == self.width):
-            log.debug("Horizontal")
+            # Horizontal orientation (296x128)
             for y in range(imheight):
                 for x in range(imwidth):
                     newx = y
@@ -244,7 +244,6 @@ class EPD:
                             ] &= ~(0x80 >> (y % 8))
         else:
             # A different sized image
-            log.debug("Other")
             for y in range(imheight):
                 for x in range(imwidth):
                     # Set the bits for the column of pixels at the current
