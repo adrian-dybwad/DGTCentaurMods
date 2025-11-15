@@ -154,7 +154,7 @@ elif is_engine "$1"; then
     *)           ENGINE_FILE="${ENGINE_NAME}" ;;
   esac
   
-  MODULE="DGTCentaurMods.uci"
+  MODULE="DGTCentaurMods.game.uci"
   MODULE_ARGS=("$SIDE" "$ENGINE_FILE" "$PRESET")
   echo "Launching UCI engine mode: engine=$ENGINE_FILE, side=$SIDE, preset=$PRESET"
 elif [[ "$1" == DGTCentaurMods.* ]] || [[ "$1" == *"."* ]]; then

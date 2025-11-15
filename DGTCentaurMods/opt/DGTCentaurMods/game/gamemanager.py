@@ -77,7 +77,6 @@ movecallbackfunction = None
 eventcallbackfunction = None
 takebackcallbackfunction = None
 cboard = chess.Board()
-curturn = 1
 sourcesq = -1
 othersourcesq = -1
 legalsquares = []
@@ -132,7 +131,6 @@ def checkLastBoardState():
     global session
     global cboard
     global takebackcallbackfunction
-    global curturn
     if takebackcallbackfunction != None and len(boardstates) > 1:
         log.info(f"[gamemanager.checkLastBoardState] Checking last board state")
         current_state = board.getChessState()
@@ -150,7 +148,7 @@ def checkLastBoardState():
             session.commit()
             cboard.pop()
             paths.write_fen_log(cboard.fen())
-            _switch_turn()
+            # cboard.pop() automatically switches the turn, no need to manually switch
             board.beep(board.SOUND_GENERAL)
             takebackcallbackfunction()
             
@@ -202,21 +200,16 @@ def _uci_to_squares(uci_move):
     tonum = ((ord(uci_move[3:4]) - ord("1")) * BOARD_WIDTH) + (ord(uci_move[2:3]) - ord("a"))
     return fromnum, tonum
 
-def _switch_turn():
-    """Switch the current turn (0->1 or 1->0)."""
-    global curturn
-    curturn = 1 - curturn
-
 def _switch_turn_with_event():
-    """Switch the current turn and trigger appropriate event callback."""
-    global curturn, eventcallbackfunction
-    if curturn == 0:
-        curturn = 1
-        if eventcallbackfunction is not None:
+    """
+    Trigger appropriate event callback based on current turn.
+    Note: cboard.turn is automatically switched by cboard.push(), so we only need to trigger the event.
+    """
+    global eventcallbackfunction, cboard
+    if eventcallbackfunction is not None:
+        if cboard.turn == chess.WHITE:
             eventcallbackfunction(EVENT_WHITE_TURN)
-    else:
-        curturn = 0
-        if eventcallbackfunction is not None:
+        else:
             eventcallbackfunction(EVENT_BLACK_TURN)
 
 def _update_game_result(resultstr, termination, context=""):
@@ -549,7 +542,6 @@ def fieldcallback(piece_event, field, time_in_seconds):
     # Receives field events. piece_event: 0 = lift, 1 = place. Numbering 0 = a1, 63 = h8
     # Use this to calculate moves
     global cboard
-    global curturn
     global movecallbackfunction
     global sourcesq
     global othersourcesq
@@ -569,8 +561,10 @@ def fieldcallback(piece_event, field, time_in_seconds):
     place = (piece_event == 1)
     
     # Check if piece color matches current turn
-    # vpiece = 1 if piece belongs to current player, 0 otherwise
-    vpiece = ((curturn == 0) == (piece_color == False)) or ((curturn == 1) == (piece_color == True))
+    # vpiece = True if piece belongs to current player, False otherwise
+    # cboard.turn is chess.WHITE (True) or chess.BLACK (False)
+    # piece_color is True for white pieces, False for black pieces
+    vpiece = (cboard.turn == chess.WHITE) == (piece_color == True)
     
     if lift and field not in legalsquares and sourcesq < 0 and vpiece:
         # Generate a list of places this piece can move to
@@ -758,8 +752,7 @@ def _reset_game():
         log.info("DEBUG: Detected starting position - triggering NEW_GAME")
         # Reset move-related state variables to prevent stale values from previous game/correction
         resetMoveState()
-        curturn = 1
-        cboard.reset()
+        cboard.reset()  # cboard.reset() sets turn to WHITE automatically
         paths.write_fen_log(cboard.fen())
         _double_beep()
         board.ledsOff()
@@ -799,15 +792,15 @@ def clockThread():
     # This thread just decrements the clock and updates the epaper
     global whitetime
     global blacktime
-    global curturn
     global kill
     global cboard
     global showingpromotion
     while kill == 0:
         time.sleep(CLOCK_DECREMENT_SECONDS)  # epaper refresh rate means we can only have an accuracy of around 2 seconds
-        if whitetime > 0 and curturn == 1 and cboard.fen() != STARTING_FEN:
+        # cboard.turn is chess.WHITE (True) or chess.BLACK (False)
+        if whitetime > 0 and cboard.turn == chess.WHITE and cboard.fen() != STARTING_FEN:
             whitetime = whitetime - CLOCK_DECREMENT_SECONDS
-        if blacktime > 0 and curturn == 0:
+        if blacktime > 0 and cboard.turn == chess.BLACK:
             blacktime = blacktime - CLOCK_DECREMENT_SECONDS
         if not showingpromotion:
             timestr = _format_time(whitetime, blacktime)

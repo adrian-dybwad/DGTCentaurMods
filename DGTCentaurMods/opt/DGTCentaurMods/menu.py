@@ -42,6 +42,7 @@ menuitem = 1
 curmenu = None
 selection = ""
 centaur_software = "/home/pi/centaur/centaur"
+game_folder = "game"
 
 event_key = threading.Event()
 idle = False # ensure defined before keyPressed can be called
@@ -686,15 +687,15 @@ while True:
         os.system("sudo systemctl stop DGTCentaurMods.service")
         sys.exit()
     if result == "pegasus":
-        rc = run_external_script("game/pegasus.py", start_key_polling=True)
+        rc = run_external_script(f"{game_folder}/pegasus.py", start_key_polling=True)
     if result == "EmulateEB":
         result = doMenu("EmulateEB")
         if result == "dgtclassic":
-            rc = run_external_script("game/eboard.py", start_key_polling=True)
+            rc = run_external_script(f"{game_folder}/eboard.py", start_key_polling=True)
         if result == "millennium":
-            rc = run_external_script("game/millennium.py", start_key_polling=True)
+            rc = run_external_script(f"{game_folder}/millennium.py", start_key_polling=True)
     if result == "1v1Analysis":
-        rc = run_external_script("game/1v1Analysis.py", start_key_polling=True)
+        rc = run_external_script(f"{game_folder}/1v1Analysis.py", start_key_polling=True)
     if result == "settings":
         setmenu = {
             "WiFi": "Wifi Setup",
@@ -994,7 +995,7 @@ while True:
                         log.debug(f"menu current games")
                         game_id = result
                         log.debug(f"staring lichess")
-                        rc = run_external_script("game/lichess.py", "Ongoing", game_id, start_key_polling=True)
+                        rc = run_external_script(f"{game_folder}/lichess.py", "Ongoing", game_id, start_key_polling=True)
                 else:
                     log.warning("No ongoing games!")
                     epaper.writeText(1, "No ongoing games!")
@@ -1015,7 +1016,7 @@ while True:
                 if result != "BACK":
                     log.debug('menu active: Challenge')
                     game_id, challenge_direction = result.split(":")
-                    rc = run_external_script("game/lichess.py", "Challenge", game_id, challenge_direction, start_key_polling=True)
+                    rc = run_external_script(f"{game_folder}/lichess.py", "Challenge", game_id, challenge_direction, start_key_polling=True)
 
             else:  # new Rated or Unrated
                 if result == "Rated":
@@ -1043,7 +1044,7 @@ while True:
                         seek_time = result.split(",")
                         gtime = int(seek_time[0])
                         gincrement = int(seek_time[1])
-                        rc = run_external_script("game/lichess.py", "New", gtime, gincrement, rated, color, start_key_polling=True)
+                        rc = run_external_script(f"{game_folder}/lichess.py", "New", gtime, gincrement, rated, color, start_key_polling=True)
     if result == "Engines":
         enginemenu = {}
         # Pick up the engines from the engines folder and build the menu
@@ -1094,10 +1095,10 @@ while True:
                         smenu[sect] = sect
                     sec = doMenu(smenu, result)
                     if sec != "BACK":
-                        rc = run_external_script("uci.py", color, result, sec, start_key_polling=True)
+                        rc = run_external_script(f"{game_folder}/uci.py", color, result, sec, start_key_polling=True)
                 else:
                     # With no uci file we just call the engine
-                    rc = run_external_script("uci.py", color, result, start_key_polling=True)
+                    rc = run_external_script(f"{game_folder}/uci.py", color, result, start_key_polling=True)
     if result == "HandBrain":
         # Pick up the engines from the engines folder and build the menu
         enginemenu = {}
@@ -1147,10 +1148,10 @@ while True:
                         smenu[sect] = sect
                     sec = doMenu(smenu, result)
                     if sec != "BACK":
-                        rc = run_external_script("game/handbrain.py", color, result, sec, start_key_polling=True)
+                        rc = run_external_script(f"{game_folder}/handbrain.py", color, result, sec, start_key_polling=True)
                 else:
                     # With no uci file we just call the engine
-                    rc = run_external_script("game/handbrain.py", color, result, start_key_polling=True)
+                    rc = run_external_script(f"{game_folder}/handbrain.py", color, result, start_key_polling=True)
     if result == "Custom":
         pyfiles = os.listdir("/home/pi")
         menuitems = {}

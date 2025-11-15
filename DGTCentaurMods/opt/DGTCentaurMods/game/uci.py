@@ -37,7 +37,6 @@ import threading
 from random import randint
 import configparser
 from PIL import Image, ImageDraw, ImageFont
-import pathlib
 import signal
 
 curturn = 1
@@ -192,8 +191,9 @@ ENGINE_PATH_NAME = "engines/" + enginename
 log.info("ENGINE_PATH_NAME: " + ENGINE_PATH_NAME)
 CT_800_PATH = "engines/ct800"
 log.info("CT_800_PATH: " + CT_800_PATH)
-AENGINE_PATH = str((pathlib.Path(__file__).parent / CT_800_PATH).resolve())
-PENGINE_PATH = str((pathlib.Path(__file__).parent / ENGINE_PATH_NAME).resolve())
+# Engine paths: go up one level from game/ to reach engines/ directory
+AENGINE_PATH = str((pathlib.Path(__file__).parent.parent / CT_800_PATH).resolve())
+PENGINE_PATH = str((pathlib.Path(__file__).parent.parent / ENGINE_PATH_NAME).resolve())
 UCI_FILE_PATH = PENGINE_PATH + ".uci"
 log.info(f"aengine: {AENGINE_PATH}")
 log.info(f"pengine: {PENGINE_PATH}")
@@ -596,7 +596,7 @@ def drawBoardLocal(fen):
             py = 0
             if (r // 2 == r / 2 and c // 2 == c / 2):
                 py = py + 16
-            if (r //2 != r / 2 and c // 2 != c / 2):
+            if (r //2 != r / 2 and c // 2 == c / 2):
                 py = py + 16
             if nfen[x] == "P":
                 px = 16
@@ -665,3 +665,4 @@ except KeyboardInterrupt:
 finally:
     log.info(">>> Final cleanup")
     do_cleanup()
+
