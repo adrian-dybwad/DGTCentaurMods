@@ -100,12 +100,13 @@ def epaperUpdate():
     global screensleep
     global sleepcount
     log.debug("started epaper update thread")
-    # Use Python implementation for initial display to avoid dimming issues
+    # Use DisplayPartial for initial display to ensure SetPartReg is called
+    # This sets up partial mode which is required for all updates
     im_init = epaperbuffer.copy()
     if screeninverted == 0:
         im_init = im_init.transpose(Image.FLIP_TOP_BOTTOM)
         im_init = im_init.transpose(Image.FLIP_LEFT_RIGHT)
-    epd.display(epd.getbuffer(im_init))
+    epd.DisplayPartial(epd.getbuffer(im_init))
     log.debug("epaper init image sent")
     # Initialize with the initial image bytes for comparison
     lastepaperbytes = im_init.tobytes()
