@@ -642,11 +642,14 @@ class UCIGame:
     def _draw_board(self, fen: str):
         """Draw the chess board from FEN string."""
         try:
-            log.info(f"drawBoardLocal: Starting to draw board with FEN: {fen[:20]}...")
+            log.info(f"_draw_board: Starting to draw board with FEN: {fen[:20]}...")
             
-            # Parse FEN
-            curfen = str(fen).split()[0]  # Get only position part
-            curfen = curfen.replace("/", "")
+            # Parse FEN - get only the position part (before first space)
+            # FEN format: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+            fen_str = str(fen)
+            # Split by space and take only the position part (first part)
+            position_part = fen_str.split()[0] if ' ' in fen_str else fen_str
+            curfen = position_part.replace("/", "")
             curfen = curfen.replace("1", " ")
             curfen = curfen.replace("2", "  ")
             curfen = curfen.replace("3", "   ")
@@ -656,7 +659,7 @@ class UCIGame:
             curfen = curfen.replace("7", "       ")
             curfen = curfen.replace("8", "        ")
             
-            # Reorder for display (rank 8 to rank 1)
+            # Reorder for display (rank 8 to rank 1, matching original code)
             nfen = ""
             for rank in range(8, 0, -1):
                 for file in range(0, 8):
@@ -667,6 +670,10 @@ class UCIGame:
             draw = ImageDraw.Draw(lboard)
             chessfont = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
             
+            # Gray color for dark squares (using value 0 for black/gray in 1-bit mode)
+            # In 1-bit mode, 0 is black/gray, 255 is white
+            GRAY_SQUARE = 0  # Black/gray for dark squares
+            
             for x in range(0, 64):
                 pos = (x - 63) * -1
                 row = (16 * (pos // 8))
@@ -676,11 +683,18 @@ class UCIGame:
                 c = x % 8
                 py = 0
                 
-                # Determine square color
+                # Determine if this is a dark square (for drawing gray background)
+                is_dark_square = False
                 if (r // 2 == r / 2 and c // 2 == c / 2):
                     py = py + 16
+                    is_dark_square = True
                 if (r // 2 != r / 2 and c // 2 == c / 2):
                     py = py + 16
+                    is_dark_square = True
+                
+                # Draw gray square background for dark squares
+                if is_dark_square:
+                    draw.rectangle([(col, row), (col + 15, row + 15)], fill=GRAY_SQUARE, outline=GRAY_SQUARE)
                 
                 # Determine piece sprite
                 piece_char = nfen[x]
