@@ -42,7 +42,7 @@ menuitem = 1
 curmenu = None
 selection = ""
 centaur_software = "/home/pi/centaur/centaur"
-game_folder = "game"
+game_folder = "games"
 
 event_key = threading.Event()
 idle = False # ensure defined before keyPressed can be called
