@@ -404,6 +404,20 @@ class GameManager:
     
     def _field_callback(self, piece_event: int, field: int, time_in_seconds: float) -> None:
         """Handle field events (piece lift/place)."""
+        # Check for starting position on every field event (not just in correction mode)
+        current_state = board.getChessState()
+        if current_state is not None and len(current_state) == BOARD_SIZE:
+            if bytearray(current_state) == STARTING_STATE:
+                # Always trigger new game when starting position is detected
+                # (either fresh start or reset during active game)
+                log.info("[GameManager] Starting position detected in field callback - triggering new game")
+                board.ledsOff()
+                board.beep(board.SOUND_GENERAL)
+                time.sleep(0.3)
+                board.beep(board.SOUND_GENERAL)
+                self._reset_game()
+                return
+        
         field_name = chess.square_name(field)
         is_lift = (piece_event == 0)
         is_place = (piece_event == 1)
@@ -814,11 +828,13 @@ class GameManager:
             time.sleep(0.1)
             
             # Periodically check for starting position during active game
-            if not self._correction_mode and len(self._board_states) > 0:
+            # Check more frequently - if starting position detected, always reset
+            if not self._correction_mode:
                 current_state = board.getChessState()
                 if current_state and self._is_starting_position(bytearray(current_state)):
-                    # Only trigger if board has changed significantly (not just a momentary state)
-                    if len(self._board_states) > 1:
+                    # Only trigger if we have board states (game was active) to avoid reset loops
+                    # If board_states is empty, field callback will handle it
+                    if len(self._board_states) > 0:
                         log.info("[GameManager] Starting position detected during active game")
                         self._reset_game()
     
