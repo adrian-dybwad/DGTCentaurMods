@@ -420,11 +420,10 @@ def printChessState(state = None, loglevel = logging.INFO):
     # Chess coordinates: row 7 (56-63) = rank 8, row 0 (0-7) = rank 1
     for rank in range(7, -1, -1):  # Iterate from rank 8 (row 7) down to rank 1 (row 0)
         x = rank * 8  # Starting index for this rank
-        line += "\r\n+---+---+---+---+---+---+---+---+"
-        line += "\r\n|"
+        line += "\r\n"
         for y in range(0, 8):
-            line += " " + str(state[x + y]) + " |"
-    line += "\r\n+---+---+---+---+---+---+---+---+\n"
+            line += " " + str(state[x + y]) if state[x + y] != 0 else " . " + " "
+    line += "\r\n\n"
     log.log(loglevel, line)
 
 def getBatteryLevel():
