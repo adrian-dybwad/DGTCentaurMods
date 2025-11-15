@@ -37,6 +37,12 @@ class EpaperService:
         self._driver.init()
         self._scheduler = RefreshScheduler(self._driver, self._framebuffer)
         self._scheduler.start()
+        # Clear both buffer and physical panel so we never show stale frames on boot.
+        region = Region.full(self._framebuffer.width, self._framebuffer.height)
+        with self._framebuffer.acquire_canvas() as canvas:
+            canvas.draw.rectangle(region.to_box(), fill=255, outline=255)
+            canvas.mark_dirty(region)
+        self.submit_full(await_completion=True)
         self._initialized = True
 
     def shutdown(self) -> None:
