@@ -90,7 +90,7 @@ import time
 import sys
 from os.path import exists
 from DGTCentaurMods.board import *
-from DGTCentaurMods.display import epaper
+from DGTCentaurMods.display.epaper_service import service, widgets
 from DGTCentaurMods.db import models
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine, MetaData, func
@@ -98,7 +98,6 @@ import threading
 import chess
 import os
 from PIL import Image, ImageDraw, ImageFont
-from DGTCentaurMods.display import epd2in9d
 import pathlib
 from DGTCentaurMods.config import paths
 import select
@@ -208,11 +207,11 @@ litsquares = []
 startstate = bytearray(b'\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01')
 
 # Initialise epaper display
-epaper.initEpaper()
+service.init()
 
 if bytearray(board.getBoardState()) != startstate:
-	epaper.writeText(0,'Place pieces')
-	epaper.writeText(1,'in startpos')
+	widgets.write_text(0,'Place pieces')
+	widgets.write_text(1,'in startpos')
 	# As the centaur can light up squares - let's use the
 	# squares to help people out
 	while bytearray(board.getBoardState()) != startstate:
@@ -388,7 +387,7 @@ def drawCurrentBoard():
 			pieces[x]='k'
 		if pieces[x] == EMPTY:
 			pieces[x]=' '
-	epaper.drawBoard(pieces,3)
+	widgets.draw_board(pieces,3)
 
 boardtoscreen = 0
 
@@ -575,7 +574,7 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 					board.sendCustomBeep(b'\x50\x08\x00\x08\x59\x08\x00')
 					boardtoscreen = 0
 					time.sleep(1)
-					epaper.promotionOptions(9)
+					widgets.promotion_options(9)
 					boardtoscreen = 2
 					# Wait for button press in keyEventCallback
 					while _piece_state['promotion_waiting']:
@@ -585,7 +584,7 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 						promoted = 1
 					else:
 						lastlift = WQUEEN  # Default to queen if timeout
-					epaper.writeText(9,"              ")
+					widgets.write_text(9,"              ")
 				
 				if lastlift == BPAWN and dgt_field < 8:
 					_piece_state['promotion_waiting'] = True
@@ -593,7 +592,7 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 					board.sendCustomBeep(b'\x50\x08\x00\x08\x59\x08\x00')
 					boardtoscreen = 0
 					time.sleep(1)
-					epaper.promotionOptions(9)
+					widgets.promotion_options(9)
 					boardtoscreen = 2
 					# Wait for button press in keyEventCallback
 					while _piece_state['promotion_waiting']:
@@ -603,7 +602,7 @@ def pieceEventCallback(piece_event, field, time_in_seconds):
 						promoted = 1
 					else:
 						lastlift = BQUEEN  # Default to queen if timeout
-					epaper.writeText(9,"              ")
+					widgets.write_text(9,"              ")
 				
 				if lastlift == WPAWN and dgt_field >= 40 and dgt_field <= 47:
 					if (dgt_field == lastfield + 9) or (dgt_field == lastfield + 7):
@@ -948,10 +947,10 @@ def pieceMoveDetectionThread():
 			paths.write_fen_log(cb.fen())
 			if curturn == 1:
 				log.info("White turn")
-				epaper.writeText(10,"White turn")
+				widgets.write_text(10,"White turn")
 			else:
 				log.info("Black turn")
-				epaper.writeText(10,"Black turn")
+				widgets.write_text(10,"Black turn")
 
 			timer = timer + 1
 			if timer > 5:
@@ -1106,7 +1105,7 @@ def pieceMoveDetectionThread():
 					)
 					session.add(gamemove)
 					session.commit()
-					epaper.writeText(10, "White turn")
+					widgets.write_text(10, "White turn")
 				else:
 					if bytearray(r) != startstate:
 						startstateflag = 0
@@ -1151,8 +1150,8 @@ bluetooth.advertise_service(server_sock, "UARTClassicServer", service_id=uuid,
                             )
 
 log.info("Waiting for connection on RFCOMM channel: " + str(port))
-epaper.writeText(0,'Connect remote')
-epaper.writeText(1,'Device Now')
+widgets.write_text(0,'Connect remote')
+widgets.write_text(1,'Device Now')
 connected = 0
 while connected == 0 and kill == 0:
 	try:
@@ -1181,8 +1180,8 @@ if kill == 1:
 log.info("Connected")
 
 #bt = serial.Serial("/dev/rfcomm0",baudrate=9600, timeout=10)
-epaper.clearScreen()
-epaper.writeText(0,'Connected')
+widgets.clear_screen()
+widgets.write_text(0,'Connected')
 log.info("pieceMoveDetectionThread started")
 
 # Set up callbacks for piece and button events
@@ -1233,7 +1232,7 @@ sendupdates = 0
 timer = 0
 # 0 for black, 1 for white
 curturn = 1
-epaper.writeText(10,"White turn")
+widgets.write_text(10,"White turn")
 
 pMove = threading.Thread(target=pieceMoveDetectionThread,args=())
 pMove.daemon = True
@@ -1333,7 +1332,7 @@ def clockRun():
 				rsec = rclock % 60
 				timestr = "{:02d}".format(lmin) + ":" + "{:02d}".format(lsec) + "       " + "{:02d}".format(rmin) + ":" + "{:02d}".format(rsec)
 				if showclock == 1:
-					epaper.writeText(12,timestr)
+					widgets.write_text(12,timestr)
 		if clockturn == 2:
 			if rclock > 0:
 				if clockpaused == 0:
@@ -1345,7 +1344,7 @@ def clockRun():
 				timestr = "{:02d}".format(lmin) + ":" + "{:02d}".format(lsec) + "       " + "{:02d}".format(
 					rmin) + ":" + "{:02d}".format(rsec)
 				if showclock == 1:
-					epaper.writeText(12, timestr)
+					widgets.write_text(12, timestr)
 		sendClockData()
 		time.sleep(1)
 
@@ -1361,8 +1360,8 @@ while True and dodie == 0:
 			if data[0] == DGT_SEND_RESET or data[0] == DGT_STARTBOOTLOADER:
 				# Puts the board in IDLE mode
 				#board.clearBoardData()
-				#board.writeText(0, 'Init')
-				#board.writeText(1, '         ')
+				#widgets.write_text(0, 'Init')
+				#widgets.write_text(1, '         ')
 				if debugcmds == 1:
 					log.info("DGT_SEND_RESET")
 				sendupdates = 0
@@ -1836,14 +1835,14 @@ while True and dodie == 0:
 				tosend.append(cboard[0])
 				bt.send(bytes(tosend))
 				#bt.flush()
-				#board.writeText(0, 'PLAY   ')
-				#board.writeText(1, '         ')
+				#widgets.write_text(0, 'PLAY   ')
+				#widgets.write_text(1, '         ')
 				# Here let's actually loop through reading the board states
 				sendupdates = 1
 				handled = 1
 			if data[0] == DGT_SEND_UPDATE_NICE:
-				#board.writeText(0, 'PLAY   ')
-				#board.writeText(1, '         ')
+				#widgets.write_text(0, 'PLAY   ')
+				#widgets.write_text(1, '         ')
 				if debugcmds == 1:
 					log.info("DGT_SEND_UPDATE_NICE")
 				sendupdates = 1
@@ -1960,7 +1959,7 @@ while True and dodie == 0:
 					asciimessage = ""
 					for qi in range(2,11):
 						asciimessage = asciimessage + chr(d[qi])
-					epaper.writeText(13,asciimessage + "               ")
+					widgets.write_text(13,asciimessage + "               ")
 					#if d[12] > 0:
 					#	board.beep(board.SOUND_GENERAL)
 					tosend = bytearray(b'')
@@ -1989,7 +1988,7 @@ while True and dodie == 0:
 						asciimessage = asciimessage + chr(d[qi])
 					log.info("|||" + asciimessage + "||||")
 					if "RevII" not in asciimessage and "PicoChs" not in asciimessage:
-						epaper.writeText(13,asciimessage + "               ")
+						widgets.write_text(13,asciimessage + "               ")
 					#if d[13] > 0:
 						#board.beep(board.SOUND_GENERAL)
 					tosend = bytearray(b'')
@@ -2049,4 +2048,4 @@ while True and dodie == 0:
 bt.close()
 # Annoyingly this is needed to force a drop of the connection
 os.system('sudo systemctl restart rfcomm')
-epaper.writeText(0,'Disconnected')
+widgets.write_text(0,'Disconnected')

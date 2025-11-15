@@ -11,31 +11,31 @@
 ## 2. Driver Implementations
 | Location | Purpose | Notes |
 | --- | --- | --- |
-| `opt/DGTCentaurMods/display/epaper.py` | Primary runtime driver wrapper. Maintains global `epaperbuffer`, spawns an update thread, decides between `DisplayPartial` vs `DisplayRegion`. | Mixed responsibilities (buffer management, drawing helpers, menu rendering). Uses globals for thread life-cycle; no locking; writes static JPG side-effect. |
-| `opt/DGTCentaurMods/display/epaper_driver.py` | Thin ctypes bridge to `epaperDriver.so`. Exposes `display`, `DisplayPartial`, `DisplayRegion`, `sleepDisplay`, `powerOffDisplay`. | No error handling; automatically loads shared object and opens hardware during import; no abstraction for alternative backends (proxy, simulator). |
-| `opt/DGTCentaurMods/display/epd2in9d.py` | Legacy Waveshare-style Python driver (SPI bit-banging). | Mostly unused directly but still imported by some tools; duplicates reset/command timings. |
-| `opt/DGTCentaurMods/update/lib/epaper.py` | Copy of the runtime driver for the on-device updater. | Diverges (uses `epd2in9d` directly instead of `epaper_driver.py`), lacks region diffing, uses blocking `display()` for every frame (slow). |
-| `tools/card-setup-tool/lib/epaper.py` | Another copy for the SD-card/first-boot tooling. | Same issues as update-version; no logging; thread never joins; sleeps baked in. |
-| `build/vm-setup/epaper_proxy_{server,client,wrapper}.py` | Test/proxy driver for VM harness. | Reimplements `epaperDriver` semantics but only for dev workflow; not integrated with runtime selection logic. |
+| ~~`opt/DGTCentaurMods/display/epaper.py`~~ | Legacy runtime wrapper (removed). | Superseded by `display.epaper_service` on 2025‑11‑15; responsibilities split between `FrameBuffer`, `RefreshScheduler`, and `widgets`. |
+| ~~`opt/DGTCentaurMods/display/epaper_driver.py`~~ | Legacy ctypes bridge (removed). | Native access now lives in `display/epaper_service/drivers/native.py` with proper dependency injection. |
+| ~~`opt/DGTCentaurMods/display/epd2in9d.py`~~ | Waveshare reference driver (removed). | Eliminated to avoid parallel code paths; the shared object `epaperDriver.so` is consumed exclusively by the native driver wrapper. |
+| ~~`opt/DGTCentaurMods/update/lib/epaper.py`~~ | Stand-alone updater copy (removed). | Updater now imports the primary `epaper_service` directly, so no forked driver code remains. |
+| ~~`tools/card-setup-tool/lib/epaper.py`~~ | SD-card/first-boot copy (removed). | First-boot utility dynamically extracts the release `.deb` and reuses the real service implementation. |
+| `build/vm-setup/epaper_proxy_{server,client,wrapper}.py` | VM proxy harness. | Server now calls `epaper_service`, wrapper simply exports `EPAPER_DRIVER=proxy`, and the client continues to forward image payloads. |
 
 ## 3. Direct Usage Sites
-The following modules import `DGTCentaurMods.display.epaper` directly and manipulate globals/drawing primitives:
-- Runtime/game logic: `opt/DGTCentaurMods/game/gamemanager.py`, `opt/DGTCentaurMods/games/manager.py`, both `.../game/uci.py`, `.../games/uci.py`, `game/1v1Analysis.py`, `menu.py`, `ui/epaper_menu.py`, `ui/simple_text_input.py`, `board/board.py`.
-- Background services: `scripts/update.sh` indirectly when launching update module, `update/update.py`, `update/lib/*.py`.
-- Tooling: everything under `tools/card-setup-tool/lib/`, several scripts in `build/vm-setup`, plus developer probes in `tools/dev-tools/*probe*.py`.
+All runtime, service, tooling, and UI modules now depend on `display.epaper_service` exclusively. This section is retained for historical context; prior to 2025‑11‑15 the files listed below mutated `epaperbuffer` directly and made incompatible driver calls:
+- Runtime/game logic (`game/gamemanager.py`, `games/manager.py`, `game/uci.py`, `games/uci.py`, `game/1v1Analysis.py`, `menu.py`, `ui/epaper_menu.py`, `ui/simple_text_input.py`, `board/board.py`).
+- Background services (`scripts/update.sh`, `update/update.py`, legacy `update/lib/*.py`).
+- Tooling (`tools/card-setup-tool/lib`, `build/vm-setup/*`, developer probes).
 
-Each file makes assumptions about:
+When those modules were coupled to the legacy driver they made assumptions about:
 1. Whether the update thread is currently paused.
 2. Whether `epaperbuffer` can be mutated without locking.
 3. How to trigger partial updates (`drawImagePartial`, `drawWindow`, manual driver calls).
 4. Arbitrary `time.sleep` delays the author sprinkled to “wait for refresh”.
 
 ## 4. Deficiencies
-- **No central API contract**: call sites freely mix `driver.DisplayRegion`, `epaper.drawImagePartial`, direct buffer writes, or `epaper_driver.display`.
+- **No central API contract**: legacy call sites mixed `driver.DisplayRegion`, `epaper.drawImagePartial`, direct buffer writes, or `epaper_driver.display`. The unified service eliminates these entry points.
 - **Thread-safety**: no locks; two callers can mutate `epaperbuffer` while the update thread copies it, resulting in torn frames.
 - **No capability detection**: hardware vs proxy vs simulator vs updater all require different init sequences yet rely on implicit side effects at import time.
 - **Partial-update math**: `compute_changed_region` in `display/epaper.py` tries to diff byte arrays but assumes 16 bytes per row — contradicting the datasheet (actually 16 bytes per 128-px row, so this is mostly correct but it ignores controller row-alignment requirements). Other copies skip diffing entirely.
-- **Redundant copies**: at least three forks of the same driver logic (`display/epaper.py`, `update/lib/epaper.py`, `tools/card-setup-tool/lib/epaper.py`) have drifted, making bug fixes inconsistent.
+- **Redundant copies**: at least three forks of the same driver logic (`display/epaper.py`, `update/lib/epaper.py`, `tools/card-setup-tool/lib/epaper.py`) have drifted, making bug fixes inconsistent. _Resolved: all copies removed and replaced with the centralized service._
 - **Blocking sleeps**: dozens of modules call `time.sleep` after draw calls “to let the screen update”, which actually slows down refresh and defeats the diffing thread.
 - **No instrumentation**: cannot measure refresh latency or detect missed frames because there is no central logger/metrics surface.
 

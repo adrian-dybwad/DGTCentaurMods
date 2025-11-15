@@ -37,7 +37,7 @@ import berserk
 import chess
 import chess.engine
 from DGTCentaurMods.board import board, centaur
-from DGTCentaurMods.display import epaper
+from DGTCentaurMods.display.epaper_service import service, widgets
 from DGTCentaurMods.game import gamemanager
 from DGTCentaurMods.board.logging import log
 
@@ -52,6 +52,7 @@ player = None
 remotemoves = ""
 lastremotemoves = "1234"
 lastmove = "1234"
+board_flip = False
 
 def keyCallback(key):
 	global kill
@@ -81,40 +82,41 @@ def eventCallback(event):
 	global kill
 	global playeriswhite
 	global gameid
+	global board_flip
 	# This function receives event callbacks about the game in play
 	if event == gamemanager.EVENT_NEW_GAME:
-		epaper.writeText(0,"New Game")
+		widgets.write_text(0,"New Game")
 		curturn = 1
-		epaper.drawFen(gamemanager.getFEN(),3)
-		epaper.writeText(10, whiteplayer)
-		epaper.writeText(11, ("(" + whiterating.replace("None", "") + ")").replace("()",""))
-		epaper.writeText(1, blackplayer)
-		epaper.writeText(2, ("(" + blackrating.replace("None", "") + ")").replace("()",""))
+		widgets.draw_fen(gamemanager.getFEN(),3, flip=board_flip)
+		widgets.write_text(10, whiteplayer)
+		widgets.write_text(11, ("(" + whiterating.replace("None", "") + ")").replace("()",""))
+		widgets.write_text(1, blackplayer)
+		widgets.write_text(2, ("(" + blackrating.replace("None", "") + ")").replace("()",""))
 		if playeriswhite == 1:
 			# If it is the player's turn
-			epaper.writeText(12,"Your turn       ")
+			widgets.write_text(12,"Your turn       ")
 		else:
 			# Otherwise if it is the lichess player's turn
-			epaper.writeText(12,"Opponent turn   ")
+			widgets.write_text(12,"Opponent turn   ")
 	if event == gamemanager.EVENT_WHITE_TURN:
 		curturn = 1
-		epaper.writeText(0,"White turn")
+		widgets.write_text(0,"White turn")
 		if playeriswhite == 1:
 			# If it is the player's turn
-			epaper.writeText(12,"Your turn       ")
+			widgets.write_text(12,"Your turn       ")
 		else:
 			# Otherwise if it is the lichess player's turn
-			epaper.writeText(12,"Opponent turn   ")
+			widgets.write_text(12,"Opponent turn   ")
 			makeAPIMove()
 	if event == gamemanager.EVENT_BLACK_TURN:
 		curturn = 0
-		epaper.writeText(0,"Black turn")
+		widgets.write_text(0,"Black turn")
 		if playeriswhite == 0:
 			# If it is the player's turn
-			epaper.writeText(12,"Your turn       ")
+			widgets.write_text(12,"Your turn       ")
 		else:
 			# Otherwise if it is the lichess player's turn
-			epaper.writeText(12,"Opponent turn   ")
+			widgets.write_text(12,"Opponent turn   ")
 			makeAPIMove()
 	if event == gamemanager.EVENT_RESIGN_GAME:
 		client.board.resign_game(gameid)
@@ -137,7 +139,7 @@ def eventCallback(event):
 		# Termination.VARIANT_LOSS
 		# Termination.VARIANT_DRAW
 		if event.startswith("Termination."):
-			epaper.writeText(0,event[12:])
+			widgets.write_text(0,event[12:])
 			time.sleep(10)
 			kill = 1
 
@@ -148,7 +150,8 @@ def moveCallback(move):
 	global curturn
 	global playeriswhite
 	global lastmove
-	epaper.drawFen(gamemanager.getFEN(),3)
+	global board_flip
+	widgets.draw_fen(gamemanager.getFEN(),3, flip=board_flip)
 	# As long as we have player data we have a connection to the lichess api
 	# so send the move if it's our turn
 	log.info("make move called")
@@ -166,17 +169,17 @@ def moveCallback(move):
 			log.info(ret)
 
 
-# Activate the epaper
-epaper.initEpaper()
+# Initialize the ePaper service
+service.init()
 
 # Get the token
 token = centaur.get_lichess_api()
 if (token == "" or token == "tokenhere") and kill == 0:
 	log.info('no token')
-	epaper.writeText(0,"No API token      ")
-	epaper.writeText(1,"Fill it in       ")
-	epaper.writeText(2,"in the web")
-	epaper.writeText(3,"interface")
+	widgets.write_text(0,"No API token      ")
+	widgets.write_text(1,"Fill it in       ")
+	widgets.write_text(2,"in the web")
+	widgets.write_text(3,"interface")
 	time.sleep(10)
 	kill = 1
 	sys.exit()
@@ -186,10 +189,10 @@ if (token == "" or token == "tokenhere") and kill == 0:
 
 if (len(sys.argv) == 1) and kill == 0:
 	log.error("no parameter given!")
-	epaper.writeText(0,"Error:        ")
-	epaper.writeText(1,"lichess.py    ")
-	epaper.writeText(2,"no parameter")
-	epaper.writeText(3,"given!")
+	widgets.write_text(0,"Error:        ")
+	widgets.write_text(1,"lichess.py    ")
+	widgets.write_text(2,"no parameter")
+	widgets.write_text(3,"given!")
 	time.sleep(10)
 	kill = 1
 	sys.exit()
@@ -233,8 +236,8 @@ try:
 	player = str(who.get('username'))
 except:
 	log.info('no token')
-	epaper.writeText(0,"Error in API token")
-	epaper.writeText(1,"                 ")
+	widgets.write_text(0,"Error in API token")
+	widgets.write_text(1,"                 ")
 	time.sleep(10)
 	kill = 1
 	sys.exit()
@@ -250,7 +253,7 @@ def newGameThread():
 	global grated
 	global gcolor
 	ratingrange = centaur.lichess_range
-	epaper.writeText(0, "Finding Game...")
+	widgets.write_text(0, "Finding Game...")
 	# not sure if there was a reason this was a bunch of ifs
 	# Simplified it to a single call
 	seek_rated = True if grated == "True" else False
@@ -260,7 +263,7 @@ def newGameThread():
 def newChallengeThread():
 	global challengeid
 	global gameid
-	epaper.writeText(0, "Accepting challenge / waiting for the opponent...")
+	widgets.write_text(0, "Accepting challenge / waiting for the opponent...")
 	log.debug("Accepting challenge / waiting for the opponent...")
 	if challenge_direction == 'in':
 		client.challenges.accept(challengeid)
@@ -276,7 +279,7 @@ def newChallengeThread():
 	#global gameid
 	#if not ongoing:
 	#	raise ValueError("Value `ongoing` is expected to be True")
-	#epaper.writeText(0, "Waiting fot the game...")
+	#widgets.write_text(0, "Waiting fot the game...")
 	#log.info("Waiting fot the game...")
 	#while True:
 	#	current_games = client.games.get_ongoing(10)
@@ -414,6 +417,7 @@ def stateThread():
 	global blackrating
 	global message1
 	global sound
+	global board_flip
 	global wking
 	global bking
 	global kill
@@ -523,58 +527,58 @@ def stateThread():
 					client.board.post_message(gameid, 'Sorry , this external board can\'t handle takeback', spectator=False)
 				if message == "Black offers draw":
 					client.board.decline_draw(gameid)
-					epaper.writeText(13,"DRAW OFFERED    ")
+					widgets.write_text(13,"DRAW OFFERED    ")
 					board.beep(board.SOUND_GENERAL)
 				if message == "White offers draw":
 					client.board.decline_draw(gameid)
-					epaper.writeText(13, "DRAW OFFERED    ")
+					widgets.write_text(13, "DRAW OFFERED    ")
 					board.beep(board.SOUND_GENERAL)
 			if status == 'resign':
 				board.beep(board.SOUND_WRONG_MOVE)
 				board.beep(board.SOUND_WRONG_MOVE)
-				epaper.writeText(11, 'Resign')
+				widgets.write_text(11, 'Resign')
 				cwinner = str(state.get('winner'))
-				epaper.writeText(12, cwinner + ' wins')
-				epaper.writeText(13, 'pls wait restart..')
+				widgets.write_text(12, cwinner + ' wins')
+				widgets.write_text(13, 'pls wait restart..')
 				time.sleep(15)
 				kill = 1
 				sys.exit()
 			if status == 'aborted':
 				board.beep(board.SOUND_WRONG_MOVE)
 				board.beep(board.SOUND_WRONG_MOVE)
-				epaper.writeText(11, 'Game aborted')
+				widgets.write_text(11, 'Game aborted')
 				winner = 'No Winner'
-				epaper.writeText(12, 'No winner')
-				epaper.writeText(13, 'pls wait restart..')
+				widgets.write_text(12, 'No winner')
+				widgets.write_text(13, 'pls wait restart..')
 				kill = 1
 				sys.exit()
 			if status == 'outoftime':
 				board.beep(board.SOUND_WRONG_MOVE)
 				board.beep(board.SOUND_WRONG_MOVE)
-				epaper.writeText(11, 'Out of time')
+				widgets.write_text(11, 'Out of time')
 				cwinner = str(state.get('winner'))
-				epaper.writeText(12, cwinner + ' wins')
-				epaper.writeText(13, 'pls wait restart..')
+				widgets.write_text(12, cwinner + ' wins')
+				widgets.write_text(13, 'pls wait restart..')
 				time.sleep(15)
 				kill = 1
 				sys.exit()
 			if status == 'timeout':
 				board.beep(board.SOUND_WRONG_MOVE)
 				board.beep(board.SOUND_WRONG_MOVE)
-				epaper.writeText(11, 'Out of time')
+				widgets.write_text(11, 'Out of time')
 				cwinner = str(state.get('winner'))
-				epaper.writeText(12, cwinner + ' wins')
-				epaper.writeText(13, 'pls wait restart..')
+				widgets.write_text(12, cwinner + ' wins')
+				widgets.write_text(13, 'pls wait restart..')
 				time.sleep(15)
 				kill = 1
 				sys.exit()
 			if status == 'draw':
 				board.beep(board.SOUND_WRONG_MOVE)
 				board.beep(board.SOUND_WRONG_MOVE)
-				epaper.writeText(11, 'Draw')
+				widgets.write_text(11, 'Draw')
 				cwinner = str(state.get('winner'))
-				epaper.writeText(12, cwinner + ' No Winner')
-				epaper.writeText(13, 'pls wait restart..')
+				widgets.write_text(12, cwinner + ' No Winner')
+				widgets.write_text(13, 'pls wait restart..')
 				time.sleep(15)
 				kill = 1
 				sys.exit()
@@ -593,9 +597,9 @@ def stateThread():
 					else:
 						playeriswhite = 0
 			if playeriswhite == 1:
-				epaper.screeninverted = 0
+				board_flip = False
 			else:
-				epaper.screeninverted = 1
+				board_flip = True
 			time.sleep(0.2)
 
 st = threading.Thread(target=stateThread, args=())
@@ -626,8 +630,8 @@ gamemanager.startClock()
 if kill == 0:
 	# Subscribe to the game manager to activate the previous functions
 	gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback)
-	epaper.writeText(0,"Place pieces in")
-	epaper.writeText(1,"Starting Pos")
+	widgets.write_text(0,"Place pieces in")
+	widgets.write_text(1,"Starting Pos")
 
 
 

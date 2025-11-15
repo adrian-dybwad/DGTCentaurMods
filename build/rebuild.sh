@@ -94,7 +94,7 @@ fi
 
 log "8/8 Ensuring Font.ttc is present (optional step)"
 FONT_TARGET="/opt/DGTCentaurMods/resources/Font.ttc"
-FONT_SOURCE="$REPO_DIR/tools/card-setup-tool/lib/font/Font.ttc"
+FONT_SOURCE="$REPO_DIR/DGTCentaurMods/opt/DGTCentaurMods/resources/Font.ttc"
 if [ ! -f "$FONT_TARGET" ] && [ -f "$FONT_SOURCE" ]; then
   sudo mkdir -p "/opt/DGTCentaurMods/resources"
   sudo cp -f "$FONT_SOURCE" "$FONT_TARGET"

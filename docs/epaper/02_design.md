@@ -88,11 +88,10 @@ widgets.show_menu(items, selected)
 3. Update/tools call the same API (no forks). For offline card-setup we select `proxy` or `simulator`.
 
 ## 3. Migration Strategy (high level)
-1. Replace `display/epaper.py` exports with thin re-export of new service (for transition while refactor is in progress). Once all callers migrate, delete legacy module.
-2. Update each caller file (runtime first) to use `widgets` or `acquire_canvas`:
-   - `board/board.py`, `menu.py`, `games/*.py`, `ui/*.py`.
-3. Migrate update & card-setup tools.
-4. Remove duplicate driver copies (`update/lib/epaper.py`, `tools/card-setup-tool/lib/epaper.py`, etc.).
+1. **Done (2025‑11‑15):** Legacy `display/epaper.py` and friends removed; all modules import `epaper_service`.
+2. **Done:** Runtime/UI callers rewritten to use `service`/`widgets`.
+3. **Done:** Updater and card-setup tooling bootstrap the same service (no forks).
+4. **Done:** Duplicate drivers under `update/lib` and `tools/card-setup-tool/lib` removed.
 5. Add integration tests: simulate several region updates, ensure scheduler chooses partial vs full according to spec.
 
 ## 4. External Validation

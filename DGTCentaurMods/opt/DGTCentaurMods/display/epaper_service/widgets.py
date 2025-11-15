@@ -64,33 +64,31 @@ def clear_screen() -> None:
     service.submit_full()
 
 
-def draw_board(fen: str, top: int = 40) -> None:
-    curfen = fen.replace("/", "")
-    for num in "12345678":
-        curfen = curfen.replace(num, " " * int(num))
-    ordered = ""
-    for rank in range(8, 0, -1):
-        for file in range(0, 8):
-            ordered += curfen[((rank - 1) * 8) + file]
+def draw_board(fen: str, top: int = 40, *, flip: bool = False) -> None:
+    ordered = _expand_fen(fen.split()[0])
     region = Region(0, top, 128, top + 128)
     with service.acquire_canvas() as canvas:
         draw = canvas.draw
         draw.rectangle(region.to_box(), fill=255, outline=255)
-        for idx in range(64):
-            pos = (idx - 63) * -1
-            row = top + (16 * (pos // 8))
-            col = (idx % 8) * 16
-            px = _piece_x(ordered[idx])
-            py = 16 if _is_dark_square(idx) else 0
+        for idx, symbol in enumerate(ordered):
+            rank = idx // 8
+            file = idx % 8
+            dest_rank = rank if not flip else 7 - rank
+            dest_file = file if not flip else 7 - file
+            px = _piece_x(symbol)
+            square_index = dest_rank * 8 + dest_file
+            py = 16 if _is_dark_square(square_index) else 0
             piece = CHESS_FONT.crop((px, py, px + 16, py + 16))
-            canvas.image.paste(piece, (col, row))
+            x = dest_file * 16
+            y = top + (dest_rank * 16)
+            canvas.image.paste(piece, (x, y))
         draw.rectangle(region.to_box(), fill=None, outline=0)
         canvas.mark_dirty(region)
     service.submit_region(region)
 
 
-def draw_fen(fen: str, start_row: int = 2) -> None:
-    draw_board(fen, top=((start_row * 20) + 8))
+def draw_fen(fen: str, start_row: int = 2, *, flip: bool = False) -> None:
+    draw_board(fen, top=((start_row * 20) + 8), flip=flip)
 
 
 def promotion_options(row: int) -> None:
@@ -148,6 +146,9 @@ class StatusBar:
     def print_once(self) -> None:
         write_text(0, self.build())
         _draw_battery_icon()
+
+    def print(self) -> None:
+        self.print_once()
 
     def start(self) -> None:
         if self._running:
@@ -242,4 +243,18 @@ def _is_dark_square(index: int) -> bool:
     rank = index // 8
     file = index % 8
     return (rank + file) % 2 == 0
+
+
+def _expand_fen(fen: str) -> list[str]:
+    rows = fen.split("/")
+    expanded: list[str] = []
+    for row in rows:
+        for char in row:
+            if char.isdigit():
+                expanded.extend([" "] * int(char))
+            else:
+                expanded.append(char)
+    if len(expanded) != 64:
+        raise ValueError(f"Invalid FEN: {fen}")
+    return expanded
 

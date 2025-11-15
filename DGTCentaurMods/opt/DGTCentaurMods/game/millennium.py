@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.game import gamemanager
-from DGTCentaurMods.display import epaper
+from DGTCentaurMods.display.epaper_service import service, widgets
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board.bluetooth_controller import BluetoothController
@@ -82,10 +82,10 @@ def eventCallback(event):
 	global curturn
 	global sendstatewithoutrequest
 	if event == gamemanager.EVENT_NEW_GAME:
-		epaper.writeText(0,"New Game")
-		epaper.writeText(1,"               ")
+		widgets.write_text(0,"New Game")
+		widgets.write_text(1,"               ")
 		curturn = 1
-		epaper.drawFen(gamemanager.getFEN())
+		widgets.draw_fen(gamemanager.getFEN())
 		log.info("sending state")
 		bs = gamemanager.getFEN()
 		bs = bs.replace("/", "")
@@ -106,23 +106,23 @@ def eventCallback(event):
 	if event == gamemanager.EVENT_WHITE_TURN:
 		curturn = 1
 		log.info("white turn event")
-		epaper.writeText(0,"White turn")
+		widgets.write_text(0,"White turn")
 	if event == gamemanager.EVENT_BLACK_TURN:
 		curturn = 0
 		log.info("black turn event")
-		epaper.writeText(0,"Black turn")
+		widgets.write_text(0,"Black turn")
 
 	if type(event) == str:
 		if event.startswith("Termination."):
 			board.ledsOff()
-			epaper.writeText(1,event[12:])
+			widgets.write_text(1,event[12:])
 			time.sleep(10)
 			kill = 1
 
 def moveCallback(move):
 	global sendstatewithoutrequest
-	epaper.drawFen(gamemanager.getFEN())
-	epaper.writeText(9, move)
+	widgets.draw_fen(gamemanager.getFEN())
+	widgets.write_text(9, move)
 	bs = gamemanager.getFEN()
 	bs = bs.replace("/", "")
 	bs = bs.replace("1", ".")
@@ -140,10 +140,10 @@ def moveCallback(move):
 	sendMillenniumCommand(resp)
 
 # Activate the epaper
-epaper.initEpaper()
+service.init()
 board.ledsOff()
-epaper.writeText(0,'Connect remote')
-epaper.writeText(1,'Device Now')
+widgets.write_text(0,'Connect remote')
+widgets.write_text(1,'Device Now')
 
 # Create Bluetooth controller instance and start pairing thread
 # Use "MILLENNIUM CHESS" device name for ChessLink app compatibility
@@ -757,8 +757,8 @@ log.info(f"Device MAC address: B8:27:EB:21:D2:51 (should be visible to ChessLink
 
 # Subscribe to game manager
 gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback)
-epaper.writeText(0,"Place pieces in")
-epaper.writeText(1,"Starting Pos")
+widgets.write_text(0,"Place pieces in")
+widgets.write_text(1,"Starting Pos")
 
 def cleanup():
 	"""Clean up BLE services, advertisements, and resources before exit."""

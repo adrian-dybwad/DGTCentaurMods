@@ -23,15 +23,15 @@
 # distribution, modification, variant, or derivative of this software.
 
 import os
-from lib import *
+from DGTCentaurMods.display.epaper_service import service, widgets
 import os, time
 import threading
 
 global animate
 global progress
 
-epaper.initEpaper()
-sb = epaper.statusBar()
+service.init()
+sb = widgets.status_bar()
 sb.start()
 sb.print()
 
@@ -41,7 +41,7 @@ def status():
     animate = True
     while animate:
         for a in ['/','-','\\','|']:
-            epaper.writeText(1,progress + "[" + a + "]")
+            widgets.write_text(1,progress + "[" + a + "]")
             time.sleep(1)
 
 
@@ -49,25 +49,25 @@ progress = 'Updating OS    '
 msg = threading.Thread(target=status,args=())
 msg.start()
 time.sleep(0.5)
-epaper.writeText(3,"[1/2] Updating")
-epaper.writeText(4,"    Raspbian")
+widgets.write_text(3,"[1/2] Updating")
+widgets.write_text(4,"    Raspbian")
 os.system("sudo apt update")
 os.system("sudo apt full-upgrade -y")
 
 progress = 'Updating       '
-epaper.writeText(5,"[2/2] Updating")
-epaper.writeText(6,"    DGTCM")
+widgets.write_text(5,"[2/2] Updating")
+widgets.write_text(6,"    DGTCM")
 os.system("sudo apt install -y /tmp/dgtcentaurmods_armhf.deb")
 
 animate = False
 sb.stop()
 time.sleep(3)
-epaper.clearScreen()
+widgets.clear_screen()
 time.sleep(1)
 print('Setup dome')
 
-epaper.writeText(3,'     Shutting')
-epaper.writeText(4,'       down')
+widgets.write_text(3,'     Shutting')
+widgets.write_text(4,'       down')
 time.sleep(5)
-epaper.stopEpaper()
+service.shutdown()
 os.system("sudo systemctl start DGTStopController.service")

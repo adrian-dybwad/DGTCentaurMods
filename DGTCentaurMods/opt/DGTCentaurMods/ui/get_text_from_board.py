@@ -11,6 +11,7 @@ import os
 from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.display.epaper_service import service
 
 # Global flag for graceful shutdown
 shutdown_requested = False
@@ -43,8 +44,6 @@ def getText(title="Enter text"):
     log.info(f"getText function called with title='{title}'")
     
     try:
-        from DGTCentaurMods.display import epaper
-        log.info("Imported epaper successfully")
         from DGTCentaurMods.ui import input_adapters
         log.info("Imported input_adapters successfully")
         from DGTCentaurMods.board import board
@@ -73,6 +72,7 @@ def getText(title="Enter text"):
         #    traceback.print_exc()
         #    return None
         
+        service.init()
         try:
             # Start event subscription
             if not input_adapters.start_text_input_subscription():
@@ -120,9 +120,8 @@ def getText(title="Enter text"):
                         for col in range(8):
                             ch = lchars[row * 8 + col]
                             draw.text((col * 16, 80 + row * 20), ch, font=board.font18, fill=0)
-                    # Update the display buffer - background thread will handle refresh
-                    epaper.epaperbuffer.paste(image, (0, 0))
-                    log.info("Display buffer updated")
+                    service.blit(image)
+                    log.info("Display updated")
                 except Exception as e:
                     log.error(f"Failed to render display: {e}")
                     import traceback

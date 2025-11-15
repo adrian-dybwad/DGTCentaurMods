@@ -23,7 +23,7 @@ async def test_controller_start_stop(monkeypatch):
     c = UciGameController(engines, cfg)
 
     # Patch epaper and gamemanager side-effects
-    monkeypatch.setattr("DGTCentaurMods.display.epaper.initEpaper", lambda *a, **k: None)
+    monkeypatch.setattr("DGTCentaurMods.display.epaper_service.service.init", lambda *a, **k: None)
     monkeypatch.setattr("DGTCentaurMods.game.gamemanager.subscribeGame", lambda *a, **k: None)
     monkeypatch.setattr("DGTCentaurMods.game.gamemanager.getBoard", lambda: chess.Board())
 

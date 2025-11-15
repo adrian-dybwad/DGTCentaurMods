@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.game import gamemanager
-from DGTCentaurMods.display import epaper
+from DGTCentaurMods.display.epaper_service import service, widgets
 from DGTCentaurMods.board import *
 from DGTCentaurMods.board.logging import log
 
@@ -83,13 +83,13 @@ def eventCallback(event):
 	global kill
 	# This function receives event callbacks about the game in play
 	if event == gamemanager.EVENT_NEW_GAME:
-		epaper.writeText(0,"New Game")
-		epaper.writeText(1,"               ")
+		widgets.write_text(0,"New Game")
+		widgets.write_text(1,"               ")
 		curturn = 1
-		epaper.drawFen(gamemanager.getFEN())
+		widgets.draw_fen(gamemanager.getFEN())
 	if event == gamemanager.EVENT_WHITE_TURN:
 		curturn = 1
-		epaper.writeText(0,"White turn")
+		widgets.write_text(0,"White turn")
 		if curturn == computeronturn:
 			engine = chess.engine.SimpleEngine.popen_uci(str(pathlib.Path(__file__).parent.resolve()) + "/../engines/" + enginename)
 			if ucioptions != {}:
@@ -98,7 +98,7 @@ def eventCallback(event):
 			limit = chess.engine.Limit(time=5)
 			mv = engine.play(gamemanager.getBoard(), limit, info=chess.engine.INFO_ALL)
 			mv = mv.move
-			epaper.writeText(12, "Engine: " + str(mv))
+			widgets.write_text(12, "Engine: " + str(mv))
 			engine.quit()
 			gamemanager.computerMove(str(mv))
 		else:
@@ -120,11 +120,11 @@ def eventCallback(event):
 					if gamemanager.getBoard().piece_at(i) == piecesq:
 						sqs.append(i)
 				board.ledArray(sqs,20)
-				epaper.writeText(13, "BRAIN SAYS: " + str(piecesq))
+				widgets.write_text(13, "BRAIN SAYS: " + str(piecesq))
 				engine.quit();
 	if event == gamemanager.EVENT_BLACK_TURN:
 		curturn = 0
-		epaper.writeText(0,"Black turn")
+		widgets.write_text(0,"Black turn")
 		if curturn == computeronturn:
 			engine = chess.engine.SimpleEngine.popen_uci(str(pathlib.Path(__file__).parent.resolve()) + "/../engines/" + enginename)
 			if ucioptions != {}:
@@ -133,7 +133,7 @@ def eventCallback(event):
 			limit = chess.engine.Limit(time=5)
 			mv = engine.play(gamemanager.getBoard(), limit, info=chess.engine.INFO_ALL)
 			mv = mv.move
-			epaper.writeText(12,"Engine: " + str(mv))
+			widgets.write_text(12,"Engine: " + str(mv))
 			engine.quit()
 			gamemanager.computerMove(str(mv))
 		else:
@@ -155,7 +155,7 @@ def eventCallback(event):
 					if gamemanager.getBoard().piece_at(i) == piecesq:
 						sqs.append(i)
 				board.ledArray(sqs,20)
-				epaper.writeText(13, "BRAIN SAYS: " + str(piecesq))
+				widgets.write_text(13, "BRAIN SAYS: " + str(piecesq))
 				engine.quit();
 	if event == gamemanager.EVENT_RESIGN_GAME:
 		gamemanager.resignGame(computeronturn + 1)
@@ -172,31 +172,31 @@ def eventCallback(event):
 		# Termination.VARIANT_LOSS
 		# Termination.VARIANT_DRAW
 		if event.startswith("Termination."):
-			epaper.writeText(1,event[12:])
+			widgets.write_text(1,event[12:])
 			time.sleep(10)
 			kill = 1
 
 def moveCallback(move):
 	# This function receives valid moves made on the board
 	# Note: the board state is in python-chess object gamemanager.getBoard()
-	epaper.drawFen(gamemanager.getFEN())
-	epaper.writeText(9, move)
+	widgets.draw_fen(gamemanager.getFEN())
+	widgets.write_text(9, move)
 
 
-# Activate the epaper
-epaper.initEpaper()
+# Initialize the ePaper service
+service.init()
 
 # Set the initial state of curturn to indicate white's turn
 curturn = 1
 if computeronturn == 0:
-	epaper.writeText(9,"You are WHITE")
+	widgets.write_text(9,"You are WHITE")
 else:
-	epaper.writeText(9,"You are BLACK")
+	widgets.write_text(9,"You are BLACK")
 
 # Subscribe to the game manager to activate the previous functions
 gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback)
-epaper.writeText(0,"Place pieces in")
-epaper.writeText(1,"Starting Pos")
+widgets.write_text(0,"Place pieces in")
+widgets.write_text(1,"Starting Pos")
 
 
 while kill == 0:
