@@ -307,14 +307,11 @@ class EPD:
         self.send_data(self.height % 256 - 1)
         self.send_data(0x28)
 
-        # Clear old image data first to prevent ghosting/dimming
-        # Command 0x10 is "Data Start Transmission 1" - used to clear/reset the display buffer
-        self.send_command(0x10)
-        for i in range(0, int(self.width * self.height / 8)):
-            self.send_data(0x00)  # Clear with zeros (white)
-        epdconfig.delay_ms(10)
+        # self.send_command(0x10)
+        # for i in range(0, int(self.width * self.height / 8)):
+        # self.send_data(image[i])
+        # epdconfig.delay_ms(10)
 
-        # Now send the new image data
         self.send_command(0x13)
         for i in range(0, int(self.width * self.height / 8)):
             self.send_data(image[i])
@@ -336,19 +333,10 @@ class EPD:
         self.send_data(y1 % 256 - 1)
         self.send_data(0x28)
         epdconfig.delay_ms(20)
-        
-        # Clear old image data in the region first to prevent ghosting/dimming
-        # Command 0x10 is "Data Start Transmission 1" - used to clear/reset the display buffer
-        self.send_command(0x10)
-        for i in range(0, int(self.width * (y1 - y0) / 8)):
-            self.send_data(0x00)  # Clear with zeros (white)
-        epdconfig.delay_ms(10)
-        
-        # Now send the new image data for the region
         self.send_command(0x13)
         for i in range(0, int(self.width * (y1 - y0) / 8)):
             self.send_data(image[i])
-        epdconfig.delay_ms(10)
+        #epdconfig.delay_ms(10)
         self.TurnOnDisplay()
 
 
