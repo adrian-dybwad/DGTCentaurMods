@@ -109,7 +109,12 @@ def epaperUpdate():
         im = epaperbuffer.copy()
         im2 = im.copy()
         if epaperprocesschange == 1:
+            # Flip image to match display orientation before getting buffer
+            if screeninverted == 0:
+                im = im.transpose(Image.FLIP_TOP_BOTTOM)
+                im = im.transpose(Image.FLIP_LEFT_RIGHT)
             # Use driver buffer format to keep buffer size consistent across frames
+            # Buffer is calculated from the same flipped image that will be displayed
             tepaperbytes = driver.getbuffer(im)
         if lastepaperbytes != tepaperbytes and epaperprocesschange == 1:
             log.debug("epaperUpdate: Display change detected, updating screen")
@@ -118,20 +123,11 @@ def epaperUpdate():
                 driver.reset()
                 screensleep = 0
             paths.write_epaper_static_jpg(epaperbuffer)
-            if screeninverted == 0:
-                im = im.transpose(Image.FLIP_TOP_BOTTOM)
-                im = im.transpose(Image.FLIP_LEFT_RIGHT)                        
-            if epapermode == 0 or first == 1:                
-                log.debug("epaperUpdate: Using DisplayPartial")
-                driver.DisplayPartial(im)
-                first = 0
-            else:
-                rs, re = compute_changed_region(lastepaperbytes, tepaperbytes)
-                log.info(f"epaperUpdate: Using DisplayRegion rs={rs}, re={re}")
-                bb = im2.crop((0, rs + 1, 128, re))
-                bb = bb.transpose(Image.FLIP_TOP_BOTTOM)
-                bb = bb.transpose(Image.FLIP_LEFT_RIGHT)                
-                driver.DisplayRegion(296 - re, 295 - rs, bb)                             
+            # Always use DisplayPartial to avoid DisplayRegion issues causing dimming
+            # Use Python implementation (epd) instead of C driver to avoid dimming issues
+            log.debug("epaperUpdate: Using DisplayPartial (Python implementation)")
+            epd.DisplayPartial(epd.getbuffer(im))
+            first = 0                             
             lastepaperbytes = tepaperbytes
             #event_refresh.set() 
         sleepcount = sleepcount + 1
