@@ -190,8 +190,6 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     global event_key
     epaper.epapermode = 0
     epaper.clearScreen()
-    # Give update thread time to process the clear before pausing again
-    time.sleep(0.15)
     
     selection = ""
     curmenu = actual_menu
@@ -260,8 +258,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
             draw.text((description_x, y_pos), line, font=small_font, fill=0)
     
     epaper.unPauseEpaper()
-    # Give update thread time to detect and process the menu display
-    time.sleep(0.2)
+    time.sleep(0.1)
     epaper.clearArea(0, 20 + shift, 17, 295)
     draw = ImageDraw.Draw(epaper.epaperbuffer)
     draw.polygon(
@@ -292,8 +289,6 @@ def changedCallback(piece_event, field, time_in_seconds):
 # Initialise the epaper display - after which functions in epaper.py are available but you can also draw to the
 # image epaper.epaperbuffer to change the screen.
 epaper.initEpaper(1)
-# Give the update thread time to complete initial display
-time.sleep(0.5)
 statusbar = epaper.statusBar()
 statusbar.start()
 update = centaur.UpdateSystem()
