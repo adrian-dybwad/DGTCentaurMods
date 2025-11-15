@@ -654,6 +654,7 @@ def fieldcallback(piece_event, field, time_in_seconds):
     place = (piece_event == 1)
     
     # Check if board is currently in starting position (setup phase)
+    # Check on lift to allow setup moves, but also check on place to detect when reset is complete
     is_setting_up = _is_board_in_starting_position()
     
     # Check if piece color matches current turn
@@ -743,9 +744,9 @@ def fieldcallback(piece_event, field, time_in_seconds):
         if not is_takeback:
             guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece)
     
-    if place and field in legalsquares:
-        # Check if board is in starting position after this placement
-        # This handles both initial setup and reset during active game
+    # Check for starting position detection on ANY placement (not just legal squares)
+    # This allows detection even when pieces are being reset manually
+    if place:
         if _is_board_in_starting_position():
             log.info("[gamemanager.fieldcallback] Starting position detected after piece placement")
             board.ledsOff()
@@ -756,6 +757,8 @@ def fieldcallback(piece_event, field, time_in_seconds):
                     log.info("[gamemanager.fieldcallback] Resetting active game for new game")
                 _reset_game()
             return
+    
+    if place and field in legalsquares:
         
         # Check if game is still active before processing move
         # After reset, allow first move even if gamedbid isn't fully set yet
@@ -861,8 +864,10 @@ def fieldcallback(piece_event, field, time_in_seconds):
                 # Check the outcome
                 outcome = cboard.outcome(claim_draw=True)
                 if outcome is None:
-                    # Switch the turn
+                    # Switch the turn and trigger event callback
+                    # This is critical for computer moves - external code listens for EVENT_BLACK_TURN/EVENT_WHITE_TURN
                     _switch_turn_with_event()
+                    log.info(f"[gamemanager.fieldcallback] Turn switched, current turn: {curturn} ({'White' if curturn == 1 else 'Black'})")
                 else:
                     board.beep(board.SOUND_GENERAL)
                     # Update game result in database and trigger callback
