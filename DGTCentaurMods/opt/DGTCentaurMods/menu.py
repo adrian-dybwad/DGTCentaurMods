@@ -313,8 +313,11 @@ log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
 
 def show_welcome():
     global idle
+    global event_key
     epaper.welcomeScreen()
     idle = True
+    # Ensure we wait for a fresh button press (clear any previous event)
+    event_key.clear()
     try:
         event_key.wait()
     except KeyboardInterrupt:
@@ -323,10 +326,11 @@ def show_welcome():
         raise  # Re-raise to exit program
     event_key.clear()
     idle = False
+    # Clear the welcome screen only after the user exits it
+    epaper.quickClear()
 
 
 show_welcome()
-epaper.quickClear()
 
 
 def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:
