@@ -52,8 +52,6 @@ first = 1
 event_refresh = threading.Event()
 screeninverted = 0
 disabled = False
-partial_update_count = 0  # Counter for partial updates
-PARTIAL_UPDATE_LIMIT = 10  # Force full refresh after this many partial updates
 
 def compute_changed_region(prev_bytes: bytes, curr_bytes: bytes) -> tuple[int, int]:
     """
@@ -101,15 +99,12 @@ def epaperUpdate():
     global screeninverted
     global screensleep
     global sleepcount
-    global partial_update_count
-    global PARTIAL_UPDATE_LIMIT
     log.debug("started epaper update thread")    
     driver.display(epaperbuffer)    
     log.debug("epaper init image sent")
     tepaperbytes = b''
     screensleep = 0
     sleepcount = 0
-    partial_update_count = 0
     while True and kill == 0:
         im = epaperbuffer.copy()
         im2 = im.copy()
@@ -127,23 +122,12 @@ def epaperUpdate():
                 im = im.transpose(Image.FLIP_TOP_BOTTOM)
                 im = im.transpose(Image.FLIP_LEFT_RIGHT)                        
             
-            # Force full refresh periodically to prevent ghosting/dimming
-            # After PARTIAL_UPDATE_LIMIT partial updates, do a full refresh
-            force_full_refresh = (partial_update_count >= PARTIAL_UPDATE_LIMIT)
-            
-            if epapermode == 0 or first == 1 or force_full_refresh:                
-                log.debug(f"epaperUpdate: Using DisplayPartial (first={first}, force_full={force_full_refresh})")
-                driver.DisplayPartial(im)
-                first = 0
-                partial_update_count = 0  # Reset counter after full refresh
-            else:
-                rs, re = compute_changed_region(lastepaperbytes, tepaperbytes)
-                log.info(f"epaperUpdate: Using DisplayRegion rs={rs}, re={re}")
-                bb = im2.crop((0, rs + 1, 128, re))
-                bb = bb.transpose(Image.FLIP_TOP_BOTTOM)
-                bb = bb.transpose(Image.FLIP_LEFT_RIGHT)                
-                driver.DisplayRegion(296 - re, 295 - rs, bb)
-                partial_update_count = partial_update_count + 1  # Increment partial update counter
+            # Use full refresh instead of partial updates to prevent dimming/ghosting
+            # Partial updates (DisplayPartial/DisplayRegion) accumulate ghosting on e-paper displays
+            # Full refresh clears ghosting and maintains contrast
+            log.debug("epaperUpdate: Using full display refresh to prevent dimming")
+            driver.display(im)
+            first = 0
                              
             lastepaperbytes = tepaperbytes
             #event_refresh.set() 
