@@ -655,10 +655,6 @@ while True:
     if centaur.get_menuAbout() != "unchecked":
         menu.update({"About": "About"})                                
     result = doMenu(menu, "Main menu")
-    # epaper.epd.init()
-    # time.sleep(0.7)
-    # epaper.clearArea(0,0 + shift,128,295)
-    # time.sleep(1)
     if result == "SHUTDOWN":
         # Graceful shutdown requested via Ctrl+C
         try:
@@ -952,8 +948,7 @@ while True:
                 sys.exit()
             if result == "Reboot":
                 board.beep(board.SOUND_POWER_OFF)
-                epaper.epd.init()
-                epaper.epd.HalfClear()
+                epaper.clearScreen()
                 time.sleep(5)
                 epaper.stopEpaper()
                 time.sleep(2)

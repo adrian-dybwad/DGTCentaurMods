@@ -173,7 +173,7 @@ def getText(title="Enter text"):
                                         log.info("No characters to delete")
                                 elif btn == board.Key.TICK:
                                     board.beep(board.SOUND_GENERAL)
-                                    board.clearScreen()
+                                    epaper.clearScreen()
                                     time.sleep(0.2)
                                     log.info(f"Text input confirmed: '{typed}'")
                                     return typed
