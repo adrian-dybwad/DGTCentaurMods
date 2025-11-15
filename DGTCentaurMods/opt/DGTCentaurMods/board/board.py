@@ -28,6 +28,7 @@ from DGTCentaurMods.board.sync_centaur import SyncCentaur, command, Key
 import sys
 import os
 import chess
+from DGTCentaurMods.display import epd2in9d, epaper
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.board.settings import Settings
 from DGTCentaurMods.board import centaur
@@ -69,7 +70,132 @@ batterylastchecked = 0
 
 controller.wait_ready()
 
-# Board state variables
+# Screen functions - deprecated, use epaper.py if possible
+#
+
+screenbuffer = Image.new('1', (128, 296), 255)
+initialised = 0
+epd = epd2in9d.EPD()
+
+def initScreen():
+    global screenbuffer
+    global initialised
+    epd.init()
+    epd.Clear(0xff)
+    screenbuffer = Image.new('1', (128, 296), 255)
+    initialised = 0
+    time.sleep(4)
+
+def clearScreen():
+    epd.Clear(0xff)
+
+def clearScreenBuffer():
+    global screenbuffer
+    screenbuffer = Image.new('1', (128, 296), 255)
+
+def sleepScreen():
+    epd.sleep()
+
+def drawBoard(pieces):
+    global screenbuffer
+    chessfont = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
+    image = screenbuffer.copy()
+    for x in range(0,64):
+        pos = (x - 63) * -1
+        row = 50 + (16 * (pos // 8))
+        col = (x % 8) * 16
+        px = 0
+        r = x // 8
+        c = x % 8
+        py = 0
+        if (r // 2 == r / 2 and c // 2 == c / 2):
+            py = py + 16
+        if (r //2 != r / 2 and c // 2 != c / 2):
+            py = py + 16
+        if pieces[x] == "P":
+            px = 16
+        if pieces[x] == "R":
+            px = 32
+        if pieces[x] == "N":
+            px = 48
+        if pieces[x] == "B":
+            px = 64
+        if pieces[x] == "Q":
+            px = 80
+        if pieces[x] == "K":
+            px = 96
+        if pieces[x] == "p":
+            px = 112
+        if pieces[x] == "r":
+            px = 128
+        if pieces[x] == "n":
+            px = 144
+        if pieces[x] == "b":
+            px = 160
+        if pieces[x] == "q":
+            px = 176
+        if pieces[x] == "k":
+            px = 192
+        piece = chessfont.crop((px, py, px+16, py+16))
+        image.paste(piece,(col, row))
+    screenbuffer = image.copy()
+    image = image.transpose(Image.FLIP_TOP_BOTTOM)
+    image = image.transpose(Image.FLIP_LEFT_RIGHT)
+    epd.DisplayPartial(epd.getbuffer(image))
+    time.sleep(0.1)
+
+def writeText(row, txt):
+    # Writes some text on the screen at the given row
+    rpos = row * 20
+    global screenbuffer
+    image = screenbuffer.copy()
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([(0,rpos),(128,rpos+20)],fill=255)
+    draw.text((0, rpos), txt, font=font18, fill=0)
+    screenbuffer = image.copy()
+    image = image.transpose(Image.FLIP_TOP_BOTTOM)
+    image = image.transpose(Image.FLIP_LEFT_RIGHT)
+    epd.DisplayPartial(epd.getbuffer(image))
+    time.sleep(0.5)
+
+def writeTextToBuffer(row, txt):
+    # Writes some text on the screen at the given row
+    # Writes only to the screen buffer. Script can later call displayScreenBufferPartial to show it
+    global screenbuffer
+    nimage = screenbuffer.copy()
+    image = Image.new('1', (128, 20), 255)
+    draw = ImageDraw.Draw(image)
+    draw.text((0,0), txt, font=font18, fill=0)
+    nimage.paste(image, (0, (row * 20)))
+    screenbuffer = nimage.copy()
+
+def promotionOptionsToBuffer(row):
+    # Draws the promotion options to the screen buffer
+    global screenbuffer
+    nimage = screenbuffer.copy()
+    image = Image.new('1', (128, 20), 255)
+    draw = ImageDraw.Draw(image)
+    draw.text((0, 0), "    Q    R    N    B", font=font18, fill=0)
+    draw.polygon([(2, 18), (18, 18), (10, 3)], fill=0)
+    draw.polygon([(35, 3), (51, 3), (43, 18)], fill=0)
+    o = 66
+    draw.line((0+o,16,16+o,16), fill=0, width=5)
+    draw.line((14+o,16,14+o,5), fill=0, width=5)
+    draw.line((16+o,6,4+o,6), fill=0, width=5)
+    draw.polygon([(8+o, 2), (8+o, 10), (0+o, 6)], fill=0)
+    o = 97
+    draw.line((6+o,16,16+o,4), fill=0, width=5)
+    draw.line((2+o,10, 8+o,16), fill=0, width=5)
+    nimage.paste(image, (0, (row * 20)))
+    screenbuffer = nimage.copy()
+
+def displayScreenBufferPartial():
+    global screenbuffer
+    image = screenbuffer.copy()
+    image = image.transpose(Image.FLIP_TOP_BOTTOM)
+    image = image.transpose(Image.FLIP_LEFT_RIGHT)
+    epd.DisplayPartial(epd.getbuffer(image))
+    time.sleep(0.1)
 
 def cleanup(leds_off: bool = True):
     controller.cleanup(leds_off=True)
@@ -157,10 +283,9 @@ def shutdown():
     if os.path.exists(package):
         log.debug('Update package found - installing instead of shutdown')
         beep(SOUND_POWER_OFF)
-        from DGTCentaurMods.display.display_manager import display_manager
-        display_manager.clear()
-        display_manager.draw_text(3, "   Installing")
-        display_manager.draw_text(4, "     update")
+        epaper.clearScreen()
+        epaper.writeText(3, "   Installing")
+        epaper.writeText(4, "     update")
         
         # All LEDs for update install
         try:
@@ -182,10 +307,9 @@ def shutdown():
         pass
     
     # Display shutdown message
-    from DGTCentaurMods.display.display_manager import display_manager
-    display_manager.clear()
-    display_manager.draw_text(3, "     Shutting")
-    display_manager.draw_text(4, "       down")
+    epaper.clearScreen()
+    epaper.writeText(3, "     Shutting")
+    epaper.writeText(4, "       down")
     
     # LED cascade pattern h8→h1 (squares 7 down to 0)
     try:
@@ -201,8 +325,7 @@ def shutdown():
     
     # Properly stop e-paper
     try:
-        from DGTCentaurMods.display.display_manager import display_manager
-        display_manager.shutdown()
+        epaper.stopEpaper()
     except Exception as e:
         log.debug(f"E-paper stop failed: {e}")
     
@@ -440,8 +563,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                             log.debug('Play btn pressed. Stanby is: %s', standby)
                             if standby == False:
                                 log.debug('Calling standbyScreen()')
-                                from DGTCentaurMods.display.display_manager import display_manager
-                                display_manager.show_standby_screen(True)
+                                epaper.standbyScreen(True)
                                 standby = True
                                 print("----------------------------------------")
                                 print("Starting shutdown countdown")
@@ -451,8 +573,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 to = time.time() + 100000
                                 break
                             else:
-                                from DGTCentaurMods.display.display_manager import display_manager
-                                display_manager.show_standby_screen(False)
+                                epaper.standbyScreen(False)
                                 print("----------------------------------------")
                                 print("Shutdown countdown interrupted")
                                 print("----------------------------------------")
