@@ -70,9 +70,6 @@ MIN_UCI_MOVE_LENGTH = 4
 # Game constants
 STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-# Threading lock for critical sections
-_game_lock = threading.Lock()
-
 kill = 0
 startstate = bytearray(b'\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01\x01')
 keycallbackfunction = None
@@ -131,67 +128,42 @@ def checkLastBoardState():
     # If the current board state is the state of the board from the move before
     # then a takeback is in progress
     global boardstates
-    global gamedbid
+    global gamebid
     global session
     global cboard
     global takebackcallbackfunction
     global curturn
-    
-    # Validate we can perform takeback
-    if takebackcallbackfunction is None:
-        return False
-    
-    # Need at least 2 board states (initial + at least one move)
-    if len(boardstates) <= 1:
-        log.info(f"[gamemanager.checkLastBoardState] Not enough moves to takeback")
-        return False
-    
-    # Check if we're trying to takeback the initial position
-    if len(cboard.move_stack) == 0:
-        log.info(f"[gamemanager.checkLastBoardState] Cannot takeback initial position")
-        return False
-    
-    with _game_lock:
-        if takebackcallbackfunction is not None and len(boardstates) > 1:
-            log.info(f"[gamemanager.checkLastBoardState] Checking last board state")
-            current_state = board.getChessState()
-            log.info(f"[gamemanager.checkLastBoardState] Current board state:")
-            board.printChessState(current_state)
-            log.info(f"[gamemanager.checkLastBoardState] Last board state:")
-            board.printChessState(boardstates[len(boardstates) - 2])
-            if current_state == boardstates[len(boardstates) - 2]:    
-                board.ledsOff()            
-                boardstates = boardstates[:-1] 
-                # For a takeback we need to remove the last move logged to the database,
-                # update the fen. Switch the turn and alert the calling script of a takeback
-                lastmovemade = session.query(models.GameMove).order_by(models.GameMove.id.desc()).first()
-                session.delete(lastmovemade)
-                session.commit()
-                try:
-                    cboard.pop()
-                    paths.write_fen_log(cboard.fen())
-                    _switch_turn()
-                    board.beep(board.SOUND_GENERAL)
-                    _safe_callback(takebackcallbackfunction)
-                except Exception as e:
-                    log.error(f"[gamemanager.checkLastBoardState] Error during takeback: {e}")
-                    # Try to restore state
-                    try:
-                        session.rollback()
-                    except:
-                        pass
-                    return False
-                
-                # Verify board is correct after takeback
-                time.sleep(0.2)
-                current = board.getChessState()
-                if not validate_board_state(current, boardstates[-1] if boardstates else None):
-                    log.info("[gamemanager.checkLastBoardState] Board state incorrect after takeback, entering correction mode")
-                    enter_correction_mode()
-                
-                return True   
-        else:
-            log.info(f"[gamemanager.checkLastBoardState] No takeback detected")
+    if takebackcallbackfunction != None and len(boardstates) > 1:
+        log.info(f"[gamemanager.checkLastBoardState] Checking last board state")
+        current_state = board.getChessState()
+        log.info(f"[gamemanager.checkLastBoardState] Current board state:")
+        board.printChessState(current_state)
+        log.info(f"[gamemanager.checkLastBoardState] Last board state:")
+        board.printChessState(boardstates[len(boardstates) - 2])
+        if current_state == boardstates[len(boardstates) - 2]:    
+            board.ledsOff()            
+            boardstates = boardstates[:-1] 
+            # For a takeback we need to remove the last move logged to the database,
+            # update the fen. Switch the turn and alert the calling script of a takeback
+            lastmovemade = session.query(models.GameMove).order_by(models.GameMove.id.desc()).first()
+            session.delete(lastmovemade)
+            session.commit()
+            cboard.pop()
+            paths.write_fen_log(cboard.fen())
+            _switch_turn()
+            board.beep(board.SOUND_GENERAL)
+            takebackcallbackfunction()
+            
+            # Verify board is correct after takeback
+            time.sleep(0.2)
+            current = board.getChessState()
+            if not validate_board_state(current, boardstates[-1] if boardstates else None):
+                log.info("[gamemanager.checkLastBoardState] Board state incorrect after takeback, entering correction mode")
+                enter_correction_mode()
+            
+            return True   
+    else:
+        log.info(f"[gamemanager.checkLastBoardState] No takeback detected")
     return False    
 
 def validate_board_state(current_state, expected_state):
@@ -237,14 +209,15 @@ def _switch_turn():
 
 def _switch_turn_with_event():
     """Switch the current turn and trigger appropriate event callback."""
-    global curturn
-    with _game_lock:
-        if curturn == 0:
-            curturn = 1
-            _safe_callback(eventcallbackfunction, EVENT_WHITE_TURN)
-        else:
-            curturn = 0
-            _safe_callback(eventcallbackfunction, EVENT_BLACK_TURN)
+    global curturn, eventcallbackfunction
+    if curturn == 0:
+        curturn = 1
+        if eventcallbackfunction is not None:
+            eventcallbackfunction(EVENT_WHITE_TURN)
+    else:
+        curturn = 0
+        if eventcallbackfunction is not None:
+            eventcallbackfunction(EVENT_BLACK_TURN)
 
 def _update_game_result(resultstr, termination, context=""):
     """
@@ -256,21 +229,17 @@ def _update_game_result(resultstr, termination, context=""):
         context: Context string for logging (function name)
     """
     global gamedbid, session, eventcallbackfunction
-    with _game_lock:
-        try:
-            tg = session.query(models.Game).filter(models.Game.id == gamedbid).first()
-            if tg is not None:
-                tg.result = resultstr
-                session.flush()
-                session.commit()
-            else:
-                log.warning(f"[gamemanager.{context}] Game with id {gamedbid} not found in database, cannot update result")
-        except Exception as e:
-            log.error(f"[gamemanager.{context}] Database error updating result: {e}")
-            session.rollback()
-        
-        # Always trigger callback, even if DB update failed (for consistency)
-        _safe_callback(eventcallbackfunction, termination)
+    tg = session.query(models.Game).filter(models.Game.id == gamedbid).first()
+    if tg is not None:
+        tg.result = resultstr
+        session.flush()
+        session.commit()
+    else:
+        log.warning(f"[gamemanager.{context}] Game with id {gamedbid} not found in database, cannot update result")
+    
+    # Always trigger callback, even if DB update failed (for consistency)
+    if eventcallbackfunction is not None:
+        eventcallbackfunction(termination)
 
 def _handle_promotion(field, piece_name, forcemove):
     """
@@ -350,60 +319,6 @@ def _reset_move_state():
     sourcesq = -1
     board.ledsOff()
     forcemove = 0
-
-def _is_board_in_starting_position():
-    """
-    Check if physical board is in starting position.
-    
-    Returns:
-        bool: True if board matches starting position
-    """
-    current_state = board.getChessState()
-    if current_state is None or len(current_state) != BOARD_SIZE:
-        return False
-    return bytearray(current_state) == startstate
-
-def _is_game_active():
-    """
-    Check if game is in active state (not ended, not in correction mode).
-    Allows moves when board is in starting position (game setup).
-    
-    Returns:
-        bool: True if game is active and can accept moves, or if setting up starting position
-    """
-    global cboard, correction_mode, gamedbid
-    
-    # If board is in starting position, allow moves (game setup or reset)
-    if _is_board_in_starting_position():
-        return True
-    
-    # Otherwise, check normal game state
-    return (cboard.outcome() is None and 
-            not correction_mode and
-            gamedbid >= 0)
-
-def _safe_callback(callback_func, *args, **kwargs):
-    """
-    Safely execute a callback function with error handling.
-    
-    Args:
-        callback_func: Callback function to execute
-        *args: Positional arguments for callback
-        **kwargs: Keyword arguments for callback
-    
-    Returns:
-        bool: True if callback executed successfully, False otherwise
-    """
-    if callback_func is None:
-        return False
-    try:
-        callback_func(*args, **kwargs)
-        return True
-    except Exception as e:
-        log.error(f"[gamemanager._safe_callback] Callback error: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
 
 def _double_beep():
     """
@@ -653,24 +568,13 @@ def fieldcallback(piece_event, field, time_in_seconds):
     lift = (piece_event == 0)
     place = (piece_event == 1)
     
-    # Check if board is currently in starting position (setup phase)
-    # Check on lift to allow setup moves, but also check on place to detect when reset is complete
-    is_setting_up = _is_board_in_starting_position()
-    
     # Check if piece color matches current turn
     # vpiece = 1 if piece belongs to current player, 0 otherwise
-    # During setup, allow any piece to be moved
     vpiece = ((curturn == 0) == (piece_color == False)) or ((curturn == 1) == (piece_color == True))
-    if is_setting_up:
-        vpiece = 1  # Allow any piece during setup
     
     if lift and field not in legalsquares and sourcesq < 0 and vpiece:
-        # During setup, allow piece to be placed anywhere
-        if is_setting_up:
-            legalsquares = list(range(BOARD_SIZE))  # Allow any square during setup
-        else:
-            # Generate a list of places this piece can move to
-            legalsquares = _calculate_legal_squares(field)
+        # Generate a list of places this piece can move to
+        legalsquares = _calculate_legal_squares(field)
         sourcesq = field
     # Track opposing side lifts so we can guide returning them if moved
     if lift and not vpiece:
@@ -731,47 +635,13 @@ def fieldcallback(piece_event, field, time_in_seconds):
         correction_just_exited = False
     
     if place and field not in legalsquares:
-        # During setup, allow any placement - don't trigger warnings
-        if is_setting_up:
-            # Just reset move state and allow placement
-            sourcesq = -1
-            legalsquares = []
-            return
-        
         board.beep(board.SOUND_WRONG_MOVE)
         log.warning(f"[gamemanager.fieldcallback] Piece placed on illegal square {field}")
         is_takeback = checkLastBoardState()
         if not is_takeback:
             guideMisplacedPiece(field, sourcesq, othersourcesq, vpiece)
     
-    # Check for starting position detection on ANY placement (not just legal squares)
-    # This allows detection even when pieces are being reset manually
-    if place:
-        if _is_board_in_starting_position():
-            log.info("[gamemanager.fieldcallback] Starting position detected after piece placement")
-            board.ledsOff()
-            _reset_move_state()
-            # If a game was in progress, reset it; otherwise prepare for new game
-            with _game_lock:
-                if gamedbid >= 0:
-                    log.info("[gamemanager.fieldcallback] Resetting active game for new game")
-                _reset_game()
-            return
-    
     if place and field in legalsquares:
-        
-        # Check if game is still active before processing move
-        # After reset, allow first move even if gamedbid isn't fully set yet
-        # Check if this is likely the first move after reset (cboard is at starting position)
-        is_first_move_after_reset = (cboard.fen() == STARTING_FEN and 
-                                     len(cboard.move_stack) == 0 and
-                                     cboard.outcome() is None)
-        
-        if not _is_game_active() and not is_first_move_after_reset:
-            log.warning(f"[gamemanager.fieldcallback] Attempted move after game ended or in correction mode")
-            board.beep(board.SOUND_WRONG_MOVE)
-            return
-        
         log.info(f"[gamemanager.fieldcallback] Making move")
         if field == sourcesq:
             # Piece has simply been placed back
@@ -779,117 +649,49 @@ def fieldcallback(piece_event, field, time_in_seconds):
             sourcesq = -1
             legalsquares = []
         else:
-            # Piece has been moved - prepare move string first
+            # Piece has been moved
             fromname = chess.square_name(sourcesq)
             toname = chess.square_name(field)
+            piece_name = str(cboard.piece_at(sourcesq))
+            promotion_suffix = _handle_promotion(field, piece_name, forcemove)
             
-            # Use lock for critical section
-            with _game_lock:
-                # Double-check game is still active after acquiring lock
-                if not _is_game_active():
-                    log.warning(f"[gamemanager.fieldcallback] Game ended while processing move")
-                    return
-                
-                piece_name = str(cboard.piece_at(sourcesq))
-                promotion_suffix = _handle_promotion(field, piece_name, forcemove)
-                
-                if forcemove:
-                    mv = computermove
-                else:
-                    mv = fromname + toname + promotion_suffix
-                
-                # Validate and execute move with error handling
-                try:
-                    cboard.push(chess.Move.from_uci(mv))
-                except ValueError as e:
-                    log.error(f"[gamemanager.fieldcallback] Invalid move {mv}: {e}")
-                    board.beep(board.SOUND_WRONG_MOVE)
-                    return
-                except Exception as e:
-                    log.error(f"[gamemanager.fieldcallback] Unexpected error executing move {mv}: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    board.beep(board.SOUND_WRONG_MOVE)
-                    return
-                
-                # Update fen.log
-                paths.write_fen_log(cboard.fen())
-                
-                # Database operations in transaction
-                try:
-                    # Ensure gamedbid is set (should be set by _reset_game, but check for safety)
-                    if gamedbid < 0:
-                        log.error("[gamemanager.fieldcallback] gamedbid not set, cannot record move")
-                        # Try to get the latest game ID
-                        gamedbid = session.query(func.max(models.Game.id)).scalar()
-                        if gamedbid is None or gamedbid < 0:
-                            log.error("[gamemanager.fieldcallback] No game found in database")
-                            cboard.pop()  # Rollback move
-                            board.beep(board.SOUND_WRONG_MOVE)
-                            return
-                    
-                    # Record the move in database
-                    move_fen = str(cboard.fen())
-                    gamemove = models.GameMove(
-                        gameid=gamedbid,
-                        move=mv,
-                        fen=move_fen
-                    )
-                    session.add(gamemove)
-                    session.commit()
-                    log.info(f"[gamemanager.fieldcallback] Recorded move {mv} in database with FEN: {move_fen}")
-                    
-                    # Record board state after move
-                    current_state = board.getChessState()
-                    if current_state is not None:
-                        boardstates.append(current_state)
-                        log.info(f"[gamemanager.fieldcallback] Recorded board state after move {mv}")
-                    else:
-                        log.warning("[gamemanager.fieldcallback] Could not get board state after move")
-                except Exception as e:
-                    log.error(f"[gamemanager.fieldcallback] Database error: {e}")
-                    session.rollback()
-                    # Rollback the move on the board as well
-                    try:
-                        cboard.pop()
-                    except:
-                        pass
-                    board.beep(board.SOUND_WRONG_MOVE)
-                    return
-                
-                _reset_move_state()
-                _safe_callback(movecallbackfunction, mv)
+            if forcemove:
+                mv = computermove
+            else:
+                mv = fromname + toname + promotion_suffix
+            
+            # Make the move and update fen.log
+            cboard.push(chess.Move.from_uci(mv))
+            paths.write_fen_log(cboard.fen())
+            gamemove = models.GameMove(
+                gameid=gamedbid,
+                move=mv,
+                fen=str(cboard.fen())
+            )
+            session.add(gamemove)
+            session.commit()
+            collectBoardState()
+            _reset_move_state()
+            if movecallbackfunction is not None:
+                movecallbackfunction(mv)
+            board.beep(board.SOUND_GENERAL)
+            # Also light up the square moved to
+            board.led(field)
+            # Check the outcome
+            outcome = cboard.outcome(claim_draw=True)
+            if outcome is None:
+                # Switch the turn
+                _switch_turn_with_event()
+            else:
                 board.beep(board.SOUND_GENERAL)
-                # Also light up the square moved to
-                board.led(field)
-                
-                # Check the outcome
-                outcome = cboard.outcome(claim_draw=True)
-                if outcome is None:
-                    # Switch the turn and trigger event callback
-                    # This is critical for computer moves - external code listens for EVENT_BLACK_TURN/EVENT_WHITE_TURN
-                    _switch_turn_with_event()
-                    log.info(f"[gamemanager.fieldcallback] Turn switched, current turn: {curturn} ({'White' if curturn == 1 else 'Black'})")
-                else:
-                    board.beep(board.SOUND_GENERAL)
-                    # Update game result in database and trigger callback
-                    resultstr = str(cboard.result())
-                    termination = str(outcome.termination)
-                    _update_game_result(resultstr, termination, "fieldcallback")
+                # Update game result in database and trigger callback
+                resultstr = str(cboard.result())
+                termination = str(outcome.termination)
+                _update_game_result(resultstr, termination, "fieldcallback")
 
 def resignGame(sideresigning):
     # Take care of updating the data for a resigned game and callback to the program with the
     # winner. sideresigning = 1 for white, 2 for black
-    # Input validation
-    if sideresigning not in [1, 2]:
-        log.warning(f"[gamemanager.resignGame] Invalid sideresigning value: {sideresigning}")
-        return
-    
-    # Check if game is still active
-    if not _is_game_active():
-        log.warning(f"[gamemanager.resignGame] Cannot resign - game not active")
-        return
-    
     resultstr = "0-1" if sideresigning == 1 else "1-0"
     _update_game_result(resultstr, "Termination.RESIGN", "resignGame")
     
@@ -907,11 +709,6 @@ def getResult():
 
 def drawGame():
     # Take care of updating the data for a drawn game
-    # Check if game is still active
-    if not _is_game_active():
-        log.warning(f"[gamemanager.drawGame] Cannot draw - game not active")
-        return
-    
     _update_game_result("1/2-1/2", "Termination.DRAW", "drawGame")
 
 def gameThread(eventCallback, moveCallback, keycallbacki, takebackcallbacki):
@@ -957,43 +754,17 @@ def _reset_game():
         global othersourcesq
         global forcemove
         global computermove
-        global correction_mode
-        global correction_just_exited
-        global correction_expected_state
-        global gamedbid
         
         log.info("DEBUG: Detected starting position - triggering NEW_GAME")
-        # Exit correction mode if active
-        if correction_mode:
-            correction_mode = False
-            correction_expected_state = None
-            correction_just_exited = False
-            log.info("[gamemanager._reset_game] Exiting correction mode for game reset")
-        
         # Reset move-related state variables to prevent stale values from previous game/correction
         resetMoveState()
         curturn = 1
         cboard.reset()
-        
-        # Clear boardstates and record starting position state
-        boardstates = []
-        
-        # Verify board is in starting position before recording
-        current_board_state = board.getChessState()
-        if current_board_state is not None and bytearray(current_board_state) == startstate:
-            boardstates.append(current_board_state)
-            log.info("[gamemanager._reset_game] Recorded starting position in boardstates")
-        else:
-            log.warning("[gamemanager._reset_game] Board state doesn't match starting position, recording anyway")
-            if current_board_state is not None:
-                boardstates.append(current_board_state)
-        
         paths.write_fen_log(cboard.fen())
         _double_beep()
         board.ledsOff()
-        _safe_callback(eventcallbackfunction, EVENT_NEW_GAME)
-        _safe_callback(eventcallbackfunction, EVENT_WHITE_TURN)
-        
+        eventcallbackfunction(EVENT_NEW_GAME)
+        eventcallbackfunction(EVENT_WHITE_TURN)
         # Log a new game in the db
         game = models.Game(
             source=source,
@@ -1003,22 +774,21 @@ def _reset_game():
             white=gameinfo_white,
             black=gameinfo_black
         )
-        log.info(f"[gamemanager._reset_game] Creating new game: {game}")
+        log.info(game)
         session.add(game)
         session.commit()                        
         # Get the max game id as that is this game id and fill it into gamedbid
         gamedbid = session.query(func.max(models.Game.id)).scalar()
-        log.info(f"[gamemanager._reset_game] New game ID: {gamedbid}")
-        
-        # Record the starting position in GameMove with STARTING_FEN
+        # Now make an entry in GameMove for this start state
         gamemove = models.GameMove(
             gameid = gamedbid,
             move = '',
-            fen = STARTING_FEN  # Use constant to ensure consistency
+            fen = str(cboard.fen())
         )
         session.add(gamemove)
         session.commit()
-        log.info(f"[gamemanager._reset_game] Recorded starting position in database: {STARTING_FEN}")
+        boardstates = []
+        collectBoardState()
     except Exception as e:
         log.error(f"Error resetting game: {e}")
         import traceback
@@ -1035,24 +805,10 @@ def clockThread():
     global showingpromotion
     while kill == 0:
         time.sleep(CLOCK_DECREMENT_SECONDS)  # epaper refresh rate means we can only have an accuracy of around 2 seconds
-        
-        # Check if game is over - stop clock if so
-        with _game_lock:
-            outcome = cboard.outcome()
-            if outcome is not None:
-                # Game is over, stop clock but continue updating display
-                if not showingpromotion:
-                    timestr = _format_time(whitetime, blacktime)
-                    epaper.writeText(CLOCK_DISPLAY_LINE, timestr)
-                continue
-        
-        # Only decrement clock if game is active
-        with _game_lock:
-            if whitetime > 0 and curturn == 1 and cboard.fen() != STARTING_FEN:
-                whitetime = whitetime - CLOCK_DECREMENT_SECONDS
-            if blacktime > 0 and curturn == 0:
-                blacktime = blacktime - CLOCK_DECREMENT_SECONDS
-        
+        if whitetime > 0 and curturn == 1 and cboard.fen() != STARTING_FEN:
+            whitetime = whitetime - CLOCK_DECREMENT_SECONDS
+        if blacktime > 0 and curturn == 0:
+            blacktime = blacktime - CLOCK_DECREMENT_SECONDS
         if not showingpromotion:
             timestr = _format_time(whitetime, blacktime)
             epaper.writeText(CLOCK_DISPLAY_LINE, timestr)
@@ -1079,36 +835,16 @@ def computerMove(mv, forced = True):
     # in the format b2b4 , g7g8q , etc
     global computermove
     global forcemove
-    
-    # Input validation
-    if not mv or len(mv) < MIN_UCI_MOVE_LENGTH:
-        log.warning(f"[gamemanager.computerMove] Invalid move format: {mv}")
+    if len(mv) < MIN_UCI_MOVE_LENGTH:
         return
-    
-    # Validate UCI format (basic check)
-    if not (mv[0].islower() and mv[1].isdigit() and mv[2].islower() and mv[3].isdigit()):
-        log.warning(f"[gamemanager.computerMove] Invalid UCI move format: {mv}")
-        return
-    
-    # Check if game is active
-    if not _is_game_active():
-        log.warning(f"[gamemanager.computerMove] Cannot set forced move - game not active")
-        return
-    
-    with _game_lock:
-        # Check if a move is already in progress
-        if sourcesq >= 0:
-            log.warning(f"[gamemanager.computerMove] Move already in progress, cannot set forced move")
-            return
-        
-        # First set the globals so that the thread knows there is a computer move
-        computermove = mv
-        if forced:
-            forcemove = 1
-        # Next indicate this on the board by converting UCI to square indices and lighting LEDs
-        fromnum, tonum = _uci_to_squares(mv)
-        if fromnum is not None and tonum is not None:
-            board.ledFromTo(fromnum, tonum)  
+    # First set the globals so that the thread knows there is a computer move
+    computermove = mv
+    if forced:
+        forcemove = 1
+    # Next indicate this on the board by converting UCI to square indices and lighting LEDs
+    fromnum, tonum = _uci_to_squares(mv)
+    if fromnum is not None and tonum is not None:
+        board.ledFromTo(fromnum, tonum)  
 
 def setGameInfo(gi_event,gi_site,gi_round,gi_white,gi_black):
     # Call before subscribing if you want to set further information about the game for the PGN files
