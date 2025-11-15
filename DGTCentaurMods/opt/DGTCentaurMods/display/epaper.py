@@ -299,12 +299,8 @@ def clearScreen():
     pauseEpaper()
     draw = ImageDraw.Draw(epaperbuffer)
     draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
-    # Use Python implementation for clear to avoid dimming issues
-    im_clear = epaperbuffer.copy()
-    if screeninverted == 0:
-        im_clear = im_clear.transpose(Image.FLIP_TOP_BOTTOM)
-        im_clear = im_clear.transpose(Image.FLIP_LEFT_RIGHT)
-    epd.Clear(0xFF)  # Clear to white
+    # Don't clear hardware here - let the update thread handle it
+    # This ensures the buffer is properly synced before display
     first = 0    
     unPauseEpaper()
 
@@ -442,8 +438,14 @@ def resignDrawMenu(row):
     
 def quickClear():
     # Assumes the screen is in partial mode and makes it white
+    # Clear both buffer and hardware to keep them in sync
+    global epaperbuffer
+    pauseEpaper()
+    draw = ImageDraw.Draw(epaperbuffer)
+    draw.rectangle([(0, 0), (128, 296)], fill=255, outline=255)
     # Use Python implementation to avoid dimming issues
-    epd.Clear(0xFF)  # Clear to white    
+    epd.Clear(0xFF)  # Clear to white
+    unPauseEpaper()    
     
 def drawWindow(x, y, w, data):
     # Calling this function assumes the screen is already initialised
