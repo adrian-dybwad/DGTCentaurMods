@@ -127,7 +127,8 @@ def epaperUpdate():
             log.debug("epaperUpdate: Display change detected, updating screen")
             sleepcount = 0
             if screensleep == 1:
-                driver.reset()
+                epd.reset()
+                epd.init()
                 screensleep = 0
             paths.write_epaper_static_jpg(epaperbuffer)
             # Always use DisplayPartial to avoid DisplayRegion issues causing dimming
@@ -222,10 +223,8 @@ def initEpaper(mode = 0):
     epapermode = mode
     epaperbuffer = Image.new('1', (128, 296), 255)
     log.debug("init epaper")
-    # Initialize both drivers - C driver for hardware reset, Python for display
-    driver.reset()
-    driver.init()
-    # Initialize Python epd object for display operations
+    # Initialize Python epd object only (no C driver)
+    # epd.init() calls reset() internally, so no need for driver.reset()
     epd.init()
     epaperUpd = threading.Thread(target=epaperUpdate, args=())
     epaperUpd.daemon = True
