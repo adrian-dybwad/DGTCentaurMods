@@ -670,17 +670,15 @@ class UCIGame:
             draw = ImageDraw.Draw(lboard)
             chessfont = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
             
-            # Create a gray dithering pattern for dark squares
-            # Use a 2x2 checkerboard pattern to simulate gray in 1-bit mode
+            # Create a gray dithering pattern for empty dark squares
+            # Use a checkerboard dithering pattern to simulate gray in 1-bit mode
             gray_square = Image.new('1', (16, 16), 255)  # Start with white
-            gray_draw = ImageDraw.Draw(gray_square)
-            # Create a dithering pattern: alternate pixels in a checkerboard
-            for i in range(0, 16, 2):
-                for j in range(0, 16, 2):
-                    # Create a 2x2 pattern: top-left and bottom-right black
-                    gray_draw.point((i, j), 0)  # Black pixel
-                    gray_draw.point((i+1, j+1), 0)  # Black pixel
-                    # Leave (i+1, j) and (i, j+1) as white (255)
+            gray_pixels = gray_square.load()
+            # Create a 50% gray pattern using alternating pixels
+            for i in range(16):
+                for j in range(16):
+                    if (i + j) % 2 == 0:
+                        gray_pixels[i, j] = 0  # Black pixel for gray effect
             
             for x in range(0, 64):
                 pos = (x - 63) * -1
@@ -698,8 +696,6 @@ class UCIGame:
                 # Set py for sprite sheet row (py=0 for white squares, py=16 for gray squares)
                 if is_dark_square:
                     py = 16
-                    # Draw gray square background for dark squares using dithering pattern
-                    lboard.paste(gray_square, (col, row))
                 
                 # Determine piece sprite
                 piece_char = nfen[x]
@@ -709,11 +705,15 @@ class UCIGame:
                 }.get(piece_char, 0)
                 
                 if piece_char != " ":
+                    # Piece exists - paste it (it already has the square background)
                     piece = chessfont.crop((piece_x_offset, py, piece_x_offset + 16, py + 16))
                     if self.computer_color == chess.WHITE:
                         piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
                         piece = piece.transpose(Image.FLIP_LEFT_RIGHT)
                     lboard.paste(piece, (col, row))
+                elif is_dark_square:
+                    # Empty dark square - draw gray pattern
+                    lboard.paste(gray_square, (col, row))
             
             draw.rectangle([(0, 0), (127, 127)], fill=None, outline='black')
             epaper.drawImagePartial(0, 81, lboard)
