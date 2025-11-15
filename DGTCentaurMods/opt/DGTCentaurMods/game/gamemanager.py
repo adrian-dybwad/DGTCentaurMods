@@ -758,8 +758,13 @@ def fieldcallback(piece_event, field, time_in_seconds):
             return
         
         # Check if game is still active before processing move
-        # Allow moves when board is in starting position (setup phase)
-        if not _is_game_active():
+        # After reset, allow first move even if gamedbid isn't fully set yet
+        # Check if this is likely the first move after reset (cboard is at starting position)
+        is_first_move_after_reset = (cboard.fen() == STARTING_FEN and 
+                                     len(cboard.move_stack) == 0 and
+                                     cboard.outcome() is None)
+        
+        if not _is_game_active() and not is_first_move_after_reset:
             log.warning(f"[gamemanager.fieldcallback] Attempted move after game ended or in correction mode")
             board.beep(board.SOUND_WRONG_MOVE)
             return
@@ -807,14 +812,35 @@ def fieldcallback(piece_event, field, time_in_seconds):
                 
                 # Database operations in transaction
                 try:
+                    # Ensure gamedbid is set (should be set by _reset_game, but check for safety)
+                    if gamedbid < 0:
+                        log.error("[gamemanager.fieldcallback] gamedbid not set, cannot record move")
+                        # Try to get the latest game ID
+                        gamedbid = session.query(func.max(models.Game.id)).scalar()
+                        if gamedbid is None or gamedbid < 0:
+                            log.error("[gamemanager.fieldcallback] No game found in database")
+                            cboard.pop()  # Rollback move
+                            board.beep(board.SOUND_WRONG_MOVE)
+                            return
+                    
+                    # Record the move in database
+                    move_fen = str(cboard.fen())
                     gamemove = models.GameMove(
                         gameid=gamedbid,
                         move=mv,
-                        fen=str(cboard.fen())
+                        fen=move_fen
                     )
                     session.add(gamemove)
                     session.commit()
-                    collectBoardState()
+                    log.info(f"[gamemanager.fieldcallback] Recorded move {mv} in database with FEN: {move_fen}")
+                    
+                    # Record board state after move
+                    current_state = board.getChessState()
+                    if current_state is not None:
+                        boardstates.append(current_state)
+                        log.info(f"[gamemanager.fieldcallback] Recorded board state after move {mv}")
+                    else:
+                        log.warning("[gamemanager.fieldcallback] Could not get board state after move")
                 except Exception as e:
                     log.error(f"[gamemanager.fieldcallback] Database error: {e}")
                     session.rollback()
@@ -924,17 +950,43 @@ def _reset_game():
         global othersourcesq
         global forcemove
         global computermove
+        global correction_mode
+        global correction_just_exited
+        global correction_expected_state
+        global gamedbid
         
         log.info("DEBUG: Detected starting position - triggering NEW_GAME")
+        # Exit correction mode if active
+        if correction_mode:
+            correction_mode = False
+            correction_expected_state = None
+            correction_just_exited = False
+            log.info("[gamemanager._reset_game] Exiting correction mode for game reset")
+        
         # Reset move-related state variables to prevent stale values from previous game/correction
         resetMoveState()
         curturn = 1
         cboard.reset()
+        
+        # Clear boardstates and record starting position state
+        boardstates = []
+        
+        # Verify board is in starting position before recording
+        current_board_state = board.getChessState()
+        if current_board_state is not None and bytearray(current_board_state) == startstate:
+            boardstates.append(current_board_state)
+            log.info("[gamemanager._reset_game] Recorded starting position in boardstates")
+        else:
+            log.warning("[gamemanager._reset_game] Board state doesn't match starting position, recording anyway")
+            if current_board_state is not None:
+                boardstates.append(current_board_state)
+        
         paths.write_fen_log(cboard.fen())
         _double_beep()
         board.ledsOff()
-        eventcallbackfunction(EVENT_NEW_GAME)
-        eventcallbackfunction(EVENT_WHITE_TURN)
+        _safe_callback(eventcallbackfunction, EVENT_NEW_GAME)
+        _safe_callback(eventcallbackfunction, EVENT_WHITE_TURN)
+        
         # Log a new game in the db
         game = models.Game(
             source=source,
@@ -944,21 +996,22 @@ def _reset_game():
             white=gameinfo_white,
             black=gameinfo_black
         )
-        log.info(game)
+        log.info(f"[gamemanager._reset_game] Creating new game: {game}")
         session.add(game)
         session.commit()                        
         # Get the max game id as that is this game id and fill it into gamedbid
         gamedbid = session.query(func.max(models.Game.id)).scalar()
-        # Now make an entry in GameMove for this start state
+        log.info(f"[gamemanager._reset_game] New game ID: {gamedbid}")
+        
+        # Record the starting position in GameMove with STARTING_FEN
         gamemove = models.GameMove(
             gameid = gamedbid,
             move = '',
-            fen = str(cboard.fen())
+            fen = STARTING_FEN  # Use constant to ensure consistency
         )
         session.add(gamemove)
         session.commit()
-        boardstates = []
-        collectBoardState()
+        log.info(f"[gamemanager._reset_game] Recorded starting position in database: {STARTING_FEN}")
     except Exception as e:
         log.error(f"Error resetting game: {e}")
         import traceback
