@@ -670,9 +670,17 @@ class UCIGame:
             draw = ImageDraw.Draw(lboard)
             chessfont = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
             
-            # Gray color for dark squares (using value 0 for black/gray in 1-bit mode)
-            # In 1-bit mode, 0 is black/gray, 255 is white
-            GRAY_SQUARE = 0  # Black/gray for dark squares
+            # Create a gray dithering pattern for dark squares
+            # Use a 2x2 checkerboard pattern to simulate gray in 1-bit mode
+            gray_square = Image.new('1', (16, 16), 255)  # Start with white
+            gray_draw = ImageDraw.Draw(gray_square)
+            # Create a dithering pattern: alternate pixels in a checkerboard
+            for i in range(0, 16, 2):
+                for j in range(0, 16, 2):
+                    # Create a 2x2 pattern: top-left and bottom-right black
+                    gray_draw.point((i, j), 0)  # Black pixel
+                    gray_draw.point((i+1, j+1), 0)  # Black pixel
+                    # Leave (i+1, j) and (i, j+1) as white (255)
             
             for x in range(0, 64):
                 pos = (x - 63) * -1
@@ -683,18 +691,15 @@ class UCIGame:
                 c = x % 8
                 py = 0
                 
-                # Determine if this is a dark square (for drawing gray background)
-                is_dark_square = False
-                if (r // 2 == r / 2 and c // 2 == c / 2):
-                    py = py + 16
-                    is_dark_square = True
-                if (r // 2 != r / 2 and c // 2 == c / 2):
-                    py = py + 16
-                    is_dark_square = True
+                # Determine if this is a dark square using checkerboard pattern
+                # Dark square if (row + col) is odd
+                is_dark_square = ((r + c) % 2 == 1)
                 
-                # Draw gray square background for dark squares
+                # Set py for sprite sheet row (py=0 for white squares, py=16 for gray squares)
                 if is_dark_square:
-                    draw.rectangle([(col, row), (col + 15, row + 15)], fill=GRAY_SQUARE, outline=GRAY_SQUARE)
+                    py = 16
+                    # Draw gray square background for dark squares using dithering pattern
+                    lboard.paste(gray_square, (col, row))
                 
                 # Determine piece sprite
                 piece_char = nfen[x]
