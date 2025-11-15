@@ -368,10 +368,26 @@ class GameManager:
         field_name = chess.square_name(field)
         piece_color = self._board.color_at(field)
         
-        log.info(f"[GameManager] piece_event={'LIFT' if lift else 'PLACE'} field={field} fieldname={field_name} color_at={'White' if piece_color else 'Black'}")
+        # Handle None case (no piece on square)
+        piece_color_str = "None" if piece_color is None else ("White" if piece_color else "Black")
+        log.info(f"[GameManager] piece_event={'LIFT' if lift else 'PLACE'} field={field} fieldname={field_name} color_at={piece_color_str}")
         
         # Check if piece belongs to current player
-        is_current_player_piece = (self._board.turn == chess.WHITE) == (piece_color == True)
+        # piece_color is True for white, False for black, None if no piece
+        # For lift: check logical board (piece should still be there)
+        # For place: check logical board (piece will be there after move is made)
+        if piece_color is None:
+            # No piece on logical board - this can happen if piece was already moved
+            # or if checking during a place event before move is registered
+            # For lift events, this shouldn't happen normally
+            # For place events, we need to check the physical board state
+            if lift:
+                log.warning(f"[GameManager] No piece on logical board at {field} during LIFT - might be stale event")
+                return
+            # For place, we'll allow it if source_square is set (meaning a piece was lifted)
+            is_current_player_piece = False  # Will be determined by source_square
+        else:
+            is_current_player_piece = (self._board.turn == chess.WHITE) == (piece_color == True)
         
         # Handle lift events
         if lift:
@@ -422,18 +438,35 @@ class GameManager:
                     return
             
             # Handle opponent piece placed back
-            if not is_current_player_piece and self._other_source_square is not None:
-                if field == self._other_source_square:
-                    board.ledsOff()
-                    self._other_source_square = None
-                    return
+            # Check if this is the opponent piece that was lifted
+            if self._other_source_square is not None and field == self._other_source_square:
+                # Opponent piece placed back on original square
+                board.ledsOff()
+                self._other_source_square = None
+                return
             
             # Handle current player piece placement
-            if is_current_player_piece and self._source_square is not None:
+            # Check if we have a source square (piece was lifted) OR if this is a valid current player piece
+            if self._source_square is not None:
+                # We have a lifted piece - determine if it's current player's piece
+                # Check the source square's piece color (should still be in logical board)
+                source_piece_color = self._board.color_at(self._source_square)
+                if source_piece_color is None:
+                    # Piece was already moved in logical board - check if it matches current turn
+                    # This shouldn't happen normally, but handle it gracefully
+                    log.warning(f"[GameManager] Source square {self._source_square} has no piece in logical board")
+                    # Assume it's valid if we got this far
+                    is_current_player_move = True
+                else:
+                    is_current_player_move = (self._board.turn == chess.WHITE) == (source_piece_color == True)
+                
+                if not is_current_player_move:
+                    log.warning(f"[GameManager] Placed piece doesn't belong to current player - ignoring")
+                    return
+                
                 # Recalculate legal squares in case board state changed (e.g., opponent piece was lifted)
                 # This ensures captures work correctly even if opponent piece was lifted first
                 current_legal_squares = self._calculate_legal_squares(self._source_square)
-                
                 if field not in current_legal_squares:
                     # Illegal move
                     board.beep(board.SOUND_WRONG_MOVE)
@@ -603,6 +636,11 @@ class GameManager:
         board.ledsOff()
         log.info("[GameManager] Subscribing to board events")
         
+        # Always collect initial board state (like original gamemanager)
+        # This ensures we have a baseline for move detection
+        self._collect_board_state()
+        log.info("[GameManager] Collected initial board state")
+        
         try:
             board.subscribeEvents(self._key_callback, self._field_callback)
         except Exception as e:
@@ -616,6 +654,40 @@ class GameManager:
         if self._is_starting_position():
             log.info("[GameManager] Starting position detected on startup - starting new game")
             self._reset_game()
+        else:
+            # Board not in starting position - still need to initialize game if not already done
+            # This handles the case where board is already set up from a previous session
+            if self._game_db_id is None:
+                log.info("[GameManager] Board not in starting position, but initializing game state")
+                # Create game entry even if not starting position
+                if self._session:
+                    game = models.Game(
+                        source=self._game_source,
+                        event=self._game_event,
+                        site=self._game_site,
+                        round=self._game_round,
+                        white=self._game_white,
+                        black=self._game_black
+                    )
+                    self._session.add(game)
+                    self._session.commit()
+                    self._game_db_id = self._session.query(models.Game.id).order_by(models.Game.id.desc()).first()[0]
+                    
+                    # Log current position
+                    game_move = models.GameMove(
+                        gameid=self._game_db_id,
+                        move='',
+                        fen=str(self._board.fen())
+                    )
+                    self._session.add(game_move)
+                    self._session.commit()
+                
+                # Notify that game is active (even if not starting position)
+                self._notify_event(GameEvent.NEW_GAME)
+                if self._board.turn == chess.WHITE:
+                    self._notify_event(GameEvent.WHITE_TURN)
+                else:
+                    self._notify_event(GameEvent.BLACK_TURN)
         
         last_state_check = time.time()
         while not self._kill:
