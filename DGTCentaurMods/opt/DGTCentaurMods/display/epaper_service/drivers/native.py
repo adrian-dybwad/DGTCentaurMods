@@ -24,13 +24,14 @@ class NativeDriver(DriverBase):
         self._dll.openDisplay()
 
     def _convert(self, image: Image.Image) -> bytes:
-        buf = [0xFF] * (int(self.width / 8) * self.height)
+        width, height = image.size
+        buf = [0xFF] * (int(width / 8) * height)
         mono = image.convert("1")
         pixels = mono.load()
-        for y in range(self.height):
-            for x in range(self.width):
+        for y in range(height):
+            for x in range(width):
                 if pixels[x, y] == 0:
-                    buf[int((x + y * self.width) / 8)] &= ~(0x80 >> (x % 8))
+                    buf[int((x + y * width) / 8)] &= ~(0x80 >> (x % 8))
         return bytes(buf)
 
     def init(self) -> None:
