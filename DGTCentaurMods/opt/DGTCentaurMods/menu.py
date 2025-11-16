@@ -336,8 +336,10 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     log.info(f">>> doMenu: calling renderer.draw(initial_index={initial_index})")
     renderer.draw(initial_index)
     log.info(">>> doMenu: renderer.draw() complete, ensuring all display operations finished")
-    service.await_idle()
-    log.info(">>> doMenu: display operations complete")
+    # Force a full refresh to ensure all menu elements are displayed together
+    log.info(">>> doMenu: submitting full refresh to ensure menu is visible")
+    service.submit_full(await_completion=True)
+    log.info(">>> doMenu: full refresh complete")
     menuitem = (initial_index + 1) if ordered_menu else 1
     log.info(">>> doMenu: calling statusbar.print()")
     statusbar.print()

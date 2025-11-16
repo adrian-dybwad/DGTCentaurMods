@@ -217,15 +217,20 @@ def loading_screen() -> None:
 def welcome_screen(status_text: str = "READY") -> None:
     from DGTCentaurMods.board.logging import log
     log.info(f">>> widgets.welcome_screen() ENTERED with status_text='{status_text}'")
-    log.info(">>> widgets.welcome_screen() calling draw_status_bar()")
-    draw_status_bar(status_text)
-    log.info(">>> widgets.welcome_screen() draw_status_bar() complete")
-    region = Region(0, STATUS_BAR_HEIGHT, 128, 296)
+    region = Region(0, 0, 128, 296)
     log.info(f">>> widgets.welcome_screen() region={region}, acquiring canvas")
     with service.acquire_canvas() as canvas:
-        canvas.draw.rectangle(region.to_box(), fill=255, outline=255)
-        canvas.image.paste(LOGO, (0, STATUS_BAR_HEIGHT + 4))
         draw = canvas.draw
+        # Draw status bar
+        status_region = Region(0, 0, 128, STATUS_BAR_HEIGHT)
+        draw.rectangle(status_region.to_box(), fill=255, outline=255)
+        draw.text((2, -1), status_text, font=STATUS_FONT, fill=0)
+        # Draw battery icon
+        _draw_battery_icon_to_canvas(canvas, top_padding=1)
+        # Draw welcome content
+        welcome_region = Region(0, STATUS_BAR_HEIGHT, 128, 296)
+        draw.rectangle(welcome_region.to_box(), fill=255, outline=255)
+        canvas.image.paste(LOGO, (0, STATUS_BAR_HEIGHT + 4))
         draw.text((0, STATUS_BAR_HEIGHT + 180), "   Press [>||]", font=FONT_18, fill=0)
         canvas.mark_dirty(region)
     log.info(">>> widgets.welcome_screen() canvas released, calling service.submit_full(await_completion=True)")
@@ -259,6 +264,24 @@ def _draw_battery_icon(top_padding: int = 2) -> None:
     path = AssetManager.get_resource_path(f"{indicator}.bmp")
     image = Image.open(path)
     draw_image(image, 98, top_padding)
+
+
+def _draw_battery_icon_to_canvas(canvas, top_padding: int = 2) -> None:
+    """Draw battery icon directly to canvas (for use within canvas context)."""
+    indicator = "battery1"
+    if board.batterylevel >= 18:
+        indicator = "battery4"
+    elif board.batterylevel >= 12:
+        indicator = "battery3"
+    elif board.batterylevel >= 6:
+        indicator = "battery2"
+    if board.chargerconnected > 0:
+        indicator = "batteryc"
+        if board.batterylevel == 20:
+            indicator = "batterycf"
+    path = AssetManager.get_resource_path(f"{indicator}.bmp")
+    image = Image.open(path)
+    canvas.image.paste(image, (98, top_padding))
 
 
 def _piece_x(piece: str) -> int:
