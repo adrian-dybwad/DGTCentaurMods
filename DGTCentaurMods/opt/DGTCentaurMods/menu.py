@@ -195,50 +195,57 @@ class MenuRenderer:
         log.info(f">>> change_selection() arrow_region={arrow_region}, body_top={self.body_top}, arrow_width={self.arrow_width}")
         
         # Single atomic canvas operation: draw arrow, title, and status bar together
-        with service.acquire_canvas() as canvas:
-            draw = canvas.draw
-            
-            # Redraw status bar
-            draw.rectangle(status_region.to_box(), fill=255, outline=255)
-            try:
-                from DGTCentaurMods.menu import statusbar
-                status_text = statusbar.build() if hasattr(statusbar, 'build') else "READY"
-            except:
-                status_text = "READY"
-            draw.text((2, -1), status_text, font=widgets.STATUS_FONT, fill=0)
-            from DGTCentaurMods.display.epaper_service.widgets import _draw_battery_icon_to_canvas
-            _draw_battery_icon_to_canvas(canvas, top_padding=1)
-            canvas.mark_dirty(status_region)
-            
-            # If title exists, redraw it to prevent fading from full-width refresh
-            if self.title:
-                title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
-                title_region = Region(0, title_top, 128, title_top + widgets.TITLE_HEIGHT)
-                draw.rectangle(title_region.to_box(), fill=0, outline=0)
-                title_text = f"[ {self.title} ]"
-                draw.text((0, title_top - 1), title_text, font=widgets.FONT_18, fill=255)
-                canvas.mark_dirty(title_region)
-            
-            # Clear arrow column from body_top down
-            log.info(f">>> change_selection() clearing arrow column: {arrow_region.to_box()}")
-            draw.rectangle(arrow_region.to_box(), fill=255, outline=255)
-            
-            # Draw arrow at new selection position
-            arrow_top = self._row_top(new_index)
-            log.info(f">>> change_selection() drawing arrow at row {new_index}, arrow_top={arrow_top}, row_height={self.row_height}")
-            arrow_points = [
-                (2, arrow_top + 2),
-                (2, arrow_top + self.row_height - 2),
-                (self.arrow_width - 3, arrow_top + (self.row_height // 2)),
-            ]
-            log.info(f">>> change_selection() arrow polygon points: {arrow_points}")
-            draw.polygon(arrow_points, fill=0)
-            
-            # Draw vertical line from body_top
-            log.info(f">>> change_selection() drawing vertical line: ({self.arrow_width}, {self.body_top}) -> ({self.arrow_width}, 295)")
-            draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
-            
-            canvas.mark_dirty(arrow_region)
+        log.info(">>> change_selection() about to acquire canvas")
+        try:
+            with service.acquire_canvas() as canvas:
+                log.info(">>> change_selection() canvas acquired successfully")
+                draw = canvas.draw
+                
+                # Redraw status bar
+                draw.rectangle(status_region.to_box(), fill=255, outline=255)
+                try:
+                    from DGTCentaurMods.menu import statusbar
+                    status_text = statusbar.build() if hasattr(statusbar, 'build') else "READY"
+                except:
+                    status_text = "READY"
+                draw.text((2, -1), status_text, font=widgets.STATUS_FONT, fill=0)
+                from DGTCentaurMods.display.epaper_service.widgets import _draw_battery_icon_to_canvas
+                _draw_battery_icon_to_canvas(canvas, top_padding=1)
+                canvas.mark_dirty(status_region)
+                
+                # If title exists, redraw it to prevent fading from full-width refresh
+                if self.title:
+                    title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
+                    title_region = Region(0, title_top, 128, title_top + widgets.TITLE_HEIGHT)
+                    draw.rectangle(title_region.to_box(), fill=0, outline=0)
+                    title_text = f"[ {self.title} ]"
+                    draw.text((0, title_top - 1), title_text, font=widgets.FONT_18, fill=255)
+                    canvas.mark_dirty(title_region)
+                
+                # Clear arrow column from body_top down
+                log.info(f">>> change_selection() clearing arrow column: {arrow_region.to_box()}")
+                draw.rectangle(arrow_region.to_box(), fill=255, outline=255)
+                
+                # Draw arrow at new selection position
+                arrow_top = self._row_top(new_index)
+                log.info(f">>> change_selection() drawing arrow at row {new_index}, arrow_top={arrow_top}, row_height={self.row_height}")
+                arrow_points = [
+                    (2, arrow_top + 2),
+                    (2, arrow_top + self.row_height - 2),
+                    (self.arrow_width - 3, arrow_top + (self.row_height // 2)),
+                ]
+                log.info(f">>> change_selection() arrow polygon points: {arrow_points}")
+                draw.polygon(arrow_points, fill=0)
+                
+                # Draw vertical line from body_top
+                log.info(f">>> change_selection() drawing vertical line: ({self.arrow_width}, {self.body_top}) -> ({self.arrow_width}, 295)")
+                draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
+                
+                canvas.mark_dirty(arrow_region)
+                log.info(">>> change_selection() canvas operations complete, exiting context")
+        except Exception as e:
+            log.error(f">>> change_selection() EXCEPTION in canvas block: {e}", exc_info=True)
+            raise
         
         # Create combined region covering both status bar and arrow column
         combined_region = status_region.union(arrow_region)
