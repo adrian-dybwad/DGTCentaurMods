@@ -12,6 +12,13 @@ from DGTCentaurMods.display.ui_components import AssetManager
 from . import service
 from .regions import Region
 
+ROW_HEIGHT = 20
+STATUS_BAR_HEIGHT = 20
+TITLE_GAP = 4
+TITLE_HEIGHT = 20
+TITLE_TOP = STATUS_BAR_HEIGHT + TITLE_GAP
+MENU_FIRST_ROW_TOP = TITLE_TOP + TITLE_HEIGHT
+
 FONT_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
 CHESS_FONT = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
 LOGO = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
@@ -19,9 +26,8 @@ QR = Image.open(AssetManager.get_resource_path("qr-support.png")).resize((128, 1
 _STANDBY_SNAPSHOT: Optional[Image.Image] = None
 
 
-def write_text(row: int, text: str, *, inverted: bool = False) -> None:
-    top = row * 20
-    region = Region(0, top, 128, top + 20)
+def write_text_at(top: int, text: str, *, inverted: bool = False) -> None:
+    region = Region(0, top, 128, top + ROW_HEIGHT)
     with service.acquire_canvas() as canvas:
         draw = canvas.draw
         fill, fg = (0, 255) if inverted else (255, 0)
@@ -31,13 +37,12 @@ def write_text(row: int, text: str, *, inverted: bool = False) -> None:
     service.submit_region(region)
 
 
+def write_text(row: int, text: str, *, inverted: bool = False) -> None:
+    write_text_at(row * ROW_HEIGHT, text, inverted=inverted)
+
+
 def write_menu_title(title: str) -> None:
-    region = Region(0, 20, 128, 40)
-    with service.acquire_canvas() as canvas:
-        canvas.draw.rectangle(region.to_box(), fill=0, outline=0)
-        canvas.draw.text((4, 20), title, font=FONT_18, fill=255)
-        canvas.mark_dirty(region)
-    service.submit_region(region)
+    write_text_at(TITLE_TOP, title, inverted=True)
 
 
 def clear_area(region: Region) -> None:
