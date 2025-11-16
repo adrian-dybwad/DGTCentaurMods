@@ -61,7 +61,8 @@ class FrameBuffer:
             dirty_regions = []
             
             # Compare pixel by pixel to find changed regions
-            # For efficiency, we scan in 8x8 blocks (controller row alignment)
+            # Scan in 8x8 blocks to match controller row alignment and reduce
+            # the number of comparisons needed
             block_size = 8
             
             for block_y in range(0, self.height, block_size):

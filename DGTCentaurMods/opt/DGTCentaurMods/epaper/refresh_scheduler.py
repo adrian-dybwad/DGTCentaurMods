@@ -39,9 +39,11 @@ class RefreshScheduler:
         self._last_full_refresh = time.time()
         
         # After N partial refreshes, force a full refresh to clear ghosting
-        self._max_partial_refreshes = 50
+        # Industry standard is 8-10 partial refreshes before full refresh
+        self._max_partial_refreshes = 10
         
-        # Minimum time between refreshes (ms)
+        # Minimum time between refreshes (in seconds)
+        # Prevents display overload by spacing out refresh operations
         self._min_refresh_interval = 0.1
 
     def start(self) -> None:
@@ -116,7 +118,7 @@ class RefreshScheduler:
             needs_full = (
                 any(region is None for region, _ in batch) or
                 self._partial_refresh_count >= self._max_partial_refreshes or
-                (time.time() - self._last_full_refresh) > 300  # Force full every 5 minutes
+                (time.time() - self._last_full_refresh) > 300  # Force full every 5 minutes to prevent ghosting
             )
             
             if needs_full:
@@ -161,14 +163,19 @@ class RefreshScheduler:
         
         # Execute each merged region
         for region in merged:
-            # Expand to controller alignment
+            # Expand to controller alignment (optimized width, full-height rows)
             expanded = expand_to_controller_alignment(
                 region,
                 self._driver.width,
                 self._driver.height
             )
             
-            # Get image for this region
+            # Get image for the expanded region
+            # Note: expand_to_controller_alignment() always returns full-width regions
+            # because the C library's displayRegion() function only takes y0, y1 coordinates,
+            # not x coordinates. This means it always refreshes full-width rows.
+            # However, we still optimize by only refreshing the necessary rows vertically
+            # (8-pixel aligned) instead of the entire screen.
             image = self._framebuffer.snapshot_region(expanded)
             
             try:
