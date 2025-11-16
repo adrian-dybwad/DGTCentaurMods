@@ -215,17 +215,16 @@ class MenuRenderer:
             
             canvas.mark_dirty(arrow_region)
         
-        # Refresh arrow column immediately (matches original pattern)
-        service.submit_region(arrow_region, await_completion=False)
+        # Refresh region includes title if present (since expansion affects full width anyway)
+        # Expand region to include title if it exists
+        if self.title:
+            title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
+            refresh_region = Region(0, title_top, 128, 295)  # Full width from title to bottom
+        else:
+            refresh_region = arrow_region
         
-        # Refresh status bar (matches original: statusbar.print() after selection change)
-        # Original code redraws status bar on every selection change to prevent fading
-        try:
-            from DGTCentaurMods.menu import statusbar
-            statusbar.print()
-        except:
-            # If statusbar not available, use widgets directly
-            widgets.draw_status_bar("READY")
+        # Refresh immediately - original code pattern
+        service.submit_region(refresh_region, await_completion=False)
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
