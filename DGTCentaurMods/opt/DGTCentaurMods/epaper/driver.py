@@ -39,18 +39,21 @@ class Driver:
         Convert PIL Image to byte buffer format expected by driver.
         
         The driver expects a 1-bit monochrome bitmap in row-major order,
-        with each byte containing 8 pixels (MSB first).
+        with each byte containing 8 pixels (MSB first, left to right).
         """
         width, height = image.size
-        buf = [0xFF] * (int(width / 8) * height)
+        bytes_per_row = (width + 7) // 8  # Round up to nearest byte
+        buf = [0xFF] * (bytes_per_row * height)
         mono = image.convert("1")
         pixels = mono.load()
         
         for y in range(height):
             for x in range(width):
                 if pixels[x, y] == 0:  # Black pixel
-                    byte_index = int((x + y * width) / 8)
+                    # Calculate byte index: row offset + column byte
+                    byte_index = y * bytes_per_row + (x // 8)
                     bit_position = x % 8
+                    # MSB first: bit 0 (leftmost) is at position 7, bit 7 (rightmost) is at position 0
                     buf[byte_index] &= ~(0x80 >> bit_position)
         
         return bytes(buf)
@@ -76,7 +79,8 @@ class Driver:
         Perform a full screen refresh.
         
         The C library's display() function blocks until the hardware
-        refresh completes (typically 1.5-2.0 seconds).
+        refresh completes. Typical duration is 1.5-2.0 seconds based on
+        UC8151 controller specifications.
         """
         # Rotate 180 degrees to match hardware orientation
         rotated = image.transpose(Image.ROTATE_180)
@@ -89,10 +93,11 @@ class Driver:
         Args:
             y0: Start row (in hardware coordinates, from bottom)
             y1: End row (in hardware coordinates, from bottom)
-            image: Image to display (will be rotated and cropped)
+            image: Image to display (will be rotated)
         
         The C library's displayRegion() function blocks until the hardware
-        refresh completes (typically 260-300ms).
+        refresh completes. Typical duration is 260-300ms based on UC8151
+        controller specifications when using the correct LUT.
         """
         # Rotate 180 degrees to match hardware orientation
         rotated = image.transpose(Image.ROTATE_180)

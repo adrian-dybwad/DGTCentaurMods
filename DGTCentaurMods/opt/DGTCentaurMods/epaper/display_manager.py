@@ -238,7 +238,8 @@ class DisplayManager:
                             (widget.width, widget.height),
                             Image.Resampling.NEAREST
                         )
-                    # Paste with mask - only ball pixels overwrite, background stays
+                    # Paste with mask - in mode "1", mask determines which pixels are updated
+                    # White (255) in mask means paste, black (0) means keep existing
                     canvas.paste(widget_image, (widget.x, widget.y), mask)
                 else:
                     # Paste widget onto canvas (last, so it's on top)
