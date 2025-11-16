@@ -44,6 +44,7 @@ class EPaperController:
         self._frame = FrameBuffer(width=width, height=height, background=background)
         self._widgets: List[Widget] = []
         self._running = False
+        self._first_refresh = True
 
     def add_widget(self, widget: Widget) -> None:
         """Register a widget."""

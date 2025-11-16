@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from ctypes import CDLL, c_int, create_string_buffer
+from ctypes import CDLL, create_string_buffer
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
@@ -96,6 +96,8 @@ class NativeEPaperDriver(EPaperDriver):
             raise FileNotFoundError(f"E-paper shared library not found at {self._library_path}")
         dll = CDLL(str(self._library_path))
         dll.openDisplay()
+        # Call reset before init to ensure clean state
+        dll.reset()
         dll.init()
         self._dll = dll
 
@@ -135,7 +137,7 @@ class NativeEPaperDriver(EPaperDriver):
             payload = self._pack_region(pixels, expanded_y0, expanded_y1, hw_y0, hw_y1)
             buffer = create_string_buffer(payload)
             LOGGER.info("Issuing partial refresh logical_y=[%s-%s] hw_y=[%s-%s]", expanded_y0, expanded_y1, hw_y0, hw_y1)
-            self._dll.displayRegion(c_int(hw_y0), c_int(hw_y1), buffer)
+            self._dll.displayRegion(hw_y0, hw_y1, buffer)
 
     def _rotate_pixels(self, pixels: Sequence[Sequence[int]]) -> List[List[int]]:
         if len(pixels) != self.height:
@@ -175,7 +177,7 @@ class NativeEPaperDriver(EPaperDriver):
         return self._convert_image(img)
 
     def _pack_region(self, pixels: Sequence[Sequence[int]], logical_y0: int, logical_y1: int, hw_y0: int, hw_y1: int) -> bytes:
-        """Match legacy flow: crop logical region (full width), rotate, convert."""
+        """Match legacy flow exactly: crop logical region, rotate, convert."""
         if Image is None:
             raise RuntimeError("PIL/Pillow required for hardware driver")
         # Step 1: Create full image from pixels
@@ -183,12 +185,20 @@ class NativeEPaperDriver(EPaperDriver):
         for y, row in enumerate(pixels):
             for x, value in enumerate(row):
                 img.putpixel((x, y), value)
-        # Step 2: Crop to logical region (full width, partial height) - matches legacy scheduler
+        # Step 2: Crop to logical region (full width, partial height) - EXACTLY like legacy scheduler
         cropped = img.crop((0, logical_y0, self.width, logical_y1))
-        # Step 3: Rotate the cropped image - matches legacy _rotate_180
+        # Step 3: Rotate the cropped image - EXACTLY like legacy _rotate_180
         rotated = cropped.transpose(Image.ROTATE_180)
-        # Step 4: Convert using legacy formula
-        return self._convert_image(rotated)
+        # Step 4: Convert using EXACT legacy formula - match byte-for-byte
+        width, height = rotated.size
+        buf = bytearray([0xFF] * (int(width / 8) * height))
+        mono = rotated.convert("1")
+        pix = mono.load()
+        for y in range(height):
+            for x in range(width):
+                if pix[x, y] == 0:
+                    buf[int((x + y * width) / 8)] &= ~(0x80 >> (x % 8))
+        return bytes(buf)
 
     def _align_row(self, value: int) -> int:
         return max(0, (value // 8) * 8)
