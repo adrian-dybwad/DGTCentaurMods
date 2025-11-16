@@ -6,7 +6,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import sys
 import time
+from pathlib import Path
+
+
+def _ensure_package_on_path() -> None:
+    """Guarantee the DGTCentaurMods package is importable when run directly."""
+    package_dir = Path(__file__).resolve().parent
+    root = package_dir.parent
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+
+
+_ensure_package_on_path()
 
 from DGTCentaurMods.epaper import EPaperController, SimulatedEPaperDriver
 from DGTCentaurMods.epaper.regions import Region
