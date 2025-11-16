@@ -89,10 +89,17 @@ class RefreshScheduler:
                 
                 rotated = _rotate_180(image)
                 log.info(">>> RefreshScheduler._loop() FULL REFRESH: Calling driver.full_refresh()")
+                # CRITICAL INVESTIGATION: Agent 1 - Verify full refresh duration and hardware state
                 driver_start = time.time()
+                log.info(f">>> [AGENT1] About to call driver.full_refresh() - will measure duration and verify hardware busy signal")
                 try:
                     self._driver.full_refresh(rotated)
                     driver_duration = time.time() - driver_start
+                    log.info(f">>> [AGENT1] driver.full_refresh() returned after {driver_duration:.3f}s")
+                    if driver_duration < 1.0:
+                        log.error(f">>> [AGENT1] *** CRITICAL *** Full refresh too fast ({driver_duration:.3f}s)! Expected 1.5-2.0s. Hardware may not be doing full refresh!")
+                    elif driver_duration >= 1.5:
+                        log.info(f">>> [AGENT1] Full refresh duration OK ({driver_duration:.3f}s) - hardware likely did full refresh")
                     log.info(f">>> RefreshScheduler._loop() FULL REFRESH: driver.full_refresh() returned after {driver_duration:.3f}s")
                     # Only resolve futures AFTER hardware refresh completes
                     for _, fut in batch:
@@ -109,13 +116,16 @@ class RefreshScheduler:
             # Otherwise merge regions and issue partials
             merged = _merge_regions([region for region, _ in batch if region is not None])
             from DGTCentaurMods.board.logging import log
+            log.info(f">>> [AGENT4] Processing {len(merged)} merged partial refresh region(s)")
             for region in merged:
                 expanded = _expand_region(region, panel_width, panel_height)
+                log.info(f">>> [AGENT4] Partial refresh: original={region}, expanded={expanded}")
                 crop = self._framebuffer.snapshot().crop(expanded.to_box())
                 rotated = _rotate_180(crop)
                 y0 = panel_height - expanded.y2
                 y1 = panel_height - expanded.y1
                 try:
+                    log.info(f">>> [AGENT4] Calling driver.partial_refresh(y0={y0}, y1={y1})")
                     self._driver.partial_refresh(y0, y1, rotated)
                 except RuntimeError as e:
                     log.error(f">>> RefreshScheduler._loop() partial_refresh() failed: {e}")

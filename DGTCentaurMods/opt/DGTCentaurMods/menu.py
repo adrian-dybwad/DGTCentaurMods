@@ -102,23 +102,33 @@ class MenuRenderer:
         # Draw everything in a single canvas operation to ensure atomicity
         # CRITICAL: Clear the entire menu area first, then draw menu content
         log.info(">>> MenuRenderer.draw() acquiring canvas for all menu drawing")
+        # CRITICAL INVESTIGATION: Agent 2 - Verify framebuffer state before drawing
+        framebuffer_before = service.snapshot()
+        menu_area_before = framebuffer_before.crop((0, widgets.STATUS_BAR_HEIGHT, 128, 296))
+        menu_pixels_before = list(menu_area_before.getdata())
+        non_white_before = sum(1 for p in menu_pixels_before if p != 255)
+        log.info(f">>> [AGENT2] Framebuffer BEFORE drawing: {non_white_before} non-white pixels in menu area (should be 0 if cleared)")
         with service.acquire_canvas() as canvas:
             draw = canvas.draw
             
             # Clear entire screen area below status bar first
             clear_region = Region(0, widgets.STATUS_BAR_HEIGHT, 128, 296)
+            log.info(f">>> [AGENT2] Clearing menu area: {clear_region}")
             draw.rectangle(clear_region.to_box(), fill=255, outline=255)
             canvas.mark_dirty(clear_region)
             
             # Draw title if present
             if self.title:
-                log.info(f">>> MenuRenderer.draw() drawing title: '{self.title}'")
+                log.info(f">>> [AGENT5] Drawing menu title: '{self.title}'")
                 title_text = f"[ {self.title} ]"
                 title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
                 title_region = Region(0, title_top, 128, title_top + widgets.TITLE_HEIGHT)
                 draw.rectangle(title_region.to_box(), fill=0, outline=0)
                 draw.text((0, title_top - 1), title_text, font=widgets.FONT_18, fill=255)
                 canvas.mark_dirty(title_region)
+                log.info(f">>> [AGENT5] Title drawn to region={title_region}, text='{title_text}'")
+            else:
+                log.info(f">>> [AGENT5] No title to draw (self.title is empty)")
             
             # Draw all menu entries
             log.info(f">>> MenuRenderer.draw() drawing {len(self.entries)} entries, body_top={self.body_top}")
@@ -160,6 +170,21 @@ class MenuRenderer:
                 canvas.mark_dirty(desc_region)
         
         log.info(">>> MenuRenderer.draw() canvas released, EXITING")
+        # CRITICAL INVESTIGATION: Agent 2 - Verify framebuffer state after drawing
+        framebuffer_after = service.snapshot()
+        menu_area_after = framebuffer_after.crop((0, widgets.STATUS_BAR_HEIGHT, 128, 296))
+        menu_pixels_after = list(menu_area_after.getdata())
+        non_white_after = sum(1 for p in menu_pixels_after if p != 255)
+        log.info(f">>> [AGENT2] Framebuffer AFTER drawing: {non_white_after} non-white pixels in menu area")
+        if self.title:
+            title_region_check = framebuffer_after.crop((0, MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT, 128, MENU_BODY_TOP_WITH_TITLE))
+            title_pixels = list(title_region_check.getdata())
+            title_non_white = sum(1 for p in title_pixels if p != 255)
+            log.info(f">>> [AGENT5] Title region check: {title_non_white} non-white pixels (should be >0 if title drawn)")
+        # CRITICAL INVESTIGATION: Log counter state before reset
+        # Agent 3: Verify counter reset logic
+        old_count = self._partial_refresh_count
+        log.info(f">>> [AGENT3] MenuRenderer.draw() RESETTING counter: {old_count} -> 0 (draw() called, assuming full refresh)")
         # Reset partial refresh counter when doing full refresh
         # All 5 agents agreed: Full refresh clears ghosting, so reset counter
         self._partial_refresh_count = 0
@@ -184,13 +209,26 @@ class MenuRenderer:
         # All 5 agents agreed: Check if we need a full refresh to clear ghosting
         # Industry standard: Periodic full refreshes every 8-10 partial refreshes
         # Each change_selection triggers 1 partial refresh (atomic operation)
+        # CRITICAL INVESTIGATION: Agent 3 - Log counter check
+        log.info(f">>> [AGENT3] MenuRenderer.change_selection() checking counter: {self._partial_refresh_count} >= {self._max_partial_refreshes}?")
         if self._partial_refresh_count >= self._max_partial_refreshes:
             from DGTCentaurMods.board.logging import log
-            log.info(f">>> MenuRenderer.change_selection() partial refresh count ({self._partial_refresh_count}) reached limit ({self._max_partial_refreshes}), doing full refresh to clear ghosting")
+            log.info(f">>> [AGENT3] *** COUNTER LIMIT REACHED *** partial refresh count ({self._partial_refresh_count}) >= limit ({self._max_partial_refreshes})")
+            log.info(f">>> [AGENT1] *** TRIGGERING FULL REFRESH *** - Agent 1 will verify hardware receives this")
+            log.info(f">>> [AGENT2] *** TRIGGERING FULL REFRESH *** - Agent 2 will verify framebuffer state")
             # Update selection first, then redraw entire menu with full refresh to clear ghosting
             self.draw(self.selected_index)
+            # CRITICAL INVESTIGATION: Agent 1 - Verify full refresh is sent and completes
+            import time
+            full_refresh_start = time.time()
+            log.info(f">>> [AGENT1] About to call service.submit_full(await_completion=True) - will measure duration")
             service.submit_full(await_completion=True)
-            self._partial_refresh_count = 0
+            full_refresh_duration = time.time() - full_refresh_start
+            log.info(f">>> [AGENT1] Full refresh completed in {full_refresh_duration:.3f}s (expected 1.5-2.0s for hardware)")
+            if full_refresh_duration < 1.0:
+                log.error(f">>> [AGENT1] *** WARNING *** Full refresh too fast ({full_refresh_duration:.3f}s) - may not be actual hardware refresh!")
+            # Counter already reset in draw() - redundant reset removed
+            log.info(f">>> [AGENT3] Counter reset complete (was reset in draw(), now explicitly confirming)")
             return
         
         # Calculate the combined region that needs updating
@@ -244,8 +282,13 @@ class MenuRenderer:
             canvas.mark_dirty(new_arrow_region)
         
         # Submit single refresh for combined region (atomic operation)
+        # CRITICAL INVESTIGATION: Agent 4 - Log partial refresh submission
+        log.info(f">>> [AGENT4] Submitting partial refresh for region={combined_region}")
+        log.info(f">>> [AGENT3] Counter before increment: {self._partial_refresh_count}")
         service.submit_region(combined_region)
         self._partial_refresh_count += 1  # Increment counter
+        log.info(f">>> [AGENT3] Counter after increment: {self._partial_refresh_count} (limit={self._max_partial_refreshes})")
+        log.info(f">>> [AGENT4] Partial refresh submitted, region={combined_region}, counter={self._partial_refresh_count}")
         log.info(f">>> MenuRenderer.change_selection() atomic update complete, submitted region={combined_region}, partial_refresh_count={self._partial_refresh_count}")
 
     def _row_top(self, idx: int) -> int:
