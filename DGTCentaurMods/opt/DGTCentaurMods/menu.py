@@ -359,7 +359,10 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     service.init()
     log.info(">>> doMenu: service.init() complete, calling widgets.clear_screen()")
     widgets.clear_screen()
-    log.info(">>> doMenu: widgets.clear_screen() complete (it awaited completion), proceeding with menu drawing")
+    log.info(">>> doMenu: widgets.clear_screen() complete (it awaited completion), waiting briefly before menu drawing")
+    # Small delay to ensure e-paper display has fully completed the clear operation
+    time.sleep(0.1)
+    log.info(">>> doMenu: proceeding with menu drawing")
     
     selection = ""
     curmenu = actual_menu
@@ -380,10 +383,22 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     renderer.draw(initial_index)
     log.info(">>> doMenu: renderer.draw() complete, menu content is in framebuffer")
     menuitem = (initial_index + 1) if ordered_menu else 1
-    log.info(">>> doMenu: calling statusbar.print()")
-    statusbar.print()
-    log.info(">>> doMenu: statusbar.print() complete, submitting full refresh to display menu")
-    # Submit full refresh to display the menu (status bar is already in framebuffer)
+    
+    # Draw status bar directly to framebuffer (don't submit region yet)
+    log.info(">>> doMenu: drawing status bar to framebuffer")
+    status_text = statusbar.build()
+    with service.acquire_canvas() as canvas:
+        draw = canvas.draw
+        status_region = Region(0, 0, 128, widgets.STATUS_BAR_HEIGHT)
+        draw.rectangle(status_region.to_box(), fill=255, outline=255)
+        draw.text((2, -1), status_text, font=widgets.STATUS_FONT, fill=0)
+        canvas.mark_dirty(status_region)
+        # Draw battery icon
+        from DGTCentaurMods.display.epaper_service.widgets import _draw_battery_icon_to_canvas
+        _draw_battery_icon_to_canvas(canvas, top_padding=1)
+    
+    log.info(">>> doMenu: status bar drawn to framebuffer, submitting full refresh to display menu")
+    # Submit full refresh to display everything (menu + status bar)
     service.submit_full(await_completion=True)
     log.info(">>> doMenu: full refresh complete, about to BLOCK on event_key.wait()")
     try:
