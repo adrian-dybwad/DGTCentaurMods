@@ -70,6 +70,14 @@ Note: when installing Raspbian please select Bullseye (legacy) and not the new "
 - The SQLite database is created at runtime at `/opt/DGTCentaurMods/db/centaur.db` on first run; it is not tracked in git.
  - The current FEN position is written to `/opt/DGTCentaurMods/tmp/fen.log` by runtime services.
 
+## Test matrix / Python compatibility
+
+- Supported interpreters: CPython 3.9 through 3.14 (inclusive). Keep local development within this band to match production Pis (3.9) and bleeding-edge hosts (3.14).
+- Install [tox](https://tox.wiki) (`pipx install tox`) and run `tox -e py39,py312,py314` to execute the suite across all available interpreters. Tox skips an environment automatically if that Python binary is missing.
+- Tests live in `DGTCentaurMods/opt/DGTCentaurMods/tests` and rely on pytest/unittest. Pass extra pytest args through tox, e.g. `tox -e py312 -- -k epaper`.
+- Runtime dependencies for dev environments are handled through `DGTCentaurMods/opt/DGTCentaurMods/setup/requirements.txt`. Hardware-only wheels (spidev, RPi.GPIO) now install only on Linux via environment markers so macOS hosts can run the suite without custom stubs.
+- The test harness sets `DGTCM_RESOURCES` and `DGTCM_CONFIG_PATH` so fonts/configs resolve inside the repo. When running scripts manually, export those vars (or create `/opt/DGTCentaurMods/...`) to mimic production.
+
 ## Support
 
 Join us on Discord: https://discord.gg/zqgUGK2x49

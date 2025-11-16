@@ -24,6 +24,9 @@
 # distribution, modification, variant, or derivative of this software.
 
 import os
+from typing import Final
+
+RESOURCE_ENV: Final[str] = "DGTCM_RESOURCES"
 
 class AssetManager():
     """Helper class for resolving resource paths used by display widgets."""
@@ -35,8 +38,19 @@ class AssetManager():
         if resource_file.find("..") >= 0:
             return ""
 
-        if os.path.exists("/home/pi/resources/" + resource_file):
-            return "/home/pi/resources/" + resource_file
-        else:
-            return "/opt/DGTCentaurMods/resources/" + resource_file
+        search_paths = []
+
+        custom_root = os.environ.get(RESOURCE_ENV)
+        if custom_root:
+            search_paths.append(custom_root)
+
+        search_paths.extend(("/home/pi/resources", "/opt/DGTCentaurMods/resources"))
+
+        for base in search_paths:
+            candidate = os.path.join(base, resource_file)
+            if os.path.exists(candidate):
+                return candidate
+
+        # Default back to the Centaur install path to maintain legacy behavior.
+        return os.path.join("/opt/DGTCentaurMods/resources", resource_file)
         

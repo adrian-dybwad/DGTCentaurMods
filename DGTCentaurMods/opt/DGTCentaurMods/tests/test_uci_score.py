@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import chess
 from chess.engine import Cp, Mate
+import pytest
 
-from DGTCentaurMods.uci.score import centipawns_from_info_score
+uci_score = pytest.importorskip(
+    "DGTCentaurMods.uci.score", reason="UCI score helpers not packaged on dev hosts"
+)
+centipawns_from_info_score = uci_score.centipawns_from_info_score
 
 
 def test_cp_white_turn():

@@ -22,12 +22,18 @@
 # distribution, modification, variant, or derivative of this software.
 
 import configparser
+import os
+from typing import Final
+
+CONFIG_ENV: Final[str] = "DGTCM_CONFIG_PATH"
+DEFAULT_CONFIG_ENV: Final[str] = "DGTCM_DEFAULT_CONFIG_PATH"
+
 
 class Settings:
-    """ Class handling config.ini """
+    """Class handling centaur.ini with environment overrides for tests/dev."""
 
-    configfile = '/opt/DGTCentaurMods/config/centaur.ini'
-    defconfigfile = '/opt/DGTCentaurMods/defaults/config/centaur.ini'
+    configfile = os.environ.get(CONFIG_ENV, '/opt/DGTCentaurMods/config/centaur.ini')
+    defconfigfile = os.environ.get(DEFAULT_CONFIG_ENV, '/opt/DGTCentaurMods/defaults/config/centaur.ini')
 
     @staticmethod
     def read(section, key, default = ''):
@@ -87,5 +93,8 @@ class Settings:
     @staticmethod
     def write_config(config):
         """ Writes the config.ini """
+        config_dir = os.path.dirname(Settings.configfile)
+        if config_dir:
+            os.makedirs(config_dir, exist_ok=True)
         with open(Settings.configfile, 'w', encoding="utf-8") as f:
             config.write(f)

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import chess
+import pytest
 
-from DGTCentaurMods.uci.controller import ControllerConfig, UciGameController
+uci_controller = pytest.importorskip(
+    "DGTCentaurMods.uci.controller", reason="UCI controller not packaged on dev hosts"
+)
+ControllerConfig = uci_controller.ControllerConfig
+UciGameController = uci_controller.UciGameController
 
 
 class DummyEngines:
