@@ -83,12 +83,19 @@ class NativeDriver(DriverBase):
         - Solution: Mask result to bit 0 (busy_value & 0x01) to extract only the BUSY bit
         - Validate: If masked value is not 0 or 1, log warning and treat conservatively as busy
         
+        CRITICAL FIX for full refresh issue:
+        - readBusy() is unreliable and can return inconsistent values
+        - Require multiple consecutive idle reads (3) before considering hardware truly idle
+        - This prevents false idle detection that causes display() to return early
+        
         Returns:
             True if hardware became idle, False if timeout
         """
         from DGTCentaurMods.board.logging import log
         start_time = time.time()
         poll_count = 0
+        consecutive_idle_count = 0
+        REQUIRED_CONSECUTIVE_IDLE = 3  # Require 3 consecutive idle reads to be sure
         
         # Log initial readBusy() value before entering wait loop
         raw_busy = self._dll.readBusy()
@@ -99,13 +106,13 @@ class NativeDriver(DriverBase):
             log.warning(f">>> NativeDriver._wait_for_idle() readBusy() returned garbage value {raw_busy}, masking to bit 0: {initial_busy}")
         log.info(f">>> NativeDriver._wait_for_idle() ENTERED: raw_readBusy()={raw_busy}, masked={initial_busy} (0=busy, 1=idle)")
         
-        # If already idle, return immediately but still log it
+        # If already idle, still require multiple consecutive reads to be sure
         if initial_busy == 1:
-            log.info(f">>> NativeDriver._wait_for_idle() hardware already idle (masked readBusy()={initial_busy}), returning immediately")
-            return True
-        
-        # Hardware is busy, enter polling loop
-        log.info(f">>> NativeDriver._wait_for_idle() hardware is busy (masked readBusy()={initial_busy}), entering polling loop")
+            consecutive_idle_count = 1
+            log.info(f">>> NativeDriver._wait_for_idle() initial read shows idle, requiring {REQUIRED_CONSECUTIVE_IDLE} consecutive idle reads")
+        else:
+            # Hardware is busy, enter polling loop
+            log.info(f">>> NativeDriver._wait_for_idle() hardware is busy (masked readBusy()={initial_busy}), entering polling loop")
         
         while True:
             raw_busy = self._dll.readBusy()
@@ -121,16 +128,22 @@ class NativeDriver(DriverBase):
             # Log EVERY poll attempt with both raw and masked values
             # Log every 10th poll to avoid log spam, but always log first 5 polls
             if poll_count <= 5 or poll_count % 10 == 0:
-                log.info(f">>> NativeDriver._wait_for_idle() poll #{poll_count}: raw_readBusy()={raw_busy}, masked={busy_value} (elapsed={elapsed:.3f}s)")
+                log.info(f">>> NativeDriver._wait_for_idle() poll #{poll_count}: raw_readBusy()={raw_busy}, masked={busy_value}, consecutive_idle={consecutive_idle_count} (elapsed={elapsed:.3f}s)")
             
             # Check if hardware is idle (1 = HIGH = idle) using masked value
             if busy_value == 1:
-                log.info(f">>> NativeDriver._wait_for_idle() hardware became idle after {elapsed:.3f}s (polled {poll_count} times, raw={raw_busy}, masked={busy_value})")
-                return True
+                consecutive_idle_count += 1
+                # Require multiple consecutive idle reads to be sure hardware is truly idle
+                if consecutive_idle_count >= REQUIRED_CONSECUTIVE_IDLE:
+                    log.info(f">>> NativeDriver._wait_for_idle() hardware became idle after {elapsed:.3f}s (polled {poll_count} times, {consecutive_idle_count} consecutive idle reads, raw={raw_busy}, masked={busy_value})")
+                    return True
+            else:
+                # Hardware is busy, reset consecutive idle counter
+                consecutive_idle_count = 0
             
             # Check for timeout
             if elapsed > timeout:
-                log.error(f">>> NativeDriver._wait_for_idle() timeout after {timeout}s (raw_readBusy()={raw_busy}, masked={busy_value}, polled {poll_count} times)")
+                log.error(f">>> NativeDriver._wait_for_idle() timeout after {timeout}s (raw_readBusy()={raw_busy}, masked={busy_value}, consecutive_idle={consecutive_idle_count}, polled {poll_count} times)")
                 return False
             
             time.sleep(0.01)  # Poll every 10ms to avoid excessive CPU usage

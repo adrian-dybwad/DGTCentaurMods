@@ -220,6 +220,14 @@ class MenuRenderer:
             log.info(f">>> [AGENT3] *** COUNTER LIMIT REACHED *** partial refresh count ({self._partial_refresh_count}) >= limit ({self._max_partial_refreshes})")
             log.info(f">>> [AGENT1] *** TRIGGERING FULL REFRESH *** - Agent 1 will verify hardware receives this")
             log.info(f">>> [AGENT2] *** TRIGGERING FULL REFRESH *** - Agent 2 will verify framebuffer state")
+            
+            # ROOT CAUSE FIX: Wait for all pending partial refreshes to complete before triggering full refresh
+            # The C library's display() function returns early (~0.45s) if hardware is still busy from previous partial refresh
+            # This causes the full refresh to fail silently. We must ensure hardware is truly idle.
+            log.info(f">>> [AGENT1] Waiting for all pending refreshes to complete before full refresh")
+            service.await_all_pending()
+            log.info(f">>> [AGENT1] All pending refreshes complete, hardware should be idle")
+            
             # Update selection first, then redraw entire menu with full refresh to clear ghosting
             self.draw(self.selected_index)
             # CRITICAL INVESTIGATION: Agent 1 - Verify full refresh is sent and completes
