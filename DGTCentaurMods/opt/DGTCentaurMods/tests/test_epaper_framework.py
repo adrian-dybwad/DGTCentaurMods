@@ -1,139 +1,118 @@
-"""Tests for the DGTCentaurMods.epaper framework."""
+#!/usr/bin/env python3
+"""Tests for the new self-contained epaper framework."""
 
 from __future__ import annotations
 
 import asyncio
 import unittest
-from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont
-
-from DGTCentaurMods.display.epaper_service.driver_base import DriverBase
-from DGTCentaurMods.epaper.manager import DisplayManager
-from DGTCentaurMods.epaper.regions import Region
-from DGTCentaurMods.epaper.strategy import RefreshPolicy
-from DGTCentaurMods.epaper.widgets import Widget
+from DGTCentaurMods.epaper.regions import Region, RegionSet
+from DGTCentaurMods.epaper.framebuffer import FrameBuffer
+from DGTCentaurMods.epaper.scheduler import AdaptiveRefreshPlanner, RefreshMode
+from DGTCentaurMods.epaper.controller import EPaperController
+from DGTCentaurMods.epaper.widgets.base import Widget
+from DGTCentaurMods.epaper.driver import EPaperDriver
 
 
-class FakeDriver(DriverBase):
-    """In-memory driver used to assert refresh calls."""
+class RegionSetTest(unittest.TestCase):
+    """RegionSet behaviors."""
+
+    def test_merges_neighbors(self) -> None:
+        """Regions that touch or overlap collapse into one bounding region."""
+        regions = RegionSet()
+        regions.add(Region(0, 0, 10, 10))
+        regions.add(Region(9, 0, 5, 10))
+        merged = regions.as_list()
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0].width, 14)
+        self.assertEqual(merged[0].height, 10)
+
+
+class FrameBufferDiffTest(unittest.TestCase):
+    """FrameBuffer diff detection."""
+
+    def test_detects_dirty_patch(self) -> None:
+        """Only the modified area is reported dirty."""
+        base = FrameBuffer(width=32, height=32, background=255)
+        updated = base.copy()
+        updated.draw_rect(x=5, y=6, width=4, height=7, value=0)
+        dirty = updated.diff(base)
+        self.assertEqual(len(dirty.as_list()), 1)
+        region = dirty.as_list()[0]
+        self.assertEqual((region.x, region.y, region.width, region.height), (5, 6, 4, 7))
+
+
+class RefreshPlannerTest(unittest.TestCase):
+    """Refresh scheduling logic."""
+
+    def test_promotes_full_refresh_after_budget(self) -> None:
+        """Partial refresh budget forces a subsequent full refresh."""
+        planner = AdaptiveRefreshPlanner(
+            width=32,
+            height=32,
+            partial_budget=2,
+            min_partial_area=4,
+            max_regions=4,
+            full_refresh_interval=10.0,
+        )
+        region = Region(0, 0, 8, 8)
+        plan1 = planner.plan([region], fast_hint=False, timestamp=0.0)
+        plan2 = planner.plan([region], fast_hint=False, timestamp=1.0)
+        plan3 = planner.plan([region], fast_hint=False, timestamp=2.0)
+        self.assertEqual(plan1.mode, RefreshMode.PARTIAL_BALANCED)
+        self.assertEqual(plan2.mode, RefreshMode.PARTIAL_BALANCED)
+        self.assertEqual(plan3.mode, RefreshMode.FULL)
+
+
+class DummyDriver(EPaperDriver):
+    """Driver mock capturing issued plans."""
 
     def __init__(self) -> None:
-        self.partial_calls: list[dict[str, Any]] = []
-        self.full_calls: list[dict[str, Any]] = []
+        self.plans: list = []
 
-    def init(self) -> None:
-        """No-op init for the fake driver."""
-
-    def reset(self) -> None:
-        """No-op reset for the fake driver."""
-
-    def full_refresh(self, image: Image.Image) -> None:
-        """Record that a full refresh was requested."""
-        self.full_calls.append({"image": image})
-
-    def partial_refresh(self, y0: int, y1: int, image: Image.Image) -> None:
-        """Record that a partial refresh was requested."""
-        self.partial_calls.append({"y0": y0, "y1": y1, "image": image})
-
-    def sleep(self) -> None:
-        """No-op sleep for the fake driver."""
-
-    def shutdown(self) -> None:
-        """No-op shutdown for the fake driver."""
-
-    def clear_calls(self) -> None:
-        """Reset captured calls."""
-        self.partial_calls.clear()
-        self.full_calls.clear()
+    async def refresh(self, plan, frame) -> None:  # type: ignore[override]
+        self.plans.append((plan.mode, [r.as_tuple() for r in plan.regions]))
 
 
-class TextWidget(Widget):
-    """Widget used by the tests to simulate text updates."""
+class DummyWidget(Widget):
+    """Widget that toggles fill values when ticking."""
 
-    _FONT = ImageFont.load_default()
+    def __init__(self, bounds: Region) -> None:
+        super().__init__(bounds=bounds)
+        self._state = 0
 
-    def __init__(self, region: Region, *, widget_id: str) -> None:
-        super().__init__(region, widget_id=widget_id, z_index=0)
-        self._text = ""
-
-    def set_text(self, text: str) -> None:
-        """Update the widget text and mark it dirty when it changes."""
-        if text != self._text:
-            self._text = text
-            self.mark_dirty()
-
-    def force_same_pixels(self) -> None:
-        """Force a redraw without changing the rendered content."""
+    async def tick(self, timestamp: float) -> None:  # type: ignore[override]
+        self._state = (self._state + 1) % 2
         self.mark_dirty()
 
-    def build(self) -> Image.Image:
-        """Render the current text to an image."""
-        image = Image.new("L", self.region.size, 255)
-        draw = ImageDraw.Draw(image)
-        draw.rectangle((0, 0, self.region.width, self.region.height), fill=255, outline=255)
-        draw.text((0, 0), self._text, font=self._FONT, fill=0)
-        return image
+    async def render(self, canvas) -> None:  # type: ignore[override]
+        value = 0 if self._state == 0 else 255
+        canvas.fill(value)
 
 
-class DisplayManagerTests(unittest.TestCase):
-    """Test suite covering the new DisplayManager orchestration."""
+class ControllerTest(unittest.TestCase):
+    """Controller to driver interactions."""
 
-    def test_manager_performs_partial_refresh_for_dirty_widget(self) -> None:
-        """Dirty widgets should result in a single partial refresh."""
-        driver = FakeDriver()
-        policy = RefreshPolicy()
-        manager = DisplayManager(driver=driver, width=32, height=32, policy=policy)
-        widget = TextWidget(Region(0, 0, 16, 16), widget_id="text")
-        manager.add_widget(widget)
+    def test_controller_composes_and_calls_driver(self) -> None:
+        """A cycle renders widgets, diffs and notifies driver."""
+        driver = DummyDriver()
+        controller = EPaperController(
+            width=32,
+            height=16,
+            driver=driver,
+            tick_interval=0.0,
+        )
+        controller.add_widget(DummyWidget(bounds=Region(0, 0, 16, 16)))
 
-        widget.set_text("42")
-        asyncio.run(manager.refresh_once())
+        async def run_cycle() -> None:
+            await controller.update_once(timestamp=0.0)
 
-        self.assertEqual(1, len(driver.partial_calls))
-        self.assertEqual(0, len(driver.full_calls))
-        first = driver.partial_calls[0]
-        self.assertEqual(0, first["y0"])
-        self.assertGreater(first["y1"], first["y0"])
-
-    def test_manager_escalates_to_full_refresh_when_policy_requires(self) -> None:
-        """Planner should opt for a full refresh when dirty regions exceed the threshold."""
-        driver = FakeDriver()
-        policy = RefreshPolicy(max_partial_regions=0, full_area_ratio=0.1)
-        manager = DisplayManager(driver=driver, width=32, height=32, policy=policy)
-
-        top = TextWidget(Region(0, 0, 32, 8), widget_id="top")
-        bottom = TextWidget(Region(0, 24, 32, 32), widget_id="bottom")
-        manager.add_widget(top)
-        manager.add_widget(bottom)
-
-        top.set_text("A")
-        bottom.set_text("B")
-        asyncio.run(manager.refresh_once())
-
-        self.assertEqual(1, len(driver.full_calls))
-        self.assertEqual(0, len(driver.partial_calls))
-
-    def test_manager_skips_refresh_when_pixels_do_not_change(self) -> None:
-        """No refresh should be sent when a widget redraws identical pixels."""
-        driver = FakeDriver()
-        policy = RefreshPolicy()
-        manager = DisplayManager(driver=driver, width=32, height=32, policy=policy)
-        widget = TextWidget(Region(0, 0, 16, 16), widget_id="stable")
-        manager.add_widget(widget)
-
-        widget.set_text("X")
-        asyncio.run(manager.refresh_once())
-        driver.clear_calls()
-
-        widget.force_same_pixels()
-        asyncio.run(manager.refresh_once())
-
-        self.assertEqual([], driver.partial_calls)
-        self.assertEqual([], driver.full_calls)
+        asyncio.run(run_cycle())
+        self.assertTrue(driver.plans)
+        mode, regions = driver.plans[0]
+        self.assertIn(mode, {RefreshMode.PARTIAL_BALANCED, RefreshMode.FULL})
+        self.assertTrue(regions)
 
 
 if __name__ == "__main__":
     unittest.main()
-
-

@@ -1,12 +1,22 @@
-"""High-level entry points for the DGTCentaurMods e-paper framework."""
+"""Self-contained e-paper orchestration framework."""
 
-from .manager import DisplayManager
-from .strategy import RefreshPolicy
-from .widgets import Widget
+from .controller import EPaperController
+from .driver import EPaperDriver, SimulatedEPaperDriver
+from .framebuffer import FrameBuffer
+from .regions import Region, RegionSet
+from .scheduler import AdaptiveRefreshPlanner, RefreshMode, RefreshPlan
+from .widgets.base import Widget
 
 __all__ = [
-    "DisplayManager",
-    "RefreshPolicy",
+    "EPaperController",
+    "EPaperDriver",
+    "SimulatedEPaperDriver",
+    "FrameBuffer",
+    "Region",
+    "RegionSet",
+    "AdaptiveRefreshPlanner",
+    "RefreshPlan",
+    "RefreshMode",
     "Widget",
 ]
 

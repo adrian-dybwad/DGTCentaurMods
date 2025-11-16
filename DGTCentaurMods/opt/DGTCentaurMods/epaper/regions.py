@@ -1,100 +1,95 @@
-"""Region primitives and utilities used by the e-paper display manager."""
+"""Region utilities for describing dirty areas on the e-paper panel."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable, List, Optional, Tuple
 
 
 @dataclass(frozen=True)
 class Region:
-    """Axis-aligned rectangle defined in panel coordinates."""
+    """Axis aligned rectangle on the framebuffer."""
 
-    x0: int
-    y0: int
-    x1: int
-    y1: int
+    x: int
+    y: int
+    width: int
+    height: int
 
-    @property
-    def width(self) -> int:
-        """Return the width of the region."""
-        return max(0, self.x1 - self.x0)
-
-    @property
-    def height(self) -> int:
-        """Return the height of the region."""
-        return max(0, self.y1 - self.y0)
-
-    @property
-    def size(self) -> tuple[int, int]:
-        """Return the (width, height) of the region."""
-        return (self.width, self.height)
+    def as_tuple(self) -> Tuple[int, int, int, int]:
+        """Return the region as an (x, y, width, height) tuple."""
+        return (self.x, self.y, self.width, self.height)
 
     def area(self) -> int:
-        """Return the number of pixels covered by the region."""
+        """Area in pixels."""
         return self.width * self.height
 
-    def to_box(self) -> tuple[int, int, int, int]:
-        """Return a PIL-compatible bounding box tuple."""
-        return (self.x0, self.y0, self.x1, self.y1)
-
-    def intersects(self, other: Region) -> bool:
-        """Return True when this region overlaps another region."""
+    def intersects(self, other: "Region") -> bool:
+        """Return True if the region overlaps the other region."""
         return not (
-            self.x1 <= other.x0
-            or self.x0 >= other.x1
-            or self.y1 <= other.y0
-            or self.y0 >= other.y1
+            self.x + self.width <= other.x
+            or other.x + other.width <= self.x
+            or self.y + self.height <= other.y
+            or other.y + other.height <= self.y
         )
 
-    def merge(self, other: Region) -> Region:
-        """Return a region that covers this region and another region."""
-        return Region(
-            min(self.x0, other.x0),
-            min(self.y0, other.y0),
-            max(self.x1, other.x1),
-            max(self.y1, other.y1),
-        )
+    def touches(self, other: "Region") -> bool:
+        """Return True if regions overlap or touch (sharing an edge)."""
+        horizontal_gap = max(other.x - (self.x + self.width), self.x - (other.x + other.width))
+        vertical_gap = max(other.y - (self.y + self.height), self.y - (other.y + other.height))
+        return horizontal_gap <= 0 and vertical_gap <= 0
 
-    def inflate(self, padding: int) -> Region:
-        """Return a new region expanded by padding in all directions."""
-        return Region(self.x0 - padding, self.y0 - padding, self.x1 + padding, self.y1 + padding)
-
-    def clamp(self, width: int, height: int) -> Region:
-        """Return a version of the region clamped to the provided bounds."""
-        return Region(
-            max(0, min(self.x0, width)),
-            max(0, min(self.y0, height)),
-            max(0, min(self.x1, width)),
-            max(0, min(self.y1, height)),
-        )
-
-    @classmethod
-    def full(cls, width: int, height: int) -> Region:
-        """Return a region that covers the entire panel."""
-        return cls(0, 0, width, height)
-
-    @classmethod
-    def from_box(cls, box: tuple[int, int, int, int]) -> Region:
-        """Create a region from a PIL-style bounding box."""
-        return cls(*box)
+    def union(self, other: "Region") -> "Region":
+        """Return the minimal bounding region covering both regions."""
+        min_x = min(self.x, other.x)
+        min_y = min(self.y, other.y)
+        max_x = max(self.x + self.width, other.x + other.width)
+        max_y = max(self.y + self.height, other.y + other.height)
+        return Region(min_x, min_y, max_x - min_x, max_y - min_y)
 
 
-def merge_regions(regions: list[Region], *, padding: int = 0) -> list[Region]:
-    """Merge overlapping or adjacent regions using the provided padding."""
-    if not regions:
-        return []
-    expanded = [region.inflate(padding) for region in regions]
-    expanded.sort(key=lambda r: (r.y0, r.x0))
-    merged: list[Region] = []
-    current = expanded[0]
-    for region in expanded[1:]:
-        if current.intersects(region):
-            current = current.merge(region)
-            continue
-        merged.append(current)
-        current = region
-    merged.append(current)
-    # Remove the temporary padding before returning.
-    normalized = [Region(r.x0 + padding, r.y0 + padding, r.x1 - padding, r.y1 - padding) for r in merged]
-    return normalized
+class RegionSet:
+    """Mutable collection of merged dirty regions."""
+
+    def __init__(self) -> None:
+        self._regions: List[Region] = []
+
+    def add(self, region: Region) -> None:
+        """Insert region, merging overlapping/touching regions."""
+        if region.width <= 0 or region.height <= 0:
+            return
+
+        queue = [region]
+        while queue:
+            candidate = queue.pop()
+            merged = False
+            for idx, existing in enumerate(self._regions):
+                if candidate.touches(existing):
+                    queue.append(candidate.union(existing))
+                    self._regions.pop(idx)
+                    merged = True
+                    break
+            if not merged:
+                self._regions.append(candidate)
+
+    def extend(self, regions: Iterable[Region]) -> None:
+        """Add multiple regions."""
+        for region in regions:
+            self.add(region)
+
+    def is_empty(self) -> bool:
+        """True when no regions are tracked."""
+        return not self._regions
+
+    def as_list(self) -> List[Region]:
+        """Return the merged regions."""
+        return list(self._regions)
+
+    def bounding_box(self) -> Optional[Region]:
+        """Return one region covering all tracked regions."""
+        if not self._regions:
+            return None
+        region = self._regions[0]
+        for current in self._regions[1:]:
+            region = region.union(current)
+        return region
 
