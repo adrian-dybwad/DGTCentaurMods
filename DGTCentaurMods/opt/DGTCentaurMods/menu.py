@@ -30,7 +30,8 @@ import json
 import socket
 import subprocess
 import signal
-from typing import Callable
+from dataclasses import dataclass
+from typing import Callable, List, Optional, Sequence, Tuple
 from DGTCentaurMods.display.ui_components import AssetManager
 
 from DGTCentaurMods.board import *
@@ -49,6 +50,15 @@ game_folder = "games"
 event_key = threading.Event()
 idle = False # ensure defined before keyPressed can be called
 
+MENU_ROW_HEIGHT = widgets.ROW_HEIGHT
+MENU_TITLE_TOP = widgets.TITLE_TOP
+MENU_TITLE_HEIGHT = widgets.TITLE_HEIGHT
+MENU_BODY_TOP_WITH_TITLE = widgets.MENU_TOP
+MENU_BODY_TOP_NO_TITLE = widgets.ROW_HEIGHT
+
+current_renderer: Optional["MenuRenderer"] = None
+
+
 def _paint_region(region: Region, painter: Callable[[object], None]) -> None:
     with service.acquire_canvas() as canvas:
         painter(canvas)
@@ -60,65 +70,106 @@ def _clear_rect(x1: int, y1: int, x2: int, y2: int) -> None:
     widgets.clear_area(Region(x1, y1, x2, y2))
 
 
-def _draw_selection_indicator(shift: int, current_row: int) -> None:
-    region = Region(0, 20 + shift, 20, 295)
-    def painter(canvas):
-        draw = canvas.draw
-        draw.rectangle(region.to_box(), fill=255, outline=255)
-        draw.polygon(
-            [
-                (2, (current_row * 20 + shift) + 2),
-                (2, (current_row * 20) + 18 + shift),
-                (17, (current_row * 20) + 10 + shift),
-            ],
-            fill=0,
-        )
-        draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
-    _paint_region(region, painter)
+@dataclass
+class MenuEntry:
+    key: str
+    label: str
 
 
-def _draw_description_block(shift: int, row: int, text: str) -> None:
-    if not text or not text.strip():
-        return
-    description_y = (row * 20) + 2 + shift
-    description_height = 108
-    region = Region(17, description_y, 127, description_y + description_height)
-    font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
-    words = text.split()
-    lines = []
-    current_line = ""
+class MenuRenderer:
+    def __init__(self, title: Optional[str], entries: Sequence[MenuEntry], description: Optional[str]) -> None:
+        self.title = title or ""
+        self.entries: List[MenuEntry] = list(entries)
+        self.description = (description or "").strip()
+        self.row_height = MENU_ROW_HEIGHT
+        self.body_top = MENU_BODY_TOP_WITH_TITLE if title else MENU_BODY_TOP_NO_TITLE
+        self.arrow_width = 20
+        self.selected_index = 0
+        self._description_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
 
-    # Need a drawing context to measure text widths; use temporary image.
-    temp_image = Image.new("1", (1, 1), 255)
-    temp_draw = ImageDraw.Draw(temp_image)
-    max_width = region.x2 - region.x1 - 5
+    def max_index(self) -> int:
+        return max(0, len(self.entries) - 1)
 
-    for word in words:
-        candidate = f"{current_line} {word}".strip()
-        width = temp_draw.textlength(candidate, font=font)
-        if width <= max_width:
-            current_line = candidate
-        else:
-            if current_line:
-                lines.append(current_line)
-                current_line = word
+    def draw(self, selected_index: int) -> None:
+        self.selected_index = max(0, min(selected_index, self.max_index()))
+        if self.title:
+            widgets.write_menu_title(f"[ {self.title} ]")
+        for idx, entry in enumerate(self.entries):
+            self._draw_entry(idx, entry.label)
+        self._draw_description()
+        if self.entries:
+            self._draw_selection(self.selected_index, True)
+
+    def change_selection(self, new_index: int) -> None:
+        if not self.entries:
+            return
+        new_index = max(0, min(new_index, self.max_index()))
+        if new_index == self.selected_index:
+            return
+        self._draw_selection(self.selected_index, False)
+        self.selected_index = new_index
+        self._draw_selection(self.selected_index, True)
+
+    def _row_top(self, idx: int) -> int:
+        return self.body_top + (idx * self.row_height)
+
+    def _draw_entry(self, idx: int, label: str) -> None:
+        widgets.write_text_at(self._row_top(idx), f"    {label}")
+
+    def _draw_selection(self, idx: int, selected: bool) -> None:
+        top = self._row_top(idx)
+        region = Region(0, top, self.arrow_width, top + self.row_height)
+        with service.acquire_canvas() as canvas:
+            draw = canvas.draw
+            draw.rectangle(region.to_box(), fill=255, outline=255)
+            if selected:
+                draw.polygon(
+                    [
+                        (2, top + 2),
+                        (2, top + self.row_height - 2),
+                        (self.arrow_width - 3, top + (self.row_height // 2)),
+                    ],
+                    fill=0,
+                )
+            canvas.mark_dirty(region)
+        service.submit_region(region)
+
+    def _draw_description(self) -> None:
+        if not self.description:
+            return
+        top = self._row_top(len(self.entries)) + 2
+        region = Region(17, top, 127, top + 108)
+        widgets.clear_area(region)
+        wrapped = self._wrap_text(self.description, max_width=region.x2 - region.x1 - 5)
+        with service.acquire_canvas() as canvas:
+            draw = canvas.draw
+            for idx, line in enumerate(wrapped[:9]):
+                y_pos = top + 2 + (idx * 16)
+                draw.text((region.x1 + 5, y_pos), line, font=self._description_font, fill=0)
+            canvas.mark_dirty(region)
+        service.submit_region(region)
+
+    def _wrap_text(self, text: str, max_width: int) -> List[str]:
+        words = text.split()
+        if not words:
+            return []
+        lines: List[str] = []
+        current = words[0]
+        temp_image = Image.new("1", (1, 1), 255)
+        temp_draw = ImageDraw.Draw(temp_image)
+        for word in words[1:]:
+            candidate = f"{current} {word}"
+            if temp_draw.textlength(candidate, font=self._description_font) <= max_width:
+                current = candidate
             else:
-                lines.append(word)
-    if current_line:
-        lines.append(current_line)
-
-    def painter(canvas):
-        draw = canvas.draw
-        draw.rectangle(region.to_box(), fill=255, outline=255)
-        for idx, line in enumerate(lines[:9]):
-            y_pos = description_y + 2 + (idx * 16)
-            draw.text((region.x1 + 5, y_pos), line, font=font, fill=0)
-    _paint_region(region, painter)
+                lines.append(current)
+                current = word
+        lines.append(current)
+        return lines
 
 def keyPressed(id):
     # This functiion receives key presses
     log.info("in menu.py keyPressed: " + str(id))
-    global shift
     global menuitem
     global curmenu
     global selection
@@ -166,7 +217,8 @@ def keyPressed(id):
             menuitem = len(curmenu)
         if menuitem > len(curmenu):
             menuitem = 1
-        _draw_selection_indicator(shift, menuitem)
+        if current_renderer:
+            current_renderer.change_selection(menuitem - 1)
 
 
 quickselect = 0
@@ -238,7 +290,6 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         actual_description = description
     
     log.info(f"doMenu: {actual_menu}, Title: {actual_title}, Description: {actual_description}")
-    global shift
     global menuitem
     global curmenu
     global selection
@@ -254,24 +305,15 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     quickselect = 0    
 
     quickselect = 1    
-    if actual_title:
-        row = 2
-        shift = 20
-        widgets.write_menu_title("[ " + actual_title + " ]")
-    # else:
-    #     shift = 0
-    #     row = 1
-    # # Print a fresh status bar.
-    # statusbar.print()
-    for k, v in actual_menu.items():
-        widgets.write_text(row, "    " + str(v))
-        row = row + 1
-    
-    # Display description if provided
-    _draw_description_block(shift, row, actual_description or "")
-    time.sleep(0.1)
-    _draw_selection_indicator(shift, menuitem)
-    # statusbar.print()         
+    ordered_menu = list(actual_menu.items()) if actual_menu else []
+    renderer = MenuRenderer(actual_title, [MenuEntry(k, v) for k, v in ordered_menu], actual_description)
+    global current_renderer
+    current_renderer = renderer
+    initial_index = 0
+    if ordered_menu:
+        initial_index = max(0, min(len(ordered_menu) - 1, menuitem - 1))
+    renderer.draw(initial_index)
+    statusbar.print()         
     try:
         event_key.wait()
     except KeyboardInterrupt:
@@ -643,7 +685,6 @@ while True:
     result = doMenu(menu, "Main menu")
     # Historical note: previous firmware called into the raw epaper driver here.
     # time.sleep(0.7)
-    # _clear_rect(0,0 + shift,128,295)
     # time.sleep(1)
     if result == "SHUTDOWN":
         # Graceful shutdown requested via Ctrl+C
