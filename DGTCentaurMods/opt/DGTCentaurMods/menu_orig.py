@@ -30,7 +30,7 @@ import json
 import socket
 import subprocess
 import signal
-from typing import Callable, Optional
+from typing import Callable
 from DGTCentaurMods.display.ui_components import AssetManager
 
 from DGTCentaurMods.board import *
@@ -48,7 +48,6 @@ game_folder = "games"
 
 event_key = threading.Event()
 idle = False # ensure defined before keyPressed can be called
-_last_indicator_region: Optional[Region] = None
 
 def _paint_region(region: Region, painter: Callable[[object], None]) -> None:
     with service.acquire_canvas() as canvas:
@@ -62,46 +61,19 @@ def _clear_rect(x1: int, y1: int, x2: int, y2: int) -> None:
 
 
 def _draw_selection_indicator(shift: int, current_row: int) -> None:
-    global _last_indicator_region
-    top = (current_row * 20) + shift
-    region = Region(0, top, 20, top + 20)
-
-    if _last_indicator_region and (
-        _last_indicator_region.y1 != region.y1 or _last_indicator_region.y2 != region.y2
-    ):
-        def clear_prev(canvas):
-            draw = canvas.draw
-            draw.rectangle(_last_indicator_region.to_box(), fill=255, outline=255)
-            draw.line(
-                (17, _last_indicator_region.y1, 17, _last_indicator_region.y2),
-                fill=0,
-                width=1,
-            )
-        _paint_region(_last_indicator_region, clear_prev)
-
+    region = Region(0, 20 + shift, 20, 295)
     def painter(canvas):
         draw = canvas.draw
         draw.rectangle(region.to_box(), fill=255, outline=255)
         draw.polygon(
             [
-                (2, top + 2),
-                (2, top + 18),
-                (17, top + 10),
+                (2, (current_row * 20 + shift) + 2),
+                (2, (current_row * 20) + 18 + shift),
+                (17, (current_row * 20) + 10 + shift),
             ],
             fill=0,
         )
-        draw.line((17, top, 17, top + 20), fill=0, width=1)
-    _paint_region(region, painter)
-    _last_indicator_region = region
-
-
-def _draw_menu_separator(shift: int) -> None:
-    top = 20 + shift
-    region = Region(17, top, 18, 295)
-
-    def painter(canvas):
-        canvas.draw.line((17, top, 17, 295), fill=0, width=1)
-
+        draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
     _paint_region(region, painter)
 
 
@@ -272,7 +244,6 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     global selection
     global quickselect
     global event_key
-    global _last_indicator_region
     service.init()
     widgets.clear_screen()
     
@@ -290,14 +261,11 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     else:
         shift = 0
         row = 1
-    _last_indicator_region = None
     # Print a fresh status bar.
     statusbar.print()
     for k, v in actual_menu.items():
         widgets.write_text(row, "    " + str(v))
         row = row + 1
-    
-    _draw_menu_separator(shift)
     
     # Display description if provided
     _draw_description_block(shift, row, actual_description or "")
