@@ -225,6 +225,13 @@ class MenuRenderer:
         
         # Refresh immediately - original code pattern
         service.submit_region(refresh_region, await_completion=False)
+        
+        # Refresh status bar on menu navigation (matches original: statusbar.print() after selection change)
+        try:
+            from DGTCentaurMods.menu import statusbar
+            statusbar.print()
+        except:
+            pass
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
