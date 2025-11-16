@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.display.epaper_service.drivers.simulator import SimulatorDriver
+from DGTCentaurMods.display.epaper_service.drivers.native import NativeDriver
 from DGTCentaurMods.epaper import DisplayManager, RefreshPolicy, Widget
 from DGTCentaurMods.epaper.regions import Region
 
@@ -87,7 +87,7 @@ async def drive_widgets(clock: TextWidget, counter: TextWidget, ticker: TextWidg
 async def main() -> None:
     """Entry point for the demo."""
     log.info("Starting e-paper demo")
-    driver = SimulatorDriver()
+    driver = NativeDriver()
     driver.reset()
     driver.init()
 
