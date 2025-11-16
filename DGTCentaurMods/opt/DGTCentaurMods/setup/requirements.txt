@@ -3,9 +3,6 @@ berserk
 casttube
 ndjson
 pyserial
-spidev; platform_system == "Linux"
-RPi.GPIO; platform_system == "Linux"
+spidev
+RPi.GPIO
 python-chess
-Pillow>=10.3
-psutil
-sqlalchemy>=2.0
