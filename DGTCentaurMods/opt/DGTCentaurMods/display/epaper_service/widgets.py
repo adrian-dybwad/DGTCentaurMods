@@ -20,8 +20,10 @@ _STANDBY_SNAPSHOT: Optional[Image.Image] = None
 
 
 def write_text(row: int, text: str, *, inverted: bool = False) -> None:
-    top = row * 20
-    region = Region(0, top, 128, top + 20)
+    line_height = 20
+    top = row * line_height
+    # Always clear the full row width so repeated writes do not leave artifacts.
+    region = Region(0, top, 128, top + line_height)
     with service.acquire_canvas() as canvas:
         draw = canvas.draw
         fill, fg = (0, 255) if inverted else (255, 0)
