@@ -122,13 +122,19 @@ class NativeEPaperDriver(EPaperDriver):
             logical_y1 = min(self.height, region.y + region.height)
             if logical_y0 >= logical_y1:
                 continue
-            hw_y0 = self._align_row(self.height - logical_y1)
-            hw_y1 = self._align_row_up(self.height - logical_y0)
+            # Match legacy: expand to 8-pixel row boundaries, full width
+            row_height = 8
+            expanded_y0 = (logical_y0 // row_height) * row_height
+            expanded_y1 = ((logical_y1 + row_height - 1) // row_height) * row_height
+            # Calculate hardware coordinates (after rotation, top becomes bottom)
+            hw_y0 = self._align_row(self.height - expanded_y1)
+            hw_y1 = self._align_row_up(self.height - expanded_y0)
             if hw_y0 >= hw_y1:
                 continue
-            payload = self._pack_rows(pixels, hw_y0, hw_y1)
+            # Match legacy flow: crop logical region, rotate, convert
+            payload = self._pack_region(pixels, expanded_y0, expanded_y1, hw_y0, hw_y1)
             buffer = create_string_buffer(payload)
-            LOGGER.info("Issuing partial refresh y0=%s y1=%s", hw_y0, hw_y1)
+            LOGGER.info("Issuing partial refresh logical_y=[%s-%s] hw_y=[%s-%s]", expanded_y0, expanded_y1, hw_y0, hw_y1)
             self._dll.displayRegion(c_int(hw_y0), c_int(hw_y1), buffer)
 
     def _rotate_pixels(self, pixels: Sequence[Sequence[int]]) -> List[List[int]]:
@@ -168,17 +174,21 @@ class NativeEPaperDriver(EPaperDriver):
         img = self._pixels_to_image(pixels)
         return self._convert_image(img)
 
-    def _pack_rows(self, pixels: Sequence[Sequence[int]], y0: int, y1: int) -> bytes:
-        """Pack rows y0 to y1 by extracting sub-image and converting."""
+    def _pack_region(self, pixels: Sequence[Sequence[int]], logical_y0: int, logical_y1: int, hw_y0: int, hw_y1: int) -> bytes:
+        """Match legacy flow: crop logical region (full width), rotate, convert."""
         if Image is None:
             raise RuntimeError("PIL/Pillow required for hardware driver")
+        # Step 1: Create full image from pixels
         img = Image.new("L", (self.width, self.height), color=255)
         for y, row in enumerate(pixels):
             for x, value in enumerate(row):
                 img.putpixel((x, y), value)
-        rotated = img.transpose(Image.ROTATE_180)
-        cropped = rotated.crop((0, y0, self.width, y1))
-        return self._convert_image(cropped)
+        # Step 2: Crop to logical region (full width, partial height) - matches legacy scheduler
+        cropped = img.crop((0, logical_y0, self.width, logical_y1))
+        # Step 3: Rotate the cropped image - matches legacy _rotate_180
+        rotated = cropped.transpose(Image.ROTATE_180)
+        # Step 4: Convert using legacy formula
+        return self._convert_image(rotated)
 
     def _align_row(self, value: int) -> int:
         return max(0, (value // 8) * 8)
