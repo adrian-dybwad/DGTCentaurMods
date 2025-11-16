@@ -217,15 +217,17 @@ class MenuRenderer:
         
         # Refresh region includes title if present (since expansion affects full width anyway)
         # Expand region to include title if it exists
-        if self.title:
-            title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
-            refresh_region = Region(0, title_top, 128, 295)  # Full width from title to bottom
-        else:
-            refresh_region = arrow_region
+        # if self.title:
+        #     title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
+        #     refresh_region = Region(0, title_top, 128, 295)  # Full width from title to bottom
+        # else:
+        #     refresh_region = arrow_region
         
-        # Refresh immediately - original code pattern
-        service.submit_region(refresh_region, await_completion=False)
-        
+        # Refresh only the arrow column region (matches original: Region(0, 20 + shift, 20, 295))
+        # _expand_region() will expand it to full width, but we submit just the arrow column
+        # Status bar and title are redrawn to framebuffer but refreshed separately via statusbar.print()
+        service.submit_region(arrow_region, await_completion=False)
+
         # Refresh status bar on menu navigation (matches original: statusbar.print() after selection change)
         try:
             from DGTCentaurMods.menu import statusbar
