@@ -85,6 +85,10 @@ class MenuRenderer:
         self.arrow_width = 20
         self.selected_index = 0
         self._description_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
+        # Track partial refreshes to prevent ghosting from accumulation
+        # E-paper displays need periodic full refreshes to clear ghosting artifacts
+        self._partial_refresh_count = 0
+        self._max_partial_refreshes = 8  # Do full refresh after 8 partial refreshes (2 navigation steps)
 
     def max_index(self) -> int:
         return max(0, len(self.entries) - 1)
@@ -155,6 +159,8 @@ class MenuRenderer:
                 canvas.mark_dirty(desc_region)
         
         log.info(">>> MenuRenderer.draw() canvas released, EXITING")
+        # Reset partial refresh counter when doing full refresh
+        self._partial_refresh_count = 0
 
     def change_selection(self, new_index: int) -> None:
         if not self.entries:
@@ -162,11 +168,27 @@ class MenuRenderer:
         new_index = max(0, min(new_index, self.max_index()))
         if new_index == self.selected_index:
             return
+        
+        # Check if we need a full refresh to clear ghosting
+        # Each change_selection triggers 4 partial refreshes (2 entries + 2 arrows)
+        # After max_partial_refreshes, do a full refresh to prevent fading
+        if self._partial_refresh_count >= self._max_partial_refreshes:
+            from DGTCentaurMods.board.logging import log
+            log.info(f">>> MenuRenderer.change_selection() partial refresh count ({self._partial_refresh_count}) reached limit ({self._max_partial_refreshes}), doing full refresh to clear ghosting")
+            # Update selection first, then redraw entire menu with full refresh to clear ghosting
+            self.selected_index = new_index
+            self.draw(self.selected_index)
+            service.submit_full(await_completion=True)
+            self._partial_refresh_count = 0
+            return
+        
+        # Normal partial refresh path
         self._draw_entry(self.selected_index, selected=False)
         self._draw_arrow(self.selected_index, False)
         self.selected_index = new_index
         self._draw_entry(self.selected_index, selected=True)
         self._draw_arrow(self.selected_index, True)
+        self._partial_refresh_count += 4  # 2 entries + 2 arrows
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
