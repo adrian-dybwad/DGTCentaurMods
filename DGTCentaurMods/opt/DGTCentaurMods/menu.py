@@ -212,7 +212,6 @@ class MenuRenderer:
         # CRITICAL INVESTIGATION: Agent 3 - Log counter check
         log.info(f">>> [AGENT3] MenuRenderer.change_selection() checking counter: {self._partial_refresh_count} >= {self._max_partial_refreshes}?")
         if self._partial_refresh_count >= self._max_partial_refreshes:
-            from DGTCentaurMods.board.logging import log
             log.info(f">>> [AGENT3] *** COUNTER LIMIT REACHED *** partial refresh count ({self._partial_refresh_count}) >= limit ({self._max_partial_refreshes})")
             log.info(f">>> [AGENT1] *** TRIGGERING FULL REFRESH *** - Agent 1 will verify hardware receives this")
             log.info(f">>> [AGENT2] *** TRIGGERING FULL REFRESH *** - Agent 2 will verify framebuffer state")
@@ -359,6 +358,7 @@ class MenuRenderer:
 
 def keyPressed(id):
     # This functiion receives key presses
+    from DGTCentaurMods.board.logging import log  # Ensure log is available in this scope
     log.info("in menu.py keyPressed: " + str(id))
     global menuitem
     global curmenu
