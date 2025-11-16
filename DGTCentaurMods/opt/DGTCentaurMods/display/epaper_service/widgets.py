@@ -32,9 +32,7 @@ def draw_status_bar(text: str) -> None:
     """
     Draw status bar with text and battery icon atomically.
     
-    Matches original pattern: Status bar updates should use full refresh to prevent
-    ghosting from accumulated partial refreshes. Partial refreshes of status bar
-    cause fading over time.
+    Only refreshes the status bar region (top 16 pixels), not the whole screen.
     """
     region = Region(0, 0, 128, STATUS_BAR_HEIGHT)
     with service.acquire_canvas() as canvas:
@@ -44,9 +42,8 @@ def draw_status_bar(text: str) -> None:
         # Draw battery icon in same canvas operation (atomic)
         _draw_battery_icon_to_canvas(canvas, top_padding=1)
         canvas.mark_dirty(region)
-    # Use full refresh for status bar to prevent ghosting (matches original pattern)
-    # Status bar partial refreshes accumulate artifacts over time
-    service.submit_full(await_completion=False)
+    # Only refresh the status bar region (top 16 pixels)
+    service.submit_region(region, await_completion=False)
 
 
 def write_text_at(top: int, text: str, *, inverted: bool = False, height: int = ROW_HEIGHT) -> None:
