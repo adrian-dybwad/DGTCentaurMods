@@ -71,26 +71,43 @@ class RefreshScheduler:
                 rotated = _rotate_180(image)
                 log.info(">>> RefreshScheduler._loop() FULL REFRESH: Calling driver.full_refresh()")
                 driver_start = time.time()
-                self._driver.full_refresh(rotated)
-                driver_duration = time.time() - driver_start
-                log.info(f">>> RefreshScheduler._loop() FULL REFRESH: driver.full_refresh() returned after {driver_duration:.3f}s")
-                # Only resolve futures AFTER hardware refresh completes
-                for _, fut in batch:
-                    fut.set_result("full")
+                try:
+                    self._driver.full_refresh(rotated)
+                    driver_duration = time.time() - driver_start
+                    log.info(f">>> RefreshScheduler._loop() FULL REFRESH: driver.full_refresh() returned after {driver_duration:.3f}s")
+                    # Only resolve futures AFTER hardware refresh completes
+                    for _, fut in batch:
+                        fut.set_result("full")
+                except RuntimeError as e:
+                    log.error(f">>> RefreshScheduler._loop() FULL REFRESH: driver.full_refresh() failed: {e}")
+                    # Mark futures as failed instead of crashing
+                    for _, fut in batch:
+                        if not fut.done():
+                            fut.set_exception(e)
                 total_duration = time.time() - start_time
                 log.info(f">>> RefreshScheduler._loop() FULL REFRESH: Complete, total duration={total_duration:.3f}s")
                 continue
             # Otherwise merge regions and issue partials
             merged = _merge_regions([region for region, _ in batch if region is not None])
+            from DGTCentaurMods.board.logging import log
             for region in merged:
                 expanded = _expand_region(region, panel_width, panel_height)
                 crop = self._framebuffer.snapshot().crop(expanded.to_box())
                 rotated = _rotate_180(crop)
                 y0 = panel_height - expanded.y2
                 y1 = panel_height - expanded.y1
-                self._driver.partial_refresh(y0, y1, rotated)
+                try:
+                    self._driver.partial_refresh(y0, y1, rotated)
+                except RuntimeError as e:
+                    log.error(f">>> RefreshScheduler._loop() partial_refresh() failed: {e}")
+                    # Mark futures as failed instead of crashing
+                    for _, fut in batch:
+                        if not fut.done():
+                            fut.set_exception(e)
+                    continue
             for _, fut in batch:
-                fut.set_result("partial")
+                if not fut.done():
+                    fut.set_result("partial")
 
 
 def _merge_regions(regions: list[Region]) -> list[Region]:

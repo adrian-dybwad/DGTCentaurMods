@@ -61,11 +61,13 @@ class EpaperService:
         if not self._initialized:
             return
         assert self._scheduler and self._driver
-        # Flush remaining dirty region before shutdown.
+        # Flush remaining dirty region before shutdown and wait for completion.
         dirty = self._framebuffer.consume_dirty()
         if dirty is not None:
-            self._scheduler.submit(dirty)
+            future = self._scheduler.submit(dirty)
+            future.result()  # Wait for refresh to complete before shutdown
         self._scheduler.stop()
+        # Wait for any pending refresh operations to complete before sleep/shutdown
         self._driver.sleep()
         self._driver.shutdown()
         self._initialized = False
