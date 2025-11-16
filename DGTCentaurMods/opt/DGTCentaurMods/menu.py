@@ -187,6 +187,22 @@ class MenuRenderer:
         with service.acquire_canvas() as canvas:
             draw = canvas.draw
             
+            # Redraw status bar (matches original: statusbar.print() after selection change)
+            # Original code redraws status bar on every selection change to prevent fading
+            status_region = Region(0, 0, 128, widgets.STATUS_BAR_HEIGHT)
+            draw.rectangle(status_region.to_box(), fill=255, outline=255)
+            # Get current status text from global statusbar if available
+            try:
+                from DGTCentaurMods.menu import statusbar
+                status_text = statusbar.build() if hasattr(statusbar, 'build') else "READY"
+            except:
+                status_text = "READY"
+            draw.text((2, -1), status_text, font=widgets.STATUS_FONT, fill=0)
+            # Draw battery icon
+            from DGTCentaurMods.display.epaper_service.widgets import _draw_battery_icon_to_canvas
+            _draw_battery_icon_to_canvas(canvas, top_padding=1)
+            canvas.mark_dirty(status_region)
+            
             # If title exists, redraw it to prevent fading from full-width refresh
             if self.title:
                 title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
@@ -215,13 +231,9 @@ class MenuRenderer:
             
             canvas.mark_dirty(arrow_region)
         
-        # Refresh region includes title if present (since expansion affects full width anyway)
-        # Expand region to include title if it exists
-        if self.title:
-            title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
-            refresh_region = Region(0, title_top, 128, 295)  # Full width from title to bottom
-        else:
-            refresh_region = arrow_region
+        # Refresh region includes status bar, title (if present), and arrow column
+        # Original code refreshes all of these together
+        refresh_region = Region(0, 0, 128, 295)  # Full width from status bar to bottom
         
         # Refresh immediately - original code pattern
         service.submit_region(refresh_region, await_completion=False)
