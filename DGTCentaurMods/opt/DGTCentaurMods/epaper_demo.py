@@ -25,15 +25,10 @@ from DGTCentaurMods.epaper.regions import Region
 class TextWidget(Widget):
     """Simple text widget that prints a string within its region."""
 
-    region: Region
-    label: str
-    font: ImageFont.ImageFont
-
     def __init__(self, region: Region, *, label: str, widget_id: str, z_index: int = 0) -> None:
         super().__init__(region, widget_id=widget_id, z_index=z_index)
-        self.region = region
-        self.label = label
-        self.font = ImageFont.load_default()
+        self._label = label
+        self._font = ImageFont.load_default()
         self._value = ""
 
     def set_value(self, value: str) -> None:
@@ -44,10 +39,11 @@ class TextWidget(Widget):
 
     def build(self) -> Image.Image:
         """Render the widget content."""
-        image = Image.new("L", self.region.size, 255)
+        region = self.region
+        image = Image.new("L", region.size, 255)
         draw = ImageDraw.Draw(image)
-        draw.rectangle((0, 0, self.region.width, self.region.height), fill=255, outline=0)
-        draw.text((2, 0), f"{self.label}: {self._value}", font=self.font, fill=0)
+        draw.rectangle((0, 0, region.width, region.height), fill=255, outline=0)
+        draw.text((2, 0), f"{self._label}: {self._value}", font=self._font, fill=0)
         return image
 
 
