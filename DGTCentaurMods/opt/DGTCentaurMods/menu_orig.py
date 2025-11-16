@@ -49,12 +49,6 @@ game_folder = "games"
 event_key = threading.Event()
 idle = False # ensure defined before keyPressed can be called
 
-MENU_ROW_HEIGHT = widgets.ROW_HEIGHT
-MENU_TITLE_TOP = widgets.TITLE_TOP
-MENU_TITLE_HEIGHT = widgets.TITLE_HEIGHT
-MENU_FIRST_ROW_TOP_WITH_TITLE = widgets.MENU_FIRST_ROW_TOP
-MENU_FIRST_ROW_TOP_NO_TITLE = widgets.ROW_HEIGHT
-
 def _paint_region(region: Region, painter: Callable[[object], None]) -> None:
     with service.acquire_canvas() as canvas:
         painter(canvas)
@@ -66,30 +60,27 @@ def _clear_rect(x1: int, y1: int, x2: int, y2: int) -> None:
     widgets.clear_area(Region(x1, y1, x2, y2))
 
 
-def _draw_selection_indicator(first_row_top: int, current_row: int) -> None:
-    if current_row < 1:
-        return
-    top = first_row_top + ((current_row - 1) * MENU_ROW_HEIGHT)
-    region = Region(0, top, 20, top + MENU_ROW_HEIGHT)
+def _draw_selection_indicator(shift: int, current_row: int) -> None:
+    region = Region(0, 20 + shift, 20, 295)
     def painter(canvas):
         draw = canvas.draw
         draw.rectangle(region.to_box(), fill=255, outline=255)
         draw.polygon(
             [
-                (2, top + 2),
-                (2, top + MENU_ROW_HEIGHT - 2),
-                (17, top + (MENU_ROW_HEIGHT // 2)),
+                (2, (current_row * 20 + shift) + 2),
+                (2, (current_row * 20) + 18 + shift),
+                (17, (current_row * 20) + 10 + shift),
             ],
             fill=0,
         )
-        draw.line((17, top, 17, top + MENU_ROW_HEIGHT), fill=0, width=1)
+        draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
     _paint_region(region, painter)
 
 
-def _draw_description_block(first_row_top: int, rows: int, text: str) -> None:
+def _draw_description_block(shift: int, row: int, text: str) -> None:
     if not text or not text.strip():
         return
-    description_y = first_row_top + (rows * MENU_ROW_HEIGHT) + 2
+    description_y = (row * 20) + 2 + shift
     description_height = 108
     region = Region(17, description_y, 127, description_y + description_height)
     font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
@@ -264,21 +255,22 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
 
     quickselect = 1    
     if actual_title:
+        row = 2
+        shift = 20
         widgets.write_menu_title("[ " + actual_title + " ]")
-    first_row_top = MENU_FIRST_ROW_TOP_WITH_TITLE if actual_title else MENU_FIRST_ROW_TOP_NO_TITLE
-    shift = first_row_top
+    else:
+        shift = 0
+        row = 1
     # Print a fresh status bar.
     statusbar.print()
-    rows_rendered = 0
     for k, v in actual_menu.items():
-        row_top = first_row_top + (rows_rendered * MENU_ROW_HEIGHT)
-        widgets.write_text_at(row_top, "    " + str(v))
-        rows_rendered = rows_rendered + 1
+        widgets.write_text(row, "    " + str(v))
+        row = row + 1
     
     # Display description if provided
-    _draw_description_block(first_row_top, rows_rendered, actual_description or "")
+    _draw_description_block(shift, row, actual_description or "")
     time.sleep(0.1)
-    _draw_selection_indicator(first_row_top, menuitem)
+    _draw_selection_indicator(shift, menuitem)
     statusbar.print()         
     try:
         event_key.wait()
