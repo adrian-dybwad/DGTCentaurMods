@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pathlib
 import time
-from ctypes import CDLL
+from ctypes import CDLL, c_int
 
 from PIL import Image
 
@@ -23,6 +23,9 @@ class NativeDriver(DriverBase):
             raise FileNotFoundError(f"Native ePaper driver not found at {lib_path}")
         self._dll = CDLL(str(lib_path))
         self._dll.openDisplay()
+        # Configure readBusy function signature (returns int: 0=idle, non-zero=busy)
+        self._dll.readBusy.argtypes = []
+        self._dll.readBusy.restype = c_int
 
     def _convert(self, image: Image.Image) -> bytes:
         width, height = image.size
@@ -41,29 +44,59 @@ class NativeDriver(DriverBase):
     def reset(self) -> None:
         self._dll.reset()
 
+    def _wait_for_idle(self, timeout: float = 5.0) -> bool:
+        """
+        Wait for hardware to become idle (not busy) by polling the BUSY signal.
+        
+        This conforms to e-paper display reference designs which require checking
+        the BUSY pin before sending commands.
+        
+        Returns:
+            True if hardware became idle, False if timeout
+        """
+        from DGTCentaurMods.board.logging import log
+        start_time = time.time()
+        while self._dll.readBusy() != 0:
+            if time.time() - start_time > timeout:
+                log.warning(f">>> NativeDriver._wait_for_idle() timeout after {timeout}s")
+                return False
+            time.sleep(0.01)  # Poll every 10ms to avoid excessive CPU usage
+        elapsed = time.time() - start_time
+        if elapsed > 0.01:
+            log.info(f">>> NativeDriver._wait_for_idle() hardware became idle after {elapsed:.3f}s")
+        return True
+
     def full_refresh(self, image: Image.Image) -> None:
         """
         Perform a full screen refresh.
         
-        The C library's display() function may return immediately after sending
-        the command, but the hardware takes 1.5-2.0 seconds to complete the refresh.
-        If the hardware is busy, the C library may return immediately without sending
-        the command. We always wait the full refresh duration to ensure the hardware
-        is ready for the next command.
+        Conforms to e-paper display reference designs:
+        1. Wait for hardware to be idle (not busy) before sending command
+        2. Send the display command
+        3. Wait for hardware to complete the refresh (become idle again)
+        
+        This ensures the hardware is ready before each command and prevents
+        corruption from rapid successive refreshes.
         """
         from DGTCentaurMods.board.logging import log
+        # Step 1: Wait for hardware to be ready (conforms to reference designs)
+        log.info(">>> NativeDriver.full_refresh() waiting for hardware to be idle before sending command")
+        if not self._wait_for_idle(timeout=5.0):
+            log.error(">>> NativeDriver.full_refresh() hardware did not become idle, proceeding anyway")
+        
+        # Step 2: Send display command
+        log.info(">>> NativeDriver.full_refresh() hardware is idle, sending display command")
         start_time = time.time()
         self._dll.display(self._convert(image))
-        elapsed = time.time() - start_time
-        # Always wait for full refresh duration (2.0s) to ensure hardware is ready
-        # If C library returned quickly (< 2s), it may have detected hardware busy and
-        # not sent the command, or the hardware refresh is still in progress
-        if elapsed < 2.0:
-            wait_time = 2.0 - elapsed
-            log.info(f">>> NativeDriver.full_refresh() C library returned after {elapsed:.3f}s, waiting {wait_time:.3f}s for hardware refresh to complete")
-            time.sleep(wait_time)
-        else:
-            log.info(f">>> NativeDriver.full_refresh() C library took {elapsed:.3f}s (hardware refresh should be complete)")
+        cmd_elapsed = time.time() - start_time
+        log.info(f">>> NativeDriver.full_refresh() display() returned after {cmd_elapsed:.3f}s")
+        
+        # Step 3: Wait for hardware to complete refresh (conforms to reference designs)
+        log.info(">>> NativeDriver.full_refresh() waiting for hardware to complete refresh")
+        if not self._wait_for_idle(timeout=5.0):
+            log.error(">>> NativeDriver.full_refresh() hardware did not complete refresh within timeout")
+        total_elapsed = time.time() - start_time
+        log.info(f">>> NativeDriver.full_refresh() complete, total duration={total_elapsed:.3f}s")
 
     def partial_refresh(self, y0: int, y1: int, image: Image.Image) -> None:
         self._dll.displayRegion(y0, y1, self._convert(image))
