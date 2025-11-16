@@ -1,62 +1,74 @@
-"""Battery indicator widget."""
+"""
+Battery level widget.
+"""
 
-from __future__ import annotations
+from PIL import Image, ImageDraw
 
-from typing import Callable
-
-from .base import Widget
-from ..framebuffer import CanvasView
-from ..regions import Region
+from ..widget import Widget
 
 
 class BatteryWidget(Widget):
-    """Simple horizontal battery with periodic sampling."""
+    """
+    Widget that displays battery level as a simple bar.
+    
+    Shows battery level from 0-100% as a filled rectangle.
+    """
 
-    def __init__(
-        self,
-        *,
-        bounds: Region,
-        level_provider: Callable[[], int],
-        update_interval: float = 15.0,
-    ) -> None:
-        super().__init__(bounds=bounds, name="Battery")
-        self._provider = level_provider
-        self._update_interval = max(0.1, update_interval)
-        self._last_level = 100
-        self._last_update = float("-inf")
+    def __init__(self, x: int, y: int, width: int = 30, height: int = 12) -> None:
+        """
+        Initialize battery widget.
+        
+        Args:
+            x: X position
+            y: Y position
+            width: Widget width (default 30)
+            height: Widget height (default 12)
+        """
+        super().__init__(x, y, width, height)
+        self._level = 100
 
-    async def tick(self, timestamp: float) -> None:  # type: ignore[override]
-        """Sample the provider and refresh if the level changed."""
-        if timestamp - self._last_update < self._update_interval:
-            return
-        self._last_update = timestamp
-        raw_level = max(0, min(100, int(self._provider())))
-        if raw_level != self._last_level:
-            self._last_level = raw_level
-            self.mark_dirty()
+    def set_level(self, level: int) -> None:
+        """
+        Set battery level.
+        
+        Args:
+            level: Battery level 0-100
+        """
+        self._level = max(0, min(100, level))
 
-    async def render(self, canvas: CanvasView) -> None:  # type: ignore[override]
-        """Draw the battery outline, fill, and text percentage."""
-        canvas.fill(255)
-        body_width = max(6, self.bounds.width - 6)
-        body_height = max(6, self.bounds.height - 4)
-        # Outline
-        canvas.draw_rect(0, 0, body_width, body_height, 0)
-        canvas.draw_rect(1, 1, body_width - 2, body_height - 2, 255)
-        # Tip
-        tip_height = max(4, body_height // 3)
-        tip_x = body_width
-        tip_y = (body_height - tip_height) // 2
-        canvas.draw_rect(tip_x, tip_y, 4, tip_height, 0)
-        canvas.draw_rect(tip_x + 1, tip_y + 1, 2, max(1, tip_height - 2), 255)
-
-        fill_width = int((body_width - 4) * (self._last_level / 100.0))
-        canvas.draw_rect(2, 2, fill_width, body_height - 4, 0)
-        canvas.draw_text(
-            4,
-            max(0, (body_height - 5) // 2),
-            f"{self._last_level:02d}%",
-            scale=1,
-            value=0,
+    def render(self) -> Image.Image:
+        """Render the battery level."""
+        image = Image.new("1", (self.width, self.height), 255)
+        draw = ImageDraw.Draw(image)
+        
+        # Draw border
+        draw.rectangle(
+            (0, 0, self.width - 1, self.height - 1),
+            fill=255,
+            outline=0,
+            width=1
         )
+        
+        # Draw battery tip (right side)
+        tip_width = 2
+        tip_height = 4
+        tip_x = self.width - tip_width
+        tip_y = (self.height - tip_height) // 2
+        draw.rectangle(
+            (tip_x, tip_y, tip_x + tip_width, tip_y + tip_height),
+            fill=0,
+            outline=0
+        )
+        
+        # Draw filled portion based on level
+        if self._level > 0:
+            fill_width = int((self.width - tip_width - 2) * self._level / 100)
+            if fill_width > 0:
+                draw.rectangle(
+                    (1, 1, 1 + fill_width, self.height - 2),
+                    fill=0,
+                    outline=0
+                )
+        
+        return image
 

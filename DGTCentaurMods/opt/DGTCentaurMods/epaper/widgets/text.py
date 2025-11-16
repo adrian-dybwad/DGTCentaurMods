@@ -1,53 +1,84 @@
-"""Message carousel widget."""
+"""
+Text widget for displaying static or dynamic text.
+"""
 
-from __future__ import annotations
+from PIL import Image, ImageDraw, ImageFont
 
-from typing import Iterable, List
-
-from .base import Widget
-from ..framebuffer import CanvasView
-from ..regions import Region
+from ..widget import Widget
 
 
-class MessageWidget(Widget):
-    """Cycles through predefined text messages."""
+class TextWidget(Widget):
+    """
+    Widget that displays text.
+    
+    Text can be updated by calling set_text().
+    """
 
     def __init__(
         self,
-        *,
-        bounds: Region,
-        messages: Iterable[str],
-        interval: float = 5.0,
-        scale: int = 2,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        font_size: int = 18,
+        text: str = ""
     ) -> None:
-        super().__init__(bounds=bounds, name="Message")
-        items = [msg.upper() for msg in messages]
-        if not items:
-            raise ValueError("MessageWidget requires at least one message.")
-        self._messages: List[str] = items
-        self._interval = max(0.5, interval)
-        self._scale = max(1, scale)
-        self._index = 0
-        self._last_switch = 0.0
+        """
+        Initialize text widget.
+        
+        Args:
+            x: X position
+            y: Y position
+            width: Widget width
+            height: Widget height
+            font_size: Font size (default 18)
+            text: Initial text (default empty)
+        """
+        super().__init__(x, y, width, height)
+        self.font_size = font_size
+        self._text = text
+        self._font: ImageFont.FreeTypeFont | None = None
 
-    async def tick(self, timestamp: float) -> None:  # type: ignore[override]
-        """Advance to the next message after the configured interval."""
-        if timestamp - self._last_switch < self._interval:
-            return
-        self._last_switch = timestamp
-        self._index = (self._index + 1) % len(self._messages)
-        self.mark_dirty()
+    def set_text(self, text: str) -> None:
+        """
+        Set the text to display.
+        
+        Args:
+            text: Text to display
+        """
+        self._text = text
 
-    async def render(self, canvas: CanvasView) -> None:  # type: ignore[override]
-        """Draw the current message centered vertically."""
-        canvas.fill(255)
-        text = self._messages[self._index]
-        canvas.draw_text(
-            0,
-            max(0, (self.bounds.height - 5 * self._scale) // 2),
-            text,
-            scale=self._scale,
-            value=0,
-            spacing=self._scale,
-        )
+    def _get_font(self) -> ImageFont.FreeTypeFont:
+        """Get or create the font."""
+        if self._font is None:
+            import os
+            # Try project font first
+            font_paths = [
+                "/opt/DGTCentaurMods/resources/Font.ttc",
+                "/home/pi/resources/Font.ttc",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ]
+            for font_path in font_paths:
+                if os.path.exists(font_path):
+                    try:
+                        self._font = ImageFont.truetype(font_path, self.font_size)
+                        break
+                    except (OSError, IOError):
+                        continue
+            # Fallback to default font
+            if self._font is None:
+                self._font = ImageFont.load_default()
+        return self._font
+
+    def render(self) -> Image.Image:
+        """Render the text."""
+        image = Image.new("1", (self.width, self.height), 255)
+        draw = ImageDraw.Draw(image)
+        
+        font = self._get_font()
+        
+        # Draw text (clip to widget bounds)
+        draw.text((0, 0), self._text, font=font, fill=0)
+        
+        return image
 

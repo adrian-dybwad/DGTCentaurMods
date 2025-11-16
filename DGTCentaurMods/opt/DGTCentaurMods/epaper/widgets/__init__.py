@@ -1,9 +1,10 @@
-"""Widget exports."""
+"""
+Example widgets for the ePaper framework.
+"""
 
-from .base import Widget
 from .battery import BatteryWidget
-from .clock import DigitalClockWidget
-from .text import MessageWidget
+from .clock import ClockWidget
+from .text import TextWidget
 
-__all__ = ["Widget", "BatteryWidget", "DigitalClockWidget", "MessageWidget"]
+__all__ = ["ClockWidget", "BatteryWidget", "TextWidget"]
 

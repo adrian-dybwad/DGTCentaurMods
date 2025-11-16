@@ -1,23 +1,11 @@
-"""Self-contained e-paper orchestration framework."""
+"""
+Self-contained ePaper display framework with widget-based architecture.
 
-from .controller import EPaperController
-from .driver import EPaperDriver, NativeEPaperDriver, SimulatedEPaperDriver
-from .framebuffer import FrameBuffer
-from .regions import Region, RegionSet
-from .scheduler import AdaptiveRefreshPlanner, RefreshMode, RefreshPlan
-from .widgets.base import Widget
+Widgets only need to implement content rendering. The framework handles
+all region tracking, merging, and refresh scheduling automatically.
+"""
 
-__all__ = [
-    "EPaperController",
-    "EPaperDriver",
-    "SimulatedEPaperDriver",
-    "NativeEPaperDriver",
-    "FrameBuffer",
-    "Region",
-    "RegionSet",
-    "AdaptiveRefreshPlanner",
-    "RefreshPlan",
-    "RefreshMode",
-    "Widget",
-]
+from .display_manager import DisplayManager
+
+__all__ = ["DisplayManager"]
 
