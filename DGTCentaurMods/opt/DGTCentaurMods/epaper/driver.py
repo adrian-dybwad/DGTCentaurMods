@@ -129,17 +129,17 @@ class NativeEPaperDriver(EPaperDriver):
         if row_length != self.width:
             raise ValueError("Pixel buffer width mismatch.")
         stride = self.width // 8
-        buf = bytearray(stride * self.height)
+        buf = bytearray([0xFF] * (stride * self.height))
         for y in range(self.height):
             row = pixels[y]
             if len(row) != self.width:
                 raise ValueError("Inconsistent row width in framebuffer snapshot.")
             for x in range(self.width):
+                idx = y * stride + (x // 8)
+                mask = 0x80 >> (x % 8)
                 if row[x] < 128:
-                    idx = y * stride + (x // 8)
-                    buf[idx] &= ~(0x80 >> (x % 8))
+                    buf[idx] &= ~mask
                 else:
-                    idx = y * stride + (x // 8)
-                    buf[idx] |= 0x80 >> (x % 8)
+                    buf[idx] |= mask
         return bytes(buf)
 
