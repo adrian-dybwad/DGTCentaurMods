@@ -12,12 +12,14 @@ from DGTCentaurMods.display.ui_components import AssetManager
 from . import service
 from .regions import Region
 
-ROW_HEIGHT = 20
-STATUS_BAR_HEIGHT = 20
-TITLE_HEIGHT = 20
-TITLE_GAP = 4
+ROW_HEIGHT = 20  # legacy row height used by much of the codebase
+STATUS_BAR_HEIGHT = 16
+STATUS_FONT = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
+TITLE_GAP = 8
+TITLE_HEIGHT = 24
 TITLE_TOP = STATUS_BAR_HEIGHT + TITLE_GAP
 MENU_TOP = TITLE_TOP + TITLE_HEIGHT
+MENU_ROW_HEIGHT = 24
 
 FONT_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
 CHESS_FONT = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
@@ -26,8 +28,18 @@ QR = Image.open(AssetManager.get_resource_path("qr-support.png")).resize((128, 1
 _STANDBY_SNAPSHOT: Optional[Image.Image] = None
 
 
-def write_text_at(top: int, text: str, *, inverted: bool = False) -> None:
-    region = Region(0, top, 128, top + ROW_HEIGHT)
+def draw_status_bar(text: str) -> None:
+    region = Region(0, 0, 128, STATUS_BAR_HEIGHT)
+    with service.acquire_canvas() as canvas:
+        canvas.draw.rectangle(region.to_box(), fill=255, outline=255)
+        canvas.draw.text((2, -1), text, font=STATUS_FONT, fill=0)
+        canvas.mark_dirty(region)
+    service.submit_region(region)
+    _draw_battery_icon(top_padding=1)
+
+
+def write_text_at(top: int, text: str, *, inverted: bool = False, height: int = ROW_HEIGHT) -> None:
+    region = Region(0, top, 128, top + height)
     with service.acquire_canvas() as canvas:
         draw = canvas.draw
         fill, fg = (0, 255) if inverted else (255, 0)
@@ -38,11 +50,15 @@ def write_text_at(top: int, text: str, *, inverted: bool = False) -> None:
 
 
 def write_text(row: int, text: str, *, inverted: bool = False) -> None:
-    write_text_at(row * ROW_HEIGHT, text, inverted=inverted)
+    write_text_at(row * ROW_HEIGHT, text, inverted=inverted, height=ROW_HEIGHT)
 
 
 def write_menu_title(title: str) -> None:
-    write_text_at(TITLE_TOP, title, inverted=True)
+    write_text_at(TITLE_TOP, title, inverted=True, height=TITLE_HEIGHT)
+
+
+def draw_menu_entry(top: int, text: str, *, selected: bool = False) -> None:
+    write_text_at(top, text, inverted=selected, height=MENU_ROW_HEIGHT)
 
 
 def clear_area(region: Region) -> None:
@@ -149,8 +165,7 @@ class StatusBar:
         return clock
 
     def print_once(self) -> None:
-        write_text(0, self.build())
-        _draw_battery_icon()
+        draw_status_bar(self.build())
 
     def print(self) -> None:
         self.print_once()
@@ -188,13 +203,14 @@ def loading_screen() -> None:
     service.submit_full()
 
 
-def welcome_screen() -> None:
-    region = Region(0, 0, 128, 296)
+def welcome_screen(status_text: str = "READY") -> None:
+    draw_status_bar(status_text)
+    region = Region(0, STATUS_BAR_HEIGHT, 128, 296)
     with service.acquire_canvas() as canvas:
         canvas.draw.rectangle(region.to_box(), fill=255, outline=255)
-        canvas.image.paste(LOGO, (0, 20))
+        canvas.image.paste(LOGO, (0, STATUS_BAR_HEIGHT + 4))
         draw = canvas.draw
-        draw.text((0, 200), "   Press [>||]", font=FONT_18, fill=0)
+        draw.text((0, STATUS_BAR_HEIGHT + 180), "   Press [>||]", font=FONT_18, fill=0)
         canvas.mark_dirty(region)
     service.submit_full()
 
@@ -210,7 +226,7 @@ def standby_screen(show: bool) -> None:
             _STANDBY_SNAPSHOT = None
 
 
-def _draw_battery_icon() -> None:
+def _draw_battery_icon(top_padding: int = 2) -> None:
     indicator = "battery1"
     if board.batterylevel >= 18:
         indicator = "battery4"
@@ -224,7 +240,7 @@ def _draw_battery_icon() -> None:
             indicator = "batterycf"
     path = AssetManager.get_resource_path(f"{indicator}.bmp")
     image = Image.open(path)
-    draw_image(image, 98, 2)
+    draw_image(image, 98, top_padding)
 
 
 def _piece_x(piece: str) -> int:

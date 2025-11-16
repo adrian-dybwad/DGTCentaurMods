@@ -50,11 +50,10 @@ game_folder = "games"
 event_key = threading.Event()
 idle = False # ensure defined before keyPressed can be called
 
-MENU_ROW_HEIGHT = widgets.ROW_HEIGHT
-MENU_TITLE_TOP = widgets.TITLE_TOP
-MENU_TITLE_HEIGHT = widgets.TITLE_HEIGHT
+MENU_ROW_HEIGHT = widgets.MENU_ROW_HEIGHT
 MENU_BODY_TOP_WITH_TITLE = widgets.MENU_TOP
-MENU_BODY_TOP_NO_TITLE = widgets.ROW_HEIGHT
+MENU_BODY_TOP_NO_TITLE = widgets.STATUS_BAR_HEIGHT + widgets.TITLE_GAP
+DESCRIPTION_GAP = 8
 
 current_renderer: Optional["MenuRenderer"] = None
 
@@ -94,11 +93,10 @@ class MenuRenderer:
         self.selected_index = max(0, min(selected_index, self.max_index()))
         if self.title:
             widgets.write_menu_title(f"[ {self.title} ]")
-        for idx, entry in enumerate(self.entries):
-            self._draw_entry(idx, entry.label)
+        self._draw_entries()
         self._draw_description()
         if self.entries:
-            self._draw_selection(self.selected_index, True)
+            self._draw_arrow(self.selected_index, True)
 
     def change_selection(self, new_index: int) -> None:
         if not self.entries:
@@ -106,23 +104,34 @@ class MenuRenderer:
         new_index = max(0, min(new_index, self.max_index()))
         if new_index == self.selected_index:
             return
-        self._draw_selection(self.selected_index, False)
+        self._draw_entry(self.selected_index, selected=False)
+        self._draw_arrow(self.selected_index, False)
         self.selected_index = new_index
-        self._draw_selection(self.selected_index, True)
+        self._draw_entry(self.selected_index, selected=True)
+        self._draw_arrow(self.selected_index, True)
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
 
-    def _draw_entry(self, idx: int, label: str) -> None:
-        widgets.write_text_at(self._row_top(idx), f"    {label}")
+    def _draw_entry(self, idx: int, selected: bool) -> None:
+        if idx < 0 or idx >= len(self.entries):
+            return
+        text = f"    {self.entries[idx].label}"
+        widgets.draw_menu_entry(self._row_top(idx), text, selected=selected)
 
-    def _draw_selection(self, idx: int, selected: bool) -> None:
+    def _draw_entries(self) -> None:
+        for idx, _ in enumerate(self.entries):
+            self._draw_entry(idx, selected=(idx == self.selected_index))
+
+    def _draw_arrow(self, idx: int, selected: bool) -> None:
+        if idx < 0 or idx >= len(self.entries):
+            return
         top = self._row_top(idx)
         region = Region(0, top, self.arrow_width, top + self.row_height)
         with service.acquire_canvas() as canvas:
             draw = canvas.draw
             draw.rectangle(region.to_box(), fill=255, outline=255)
-            if selected:
+            if selected and self.entries:
                 draw.polygon(
                     [
                         (2, top + 2),
@@ -137,15 +146,15 @@ class MenuRenderer:
     def _draw_description(self) -> None:
         if not self.description:
             return
-        top = self._row_top(len(self.entries)) + 2
-        region = Region(17, top, 127, top + 108)
+        top = self._row_top(len(self.entries)) + DESCRIPTION_GAP
+        region = Region(0, top, 128, 296)
         widgets.clear_area(region)
-        wrapped = self._wrap_text(self.description, max_width=region.x2 - region.x1 - 5)
+        wrapped = self._wrap_text(self.description, max_width=region.x2 - region.x1 - 10)
         with service.acquire_canvas() as canvas:
             draw = canvas.draw
             for idx, line in enumerate(wrapped[:9]):
                 y_pos = top + 2 + (idx * 16)
-                draw.text((region.x1 + 5, y_pos), line, font=self._description_font, fill=0)
+                draw.text((5, y_pos), line, font=self._description_font, fill=0)
             canvas.mark_dirty(region)
         service.submit_region(region)
 
@@ -313,6 +322,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     if ordered_menu:
         initial_index = max(0, min(len(ordered_menu) - 1, menuitem - 1))
     renderer.draw(initial_index)
+    menuitem = (initial_index + 1) if ordered_menu else 1
     statusbar.print()         
     try:
         event_key.wait()
@@ -351,7 +361,7 @@ log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
 def show_welcome():
     global idle
     service.init()
-    widgets.welcome_screen()
+    widgets.welcome_screen(status_text=statusbar.build() if 'statusbar' in globals() else "READY")
     idle = True
     try:
         event_key.wait()
