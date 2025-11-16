@@ -20,16 +20,19 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
+from DGTCentaurMods.board import board
 from DGTCentaurMods.board import centaur
-from DGTCentaurMods.ui.get_text_from_board import getText
+from DGTCentaurMods.display import epaper
 import os
 import time
 import sys
 import re
 import pathlib
 
+board.initScreen()
+
 # Get the token
-token = getText("API Token")
+token = board.getText("API Token")
 
 #Set key in config and restart the menu.
 centaur.set_lichess_api(token)

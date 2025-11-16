@@ -30,13 +30,11 @@ import json
 import socket
 import subprocess
 import signal
-from typing import Callable
 from DGTCentaurMods.display.ui_components import AssetManager
 
 from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
-from DGTCentaurMods.display.epaper_service import service, widgets
-from DGTCentaurMods.display.epaper_service.regions import Region
+from DGTCentaurMods.display import epaper
 from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.board.logging import log
 
@@ -49,71 +47,6 @@ game_folder = "games"
 event_key = threading.Event()
 idle = False # ensure defined before keyPressed can be called
 
-def _paint_region(region: Region, painter: Callable[[object], None]) -> None:
-    with service.acquire_canvas() as canvas:
-        painter(canvas)
-        canvas.mark_dirty(region)
-    service.submit_region(region)
-
-
-def _clear_rect(x1: int, y1: int, x2: int, y2: int) -> None:
-    widgets.clear_area(Region(x1, y1, x2, y2))
-
-
-def _draw_selection_indicator(shift: int, current_row: int) -> None:
-    region = Region(0, 20 + shift, 20, 295)
-    def painter(canvas):
-        draw = canvas.draw
-        draw.rectangle(region.to_box(), fill=255, outline=255)
-        draw.polygon(
-            [
-                (2, (current_row * 20 + shift) + 2),
-                (2, (current_row * 20) + 18 + shift),
-                (17, (current_row * 20) + 10 + shift),
-            ],
-            fill=0,
-        )
-        draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
-    _paint_region(region, painter)
-
-
-def _draw_description_block(shift: int, row: int, text: str) -> None:
-    if not text or not text.strip():
-        return
-    description_y = (row * 20) + 2 + shift
-    description_height = 108
-    region = Region(17, description_y, 127, description_y + description_height)
-    font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
-    words = text.split()
-    lines = []
-    current_line = ""
-
-    # Need a drawing context to measure text widths; use temporary image.
-    temp_image = Image.new("1", (1, 1), 255)
-    temp_draw = ImageDraw.Draw(temp_image)
-    max_width = region.x2 - region.x1 - 5
-
-    for word in words:
-        candidate = f"{current_line} {word}".strip()
-        width = temp_draw.textlength(candidate, font=font)
-        if width <= max_width:
-            current_line = candidate
-        else:
-            if current_line:
-                lines.append(current_line)
-                current_line = word
-            else:
-                lines.append(word)
-    if current_line:
-        lines.append(current_line)
-
-    def painter(canvas):
-        draw = canvas.draw
-        draw.rectangle(region.to_box(), fill=255, outline=255)
-        for idx, line in enumerate(lines[:9]):
-            y_pos = description_y + 2 + (idx * 16)
-            draw.text((region.x1 + 5, y_pos), line, font=font, fill=0)
-    _paint_region(region, painter)
 
 def keyPressed(id):
     # This functiion receives key presses
@@ -123,6 +56,7 @@ def keyPressed(id):
     global curmenu
     global selection
     global event_key
+    epaper.epapermode = 1    
     if idle:
         if id == board.Key.TICK:
             event_key.set()
@@ -165,8 +99,18 @@ def keyPressed(id):
         if menuitem < 1:
             menuitem = len(curmenu)
         if menuitem > len(curmenu):
-            menuitem = 1
-        _draw_selection_indicator(shift, menuitem)
+            menuitem = 1       
+        epaper.clearArea(0, 20 + shift, 17, 295)
+        draw = ImageDraw.Draw(epaper.epaperbuffer)
+        draw.polygon(
+            [
+                (2, (menuitem * 20 + shift) + 2),
+                (2, (menuitem * 20) + 18 + shift),
+                (17, (menuitem * 20) + 10 + shift),
+            ],
+            fill=0,
+        )
+        draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
 
 
 quickselect = 0
@@ -244,8 +188,8 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     global selection
     global quickselect
     global event_key
-    service.init()
-    widgets.clear_screen()
+    epaper.epapermode = 0
+    epaper.clearScreen()  
     
     selection = ""
     curmenu = actual_menu
@@ -257,20 +201,75 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     if actual_title:
         row = 2
         shift = 20
-        widgets.write_menu_title("[ " + actual_title + " ]")
+        epaper.writeMenuTitle("[ " + actual_title + " ]")
     else:
         shift = 0
         row = 1
     # Print a fresh status bar.
     statusbar.print()
+    epaper.pauseEpaper()
     for k, v in actual_menu.items():
-        widgets.write_text(row, "    " + str(v))
+        epaper.writeText(row, "    " + str(v))
         row = row + 1
     
     # Display description if provided
-    _draw_description_block(shift, row, actual_description or "")
+    if actual_description and actual_description.strip():
+        # Create background rectangle covering the right side area
+        description_y = (row * 20) + 2 + shift
+        description_height = 108  # Height for description area (allows 9 lines: 9 * 12px)
+        draw = ImageDraw.Draw(epaper.epaperbuffer)
+        
+        # Draw background rectangle covering right side (from vertical line to screen edge)
+        draw.rectangle([17, description_y, 127, description_y + description_height], fill=255)
+        
+        # Position text with more space from vertical line
+        description_x = 22  # Start after vertical line (17) with 5px margin
+        description_text_y = description_y + 2  # Small margin from top
+        
+        # Use 16px font for description
+        small_font = ImageFont.truetype(epaper.AssetManager.get_resource_path("Font.ttc"), 16)
+        
+        # Wrap text to fit within the available width
+        max_width = 127 - description_x - 2  # Available width minus margins (now 103px)
+        words = actual_description.split()
+        lines = []
+        current_line = ""
+        
+        for word in words:
+            test_line = current_line + (" " if current_line else "") + word
+            bbox = draw.textbbox((0, 0), test_line, font=small_font)
+            text_width = bbox[2] - bbox[0]
+            
+            if text_width <= max_width:
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append(current_line)
+                    current_line = word
+                else:
+                    lines.append(word)  # Single word too long, add anyway
+        
+        if current_line:
+            lines.append(current_line)
+        
+        # Draw each line
+        for i, line in enumerate(lines[:9]):  # Limit to 9 lines max (fits in 108px height)
+            y_pos = description_text_y + (i * 16)  # 16px line spacing
+            draw.text((description_x, y_pos), line, font=small_font, fill=0)
+    
+    epaper.unPauseEpaper()    
     time.sleep(0.1)
-    _draw_selection_indicator(shift, menuitem)
+    epaper.clearArea(0, 20 + shift, 17, 295)
+    draw = ImageDraw.Draw(epaper.epaperbuffer)
+    draw.polygon(
+        [
+            (2, (menuitem * 20) + 2 + shift),
+            (2, (menuitem * 20) + 18 + shift),
+            (17, (menuitem * 20) + 10 + shift),
+        ],
+        fill=0,
+    )
+    draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
     statusbar.print()         
     try:
         event_key.wait()
@@ -287,8 +286,11 @@ def changedCallback(piece_event, field, time_in_seconds):
 
 
 # Turn Leds off, beep, clear DGT Centaur Serial
-service.init()
-statusbar = widgets.status_bar()
+# Initialise the epaper display - after which functions in epaper.py are available but you can also draw to the
+# image epaper.epaperbuffer to change the screen.
+epaper.initEpaper(1)
+statusbar = epaper.statusBar()
+statusbar.start()
 update = centaur.UpdateSystem()
 log.info("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
@@ -308,8 +310,7 @@ log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
 
 def show_welcome():
     global idle
-    service.init()
-    widgets.welcome_screen()
+    epaper.welcomeScreen()
     idle = True
     try:
         event_key.wait()
@@ -322,8 +323,7 @@ def show_welcome():
 
 
 show_welcome()
-widgets.clear_screen()
-statusbar.start()
+epaper.quickClear()
 
 
 def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:
@@ -374,7 +374,7 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
     # Register signal handler for graceful shutdown
     original_handler = signal.signal(signal.SIGINT, signal_handler)
     try:
-        widgets.loading_screen()
+        epaper.loadingScreen()
         board.pauseEvents()
         board.cleanup(leds_off=True)
         statusbar.stop()
@@ -401,10 +401,10 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         # Restore original signal handler
         signal.signal(signal.SIGINT, original_handler)
         log.info(">>> Reinitializing after external script...")
-        service.init()
-        log.info(">>> service.init() complete")
-        widgets.clear_screen()
-        log.info(">>> widgets.clear_screen() complete")
+        epaper.initEpaper()
+        log.info(">>> epaper.initEpaper() complete")
+        epaper.quickClear()
+        log.info(">>> epaper.quickClear() complete")
         board.run_background(start_key_polling=start_key_polling)
         log.info(">>> board.run_background() complete")
         board.unPauseEvents()
@@ -423,16 +423,16 @@ def bluetooth_pairing():
     """
     from DGTCentaurMods.board.bluetooth_controller import BluetoothController
     
-    widgets.clear_screen()
-    widgets.write_text(0, "Pair Now use")
-    widgets.write_text(1, "any passcode if")
-    widgets.write_text(2, "prompted.")
-    widgets.write_text(4, "Times out in")
-    widgets.write_text(5, "one minute.")
+    epaper.clearScreen()
+    epaper.writeText(0, "Pair Now use")
+    epaper.writeText(1, "any passcode if")
+    epaper.writeText(2, "prompted.")
+    epaper.writeText(4, "Times out in")
+    epaper.writeText(5, "one minute.")
     
     def on_device_detected():
         """Callback when pairing device is detected"""
-        widgets.write_text(8, "Pairing...")
+        epaper.writeText(8, "Pairing...")
     
     # Create Bluetooth controller instance and start pairing with 60 second timeout
     bluetooth_controller = BluetoothController()
@@ -442,14 +442,14 @@ def bluetooth_pairing():
     )
     
     # Show result
-    widgets.clear_screen()
+    epaper.clearScreen()
     if paired:
-        widgets.write_text(0, "Paired!")
+        epaper.writeText(0, "Paired!")
         time.sleep(2)
     else:
-        widgets.write_text(0, "Pairing timeout")
+        epaper.writeText(0, "Pairing timeout")
         time.sleep(2)
-    widgets.clear_screen()
+    epaper.clearScreen()
     
     return paired
 
@@ -467,17 +467,17 @@ def chromecast_menu():
     os.system("ps -ef | grep 'cchandler.py' | grep -v grep | awk '{print $2}' | xargs -r kill -9")
     
     # Discover Chromecasts
-    widgets.clear_screen()
-    widgets.write_text(0, "Discovering...")
-    widgets.write_text(1, "Chromecasts...")
+    epaper.clearScreen()
+    epaper.writeText(0, "Discovering...")
+    epaper.writeText(1, "Chromecasts...")
     time.sleep(1)
     
     try:
         chromecasts = pychromecast.get_chromecasts()
     except Exception as e:
-        widgets.clear_screen()
-        widgets.write_text(0, "Discovery failed")
-        widgets.write_text(1, str(e)[:20])
+        epaper.clearScreen()
+        epaper.writeText(0, "Discovery failed")
+        epaper.writeText(1, str(e)[:20])
         time.sleep(2)
         return
     
@@ -493,9 +493,9 @@ def chromecast_menu():
             cc_mapping[friendly_name] = cc
     
     if not cc_menu:
-        widgets.clear_screen()
-        widgets.write_text(0, "No Chromecasts")
-        widgets.write_text(1, "found")
+        epaper.clearScreen()
+        epaper.writeText(0, "No Chromecasts")
+        epaper.writeText(1, "found")
         time.sleep(2)
         return
     
@@ -511,17 +511,17 @@ def chromecast_menu():
     os.system(cmd)
     
     # Show feedback
-    widgets.clear_screen()
-    widgets.write_text(0, "Streaming to:")
+    epaper.clearScreen()
+    epaper.writeText(0, "Streaming to:")
     # Truncate long names to fit on screen (20 chars per line)
     if len(result) > 20:
-        widgets.write_text(1, result[:20])
+        epaper.writeText(1, result[:20])
         if len(result) > 40:
-            widgets.write_text(2, result[20:40])
+            epaper.writeText(2, result[20:40])
         else:
-            widgets.write_text(2, result[20:])
+            epaper.writeText(2, result[20:])
     else:
-        widgets.write_text(1, result)
+        epaper.writeText(1, result)
     time.sleep(2)
 
 
@@ -641,9 +641,9 @@ while True:
     if centaur.get_menuAbout() != "unchecked":
         menu.update({"About": "About"})                                
     result = doMenu(menu, "Main menu")
-    # Historical note: previous firmware called into the raw epaper driver here.
+    # epaper.epd.init()
     # time.sleep(0.7)
-    # _clear_rect(0,0 + shift,128,295)
+    # epaper.clearArea(0,0 + shift,128,295)
     # time.sleep(1)
     if result == "SHUTDOWN":
         # Graceful shutdown requested via Ctrl+C
@@ -660,7 +660,7 @@ while True:
     if result == "Cast":
         chromecast_menu()
     if result == "Centaur":
-        widgets.loading_screen()
+        epaper.loadingScreen()
         #time.sleep(1)
         board.pauseEvents()
         board.cleanup(leds_off=True)
@@ -679,7 +679,7 @@ while True:
             os.system("sudo ./centaur")
         else:
             log.error(f"Centaur executable not found at {centaur_software}")
-            widgets.write_text(0, "Centaur not found")
+            epaper.writeText(0, "Centaur not found")
             time.sleep(2)
             continue
         # Once started we cannot return to DGTCentaurMods, we can kill that
@@ -857,37 +857,37 @@ while True:
                                         #password = board.getText("Enter WiFi password")
                                         
                                         if password:
-                                            widgets.write_text(0, f"Connecting to")
-                                            widgets.write_text(1, selected_network)
+                                            epaper.writeText(0, f"Connecting to")
+                                            epaper.writeText(1, selected_network)
                                             # Connect to the network
                                             if connect_to_wifi(selected_network, password):
-                                                widgets.write_text(3, "Connected!")
+                                                epaper.writeText(3, "Connected!")
                                             else:
-                                                widgets.write_text(3, "Connection failed!")
+                                                epaper.writeText(3, "Connection failed!")
                                             time.sleep(2)
                                         else:
-                                            widgets.write_text(0, "No password provided")
+                                            epaper.writeText(0, "No password provided")
                                             time.sleep(2)
 
                                 else:
-                                    widgets.write_text(0, "No networks found")
+                                    epaper.writeText(0, "No networks found")
                                     time.sleep(2)
                             else:
-                                widgets.write_text(0, "Scan failed")
+                                epaper.writeText(0, "Scan failed")
                                 time.sleep(2)
                         except Exception as e:
-                            widgets.write_text(0, f"Error: {str(e)[:20]}")
+                            epaper.writeText(0, f"Error: {str(e)[:20]}")
                             time.sleep(2)
                     if result == "wps":
                         if network.check_network():
                             selection = ""
                             curmenu = None
                             IP = network.check_network()
-                            widgets.clear_screen()
-                            widgets.write_text(0, "Network is up.")
-                            widgets.write_text(1, "Press OK to")
-                            widgets.write_text(2, "disconnect")
-                            widgets.write_text(4, IP)
+                            epaper.clearScreen()
+                            epaper.writeText(0, "Network is up.")
+                            epaper.writeText(1, "Press OK to")
+                            epaper.writeText(2, "disconnect")
+                            epaper.writeText(4, IP)
                             timeout = time.time() + 15
                             while time.time() < timeout:
                                 if selection == "BTNTICK":
@@ -898,8 +898,8 @@ while True:
                             wpsMenu = {"connect": "Connect wifi"}
                             result = doMenu(wpsMenu, "WPS")
                             if result == "connect":
-                                widgets.clear_screen()
-                                widgets.write_text(0, "Press WPS button")
+                                epaper.clearScreen()
+                                epaper.writeText(0, "Press WPS button")
                                 network.wps_connect()
                     if result == "recover":
                         selection = ""
@@ -910,13 +910,13 @@ while True:
                         )
                         centaur.shell_run(cmd)                    
                         timeout = time.time() + 20
-                        widgets.clear_screen()
-                        widgets.write_text(0, "Waiting for")
-                        widgets.write_text(1, "network...")
+                        epaper.clearScreen()
+                        epaper.writeText(0, "Waiting for")
+                        epaper.writeText(1, "network...")
                         while not network.check_network() and time.time() < timeout:
                             time.sleep(1)
                         if not network.check_network():
-                            widgets.write_text(1, "Failed to restore...")
+                            epaper.writeText(1, "Failed to restore...")
                             time.sleep(4)
 
             if result == "Pairing":
@@ -938,10 +938,10 @@ while True:
                 sys.exit()
             if result == "Reboot":
                 board.beep(board.SOUND_POWER_OFF)
-                service.init()
-                widgets.clear_screen()
+                epaper.epd.init()
+                epaper.epd.HalfClear()
                 time.sleep(5)
-                service.shutdown()
+                epaper.stopEpaper()
                 time.sleep(2)
                 
                 # LED cascade pattern h1→h8 (squares 0 to 7) for reboot
@@ -998,7 +998,7 @@ while True:
                         rc = run_external_script(f"{game_folder}/lichess.py", "Ongoing", game_id, start_key_polling=True)
                 else:
                     log.warning("No ongoing games!")
-                    widgets.write_text(1, "No ongoing games!")
+                    epaper.writeText(1, "No ongoing games!")
                     time.sleep(3)
 
 
@@ -1165,7 +1165,7 @@ while True:
 
     if result == "About" or result == "BTNHELP":
         selection = ""
-        widgets.clear_screen()
+        epaper.clearScreen()
         statusbar.print()
         # Use subprocess.run for proper resource cleanup
         result = subprocess.run(
@@ -1182,14 +1182,15 @@ while True:
                     if len(parts) >= 3:
                         version = parts[2]
                         break
-        widgets.write_text(1, "Get support:")
-        widgets.write_text(9, "DGTCentaur")
-        widgets.write_text(10, "      Mods")
-        widgets.write_text(11, "Ver:" + version)        
-        qr = Image.open(AssetManager.get_resource_path("qr-support.png")).resize((128, 128))
-        widgets.draw_image(qr, 0, 42)
+        epaper.writeText(1, "Get support:")
+        epaper.writeText(9, "DGTCentaur")
+        epaper.writeText(10, "      Mods")
+        epaper.writeText(11, "Ver:" + version)        
+        qr = Image.open(AssetManager.get_resource_path("qr-support.png"))
+        qr = qr.resize((128, 128))
+        epaper.epaperbuffer.paste(qr, (0, 42))
         timeout = time.time() + 15
         while selection == "" and time.time() < timeout:
             if selection == "BTNTICK" or selection == "BTNBACK":
                 break
-        widgets.clear_screen()        
+        epaper.clearScreen()        

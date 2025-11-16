@@ -58,7 +58,16 @@ def select_from_list_epaper(
         return None
 
     # ----- init panel ---------------------------------------------------------
-    service.init()
+    # Use the existing display system instead of creating a new instance
+    try:
+        from DGTCentaurMods.display import epaper
+        epaper.initEpaper()
+        epaper.clearScreen()
+        # Give the display time to initialize properly
+        time.sleep(0.2)
+    except Exception as e:
+        log.error(f"Failed to initialize epaper display: {e}")
+        return None
 
     # Hardcode the working canvas (matches other code paths)
     W, H = 128, 296
@@ -122,7 +131,9 @@ def select_from_list_epaper(
     # ----- first full paint ---------------------------------------------------
     i = max(0, min(highlight_index, len(items) - 1))
     base = _frame(i)
-    service.blit(base)
+    # Use the existing epaper system to display the frame
+    epaper.epaperbuffer.paste(base, (0, 0))
+    # Don't call refresh() - let the background thread handle updates
 
     # ----- loop ---------------------------------------------------------------
     last_i = i
@@ -184,7 +195,14 @@ def select_from_list_epaper(
         now = time.time()
         if i != last_i and (now - last_paint) >= 0.05:  # Reduced delay for better responsiveness
             frame = _frame(i)
-            service.blit(frame)
-            time.sleep(0.01)
+            try:
+                # Use the existing epaper system to update the display
+                epaper.epaperbuffer.paste(frame, (0, 0))
+                # Don't call refresh() - let the background thread handle updates
+                # The epaperUpdate thread will automatically detect changes and update
+                # Reduced delay for better responsiveness
+                time.sleep(0.01)
+            except Exception as e:
+                log.error(f"Failed to update epaper display: {e}")
             last_i = i
             last_paint = now

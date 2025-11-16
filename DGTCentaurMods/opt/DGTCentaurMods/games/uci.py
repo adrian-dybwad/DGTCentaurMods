@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.games import manager
-from DGTCentaurMods.display.epaper_service import service, widgets
+from DGTCentaurMods.display import epaper
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
@@ -325,6 +325,10 @@ class UCIGame:
             log.error(f"Error in _handle_game_event: {e}")
             import traceback
             traceback.print_exc()
+            try:
+                epaper.unPauseEpaper()
+            except:
+                pass
     
     def _handle_new_game(self):
         """Handle new game event."""
@@ -332,12 +336,13 @@ class UCIGame:
         manager.resetMoveState()
         board.ledsOff()
         manager.resetBoard()
-        widgets.clear_screen()
+        epaper.quickClear()
         
         self.score_history = []
         self.current_turn = chess.WHITE
         self.is_first_move = True
         
+        epaper.pauseEpaper()
         self._draw_board(manager.getFEN())
         
         log.info(f"Board reset. FEN: {manager.getFEN()}")
@@ -351,6 +356,7 @@ class UCIGame:
                 )
                 self._draw_evaluation_graphs(info)
         
+        epaper.unPauseEpaper()
     
     def _handle_white_turn(self):
         """Handle white's turn."""
@@ -364,7 +370,9 @@ class UCIGame:
                     board_obj,
                     chess.engine.Limit(time=0.5)
                 )
+                epaper.pauseEpaper()
                 self._draw_evaluation_graphs(info)
+                epaper.unPauseEpaper()
         
         self._draw_board(manager.getFEN())
         
@@ -383,7 +391,9 @@ class UCIGame:
                     board_obj,
                     chess.engine.Limit(time=0.5)
                 )
+                epaper.pauseEpaper()
                 self._draw_evaluation_graphs(info)
+                epaper.unPauseEpaper()
         
         self._draw_board(manager.getFEN())
         
@@ -434,12 +444,12 @@ class UCIGame:
         draw = ImageDraw.Draw(image)
         font12 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 12)
         draw.text((30, 0), termination_type, font=font12, fill=0)
-        widgets.draw_image(image, 0, 221)
+        epaper.drawImagePartial(0, 221, image)
         time.sleep(0.3)
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
         image = image.transpose(Image.FLIP_LEFT_RIGHT)
-        widgets.draw_image(image, 0, 57)
-        widgets.clear_screen()
+        epaper.drawImagePartial(0, 57, image)
+        epaper.quickClear()
         
         # Display end screen
         log.info("Displaying end screen")
@@ -475,7 +485,7 @@ class UCIGame:
                 )
                 bar_offset += bar_width
         
-        widgets.draw_image(image, 0, 0)
+        epaper.drawImagePartial(0, 0, image)
     
     def _handle_move(self, move_uci: str):
         """Handle a move made on the board."""
@@ -606,29 +616,108 @@ class UCIGame:
         dr2 = ImageDraw.Draw(tmp)
         if self.current_turn == chess.WHITE:
             dr2.ellipse((119, 14, 126, 21), fill=0, outline=0)
-        widgets.draw_image(tmp, 0, 209)
-
+        epaper.drawImagePartial(0, 209, tmp)
+        
         if self.current_turn == chess.BLACK:
             draw.ellipse((119, 14, 126, 21), fill=0, outline=0)
-
+        
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
         image = image.transpose(Image.FLIP_LEFT_RIGHT)
-        widgets.draw_image(image, 0, 1)
+        epaper.drawImagePartial(0, 1, image)
     
     def _clear_evaluation_graphs(self):
         """Clear evaluation graphs from screen."""
-        blank = Image.new('1', (128, 80), 255)
-        widgets.draw_image(blank, 0, 209)
-        widgets.draw_image(blank, 0, 1)
+        image = Image.new('1', (128, 80), 255)
+        epaper.drawImagePartial(0, 209, image)
+        epaper.drawImagePartial(0, 1, image)
     
     def _write_text(self, row: int, text: str):
         """Write text on a given line number."""
-        widgets.write_text(row, text)
+        image = Image.new('1', (128, 20), 255)
+        draw = ImageDraw.Draw(image)
+        font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
+        draw.text((0, 0), text, font=font18, fill=0)
+        epaper.drawImagePartial(0, (row * 20), image)
     
     def _draw_board(self, fen: str):
         """Draw the chess board from FEN string."""
         try:
-            widgets.draw_board(fen, top=81)
+            log.info(f"_draw_board: Starting to draw board with FEN: {fen[:20]}...")
+            
+            # Parse FEN - match original code exactly
+            curfen = str(fen)
+            curfen = curfen.replace("/", "")
+            curfen = curfen.replace("1", " ")
+            curfen = curfen.replace("2", "  ")
+            curfen = curfen.replace("3", "   ")
+            curfen = curfen.replace("4", "    ")
+            curfen = curfen.replace("5", "     ")
+            curfen = curfen.replace("6", "      ")
+            curfen = curfen.replace("7", "       ")
+            curfen = curfen.replace("8", "        ")
+            
+            # Reorder for display (rank 8 to rank 1, matching original code)
+            nfen = ""
+            for rank in range(8, 0, -1):
+                for file in range(0, 8):
+                    nfen = nfen + curfen[((rank - 1) * 8) + file]
+            
+            # Draw board - match original code structure
+            lboard = Image.new('1', (128, 128), 255)
+            draw = ImageDraw.Draw(lboard)
+            chessfont = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
+            
+            for x in range(0, 64):
+                pos = (x - 63) * -1
+                row = (16 * (pos // 8))
+                col = (x % 8) * 16
+                px = 0
+                r = x // 8
+                c = x % 8
+                py = 0
+                
+                # Determine square color - FIXED: use proper checkerboard pattern
+                # Dark square if (row + col) is odd (checkerboard pattern)
+                is_dark_square = ((r + c) % 2 == 1)
+                if is_dark_square:
+                    py = py + 16
+                
+                # Determine piece sprite - match original code exactly
+                piece_char = nfen[x]
+                if piece_char == "P":
+                    px = 16
+                if piece_char == "R":
+                    px = 32
+                if piece_char == "N":
+                    px = 48
+                if piece_char == "B":
+                    px = 64
+                if piece_char == "Q":
+                    px = 80
+                if piece_char == "K":
+                    px = 96
+                if piece_char == "p":
+                    px = 112
+                if piece_char == "r":
+                    px = 128
+                if piece_char == "n":
+                    px = 144
+                if piece_char == "b":
+                    px = 160
+                if piece_char == "q":
+                    px = 176
+                if piece_char == "k":
+                    px = 192
+                
+                # Paste piece (pieces already have square backgrounds in sprite sheet)
+                piece = chessfont.crop((px, py, px+16, py+16))
+                if self.computer_color == chess.WHITE:
+                    piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
+                    piece = piece.transpose(Image.FLIP_LEFT_RIGHT)
+                lboard.paste(piece, (col, row))
+            
+            draw.rectangle([(0, 0), (127, 127)], fill=None, outline='black')
+            epaper.drawImagePartial(0, 81, lboard)
         except Exception as e:
             log.error(f"Error in _draw_board: {e}")
             import traceback
@@ -636,8 +725,8 @@ class UCIGame:
     
     def run(self):
         """Run the UCI game."""
-        # Initialize ePaper service
-        service.init()
+        # Initialize epaper
+        epaper.initEpaper()
         
         # Set initial turn
         self.current_turn = chess.WHITE

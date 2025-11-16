@@ -28,6 +28,7 @@ from DGTCentaurMods.board.sync_centaur import SyncCentaur, command, Key
 import sys
 import os
 import chess
+from DGTCentaurMods.display import epd2in9d
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.board.settings import Settings
 from DGTCentaurMods.board import centaur
@@ -193,14 +194,15 @@ def shutdown():
     except Exception as e:
         log.error(f"LED pattern failed during shutdown: {e}")
     
-    # Properly stop e-paper and wait for completion
-    # All 4 agents agreed: Must await service.shutdown() to ensure display
-    # completes shutdown before system powers off
+    time.sleep(2)
+    
+    # Properly stop e-paper
     try:
-        service.shutdown()  # shutdown() now waits for all operations to complete
-        log.info('E-paper shutdown complete')
+        service.shutdown()
     except Exception as e:
-        log.error(f"E-paper stop failed: {e}")
+        log.debug(f"E-paper stop failed: {e}")
+    
+    time.sleep(1)
     
     # Send sleep to controller before system poweroff
     try:

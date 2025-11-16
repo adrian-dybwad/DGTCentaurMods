@@ -7,7 +7,7 @@ import signal
 import sys
 import os
 
-from DGTCentaurMods.display.epaper_service import service
+ActionPoller = Callable[[], Optional[str]]  # "UP"/"DOWN"/"SELECT"/"BACK"/None
 
 # Global flag for graceful shutdown
 shutdown_requested = False
@@ -70,7 +70,16 @@ def simple_text_input(
     
     def _render():
         nonlocal typed_text, current_set, current_char_index, cursor_pos
-
+        
+        # Initialize display
+        try:
+            from DGTCentaurMods.display import epaper
+            epaper.initEpaper()
+            epaper.clearScreen()
+        except Exception as e:
+            logging.error(f"Failed to initialize epaper: {e}")
+            return
+            
         img = Image.new("1", (W, H), 255)
         draw = ImageDraw.Draw(img)
         
@@ -115,10 +124,21 @@ def simple_text_input(
         instructions = "↑↓: navigate  ←: back  →: select"
         draw.text((margin, H - margin - line_h), instructions, font=font_small, fill=0)
         
-        service.blit(img)
+        # Update display with better error handling
+        try:
+            epaper.epaperbuffer.paste(img, (0, 0))
+            # Don't call refresh() - let background thread handle it
+        except Exception as e:
+            logging.error(f"Failed to update display: {e}")
+            # Try to recover by reinitializing
+            try:
+                epaper.initEpaper()
+                epaper.clearScreen()
+                epaper.epaperbuffer.paste(img, (0, 0))
+            except Exception as e2:
+                logging.error(f"Failed to recover display: {e2}")
 
     # Initial render
-    service.init()
     _render()
     
     start_time = time.time()

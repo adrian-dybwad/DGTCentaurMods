@@ -75,7 +75,7 @@ cd ~/DGTCentaurMods/build
 ./build.sh AsyncController          # or a branch/tag you’re working on
 sudo cp ./releases/dgtcentaurmods_1.3.3_armhf.deb /tmp/
 sudo apt -y install /tmp/dgtcentaurmods_1.3.3_armhf.deb
-cp ~/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/resources/Font.ttc /opt/DGTCentaurMods/resources/
+cp ~/DGTCentaurMods/tools/card-setup-tool/lib/font/Font.ttc /opt/DGTCentaurMods/resources/
 sudo systemctl restart dgt*      # restart services (service names vary by build)
 ```
 

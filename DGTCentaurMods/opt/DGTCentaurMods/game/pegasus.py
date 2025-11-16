@@ -31,7 +31,7 @@ import threading
 import os
 import pathlib
 from DGTCentaurMods.board import *
-from DGTCentaurMods.display.epaper_service import service, widgets
+from DGTCentaurMods.display import epaper
 from PIL import Image, ImageDraw
 from DGTCentaurMods.board.logging import log
 import signal
@@ -44,25 +44,26 @@ events_resubscribed = False
  
 
 
-service.init()
+epaper.initEpaper()
 
 # Initialization handled by async_centaur.py - no manual polling needed
 
-statusbar = widgets.status_bar()
+statusbar = epaper.statusBar()
 statusbar.start()
 
 def displayLogo():
     filename = str(AssetManager.get_resource_path("logo_mods_screen.jpg"))
-    lg = Image.open(filename).resize((48, 112))
-    widgets.draw_image(lg, 0, 20)
+    lg = Image.open(filename)
+    lg = lg.resize((48,112))
+    return epaper.epaperbuffer.paste(lg,(0,20))
 
-statusbar.print_once()
-widgets.write_text(1,"           PEGASUS")
-widgets.write_text(2,"              MODE")
-widgets.write_text(10,"PCS-REVII-081500")
-widgets.write_text(11,"Use back button")
-widgets.write_text(12,"to exit mode")
-widgets.write_text(13,"Await Connect")
+statusbar.print()
+epaper.writeText(1,"           PEGASUS")
+epaper.writeText(2,"              MODE")
+epaper.writeText(10,"PCS-REVII-081500")
+epaper.writeText(11,"Use back button")
+epaper.writeText(12,"to exit mode")
+epaper.writeText(13,"Await Connect")
 displayLogo()
 
 GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
@@ -231,8 +232,8 @@ class UARTRXCharacteristic(Characteristic):
         # Consider any write as an active connection from the client
         if not bt_connected:
             bt_connected = True
-            widgets.write_text(13, "              ")
-            widgets.write_text(13, "Connected")
+            epaper.writeText(13, "              ")
+            epaper.writeText(13, "Connected")
             try:
                 board.beep(board.SOUND_GENERAL)
             except Exception:
@@ -385,8 +386,8 @@ class UARTTXCharacteristic(Characteristic):
         
         # Now do operations that might fail
         try:
-            widgets.write_text(13, "              ")
-            widgets.write_text(13, "Connected")
+            epaper.writeText(13, "              ")
+            epaper.writeText(13, "Connected")
             #board.clearBoardData()
             board.beep(board.SOUND_GENERAL)
             board.ledsOff()

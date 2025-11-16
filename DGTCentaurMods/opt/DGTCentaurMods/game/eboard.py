@@ -98,6 +98,7 @@ import threading
 import chess
 import os
 from PIL import Image, ImageDraw, ImageFont
+from DGTCentaurMods.display import epd2in9d
 import pathlib
 from DGTCentaurMods.config import paths
 import select
@@ -1317,15 +1318,10 @@ def sendClockData():
 
 def clockRun():
 	# Decrement the clock
-	# All 4 agents agreed: Add periodic full refresh counter and throttle updates
-	# to prevent ghosting and reduce unnecessary refreshes
 	global lclock
 	global rclock
 	global clockturn
 	global clockpaused
-	last_timestr = ""  # Track last displayed time string to throttle updates
-	partial_refresh_count = 0  # Track partial refreshes for periodic full refresh
-	max_partial_refreshes = 30  # Do full refresh after 30 partial refreshes (30 seconds)
 	while True:
 		if clockturn == 1:
 			if lclock > 0:
@@ -1336,16 +1332,8 @@ def clockRun():
 				rmin = rclock // 60
 				rsec = rclock % 60
 				timestr = "{:02d}".format(lmin) + ":" + "{:02d}".format(lsec) + "       " + "{:02d}".format(rmin) + ":" + "{:02d}".format(rsec)
-				# Only update display if time string changed (throttle)
-				if showclock == 1 and timestr != last_timestr:
-					widgets.write_text(12, timestr)
-					last_timestr = timestr
-					partial_refresh_count += 1
-					# Periodic full refresh to prevent ghosting
-					if partial_refresh_count >= max_partial_refreshes:
-						from DGTCentaurMods.display.epaper_service import service
-						service.submit_full(await_completion=False)
-						partial_refresh_count = 0
+				if showclock == 1:
+					widgets.write_text(12,timestr)
 		if clockturn == 2:
 			if rclock > 0:
 				if clockpaused == 0:
@@ -1356,16 +1344,8 @@ def clockRun():
 				rsec = rclock % 60
 				timestr = "{:02d}".format(lmin) + ":" + "{:02d}".format(lsec) + "       " + "{:02d}".format(
 					rmin) + ":" + "{:02d}".format(rsec)
-				# Only update display if time string changed (throttle)
-				if showclock == 1 and timestr != last_timestr:
+				if showclock == 1:
 					widgets.write_text(12, timestr)
-					last_timestr = timestr
-					partial_refresh_count += 1
-					# Periodic full refresh to prevent ghosting
-					if partial_refresh_count >= max_partial_refreshes:
-						from DGTCentaurMods.display.epaper_service import service
-						service.submit_full(await_completion=False)
-						partial_refresh_count = 0
 		sendClockData()
 		time.sleep(1)
 
