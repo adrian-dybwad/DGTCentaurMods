@@ -230,19 +230,13 @@ class MenuRenderer:
             draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
             
             canvas.mark_dirty(arrow_region)
-            canvas.mark_dirty(status_region)
-            if self.title:
-                canvas.mark_dirty(title_region)
         
-        # Refresh regions: status bar, title (if present), and arrow column
-        # Submit status bar refresh first (small, fast)
-        service.submit_region(status_region, await_completion=False)
-        # Submit title refresh if present
-        if self.title:
-            service.submit_region(title_region, await_completion=False)
-        # Submit arrow column refresh (matches original: Region(0, 20 + shift, 20, 295))
-        # _expand_region() will expand this to full width, but we submit just the arrow column
-        service.submit_region(arrow_region, await_completion=False)
+        # Refresh region includes status bar, title (if present), and arrow column
+        # Original code refreshes all of these together
+        refresh_region = Region(0, 0, 128, 295)  # Full width from status bar to bottom
+        
+        # Refresh immediately - original code pattern
+        service.submit_region(refresh_region, await_completion=False)
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
