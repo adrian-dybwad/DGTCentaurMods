@@ -435,13 +435,8 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     global selection
     global quickselect
     global event_key
-    log.info(">>> doMenu: ensuring service is initialized")
     service.init()
-    log.info(">>> doMenu: service.init() complete")
-    
-    # CRITICAL: Don't clear screen separately - draw menu directly over existing content
-    # Clearing then immediately drawing causes rapid successive full refreshes that interfere
-    log.info(">>> doMenu: proceeding directly to menu drawing (no separate clear)")
+    widgets.clear_screen()
     
     selection = ""
     curmenu = actual_menu
@@ -450,57 +445,75 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     quickselect = 0    
 
     quickselect = 1    
+    # Original pattern: Draw title, status bar, menu items, description, then arrow
+    if actual_title:
+        row = 2
+        shift = 20
+        widgets.write_menu_title("[ " + actual_title + " ]")
+    else:
+        shift = 0
+        row = 1
+    
+    # Print a fresh status bar (matches original)
+    statusbar.print()
+    
+    # Draw all menu items (matches original: one by one with widgets.write_text)
+    for k, v in actual_menu.items():
+        widgets.write_text(row, "    " + str(v))
+        row = row + 1
+    
+    # Display description if provided (matches original pattern)
+    if actual_description:
+        # Original pattern: _draw_description_block(shift, row, description)
+        # Draw description in the right side area (x=17 to 127)
+        description_y = (row * 20) + 2 + shift
+        description_height = 108
+        region = Region(17, description_y, 127, description_y + description_height)
+        font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
+        words = actual_description.split()
+        lines = []
+        current_line = ""
+        
+        # Wrap text to fit width
+        temp_image = Image.new("1", (1, 1), 255)
+        temp_draw = ImageDraw.Draw(temp_image)
+        max_width = region.x2 - region.x1 - 5
+        
+        for word in words:
+            candidate = f"{current_line} {word}".strip()
+            width = temp_draw.textlength(candidate, font=font)
+            if width <= max_width:
+                current_line = candidate
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = word
+        if current_line:
+            lines.append(current_line)
+        
+        # Draw description (matches original _paint_region pattern)
+        with service.acquire_canvas() as canvas:
+            draw = canvas.draw
+            draw.rectangle(region.to_box(), fill=255, outline=255)
+            for idx, line in enumerate(lines[:9]):
+                y_pos = description_y + 2 + (idx * 16)
+                draw.text((region.x1 + 5, y_pos), line, font=font, fill=0)
+            canvas.mark_dirty(region)
+        service.submit_region(region)
+    
+    # Original pattern: sleep 0.1s, then draw selection indicator, then statusbar.print()
+    time.sleep(0.1)
+    
+    # Draw selection indicator (matches original: _draw_selection_indicator)
+    # Create renderer for selection changes
     ordered_menu = list(actual_menu.items()) if actual_menu else []
-    log.info(f">>> doMenu: creating MenuRenderer with {len(ordered_menu)} entries")
     renderer = MenuRenderer(actual_title, [MenuEntry(k, v) for k, v in ordered_menu], actual_description)
     global current_renderer
     current_renderer = renderer
-    initial_index = 0
-    if ordered_menu:
-        initial_index = max(0, min(len(ordered_menu) - 1, menuitem - 1))
-    log.info(f">>> doMenu: calling renderer.draw(initial_index={initial_index})")
-    renderer.draw(initial_index)
-    log.info(">>> doMenu: renderer.draw() complete, menu content is in framebuffer")
+    renderer.change_selection(menuitem - 1)  # Draw arrow at initial position
     
-    # Verify framebuffer has menu content before proceeding
-    snapshot_before_status = service.snapshot()
-    log.info(f">>> doMenu: Framebuffer snapshot after menu draw: size={snapshot_before_status.size}")
-    # Check if menu area has content (sample a few pixels)
-    menu_area = snapshot_before_status.crop((0, widgets.STATUS_BAR_HEIGHT, 128, widgets.STATUS_BAR_HEIGHT + 50))
-    pixels = list(menu_area.getdata())
-    non_white_pixels = sum(1 for p in pixels if p != 255)
-    log.info(f">>> doMenu: Menu area has {non_white_pixels} non-white pixels out of {len(pixels)} total")
-    
-    menuitem = (initial_index + 1) if ordered_menu else 1
-    
-    # Draw status bar directly to framebuffer (don't submit region yet)
-    log.info(">>> doMenu: drawing status bar to framebuffer")
-    status_text = statusbar.build()
-    with service.acquire_canvas() as canvas:
-        draw = canvas.draw
-        status_region = Region(0, 0, 128, widgets.STATUS_BAR_HEIGHT)
-        draw.rectangle(status_region.to_box(), fill=255, outline=255)
-        draw.text((2, -1), status_text, font=widgets.STATUS_FONT, fill=0)
-        canvas.mark_dirty(status_region)
-        # Draw battery icon
-        from DGTCentaurMods.display.epaper_service.widgets import _draw_battery_icon_to_canvas
-        _draw_battery_icon_to_canvas(canvas, top_padding=1)
-    
-    log.info(">>> doMenu: status bar drawn to framebuffer")
-    # Verify final framebuffer state
-    snapshot_final = service.snapshot()
-    menu_area_final = snapshot_final.crop((0, widgets.STATUS_BAR_HEIGHT, 128, widgets.STATUS_BAR_HEIGHT + 50))
-    pixels_final = list(menu_area_final.getdata())
-    non_white_final = sum(1 for p in pixels_final if p != 255)
-    log.info(f">>> doMenu: Final framebuffer menu area has {non_white_final} non-white pixels")
-    
-    # Submit full refresh to display everything (menu + status bar)
-    import time
-    log.info(">>> doMenu: submitting full refresh to display menu")
-    submit_start = time.time()
-    service.submit_full(await_completion=True)
-    submit_duration = time.time() - submit_start
-    log.info(f">>> doMenu: full refresh complete after {submit_duration:.3f}s, about to BLOCK on event_key.wait()")
+    # Print status bar again (matches original)
+    statusbar.print()
     try:
         event_key.wait()
         log.info(">>> doMenu: event_key.wait() RETURNED - selection made")
