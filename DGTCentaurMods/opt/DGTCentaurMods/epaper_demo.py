@@ -166,7 +166,10 @@ def main():
         pass
     finally:
         print("Shutting down display...")
-        display.shutdown()
+        try:
+            display.shutdown()
+        except Exception as e:
+            print(f"Error during shutdown: {e}")
         print("Demo complete")
 
 
