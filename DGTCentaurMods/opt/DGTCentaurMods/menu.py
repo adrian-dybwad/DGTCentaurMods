@@ -166,14 +166,21 @@ class MenuRenderer:
         The original code does NOT redraw menu entries - they stay as plain text.
         Only the arrow column (full height) is redrawn and refreshed.
         """
+        from DGTCentaurMods.board.logging import log
+        log.info(f">>> change_selection() called: new_index={new_index}, current selected_index={self.selected_index}")
+        
         if not self.entries:
+            log.warning(">>> change_selection() no entries, returning")
             return
         new_index = max(0, min(new_index, self.max_index()))
         if new_index == self.selected_index:
+            log.info(f">>> change_selection() no change (new_index={new_index} == selected_index={self.selected_index}), returning")
             return
         
         # Update selection index
+        old_index = self.selected_index
         self.selected_index = new_index
+        log.info(f">>> change_selection() updating selection: {old_index} -> {new_index}")
         
         # Original pattern: Only redraw the arrow indicator column
         # CRITICAL: _expand_region() expands partial refreshes to FULL WIDTH (0-128)
@@ -184,6 +191,8 @@ class MenuRenderer:
         # to prevent fading. The expanded region will include the title area anyway.
         arrow_region = Region(0, self.body_top, self.arrow_width, 295)
         status_region = Region(0, 0, 128, widgets.STATUS_BAR_HEIGHT)
+        
+        log.info(f">>> change_selection() arrow_region={arrow_region}, body_top={self.body_top}, arrow_width={self.arrow_width}")
         
         # Single atomic canvas operation: draw arrow, title, and status bar together
         with service.acquire_canvas() as canvas:
@@ -211,29 +220,33 @@ class MenuRenderer:
                 canvas.mark_dirty(title_region)
             
             # Clear arrow column from body_top down
+            log.info(f">>> change_selection() clearing arrow column: {arrow_region.to_box()}")
             draw.rectangle(arrow_region.to_box(), fill=255, outline=255)
             
             # Draw arrow at new selection position
             arrow_top = self._row_top(new_index)
-            draw.polygon(
-                [
-                    (2, arrow_top + 2),
-                    (2, arrow_top + self.row_height - 2),
-                    (self.arrow_width - 3, arrow_top + (self.row_height // 2)),
-                ],
-                fill=0,
-            )
+            log.info(f">>> change_selection() drawing arrow at row {new_index}, arrow_top={arrow_top}, row_height={self.row_height}")
+            arrow_points = [
+                (2, arrow_top + 2),
+                (2, arrow_top + self.row_height - 2),
+                (self.arrow_width - 3, arrow_top + (self.row_height // 2)),
+            ]
+            log.info(f">>> change_selection() arrow polygon points: {arrow_points}")
+            draw.polygon(arrow_points, fill=0)
             
             # Draw vertical line from body_top
+            log.info(f">>> change_selection() drawing vertical line: ({self.arrow_width}, {self.body_top}) -> ({self.arrow_width}, 295)")
             draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
             
             canvas.mark_dirty(arrow_region)
         
         # Create combined region covering both status bar and arrow column
         combined_region = status_region.union(arrow_region)
+        log.info(f">>> change_selection() submitting refresh for combined_region={combined_region}")
         
         # Submit single combined refresh for both regions
         service.submit_region(combined_region, await_completion=False)
+        log.info(f">>> change_selection() refresh submitted, EXITING")
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
