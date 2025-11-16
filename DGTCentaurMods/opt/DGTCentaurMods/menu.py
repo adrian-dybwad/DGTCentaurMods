@@ -115,32 +115,34 @@ class MenuRenderer:
                 draw.text((0, title_top - 1), title_text, font=widgets.FONT_18, fill=255)
                 canvas.mark_dirty(title_region)
             
-            # Draw all menu entries
+            # Draw all menu entries (matches original: plain text, no inversion)
             log.info(f">>> MenuRenderer.draw() drawing {len(self.entries)} entries, body_top={self.body_top}")
             for idx, entry in enumerate(self.entries):
                 top = self._row_top(idx)
                 log.info(f">>> MenuRenderer.draw() entry {idx}: top={top}, label='{entry.label}'")
+                # Original pattern: All entries are plain text (white background, black text)
                 entry_region = Region(0, top, 128, top + self.row_height)
-                is_selected = (idx == self.selected_index)
-                fill, fg = (0, 255) if is_selected else (255, 0)
-                draw.rectangle(entry_region.to_box(), fill=fill, outline=fill)
+                draw.rectangle(entry_region.to_box(), fill=255, outline=255)  # White background
                 text = f"    {entry.label}"
-                draw.text((0, top - 1), text, font=widgets.FONT_18, fill=fg)
+                draw.text((0, top - 1), text, font=widgets.FONT_18, fill=0)  # Black text
                 canvas.mark_dirty(entry_region)
-                
-                # Draw arrow for selected entry
-                if is_selected:
-                    arrow_region = Region(0, top, self.arrow_width, top + self.row_height)
-                    draw.rectangle(arrow_region.to_box(), fill=255, outline=255)
-                    draw.polygon(
-                        [
-                            (2, top + 2),
-                            (2, top + self.row_height - 2),
-                            (self.arrow_width - 3, top + (self.row_height // 2)),
-                        ],
-                        fill=0,
-                    )
-                    canvas.mark_dirty(arrow_region)
+            
+            # Draw arrow indicator column (matches original pattern)
+            arrow_region = Region(0, self.body_top, self.arrow_width, 296)
+            draw.rectangle(arrow_region.to_box(), fill=255, outline=255)  # Clear arrow column
+            # Draw arrow at selected position
+            selected_top = self._row_top(self.selected_index)
+            draw.polygon(
+                [
+                    (2, selected_top + 2),
+                    (2, selected_top + self.row_height - 2),
+                    (self.arrow_width - 3, selected_top + (self.row_height // 2)),
+                ],
+                fill=0,
+            )
+            # Draw vertical line (matches original)
+            draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
+            canvas.mark_dirty(arrow_region)
             
             # Draw description if present
             if self.description:
@@ -160,9 +162,9 @@ class MenuRenderer:
         """
         Change the selected menu item.
         
-        Matches original implementation: Draw to framebuffer, then do ONE full refresh
-        of the entire menu area after navigation stops. This prevents ghosting from
-        multiple partial refreshes.
+        Matches original implementation exactly: Only redraw the arrow indicator column.
+        The original code does NOT redraw menu entries - they stay as plain text.
+        Only the arrow column (full height) is redrawn and refreshed.
         """
         if not self.entries:
             return
@@ -170,57 +172,38 @@ class MenuRenderer:
         if new_index == self.selected_index:
             return
         
-        # Draw both old and new states to framebuffer (NO refresh yet)
-        # Use direct canvas access to avoid widgets.draw_menu_entry() which submits refresh
-        old_top = self._row_top(self.selected_index)
-        new_top = self._row_top(new_index)
+        # Update selection index
+        self.selected_index = new_index
+        
+        # Original pattern: Only redraw the arrow indicator column (full height)
+        # Region matches original: Region(0, 20 + shift, 20, 295)
+        # But we need to account for title offset
+        arrow_region = Region(0, self.body_top, self.arrow_width, 296)
         
         with service.acquire_canvas() as canvas:
             draw = canvas.draw
             
-            # Clear old selection: entry and arrow
-            old_entry_region = Region(0, old_top, 128, old_top + self.row_height)
-            draw.rectangle(old_entry_region.to_box(), fill=255, outline=255)
-            text = f"    {self.entries[self.selected_index].label}"
-            draw.text((0, old_top - 1), text, font=widgets.FONT_18, fill=0)
-            canvas.mark_dirty(old_entry_region)
+            # Clear entire arrow column (matches original pattern)
+            draw.rectangle(arrow_region.to_box(), fill=255, outline=255)
             
-            # Clear old arrow
-            old_arrow_region = Region(0, old_top, self.arrow_width, old_top + self.row_height)
-            draw.rectangle(old_arrow_region.to_box(), fill=255, outline=255)
-            canvas.mark_dirty(old_arrow_region)
-            
-            # Update selection index
-            self.selected_index = new_index
-            
-            # Draw new selection: entry and arrow
-            new_entry_region = Region(0, new_top, 128, new_top + self.row_height)
-            draw.rectangle(new_entry_region.to_box(), fill=0, outline=0)  # Black background
-            text = f"    {self.entries[new_index].label}"
-            draw.text((0, new_top - 1), text, font=widgets.FONT_18, fill=255)  # White text
-            canvas.mark_dirty(new_entry_region)
-            
-            # Draw new arrow
-            new_arrow_region = Region(0, new_top, self.arrow_width, new_top + self.row_height)
-            draw.rectangle(new_arrow_region.to_box(), fill=255, outline=255)
+            # Draw arrow at new selection position
+            arrow_top = self._row_top(new_index)
             draw.polygon(
                 [
-                    (2, new_top + 2),
-                    (2, new_top + self.row_height - 2),
-                    (self.arrow_width - 3, new_top + (self.row_height // 2)),
+                    (2, arrow_top + 2),
+                    (2, arrow_top + self.row_height - 2),
+                    (self.arrow_width - 3, arrow_top + (self.row_height // 2)),
                 ],
                 fill=0,
             )
-            canvas.mark_dirty(new_arrow_region)
+            
+            # Draw vertical line (matches original)
+            draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
+            
+            canvas.mark_dirty(arrow_region)
         
-        # Calculate the region covering both old and new selection (for partial refresh)
-        min_top = min(old_top, new_top)
-        max_top = max(old_top + self.row_height, new_top + self.row_height)
-        refresh_region = Region(0, min_top, 128, max_top)
-        
-        # Refresh IMMEDIATELY - original code did immediate refresh, not debounced
-        # This matches the original pattern: draw then refresh immediately
-        service.submit_region(refresh_region, await_completion=False)
+        # Refresh immediately - original code pattern
+        service.submit_region(arrow_region, await_completion=False)
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
