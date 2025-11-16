@@ -258,11 +258,11 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         row = 2
         shift = 20
         widgets.write_menu_title("[ " + actual_title + " ]")
-    else:
-        shift = 0
-        row = 1
-    # Print a fresh status bar.
-    statusbar.print()
+    # else:
+    #     shift = 0
+    #     row = 1
+    # # Print a fresh status bar.
+    # statusbar.print()
     for k, v in actual_menu.items():
         widgets.write_text(row, "    " + str(v))
         row = row + 1
@@ -271,7 +271,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     _draw_description_block(shift, row, actual_description or "")
     time.sleep(0.1)
     _draw_selection_indicator(shift, menuitem)
-    statusbar.print()         
+    # statusbar.print()         
     try:
         event_key.wait()
     except KeyboardInterrupt:
