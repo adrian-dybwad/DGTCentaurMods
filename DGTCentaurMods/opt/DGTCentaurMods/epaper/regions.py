@@ -100,17 +100,10 @@ def expand_to_controller_alignment(region: Region, width: int, height: int) -> R
     """
     Expand region to align with controller row boundaries.
     
-    The C library's displayRegion() API requires:
-    - Updates to be aligned to 8-pixel row boundaries vertically (required by UC8151 controller)
-    - Full-width rows horizontally (the displayRegion() function only takes y coordinates,
-      not x coordinates, so it always refreshes full-width for the specified rows)
+    The UC8151 controller requires updates to be aligned to 8-pixel rows.
     """
     row_height = 8
-    # Expand vertically to 8-pixel row boundaries (required by controller)
     y1 = max(0, (region.y1 // row_height) * row_height)
     y2 = min(height, ((region.y2 + row_height - 1) // row_height) * row_height)
-    
-    # Expand horizontally to full width (required by C library API)
-    # The displayRegion() function only takes y0, y1 coordinates, not x coordinates,
-    # so it always refreshes full-width rows
+    # Expand horizontally to full width for simplicity (controller requirement)
     return Region(0, y1, width, y2)
