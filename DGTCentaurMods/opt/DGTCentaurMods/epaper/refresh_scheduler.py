@@ -37,10 +37,13 @@ class RefreshScheduler:
         self._lock = threading.Lock()
         self._partial_refresh_count = 0
         self._last_full_refresh = time.time()
+        self._last_partial_refresh_time = 0.0
         
         # After N partial refreshes, force a full refresh to clear ghosting
         # Industry standard is 8-10 partial refreshes before full refresh
-        self._max_partial_refreshes = 10
+        # For fast-moving content, use fewer partial refreshes to prevent ghosting
+        # Reduced to 3 to prevent ghosting from frequent updates
+        self._max_partial_refreshes = 3
         
         # Minimum time between refreshes (in seconds)
         # Prevents display overload by spacing out refresh operations
@@ -131,11 +134,23 @@ class RefreshScheduler:
                 continue
             
             # Check if we need a full refresh
+            # Force full refresh more frequently to prevent ghosting from fast-moving content
+            time_since_full = time.time() - self._last_full_refresh
             needs_full = (
                 any(region is None for region, _ in batch) or
                 self._partial_refresh_count >= self._max_partial_refreshes or
-                (time.time() - self._last_full_refresh) > 300  # Force full every 5 minutes to prevent ghosting
+                time_since_full > 300  # Force full every 5 minutes to prevent ghosting
             )
+            
+            # If we're doing partial refreshes very frequently (rapid updates),
+            # force a full refresh more often to prevent ghosting
+            current_time = time.time()
+            time_since_last_partial = current_time - self._last_partial_refresh_time
+            if not needs_full and self._partial_refresh_count >= 2:
+                # If we've done 2+ partial refreshes and they're happening rapidly (< 0.5s apart),
+                # force a full refresh to prevent ghosting from accumulating
+                if time_since_last_partial < 0.5 and time_since_full < 1.0:
+                    needs_full = True
             
             if needs_full:
                 self._execute_full_refresh(batch)
@@ -151,6 +166,7 @@ class RefreshScheduler:
             self._framebuffer.flush_all()
             self._partial_refresh_count = 0
             self._last_full_refresh = time.time()
+            self._last_partial_refresh_time = 0.0
             
             # Complete all futures
             for _, future in batch:
@@ -209,9 +225,11 @@ class RefreshScheduler:
                 
                 self._driver.partial_refresh(y0, y1, image)
                 
-                # Mark region as flushed
+                # Mark the expanded region as flushed (full-width rows)
+                # This ensures the flushed buffer matches what's actually on the display
                 self._framebuffer.flush_region(expanded)
                 self._partial_refresh_count += 1
+                self._last_partial_refresh_time = time.time()
                 
                 # Small delay between partial refreshes (skip if shutting down)
                 if not self._stop_event.is_set():
