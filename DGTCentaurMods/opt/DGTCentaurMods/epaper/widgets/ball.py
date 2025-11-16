@@ -84,4 +84,27 @@ class BallWidget(Widget):
         draw.ellipse(bbox, fill=0, outline=0)
         
         return image
+    
+    def get_mask(self) -> Image.Image:
+        """
+        Get a mask for compositing - only the ball pixels are black (opaque).
+        This allows the ball to be pasted on top without overwriting the background.
+        """
+        mask = Image.new("1", (self.width, self.height), 0)  # All transparent initially
+        draw = ImageDraw.Draw(mask)
+        
+        # Calculate ball position relative to widget
+        ball_x = self._center_x - self.x
+        ball_y = self._center_y - self.y
+        
+        # Draw circle mask (only ball area is opaque)
+        bbox = (
+            ball_x - self.radius,
+            ball_y - self.radius,
+            ball_x + self.radius,
+            ball_y + self.radius
+        )
+        draw.ellipse(bbox, fill=255, outline=255)  # Ball area is opaque (255)
+        
+        return mask
 
