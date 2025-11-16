@@ -40,7 +40,6 @@ class DisplayManager:
         self._widgets: List[Widget] = []
         self._lock = threading.RLock()
         self._initialized = False
-        self._shutting_down = False
 
     def init(self, use_simulator: bool = False) -> None:
         """
@@ -75,23 +74,21 @@ class DisplayManager:
     def shutdown(self) -> None:
         """Shutdown the display and scheduler."""
         with self._lock:
-            if not self._initialized or self._shutting_down:
+            if not self._initialized:
                 return
             
-            self._shutting_down = True
+            # Flush any pending updates
+            self.update()
+            self._scheduler.submit(full=False).result(timeout=5.0)
             
-            # Stop scheduler first to prevent new refresh requests
-            # The scheduler will finish any in-progress refresh
             if self._scheduler:
                 self._scheduler.stop()
             
-            # Put display to sleep and shutdown
             if self._driver:
                 self._driver.sleep()
                 self._driver.shutdown()
             
             self._initialized = False
-            self._shutting_down = False
 
     def add_widget(self, widget: Widget) -> None:
         """
@@ -144,9 +141,6 @@ class DisplayManager:
         Args:
             force_full: If True, force a full screen refresh
         """
-        if self._shutting_down:
-            return
-        
         if not self._initialized:
             self.init()
         

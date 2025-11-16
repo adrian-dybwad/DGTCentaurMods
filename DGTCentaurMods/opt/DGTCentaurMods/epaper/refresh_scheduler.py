@@ -60,27 +60,11 @@ class RefreshScheduler:
         self._thread.start()
 
     def stop(self) -> None:
-        """
-        Stop the scheduler thread and wait for completion.
-        
-        Cancels any pending refresh requests and waits for the current
-        refresh operation to complete (if any), with a timeout.
-        """
+        """Stop the scheduler thread and wait for completion."""
         if self._thread is None:
             return
-        
-        # Signal stop
         self._stop_event.set()
         self._wake_event.set()
-        
-        # Cancel any pending requests in the queue
-        with self._lock:
-            while self._queue:
-                _, future = self._queue.popleft()
-                if not future.done():
-                    future.set_result("cancelled-on-shutdown")
-        
-        # Wait for thread to finish (the thread will finish after current refresh completes, if any)
         self._thread.join(timeout=5.0)
         self._thread = None
 
@@ -179,14 +163,6 @@ class RefreshScheduler:
         
         # Execute each merged region
         for region in merged:
-            # Check if we should stop before processing more regions
-            if self._stop_event.is_set():
-                # Mark remaining futures as cancelled
-                for _, future in batch:
-                    if not future.done():
-                        future.set_result("cancelled-on-shutdown")
-                return
-            
             # Expand to controller alignment (optimized width, full-height rows)
             expanded = expand_to_controller_alignment(
                 region,
@@ -213,9 +189,8 @@ class RefreshScheduler:
                 self._framebuffer.flush_region(expanded)
                 self._partial_refresh_count += 1
                 
-                # Small delay between partial refreshes (skip if shutting down)
-                if not self._stop_event.is_set():
-                    time.sleep(self._min_refresh_interval)
+                # Small delay between partial refreshes
+                time.sleep(self._min_refresh_interval)
                 
             except Exception as e:
                 # If partial refresh fails, mark all futures as failed
