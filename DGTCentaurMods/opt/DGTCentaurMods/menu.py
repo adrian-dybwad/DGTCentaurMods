@@ -175,15 +175,28 @@ class MenuRenderer:
         # Update selection index
         self.selected_index = new_index
         
-        # Original pattern: Only redraw the arrow indicator column (full height)
-        # Region matches original: Region(0, 20 + shift, 20, 295)
-        # But we need to account for title offset
-        arrow_region = Region(0, self.body_top, self.arrow_width, 296)
+        # Original pattern: Only redraw the arrow indicator column
+        # CRITICAL: _expand_region() expands partial refreshes to FULL WIDTH (0-128)
+        # and aligns to 8-pixel boundaries. This means our 20-pixel-wide arrow column
+        # refresh becomes a full-width refresh from y1 to 295.
+        # 
+        # Since the expansion affects full width, if title exists, we must redraw it
+        # to prevent fading. The expanded region will include the title area anyway.
+        arrow_region = Region(0, self.body_top, self.arrow_width, 295)
         
         with service.acquire_canvas() as canvas:
             draw = canvas.draw
             
-            # Clear entire arrow column (matches original pattern)
+            # If title exists, redraw it to prevent fading from full-width refresh
+            if self.title:
+                title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
+                title_region = Region(0, title_top, 128, title_top + widgets.TITLE_HEIGHT)
+                draw.rectangle(title_region.to_box(), fill=0, outline=0)
+                title_text = f"[ {self.title} ]"
+                draw.text((0, title_top - 1), title_text, font=widgets.FONT_18, fill=255)
+                canvas.mark_dirty(title_region)
+            
+            # Clear arrow column from body_top down
             draw.rectangle(arrow_region.to_box(), fill=255, outline=255)
             
             # Draw arrow at new selection position
@@ -197,13 +210,21 @@ class MenuRenderer:
                 fill=0,
             )
             
-            # Draw vertical line (matches original)
+            # Draw vertical line from body_top
             draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
             
             canvas.mark_dirty(arrow_region)
         
+        # Refresh region includes title if present (since expansion affects full width anyway)
+        # Expand region to include title if it exists
+        if self.title:
+            title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
+            refresh_region = Region(0, title_top, 128, 295)  # Full width from title to bottom
+        else:
+            refresh_region = arrow_region
+        
         # Refresh immediately - original code pattern
-        service.submit_region(arrow_region, await_completion=False)
+        service.submit_region(refresh_region, await_completion=False)
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
