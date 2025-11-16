@@ -95,6 +95,8 @@ class MenuRenderer:
         return max(0, len(self.entries) - 1)
 
     def draw(self, selected_index: int) -> None:
+        # Ensure log is available (module-level import should work, but be explicit)
+        from DGTCentaurMods.board.logging import log
         log.info(f">>> MenuRenderer.draw() ENTERED with selected_index={selected_index}")
         self.selected_index = max(0, min(selected_index, self.max_index()))
         log.info(f">>> MenuRenderer.draw() normalized selected_index={self.selected_index}")
@@ -197,6 +199,9 @@ class MenuRenderer:
         in a single canvas operation, then submit one refresh. This prevents
         race conditions from overlapping partial refreshes.
         """
+        # Ensure log is available (module-level import should work, but be explicit)
+        from DGTCentaurMods.board.logging import log
+        
         if not self.entries:
             return
         new_index = max(0, min(new_index, self.max_index()))
@@ -358,7 +363,7 @@ class MenuRenderer:
 
 def keyPressed(id):
     # This functiion receives key presses
-    from DGTCentaurMods.board.logging import log  # Ensure log is available in this scope
+    # Use module-level log (imported at top of file at line 42)
     log.info("in menu.py keyPressed: " + str(id))
     global menuitem
     global curmenu
