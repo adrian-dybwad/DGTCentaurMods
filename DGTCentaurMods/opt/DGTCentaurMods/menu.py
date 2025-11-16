@@ -162,8 +162,9 @@ class MenuRenderer:
         """
         Change the selected menu item.
         
-        Matches original implementation pattern: Draw to framebuffer but don't refresh immediately.
-        Use debounced refresh to batch multiple selection changes into a single refresh.
+        Matches original implementation: Draw to framebuffer, then do ONE full refresh
+        of the entire menu area after navigation stops. This prevents ghosting from
+        multiple partial refreshes.
         """
         if not self.entries:
             return
@@ -171,54 +172,87 @@ class MenuRenderer:
         if new_index == self.selected_index:
             return
         
-        # Calculate combined region that will be affected
+        # Draw both old and new states to framebuffer (NO refresh yet)
+        # Use direct canvas access to avoid widgets.draw_menu_entry() which submits refresh
         old_top = self._row_top(self.selected_index)
         new_top = self._row_top(new_index)
-        min_top = min(old_top, new_top)
-        max_top = max(old_top + self.row_height, new_top + self.row_height)
-        combined_region = Region(0, min_top, 128, max_top)
         
-        # Update dirty region (expand to include both old and new)
-        if self._dirty_region is None:
-            self._dirty_region = combined_region
-        else:
-            # Merge regions
-            self._dirty_region = Region(
-                0,
-                min(self._dirty_region.y1, combined_region.y1),
-                128,
-                max(self._dirty_region.y2, combined_region.y2)
+        with service.acquire_canvas() as canvas:
+            draw = canvas.draw
+            
+            # Clear old selection: entry and arrow
+            old_entry_region = Region(0, old_top, 128, old_top + self.row_height)
+            draw.rectangle(old_entry_region.to_box(), fill=255, outline=255)
+            text = f"    {self.entries[self.selected_index].label}"
+            draw.text((0, old_top - 1), text, font=widgets.FONT_18, fill=0)
+            canvas.mark_dirty(old_entry_region)
+            
+            # Clear old arrow
+            old_arrow_region = Region(0, old_top, self.arrow_width, old_top + self.row_height)
+            draw.rectangle(old_arrow_region.to_box(), fill=255, outline=255)
+            canvas.mark_dirty(old_arrow_region)
+            
+            # Update selection index
+            self.selected_index = new_index
+            
+            # Draw new selection: entry and arrow
+            new_entry_region = Region(0, new_top, 128, new_top + self.row_height)
+            draw.rectangle(new_entry_region.to_box(), fill=0, outline=0)  # Black background
+            text = f"    {self.entries[new_index].label}"
+            draw.text((0, new_top - 1), text, font=widgets.FONT_18, fill=255)  # White text
+            canvas.mark_dirty(new_entry_region)
+            
+            # Draw new arrow
+            new_arrow_region = Region(0, new_top, self.arrow_width, new_top + self.row_height)
+            draw.rectangle(new_arrow_region.to_box(), fill=255, outline=255)
+            draw.polygon(
+                [
+                    (2, new_top + 2),
+                    (2, new_top + self.row_height - 2),
+                    (self.arrow_width - 3, new_top + (self.row_height // 2)),
+                ],
+                fill=0,
             )
-        
-        # Draw both old and new states to framebuffer
-        self._draw_entry(self.selected_index, selected=False)
-        self._draw_arrow(self.selected_index, False)
-        self.selected_index = new_index
-        self._draw_entry(self.selected_index, selected=True)
-        self._draw_arrow(self.selected_index, True)
+            canvas.mark_dirty(new_arrow_region)
         
         # Cancel any pending refresh timer
         if self._refresh_timer is not None:
             self._refresh_timer.cancel()
         
-        # Schedule a debounced refresh (200ms after last navigation)
+        # Schedule a debounced FULL SCREEN refresh (matches original pattern)
+        # Original code did ONE full screen refresh after all drawing, not partial refreshes
+        # This prevents ghosting from accumulated partial refreshes
         def submit_refresh():
-            if self._dirty_region is not None:
-                service.submit_region(self._dirty_region, await_completion=False)
-                self._dirty_region = None
+            # Full screen refresh - original code did full refresh, not partial
+            service.submit_full(await_completion=False)
             self._refresh_timer = None
         
-        self._refresh_timer = threading.Timer(0.2, submit_refresh)
+        self._refresh_timer = threading.Timer(0.15, submit_refresh)  # 150ms debounce
         self._refresh_timer.start()
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
 
     def _draw_entry(self, idx: int, selected: bool) -> None:
+        """
+        Draw menu entry to framebuffer without submitting refresh.
+        Used during initial menu draw - selection changes use direct canvas access.
+        """
         if idx < 0 or idx >= len(self.entries):
             return
         text = f"    {self.entries[idx].label}"
-        widgets.draw_menu_entry(self._row_top(idx), text, selected=selected)
+        # Use direct canvas access to avoid widgets.draw_menu_entry() which submits refresh
+        top = self._row_top(idx)
+        with service.acquire_canvas() as canvas:
+            draw = canvas.draw
+            region = Region(0, top, 128, top + self.row_height)
+            if selected:
+                draw.rectangle(region.to_box(), fill=0, outline=0)  # Black background
+                draw.text((0, top - 1), text, font=widgets.FONT_18, fill=255)  # White text
+            else:
+                draw.rectangle(region.to_box(), fill=255, outline=255)  # White background
+                draw.text((0, top - 1), text, font=widgets.FONT_18, fill=0)  # Black text
+            canvas.mark_dirty(region)
 
     def _draw_entries(self) -> None:
         for idx, _ in enumerate(self.entries):
