@@ -29,6 +29,8 @@ class BallWidget(Widget):
         self._center_x = x
         self._center_y = y
         self.radius = radius
+        self._prev_x = x - radius
+        self._prev_y = y - radius
 
     def set_position(self, x: int, y: int) -> None:
         """
@@ -38,6 +40,10 @@ class BallWidget(Widget):
             x: X position (center of ball)
             y: Y position (center of ball)
         """
+        # Track previous position for clearing old location
+        self._prev_x = self.x
+        self._prev_y = self.y
+        
         self._center_x = x
         self._center_y = y
         # Update widget position to keep ball centered
@@ -45,6 +51,15 @@ class BallWidget(Widget):
         self.y = y - self.radius
         # Invalidate cache so has_changed() detects the position change
         self._last_rendered = None
+    
+    def get_previous_region(self) -> tuple[int, int, int, int]:
+        """
+        Get the previous widget region (for clearing old position).
+        
+        Returns:
+            Tuple of (x, y, x + width, y + height) for previous position
+        """
+        return (self._prev_x, self._prev_y, self._prev_x + self.width, self._prev_y + self.height)
 
     def get_center(self) -> tuple[int, int]:
         """Get ball center position."""

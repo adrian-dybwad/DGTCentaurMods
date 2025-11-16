@@ -77,11 +77,12 @@ def main():
         y_pos += line_height
     
     # Add all widgets to display
+    # Add ball last so it renders on top of text
     display.add_widget(clock)
     display.add_widget(battery)
-    display.add_widget(ball)
     for text_widget in text_widgets:
         display.add_widget(text_widget)
+    display.add_widget(ball)  # Add ball last so it appears on top
     
     # Initial full refresh
     print("Performing initial full refresh...")

@@ -149,7 +149,23 @@ class DisplayManager:
             # We render all widgets to ensure correct compositing, even if unchanged
             canvas = self._framebuffer.get_canvas()
             
+            # Track old positions for widgets that have moved (like ball)
+            moved_regions = []
+            
             for widget in self._widgets:
+                # Check if widget has moved (has get_previous_region method)
+                if hasattr(widget, 'get_previous_region'):
+                    prev_region = widget.get_previous_region()
+                    curr_region = widget.get_region()
+                    # If position changed, mark old region for clearing
+                    if prev_region != curr_region:
+                        moved_regions.append(Region(
+                            prev_region[0],
+                            prev_region[1],
+                            prev_region[2],
+                            prev_region[3]
+                        ))
+                
                 # Always render to ensure framebuffer is up to date
                 widget_image = widget.get_image()
                 
@@ -167,12 +183,28 @@ class DisplayManager:
                 # Paste widget onto canvas
                 canvas.paste(widget_image, (widget.x, widget.y))
             
+            # For moved widgets, clear old position by re-rendering background
+            # (text widgets will be re-rendered on top, clearing the old ball position)
+            for moved_region in moved_regions:
+                # Re-render widgets that overlap with the old position
+                for widget in self._widgets:
+                    widget_region = widget.get_region()
+                    if (moved_region.intersects(Region(*widget_region)) and 
+                        not hasattr(widget, 'get_previous_region')):  # Don't re-render moving widget
+                        # This widget overlaps the old position, ensure it's rendered
+                        widget_image = widget.get_image()
+                        if widget_image.mode != "1":
+                            widget_image = widget_image.convert("1")
+                        canvas.paste(widget_image, (widget.x, widget.y))
+            
             # Compute dirty regions
             if force_full:
                 dirty_region = Region.full(self.width, self.height)
                 self._scheduler.submit(dirty_region, full=True)
             else:
                 dirty_regions = self._framebuffer.compute_dirty_regions()
+                # Add moved regions to ensure old positions are refreshed
+                dirty_regions.extend(moved_regions)
                 if dirty_regions:
                     # Submit all dirty regions (scheduler will merge them)
                     for region in dirty_regions:
