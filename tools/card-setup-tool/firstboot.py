@@ -5,12 +5,27 @@
 # ( https://github.com/EdNekebno/DGTCentaur )
 # GPLv3-or-later. See LICENSE in the project root.
 
+from __future__ import annotations
+
+import importlib
 import os
-import time
+import shutil
 import subprocess
+import sys
 import threading
+import time
 from pathlib import Path
-from DGTCentaurMods.display.epaper_service import service, widgets
+
+# --------------------------------------------------
+# Constants & globals
+# --------------------------------------------------
+
+DEFAULT_DEB = Path("/boot/firmware/DGTCentaurMods_armhf.deb")
+EXTRACT_DIR = Path("/tmp/dgtcm_firstboot")
+
+service = None
+widgets = None
+
 
 # --------------------------------------------------
 # Helper functions
@@ -24,89 +39,118 @@ def run(cmd, check=True, env=None):
         raise SystemExit(f"Command failed ({res.returncode}): {cmd}")
     return res.returncode
 
+
 def write_epaper(line, text):
+    global widgets
+    if widgets is None:
+        return
     try:
         widgets.write_text(line, text)
     except Exception as e:
-        print(f"[epaper] writeText failed: {e}")
+        print(f"[epaper] write_text failed: {e}")
+
+
+def _extract_package(deb_path: Path, extract_dir: Path) -> Path:
+    if extract_dir.exists():
+        shutil.rmtree(extract_dir)
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    run(f"dpkg-deb -x {deb_path} {extract_dir}")
+    opt_path = extract_dir / "opt"
+    if not opt_path.exists():
+        raise FileNotFoundError(f"Extracted package missing opt directory: {opt_path}")
+    opt_str = str(opt_path)
+    if opt_str not in sys.path:
+        sys.path.insert(0, opt_str)
+    importlib.invalidate_caches()
+    return opt_path
+
+
+def _bootstrap_display_modules(deb_path: Path = DEFAULT_DEB,
+                               extract_dir: Path = EXTRACT_DIR):
+    try:
+        from DGTCentaurMods.display.epaper_service import service as svc, widgets as w  # type: ignore
+        return svc, w
+    except ModuleNotFoundError:
+        if not deb_path.exists():
+            raise
+        _extract_package(deb_path, extract_dir)
+        from DGTCentaurMods.display.epaper_service import service as svc, widgets as w  # type: ignore
+        return svc, w
+
 
 # --------------------------------------------------
-# Wait for network
+# Main workflow
 # --------------------------------------------------
-time.sleep(30)
 
-env_noask = dict(os.environ)
-env_noask["DEBIAN_FRONTEND"] = "noninteractive"
+def main():
+    global service, widgets
 
-# --------------------------------------------------
-# System updates & dependencies (trixie-safe)
-# --------------------------------------------------
-run("apt-get update", env=env_noask)
-run("apt-get install -y python3 python3-pip", env=env_noask)
-run("apt-get install -y libopenjp2-7 libtiff6", env=env_noask)
-run("apt-get install -y python3-pil python3-serial python3-spidev", env=env_noask)
+    service, widgets = _bootstrap_display_modules()
 
-# Debian 13 marks Python as externally-managed (PEP 668).
-# We skip any pip upgrades here and rely solely on distro packages.
-pass
+    # Wait for network and package managers to settle
+    time.sleep(30)
 
-# --------------------------------------------------
-# e-paper UI
-# --------------------------------------------------
-service.init()
-sb = widgets.status_bar()
-sb.start()
-sb.print()
+    env_noask = dict(os.environ)
+    env_noask["DEBIAN_FRONTEND"] = "noninteractive"
 
-animate = True
-progress = "Preparing      "
+    service.init()
+    sb = widgets.status_bar()
+    sb.start()
+    sb.print()
 
-def status():
-    global animate, progress
-    while animate:
-        for a in ["/", "-", "\\", "|"]:
-            write_epaper(1, progress + "[" + a + "]")
-            time.sleep(1)
+    animate = True
+    progress = "Preparing      "
 
-msg = threading.Thread(target=status)
-msg.daemon = True
-msg.start()
-time.sleep(0.5)
+    def status():
+        nonlocal animate, progress
+        while animate:
+            for a in ["/", "-", "\\", "|"]:
+                write_epaper(1, progress + "[" + a + "]")
+                time.sleep(1)
+                if not animate:
+                    break
 
-# --------------------------------------------------
-# Steps
-# --------------------------------------------------
-write_epaper(3, "[1/3] Setup OS")
-run("sleep 10")
+    msg = threading.Thread(target=status, daemon=True)
+    msg.start()
+    time.sleep(0.5)
 
-progress = "Updating       "
-write_epaper(4, "[2/3] Updating")
-write_epaper(5, "    Raspberry Pi OS")
-run("apt-get update", env=env_noask)
-run("apt-get -y full-upgrade", env=env_noask)
+    write_epaper(3, "[1/3] Setup OS")
+    run("sleep 10")
 
-progress = "Installing     "
-write_epaper(6, "[3/3] Installing")
-write_epaper(7, "    DGTCM")
+    progress = "Updating       "
+    write_epaper(4, "[2/3] Updating")
+    write_epaper(5, "    Raspberry Pi OS")
+    run("apt-get update", env=env_noask)
+    run("apt-get -y full-upgrade", env=env_noask)
 
-deb_path = Path("/boot/firmware/DGTCentaurMods_armhf.deb")
-if deb_path.exists():
-    run(f"apt-get -y install {deb_path}", env=env_noask)
-else:
-    print(f"[warn] Package not found: {deb_path} (skipping)")
+    progress = "Installing     "
+    write_epaper(6, "[3/3] Installing")
+    write_epaper(7, "    DGTCM")
 
-run("systemctl stop DGTCentaurMods.service", check=False)
+    if DEFAULT_DEB.exists():
+        run(f"apt-get -y install {DEFAULT_DEB}", env=env_noask)
+    else:
+        print(f"[warn] Package not found: {DEFAULT_DEB} (skipping)")
 
-animate = False
-sb.stop()
-time.sleep(2)
-widgets.clear_screen()
-time.sleep(1)
+    run("systemctl stop DGTCentaurMods.service", check=False)
 
-run("systemctl disable firstboot.service", check=False)
-write_epaper(3, "    Rebooting")
-run("rm -rf /etc/systemd/system/firstboot.service", check=False)
-print("Setup done")
+    animate = False
+    msg.join(timeout=0.1)
+    sb.stop()
+    time.sleep(2)
+    widgets.clear_screen()
+    time.sleep(1)
 
-time.sleep(5)
-run("reboot")
+    run("systemctl disable firstboot.service", check=False)
+    write_epaper(3, "    Rebooting")
+    run("rm -rf /etc/systemd/system/firstboot.service", check=False)
+    print("Setup done")
+
+    time.sleep(5)
+    service.shutdown()
+    run("reboot")
+
+
+if __name__ == "__main__":
+    main()
+

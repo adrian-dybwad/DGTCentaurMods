@@ -1,5 +1,5 @@
 # This script manages a chess game, passing events and moves back to the calling script with callbacks
-# The calling script is expected to manage the display itself using epaper.py
+# The calling script is expected to manage the display using the centralized epaper service.
 # Calling script initialises with subscribeGame(eventCallback, moveCallback, keyCallback)
 # eventCallback feeds back events such as start of game, gameover
 # moveCallback feeds back the chess moves made on the board
@@ -27,7 +27,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.board import board
-from DGTCentaurMods.display import epaper
+from DGTCentaurMods.display.epaper_service import service, widgets
 from DGTCentaurMods.db import models
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import func, select
@@ -116,7 +116,7 @@ class ClockManager:
         
         if not showing_promotion:
             time_string = self.format_time(self.white_time_seconds, self.black_time_seconds)
-            epaper.writeText(self.display_line, time_string)
+            widgets.write_text(self.display_line, time_string)
     
     def start(self, current_turn_getter, is_starting_position_getter, showing_promotion_getter):
         """Start the clock thread."""
@@ -139,7 +139,7 @@ class ClockManager:
         
         # Initial display
         time_string = self.format_time(self.white_time_seconds, self.black_time_seconds)
-        epaper.writeText(self.display_line, time_string)
+        widgets.write_text(self.display_line, time_string)
     
     def stop(self):
         """Stop the clock thread."""
@@ -305,12 +305,12 @@ class GameManager:
         
         board.beep(board.SOUND_GENERAL)
         if not is_forced:
-            screen_backup = epaper.epaperbuffer.copy()
+            screen_backup = service.snapshot()
             self.is_showing_promotion = True
-            epaper.promotionOptions(PROMOTION_DISPLAY_LINE)
+            widgets.promotion_options(PROMOTION_DISPLAY_LINE)
             promotion_choice = self._wait_for_promotion_choice()
             self.is_showing_promotion = False
-            epaper.epaperbuffer = screen_backup.copy()
+            service.blit(screen_backup, 0, 0)
             return promotion_choice
         return ""
     
@@ -657,17 +657,17 @@ class GameManager:
                 self.key_callback(key_pressed)
             if self.is_in_menu == 0 and key_pressed == board.Key.HELP:
                 self.is_in_menu = 1
-                epaper.resignDrawMenu(14)
+                widgets.resign_draw_menu(14)
             if self.is_in_menu == 1 and key_pressed == board.Key.BACK:
-                epaper.writeText(14, "                   ")
+                widgets.write_text(14, "                   ")
                 self.is_in_menu = 0
             if self.is_in_menu == 1 and key_pressed == board.Key.UP:
-                epaper.writeText(14, "                   ")
+                widgets.write_text(14, "                   ")
                 if self.event_callback is not None:
                     self.event_callback(EVENT_REQUEST_DRAW)
                 self.is_in_menu = 0
             if self.is_in_menu == 1 and key_pressed == board.Key.DOWN:
-                epaper.writeText(14, "                   ")
+                widgets.write_text(14, "                   ")
                 if self.event_callback is not None:
                     self.event_callback(EVENT_RESIGN_GAME)
                 self.is_in_menu = 0

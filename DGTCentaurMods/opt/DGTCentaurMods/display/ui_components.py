@@ -26,7 +26,7 @@
 import os
 
 class AssetManager():
-    """ Class representing epaperDriver Communications """
+    """Helper class for resolving resource paths used by display widgets."""
 
     @staticmethod
     def get_resource_path(resource_file):

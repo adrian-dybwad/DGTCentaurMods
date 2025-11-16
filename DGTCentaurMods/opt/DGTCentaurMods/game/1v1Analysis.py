@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.game import gamemanager
-from DGTCentaurMods.display import epaper
+from DGTCentaurMods.display.epaper_service import service, widgets
 from DGTCentaurMods.display.ui_components import AssetManager
 import time
 import chess
@@ -55,8 +55,8 @@ def keyCallback(key):
         engine.quit()
     if key == gamemanager.board.Key.DOWN:
         image = Image.new('1', (128, 80), 255)
-        epaper.drawImagePartial(0, 209, image)     
-        epaper.drawImagePartial(0, 1, image)
+        widgets.draw_image(image, 0, 209)     
+        widgets.draw_image(image, 0, 1)
         graphson = 0        
     if key == gamemanager.board.Key.UP:
         graphson = 1
@@ -76,7 +76,7 @@ def eventCallback(event):
     if event == gamemanager.EVENT_NEW_GAME:
         writeTextLocal(0, "               ")
         writeTextLocal(1, "               ")
-        epaper.quickClear()        
+        widgets.clear_screen()        
         scorehistory = []
         curturn = 1
         firstmove = 1
@@ -112,12 +112,12 @@ def eventCallback(event):
             font12 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 12)
             txt = event[12:]
             draw.text((30, 0), txt, font=font12, fill=0)
-            epaper.drawImagePartial(0, 221, image)
+            widgets.draw_image(image, 0, 221)
             time.sleep(0.3)
             image = image.transpose(Image.FLIP_TOP_BOTTOM)
             image = image.transpose(Image.FLIP_LEFT_RIGHT)    
-            epaper.drawImagePartial(0, 57, image)            
-            epaper.quickClear()            
+            widgets.draw_image(image, 0, 57)            
+            widgets.clear_screen()            
             # Let's display an end screen
             image = Image.new('1', (128,292), 255)
             draw = ImageDraw.Draw(image)
@@ -138,7 +138,7 @@ def eventCallback(event):
                     draw.rectangle([(baroffset,114),(baroffset+barwidth,114 - (scorehistory[i]*4))],fill=col,outline='black')
                     baroffset = baroffset + barwidth
             
-            epaper.drawImagePartial(0, 0, image)
+            widgets.draw_image(image, 0, 0)
             time.sleep(10)
             engine.quit()
             kill = 1
@@ -170,9 +170,9 @@ def evaluationGraphs(info):
     global curturn
     if graphson == 0:
         image = Image.new('1', (128, 80), 255)
-        epaper.drawImagePartial(0, 209, image) 
+        widgets.draw_image(image, 0, 209) 
         time.sleep(0.3)
-        epaper.drawImagePartial(0, 1, image)        
+        widgets.draw_image(image, 0, 1)        
     sval = 0
     sc = str(info["score"])        
     if "Mate" in sc:
@@ -235,103 +235,22 @@ def evaluationGraphs(info):
         dr2 = ImageDraw.Draw(tmp)
         if curturn == 1:            
             dr2.ellipse((119,14,126,21), fill = 0, outline = 0)
-        epaper.drawImagePartial(0, 209, tmp)         
+        widgets.draw_image(tmp, 0, 209)         
         if curturn == 0:
             draw.ellipse((119,14,126,21), fill = 0, outline = 0)
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
         image = image.transpose(Image.FLIP_LEFT_RIGHT)  
-        epaper.drawImagePartial(0, 1, image)    
+        widgets.draw_image(image, 0, 1)    
 
 def writeTextLocal(row,txt):
     # Write Text on a give line number
-    image = Image.new('1', (128, 20), 255)
-    draw = ImageDraw.Draw(image)
-    font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
-    draw.text((0, 0), txt, font=font18, fill=0)
-    epaper.drawImagePartial(0, (row*20), image)    
+    widgets.write_text(row, txt)
 
 def drawBoardLocal(fen):
-    # This local version of drawboard - we draw into a 64x64 image and then
-    # use epaper.drawWindow to write that to the screen
-    curfen = str(fen)
-    curfen = curfen.replace("/", "")
-    curfen = curfen.replace("1", " ")
-    curfen = curfen.replace("2", "  ")
-    curfen = curfen.replace("3", "   ")
-    curfen = curfen.replace("4", "    ")
-    curfen = curfen.replace("5", "     ")
-    curfen = curfen.replace("6", "      ")
-    curfen = curfen.replace("7", "       ")
-    curfen = curfen.replace("8", "        ")
-    nfen = ""
-    for a in range(8, 0, -1):
-        for b in range(0, 8):
-            nfen = nfen + curfen[((a - 1) * 8) + b]
-    lboard = Image.new('1', (128, 128), 255)
-    draw = ImageDraw.Draw(lboard)
-    chessfont = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
-    for x in range(0,64):
-        pos = (x - 63) * -1
-        row = (16 * (pos // 8))
-        col = (x % 8) * 16
-        px = 0
-        r = x // 8
-        c = x % 8
-        py = 0
-        if (r // 2 == r / 2 and c // 2 == c / 2):
-            py = py + 16
-        if (r //2 != r / 2 and c // 2 != c / 2):
-            py = py + 16
-        if nfen[x] == "P":
-            px = 16
-        if nfen[x] == "R":
-            px = 32
-        if nfen[x] == "N":
-            px = 48
-        if nfen[x] == "B":
-            px = 64
-        if nfen[x] == "Q":
-            px = 80
-        if nfen[x] == "K":
-            px = 96
-        if nfen[x] == "p":
-            px = 112
-        if nfen[x] == "r":
-            px = 128
-        if nfen[x] == "n":
-            px = 144
-        if nfen[x] == "b":
-            px = 160
-        if nfen[x] == "q":
-            px = 176
-        if nfen[x] == "k":
-            px = 192
-        piece = chessfont.crop((px, py, px+16, py+16))
-        if nfen[x] == "p":
-            piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
-            piece = piece.transpose(Image.FLIP_LEFT_RIGHT)
-        if nfen[x] == "r":
-            piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
-            piece = piece.transpose(Image.FLIP_LEFT_RIGHT)
-        if nfen[x] == "n":
-            piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
-            piece = piece.transpose(Image.FLIP_LEFT_RIGHT)
-        if nfen[x] == "b":
-            piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
-            piece = piece.transpose(Image.FLIP_LEFT_RIGHT)
-        if nfen[x] == "q":
-            piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
-            piece = piece.transpose(Image.FLIP_LEFT_RIGHT)
-        if nfen[x] == "k":
-            piece = piece.transpose(Image.FLIP_TOP_BOTTOM)
-            piece = piece.transpose(Image.FLIP_LEFT_RIGHT)            
-        lboard.paste(piece,(col, row))
-    draw.rectangle([(0,0),(127,127)],fill=None,outline='black')
-    epaper.drawImagePartial(0, 81, lboard)
+    widgets.draw_board(fen, top=81)
 
-# Activate the epaper
-epaper.initEpaper()
-#epaper.pauseEpaper()
+# Activate the ePaper service
+service.init()
 
 # Subscribe to the game manager to activate the previous functions
 gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback, takebackCallback)

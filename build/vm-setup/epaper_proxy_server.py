@@ -11,14 +11,13 @@ import struct
 from PIL import Image
 import io
 
-# Import epaper driver from DGTCentaurMods
+# Import ePaper service from DGTCentaurMods
 sys.path.insert(0, '/opt/DGTCentaurMods')
 try:
-    from DGTCentaurMods.display.epaper_driver import epaperDriver
-    driver = epaperDriver()
+    from DGTCentaurMods.display.epaper_service import service
 except ImportError:
-    print("Warning: Could not import epaper driver. Display updates will be logged only.")
-    driver = None
+    print("Warning: Could not import epaper service. Display updates will be logged only.")
+    service = None
 
 PROXY_PORT = 8889
 
@@ -49,9 +48,9 @@ def handle_display_update(data):
         # Reconstruct image
         image = Image.frombytes(mode, (width, height), image_bytes)
         
-        if driver:
-            # Update hardware display
-            driver.display(driver.getbuffer(image))
+        if service:
+            mono = image.convert("1")
+            service.push_image(mono, full=True)
             print(f"Display updated: {width}x{height} {mode}")
         else:
             print(f"Display update received (no driver): {width}x{height} {mode}")
@@ -65,14 +64,13 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Initialize epaper driver if available
-    if driver:
+    # Initialize epaper service if available
+    if service:
         try:
-            driver.reset()
-            driver.init()
-            print("Epaper driver initialized")
+            service.init()
+            print("Epaper service initialized")
         except Exception as e:
-            print(f"Warning: Could not initialize epaper driver: {e}")
+            print(f"Warning: Could not initialize epaper service: {e}")
     
     # Create TCP server socket
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
