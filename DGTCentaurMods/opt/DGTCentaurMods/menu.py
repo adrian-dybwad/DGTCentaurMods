@@ -90,13 +90,21 @@ class MenuRenderer:
         return max(0, len(self.entries) - 1)
 
     def draw(self, selected_index: int) -> None:
+        log.info(f">>> MenuRenderer.draw() ENTERED with selected_index={selected_index}")
         self.selected_index = max(0, min(selected_index, self.max_index()))
+        log.info(f">>> MenuRenderer.draw() normalized selected_index={self.selected_index}")
         if self.title:
+            log.info(f">>> MenuRenderer.draw() drawing title: '{self.title}'")
             widgets.write_menu_title(f"[ {self.title} ]")
+        log.info(">>> MenuRenderer.draw() calling _draw_entries()")
         self._draw_entries()
+        log.info(">>> MenuRenderer.draw() _draw_entries() complete, calling _draw_description()")
         self._draw_description()
+        log.info(">>> MenuRenderer.draw() _draw_description() complete")
         if self.entries:
+            log.info(f">>> MenuRenderer.draw() drawing arrow for index {self.selected_index}")
             self._draw_arrow(self.selected_index, True)
+        log.info(">>> MenuRenderer.draw() EXITING")
 
     def change_selection(self, new_index: int) -> None:
         if not self.entries:
@@ -298,14 +306,17 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         actual_title = title_or_key
         actual_description = description
     
-    log.info(f"doMenu: {actual_menu}, Title: {actual_title}, Description: {actual_description}")
+    log.info(f">>> doMenu: {actual_menu}, Title: {actual_title}, Description: {actual_description}")
     global menuitem
     global curmenu
     global selection
     global quickselect
     global event_key
+    log.info(">>> doMenu: ensuring service is initialized")
     service.init()
+    log.info(">>> doMenu: service.init() complete, calling widgets.clear_screen()")
     widgets.clear_screen()
+    log.info(">>> doMenu: widgets.clear_screen() complete (it awaited completion), proceeding with menu drawing")
     
     selection = ""
     curmenu = actual_menu
@@ -315,22 +326,31 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
 
     quickselect = 1    
     ordered_menu = list(actual_menu.items()) if actual_menu else []
+    log.info(f">>> doMenu: creating MenuRenderer with {len(ordered_menu)} entries")
     renderer = MenuRenderer(actual_title, [MenuEntry(k, v) for k, v in ordered_menu], actual_description)
     global current_renderer
     current_renderer = renderer
     initial_index = 0
     if ordered_menu:
         initial_index = max(0, min(len(ordered_menu) - 1, menuitem - 1))
+    log.info(f">>> doMenu: calling renderer.draw(initial_index={initial_index})")
     renderer.draw(initial_index)
+    log.info(">>> doMenu: renderer.draw() complete, ensuring all display operations finished")
+    service.await_idle()
+    log.info(">>> doMenu: display operations complete")
     menuitem = (initial_index + 1) if ordered_menu else 1
-    statusbar.print()         
+    log.info(">>> doMenu: calling statusbar.print()")
+    statusbar.print()
+    log.info(">>> doMenu: statusbar.print() complete, about to BLOCK on event_key.wait()")
     try:
         event_key.wait()
+        log.info(">>> doMenu: event_key.wait() RETURNED - selection made")
     except KeyboardInterrupt:
-        # Handle Ctrl+C in menu - return special value to trigger shutdown
+        log.info(">>> doMenu: KeyboardInterrupt caught")
         event_key.clear()
         return "SHUTDOWN"
     event_key.clear()
+    log.info(f">>> doMenu: returning selection='{selection}'")
     return selection
 
 def changedCallback(piece_event, field, time_in_seconds):
@@ -360,22 +380,32 @@ log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
 
 def show_welcome():
     global idle
+    log.info(">>> show_welcome() ENTERED")
+    log.info(">>> show_welcome() calling service.init()")
     service.init()
+    log.info(">>> show_welcome() service.init() complete")
+    log.info(">>> show_welcome() calling widgets.welcome_screen()")
     widgets.welcome_screen(status_text=statusbar.build() if 'statusbar' in globals() else "READY")
+    log.info(">>> show_welcome() widgets.welcome_screen() complete")
     idle = True
+    log.info(">>> show_welcome() setting idle=True, about to BLOCK on event_key.wait()")
     try:
         event_key.wait()
+        log.info(">>> show_welcome() event_key.wait() RETURNED - key was pressed")
     except KeyboardInterrupt:
-        # Handle Ctrl+C in welcome screen
+        log.info(">>> show_welcome() KeyboardInterrupt caught")
         event_key.clear()
         raise  # Re-raise to exit program
     event_key.clear()
     idle = False
+    log.info(">>> show_welcome() EXITING, idle=False")
 
 
+log.info(">>> MAIN: About to call show_welcome() - this will BLOCK until key press")
 show_welcome()
-widgets.clear_screen()
+log.info(">>> MAIN: show_welcome() returned, about to start statusbar")
 statusbar.start()
+log.info(">>> MAIN: statusbar.start() complete - entering menu loop")
 
 
 def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:

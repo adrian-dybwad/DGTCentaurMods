@@ -29,21 +29,33 @@ class EpaperService:
         return (self._framebuffer.width, self._framebuffer.height)
 
     def init(self, driver: str | None = None) -> None:
+        from DGTCentaurMods.board.logging import log
+        log.info(f">>> EpaperService.init() ENTERED, _initialized={self._initialized}")
         if self._initialized:
+            log.info(">>> EpaperService.init() already initialized, RETURNING EARLY")
             return
         backend = driver or os.environ.get("EPAPER_DRIVER", "native")
+        log.info(f">>> EpaperService.init() backend={backend}")
         self._driver = _driver_factory(backend)
+        log.info(">>> EpaperService.init() driver created, calling reset()")
         self._driver.reset()
+        log.info(">>> EpaperService.init() reset() complete, calling driver.init()")
         self._driver.init()
+        log.info(">>> EpaperService.init() driver.init() complete, creating RefreshScheduler")
         self._scheduler = RefreshScheduler(self._driver, self._framebuffer)
+        log.info(">>> EpaperService.init() RefreshScheduler created, starting scheduler")
         self._scheduler.start()
+        log.info(">>> EpaperService.init() scheduler started, clearing buffer")
         # Clear both buffer and physical panel so we never show stale frames on boot.
         region = Region.full(self._framebuffer.width, self._framebuffer.height)
         with self._framebuffer.acquire_canvas() as canvas:
             canvas.draw.rectangle(region.to_box(), fill=255, outline=255)
             canvas.mark_dirty(region)
+        log.info(">>> EpaperService.init() buffer cleared, submitting full refresh")
         self.submit_full(await_completion=True)
+        log.info(">>> EpaperService.init() full refresh complete, setting _initialized=True")
         self._initialized = True
+        log.info(">>> EpaperService.init() EXITING")
 
     def shutdown(self) -> None:
         if not self._initialized:

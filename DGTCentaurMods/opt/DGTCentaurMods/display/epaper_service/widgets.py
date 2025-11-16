@@ -77,17 +77,26 @@ def draw_rectangle(x1: int, y1: int, x2: int, y2: int, fill: int, outline: int) 
 
 
 def clear_screen() -> None:
+    from DGTCentaurMods.board.logging import log
+    log.info(">>> widgets.clear_screen() ENTERED")
     width, height = service.size
+    log.info(f">>> widgets.clear_screen() size={width}x{height}")
     region = Region.full(width, height)
+    log.info(">>> widgets.clear_screen() acquiring canvas")
     with service.acquire_canvas() as canvas:
         canvas.draw.rectangle(region.to_box(), fill=255, outline=255)
         canvas.mark_dirty(region)
-    service.submit_full()
+    log.info(">>> widgets.clear_screen() canvas released, calling service.submit_full(await_completion=True)")
+    service.submit_full(await_completion=True)
+    log.info(">>> widgets.clear_screen() service.submit_full() complete, EXITING")
 
 
 def draw_board(fen: str, top: int = 40, *, flip: bool = False) -> None:
+    from DGTCentaurMods.board.logging import log
+    log.info(f">>> widgets.draw_board() ENTERED fen='{fen}', top={top}, flip={flip}")
     ordered = _expand_fen(fen.split()[0])
     region = Region(0, top, 128, top + 128)
+    log.info(f">>> widgets.draw_board() region={region}, acquiring canvas")
     with service.acquire_canvas() as canvas:
         draw = canvas.draw
         draw.rectangle(region.to_box(), fill=255, outline=255)
@@ -105,7 +114,9 @@ def draw_board(fen: str, top: int = 40, *, flip: bool = False) -> None:
             canvas.image.paste(piece, (x, y))
         draw.rectangle(region.to_box(), fill=None, outline=0)
         canvas.mark_dirty(region)
-    service.submit_region(region)
+    log.info(">>> widgets.draw_board() canvas released, calling service.submit_region(await_completion=False)")
+    service.submit_region(region, await_completion=False)
+    log.info(">>> widgets.draw_board() service.submit_region() queued, EXITING")
 
 
 def draw_fen(fen: str, start_row: int = 2, *, flip: bool = False) -> None:
@@ -204,15 +215,22 @@ def loading_screen() -> None:
 
 
 def welcome_screen(status_text: str = "READY") -> None:
+    from DGTCentaurMods.board.logging import log
+    log.info(f">>> widgets.welcome_screen() ENTERED with status_text='{status_text}'")
+    log.info(">>> widgets.welcome_screen() calling draw_status_bar()")
     draw_status_bar(status_text)
+    log.info(">>> widgets.welcome_screen() draw_status_bar() complete")
     region = Region(0, STATUS_BAR_HEIGHT, 128, 296)
+    log.info(f">>> widgets.welcome_screen() region={region}, acquiring canvas")
     with service.acquire_canvas() as canvas:
         canvas.draw.rectangle(region.to_box(), fill=255, outline=255)
         canvas.image.paste(LOGO, (0, STATUS_BAR_HEIGHT + 4))
         draw = canvas.draw
         draw.text((0, STATUS_BAR_HEIGHT + 180), "   Press [>||]", font=FONT_18, fill=0)
         canvas.mark_dirty(region)
-    service.submit_full()
+    log.info(">>> widgets.welcome_screen() canvas released, calling service.submit_full(await_completion=True)")
+    service.submit_full(await_completion=True)
+    log.info(">>> widgets.welcome_screen() service.submit_full() complete, EXITING")
 
 
 def standby_screen(show: bool) -> None:
