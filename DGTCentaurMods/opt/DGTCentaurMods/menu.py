@@ -388,6 +388,16 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     log.info(f">>> doMenu: calling renderer.draw(initial_index={initial_index})")
     renderer.draw(initial_index)
     log.info(">>> doMenu: renderer.draw() complete, menu content is in framebuffer")
+    
+    # Verify framebuffer has menu content before proceeding
+    snapshot_before_status = service.snapshot()
+    log.info(f">>> doMenu: Framebuffer snapshot after menu draw: size={snapshot_before_status.size}")
+    # Check if menu area has content (sample a few pixels)
+    menu_area = snapshot_before_status.crop((0, widgets.STATUS_BAR_HEIGHT, 128, widgets.STATUS_BAR_HEIGHT + 50))
+    pixels = list(menu_area.getdata())
+    non_white_pixels = sum(1 for p in pixels if p != 255)
+    log.info(f">>> doMenu: Menu area has {non_white_pixels} non-white pixels out of {len(pixels)} total")
+    
     menuitem = (initial_index + 1) if ordered_menu else 1
     
     # Draw status bar directly to framebuffer (don't submit region yet)
@@ -404,10 +414,20 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         _draw_battery_icon_to_canvas(canvas, top_padding=1)
     
     log.info(">>> doMenu: status bar drawn to framebuffer")
+    # Verify final framebuffer state
+    snapshot_final = service.snapshot()
+    menu_area_final = snapshot_final.crop((0, widgets.STATUS_BAR_HEIGHT, 128, widgets.STATUS_BAR_HEIGHT + 50))
+    pixels_final = list(menu_area_final.getdata())
+    non_white_final = sum(1 for p in pixels_final if p != 255)
+    log.info(f">>> doMenu: Final framebuffer menu area has {non_white_final} non-white pixels")
+    
     # Submit full refresh to display everything (menu + status bar)
+    import time
     log.info(">>> doMenu: submitting full refresh to display menu")
+    submit_start = time.time()
     service.submit_full(await_completion=True)
-    log.info(">>> doMenu: full refresh complete, about to BLOCK on event_key.wait()")
+    submit_duration = time.time() - submit_start
+    log.info(f">>> doMenu: full refresh complete after {submit_duration:.3f}s, about to BLOCK on event_key.wait()")
     try:
         event_key.wait()
         log.info(">>> doMenu: event_key.wait() RETURNED - selection made")

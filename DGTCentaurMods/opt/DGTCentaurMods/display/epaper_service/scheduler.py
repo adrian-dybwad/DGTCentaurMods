@@ -61,17 +61,24 @@ class RefreshScheduler:
             panel_width = getattr(self._driver, "width", self._framebuffer.width)
             panel_height = getattr(self._driver, "height", self._framebuffer.height)
             # If any request demands a full refresh, perform one and settle all futures.
-            # CRITICAL: Process only ONE full refresh at a time to avoid hardware conflicts.
-            # E-paper hardware refresh takes 1.5-2 seconds; multiple simultaneous refreshes cause corruption.
             if any(region is None for region, _ in batch):
-                # Take snapshot of current framebuffer state
+                from DGTCentaurMods.board.logging import log
+                import time
+                log.info(">>> RefreshScheduler._loop() FULL REFRESH: Taking snapshot")
+                start_time = time.time()
                 image = self._framebuffer.snapshot()
+                log.info(f">>> RefreshScheduler._loop() FULL REFRESH: Snapshot taken, size={image.size}, mode={image.mode}")
                 rotated = _rotate_180(image)
-                # Call driver - this should block until hardware refresh completes (1.5-2s)
+                log.info(">>> RefreshScheduler._loop() FULL REFRESH: Calling driver.full_refresh()")
+                driver_start = time.time()
                 self._driver.full_refresh(rotated)
+                driver_duration = time.time() - driver_start
+                log.info(f">>> RefreshScheduler._loop() FULL REFRESH: driver.full_refresh() returned after {driver_duration:.3f}s")
                 # Only resolve futures AFTER hardware refresh completes
                 for _, fut in batch:
                     fut.set_result("full")
+                total_duration = time.time() - start_time
+                log.info(f">>> RefreshScheduler._loop() FULL REFRESH: Complete, total duration={total_duration:.3f}s")
                 continue
             # Otherwise merge regions and issue partials
             merged = _merge_regions([region for region, _ in batch if region is not None])
