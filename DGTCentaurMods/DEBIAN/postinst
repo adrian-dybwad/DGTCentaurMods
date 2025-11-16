@@ -22,6 +22,8 @@ MAIA_REPO="https://github.com/CSSLab/maia-chess.git"
 VENV_DIR="$DGTCM_PATH/.venv"
 REQ_VENV="$DGTCM_PATH/setup/requirements.txt"
 WHEELS_DIR="$DGTCM_PATH/wheels"   # ship this in the .deb (optional but recommended)
+LEGACY_RC_LOCAL="/etc/rc.local"
+LEGACY_RC_LOCAL_MARKER="Starting DGT Centaur menu"
 ################################
 
 if ! cat $CONFIG | grep -q "#dgtcentaurmods"
@@ -312,6 +314,14 @@ function restoreDatabase {
 }
 
 
+function removeLegacyRcLocal {
+    if [ -f "$LEGACY_RC_LOCAL" ] && grep -q "$LEGACY_RC_LOCAL_MARKER" "$LEGACY_RC_LOCAL"; then
+        echo -e "::: Removing legacy rc.local launcher"
+        rm -f "$LEGACY_RC_LOCAL"
+    fi
+}
+
+
 case $1 in
     configure* )
         case $2 in
@@ -332,6 +342,7 @@ case $1 in
         echo -e "::: Warning: enable-web-proxy.sh not found"
     fi
 
+    removeLegacyRcLocal
     setPermissions
     
     # Guarded reboot (fresh installs and upgrades)
