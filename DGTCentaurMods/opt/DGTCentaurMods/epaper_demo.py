@@ -6,7 +6,6 @@ import asyncio
 import itertools
 import pathlib
 import sys
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
 
@@ -23,7 +22,6 @@ from DGTCentaurMods.epaper import DisplayManager, RefreshPolicy, Widget
 from DGTCentaurMods.epaper.regions import Region
 
 
-@dataclass(slots=True)
 class TextWidget(Widget):
     """Simple text widget that prints a string within its region."""
 
