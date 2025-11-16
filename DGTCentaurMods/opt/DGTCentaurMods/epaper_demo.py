@@ -6,14 +6,17 @@ Features:
 - 24 pixel high clock that updates every second
 - Fake battery meter that cycles through levels
 - Text that changes every 5 seconds
+- Bouncing ball animation
+- Screen filled with text
 """
 
+import random
 import signal
 import sys
 import time
 
 from epaper import DisplayManager
-from epaper.widgets import BatteryWidget, ClockWidget, TextWidget
+from epaper.widgets import BallWidget, BatteryWidget, ClockWidget, TextWidget
 
 
 def main():
@@ -33,33 +36,71 @@ def main():
     # Battery: top right
     battery = BatteryWidget(x=98, y=6, width=30, height=12)
     
-    # Text: below clock, changes every 5 seconds
-    text = TextWidget(x=0, y=30, width=128, height=40, font_size=18, text="Starting demo...")
+    # Bouncing ball
+    ball = BallWidget(x=64, y=150, radius=6)
     
-    # Add widgets to display
+    # Fill screen with text widgets
+    # Create multiple text widgets to fill the screen
+    text_widgets = []
+    font_size = 12
+    line_height = 16
+    start_y = 30
+    lines = [
+        "ePaper Demo",
+        "Bouncing Ball",
+        "Widget Framework",
+        "Auto-refresh",
+        "Second by second",
+        "Filled Screen",
+        "Multiple Widgets",
+        "Real-time Updates",
+        "Region Tracking",
+        "Partial Refresh",
+        "Full Control",
+        "Smooth Animation",
+    ]
+    
+    # Add text widgets to fill available space
+    y_pos = start_y
+    for i, line in enumerate(lines):
+        if y_pos + line_height > display.height - 20:  # Leave some space at bottom
+            break
+        text_widget = TextWidget(
+            x=0,
+            y=y_pos,
+            width=128,
+            height=line_height,
+            font_size=font_size,
+            text=line
+        )
+        text_widgets.append(text_widget)
+        y_pos += line_height
+    
+    # Add all widgets to display
     display.add_widget(clock)
     display.add_widget(battery)
-    display.add_widget(text)
+    display.add_widget(ball)
+    for text_widget in text_widgets:
+        display.add_widget(text_widget)
     
     # Initial full refresh
     print("Performing initial full refresh...")
     display.update(force_full=True)
     print("Demo started!")
     
-    # Text messages that cycle every 5 seconds
-    text_messages = [
-        "Hello World!",
-        "ePaper Demo",
-        "Widget Framework",
-        "Auto-refresh",
-        "Second by second",
-    ]
-    text_index = 0
-    last_text_change = time.time()
+    # Ball physics
+    ball_x = 64.0
+    ball_y = 150.0
+    ball_vx = 2.0
+    ball_vy = 1.5
+    ball_radius = 6
     
     # Battery level simulation
     battery_level = 100
     battery_direction = -1  # Decreasing
+    
+    # Text update counter
+    text_update_counter = 0
     
     # Signal handler for graceful shutdown
     def signal_handler(sig, frame):
@@ -73,14 +114,21 @@ def main():
     # Main loop
     try:
         while True:
-            current_time = time.time()
+            # Update ball position
+            ball_x += ball_vx
+            ball_y += ball_vy
             
-            # Update text every 5 seconds
-            if current_time - last_text_change >= 5.0:
-                text.set_text(text_messages[text_index])
-                text_index = (text_index + 1) % len(text_messages)
-                last_text_change = current_time
-                print(f"Text changed to: {text_messages[text_index - 1]}")
+            # Bounce off walls
+            if ball_x - ball_radius <= 0 or ball_x + ball_radius >= display.width:
+                ball_vx = -ball_vx
+                ball_x = max(ball_radius, min(display.width - ball_radius, ball_x))
+            
+            if ball_y - ball_radius <= 0 or ball_y + ball_radius >= display.height:
+                ball_vy = -ball_vy
+                ball_y = max(ball_radius, min(display.height - ball_radius, ball_y))
+            
+            # Update ball widget position
+            ball.set_position(int(ball_x), int(ball_y))
             
             # Update battery level (cycle 0-100)
             battery_level += battery_direction * 2
@@ -92,11 +140,26 @@ def main():
                 battery_direction = -1
             battery.set_level(battery_level)
             
+            # Update text widgets occasionally (every 10 frames)
+            text_update_counter += 1
+            if text_update_counter >= 10 and text_widgets:
+                # Randomly update one text widget
+                random_text = random.choice(text_widgets)
+                new_texts = [
+                    "Updated!",
+                    "Changed!",
+                    "New Text",
+                    "Refresh!",
+                    "Dynamic!",
+                ]
+                random_text.set_text(random.choice(new_texts))
+                text_update_counter = 0
+            
             # Update display (framework handles dirty region detection)
             display.update()
             
-            # Sleep for 1 second (clock updates every second)
-            time.sleep(1.0)
+            # Sleep for shorter interval for smoother animation (100ms)
+            time.sleep(0.1)
     
     except KeyboardInterrupt:
         pass
