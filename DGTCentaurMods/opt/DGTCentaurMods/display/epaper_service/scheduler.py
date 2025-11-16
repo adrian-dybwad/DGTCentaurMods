@@ -61,10 +61,15 @@ class RefreshScheduler:
             panel_width = getattr(self._driver, "width", self._framebuffer.width)
             panel_height = getattr(self._driver, "height", self._framebuffer.height)
             # If any request demands a full refresh, perform one and settle all futures.
+            # CRITICAL: Process only ONE full refresh at a time to avoid hardware conflicts.
+            # E-paper hardware refresh takes 1.5-2 seconds; multiple simultaneous refreshes cause corruption.
             if any(region is None for region, _ in batch):
+                # Take snapshot of current framebuffer state
                 image = self._framebuffer.snapshot()
                 rotated = _rotate_180(image)
+                # Call driver - this should block until hardware refresh completes (1.5-2s)
                 self._driver.full_refresh(rotated)
+                # Only resolve futures AFTER hardware refresh completes
                 for _, fut in batch:
                     fut.set_result("full")
                 continue

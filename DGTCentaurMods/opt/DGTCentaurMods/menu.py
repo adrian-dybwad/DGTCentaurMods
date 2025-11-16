@@ -95,9 +95,15 @@ class MenuRenderer:
         log.info(f">>> MenuRenderer.draw() normalized selected_index={self.selected_index}")
         
         # Draw everything in a single canvas operation to ensure atomicity
+        # CRITICAL: Clear the entire menu area first, then draw menu content
         log.info(">>> MenuRenderer.draw() acquiring canvas for all menu drawing")
         with service.acquire_canvas() as canvas:
             draw = canvas.draw
+            
+            # Clear entire screen area below status bar first
+            clear_region = Region(0, widgets.STATUS_BAR_HEIGHT, 128, 296)
+            draw.rectangle(clear_region.to_box(), fill=255, outline=255)
+            canvas.mark_dirty(clear_region)
             
             # Draw title if present
             if self.title:
@@ -110,9 +116,10 @@ class MenuRenderer:
                 canvas.mark_dirty(title_region)
             
             # Draw all menu entries
-            log.info(f">>> MenuRenderer.draw() drawing {len(self.entries)} entries")
+            log.info(f">>> MenuRenderer.draw() drawing {len(self.entries)} entries, body_top={self.body_top}")
             for idx, entry in enumerate(self.entries):
                 top = self._row_top(idx)
+                log.info(f">>> MenuRenderer.draw() entry {idx}: top={top}, label='{entry.label}'")
                 entry_region = Region(0, top, 128, top + self.row_height)
                 is_selected = (idx == self.selected_index)
                 fill, fg = (0, 255) if is_selected else (255, 0)
@@ -357,12 +364,11 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     global event_key
     log.info(">>> doMenu: ensuring service is initialized")
     service.init()
-    log.info(">>> doMenu: service.init() complete, calling widgets.clear_screen()")
-    widgets.clear_screen()
-    log.info(">>> doMenu: widgets.clear_screen() complete (it awaited completion), waiting briefly before menu drawing")
-    # Small delay to ensure e-paper display has fully completed the clear operation
-    time.sleep(0.1)
-    log.info(">>> doMenu: proceeding with menu drawing")
+    log.info(">>> doMenu: service.init() complete")
+    
+    # CRITICAL: Don't clear screen separately - draw menu directly over existing content
+    # Clearing then immediately drawing causes rapid successive full refreshes that interfere
+    log.info(">>> doMenu: proceeding directly to menu drawing (no separate clear)")
     
     selection = ""
     curmenu = actual_menu
@@ -397,8 +403,9 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         from DGTCentaurMods.display.epaper_service.widgets import _draw_battery_icon_to_canvas
         _draw_battery_icon_to_canvas(canvas, top_padding=1)
     
-    log.info(">>> doMenu: status bar drawn to framebuffer, submitting full refresh to display menu")
+    log.info(">>> doMenu: status bar drawn to framebuffer")
     # Submit full refresh to display everything (menu + status bar)
+    log.info(">>> doMenu: submitting full refresh to display menu")
     service.submit_full(await_completion=True)
     log.info(">>> doMenu: full refresh complete, about to BLOCK on event_key.wait()")
     try:
