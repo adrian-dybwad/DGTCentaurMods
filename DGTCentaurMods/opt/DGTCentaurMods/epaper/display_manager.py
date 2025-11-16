@@ -189,17 +189,30 @@ class DisplayManager:
                 # Paste widget onto canvas
                 canvas.paste(widget_image, (widget.x, widget.y))
             
-            # Step 2: Clear old positions of moving widgets by re-rendering static widgets there
+            # Step 2: Clear old positions of moving widgets
             for moved_region in moved_regions:
-                # Re-render static widgets that overlap with the old position
+                # First, re-render static widgets that overlap with the old position
+                has_static_overlap = False
                 for widget in static_widgets:
                     widget_region = widget.get_region()
                     if moved_region.intersects(Region(*widget_region)):
                         # This widget overlaps the old position, re-render it to clear the old ball
+                        has_static_overlap = True
                         widget_image = widget.get_image()
                         if widget_image.mode != "1":
                             widget_image = widget_image.convert("1")
                         canvas.paste(widget_image, (widget.x, widget.y))
+                
+                # If no static widgets overlap the old position, explicitly clear it with white
+                if not has_static_overlap:
+                    from PIL import ImageDraw
+                    draw = ImageDraw.Draw(canvas)
+                    # Clear the old position with white
+                    draw.rectangle(
+                        moved_region.to_box(),
+                        fill=255,
+                        outline=255
+                    )
             
             # Step 3: Render moving widgets last (so they appear on top)
             for widget in moving_widgets:
