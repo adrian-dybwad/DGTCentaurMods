@@ -154,42 +154,25 @@ class NativeDriver(DriverBase):
         """
         Perform a full screen refresh.
         
-        Conforms to e-paper display reference designs:
-        1. Wait for hardware to be idle (ready for new command)
-        2. Send the display command
-        3. Wait for hardware to complete the refresh (become idle again)
+        CRITICAL FIX: readBusy() is a blocking wait function, not a status check.
+        It doesn't return the busy status - it just waits until idle.
+        The C library's display() function handles busy checking internally.
+        
+        We rely on the C library to handle all busy signal checking internally.
         """
         from DGTCentaurMods.board.logging import log
-        # Step 1: Wait for hardware to be ready (prevents C library from returning immediately)
-        log.info(">>> NativeDriver.full_refresh() waiting for hardware to be idle before sending command")
-        if not self._wait_for_idle(timeout=5.0):
-            raise RuntimeError("Hardware did not become idle before full_refresh()")
-        
-        # Verify hardware is idle immediately before calling display()
-        raw_pre_busy = self._dll.readBusy()
-        pre_display_busy = raw_pre_busy & 0x01  # Mask to bit 0
-        if raw_pre_busy != pre_display_busy:
-            log.warning(f">>> NativeDriver.full_refresh() pre-display readBusy() returned garbage {raw_pre_busy}, masking to {pre_display_busy}")
-        log.info(f">>> NativeDriver.full_refresh() pre-display readBusy() raw={raw_pre_busy}, masked={pre_display_busy} (0=busy, 1=idle)")
-        
-        # Step 2: Send display command
-        log.info(">>> NativeDriver.full_refresh() sending display command")
+        # Send display command - C library handles busy checking internally
+        log.info(">>> NativeDriver.full_refresh() sending display command (C library handles busy checking)")
         start_time = time.time()
         self._dll.display(self._convert(image))
         cmd_elapsed = time.time() - start_time
         log.info(f">>> NativeDriver.full_refresh() display() returned after {cmd_elapsed:.3f}s")
         
-        # Verify hardware state immediately after display() returns
-        raw_post_busy = self._dll.readBusy()
-        post_display_busy = raw_post_busy & 0x01  # Mask to bit 0
-        if raw_post_busy != post_display_busy:
-            log.warning(f">>> NativeDriver.full_refresh() post-display readBusy() returned garbage {raw_post_busy}, masking to {post_display_busy}")
-        log.info(f">>> NativeDriver.full_refresh() post-display readBusy() raw={raw_post_busy}, masked={post_display_busy} (0=busy, 1=idle)")
+        # Note: display() should block until hardware refresh completes
+        # If it returns too quickly (< 1.5s), the hardware may not have refreshed
+        if cmd_elapsed < 1.0:
+            log.warning(f">>> NativeDriver.full_refresh() display() returned too quickly ({cmd_elapsed:.3f}s) - hardware may not have refreshed")
         
-        # Step 3: Wait for hardware to complete refresh
-        log.info(">>> NativeDriver.full_refresh() waiting for hardware to complete refresh")
-        if not self._wait_for_idle(timeout=5.0):
-            raise RuntimeError("Hardware did not complete refresh within timeout")
         total_elapsed = time.time() - start_time
         log.info(f">>> NativeDriver.full_refresh() complete, total duration={total_elapsed:.3f}s")
 
@@ -197,30 +180,25 @@ class NativeDriver(DriverBase):
         """
         Perform a partial screen refresh.
         
-        Conforms to e-paper display reference designs:
-        1. Wait for hardware to be idle (ready for new command)
-        2. Send the partial refresh command
-        3. Wait for hardware to complete the refresh (become idle again)
+        CRITICAL FIX: readBusy() is a blocking wait function, not a status check.
+        It doesn't return the busy status - it just waits until idle.
+        The C library's displayRegion() function handles busy checking internally.
         
-        Partial refreshes also require busy signal checking per UC8151 reference designs.
+        We rely on the C library to handle all busy signal checking internally.
         """
         from DGTCentaurMods.board.logging import log
-        # Step 1: Wait for hardware to be ready
-        log.info(f">>> NativeDriver.partial_refresh() waiting for hardware to be idle before sending command (y0={y0}, y1={y1})")
-        if not self._wait_for_idle(timeout=5.0):
-            raise RuntimeError("Hardware did not become idle before partial_refresh()")
-        
-        # Step 2: Send partial refresh command
-        log.info(f">>> NativeDriver.partial_refresh() sending displayRegion command")
+        # Send partial refresh command - C library handles busy checking internally
+        log.info(f">>> NativeDriver.partial_refresh() sending displayRegion command (y0={y0}, y1={y1}, C library handles busy checking)")
         start_time = time.time()
         self._dll.displayRegion(y0, y1, self._convert(image))
         cmd_elapsed = time.time() - start_time
         log.info(f">>> NativeDriver.partial_refresh() displayRegion() returned after {cmd_elapsed:.3f}s")
         
-        # Step 3: Wait for hardware to complete refresh
-        log.info(f">>> NativeDriver.partial_refresh() waiting for hardware to complete refresh")
-        if not self._wait_for_idle(timeout=5.0):
-            raise RuntimeError("Hardware did not complete partial refresh within timeout")
+        # Note: displayRegion() should block until hardware refresh completes
+        # If it returns too quickly (< 0.26s), the hardware may not have refreshed
+        if cmd_elapsed < 0.2:
+            log.warning(f">>> NativeDriver.partial_refresh() displayRegion() returned too quickly ({cmd_elapsed:.3f}s) - hardware may not have refreshed")
+        
         total_elapsed = time.time() - start_time
         log.info(f">>> NativeDriver.partial_refresh() complete, total duration={total_elapsed:.3f}s")
 
@@ -228,27 +206,21 @@ class NativeDriver(DriverBase):
         """
         Put the display into sleep mode.
         
-        Per UC8151 reference designs, sleep operations should wait for
-        any pending refresh operations to complete before entering sleep.
+        CRITICAL FIX: readBusy() is a blocking wait function, not a status check.
+        The C library's sleepDisplay() function should handle any necessary waiting.
         """
         from DGTCentaurMods.board.logging import log
-        # Wait for hardware to be idle before sleep
-        log.info(">>> NativeDriver.sleep() waiting for hardware to be idle before sleep")
-        if not self._wait_for_idle(timeout=5.0):
-            log.warning("Hardware did not become idle before sleep() - proceeding anyway")
+        log.info(">>> NativeDriver.sleep() calling sleepDisplay() (C library handles busy checking)")
         self._dll.sleepDisplay()
 
     def shutdown(self) -> None:
         """
         Power off the display.
         
-        Per UC8151 reference designs, shutdown operations should wait for
-        any pending refresh operations to complete before powering off.
+        CRITICAL FIX: readBusy() is a blocking wait function, not a status check.
+        The C library's powerOffDisplay() function should handle any necessary waiting.
         """
         from DGTCentaurMods.board.logging import log
-        # Wait for hardware to be idle before shutdown
-        log.info(">>> NativeDriver.shutdown() waiting for hardware to be idle before shutdown")
-        if not self._wait_for_idle(timeout=5.0):
-            log.warning("Hardware did not become idle before shutdown() - proceeding anyway")
+        log.info(">>> NativeDriver.shutdown() calling powerOffDisplay() (C library handles busy checking)")
         self._dll.powerOffDisplay()
 
