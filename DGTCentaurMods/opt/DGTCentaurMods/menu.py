@@ -488,9 +488,13 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     non_white_final = sum(1 for p in pixels_final if p != 255)
     log.info(f">>> doMenu: Final framebuffer menu area has {non_white_final} non-white pixels")
     
+    # Wait for any pending refreshes from previous menu navigation before submitting new menu
+    log.info(">>> doMenu: waiting for all pending refreshes before submitting new menu full refresh")
+    service.await_all_pending()
+    log.info(">>> doMenu: all pending refreshes complete, submitting full refresh to display menu")
+    
     # Submit full refresh to display everything (menu + status bar)
     import time
-    log.info(">>> doMenu: submitting full refresh to display menu")
     submit_start = time.time()
     service.submit_full(await_completion=True)
     submit_duration = time.time() - submit_start
