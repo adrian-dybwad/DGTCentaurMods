@@ -46,13 +46,14 @@ class NativeDriver(DriverBase):
         
         Per UC8151 reference designs, init operations may require waiting for
         hardware to be ready. The C library should handle this internally.
+        
+        CRITICAL FIX: Do not wait for idle after init() because readBusy() returns
+        garbage values during initialization. The C library's init() should handle
+        all timing internally.
         """
         self._dll.init()
-        # Wait for hardware to be ready after init
-        # Some init sequences perform refresh operations that need to complete
-        if not self._wait_for_idle(timeout=5.0):
-            from DGTCentaurMods.board.logging import log
-            log.warning("Hardware did not become idle after init() - may still be initializing")
+        # Do not wait for idle after init() - readBusy() returns garbage values
+        # during initialization. The C library should handle all timing internally.
 
     def reset(self) -> None:
         """
@@ -60,13 +61,14 @@ class NativeDriver(DriverBase):
         
         Per UC8151 reference designs, reset operations may require waiting for
         hardware to be ready. The C library should handle this internally.
+        
+        CRITICAL FIX: Do not wait for idle after reset() because readBusy() returns
+        garbage values during reset. The C library's reset() should handle all
+        timing internally.
         """
         self._dll.reset()
-        # Wait for hardware to be ready after reset
-        # Reset sequences may take time to complete
-        if not self._wait_for_idle(timeout=5.0):
-            from DGTCentaurMods.board.logging import log
-            log.warning("Hardware did not become idle after reset() - may still be resetting")
+        # Do not wait for idle after reset() - readBusy() returns garbage values
+        # during reset. The C library should handle all timing internally.
 
     def _wait_for_idle(self, timeout: float = 5.0) -> bool:
         """
