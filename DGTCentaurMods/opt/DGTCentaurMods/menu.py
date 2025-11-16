@@ -84,19 +84,14 @@ class MenuRenderer:
         self.body_top = MENU_BODY_TOP_WITH_TITLE if title else MENU_BODY_TOP_NO_TITLE
         self.arrow_width = 20
         self.selected_index = 0
+        self._refresh_timer: Optional[threading.Timer] = None
+        self._dirty_region: Optional[Region] = None
         self._description_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
-        # Track partial refreshes to prevent ghosting from accumulation
-        # All 5 agents agreed: Industry standard requires periodic full refreshes
-        # E-paper displays need full refresh every 8-10 partial refreshes to clear ghosting
-        self._partial_refresh_count = 0
-        self._max_partial_refreshes = 8  # Do full refresh after 8 partial refreshes (2 navigation steps)
 
     def max_index(self) -> int:
         return max(0, len(self.entries) - 1)
 
     def draw(self, selected_index: int) -> None:
-        # Ensure log is available (module-level import should work, but be explicit)
-        from DGTCentaurMods.board.logging import log
         log.info(f">>> MenuRenderer.draw() ENTERED with selected_index={selected_index}")
         self.selected_index = max(0, min(selected_index, self.max_index()))
         log.info(f">>> MenuRenderer.draw() normalized selected_index={self.selected_index}")
@@ -104,33 +99,23 @@ class MenuRenderer:
         # Draw everything in a single canvas operation to ensure atomicity
         # CRITICAL: Clear the entire menu area first, then draw menu content
         log.info(">>> MenuRenderer.draw() acquiring canvas for all menu drawing")
-        # CRITICAL INVESTIGATION: Agent 2 - Verify framebuffer state before drawing
-        framebuffer_before = service.snapshot()
-        menu_area_before = framebuffer_before.crop((0, widgets.STATUS_BAR_HEIGHT, 128, 296))
-        menu_pixels_before = list(menu_area_before.getdata())
-        non_white_before = sum(1 for p in menu_pixels_before if p != 255)
-        log.info(f">>> [AGENT2] Framebuffer BEFORE drawing: {non_white_before} non-white pixels in menu area (should be 0 if cleared)")
         with service.acquire_canvas() as canvas:
             draw = canvas.draw
             
             # Clear entire screen area below status bar first
             clear_region = Region(0, widgets.STATUS_BAR_HEIGHT, 128, 296)
-            log.info(f">>> [AGENT2] Clearing menu area: {clear_region}")
             draw.rectangle(clear_region.to_box(), fill=255, outline=255)
             canvas.mark_dirty(clear_region)
             
             # Draw title if present
             if self.title:
-                log.info(f">>> [AGENT5] Drawing menu title: '{self.title}'")
+                log.info(f">>> MenuRenderer.draw() drawing title: '{self.title}'")
                 title_text = f"[ {self.title} ]"
                 title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
                 title_region = Region(0, title_top, 128, title_top + widgets.TITLE_HEIGHT)
                 draw.rectangle(title_region.to_box(), fill=0, outline=0)
                 draw.text((0, title_top - 1), title_text, font=widgets.FONT_18, fill=255)
                 canvas.mark_dirty(title_region)
-                log.info(f">>> [AGENT5] Title drawn to region={title_region}, text='{title_text}'")
-            else:
-                log.info(f">>> [AGENT5] No title to draw (self.title is empty)")
             
             # Draw all menu entries
             log.info(f">>> MenuRenderer.draw() drawing {len(self.entries)} entries, body_top={self.body_top}")
@@ -172,136 +157,59 @@ class MenuRenderer:
                 canvas.mark_dirty(desc_region)
         
         log.info(">>> MenuRenderer.draw() canvas released, EXITING")
-        # CRITICAL INVESTIGATION: Agent 2 - Verify framebuffer state after drawing
-        framebuffer_after = service.snapshot()
-        menu_area_after = framebuffer_after.crop((0, widgets.STATUS_BAR_HEIGHT, 128, 296))
-        menu_pixels_after = list(menu_area_after.getdata())
-        non_white_after = sum(1 for p in menu_pixels_after if p != 255)
-        log.info(f">>> [AGENT2] Framebuffer AFTER drawing: {non_white_after} non-white pixels in menu area")
-        if self.title:
-            title_region_check = framebuffer_after.crop((0, MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT, 128, MENU_BODY_TOP_WITH_TITLE))
-            title_pixels = list(title_region_check.getdata())
-            title_non_white = sum(1 for p in title_pixels if p != 255)
-            log.info(f">>> [AGENT5] Title region check: {title_non_white} non-white pixels (should be >0 if title drawn)")
-        # CRITICAL INVESTIGATION: Log counter state before reset
-        # Agent 3: Verify counter reset logic
-        old_count = self._partial_refresh_count
-        log.info(f">>> [AGENT3] MenuRenderer.draw() RESETTING counter: {old_count} -> 0 (draw() called, assuming full refresh)")
-        # Reset partial refresh counter when doing full refresh
-        # All 5 agents agreed: Full refresh clears ghosting, so reset counter
-        self._partial_refresh_count = 0
 
     def change_selection(self, new_index: int) -> None:
         """
         Change the selected menu item.
         
-        All 5 agents agreed: This must be atomic - draw both old and new states
-        in a single canvas operation, then submit one refresh. This prevents
-        race conditions from overlapping partial refreshes.
+        Matches original implementation pattern: Draw to framebuffer but don't refresh immediately.
+        Use debounced refresh to batch multiple selection changes into a single refresh.
         """
-        # Ensure log is available (module-level import should work, but be explicit)
-        from DGTCentaurMods.board.logging import log
-        
         if not self.entries:
             return
         new_index = max(0, min(new_index, self.max_index()))
         if new_index == self.selected_index:
             return
         
-        old_index = self.selected_index
-        self.selected_index = new_index
-        
-        # All 5 agents agreed: Check if we need a full refresh to clear ghosting
-        # Industry standard: Periodic full refreshes every 8-10 partial refreshes
-        # Each change_selection triggers 1 partial refresh (atomic operation)
-        # CRITICAL INVESTIGATION: Agent 3 - Log counter check
-        log.info(f">>> [AGENT3] MenuRenderer.change_selection() checking counter: {self._partial_refresh_count} >= {self._max_partial_refreshes}?")
-        if self._partial_refresh_count >= self._max_partial_refreshes:
-            log.info(f">>> [AGENT3] *** COUNTER LIMIT REACHED *** partial refresh count ({self._partial_refresh_count}) >= limit ({self._max_partial_refreshes})")
-            log.info(f">>> [AGENT1] *** TRIGGERING FULL REFRESH *** - Agent 1 will verify hardware receives this")
-            log.info(f">>> [AGENT2] *** TRIGGERING FULL REFRESH *** - Agent 2 will verify framebuffer state")
-            
-            # ROOT CAUSE FIX: Wait for all pending partial refreshes to complete before triggering full refresh
-            # The C library's display() function returns early (~0.45s) if hardware is still busy from previous partial refresh
-            # This causes the full refresh to fail silently. We must ensure hardware is truly idle.
-            log.info(f">>> [AGENT1] Waiting for all pending refreshes to complete before full refresh")
-            service.await_all_pending()
-            log.info(f">>> [AGENT1] All pending refreshes complete, hardware should be idle")
-            
-            # Update selection first, then redraw entire menu with full refresh to clear ghosting
-            self.draw(self.selected_index)
-            # CRITICAL INVESTIGATION: Agent 1 - Verify full refresh is sent and completes
-            import time
-            full_refresh_start = time.time()
-            log.info(f">>> [AGENT1] About to call service.submit_full(await_completion=True) - will measure duration")
-            service.submit_full(await_completion=True)
-            full_refresh_duration = time.time() - full_refresh_start
-            log.info(f">>> [AGENT1] Full refresh completed in {full_refresh_duration:.3f}s (expected 1.5-2.0s for hardware)")
-            if full_refresh_duration < 1.0:
-                log.error(f">>> [AGENT1] *** WARNING *** Full refresh too fast ({full_refresh_duration:.3f}s) - may not be actual hardware refresh!")
-            # Counter already reset in draw() - redundant reset removed
-            log.info(f">>> [AGENT3] Counter reset complete (was reset in draw(), now explicitly confirming)")
-            return
-        
-        # Calculate the combined region that needs updating
-        # Include both old and new rows, plus arrow regions
-        old_top = self._row_top(old_index)
+        # Calculate combined region that will be affected
+        old_top = self._row_top(self.selected_index)
         new_top = self._row_top(new_index)
         min_top = min(old_top, new_top)
         max_top = max(old_top + self.row_height, new_top + self.row_height)
-        
-        # Combined region covers both rows (full width to include arrows and text)
         combined_region = Region(0, min_top, 128, max_top)
         
-        # Draw both old and new states atomically in a single canvas operation
-        from DGTCentaurMods.board.logging import log
-        log.info(f">>> MenuRenderer.change_selection() atomic update: old_index={old_index} -> new_index={new_index}")
-        with service.acquire_canvas() as canvas:
-            draw = canvas.draw
-            
-            # Clear old selection: entry and arrow
-            old_entry_region = Region(0, old_top, 128, old_top + self.row_height)
-            fill, fg = (255, 0)  # White background, black text
-            draw.rectangle(old_entry_region.to_box(), fill=fill, outline=fill)
-            text = f"    {self.entries[old_index].label}"
-            draw.text((0, old_top - 1), text, font=widgets.FONT_18, fill=fg)
-            canvas.mark_dirty(old_entry_region)
-            
-            # Clear old arrow
-            old_arrow_region = Region(0, old_top, self.arrow_width, old_top + self.row_height)
-            draw.rectangle(old_arrow_region.to_box(), fill=255, outline=255)
-            canvas.mark_dirty(old_arrow_region)
-            
-            # Draw new selection: entry and arrow
-            new_entry_region = Region(0, new_top, 128, new_top + self.row_height)
-            fill, fg = (0, 255)  # Black background, white text (inverted)
-            draw.rectangle(new_entry_region.to_box(), fill=fill, outline=fill)
-            text = f"    {self.entries[new_index].label}"
-            draw.text((0, new_top - 1), text, font=widgets.FONT_18, fill=fg)
-            canvas.mark_dirty(new_entry_region)
-            
-            # Draw new arrow
-            new_arrow_region = Region(0, new_top, self.arrow_width, new_top + self.row_height)
-            draw.rectangle(new_arrow_region.to_box(), fill=255, outline=255)
-            draw.polygon(
-                [
-                    (2, new_top + 2),
-                    (2, new_top + self.row_height - 2),
-                    (self.arrow_width - 3, new_top + (self.row_height // 2)),
-                ],
-                fill=0,
+        # Update dirty region (expand to include both old and new)
+        if self._dirty_region is None:
+            self._dirty_region = combined_region
+        else:
+            # Merge regions
+            self._dirty_region = Region(
+                0,
+                min(self._dirty_region.y1, combined_region.y1),
+                128,
+                max(self._dirty_region.y2, combined_region.y2)
             )
-            canvas.mark_dirty(new_arrow_region)
         
-        # Submit single refresh for combined region (atomic operation)
-        # CRITICAL INVESTIGATION: Agent 4 - Log partial refresh submission
-        log.info(f">>> [AGENT4] Submitting partial refresh for region={combined_region}")
-        log.info(f">>> [AGENT3] Counter before increment: {self._partial_refresh_count}")
-        service.submit_region(combined_region)
-        self._partial_refresh_count += 1  # Increment counter
-        log.info(f">>> [AGENT3] Counter after increment: {self._partial_refresh_count} (limit={self._max_partial_refreshes})")
-        log.info(f">>> [AGENT4] Partial refresh submitted, region={combined_region}, counter={self._partial_refresh_count}")
-        log.info(f">>> MenuRenderer.change_selection() atomic update complete, submitted region={combined_region}, partial_refresh_count={self._partial_refresh_count}")
+        # Draw both old and new states to framebuffer
+        self._draw_entry(self.selected_index, selected=False)
+        self._draw_arrow(self.selected_index, False)
+        self.selected_index = new_index
+        self._draw_entry(self.selected_index, selected=True)
+        self._draw_arrow(self.selected_index, True)
+        
+        # Cancel any pending refresh timer
+        if self._refresh_timer is not None:
+            self._refresh_timer.cancel()
+        
+        # Schedule a debounced refresh (200ms after last navigation)
+        def submit_refresh():
+            if self._dirty_region is not None:
+                service.submit_region(self._dirty_region, await_completion=False)
+                self._dirty_region = None
+            self._refresh_timer = None
+        
+        self._refresh_timer = threading.Timer(0.2, submit_refresh)
+        self._refresh_timer.start()
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
@@ -334,7 +242,7 @@ class MenuRenderer:
                     fill=0,
                 )
             canvas.mark_dirty(region)
-        service.submit_region(region)
+        # DO NOT submit refresh here - batch all selection changes and refresh once
 
     def _draw_description(self) -> None:
         if not self.description:
@@ -371,7 +279,6 @@ class MenuRenderer:
 
 def keyPressed(id):
     # This functiion receives key presses
-    # Use module-level log (imported at top of file at line 42)
     log.info("in menu.py keyPressed: " + str(id))
     global menuitem
     global curmenu
@@ -556,30 +463,6 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     pixels_final = list(menu_area_final.getdata())
     non_white_final = sum(1 for p in pixels_final if p != 255)
     log.info(f">>> doMenu: Final framebuffer menu area has {non_white_final} non-white pixels")
-    
-    # Verify entire framebuffer before submitting refresh
-    full_snapshot = service.snapshot()
-    full_pixels = list(full_snapshot.getdata())
-    full_non_white = sum(1 for p in full_pixels if p != 255)
-    log.info(f">>> doMenu: Full framebuffer verification: {full_non_white} non-white pixels out of {len(full_pixels)} total (size={full_snapshot.size}, mode={full_snapshot.mode})")
-    
-    # Sample specific regions to verify menu content
-    title_region = full_snapshot.crop((0, widgets.STATUS_BAR_HEIGHT, 128, widgets.STATUS_BAR_HEIGHT + widgets.TITLE_HEIGHT))
-    title_pixels = list(title_region.getdata())
-    title_non_white = sum(1 for p in title_pixels if p != 255)
-    log.info(f">>> doMenu: Title region (y={widgets.STATUS_BAR_HEIGHT} to {widgets.STATUS_BAR_HEIGHT + widgets.TITLE_HEIGHT}): {title_non_white} non-white pixels")
-    
-    menu_region = full_snapshot.crop((0, widgets.MENU_TOP, 128, widgets.MENU_TOP + 200))
-    menu_pixels = list(menu_region.getdata())
-    menu_non_white = sum(1 for p in menu_pixels if p != 255)
-    log.info(f">>> doMenu: Menu region (y={widgets.MENU_TOP} to {widgets.MENU_TOP + 200}): {menu_non_white} non-white pixels")
-    
-    # Phase 2 fix: Wait for any pending refreshes (e.g., statusbar partial refresh) to complete
-    # before submitting menu full refresh. This prevents race conditions where the C library
-    # detects hardware is busy and returns without sending the display command.
-    log.info(">>> doMenu: waiting for all pending refreshes before submitting menu full refresh")
-    service.await_all_pending()
-    log.info(">>> doMenu: all pending refreshes complete, proceeding with menu full refresh")
     
     # Submit full refresh to display everything (menu + status bar)
     import time
