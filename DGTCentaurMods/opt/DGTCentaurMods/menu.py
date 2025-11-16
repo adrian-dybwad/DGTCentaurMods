@@ -84,8 +84,6 @@ class MenuRenderer:
         self.body_top = MENU_BODY_TOP_WITH_TITLE if title else MENU_BODY_TOP_NO_TITLE
         self.arrow_width = 20
         self.selected_index = 0
-        self._refresh_timer: Optional[threading.Timer] = None
-        self._dirty_region: Optional[Region] = None
         self._description_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
 
     def max_index(self) -> int:
@@ -215,23 +213,14 @@ class MenuRenderer:
             )
             canvas.mark_dirty(new_arrow_region)
         
-        # Cancel any pending refresh timer
-        if self._refresh_timer is not None:
-            self._refresh_timer.cancel()
-        
         # Calculate the region covering both old and new selection (for partial refresh)
         min_top = min(old_top, new_top)
         max_top = max(old_top + self.row_height, new_top + self.row_height)
         refresh_region = Region(0, min_top, 128, max_top)
         
-        # Schedule a debounced partial refresh of just the affected region
-        # This is fast (~300ms) and prevents ghosting by refreshing both old and new rows together
-        def submit_refresh():
-            service.submit_region(refresh_region, await_completion=False)
-            self._refresh_timer = None
-        
-        self._refresh_timer = threading.Timer(0.15, submit_refresh)  # 150ms debounce
-        self._refresh_timer.start()
+        # Refresh IMMEDIATELY - original code did immediate refresh, not debounced
+        # This matches the original pattern: draw then refresh immediately
+        service.submit_region(refresh_region, await_completion=False)
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
