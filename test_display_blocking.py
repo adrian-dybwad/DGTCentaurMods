@@ -36,6 +36,15 @@ def test_display_blocking():
         dll.openDisplay()
         print("Driver opened successfully")
         
+        # CRITICAL: Initialize display hardware before use
+        # This is required - display won't work without reset() and init()
+        print("\nInitializing display hardware...")
+        print("  Calling reset()...")
+        dll.reset()
+        print("  Calling init()...")
+        dll.init()
+        print("  Display initialized successfully")
+        
         # Create a minimal test image (128x296, all white)
         # Image size: 128 * 296 / 8 = 4736 bytes
         test_data = bytes([0xFF] * 4736)
