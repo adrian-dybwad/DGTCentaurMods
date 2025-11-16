@@ -10,7 +10,7 @@ from .regions import Region, merge_regions
 RefreshMode = Literal["partial", "full"]
 
 
-@dataclass(slots=True)
+@dataclass
 class RefreshPolicy:
     """Configuration knobs that control refresh planning."""
 
@@ -21,7 +21,7 @@ class RefreshPolicy:
     band_padding: int = 2
 
 
-@dataclass(slots=True)
+@dataclass
 class RefreshPlan:
     """Single refresh request emitted by the planner."""
 

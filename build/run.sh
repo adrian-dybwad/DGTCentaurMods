@@ -77,6 +77,11 @@
 # ============================================================================
 
 # Always run from the project root
+PYTHON_BIN=${PYTHON_BIN:-python3.14}
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  echo "Required interpreter ${PYTHON_BIN} is not available. Install Python 3.14.0 and try again."
+  exit 1
+fi
 cd "$(dirname "$0")" || exit 1
 
 cd ~/DGTCentaurMods/DGTCentaurMods/opt
@@ -86,7 +91,7 @@ git pull
 # Ensure virtualenv exists
 if [ ! -d "DGTCentaurMods/.venv" ]; then
   echo "No .venv found! Create one with:"
-  echo "   python3 -m venv --system-site-packages DGTCentaurMods/.venv && source DGTCentaurMods/.venv/bin/activate && pip install -r DGTCentaurMods/setup/requirements.txt"
+  echo "   ${PYTHON_BIN} -m venv --system-site-packages DGTCentaurMods/.venv && source DGTCentaurMods/.venv/bin/activate && pip install -r DGTCentaurMods/setup/requirements.txt"
   exit 1
 fi
 
