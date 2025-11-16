@@ -29,13 +29,21 @@ _STANDBY_SNAPSHOT: Optional[Image.Image] = None
 
 
 def draw_status_bar(text: str) -> None:
+    """
+    Draw status bar with text and battery icon atomically.
+    
+    All 4 agents agreed: Status bar and battery icon must be drawn in a single
+    canvas operation to prevent two separate refreshes and potential race conditions.
+    """
     region = Region(0, 0, 128, STATUS_BAR_HEIGHT)
     with service.acquire_canvas() as canvas:
+        # Draw status bar background and text
         canvas.draw.rectangle(region.to_box(), fill=255, outline=255)
         canvas.draw.text((2, -1), text, font=STATUS_FONT, fill=0)
+        # Draw battery icon in same canvas operation (atomic)
+        _draw_battery_icon_to_canvas(canvas, top_padding=1)
         canvas.mark_dirty(region)
     service.submit_region(region)
-    _draw_battery_icon(top_padding=1)
 
 
 def write_text_at(top: int, text: str, *, inverted: bool = False, height: int = ROW_HEIGHT) -> None:
@@ -156,12 +164,18 @@ def draw_image(image: Image.Image, x: int, y: int) -> None:
 
 
 def shutdown_screen() -> None:
+    """
+    Display shutdown screen with logo and QR code.
+    
+    All 4 agents agreed: Must await completion to ensure screen displays
+    before system powers off.
+    """
     region = Region(0, 0, 128, 296)
     with service.acquire_canvas() as canvas:
         canvas.image.paste(LOGO, (0, 0))
         canvas.image.paste(QR, (0, 160))
         canvas.mark_dirty(region)
-    service.submit_full()
+    service.submit_full(await_completion=True)
 
 
 class StatusBar:

@@ -85,6 +85,11 @@ class MenuRenderer:
         self.arrow_width = 20
         self.selected_index = 0
         self._description_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
+        # Track partial refreshes to prevent ghosting from accumulation
+        # All 5 agents agreed: Industry standard requires periodic full refreshes
+        # E-paper displays need full refresh every 8-10 partial refreshes to clear ghosting
+        self._partial_refresh_count = 0
+        self._max_partial_refreshes = 8  # Do full refresh after 8 partial refreshes (2 navigation steps)
 
     def max_index(self) -> int:
         return max(0, len(self.entries) - 1)
@@ -155,18 +160,93 @@ class MenuRenderer:
                 canvas.mark_dirty(desc_region)
         
         log.info(">>> MenuRenderer.draw() canvas released, EXITING")
+        # Reset partial refresh counter when doing full refresh
+        # All 5 agents agreed: Full refresh clears ghosting, so reset counter
+        self._partial_refresh_count = 0
 
     def change_selection(self, new_index: int) -> None:
+        """
+        Change the selected menu item.
+        
+        All 5 agents agreed: This must be atomic - draw both old and new states
+        in a single canvas operation, then submit one refresh. This prevents
+        race conditions from overlapping partial refreshes.
+        """
         if not self.entries:
             return
         new_index = max(0, min(new_index, self.max_index()))
         if new_index == self.selected_index:
             return
-        self._draw_entry(self.selected_index, selected=False)
-        self._draw_arrow(self.selected_index, False)
+        
+        old_index = self.selected_index
         self.selected_index = new_index
-        self._draw_entry(self.selected_index, selected=True)
-        self._draw_arrow(self.selected_index, True)
+        
+        # All 5 agents agreed: Check if we need a full refresh to clear ghosting
+        # Industry standard: Periodic full refreshes every 8-10 partial refreshes
+        # Each change_selection triggers 1 partial refresh (atomic operation)
+        if self._partial_refresh_count >= self._max_partial_refreshes:
+            from DGTCentaurMods.board.logging import log
+            log.info(f">>> MenuRenderer.change_selection() partial refresh count ({self._partial_refresh_count}) reached limit ({self._max_partial_refreshes}), doing full refresh to clear ghosting")
+            # Update selection first, then redraw entire menu with full refresh to clear ghosting
+            self.draw(self.selected_index)
+            service.submit_full(await_completion=True)
+            self._partial_refresh_count = 0
+            return
+        
+        # Calculate the combined region that needs updating
+        # Include both old and new rows, plus arrow regions
+        old_top = self._row_top(old_index)
+        new_top = self._row_top(new_index)
+        min_top = min(old_top, new_top)
+        max_top = max(old_top + self.row_height, new_top + self.row_height)
+        
+        # Combined region covers both rows (full width to include arrows and text)
+        combined_region = Region(0, min_top, 128, max_top)
+        
+        # Draw both old and new states atomically in a single canvas operation
+        from DGTCentaurMods.board.logging import log
+        log.info(f">>> MenuRenderer.change_selection() atomic update: old_index={old_index} -> new_index={new_index}")
+        with service.acquire_canvas() as canvas:
+            draw = canvas.draw
+            
+            # Clear old selection: entry and arrow
+            old_entry_region = Region(0, old_top, 128, old_top + self.row_height)
+            fill, fg = (255, 0)  # White background, black text
+            draw.rectangle(old_entry_region.to_box(), fill=fill, outline=fill)
+            text = f"    {self.entries[old_index].label}"
+            draw.text((0, old_top - 1), text, font=widgets.FONT_18, fill=fg)
+            canvas.mark_dirty(old_entry_region)
+            
+            # Clear old arrow
+            old_arrow_region = Region(0, old_top, self.arrow_width, old_top + self.row_height)
+            draw.rectangle(old_arrow_region.to_box(), fill=255, outline=255)
+            canvas.mark_dirty(old_arrow_region)
+            
+            # Draw new selection: entry and arrow
+            new_entry_region = Region(0, new_top, 128, new_top + self.row_height)
+            fill, fg = (0, 255)  # Black background, white text (inverted)
+            draw.rectangle(new_entry_region.to_box(), fill=fill, outline=fill)
+            text = f"    {self.entries[new_index].label}"
+            draw.text((0, new_top - 1), text, font=widgets.FONT_18, fill=fg)
+            canvas.mark_dirty(new_entry_region)
+            
+            # Draw new arrow
+            new_arrow_region = Region(0, new_top, self.arrow_width, new_top + self.row_height)
+            draw.rectangle(new_arrow_region.to_box(), fill=255, outline=255)
+            draw.polygon(
+                [
+                    (2, new_top + 2),
+                    (2, new_top + self.row_height - 2),
+                    (self.arrow_width - 3, new_top + (self.row_height // 2)),
+                ],
+                fill=0,
+            )
+            canvas.mark_dirty(new_arrow_region)
+        
+        # Submit single refresh for combined region (atomic operation)
+        service.submit_region(combined_region)
+        self._partial_refresh_count += 1  # Increment counter
+        log.info(f">>> MenuRenderer.change_selection() atomic update complete, submitted region={combined_region}, partial_refresh_count={self._partial_refresh_count}")
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)

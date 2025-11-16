@@ -58,19 +58,42 @@ class EpaperService:
         log.info(">>> EpaperService.init() EXITING")
 
     def shutdown(self) -> None:
+        """
+        Shutdown the e-paper service.
+        
+        All 5 agents agreed: Must flush ALL dirty regions in a loop, not just one.
+        This ensures all pending updates are displayed before sleep/shutdown.
+        """
         if not self._initialized:
             return
         assert self._scheduler and self._driver
-        # Flush remaining dirty region before shutdown and wait for completion.
-        dirty = self._framebuffer.consume_dirty()
-        if dirty is not None:
+        from DGTCentaurMods.board.logging import log
+        # Flush ALL remaining dirty regions before shutdown (not just one)
+        # This ensures all pending updates are displayed before sleep/shutdown
+        log.info(">>> EpaperService.shutdown() flushing all dirty regions")
+        flush_count = 0
+        while True:
+            dirty = self._framebuffer.consume_dirty()
+            if dirty is None:
+                break
+            flush_count += 1
+            log.info(f">>> EpaperService.shutdown() flushing dirty region #{flush_count}: {dirty}")
             future = self._scheduler.submit(dirty)
-            future.result()  # Wait for refresh to complete before shutdown
+            future.result()  # Wait for refresh to complete
+        if flush_count > 0:
+            log.info(f">>> EpaperService.shutdown() flushed {flush_count} dirty region(s)")
+        else:
+            log.info(">>> EpaperService.shutdown() no dirty regions to flush")
+        # All 4 agents agreed: Wait for scheduler queue to drain before stopping
+        # This ensures all pending refresh operations complete
+        log.info(">>> EpaperService.shutdown() waiting for scheduler queue to drain")
+        self._await_scheduler_queue_drain()
         self._scheduler.stop()
         # Wait for any pending refresh operations to complete before sleep/shutdown
         self._driver.sleep()
         self._driver.shutdown()
         self._initialized = False
+        log.info(">>> EpaperService.shutdown() complete")
 
     @contextmanager
     def acquire_canvas(self) -> Iterator[Canvas]:
@@ -126,6 +149,25 @@ class EpaperService:
             log.info(">>> EpaperService.await_all_pending() all pending refreshes complete")
         except Exception as e:
             log.warning(f">>> EpaperService.await_all_pending() timeout or error: {e}")
+
+    def _await_scheduler_queue_drain(self) -> None:
+        """
+        Wait for scheduler queue to drain completely.
+        
+        All 4 agents agreed: Must wait for queue to drain before stopping scheduler
+        to prevent loss of pending refresh operations.
+        """
+        from DGTCentaurMods.board.logging import log
+        if not self._scheduler:
+            return
+        # Check if queue is empty by submitting a dummy request and waiting
+        # This ensures all previous requests are processed
+        future = self._scheduler.submit(None, full=False)
+        try:
+            future.result(timeout=10.0)  # Wait up to 10 seconds for queue to drain
+            log.info(">>> EpaperService._await_scheduler_queue_drain() queue drained")
+        except Exception as e:
+            log.warning(f">>> EpaperService._await_scheduler_queue_drain() timeout or error: {e}")
 
     def snapshot(self) -> Image.Image:
         return self._framebuffer.snapshot()

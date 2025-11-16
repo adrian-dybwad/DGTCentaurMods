@@ -193,15 +193,14 @@ def shutdown():
     except Exception as e:
         log.error(f"LED pattern failed during shutdown: {e}")
     
-    time.sleep(2)
-    
-    # Properly stop e-paper
+    # Properly stop e-paper and wait for completion
+    # All 4 agents agreed: Must await service.shutdown() to ensure display
+    # completes shutdown before system powers off
     try:
-        service.shutdown()
+        service.shutdown()  # shutdown() now waits for all operations to complete
+        log.info('E-paper shutdown complete')
     except Exception as e:
-        log.debug(f"E-paper stop failed: {e}")
-    
-    time.sleep(1)
+        log.error(f"E-paper stop failed: {e}")
     
     # Send sleep to controller before system poweroff
     try:

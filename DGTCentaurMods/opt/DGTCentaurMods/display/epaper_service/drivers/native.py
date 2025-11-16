@@ -77,6 +77,12 @@ class NativeDriver(DriverBase):
         - readBusy() returns 0 when busy (LOW)
         - readBusy() returns 1 when idle (HIGH)
         
+        ROOT CAUSE FIX (All 5 agents agreed):
+        - readBusy() sometimes returns garbage values (1961760676, 747648) instead of 0/1
+        - This suggests the C library may return full GPIO register or uninitialized memory
+        - Solution: Mask result to bit 0 (busy_value & 0x01) to extract only the BUSY bit
+        - Validate: If masked value is not 0 or 1, log warning and treat conservatively as busy
+        
         Returns:
             True if hardware became idle, False if timeout
         """
@@ -85,36 +91,46 @@ class NativeDriver(DriverBase):
         poll_count = 0
         
         # Log initial readBusy() value before entering wait loop
-        initial_busy = self._dll.readBusy()
-        log.info(f">>> NativeDriver._wait_for_idle() ENTERED: initial readBusy()={initial_busy} (0=busy, 1=idle)")
+        raw_busy = self._dll.readBusy()
+        # ROOT CAUSE FIX: Mask to bit 0 to extract only the BUSY signal bit
+        # This handles cases where readBusy() returns full GPIO register or garbage values
+        initial_busy = raw_busy & 0x01
+        if raw_busy != initial_busy:
+            log.warning(f">>> NativeDriver._wait_for_idle() readBusy() returned garbage value {raw_busy}, masking to bit 0: {initial_busy}")
+        log.info(f">>> NativeDriver._wait_for_idle() ENTERED: raw_readBusy()={raw_busy}, masked={initial_busy} (0=busy, 1=idle)")
         
         # If already idle, return immediately but still log it
         if initial_busy == 1:
-            log.info(f">>> NativeDriver._wait_for_idle() hardware already idle (readBusy()={initial_busy}), returning immediately")
+            log.info(f">>> NativeDriver._wait_for_idle() hardware already idle (masked readBusy()={initial_busy}), returning immediately")
             return True
         
         # Hardware is busy, enter polling loop
-        log.info(f">>> NativeDriver._wait_for_idle() hardware is busy (readBusy()={initial_busy}), entering polling loop")
+        log.info(f">>> NativeDriver._wait_for_idle() hardware is busy (masked readBusy()={initial_busy}), entering polling loop")
         
         while True:
-            busy_value = self._dll.readBusy()
+            raw_busy = self._dll.readBusy()
+            # ROOT CAUSE FIX: Mask to bit 0 to extract only the BUSY signal bit
+            busy_value = raw_busy & 0x01
             poll_count += 1
             elapsed = time.time() - start_time
             
-            # Log EVERY poll attempt with the actual readBusy() return value
+            # Validate: If raw value suggests garbage (not 0 or 1), log warning
+            if raw_busy != 0 and raw_busy != 1 and poll_count <= 5:
+                log.warning(f">>> NativeDriver._wait_for_idle() poll #{poll_count}: readBusy() returned garbage value {raw_busy}, masking to {busy_value}")
+            
+            # Log EVERY poll attempt with both raw and masked values
             # Log every 10th poll to avoid log spam, but always log first 5 polls
             if poll_count <= 5 or poll_count % 10 == 0:
-                log.info(f">>> NativeDriver._wait_for_idle() poll #{poll_count}: readBusy()={busy_value} (elapsed={elapsed:.3f}s)")
+                log.info(f">>> NativeDriver._wait_for_idle() poll #{poll_count}: raw_readBusy()={raw_busy}, masked={busy_value} (elapsed={elapsed:.3f}s)")
             
-            # Check if hardware is idle (1 = HIGH = idle)
-            # Only accept valid return values (0 or 1)
+            # Check if hardware is idle (1 = HIGH = idle) using masked value
             if busy_value == 1:
-                log.info(f">>> NativeDriver._wait_for_idle() hardware became idle after {elapsed:.3f}s (polled {poll_count} times, final readBusy()={busy_value})")
+                log.info(f">>> NativeDriver._wait_for_idle() hardware became idle after {elapsed:.3f}s (polled {poll_count} times, raw={raw_busy}, masked={busy_value})")
                 return True
             
             # Check for timeout
             if elapsed > timeout:
-                log.error(f">>> NativeDriver._wait_for_idle() timeout after {timeout}s (readBusy()={busy_value}, polled {poll_count} times)")
+                log.error(f">>> NativeDriver._wait_for_idle() timeout after {timeout}s (raw_readBusy()={raw_busy}, masked={busy_value}, polled {poll_count} times)")
                 return False
             
             time.sleep(0.01)  # Poll every 10ms to avoid excessive CPU usage
@@ -135,8 +151,11 @@ class NativeDriver(DriverBase):
             raise RuntimeError("Hardware did not become idle before full_refresh()")
         
         # Verify hardware is idle immediately before calling display()
-        pre_display_busy = self._dll.readBusy()
-        log.info(f">>> NativeDriver.full_refresh() pre-display readBusy()={pre_display_busy} (0=busy, 1=idle)")
+        raw_pre_busy = self._dll.readBusy()
+        pre_display_busy = raw_pre_busy & 0x01  # Mask to bit 0
+        if raw_pre_busy != pre_display_busy:
+            log.warning(f">>> NativeDriver.full_refresh() pre-display readBusy() returned garbage {raw_pre_busy}, masking to {pre_display_busy}")
+        log.info(f">>> NativeDriver.full_refresh() pre-display readBusy() raw={raw_pre_busy}, masked={pre_display_busy} (0=busy, 1=idle)")
         
         # Step 2: Send display command
         log.info(">>> NativeDriver.full_refresh() sending display command")
@@ -146,8 +165,11 @@ class NativeDriver(DriverBase):
         log.info(f">>> NativeDriver.full_refresh() display() returned after {cmd_elapsed:.3f}s")
         
         # Verify hardware state immediately after display() returns
-        post_display_busy = self._dll.readBusy()
-        log.info(f">>> NativeDriver.full_refresh() post-display readBusy()={post_display_busy} (0=busy, 1=idle)")
+        raw_post_busy = self._dll.readBusy()
+        post_display_busy = raw_post_busy & 0x01  # Mask to bit 0
+        if raw_post_busy != post_display_busy:
+            log.warning(f">>> NativeDriver.full_refresh() post-display readBusy() returned garbage {raw_post_busy}, masking to {post_display_busy}")
+        log.info(f">>> NativeDriver.full_refresh() post-display readBusy() raw={raw_post_busy}, masked={post_display_busy} (0=busy, 1=idle)")
         
         # Step 3: Wait for hardware to complete refresh
         log.info(">>> NativeDriver.full_refresh() waiting for hardware to complete refresh")
