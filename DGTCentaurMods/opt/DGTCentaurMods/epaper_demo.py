@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import pathlib
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
 
 from PIL import Image, ImageDraw, ImageFont  # type: ignore[import]
+
+# Ensure the repository root (which contains the DGTCentaurMods package) is importable
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.display.epaper_service.drivers.simulator import SimulatorDriver
