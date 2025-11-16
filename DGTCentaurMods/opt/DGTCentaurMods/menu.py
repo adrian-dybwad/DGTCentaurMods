@@ -289,7 +289,6 @@ def changedCallback(piece_event, field, time_in_seconds):
 # Turn Leds off, beep, clear DGT Centaur Serial
 service.init()
 statusbar = widgets.status_bar()
-statusbar.start()
 update = centaur.UpdateSystem()
 log.info("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
@@ -309,6 +308,7 @@ log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
 
 def show_welcome():
     global idle
+    service.init()
     widgets.welcome_screen()
     idle = True
     try:
@@ -323,6 +323,7 @@ def show_welcome():
 
 show_welcome()
 widgets.clear_screen()
+statusbar.start()
 
 
 def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:

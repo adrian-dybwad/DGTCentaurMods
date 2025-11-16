@@ -186,6 +186,7 @@ def loading_screen() -> None:
 def welcome_screen() -> None:
     region = Region(0, 0, 128, 296)
     with service.acquire_canvas() as canvas:
+        canvas.draw.rectangle(region.to_box(), fill=255, outline=255)
         canvas.image.paste(LOGO, (0, 20))
         draw = canvas.draw
         draw.text((0, 200), "   Press [>||]", font=FONT_18, fill=0)
