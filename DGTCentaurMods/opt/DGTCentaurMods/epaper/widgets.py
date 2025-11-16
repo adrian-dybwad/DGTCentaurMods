@@ -12,7 +12,7 @@ from PIL import Image  # type: ignore[import]
 from .regions import Region
 
 
-@dataclass
+@dataclass(slots=True)
 class WidgetRender:
     """Renderable payload produced by a widget."""
 

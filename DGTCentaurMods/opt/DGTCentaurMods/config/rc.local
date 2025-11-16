@@ -18,6 +18,6 @@ if [ "$_IP" ]; then
 fi
 
 printf "Starting DGT Centaur menu..."
-/usr/bin/python3.14 /home/pi/DGTCentaurMods/menu.py
+/usr/bin/python3.7 /home/pi/DGTCentaurMods/menu.py
 
 exit 0

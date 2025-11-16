@@ -22,32 +22,6 @@ MAIA_REPO="https://github.com/CSSLab/maia-chess.git"
 VENV_DIR="$DGTCM_PATH/.venv"
 REQ_VENV="$DGTCM_PATH/setup/requirements.txt"
 WHEELS_DIR="$DGTCM_PATH/wheels"   # ship this in the .deb (optional but recommended)
-PYTHON_VERSION="3.14.0"
-PYTHON_MINOR="${PYTHON_VERSION%.*}"
-PYTHON_BIN="/usr/bin/python${PYTHON_MINOR}"
-PYTHON_PACKAGE="python${PYTHON_MINOR}"
-PYTHON_VENV_PACKAGE="${PYTHON_PACKAGE}-venv"
-DISTPKG_DIR="/usr/lib/python${PYTHON_MINOR}/dist-packages"
-PYTHON_VERSION_FILE="$DGTCM_PATH/.python-version"
-
-# Enforce the pinned interpreter version that the project targets.
-ensure_python_version() {
-    if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-        echo -e "::: Installing Python ${PYTHON_VERSION}"
-        sudo apt-get update
-        sudo apt-get install -y "$PYTHON_PACKAGE" "$PYTHON_VENV_PACKAGE"
-    fi
-
-    INSTALLED_VERSION=$("$PYTHON_BIN" -V 2>&1 | awk '{print $2}')
-    if [ "$INSTALLED_VERSION" != "$PYTHON_VERSION" ]; then
-        echo "Expected Python ${PYTHON_VERSION}, but found ${INSTALLED_VERSION} at ${PYTHON_BIN}" >&2
-        exit 1
-    fi
-
-    echo "$PYTHON_VERSION" > "$PYTHON_VERSION_FILE"
-}
-
-ensure_python_version
 ################################
 
 if ! cat $CONFIG | grep -q "#dgtcentaurmods"
@@ -139,6 +113,7 @@ fi
 
 
 # Make DGTCM available to all users (idempotent)
+DISTPKG_DIR="/usr/lib/python3/dist-packages"
 TARGET_PATH="${DISTPKG_DIR}/DGTCentaurMods"
 install -d "$DISTPKG_DIR"
 # Replace any existing file/dir/symlink with a symlink to $DGTCM_PATH
@@ -233,7 +208,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Create venv if missing
 if [ ! -x "$VENV_DIR/bin/python" ]; then
-  "$PYTHON_BIN" -m venv --system-site-packages "$VENV_DIR"
+  python3 -m venv --system-site-packages "$VENV_DIR"
   sudo chmod +x $PACKAGES_PATH/run.sh
 fi
 

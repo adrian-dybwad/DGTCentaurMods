@@ -23,7 +23,7 @@ from DGTCentaurMods.epaper import DisplayManager, RefreshPolicy, Widget
 from DGTCentaurMods.epaper.regions import Region
 
 
-@dataclass
+@dataclass(slots=True)
 class TextWidget(Widget):
     """Simple text widget that prints a string within its region."""
 

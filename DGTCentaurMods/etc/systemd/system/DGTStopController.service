@@ -6,7 +6,7 @@ Before=poweroff.target halt.target shutdown.target
 Requires=poweroff.target
 
 [Service]
-ExecStart=/usr/bin/python3.14 board/shutdown.py
+ExecStart=python3 board/shutdown.py
 Environment="PYTHONPATH=/opt"
 WorkingDirectory=/opt
 Type=oneshot
