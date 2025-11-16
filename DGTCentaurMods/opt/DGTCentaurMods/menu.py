@@ -93,18 +93,61 @@ class MenuRenderer:
         log.info(f">>> MenuRenderer.draw() ENTERED with selected_index={selected_index}")
         self.selected_index = max(0, min(selected_index, self.max_index()))
         log.info(f">>> MenuRenderer.draw() normalized selected_index={self.selected_index}")
-        if self.title:
-            log.info(f">>> MenuRenderer.draw() drawing title: '{self.title}'")
-            widgets.write_menu_title(f"[ {self.title} ]")
-        log.info(">>> MenuRenderer.draw() calling _draw_entries()")
-        self._draw_entries()
-        log.info(">>> MenuRenderer.draw() _draw_entries() complete, calling _draw_description()")
-        self._draw_description()
-        log.info(">>> MenuRenderer.draw() _draw_description() complete")
-        if self.entries:
-            log.info(f">>> MenuRenderer.draw() drawing arrow for index {self.selected_index}")
-            self._draw_arrow(self.selected_index, True)
-        log.info(">>> MenuRenderer.draw() EXITING")
+        
+        # Draw everything in a single canvas operation to ensure atomicity
+        log.info(">>> MenuRenderer.draw() acquiring canvas for all menu drawing")
+        with service.acquire_canvas() as canvas:
+            draw = canvas.draw
+            
+            # Draw title if present
+            if self.title:
+                log.info(f">>> MenuRenderer.draw() drawing title: '{self.title}'")
+                title_text = f"[ {self.title} ]"
+                title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
+                title_region = Region(0, title_top, 128, title_top + widgets.TITLE_HEIGHT)
+                draw.rectangle(title_region.to_box(), fill=0, outline=0)
+                draw.text((0, title_top - 1), title_text, font=widgets.FONT_18, fill=255)
+                canvas.mark_dirty(title_region)
+            
+            # Draw all menu entries
+            log.info(f">>> MenuRenderer.draw() drawing {len(self.entries)} entries")
+            for idx, entry in enumerate(self.entries):
+                top = self._row_top(idx)
+                entry_region = Region(0, top, 128, top + self.row_height)
+                is_selected = (idx == self.selected_index)
+                fill, fg = (0, 255) if is_selected else (255, 0)
+                draw.rectangle(entry_region.to_box(), fill=fill, outline=fill)
+                text = f"    {entry.label}"
+                draw.text((0, top - 1), text, font=widgets.FONT_18, fill=fg)
+                canvas.mark_dirty(entry_region)
+                
+                # Draw arrow for selected entry
+                if is_selected:
+                    arrow_region = Region(0, top, self.arrow_width, top + self.row_height)
+                    draw.rectangle(arrow_region.to_box(), fill=255, outline=255)
+                    draw.polygon(
+                        [
+                            (2, top + 2),
+                            (2, top + self.row_height - 2),
+                            (self.arrow_width - 3, top + (self.row_height // 2)),
+                        ],
+                        fill=0,
+                    )
+                    canvas.mark_dirty(arrow_region)
+            
+            # Draw description if present
+            if self.description:
+                log.info(">>> MenuRenderer.draw() drawing description")
+                desc_top = self._row_top(len(self.entries)) + DESCRIPTION_GAP
+                desc_region = Region(0, desc_top, 128, 296)
+                draw.rectangle(desc_region.to_box(), fill=255, outline=255)
+                wrapped = self._wrap_text(self.description, max_width=desc_region.x2 - desc_region.x1 - 10)
+                for idx, line in enumerate(wrapped[:9]):
+                    y_pos = desc_top + 2 + (idx * 16)
+                    draw.text((5, y_pos), line, font=self._description_font, fill=0)
+                canvas.mark_dirty(desc_region)
+        
+        log.info(">>> MenuRenderer.draw() canvas released, EXITING")
 
     def change_selection(self, new_index: int) -> None:
         if not self.entries:
@@ -335,15 +378,14 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         initial_index = max(0, min(len(ordered_menu) - 1, menuitem - 1))
     log.info(f">>> doMenu: calling renderer.draw(initial_index={initial_index})")
     renderer.draw(initial_index)
-    log.info(">>> doMenu: renderer.draw() complete, ensuring all display operations finished")
-    # Force a full refresh to ensure all menu elements are displayed together
-    log.info(">>> doMenu: submitting full refresh to ensure menu is visible")
-    service.submit_full(await_completion=True)
-    log.info(">>> doMenu: full refresh complete")
+    log.info(">>> doMenu: renderer.draw() complete, menu content is in framebuffer")
     menuitem = (initial_index + 1) if ordered_menu else 1
     log.info(">>> doMenu: calling statusbar.print()")
     statusbar.print()
-    log.info(">>> doMenu: statusbar.print() complete, about to BLOCK on event_key.wait()")
+    log.info(">>> doMenu: statusbar.print() complete, submitting full refresh to display menu")
+    # Submit full refresh to display the menu (status bar is already in framebuffer)
+    service.submit_full(await_completion=True)
+    log.info(">>> doMenu: full refresh complete, about to BLOCK on event_key.wait()")
     try:
         event_key.wait()
         log.info(">>> doMenu: event_key.wait() RETURNED - selection made")
