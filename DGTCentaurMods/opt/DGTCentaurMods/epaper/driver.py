@@ -9,6 +9,11 @@ from ctypes import CDLL, c_int, create_string_buffer
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
+
 from .framebuffer import FrameBuffer
 from .scheduler import RefreshMode, RefreshPlan
 
@@ -104,11 +109,10 @@ class NativeEPaperDriver(EPaperDriver):
     def _refresh_blocking(self, plan: RefreshPlan, pixels: Sequence[Sequence[int]]) -> None:
         if not self._dll:
             raise RuntimeError("Hardware driver not connected.")
-        rotated = self._rotate_pixels(pixels)
 
         if plan.mode is RefreshMode.FULL:
             LOGGER.info("Issuing full hardware refresh.")
-            payload = self._pack_rows(rotated, 0, self.height)
+            payload = self._pack_full(pixels)
             buffer = create_string_buffer(payload)
             self._dll.display(buffer)
             return
@@ -122,7 +126,7 @@ class NativeEPaperDriver(EPaperDriver):
             hw_y1 = self._align_row_up(self.height - logical_y0)
             if hw_y0 >= hw_y1:
                 continue
-            payload = self._pack_rows(rotated, hw_y0, hw_y1)
+            payload = self._pack_rows(pixels, hw_y0, hw_y1)
             buffer = create_string_buffer(payload)
             LOGGER.info("Issuing partial refresh y0=%s y1=%s", hw_y0, hw_y1)
             self._dll.displayRegion(c_int(hw_y0), c_int(hw_y1), buffer)
@@ -137,20 +141,44 @@ class NativeEPaperDriver(EPaperDriver):
             raise ValueError("Pixel buffer width mismatch.")
         return [list(reversed(row)) for row in reversed(pixels)]
 
-    def _pack_rows(self, pixels: Sequence[Sequence[int]], y0: int, y1: int) -> bytes:
-        stride = self.width // 8
-        height = y1 - y0
-        buf = bytearray([0xFF] * (stride * height))
-        for y in range(y0, y1):
-            row = pixels[y]
-            for x in range(self.width):
-                idx = (y - y0) * stride + (x // 8)
-                mask = 0x80 >> (x % 8)
-                if row[x] < 128:
-                    buf[idx] &= ~mask
-                else:
-                    buf[idx] |= mask
+    def _pixels_to_image(self, pixels: Sequence[Sequence[int]]) -> "Image.Image":
+        """Convert pixel array to PIL Image, matching legacy driver input format."""
+        if Image is None:
+            raise RuntimeError("PIL/Pillow required for hardware driver")
+        img = Image.new("L", (self.width, self.height), color=255)
+        for y, row in enumerate(pixels):
+            for x, value in enumerate(row):
+                img.putpixel((x, y), value)
+        return img.transpose(Image.ROTATE_180)
+
+    def _convert_image(self, image: "Image.Image") -> bytes:
+        """Convert PIL Image to bytes using exact legacy driver formula."""
+        width, height = image.size
+        buf = bytearray([0xFF] * ((width // 8) * height))
+        mono = image.convert("1")
+        pixels = mono.load()
+        for y in range(height):
+            for x in range(width):
+                if pixels[x, y] == 0:
+                    buf[(x + y * width) // 8] &= ~(0x80 >> (x % 8))
         return bytes(buf)
+
+    def _pack_full(self, pixels: Sequence[Sequence[int]]) -> bytes:
+        """Pack entire framebuffer using PIL conversion to match legacy exactly."""
+        img = self._pixels_to_image(pixels)
+        return self._convert_image(img)
+
+    def _pack_rows(self, pixels: Sequence[Sequence[int]], y0: int, y1: int) -> bytes:
+        """Pack rows y0 to y1 by extracting sub-image and converting."""
+        if Image is None:
+            raise RuntimeError("PIL/Pillow required for hardware driver")
+        img = Image.new("L", (self.width, self.height), color=255)
+        for y, row in enumerate(pixels):
+            for x, value in enumerate(row):
+                img.putpixel((x, y), value)
+        rotated = img.transpose(Image.ROTATE_180)
+        cropped = rotated.crop((0, y0, self.width, y1))
+        return self._convert_image(cropped)
 
     def _align_row(self, value: int) -> int:
         return max(0, (value // 8) * 8)
