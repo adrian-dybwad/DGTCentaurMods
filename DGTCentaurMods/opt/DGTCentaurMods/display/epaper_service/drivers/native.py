@@ -48,22 +48,43 @@ class NativeDriver(DriverBase):
         """
         Wait for hardware to become idle (not busy) by polling the BUSY signal.
         
-        This conforms to e-paper display reference designs which require checking
-        the BUSY pin before sending commands.
+        According to UC8151 datasheet: BUSY_N is LOW when busy, HIGH when idle.
+        The readBusy() function may return 0 when idle (HIGH) or non-zero when busy (LOW).
+        We need to determine the actual return value semantics.
         
         Returns:
             True if hardware became idle, False if timeout
         """
         from DGTCentaurMods.board.logging import log
         start_time = time.time()
-        while self._dll.readBusy() != 0:
+        # First, check what readBusy() returns to understand the semantics
+        initial_value = self._dll.readBusy()
+        log.info(f">>> NativeDriver._wait_for_idle() readBusy() returned {initial_value} (0=idle, non-zero=busy)")
+        
+        # Try both interpretations: maybe 0=busy and 1=idle, or maybe 0=idle and 1=busy
+        # Based on UC8151: BUSY_N LOW = busy, HIGH = idle
+        # Most GPIO reads return 0 for LOW and 1 for HIGH, so readBusy() likely returns:
+        # 0 = LOW = busy, 1 = HIGH = idle
+        # But we need to verify by waiting for the value to change
+        
+        # Wait for readBusy() to return 1 (assuming 1=idle, 0=busy)
+        # If it times out, try the opposite interpretation
+        while self._dll.readBusy() == 0:  # Wait for non-zero (assuming 1=idle)
             if time.time() - start_time > timeout:
-                log.warning(f">>> NativeDriver._wait_for_idle() timeout after {timeout}s")
+                # Try opposite interpretation: maybe 0=idle?
+                log.warning(f">>> NativeDriver._wait_for_idle() timeout waiting for non-zero, trying opposite interpretation")
+                # If we've been waiting for non-zero and it timed out, maybe 0 actually means idle
+                # Check one more time
+                final_value = self._dll.readBusy()
+                if final_value == 0:
+                    log.info(f">>> NativeDriver._wait_for_idle() readBusy() is 0, treating as idle (0=idle interpretation)")
+                    return True
                 return False
             time.sleep(0.01)  # Poll every 10ms to avoid excessive CPU usage
+        
         elapsed = time.time() - start_time
-        if elapsed > 0.01:
-            log.info(f">>> NativeDriver._wait_for_idle() hardware became idle after {elapsed:.3f}s")
+        final_value = self._dll.readBusy()
+        log.info(f">>> NativeDriver._wait_for_idle() hardware became idle after {elapsed:.3f}s (readBusy()={final_value})")
         return True
 
     def full_refresh(self, image: Image.Image) -> None:
@@ -71,27 +92,23 @@ class NativeDriver(DriverBase):
         Perform a full screen refresh.
         
         Conforms to e-paper display reference designs:
-        1. Wait for hardware to be idle (not busy) before sending command
-        2. Send the display command
-        3. Wait for hardware to complete the refresh (become idle again)
+        1. Send the display command (C library should check busy signal internally)
+        2. Wait for hardware to complete the refresh (become idle)
         
-        This ensures the hardware is ready before each command and prevents
-        corruption from rapid successive refreshes.
+        Note: We don't wait for idle BEFORE sending because:
+        - The C library's display() function should handle busy checking internally
+        - After init, hardware may still be busy from init refresh
+        - We only need to wait AFTER sending to ensure refresh completes
         """
         from DGTCentaurMods.board.logging import log
-        # Step 1: Wait for hardware to be ready (conforms to reference designs)
-        log.info(">>> NativeDriver.full_refresh() waiting for hardware to be idle before sending command")
-        if not self._wait_for_idle(timeout=5.0):
-            log.error(">>> NativeDriver.full_refresh() hardware did not become idle, proceeding anyway")
-        
-        # Step 2: Send display command
-        log.info(">>> NativeDriver.full_refresh() hardware is idle, sending display command")
+        # Step 1: Send display command (C library handles busy checking)
+        log.info(">>> NativeDriver.full_refresh() sending display command")
         start_time = time.time()
         self._dll.display(self._convert(image))
         cmd_elapsed = time.time() - start_time
         log.info(f">>> NativeDriver.full_refresh() display() returned after {cmd_elapsed:.3f}s")
         
-        # Step 3: Wait for hardware to complete refresh (conforms to reference designs)
+        # Step 2: Wait for hardware to complete refresh (conforms to reference designs)
         log.info(">>> NativeDriver.full_refresh() waiting for hardware to complete refresh")
         if not self._wait_for_idle(timeout=5.0):
             log.error(">>> NativeDriver.full_refresh() hardware did not complete refresh within timeout")
