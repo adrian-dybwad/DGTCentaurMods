@@ -421,6 +421,30 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     non_white_final = sum(1 for p in pixels_final if p != 255)
     log.info(f">>> doMenu: Final framebuffer menu area has {non_white_final} non-white pixels")
     
+    # Verify entire framebuffer before submitting refresh
+    full_snapshot = service.snapshot()
+    full_pixels = list(full_snapshot.getdata())
+    full_non_white = sum(1 for p in full_pixels if p != 255)
+    log.info(f">>> doMenu: Full framebuffer verification: {full_non_white} non-white pixels out of {len(full_pixels)} total (size={full_snapshot.size}, mode={full_snapshot.mode})")
+    
+    # Sample specific regions to verify menu content
+    title_region = full_snapshot.crop((0, widgets.STATUS_BAR_HEIGHT, 128, widgets.STATUS_BAR_HEIGHT + widgets.TITLE_HEIGHT))
+    title_pixels = list(title_region.getdata())
+    title_non_white = sum(1 for p in title_pixels if p != 255)
+    log.info(f">>> doMenu: Title region (y={widgets.STATUS_BAR_HEIGHT} to {widgets.STATUS_BAR_HEIGHT + widgets.TITLE_HEIGHT}): {title_non_white} non-white pixels")
+    
+    menu_region = full_snapshot.crop((0, widgets.MENU_TOP, 128, widgets.MENU_TOP + 200))
+    menu_pixels = list(menu_region.getdata())
+    menu_non_white = sum(1 for p in menu_pixels if p != 255)
+    log.info(f">>> doMenu: Menu region (y={widgets.MENU_TOP} to {widgets.MENU_TOP + 200}): {menu_non_white} non-white pixels")
+    
+    # Phase 2 fix: Wait for any pending refreshes (e.g., statusbar partial refresh) to complete
+    # before submitting menu full refresh. This prevents race conditions where the C library
+    # detects hardware is busy and returns without sending the display command.
+    log.info(">>> doMenu: waiting for all pending refreshes before submitting menu full refresh")
+    service.await_all_pending()
+    log.info(">>> doMenu: all pending refreshes complete, proceeding with menu full refresh")
+    
     # Submit full refresh to display everything (menu + status bar)
     import time
     log.info(">>> doMenu: submitting full refresh to display menu")

@@ -68,6 +68,25 @@ class RefreshScheduler:
                 start_time = time.time()
                 image = self._framebuffer.snapshot()
                 log.info(f">>> RefreshScheduler._loop() FULL REFRESH: Snapshot taken, size={image.size}, mode={image.mode}")
+                
+                # Verify framebuffer content before refresh
+                pixels = list(image.getdata())
+                non_white_pixels = sum(1 for p in pixels if p != 255)
+                log.info(f">>> RefreshScheduler._loop() FULL REFRESH: Framebuffer verification: {non_white_pixels} non-white pixels out of {len(pixels)} total")
+                
+                # Sample specific regions to verify content
+                # Status bar region (top 16 pixels)
+                status_region = image.crop((0, 0, 128, 16))
+                status_pixels = list(status_region.getdata())
+                status_non_white = sum(1 for p in status_pixels if p != 255)
+                log.info(f">>> RefreshScheduler._loop() FULL REFRESH: Status bar region (y=0 to 16): {status_non_white} non-white pixels")
+                
+                # Middle region (menu area typically)
+                middle_region = image.crop((0, 16, 128, 200))
+                middle_pixels = list(middle_region.getdata())
+                middle_non_white = sum(1 for p in middle_pixels if p != 255)
+                log.info(f">>> RefreshScheduler._loop() FULL REFRESH: Middle region (y=16 to 200): {middle_non_white} non-white pixels")
+                
                 rotated = _rotate_180(image)
                 log.info(">>> RefreshScheduler._loop() FULL REFRESH: Calling driver.full_refresh()")
                 driver_start = time.time()

@@ -107,6 +107,26 @@ class EpaperService:
         future = self._scheduler.submit(None, full=False)
         future.result()
 
+    def await_all_pending(self) -> None:
+        """
+        Wait for all pending refresh operations to complete.
+        
+        This ensures that any queued refreshes (partial or full) are completed
+        before submitting new refresh operations, preventing race conditions.
+        """
+        from DGTCentaurMods.board.logging import log
+        if not self._scheduler:
+            return
+        # Submit a dummy request and wait for it to complete
+        # This ensures all previous requests in the queue are processed first
+        log.info(">>> EpaperService.await_all_pending() waiting for all pending refreshes")
+        future = self._scheduler.submit(None, full=False)
+        try:
+            future.result(timeout=10.0)  # Wait up to 10 seconds
+            log.info(">>> EpaperService.await_all_pending() all pending refreshes complete")
+        except Exception as e:
+            log.warning(f">>> EpaperService.await_all_pending() timeout or error: {e}")
+
     def snapshot(self) -> Image.Image:
         return self._framebuffer.snapshot()
 

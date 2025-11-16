@@ -83,20 +83,37 @@ class NativeDriver(DriverBase):
         from DGTCentaurMods.board.logging import log
         start_time = time.time()
         poll_count = 0
+        
+        # Log initial readBusy() value before entering wait loop
+        initial_busy = self._dll.readBusy()
+        log.info(f">>> NativeDriver._wait_for_idle() ENTERED: initial readBusy()={initial_busy} (0=busy, 1=idle)")
+        
+        # If already idle, return immediately but still log it
+        if initial_busy == 1:
+            log.info(f">>> NativeDriver._wait_for_idle() hardware already idle (readBusy()={initial_busy}), returning immediately")
+            return True
+        
+        # Hardware is busy, enter polling loop
+        log.info(f">>> NativeDriver._wait_for_idle() hardware is busy (readBusy()={initial_busy}), entering polling loop")
+        
         while True:
             busy_value = self._dll.readBusy()
             poll_count += 1
+            elapsed = time.time() - start_time
+            
+            # Log EVERY poll attempt with the actual readBusy() return value
+            # Log every 10th poll to avoid log spam, but always log first 5 polls
+            if poll_count <= 5 or poll_count % 10 == 0:
+                log.info(f">>> NativeDriver._wait_for_idle() poll #{poll_count}: readBusy()={busy_value} (elapsed={elapsed:.3f}s)")
             
             # Check if hardware is idle (1 = HIGH = idle)
             # Only accept valid return values (0 or 1)
             if busy_value == 1:
-                elapsed = time.time() - start_time
-                if elapsed > 0.01:
-                    log.info(f">>> NativeDriver._wait_for_idle() hardware became idle after {elapsed:.3f}s (polled {poll_count} times)")
+                log.info(f">>> NativeDriver._wait_for_idle() hardware became idle after {elapsed:.3f}s (polled {poll_count} times, final readBusy()={busy_value})")
                 return True
             
             # Check for timeout
-            if time.time() - start_time > timeout:
+            if elapsed > timeout:
                 log.error(f">>> NativeDriver._wait_for_idle() timeout after {timeout}s (readBusy()={busy_value}, polled {poll_count} times)")
                 return False
             
@@ -117,12 +134,20 @@ class NativeDriver(DriverBase):
         if not self._wait_for_idle(timeout=5.0):
             raise RuntimeError("Hardware did not become idle before full_refresh()")
         
+        # Verify hardware is idle immediately before calling display()
+        pre_display_busy = self._dll.readBusy()
+        log.info(f">>> NativeDriver.full_refresh() pre-display readBusy()={pre_display_busy} (0=busy, 1=idle)")
+        
         # Step 2: Send display command
         log.info(">>> NativeDriver.full_refresh() sending display command")
         start_time = time.time()
         self._dll.display(self._convert(image))
         cmd_elapsed = time.time() - start_time
         log.info(f">>> NativeDriver.full_refresh() display() returned after {cmd_elapsed:.3f}s")
+        
+        # Verify hardware state immediately after display() returns
+        post_display_busy = self._dll.readBusy()
+        log.info(f">>> NativeDriver.full_refresh() post-display readBusy()={post_display_busy} (0=busy, 1=idle)")
         
         # Step 3: Wait for hardware to complete refresh
         log.info(">>> NativeDriver.full_refresh() waiting for hardware to complete refresh")

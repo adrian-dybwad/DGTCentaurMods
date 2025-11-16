@@ -195,6 +195,17 @@ class StatusBar:
             self._thread = None
 
     def _loop(self) -> None:
+        """
+        Status bar update loop.
+        
+        Per Phase 2 fix: Sleep first before printing to avoid immediate refresh
+        on start that interferes with menu display. This prevents the statusbar
+        from submitting a partial refresh immediately when start() is called,
+        which was causing race conditions with menu full refreshes.
+        """
+        # Sleep first to avoid immediate refresh on start
+        # This prevents interference with menu display when statusbar.start() is called
+        time.sleep(30)
         while self._running:
             self.print_once()
             time.sleep(30)
