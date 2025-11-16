@@ -104,42 +104,57 @@ class NativeEPaperDriver(EPaperDriver):
     def _refresh_blocking(self, plan: RefreshPlan, pixels: Sequence[Sequence[int]]) -> None:
         if not self._dll:
             raise RuntimeError("Hardware driver not connected.")
-        payload = self._pack_pixels(pixels)
-        buffer = create_string_buffer(payload)
+        rotated = self._rotate_pixels(pixels)
 
         if plan.mode is RefreshMode.FULL:
             LOGGER.info("Issuing full hardware refresh.")
+            payload = self._pack_rows(rotated, 0, self.height)
+            buffer = create_string_buffer(payload)
             self._dll.display(buffer)
             return
 
         for region in plan.regions:
-            y0 = max(0, min(self.height, region.y))
-            y1 = max(y0, min(self.height, region.y + region.height))
-            if y0 == y1:
+            logical_y0 = max(0, region.y)
+            logical_y1 = min(self.height, region.y + region.height)
+            if logical_y0 >= logical_y1:
                 continue
-            LOGGER.info("Issuing partial refresh y0=%s y1=%s", y0, y1)
-            self._dll.displayRegion(c_int(y0), c_int(y1), buffer)
+            hw_y0 = self._align_row(self.height - logical_y1)
+            hw_y1 = self._align_row_up(self.height - logical_y0)
+            if hw_y0 >= hw_y1:
+                continue
+            payload = self._pack_rows(rotated, hw_y0, hw_y1)
+            buffer = create_string_buffer(payload)
+            LOGGER.info("Issuing partial refresh y0=%s y1=%s", hw_y0, hw_y1)
+            self._dll.displayRegion(c_int(hw_y0), c_int(hw_y1), buffer)
 
-    def _pack_pixels(self, pixels: Sequence[Sequence[int]]) -> bytes:
+    def _rotate_pixels(self, pixels: Sequence[Sequence[int]]) -> List[List[int]]:
         if len(pixels) != self.height:
             raise ValueError("Pixel buffer height mismatch.")
         if not pixels:
-            return b""
+            return []
         row_length = len(pixels[0])
         if row_length != self.width:
             raise ValueError("Pixel buffer width mismatch.")
+        return [list(reversed(row)) for row in reversed(pixels)]
+
+    def _pack_rows(self, pixels: Sequence[Sequence[int]], y0: int, y1: int) -> bytes:
         stride = self.width // 8
-        buf = bytearray([0xFF] * (stride * self.height))
-        for y in range(self.height):
+        height = y1 - y0
+        buf = bytearray([0xFF] * (stride * height))
+        for y in range(y0, y1):
             row = pixels[y]
-            if len(row) != self.width:
-                raise ValueError("Inconsistent row width in framebuffer snapshot.")
             for x in range(self.width):
-                idx = y * stride + (x // 8)
+                idx = (y - y0) * stride + (x // 8)
                 mask = 0x80 >> (x % 8)
                 if row[x] < 128:
                     buf[idx] &= ~mask
                 else:
                     buf[idx] |= mask
         return bytes(buf)
+
+    def _align_row(self, value: int) -> int:
+        return max(0, (value // 8) * 8)
+
+    def _align_row_up(self, value: int) -> int:
+        return min(self.height, ((value + 7) // 8) * 8)
 
