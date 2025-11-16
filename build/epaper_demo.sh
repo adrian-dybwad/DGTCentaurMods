@@ -2,5 +2,7 @@
 
 git pull
 
-python ../DGTCentaurMods/opt/DGTCentaurMods/epaper_demo.py "$@"
+cd ~/DGTCentaurMods/DGTCentaurMods/opt
+
+python epaper_demo.py
 
