@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import time
 from ctypes import CDLL
 
 from PIL import Image
@@ -41,7 +42,28 @@ class NativeDriver(DriverBase):
         self._dll.reset()
 
     def full_refresh(self, image: Image.Image) -> None:
+        """
+        Perform a full screen refresh.
+        
+        The C library's display() function may return immediately after sending
+        the command, but the hardware takes 1.5-2.0 seconds to complete the refresh.
+        If the hardware is busy, the C library may return immediately without sending
+        the command. We always wait the full refresh duration to ensure the hardware
+        is ready for the next command.
+        """
+        from DGTCentaurMods.board.logging import log
+        start_time = time.time()
         self._dll.display(self._convert(image))
+        elapsed = time.time() - start_time
+        # Always wait for full refresh duration (2.0s) to ensure hardware is ready
+        # If C library returned quickly (< 2s), it may have detected hardware busy and
+        # not sent the command, or the hardware refresh is still in progress
+        if elapsed < 2.0:
+            wait_time = 2.0 - elapsed
+            log.info(f">>> NativeDriver.full_refresh() C library returned after {elapsed:.3f}s, waiting {wait_time:.3f}s for hardware refresh to complete")
+            time.sleep(wait_time)
+        else:
+            log.info(f">>> NativeDriver.full_refresh() C library took {elapsed:.3f}s (hardware refresh should be complete)")
 
     def partial_refresh(self, y0: int, y1: int, image: Image.Image) -> None:
         self._dll.displayRegion(y0, y1, self._convert(image))
