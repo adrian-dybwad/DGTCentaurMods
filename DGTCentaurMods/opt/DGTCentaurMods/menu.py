@@ -183,9 +183,23 @@ class MenuRenderer:
         # Since the expansion affects full width, if title exists, we must redraw it
         # to prevent fading. The expanded region will include the title area anyway.
         arrow_region = Region(0, self.body_top, self.arrow_width, 295)
+        status_region = Region(0, 0, 128, widgets.STATUS_BAR_HEIGHT)
         
+        # Single atomic canvas operation: draw arrow, title, and status bar together
         with service.acquire_canvas() as canvas:
             draw = canvas.draw
+            
+            # Redraw status bar
+            draw.rectangle(status_region.to_box(), fill=255, outline=255)
+            try:
+                from DGTCentaurMods.menu import statusbar
+                status_text = statusbar.build() if hasattr(statusbar, 'build') else "READY"
+            except:
+                status_text = "READY"
+            draw.text((2, -1), status_text, font=widgets.STATUS_FONT, fill=0)
+            from DGTCentaurMods.display.epaper_service.widgets import _draw_battery_icon_to_canvas
+            _draw_battery_icon_to_canvas(canvas, top_padding=1)
+            canvas.mark_dirty(status_region)
             
             # If title exists, redraw it to prevent fading from full-width refresh
             if self.title:
@@ -215,33 +229,8 @@ class MenuRenderer:
             
             canvas.mark_dirty(arrow_region)
         
-        # Refresh region includes title if present (since expansion affects full width anyway)
-        # Expand region to include title if it exists
-        # if self.title:
-        #     title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
-        #     refresh_region = Region(0, title_top, 128, 295)  # Full width from title to bottom
-        # else:
-        #     refresh_region = arrow_region
-        
-        # Refresh both arrow column and status bar in one operation
         # Create combined region covering both status bar and arrow column
-        status_region = Region(0, 0, 128, widgets.STATUS_BAR_HEIGHT)
         combined_region = status_region.union(arrow_region)
-        
-        # Redraw status bar to framebuffer (it's already in framebuffer from previous operations,
-        # but ensure it's fresh for this refresh)
-        with service.acquire_canvas() as canvas:
-            draw = canvas.draw
-            draw.rectangle(status_region.to_box(), fill=255, outline=255)
-            try:
-                from DGTCentaurMods.menu import statusbar
-                status_text = statusbar.build() if hasattr(statusbar, 'build') else "READY"
-            except:
-                status_text = "READY"
-            draw.text((2, -1), status_text, font=widgets.STATUS_FONT, fill=0)
-            from DGTCentaurMods.display.epaper_service.widgets import _draw_battery_icon_to_canvas
-            _draw_battery_icon_to_canvas(canvas, top_padding=1)
-            canvas.mark_dirty(status_region)
         
         # Submit single combined refresh for both regions
         service.submit_region(combined_region, await_completion=False)
