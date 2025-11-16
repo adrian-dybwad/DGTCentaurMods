@@ -149,15 +149,12 @@ class DisplayManager:
             # We render all widgets to ensure correct compositing, even if unchanged
             canvas = self._framebuffer.get_canvas()
             
-            # Separate static widgets from moving widgets (like ball)
-            static_widgets = []
-            moving_widgets = []
+            # Track old positions for widgets that have moved (like ball)
             moved_regions = []
             
             for widget in self._widgets:
                 # Check if widget has moved (has get_previous_region method)
                 if hasattr(widget, 'get_previous_region'):
-                    moving_widgets.append(widget)
                     prev_region = widget.get_previous_region()
                     curr_region = widget.get_region()
                     # If position changed, mark old region for clearing
@@ -168,11 +165,8 @@ class DisplayManager:
                             prev_region[2],
                             prev_region[3]
                         ))
-                else:
-                    static_widgets.append(widget)
-            
-            # Step 1: Render all static widgets first
-            for widget in static_widgets:
+                
+                # Always render to ensure framebuffer is up to date
                 widget_image = widget.get_image()
                 
                 # Ensure widget image matches expected size
@@ -189,47 +183,19 @@ class DisplayManager:
                 # Paste widget onto canvas
                 canvas.paste(widget_image, (widget.x, widget.y))
             
-            # Step 2: Clear old positions of moving widgets by re-rendering static widgets there
+            # For moved widgets, clear old position by re-rendering background
+            # (text widgets will be re-rendered on top, clearing the old ball position)
             for moved_region in moved_regions:
-                # Re-render static widgets that overlap with the old position
-                for widget in static_widgets:
+                # Re-render widgets that overlap with the old position
+                for widget in self._widgets:
                     widget_region = widget.get_region()
-                    if moved_region.intersects(Region(*widget_region)):
-                        # This widget overlaps the old position, re-render it to clear the old ball
+                    if (moved_region.intersects(Region(*widget_region)) and 
+                        not hasattr(widget, 'get_previous_region')):  # Don't re-render moving widget
+                        # This widget overlaps the old position, ensure it's rendered
                         widget_image = widget.get_image()
                         if widget_image.mode != "1":
                             widget_image = widget_image.convert("1")
                         canvas.paste(widget_image, (widget.x, widget.y))
-            
-            # Step 3: Render moving widgets last (so they appear on top)
-            for widget in moving_widgets:
-                widget_image = widget.get_image()
-                
-                # Ensure widget image matches expected size
-                if widget_image.size != (widget.width, widget.height):
-                    widget_image = widget_image.resize(
-                        (widget.width, widget.height),
-                        Image.Resampling.NEAREST
-                    )
-                
-                # Ensure 1-bit mode
-                if widget_image.mode != "1":
-                    widget_image = widget_image.convert("1")
-                
-                # For widgets with a mask (like ball), use mask for compositing
-                # This allows the widget to appear on top without overwriting background
-                if hasattr(widget, 'get_mask'):
-                    mask = widget.get_mask()
-                    if mask.size != (widget.width, widget.height):
-                        mask = mask.resize(
-                            (widget.width, widget.height),
-                            Image.Resampling.NEAREST
-                        )
-                    # Paste with mask - only ball pixels overwrite, background stays
-                    canvas.paste(widget_image, (widget.x, widget.y), mask)
-                else:
-                    # Paste widget onto canvas (last, so it's on top)
-                    canvas.paste(widget_image, (widget.x, widget.y))
             
             # Compute dirty regions
             if force_full:
