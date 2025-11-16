@@ -61,27 +61,19 @@ def _clear_rect(x1: int, y1: int, x2: int, y2: int) -> None:
 
 
 def _draw_selection_indicator(shift: int, current_row: int) -> None:
-    top = (current_row * 20) + shift
-    region = Region(0, top, 20, top + 20)
+    region = Region(0, 20 + shift, 20, 295)
     def painter(canvas):
         draw = canvas.draw
         draw.rectangle(region.to_box(), fill=255, outline=255)
         draw.polygon(
             [
-                (2, top + 2),
-                (2, top + 18),
-                (17, top + 10),
+                (2, (current_row * 20 + shift) + 2),
+                (2, (current_row * 20) + 18 + shift),
+                (17, (current_row * 20) + 10 + shift),
             ],
             fill=0,
         )
-    _paint_region(region, painter)
-
-
-def _draw_menu_separator(shift: int) -> None:
-    top = 20 + shift
-    region = Region(17, top, 18, 295)
-    def painter(canvas):
-        canvas.draw.line((17, top, 17, 295), fill=0, width=1)
+        draw.line((17, 20 + shift, 17, 295), fill=0, width=1)
     _paint_region(region, painter)
 
 
@@ -274,8 +266,6 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     for k, v in actual_menu.items():
         widgets.write_text(row, "    " + str(v))
         row = row + 1
-    
-    _draw_menu_separator(shift)
     
     # Display description if provided
     _draw_description_block(shift, row, actual_description or "")
