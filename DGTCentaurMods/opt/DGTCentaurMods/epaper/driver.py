@@ -7,6 +7,7 @@ directly with the UC8151 controller via SPI, following Waveshare's approach.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Optional
 
@@ -19,6 +20,9 @@ except ImportError:
     GPIO = None
 
 from PIL import Image
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 # UC8151 Register Commands
@@ -75,6 +79,7 @@ class Driver:
 
     def __init__(self) -> None:
         """Initialize the driver."""
+        logger.info("Initializing Waveshare driver...")
         if spidev is None or GPIO is None:
             raise ImportError(
                 "spidev and RPi.GPIO are required. Install with: pip install spidev RPi.GPIO"
@@ -88,25 +93,33 @@ class Driver:
         self._spi: Optional[spidev.SpiDev] = None
         self._gpio_initialized = False
         
-        # Initialize GPIO
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        GPIO.setup(RST_PIN, GPIO.OUT)
-        GPIO.setup(DC_PIN, GPIO.OUT)
-        GPIO.setup(CS_PIN, GPIO.OUT)
-        GPIO.setup(BUSY_PIN, GPIO.IN)
-        self._gpio_initialized = True
-        
-        # Initialize SPI
-        self._spi = spidev.SpiDev()
-        self._spi.open(0, 0)  # SPI bus 0, device 0
-        self._spi.max_speed_hz = 4000000  # 4MHz
-        self._spi.mode = 0b00
-        
-        # Set initial pin states
-        GPIO.output(CS_PIN, GPIO.HIGH)
-        GPIO.output(DC_PIN, GPIO.LOW)
-        GPIO.output(RST_PIN, GPIO.HIGH)
+        try:
+            # Initialize GPIO
+            logger.info(f"Setting up GPIO pins: RST={RST_PIN}, DC={DC_PIN}, CS={CS_PIN}, BUSY={BUSY_PIN}")
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setwarnings(False)
+            GPIO.setup(RST_PIN, GPIO.OUT)
+            GPIO.setup(DC_PIN, GPIO.OUT)
+            GPIO.setup(CS_PIN, GPIO.OUT)
+            GPIO.setup(BUSY_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)  # Pull up for input
+            self._gpio_initialized = True
+            
+            # Initialize SPI
+            logger.info("Opening SPI device (bus 0, device 0)...")
+            self._spi = spidev.SpiDev()
+            self._spi.open(0, 0)  # SPI bus 0, device 0
+            self._spi.max_speed_hz = 4000000  # 4MHz
+            self._spi.mode = 0b00
+            logger.info("SPI initialized successfully")
+            
+            # Set initial pin states
+            GPIO.output(CS_PIN, GPIO.HIGH)
+            GPIO.output(DC_PIN, GPIO.LOW)
+            GPIO.output(RST_PIN, GPIO.HIGH)
+            logger.info("Driver initialization complete")
+        except Exception as e:
+            logger.error(f"Failed to initialize driver: {e}", exc_info=True)
+            raise
 
     def _write_command(self, cmd: int) -> None:
         """Write a command byte to the display."""
@@ -126,8 +139,17 @@ class Driver:
         GPIO.output(CS_PIN, GPIO.HIGH)
 
     def _wait_until_idle(self) -> None:
-        """Wait until the display is not busy."""
+        """
+        Wait until the display is not busy.
+        
+        BUSY pin is LOW when busy, HIGH when idle (active low).
+        """
+        timeout = 5.0  # 5 second timeout
+        start_time = time.time()
         while GPIO.input(BUSY_PIN) == GPIO.LOW:
+            if time.time() - start_time > timeout:
+                logger.warning("Timeout waiting for display to become idle")
+                break
             time.sleep(0.01)
 
     def _convert_to_bytes(self, image: Image.Image) -> bytes:
@@ -155,56 +177,64 @@ class Driver:
 
     def init(self) -> None:
         """Initialize the display hardware."""
-        # Reset
-        GPIO.output(RST_PIN, GPIO.LOW)
-        time.sleep(0.01)
-        GPIO.output(RST_PIN, GPIO.HIGH)
-        time.sleep(0.01)
-        
-        # Power on sequence
-        self._write_command(UC8151_PON)
-        self._wait_until_idle()
-        
-        # Panel setting
-        self._write_command(UC8151_PSR)
-        self._write_data([0xBF, 0x0D])  # LUT from OTP, scan up
-        
-        # Power setting
-        self._write_command(UC8151_PWR)
-        self._write_data([0x03, 0x00, 0x2B, 0x2B, 0x09])
-        
-        # Booster soft start
-        self._write_command(UC8151_BTST)
-        self._write_data([0x17, 0x17, 0x17])
-        
-        # Power off sequence (to prepare for first display)
-        self._write_command(UC8151_POF)
-        self._wait_until_idle()
-        
-        # PLL control
-        self._write_command(UC8151_PLL)
-        self._write_data([0x3C])  # 50Hz
-        
-        # Temperature sensor
-        self._write_command(UC8151_TSE)
-        self._write_data([0x00])
-        
-        # Resolution setting
-        self._write_command(UC8151_TRES)
-        self._write_data([
-            (EPD_WIDTH >> 8) & 0xFF,
-            EPD_WIDTH & 0xFF,
-            (EPD_HEIGHT >> 8) & 0xFF,
-            EPD_HEIGHT & 0xFF
-        ])
-        
-        # VCOM and data interval
-        self._write_command(UC8151_CDI)
-        self._write_data([0x97])  # Border floating
-        
-        # Power on
-        self._write_command(UC8151_PON)
-        self._wait_until_idle()
+        logger.info("Initializing display hardware...")
+        try:
+            # Reset
+            logger.debug("Resetting display...")
+            GPIO.output(RST_PIN, GPIO.LOW)
+            time.sleep(0.01)
+            GPIO.output(RST_PIN, GPIO.HIGH)
+            time.sleep(0.01)
+            
+            # Power on sequence
+            logger.debug("Powering on display...")
+            self._write_command(UC8151_PON)
+            self._wait_until_idle()
+            
+            # Panel setting
+            self._write_command(UC8151_PSR)
+            self._write_data([0xBF, 0x0D])  # LUT from OTP, scan up
+            
+            # Power setting
+            self._write_command(UC8151_PWR)
+            self._write_data([0x03, 0x00, 0x2B, 0x2B, 0x09])
+            
+            # Booster soft start
+            self._write_command(UC8151_BTST)
+            self._write_data([0x17, 0x17, 0x17])
+            
+            # Power off sequence (to prepare for first display)
+            self._write_command(UC8151_POF)
+            self._wait_until_idle()
+            
+            # PLL control
+            self._write_command(UC8151_PLL)
+            self._write_data([0x3C])  # 50Hz
+            
+            # Temperature sensor
+            self._write_command(UC8151_TSE)
+            self._write_data([0x00])
+            
+            # Resolution setting
+            self._write_command(UC8151_TRES)
+            self._write_data([
+                (EPD_WIDTH >> 8) & 0xFF,
+                EPD_WIDTH & 0xFF,
+                (EPD_HEIGHT >> 8) & 0xFF,
+                EPD_HEIGHT & 0xFF
+            ])
+            
+            # VCOM and data interval
+            self._write_command(UC8151_CDI)
+            self._write_data([0x97])  # Border floating
+            
+            # Power on
+            self._write_command(UC8151_PON)
+            self._wait_until_idle()
+            logger.info("Display initialization complete")
+        except Exception as e:
+            logger.error(f"Failed to initialize display: {e}", exc_info=True)
+            raise
 
     def reset(self) -> None:
         """Reset the display hardware."""
@@ -220,25 +250,34 @@ class Driver:
         Blocks until the hardware refresh completes.
         Typical duration is 1.5-2.0 seconds.
         """
-        # Rotate 180 degrees to match hardware orientation
-        rotated = image.transpose(Image.ROTATE_180)
-        image_bytes = self._convert_to_bytes(rotated)
-        
-        # Power on
-        self._write_command(UC8151_PON)
-        self._wait_until_idle()
-        
-        # Send image data
-        self._write_command(UC8151_DTM1)
-        self._write_data(image_bytes)
-        
-        # Display refresh
-        self._write_command(UC8151_DRF)
-        self._wait_until_idle()
-        
-        # Power off
-        self._write_command(UC8151_POF)
-        self._wait_until_idle()
+        logger.debug("Starting full refresh...")
+        try:
+            # Rotate 180 degrees to match hardware orientation
+            rotated = image.transpose(Image.ROTATE_180)
+            image_bytes = self._convert_to_bytes(rotated)
+            logger.debug(f"Image converted to bytes: {len(image_bytes)} bytes")
+            
+            # Power on
+            self._write_command(UC8151_PON)
+            self._wait_until_idle()
+            
+            # Send image data
+            logger.debug("Sending image data...")
+            self._write_command(UC8151_DTM1)
+            self._write_data(image_bytes)
+            
+            # Display refresh
+            logger.debug("Triggering display refresh...")
+            self._write_command(UC8151_DRF)
+            self._wait_until_idle()
+            
+            # Power off
+            self._write_command(UC8151_POF)
+            self._wait_until_idle()
+            logger.debug("Full refresh complete")
+        except Exception as e:
+            logger.error(f"Full refresh failed: {e}", exc_info=True)
+            raise
 
     def partial_refresh(self, x: int, y: int, width: int, height: int, image: Image.Image) -> None:
         """
