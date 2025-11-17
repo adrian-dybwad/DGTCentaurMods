@@ -7,14 +7,14 @@ Uses only the new epaper framework - no legacy dependencies.
 import time
 import signal
 import sys
-from epaper import DisplayManager, ClockWidget, BatteryWidget, TextWidget, BallWidget
+from epaper import Manager, ClockWidget, BatteryWidget, TextWidget, BallWidget
 
 
 class EPaperDemo:
     """Main demo application."""
     
     def __init__(self):
-        self.display = None
+        self.display: Manager = None
         self.running = False
         self.clock = None
         self.battery = None
@@ -42,7 +42,7 @@ class EPaperDemo:
     def initialize_display(self):
         """Initialize the ePaper display."""
         print("Initializing ePaper display...")
-        self.display = DisplayManager()
+        self.display = Manager()
         self.display.init()
         print("Display initialized successfully")
     

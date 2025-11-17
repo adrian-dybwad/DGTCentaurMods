@@ -10,10 +10,10 @@ from concurrent.futures import Future
 from PIL import Image
 from .regions import Region, merge_regions, expand_to_byte_alignment
 from .framebuffer import FrameBuffer
-from .waveshare_epd2in9d import EPD
+from .waveshare.epd2in9d import EPD
 
 
-class RefreshScheduler:
+class Scheduler:
     """Background thread that schedules display refreshes using Waveshare DisplayPartial."""
     
     def __init__(self, framebuffer: FrameBuffer, epd: EPD):

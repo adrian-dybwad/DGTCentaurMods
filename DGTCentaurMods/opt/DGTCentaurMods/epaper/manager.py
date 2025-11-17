@@ -5,20 +5,20 @@ Main display manager coordinating widgets and refresh scheduling.
 import time
 from typing import List
 from PIL import Image
-from .waveshare_epd2in9d import EPD
+from .waveshare.epd2in9d import EPD
 from .framebuffer import FrameBuffer
-from .refresh_scheduler import RefreshScheduler
+from .scheduler import Scheduler
 from .widget import Widget
 from .regions import Region, merge_regions
 
 
-class DisplayManager:
+class Manager:
     """Main coordinator for the ePaper framework."""
     
     def __init__(self):
         self._epd = EPD()
         self._framebuffer = FrameBuffer(self._epd.width, self._epd.height)
-        self._scheduler = RefreshScheduler(self._framebuffer, self._epd)
+        self._scheduler = Scheduler(self._framebuffer, self._epd)
         self._widgets: List[Widget] = []
         self._initialized = False
         self._shutting_down = False
