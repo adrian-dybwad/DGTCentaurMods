@@ -472,17 +472,15 @@ class EPD:
         bytes_per_row = self.width // 8
         full_buffer_size = bytes_per_row * self.height
         
-        # Old data: white background (all 0xFF)
-        old_data_full = [0xFF] * full_buffer_size
+        # Old data: send original image buffer (non-inverted)
+        # DisplayPartial sends: self.send_data2(image) for 0x10
+        old_data_full = list(image_buffer)
         
-        # New data: full-screen buffer with inverted region
-        new_data_full = list(image_buffer)  # Copy full buffer
-        # Invert the region in the full buffer (like DisplayPartial does)
-        for y in range(y_start, y_end):
-            for x_byte in range(x_start_byte_idx, x_end_byte_idx + 1):
-                byte_idx = y * bytes_per_row + x_byte
-                if 0 <= byte_idx < len(new_data_full):
-                    new_data_full[byte_idx] = ~new_data_full[byte_idx] & 0xFF
+        # New data: invert the ENTIRE buffer (like DisplayPartial does)
+        # DisplayPartial does: buf[i] = ~image[i] for all i, then sends buf for 0x13
+        new_data_full = [0x00] * full_buffer_size
+        for i in range(full_buffer_size):
+            new_data_full[i] = ~image_buffer[i] & 0xFF
         
         # Command 0x10: Write old data to RAM (full screen, but only region is used)
         self.send_command(0x10)
