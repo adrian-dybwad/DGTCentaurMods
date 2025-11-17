@@ -158,9 +158,10 @@ class EPD:
             epdconfig.delay_ms(300)
             return
         
-        # Check if BUSY logic is inverted via environment variable
-        # Some hardware uses HIGH=busy, LOW=idle instead of the standard LOW=busy, HIGH=idle
-        inverted_logic = os.environ.get("EPAPER_BUSY_INVERTED", "").lower() == "true"
+        # BUSY pin logic is inverted for DGT Centaur hardware
+        # DGT Centaur uses HIGH=busy, LOW=idle (inverted from standard UC8151)
+        # Can be overridden via environment variable if needed
+        inverted_logic = os.environ.get("EPAPER_BUSY_INVERTED", "true").lower() == "true"
         
         # Read initial state
         initial_state = epdconfig.digital_read(self.busy_pin)
