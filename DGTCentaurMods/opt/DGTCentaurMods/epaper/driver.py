@@ -243,6 +243,10 @@ class Driver:
         
         The display expects a 1-bit monochrome bitmap in row-major order,
         with each byte containing 8 pixels (MSB first, left to right).
+        
+        Note: The old epaperDriver.so used a different formula, but this one
+        is correct for row-major order. If the display doesn't work, we may
+        need to try the old formula or check if the display expects column-major.
         """
         width, height = image.size
         bytes_per_row = (width + 7) // 8  # Round up to nearest byte
@@ -250,13 +254,29 @@ class Driver:
         mono = image.convert("1")
         pixels = mono.load()
         
-        for y in range(height):
-            for x in range(width):
-                if pixels[x, y] == 0:  # Black pixel
-                    byte_index = y * bytes_per_row + (x // 8)
-                    bit_position = x % 8
-                    # MSB first: bit 0 (leftmost) is at position 7
-                    buf[byte_index] &= ~(0x80 >> bit_position)
+        # Try old driver's formula if environment variable is set
+        use_old_formula = os.environ.get("EPAPER_USE_OLD_FORMULA", "").lower() == "true"
+        
+        if use_old_formula:
+            # Old epaperDriver.so formula (testing compatibility)
+            # Uses: int((x + y * width) / 8) which should be equivalent to row-major
+            # when width is a multiple of 8
+            for y in range(height):
+                for x in range(width):
+                    if pixels[x, y] == 0:  # Black pixel
+                        byte_index = int((x + y * width) / 8)
+                        bit_position = x % 8
+                        if byte_index < len(buf):  # Safety check
+                            buf[byte_index] &= ~(0x80 >> bit_position)
+        else:
+            # Correct row-major formula
+            for y in range(height):
+                for x in range(width):
+                    if pixels[x, y] == 0:  # Black pixel
+                        byte_index = y * bytes_per_row + (x // 8)
+                        bit_position = x % 8
+                        # MSB first: bit 0 (leftmost) is at position 7
+                        buf[byte_index] &= ~(0x80 >> bit_position)
         
         return bytes(buf)
 
