@@ -50,7 +50,8 @@ class RaspberryPi:
     SCLK_PIN = int(os.environ.get("EPAPER_SCLK_PIN", "11"))  # SPI SCLK (usually fixed)
     
     # SPI bus and device - can be overridden via environment variables
-    SPI_BUS = int(os.environ.get("EPAPER_SPI_BUS", "0"))
+    # Default to SPI bus 1 (spidev1.0) to match the original epaperDriver.so
+    SPI_BUS = int(os.environ.get("EPAPER_SPI_BUS", "1"))
     SPI_DEVICE = int(os.environ.get("EPAPER_SPI_DEVICE", "0"))
 
     def __init__(self):
