@@ -90,6 +90,7 @@ class ChessBoardWidget(Widget):
         try:
             fen_board = self.fen.split()[0]
             ordered = self._expand_fen(fen_board)
+            draw = ImageDraw.Draw(img)
             
             for idx, symbol in enumerate(ordered):
                 rank = idx // 8
@@ -97,18 +98,24 @@ class ChessBoardWidget(Widget):
                 dest_rank = rank if not self.flip else 7 - rank
                 dest_file = file if not self.flip else 7 - file
                 
-                px = self._piece_x(symbol)
                 square_index = dest_rank * 8 + dest_file
-                py = 16 if self._is_dark_square(square_index) else 0
+                is_dark = self._is_dark_square(square_index)
+                py = 16 if is_dark else 0
                 
-                if px > 0:  # Only draw if piece exists
+                x = dest_file * 16
+                y = dest_rank * 16
+                
+                # Always draw square background (empty square sprite at x=0)
+                square_bg = self._chess_font.crop((0, py, 16, py + 16))
+                img.paste(square_bg, (x, y))
+                
+                # Draw piece if it exists
+                px = self._piece_x(symbol)
+                if px > 0:
                     piece = self._chess_font.crop((px, py, px + 16, py + 16))
-                    x = dest_file * 16
-                    y = dest_rank * 16
                     img.paste(piece, (x, y))
             
             # Draw board outline
-            draw = ImageDraw.Draw(img)
             draw.rectangle([(0, 0), (127, 127)], fill=None, outline=0)
         except Exception:
             pass
