@@ -41,10 +41,11 @@ logger = logging.getLogger(__name__)
 class RaspberryPi:
     # Pin definition - DGT Centaur hardware configuration
     # Can be overridden via environment variables
+    # BUSY_PIN determined by monitoring old driver: pin 24 shows activity during display operations
     RST_PIN  = int(os.environ.get("EPAPER_RST_PIN", "12"))
     DC_PIN   = int(os.environ.get("EPAPER_DC_PIN", "16"))
     CS_PIN   = int(os.environ.get("EPAPER_CS_PIN", "18"))
-    BUSY_PIN = int(os.environ.get("EPAPER_BUSY_PIN", "13"))
+    BUSY_PIN = int(os.environ.get("EPAPER_BUSY_PIN", "24"))  # Changed from 13 to 24 based on monitoring
     PWR_PIN  = int(os.environ.get("EPAPER_PWR_PIN", "18"))  # May be same as CS_PIN or different
     MOSI_PIN = int(os.environ.get("EPAPER_MOSI_PIN", "10"))  # SPI MOSI (usually fixed)
     SCLK_PIN = int(os.environ.get("EPAPER_SCLK_PIN", "11"))  # SPI SCLK (usually fixed)
