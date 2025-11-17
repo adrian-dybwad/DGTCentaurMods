@@ -1,5 +1,5 @@
 """
-Refresh scheduler that queues and executes display updates.
+Refresh scheduler that queues and executes display updates using true partial refreshes.
 """
 
 import threading
@@ -7,8 +7,6 @@ import time
 from collections import deque
 from concurrent.futures import Future
 from typing import Deque, List, Optional
-
-from PIL import Image
 
 from .driver import Driver
 from .framebuffer import FrameBuffer
@@ -19,12 +17,8 @@ class RefreshScheduler:
     """
     Background worker that schedules and executes display refreshes.
     
-    Handles:
-    - Queueing refresh requests
-    - Merging overlapping regions
-    - Expanding regions to controller alignment
-    - Deciding between partial and full refreshes
-    - Throttling to prevent display overload
+    Uses true partial updates to refresh only changed regions, minimizing
+    flicker and update time.
     """
 
     def __init__(self, driver: Driver, framebuffer: FrameBuffer) -> None:
@@ -37,17 +31,12 @@ class RefreshScheduler:
         self._lock = threading.Lock()
         self._partial_refresh_count = 0
         self._last_full_refresh = time.time()
-        self._last_partial_refresh_time = 0.0
         
         # After N partial refreshes, force a full refresh to clear ghosting
-        # Industry standard is 8-10 partial refreshes before full refresh
-        # For fast-moving content, use fewer partial refreshes to prevent ghosting
-        # Reduced to 3 to prevent ghosting from frequent updates
-        self._max_partial_refreshes = 3
+        self._max_partial_refreshes = 50
         
-        # Minimum time between refreshes (in seconds)
-        # Prevents display overload by spacing out refresh operations
-        self._min_refresh_interval = 0.1
+        # Minimum time between refreshes (prevents hardware overload)
+        self._min_refresh_interval = 0.05  # 50ms minimum
 
     def start(self) -> None:
         """Start the scheduler thread."""
@@ -63,27 +52,20 @@ class RefreshScheduler:
         self._thread.start()
 
     def stop(self) -> None:
-        """
-        Stop the scheduler thread and wait for completion.
-        
-        Cancels any pending refresh requests and waits for the current
-        refresh operation to complete (if any), with a timeout.
-        """
+        """Stop the scheduler thread and wait for completion."""
         if self._thread is None:
             return
         
-        # Signal stop
         self._stop_event.set()
         self._wake_event.set()
         
-        # Cancel any pending requests in the queue
+        # Cancel pending requests
         with self._lock:
             while self._queue:
                 _, future = self._queue.popleft()
                 if not future.done():
                     future.set_result("cancelled-on-shutdown")
         
-        # Wait for thread to finish (the thread will finish after current refresh completes, if any)
         self._thread.join(timeout=5.0)
         self._thread = None
 
@@ -104,17 +86,14 @@ class RefreshScheduler:
             if full:
                 # Full refresh supersedes all queued partials
                 region = None
-                # Cancel all pending partial refreshes
                 while self._queue:
                     pending_region, pending_future = self._queue.popleft()
                     if not pending_future.done():
                         pending_future.set_result("skipped-by-full")
             
             # Limit queue size to prevent memory buildup
-            # If queue is too large, skip this request (it will be picked up in next update)
             max_queue_size = 10
             if len(self._queue) >= max_queue_size and not full:
-                # Queue is full, skip this request
                 future.set_result("skipped-queue-full")
                 return future
             
@@ -125,7 +104,6 @@ class RefreshScheduler:
 
     def _run(self) -> None:
         """Main scheduler loop."""
-        print("Refresh scheduler thread started")
         while not self._stop_event.is_set():
             self._wake_event.wait(timeout=1.0)
             self._wake_event.clear()
@@ -142,42 +120,13 @@ class RefreshScheduler:
             if not batch:
                 continue
             
-            if len(batch) > 50:
-                print(f"WARNING: Processing large batch of {len(batch)} refresh requests - queue may be backing up")
-            else:
-                print(f"Processing batch of {len(batch)} refresh requests...")
-            
             # Check if we need a full refresh
-            # Force full refresh more frequently to prevent ghosting from fast-moving content
             time_since_full = time.time() - self._last_full_refresh
             needs_full = (
                 any(region is None for region, _ in batch) or
                 self._partial_refresh_count >= self._max_partial_refreshes or
-                time_since_full > 300  # Force full every 5 minutes to prevent ghosting
+                time_since_full > 300  # Force full every 5 minutes
             )
-            
-            # Since DisplayPartial always does full screen, we should throttle updates
-            # to avoid flickering. Only update if enough time has passed since last refresh.
-            current_time = time.time()
-            time_since_last_partial = current_time - self._last_partial_refresh_time
-            
-            # Throttle partial refreshes - don't update more than once per 300ms
-            # This prevents flickering since DisplayPartial always does full screen
-            min_partial_interval = 0.3  # 300ms minimum between partial refreshes
-            if not needs_full and time_since_last_partial < min_partial_interval:
-                # Skip this update - too soon since last refresh
-                for _, future in batch:
-                    if not future.done():
-                        future.set_result("skipped-throttled")
-                return
-            
-            # If we're doing partial refreshes very frequently (rapid updates),
-            # force a full refresh more often to prevent ghosting
-            if not needs_full and self._partial_refresh_count >= 2:
-                # If we've done 2+ partial refreshes and they're happening rapidly (< 0.5s apart),
-                # force a full refresh to prevent ghosting from accumulating
-                if time_since_last_partial < 0.5 and time_since_full < 1.0:
-                    needs_full = True
             
             if needs_full:
                 self._execute_full_refresh(batch)
@@ -188,88 +137,78 @@ class RefreshScheduler:
         """Execute a full screen refresh."""
         try:
             image = self._framebuffer.snapshot()
-            print("Executing full refresh...")
             self._driver.full_refresh(image)
-            print("Full refresh completed, flushing framebuffer...")
             self._framebuffer.flush_all()
             self._partial_refresh_count = 0
             self._last_full_refresh = time.time()
-            self._last_partial_refresh_time = 0.0
             
-            # Complete all futures
             for _, future in batch:
                 if not future.done():
                     future.set_result("full")
-            print("Full refresh futures completed")
         except Exception as e:
-            print(f"ERROR in full refresh: {e}")
-            import traceback
-            traceback.print_exc()
-            # Mark futures as failed
             for _, future in batch:
                 if not future.done():
                     future.set_exception(e)
 
     def _execute_partial_refreshes(self, batch: List[tuple[Optional[Region], Future]]) -> None:
-        """
-        Execute partial refreshes for the given regions.
-        
-        Note: Waveshare DisplayPartial always refreshes the full screen,
-        so we always pass the full framebuffer snapshot.
-        """
-        # Extract regions (filter out None)
+        """Execute true partial refreshes for the given regions."""
         regions = [region for region, _ in batch if region is not None]
         
         if not regions:
-            # No regions to refresh, just complete futures
             for _, future in batch:
                 if not future.done():
                     future.set_result("no-op")
             return
         
-        # Check if we should stop before processing
         if self._stop_event.is_set():
-            # Mark futures as cancelled
             for _, future in batch:
                 if not future.done():
                     future.set_result("cancelled-on-shutdown")
             return
         
-        # Waveshare DisplayPartial always refreshes full screen
-        # Get full-screen snapshot
+        # Merge overlapping regions
+        merged = merge_regions(regions)
+        
+        # Get full-screen snapshot once
         full_image = self._framebuffer.snapshot()
         
-        try:
-            # Use partial refresh with full-screen image
-            # Coordinates are for reference only (DisplayPartial ignores them)
-            self._driver.partial_refresh(
-                0, 0, self._driver.width, self._driver.height,
-                full_image
+        # Execute partial refresh for each merged region
+        for region in merged:
+            if self._stop_event.is_set():
+                break
+            
+            # Expand to controller alignment (byte boundaries)
+            expanded = expand_to_controller_alignment(
+                region,
+                self._driver.width,
+                self._driver.height
             )
             
-            # Mark all dirty regions as flushed (since we refreshed full screen)
-            for region in regions:
-                self._framebuffer.flush_region(region)
-            
-            self._partial_refresh_count += 1
-            self._last_partial_refresh_time = time.time()
-            
-            # Small delay after partial refresh (skip if shutting down)
-            if not self._stop_event.is_set():
-                time.sleep(self._min_refresh_interval)
-            
-        except Exception as e:
-            # If partial refresh fails, mark all futures as failed
-            print(f"ERROR in partial refresh: {e}")
-            import traceback
-            traceback.print_exc()
-            for _, future in batch:
-                if not future.done():
-                    future.set_exception(e)
-            return
+            try:
+                # Use true partial refresh - only refreshes the expanded region
+                self._driver.partial_refresh(
+                    expanded.x1,
+                    expanded.y1,
+                    expanded.x2,
+                    expanded.y2,
+                    full_image
+                )
+                
+                # Mark the expanded region as flushed
+                self._framebuffer.flush_region(expanded)
+                self._partial_refresh_count += 1
+                
+                # Small delay between partial refreshes
+                if not self._stop_event.is_set():
+                    time.sleep(self._min_refresh_interval)
+                
+            except Exception as e:
+                for _, future in batch:
+                    if not future.done():
+                        future.set_exception(e)
+                return
         
         # Complete all futures
         for _, future in batch:
             if not future.done():
                 future.set_result("partial")
-

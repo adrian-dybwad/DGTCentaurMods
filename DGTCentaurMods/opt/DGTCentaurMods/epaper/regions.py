@@ -104,8 +104,7 @@ def expand_to_controller_alignment(region: Region, width: int, height: int) -> R
     - Updates to be aligned to 8-pixel row boundaries vertically (required)
     - Horizontal alignment to byte boundaries (8 pixels) for efficiency
     
-    Note: Waveshare DisplayPartial always refreshes full screen, so alignment
-    is mainly for optimization and future true partial refresh support.
+    This ensures optimal performance for true partial updates.
     """
     row_height = 8
     byte_width = 8

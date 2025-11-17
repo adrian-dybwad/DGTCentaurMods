@@ -77,22 +77,11 @@ class DisplayManager:
             import time
             time.sleep(0.1)
             
-            # Clear display on init using Waveshare Clear() method
-            print("Clearing display with initial full refresh...")
+            # Clear display on init
+            print("Clearing display...")
             self._framebuffer.clear()
-            # Use Waveshare Clear() method to ensure proper initialization
-            try:
-                self._driver._epd.Clear()
-                print("Display cleared using Waveshare Clear()")
-            except Exception as e:
-                print(f"WARNING: Clear() failed: {e}, using full refresh instead")
-                future = self._scheduler.submit(full=True)
-                try:
-                    result = future.result(timeout=10.0)  # Full refresh can take 1.5-2 seconds
-                    print(f"Initial refresh completed: {result}")
-                except Exception as e2:
-                    print(f"WARNING: Initial refresh failed or timed out: {e2}")
-                    # Continue anyway - display might still work
+            self._driver.clear()
+            print("Display cleared")
             
             self._initialized = True
 
