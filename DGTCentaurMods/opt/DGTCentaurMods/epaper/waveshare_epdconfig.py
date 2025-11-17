@@ -143,9 +143,15 @@ class RaspberryPi:
 
     def spi_writebyte(self, data):
         try:
-            self.SPI.writebytes([data])
+            # Handle both single value and list inputs
+            if isinstance(data, (list, tuple)):
+                # If it's already a list, use it directly
+                self.SPI.writebytes(data)
+            else:
+                # Single value, wrap in list
+                self.SPI.writebytes([int(data)])
         except Exception as e:
-            logger.error(f"SPI writebyte failed: {e}")
+            logger.error(f"SPI writebyte failed: {e}, data={data}, type={type(data)}")
             raise
 
     def spi_writebyte2(self, data):

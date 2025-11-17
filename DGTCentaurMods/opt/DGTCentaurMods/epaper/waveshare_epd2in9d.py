@@ -125,13 +125,13 @@ class EPD:
     def send_command(self, command):
         epdconfig.digital_write(self.dc_pin, 0)
         epdconfig.digital_write(self.cs_pin, 0)
-        epdconfig.spi_writebyte([command])
+        epdconfig.spi_writebyte(command)
         epdconfig.digital_write(self.cs_pin, 1)
 
     def send_data(self, data):
         epdconfig.digital_write(self.dc_pin, 1)
         epdconfig.digital_write(self.cs_pin, 0)
-        epdconfig.spi_writebyte([data])
+        epdconfig.spi_writebyte(data)
         epdconfig.digital_write(self.cs_pin, 1)
 
     # send a lot of data   
