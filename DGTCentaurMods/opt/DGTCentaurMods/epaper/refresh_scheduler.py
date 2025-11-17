@@ -156,10 +156,23 @@ class RefreshScheduler:
                 time_since_full > 300  # Force full every 5 minutes to prevent ghosting
             )
             
-            # If we're doing partial refreshes very frequently (rapid updates),
-            # force a full refresh more often to prevent ghosting
+            # Since DisplayPartial always does full screen, we should throttle updates
+            # to avoid flickering. Only update if enough time has passed since last refresh.
             current_time = time.time()
             time_since_last_partial = current_time - self._last_partial_refresh_time
+            
+            # Throttle partial refreshes - don't update more than once per 300ms
+            # This prevents flickering since DisplayPartial always does full screen
+            min_partial_interval = 0.3  # 300ms minimum between partial refreshes
+            if not needs_full and time_since_last_partial < min_partial_interval:
+                # Skip this update - too soon since last refresh
+                for _, future in batch:
+                    if not future.done():
+                        future.set_result("skipped-throttled")
+                return
+            
+            # If we're doing partial refreshes very frequently (rapid updates),
+            # force a full refresh more often to prevent ghosting
             if not needs_full and self._partial_refresh_count >= 2:
                 # If we've done 2+ partial refreshes and they're happening rapidly (< 0.5s apart),
                 # force a full refresh to prevent ghosting from accumulating

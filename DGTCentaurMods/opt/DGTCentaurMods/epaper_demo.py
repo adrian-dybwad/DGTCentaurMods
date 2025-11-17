@@ -157,11 +157,11 @@ def main():
                 text_update_counter = 0
             
             # Update display (framework handles dirty region detection)
-            # Only update if enough time has passed since last update to avoid queue buildup
+            # The scheduler will throttle updates to prevent flickering
             display.update()
             
-            # Sleep for shorter interval for smoother animation (100ms)
-            # But note: actual refresh rate will be limited by display hardware (260-300ms for partial)
+            # Sleep for animation loop - scheduler will throttle actual refreshes
+            # DisplayPartial always does full screen, so we throttle at 300ms minimum
             time.sleep(0.1)
     
     except KeyboardInterrupt:

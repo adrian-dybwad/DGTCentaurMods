@@ -67,9 +67,13 @@ class Driver:
         if image.mode != "1":
             image = image.convert("1")
         
+        # Rotate 180 degrees to match hardware orientation
+        # The hardware display is physically rotated 180 degrees
+        rotated = image.transpose(Image.ROTATE_180)
+        
         # Convert to buffer format - getbuffer handles orientation automatically
         # It expects vertical orientation (128x296) and processes it directly
-        buf = self._epd.getbuffer(image)
+        buf = self._epd.getbuffer(rotated)
         
         # Perform full refresh
         self._epd.display(buf)
@@ -100,8 +104,12 @@ class Driver:
         if image.mode != "1":
             image = image.convert("1")
         
+        # Rotate 180 degrees to match hardware orientation
+        # The hardware display is physically rotated 180 degrees
+        rotated = image.transpose(Image.ROTATE_180)
+        
         # Convert to buffer format - getbuffer handles orientation automatically
-        buf = self._epd.getbuffer(image)
+        buf = self._epd.getbuffer(rotated)
         
         # Use Waveshare DisplayPartial - this always refreshes full screen
         # but uses a faster partial refresh waveform
