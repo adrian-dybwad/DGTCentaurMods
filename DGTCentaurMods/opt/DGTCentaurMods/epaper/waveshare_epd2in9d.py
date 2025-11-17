@@ -396,117 +396,67 @@ class EPD:
     
     def DisplayPartialRegion(self, image_buffer, x_start, y_start, x_end, y_end):
         """
-        Display a true partial update for a specific region using UC8151 commands.
+        Display a true partial update for a specific region.
+        
+        Follows the pattern from EPD_4IN2_PartialDisplay in the Waveshare examples.
         
         Args:
-            image_buffer: Full-screen buffer (list of bytes)
+            image_buffer: Full-screen buffer (list of bytes) from getbuffer()
             x_start: Start X coordinate (pixels, will be aligned to byte boundary)
             y_start: Start Y coordinate (pixels)
             x_end: End X coordinate (exclusive, pixels)
             y_end: End Y coordinate (exclusive, pixels)
-        
-        The region will be aligned to byte boundaries (8 pixels) for X coordinates.
-        Only the specified region will be refreshed on the display.
         """
-        # Debug output
-        print(f"DisplayPartialRegion: window=({x_start},{y_start}) to ({x_end},{y_end})")
-        
         # Align X coordinates to byte boundaries (8 pixels)
-        x_start_byte = (x_start // 8) * 8
-        x_end_byte = ((x_end + 7) // 8) * 8
+        x_start_aligned = (x_start // 8) * 8
+        x_end_aligned = ((x_end + 7) // 8) * 8
         
-        # Convert to byte indices (for RAM addressing)
-        x_start_byte_idx = x_start_byte // 8
-        x_end_byte_idx = (x_end_byte // 8) - 1  # Inclusive end for RAM
-        
-        print(f"  Aligned: x_start_byte={x_start_byte}, x_end_byte={x_end_byte}")
-        print(f"  Byte indices: x_start_byte_idx={x_start_byte_idx}, x_end_byte_idx={x_end_byte_idx}")
-        
-        # Calculate region dimensions
-        region_width_bytes = x_end_byte_idx - x_start_byte_idx + 1
-        region_height = y_end - y_start
-        
-        # Extract region buffer from full-screen buffer
-        # getbuffer stores bytes in row-major order: byte_idx = y * bytes_per_row + x_byte
+        # Calculate byte indices for data extraction
         bytes_per_row = self.width // 8
-        region_buffer = []
+        x_start_byte_idx = x_start_aligned // 8
+        x_end_byte_idx = x_end_aligned // 8
         
-        # Extract bytes row by row for the region
-        for y in range(y_start, y_end):
-            for x_byte in range(x_start_byte_idx, x_end_byte_idx + 1):
-                byte_idx = y * bytes_per_row + x_byte
-                if 0 <= byte_idx < len(image_buffer):
-                    region_buffer.append(image_buffer[byte_idx])
-        
-        # Use epd2in9d partial update commands (like DisplayPartial)
-        # First set partial mode
+        # Enter partial mode (like DisplayPartial)
         self.SetPartReg()
         
         # Command 0x91: Enter partial mode
         self.send_command(0x91)
         
         # Command 0x90: Set partial window
-        # Format: x_start, x_end, y_start_low, y_start_high, y_end_low, y_end_high, rotation
-        # DisplayPartial uses: x_start=0, x_end=width-1 (pixel coordinates)
-        # For partial region, we use the byte-aligned pixel coordinates
-        # Note: DisplayPartial does NOT use 0x4E/0x4F, so we don't either
+        # Format matches DisplayPartial: x_start (1 byte), x_end (1 byte), 
+        # y_start (2 bytes), y_end (2 bytes), rotation (1 byte)
+        # For epd2in9d: width=128 fits in 1 byte, height=296 needs 2 bytes
         self.send_command(0x90)
-        self.send_data(x_start_byte & 0xFF)      # X start (pixel coordinate, byte-aligned)
-        self.send_data((x_end_byte - 1) & 0xFF)  # X end (pixel coordinate, inclusive)
-        self.send_data(y_start & 0xFF)            # Y start low byte
-        self.send_data((y_start >> 8) & 0x01)     # Y start high byte
-        self.send_data((y_end - 1) & 0xFF)        # Y end low byte (inclusive)
-        self.send_data(((y_end - 1) >> 8) & 0x01) # Y end high byte
-        self.send_data(0x28)                      # Rotation
+        self.send_data(x_start_aligned & 0xFF)         # X start (single byte, width=128)
+        self.send_data((x_end_aligned - 1) & 0xFF)     # X end (single byte, inclusive)
+        self.send_data((y_start >> 8) & 0xFF)          # Y start high byte
+        self.send_data(y_start & 0xFF)                 # Y start low byte
+        self.send_data(((y_end - 1) >> 8) & 0xFF)      # Y end high byte
+        self.send_data((y_end - 1) & 0xFF)             # Y end low byte (inclusive)
+        self.send_data(0x28)                           # Rotation
         
-        # Set RAM address counters to the start of the region
-        # This tells the hardware where to start writing the data
-        # Command 0x4E: Set RAM X address counter (byte index)
-        self.send_command(0x4E)
-        self.send_data(x_start_byte_idx & 0xFF)
-        
-        # Command 0x4F: Set RAM Y address counter
-        self.send_command(0x4F)
-        self.send_data(y_start & 0xFF)
-        self.send_data((y_start >> 8) & 0x01)
-        
-        # Use differential update approach (exactly like DisplayPartial)
-        # IMPORTANT: For partial regions, we need to send ONLY the region data
-        # The hardware will use the window (0x90) and RAM address counters to position it
-        # But we need to extract the region from the full buffer first
-        
-        # Extract region buffer from full-screen buffer
-        bytes_per_row = self.width // 8
-        region_buffer = []
-        
-        # Extract bytes row by row for the region
+        # Extract region data from full buffer (row by row)
+        region_data = []
         for y in range(y_start, y_end):
-            for x_byte in range(x_start_byte_idx, x_end_byte_idx + 1):
+            for x_byte in range(x_start_byte_idx, x_end_byte_idx):
                 byte_idx = y * bytes_per_row + x_byte
                 if 0 <= byte_idx < len(image_buffer):
-                    region_buffer.append(image_buffer[byte_idx])
+                    region_data.append(image_buffer[byte_idx])
         
-        # Old data: send original region buffer (non-inverted)
-        # For partial updates, we send white background for the region
-        old_data_region = [0xFF] * len(region_buffer)
-        
-        # New data: invert the region buffer (like DisplayPartial does for full screen)
-        new_data_region = [0x00] * len(region_buffer)
-        for i in range(len(region_buffer)):
-            new_data_region[i] = ~region_buffer[i] & 0xFF
-        
-        # Command 0x10: Write old data to RAM (region only)
+        # Command 0x10: Write old data (white background for region)
+        # EPD_4IN2 uses a DATA buffer, but we'll use white (0xFF)
         self.send_command(0x10)
-        self.send_data2(old_data_region)
+        self.send_data2([0xFF] * len(region_data))
         epdconfig.delay_ms(10)
         
-        # Command 0x13: Write new data to RAM (region only)
+        # Command 0x13: Write new data (inverted region buffer)
+        # DisplayPartial inverts: buf[i] = ~image[i]
+        new_data = [~b & 0xFF for b in region_data]
         self.send_command(0x13)
-        self.send_data2(new_data_region)
+        self.send_data2(new_data)
         epdconfig.delay_ms(10)
         
-        # Turn on display to execute partial refresh
-        # epd2in9d uses 0x12 for display refresh
+        # Turn on display (DisplayPartial doesn't use 0x12, just TurnOnDisplay)
         self.TurnOnDisplay()
         
     def Clear(self):
