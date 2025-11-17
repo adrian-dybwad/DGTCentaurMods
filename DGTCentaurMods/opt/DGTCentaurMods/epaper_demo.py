@@ -10,7 +10,6 @@ Features:
 - Screen filled with text
 """
 
-import logging
 import random
 import signal
 import sys
@@ -18,12 +17,6 @@ import time
 
 from epaper import DisplayManager
 from epaper.widgets import BallWidget, BatteryWidget, ClockWidget, TextWidget
-
-# Set up logging to see what's happening
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 
 
 def main():
