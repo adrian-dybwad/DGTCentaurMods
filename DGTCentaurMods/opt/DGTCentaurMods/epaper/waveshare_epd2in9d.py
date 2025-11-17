@@ -31,6 +31,7 @@
 #
 
 import logging
+import os
 from . import waveshare_epdconfig as epdconfig
 from PIL import Image
 try:
@@ -147,46 +148,81 @@ class EPD:
         timeout = 5.0  # 5 second timeout
         start_time = time.time()
         
+        # Check if BUSY logic is inverted via environment variable
+        # Some hardware uses HIGH=busy, LOW=idle instead of the standard LOW=busy, HIGH=idle
+        inverted_logic = os.environ.get("EPAPER_BUSY_INVERTED", "").lower() == "true"
+        
         # Read initial state
         initial_state = epdconfig.digital_read(self.busy_pin)
-        logger.debug(f"Initial BUSY pin state: {initial_state} (pin={self.busy_pin}, 0=busy/1=idle for active-low)")
+        logger.debug(f"Initial BUSY pin state: {initial_state} (pin={self.busy_pin}, inverted={inverted_logic})")
         
-        # UC8151 BUSY pin is typically active-low: LOW (0) = busy, HIGH (1) = idle
-        # With pull_up=True, floating pin reads HIGH (1), which is idle
-        # So we wait while pin is LOW (0) = busy, exit when HIGH (1) = idle
-        
-        # If pin is already HIGH, it might be idle (or floating with pull-up)
-        if initial_state == 1:
-            logger.debug("BUSY pin is HIGH - may already be idle, waiting briefly to confirm...")
-            epdconfig.delay_ms(50)
-            new_state = epdconfig.digital_read(self.busy_pin)
-            if new_state == 1:
-                logger.debug("BUSY pin still HIGH - assuming idle")
+        if inverted_logic:
+            # Inverted logic: HIGH (1) = busy, LOW (0) = idle
+            # Wait while pin is HIGH (1) = busy, exit when LOW (0) = idle
+            if initial_state == 0:
+                logger.debug("BUSY pin is LOW - already idle (inverted logic)")
                 return
-        
-        # Wait while pin is LOW (0) = busy
-        check_count = 0
-        while True:
-            current_state = epdconfig.digital_read(self.busy_pin)
-            elapsed = time.time() - start_time
             
-            # Exit when pin goes HIGH (1) = idle
-            if current_state == 1:
-                logger.debug(f"e-Paper busy release (pin now HIGH/idle) after {elapsed:.2f}s")
-                break
+            check_count = 0
+            while True:
+                current_state = epdconfig.digital_read(self.busy_pin)
+                elapsed = time.time() - start_time
+                
+                # Exit when pin goes LOW (0) = idle
+                if current_state == 0:
+                    logger.debug(f"e-Paper busy release (pin now LOW/idle) after {elapsed:.2f}s")
+                    break
+                
+                # Check timeout
+                if elapsed > timeout:
+                    logger.warning(f"e-Paper busy timeout after {elapsed:.1f}s - pin still reads {current_state} (HIGH=busy, inverted)")
+                    logger.warning(f"Pin {self.busy_pin} may be wrong or hardware not responding")
+                    logger.warning("Continuing anyway - display may still work if SPI is functioning")
+                    break
+                
+                # Send command to check status periodically
+                if check_count % 10 == 0:  # Every 100ms
+                    self.send_command(0x71)
+                epdconfig.delay_ms(10)
+                check_count += 1
+        else:
+            # Standard UC8151 logic: LOW (0) = busy, HIGH (1) = idle
+            # With pull_up=True, floating pin reads HIGH (1), which is idle
+            # So we wait while pin is LOW (0) = busy, exit when HIGH (1) = idle
             
-            # Check timeout
-            if elapsed > timeout:
-                logger.warning(f"e-Paper busy timeout after {elapsed:.1f}s - pin still reads {current_state} (LOW=busy)")
-                logger.warning(f"Pin {self.busy_pin} may be wrong, inverted, or hardware not responding")
-                logger.warning("Continuing anyway - display may still work if SPI is functioning")
-                break
+            # If pin is already HIGH, it might be idle (or floating with pull-up)
+            if initial_state == 1:
+                logger.debug("BUSY pin is HIGH - may already be idle, waiting briefly to confirm...")
+                epdconfig.delay_ms(50)
+                new_state = epdconfig.digital_read(self.busy_pin)
+                if new_state == 1:
+                    logger.debug("BUSY pin still HIGH - assuming idle")
+                    return
             
-            # Send command to check status periodically
-            if check_count % 10 == 0:  # Every 100ms
-                self.send_command(0x71)
-            epdconfig.delay_ms(10)
-            check_count += 1
+            # Wait while pin is LOW (0) = busy
+            check_count = 0
+            while True:
+                current_state = epdconfig.digital_read(self.busy_pin)
+                elapsed = time.time() - start_time
+                
+                # Exit when pin goes HIGH (1) = idle
+                if current_state == 1:
+                    logger.debug(f"e-Paper busy release (pin now HIGH/idle) after {elapsed:.2f}s")
+                    break
+                
+                # Check timeout
+                if elapsed > timeout:
+                    logger.warning(f"e-Paper busy timeout after {elapsed:.1f}s - pin still reads {current_state} (LOW=busy)")
+                    logger.warning(f"Pin {self.busy_pin} may be wrong, inverted, or hardware not responding")
+                    logger.warning("Try setting EPAPER_BUSY_INVERTED=true if hardware uses HIGH=busy logic")
+                    logger.warning("Continuing anyway - display may still work if SPI is functioning")
+                    break
+                
+                # Send command to check status periodically
+                if check_count % 10 == 0:  # Every 100ms
+                    self.send_command(0x71)
+                epdconfig.delay_ms(10)
+                check_count += 1
         
     def TurnOnDisplay(self):
         self.send_command(0x12)
