@@ -108,16 +108,30 @@ class Driver:
         rotated = image.transpose(Image.ROTATE_180)
         
         # Convert to buffer using Waveshare's getbuffer
+        # The buffer is now in hardware coordinate system (rotated)
         buf = self._epd.getbuffer(rotated)
         
         # Convert framework coordinates to hardware coordinates (rotated 180°)
-        # In hardware: (0,0) is bottom-left, (width, height) is top-right
+        # Framework: (0,0) top-left, (width, height) bottom-right
+        # Hardware: (0,0) bottom-right (after rotation), (width, height) top-left
+        # After rotation: point (x, y) in framework becomes (width-x, height-y) in hardware
         hw_x1 = self.width - x2
         hw_y1 = self.height - y2
         hw_x2 = self.width - x1
         hw_y2 = self.height - y1
         
+        # Ensure coordinates are valid
+        hw_x1 = max(0, min(hw_x1, self.width))
+        hw_y1 = max(0, min(hw_y1, self.height))
+        hw_x2 = max(0, min(hw_x2, self.width))
+        hw_y2 = max(0, min(hw_y2, self.height))
+        
+        # Ensure x1 < x2 and y1 < y2
+        if hw_x1 >= hw_x2 or hw_y1 >= hw_y2:
+            return
+        
         # Use true partial refresh with hardware coordinates
+        # The buffer is already in hardware coordinates, so we extract using hw coords
         self._epd.DisplayPartialRegion(buf, hw_x1, hw_y1, hw_x2, hw_y2)
 
     def sleep(self) -> None:

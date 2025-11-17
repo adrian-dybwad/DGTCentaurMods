@@ -424,16 +424,18 @@ class EPD:
         region_height = y_end - y_start
         
         # Extract region buffer from full-screen buffer
-        # Buffer is row-major: each row has bytes_per_row bytes
+        # getbuffer stores bytes in row-major order: byte_idx = y * bytes_per_row + x_byte
+        # This is equivalent to: int((x + y * width) / 8) where x = x_byte * 8
         bytes_per_row = self.width // 8
         region_buffer = []
+        
+        # Extract bytes row by row for the region
         for y in range(y_start, y_end):
-            # Calculate byte offset for this row
-            row_offset = y * bytes_per_row
-            # Extract the bytes for this row's region
-            start_idx = row_offset + x_start_byte_idx
-            end_idx = start_idx + region_width_bytes
-            region_buffer.extend(image_buffer[start_idx:end_idx])
+            for x_byte in range(x_start_byte_idx, x_end_byte_idx + 1):
+                # Standard row-major formula
+                byte_idx = y * bytes_per_row + x_byte
+                if 0 <= byte_idx < len(image_buffer):
+                    region_buffer.append(image_buffer[byte_idx])
         
         # Set partial window using UC8151 commands
         # Command 0x91: Enter partial mode
