@@ -24,7 +24,9 @@ class ChessBoardWidget(Widget):
         self.fen = fen
         self.flip = flip
         self._chess_font = None
+        self._grey_pattern = None
         self._load_chess_font()
+        self._create_grey_pattern()
     
     def _load_chess_font(self):
         """Load chess piece sprite sheet."""
@@ -36,6 +38,15 @@ class ChessBoardWidget(Widget):
                 self._chess_font = None
         except Exception:
             self._chess_font = None
+    
+    def _create_grey_pattern(self):
+        """Create a grey checkerboard pattern for dark squares."""
+        pattern = Image.new("1", (16, 16), 255)
+        for i in range(16):
+            for j in range(16):
+                if (i + j) % 2 == 0:
+                    pattern.putpixel((i, j), 0)
+        self._grey_pattern = pattern
     
     def _expand_fen(self, fen_board: str) -> list:
         """Expand FEN board string to 64 characters."""
@@ -105,13 +116,20 @@ class ChessBoardWidget(Widget):
                 x = dest_file * 16
                 y = dest_rank * 16
                 
-                # Always draw square background (empty square sprite at x=0)
-                square_bg = self._chess_font.crop((0, py, 16, py + 16))
-                img.paste(square_bg, (x, y))
+                # Draw square background
+                if is_dark:
+                    # Draw grey pattern for dark squares
+                    img.paste(self._grey_pattern, (x, y))
+                else:
+                    # Draw white square background
+                    square_bg = self._chess_font.crop((0, py, 16, py + 16))
+                    img.paste(square_bg, (x, y))
                 
                 # Draw piece if it exists
                 px = self._piece_x(symbol)
                 if px > 0:
+                    # For pieces on dark squares, use the piece from dark square row
+                    # For pieces on light squares, use the piece from light square row
                     piece = self._chess_font.crop((px, py, px + 16, py + 16))
                     img.paste(piece, (x, y))
             
