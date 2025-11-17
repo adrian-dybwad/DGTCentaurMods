@@ -148,6 +148,16 @@ class EPD:
         timeout = 5.0  # 5 second timeout
         start_time = time.time()
         
+        # Check if BUSY checking should be skipped entirely
+        # Some drivers don't use BUSY pin and just use fixed delays
+        skip_busy = os.environ.get("EPAPER_SKIP_BUSY", "").lower() == "true"
+        if skip_busy:
+            logger.debug("Skipping BUSY pin check (EPAPER_SKIP_BUSY=true), using fixed delay")
+            # Use a fixed delay instead of checking BUSY pin
+            # Typical refresh time is 260-300ms for partial, 1.5-2s for full
+            epdconfig.delay_ms(300)
+            return
+        
         # Check if BUSY logic is inverted via environment variable
         # Some hardware uses HIGH=busy, LOW=idle instead of the standard LOW=busy, HIGH=idle
         inverted_logic = os.environ.get("EPAPER_BUSY_INVERTED", "").lower() == "true"
