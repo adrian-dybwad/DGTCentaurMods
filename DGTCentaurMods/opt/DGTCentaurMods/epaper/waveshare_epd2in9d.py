@@ -398,7 +398,8 @@ class EPD:
         """
         Display a true partial update for a specific region.
         
-        Follows the pattern from EPD_4IN2_PartialDisplay in the Waveshare examples.
+        Follows DisplayPart from Arduino epd2in9d example exactly.
+        Passes full-screen buffer - hardware uses window to determine what to update.
         
         Args:
             image_buffer: Full-screen buffer (list of bytes) from getbuffer()
@@ -411,23 +412,15 @@ class EPD:
         x_start_aligned = (x_start // 8) * 8
         x_end_aligned = ((x_end + 7) // 8) * 8
         
-        # Calculate byte indices for data extraction
-        bytes_per_row = self.width // 8
-        x_start_byte_idx = x_start_aligned // 8
-        x_end_byte_idx = x_end_aligned // 8
-        
-        # Enter partial mode (like DisplayPartial)
+        # Set partial mode (like DisplayPartial)
         self.SetPartReg()
         
         # Command 0x91: Enter partial mode
         self.send_command(0x91)
         
-        # Command 0x90: Set partial window
-        # Format matches DisplayPartial: x_start (1 byte), x_end (1 byte), 
-        # y_start (2 bytes), y_end (2 bytes), rotation (1 byte)
-        # For epd2in9d: width=128 fits in 1 byte, height=296 needs 2 bytes
+        # Command 0x90: Set partial window (matches DisplayPartial format)
         self.send_command(0x90)
-        self.send_data(x_start_aligned & 0xFF)         # X start (single byte, width=128)
+        self.send_data(x_start_aligned & 0xFF)         # X start (single byte)
         self.send_data((x_end_aligned - 1) & 0xFF)     # X end (single byte, inclusive)
         self.send_data((y_start >> 8) & 0xFF)          # Y start high byte
         self.send_data(y_start & 0xFF)                 # Y start low byte
@@ -435,29 +428,14 @@ class EPD:
         self.send_data((y_end - 1) & 0xFF)             # Y end low byte (inclusive)
         self.send_data(0x28)                           # Rotation
         
-        # Extract region data from full buffer (row by row)
-        region_data = []
-        for y in range(y_start, y_end):
-            for x_byte in range(x_start_byte_idx, x_end_byte_idx):
-                byte_idx = y * bytes_per_row + x_byte
-                if 0 <= byte_idx < len(image_buffer):
-                    region_data.append(image_buffer[byte_idx])
-        
-        # Command 0x10: Write old data (original, non-inverted)
-        # DisplayPartial sends: self.send_data2(image) - original buffer
-        self.send_command(0x10)
-        self.send_data2(region_data)  # Original region data, not inverted
-        epdconfig.delay_ms(10)
-        
-        # Command 0x13: Write new data
-        # DisplayPartial inverts: buf[i] = ~image[i]
-        # But if display shows inverted, try NOT inverting for partial updates
-        # The hardware might interpret partial updates differently than full screen
+        # Send FULL SCREEN buffer (like DisplayPart in Arduino example)
+        # Hardware uses window to determine what to update
+        # DisplayPart only sends 0x13, not 0x10
         self.send_command(0x13)
-        self.send_data2(region_data)  # Try non-inverted (opposite of DisplayPartial)
+        self.send_data2(image_buffer)  # Full-screen buffer, not inverted
         epdconfig.delay_ms(10)
         
-        # Turn on display (DisplayPartial doesn't use 0x12, just TurnOnDisplay)
+        # Turn on display
         self.TurnOnDisplay()
         
     def Clear(self):
