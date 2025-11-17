@@ -1,11 +1,9 @@
 """
-Self-contained ePaper display framework with widget-based architecture.
-
-Widgets only need to implement content rendering. The framework handles
-all region tracking, merging, and refresh scheduling automatically.
+ePaper display framework.
 """
 
 from .display_manager import DisplayManager
+from .widget import Widget
+from .widgets import ClockWidget, BatteryWidget, TextWidget, BallWidget
 
-__all__ = ["DisplayManager"]
-
+__all__ = ['DisplayManager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'BallWidget']
