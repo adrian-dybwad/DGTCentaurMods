@@ -140,6 +140,7 @@ class Driver:
 
     def _write_command(self, cmd: int) -> None:
         """Write a command byte to the display."""
+        logger.debug(f"Sending command: 0x{cmd:02X}")
         GPIO.output(DC_PIN, GPIO.LOW)  # Command mode
         if not USE_HW_CS:
             GPIO.output(CS_PIN, GPIO.LOW)
@@ -182,7 +183,9 @@ class Driver:
         """
         Wait until the display is not busy.
         
-        BUSY pin logic: LOW when busy, HIGH when idle (active low).
+        BUSY pin logic can be inverted via EPAPER_BUSY_INVERTED env var.
+        Default: LOW when busy, HIGH when idle (active low).
+        If inverted: HIGH when busy, LOW when idle (active high).
         If BUSY pin is not working, can be disabled via EPAPER_SKIP_BUSY env var.
         """
         # Allow skipping BUSY wait if pin is not connected/working
@@ -191,25 +194,44 @@ class Driver:
             time.sleep(0.1)  # Small delay instead
             return
         
+        # Check if BUSY pin logic is inverted
+        busy_inverted = os.environ.get("EPAPER_BUSY_INVERTED", "").lower() == "true"
+        
         timeout = 5.0  # 5 second timeout
         start_time = time.time()
         initial_state = GPIO.input(BUSY_PIN)
-        logger.debug(f"BUSY pin state: {initial_state} (0=LOW/busy, 1=HIGH/idle)")
         
-        # Standard interpretation: LOW when busy, HIGH when idle
-        if initial_state == GPIO.HIGH:
-            # Already idle, no need to wait
-            logger.debug("Display already idle (BUSY pin HIGH)")
-            return
-        
-        # Wait for pin to go HIGH (idle)
-        while GPIO.input(BUSY_PIN) == GPIO.LOW:
-            elapsed = time.time() - start_time
-            if elapsed > timeout:
-                logger.warning(f"Timeout waiting for display to become idle after {elapsed:.2f}s")
-                logger.warning("If BUSY pin is not connected, set EPAPER_SKIP_BUSY=true")
-                break
-            time.sleep(0.01)
+        if busy_inverted:
+            # Inverted: HIGH when busy, LOW when idle
+            logger.debug(f"BUSY pin state: {initial_state} (inverted: 0=LOW/idle, 1=HIGH/busy)")
+            if initial_state == GPIO.LOW:
+                # Already idle
+                logger.debug("Display already idle (BUSY pin LOW)")
+                return
+            # Wait for pin to go LOW (idle)
+            while GPIO.input(BUSY_PIN) == GPIO.HIGH:
+                elapsed = time.time() - start_time
+                if elapsed > timeout:
+                    logger.warning(f"Timeout waiting for display to become idle after {elapsed:.2f}s")
+                    logger.warning("If BUSY pin is not connected, set EPAPER_SKIP_BUSY=true")
+                    break
+                time.sleep(0.01)
+        else:
+            # Standard: LOW when busy, HIGH when idle
+            logger.debug(f"BUSY pin state: {initial_state} (0=LOW/busy, 1=HIGH/idle)")
+            if initial_state == GPIO.HIGH:
+                # Already idle
+                logger.debug("Display already idle (BUSY pin HIGH)")
+                return
+            # Wait for pin to go HIGH (idle)
+            while GPIO.input(BUSY_PIN) == GPIO.LOW:
+                elapsed = time.time() - start_time
+                if elapsed > timeout:
+                    logger.warning(f"Timeout waiting for display to become idle after {elapsed:.2f}s")
+                    logger.warning("If BUSY pin is not connected, set EPAPER_SKIP_BUSY=true")
+                    logger.warning("If BUSY pin logic is inverted, set EPAPER_BUSY_INVERTED=true")
+                    break
+                time.sleep(0.01)
         
         elapsed = time.time() - start_time
         if elapsed > 0.01:
@@ -340,7 +362,10 @@ class Driver:
             # Power on
             logger.debug("Powering on for refresh...")
             self._write_command(UC8151_PON)
-            self._wait_until_idle()
+            if os.environ.get("EPAPER_SKIP_BUSY", "").lower() == "true":
+                time.sleep(0.1)  # Small delay instead of BUSY wait
+            else:
+                self._wait_until_idle()
             
             # Send image data
             logger.debug("Sending image data...")
@@ -352,14 +377,29 @@ class Driver:
             logger.debug("Triggering display refresh...")
             refresh_start = time.time()
             self._write_command(UC8151_DRF)
-            self._wait_until_idle()
+            
+            # Wait for refresh to complete
+            # If BUSY pin is not working, use fixed delay based on UC8151 specs
+            if os.environ.get("EPAPER_SKIP_BUSY", "").lower() == "true":
+                # Full refresh takes 1.5-2.0 seconds per UC8151 datasheet
+                logger.debug("Using fixed delay for full refresh (1.8s)...")
+                time.sleep(1.8)
+            else:
+                self._wait_until_idle()
+            
             refresh_duration = time.time() - refresh_start
             logger.info(f"Display refresh completed in {refresh_duration:.2f}s")
+            
+            if refresh_duration < 1.0:
+                logger.warning(f"Refresh too fast ({refresh_duration:.2f}s) - display may not have updated!")
             
             # Power off
             logger.debug("Powering off...")
             self._write_command(UC8151_POF)
-            self._wait_until_idle()
+            if os.environ.get("EPAPER_SKIP_BUSY", "").lower() == "true":
+                time.sleep(0.1)  # Small delay instead of BUSY wait
+            else:
+                self._wait_until_idle()
             logger.info("Full refresh complete")
         except Exception as e:
             logger.error(f"Full refresh failed: {e}", exc_info=True)
