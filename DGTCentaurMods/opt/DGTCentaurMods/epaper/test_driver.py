@@ -7,6 +7,12 @@ Tests basic functionality step by step.
 import logging
 import sys
 import time
+from pathlib import Path
+
+# Add parent directory to path so we can import epaper
+script_dir = Path(__file__).resolve().parent
+parent_dir = script_dir.parent
+sys.path.insert(0, str(parent_dir))
 
 logging.basicConfig(
     level=logging.DEBUG,
