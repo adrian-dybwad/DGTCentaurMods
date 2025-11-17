@@ -408,6 +408,9 @@ class EPD:
         The region will be aligned to byte boundaries (8 pixels) for X coordinates.
         Only the specified region will be refreshed on the display.
         """
+        # Debug output
+        print(f"DisplayPartialRegion: window=({x_start},{y_start}) to ({x_end},{y_end})")
+        
         # Align X coordinates to byte boundaries (8 pixels)
         x_start_byte = (x_start // 8) * 8
         x_end_byte = ((x_end + 7) // 8) * 8
@@ -415,6 +418,9 @@ class EPD:
         # Convert to byte indices (for RAM addressing)
         x_start_byte_idx = x_start_byte // 8
         x_end_byte_idx = (x_end_byte // 8) - 1  # Inclusive end for RAM
+        
+        print(f"  Aligned: x_start_byte={x_start_byte}, x_end_byte={x_end_byte}")
+        print(f"  Byte indices: x_start_byte_idx={x_start_byte_idx}, x_end_byte_idx={x_end_byte_idx}")
         
         # Calculate region dimensions
         region_width_bytes = x_end_byte_idx - x_start_byte_idx + 1
@@ -443,6 +449,7 @@ class EPD:
         # Format: x_start, x_end, y_start_low, y_start_high, y_end_low, y_end_high, rotation
         # DisplayPartial uses: x_start=0, x_end=width-1 (pixel coordinates)
         # For partial region, we use the byte-aligned pixel coordinates
+        # Note: DisplayPartial does NOT use 0x4E/0x4F, so we don't either
         self.send_command(0x90)
         self.send_data(x_start_byte & 0xFF)      # X start (pixel coordinate, byte-aligned)
         self.send_data((x_end_byte - 1) & 0xFF)  # X end (pixel coordinate, inclusive)
@@ -452,28 +459,18 @@ class EPD:
         self.send_data(((y_end - 1) >> 8) & 0x01) # Y end high byte
         self.send_data(0x28)                      # Rotation
         
-        # Set RAM address counters to the start of the region
-        # This tells the hardware where to start writing the data
-        # Command 0x4E: Set RAM X address counter (byte index)
-        self.send_command(0x4E)
-        self.send_data(x_start_byte_idx & 0xFF)
-        
-        # Command 0x4F: Set RAM Y address counter
-        self.send_command(0x4F)
-        self.send_data(y_start & 0xFF)
-        self.send_data((y_start >> 8) & 0x01)
-        
-        # Use differential update approach (like DisplayPartial)
+        # Use differential update approach (exactly like DisplayPartial)
         # IMPORTANT: DisplayPartial sends the FULL SCREEN buffer, not just the region
         # The hardware uses the window (0x90) to determine which part to update
         # So we need to send the full-screen buffer, not just the region buffer
         
         # Create full-screen buffers for old and new data
-        bytes_per_row = self.width // 8
-        full_buffer_size = bytes_per_row * self.height
+        # image_buffer is already the full-screen buffer from getbuffer()
+        full_buffer_size = len(image_buffer)
         
         # Old data: send original image buffer (non-inverted)
         # DisplayPartial sends: self.send_data2(image) for 0x10
+        # image_buffer is already in the correct format from getbuffer()
         old_data_full = list(image_buffer)
         
         # New data: invert the ENTIRE buffer (like DisplayPartial does)
