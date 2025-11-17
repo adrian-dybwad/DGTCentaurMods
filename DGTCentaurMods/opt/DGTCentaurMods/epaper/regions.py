@@ -100,17 +100,23 @@ def expand_to_controller_alignment(region: Region, width: int, height: int) -> R
     """
     Expand region to align with controller row boundaries.
     
-    The C library's displayRegion() API requires:
-    - Updates to be aligned to 8-pixel row boundaries vertically (required by UC8151 controller)
-    - Full-width rows horizontally (the displayRegion() function only takes y coordinates,
-      not x coordinates, so it always refreshes full-width for the specified rows)
+    The UC8151 controller requires:
+    - Updates to be aligned to 8-pixel row boundaries vertically (required)
+    - Horizontal alignment to byte boundaries (8 pixels) for efficiency
+    
+    With the Waveshare Python driver, we can now do true partial-width refreshes,
+    so we only expand to byte boundaries horizontally, not full width.
     """
     row_height = 8
+    byte_width = 8
+    
     # Expand vertically to 8-pixel row boundaries (required by controller)
     y1 = max(0, (region.y1 // row_height) * row_height)
     y2 = min(height, ((region.y2 + row_height - 1) // row_height) * row_height)
     
-    # Expand horizontally to full width (required by C library API)
-    # The displayRegion() function only takes y0, y1 coordinates, not x coordinates,
-    # so it always refreshes full-width rows
-    return Region(0, y1, width, y2)
+    # Expand horizontally to byte boundaries (8 pixels) for efficiency
+    # No longer need full-width - Waveshare driver supports partial-width refreshes
+    x1 = max(0, (region.x1 // byte_width) * byte_width)
+    x2 = min(width, ((region.x2 + byte_width - 1) // byte_width) * byte_width)
+    
+    return Region(x1, y1, x2, y2)
