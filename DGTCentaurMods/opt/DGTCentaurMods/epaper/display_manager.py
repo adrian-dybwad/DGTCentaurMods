@@ -77,16 +77,22 @@ class DisplayManager:
             import time
             time.sleep(0.1)
             
-            # Clear display on init
+            # Clear display on init using Waveshare Clear() method
             print("Clearing display with initial full refresh...")
             self._framebuffer.clear()
-            future = self._scheduler.submit(full=True)
+            # Use Waveshare Clear() method to ensure proper initialization
             try:
-                result = future.result(timeout=10.0)  # Full refresh can take 1.5-2 seconds
-                print(f"Initial refresh completed: {result}")
+                self._driver._epd.Clear()
+                print("Display cleared using Waveshare Clear()")
             except Exception as e:
-                print(f"WARNING: Initial refresh failed or timed out: {e}")
-                # Continue anyway - display might still work
+                print(f"WARNING: Clear() failed: {e}, using full refresh instead")
+                future = self._scheduler.submit(full=True)
+                try:
+                    result = future.result(timeout=10.0)  # Full refresh can take 1.5-2 seconds
+                    print(f"Initial refresh completed: {result}")
+                except Exception as e2:
+                    print(f"WARNING: Initial refresh failed or timed out: {e2}")
+                    # Continue anyway - display might still work
             
             self._initialized = True
 
@@ -169,8 +175,15 @@ class DisplayManager:
             self.init()
         
         with self._lock:
-            # Render all widgets to framebuffer
-            # We render all widgets to ensure correct compositing, even if unchanged
+            # CRITICAL: Reset current buffer to flushed state at start of each update
+            # This ensures we build on top of what's actually displayed, not accumulated changes
+            # Without this, moved widgets leave trails and the buffer gets corrupted
+            with self._framebuffer._lock:
+                # Copy flushed buffer to current as starting point
+                # This ensures we build on top of what's actually displayed
+                self._framebuffer._current = self._framebuffer._flushed.copy()
+            
+            # Get canvas for rendering
             canvas = self._framebuffer.get_canvas()
             
             # Separate static widgets from moving widgets (like ball)

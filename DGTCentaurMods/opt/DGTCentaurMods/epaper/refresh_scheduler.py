@@ -198,7 +198,12 @@ class RefreshScheduler:
                     future.set_exception(e)
 
     def _execute_partial_refreshes(self, batch: List[tuple[Optional[Region], Future]]) -> None:
-        """Execute partial refreshes for the given regions."""
+        """
+        Execute partial refreshes for the given regions.
+        
+        Note: Waveshare DisplayPartial always refreshes the full screen,
+        so we always pass the full framebuffer snapshot.
+        """
         # Extract regions (filter out None)
         regions = [region for region, _ in batch if region is not None]
         
@@ -209,57 +214,46 @@ class RefreshScheduler:
                     future.set_result("no-op")
             return
         
-        # Merge overlapping regions
-        merged = merge_regions(regions)
+        # Check if we should stop before processing
+        if self._stop_event.is_set():
+            # Mark futures as cancelled
+            for _, future in batch:
+                if not future.done():
+                    future.set_result("cancelled-on-shutdown")
+            return
         
-        # Execute each merged region
-        for region in merged:
-            # Check if we should stop before processing more regions
-            if self._stop_event.is_set():
-                # Mark remaining futures as cancelled
-                for _, future in batch:
-                    if not future.done():
-                        future.set_result("cancelled-on-shutdown")
-                return
-            
-            # Expand to controller alignment (optimized width, full-height rows)
-            expanded = expand_to_controller_alignment(
-                region,
-                self._driver.width,
-                self._driver.height
+        # Waveshare DisplayPartial always refreshes full screen
+        # Get full-screen snapshot
+        full_image = self._framebuffer.snapshot()
+        
+        try:
+            # Use partial refresh with full-screen image
+            # Coordinates are for reference only (DisplayPartial ignores them)
+            self._driver.partial_refresh(
+                0, 0, self._driver.width, self._driver.height,
+                full_image
             )
             
-            # Get image for the expanded region
-            # With Waveshare driver, we can do true partial-width refreshes,
-            # so we only refresh the necessary region (aligned to byte boundaries)
-            image = self._framebuffer.snapshot_region(expanded)
+            # Mark all dirty regions as flushed (since we refreshed full screen)
+            for region in regions:
+                self._framebuffer.flush_region(region)
             
-            try:
-                # Use x/y coordinates for partial refresh (Waveshare driver supports this)
-                self._driver.partial_refresh(
-                    expanded.x1,
-                    expanded.y1,
-                    expanded.x2,
-                    expanded.y2,
-                    image
-                )
-                
-                # Mark the expanded region as flushed
-                # This ensures the flushed buffer matches what's actually on the display
-                self._framebuffer.flush_region(expanded)
-                self._partial_refresh_count += 1
-                self._last_partial_refresh_time = time.time()
-                
-                # Small delay between partial refreshes (skip if shutting down)
-                if not self._stop_event.is_set():
-                    time.sleep(self._min_refresh_interval)
-                
-            except Exception as e:
-                # If partial refresh fails, mark all futures as failed
-                for _, future in batch:
-                    if not future.done():
-                        future.set_exception(e)
-                return
+            self._partial_refresh_count += 1
+            self._last_partial_refresh_time = time.time()
+            
+            # Small delay after partial refresh (skip if shutting down)
+            if not self._stop_event.is_set():
+                time.sleep(self._min_refresh_interval)
+            
+        except Exception as e:
+            # If partial refresh fails, mark all futures as failed
+            print(f"ERROR in partial refresh: {e}")
+            import traceback
+            traceback.print_exc()
+            for _, future in batch:
+                if not future.done():
+                    future.set_exception(e)
+            return
         
         # Complete all futures
         for _, future in batch:

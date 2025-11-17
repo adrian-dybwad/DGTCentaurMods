@@ -15,14 +15,13 @@ class Driver:
     """
     Wraps the Waveshare e-Paper Python library.
     
-    This replaces the compiled epaperDriver.so with a pure Python implementation
-    that supports partial refreshes with x/y coordinates.
+    This replaces the compiled epaperDriver.so with a pure Python implementation.
     """
 
     def __init__(self) -> None:
         self._epd = WaveshareEPD()
         
-        # Display dimensions
+        # Display dimensions (vertical orientation: width=128, height=296)
         self.width = 128
         self.height = 296
         
@@ -45,9 +44,7 @@ class Driver:
                 raise RuntimeError(f"Failed to initialize e-Paper display: {e}") from e
 
     def reset(self) -> None:
-        """
-        Reset the display hardware.
-        """
+        """Reset the display hardware."""
         self._epd.reset()
 
     def full_refresh(self, image: Image.Image) -> None:
@@ -55,106 +52,60 @@ class Driver:
         Perform a full screen refresh.
         
         Args:
-            image: PIL Image to display (will be rotated to match hardware orientation)
+            image: PIL Image in vertical orientation (width=128, height=296)
         
         The refresh blocks until the hardware operation completes.
-        Typical duration is 1.5-2.0 seconds based on UC8151 controller specifications.
+        Typical duration is 1.5-2.0 seconds.
         """
         if not self._initialized:
             self.init()
         
-        # Rotate 180 degrees to match hardware orientation
-        rotated = image.transpose(Image.ROTATE_180)
+        # Ensure image is correct size and mode
+        if image.size != (self.width, self.height):
+            image = image.resize((self.width, self.height), Image.Resampling.LANCZOS)
         
-        # Convert to buffer format expected by Waveshare driver
-        buf = self._epd.getbuffer(rotated)
+        if image.mode != "1":
+            image = image.convert("1")
+        
+        # Convert to buffer format - getbuffer handles orientation automatically
+        # It expects vertical orientation (128x296) and processes it directly
+        buf = self._epd.getbuffer(image)
         
         # Perform full refresh
         self._epd.display(buf)
 
     def partial_refresh(self, x1: int, y1: int, x2: int, y2: int, image: Image.Image) -> None:
         """
-        Perform a partial screen refresh with x/y coordinates.
+        Perform a partial screen refresh.
         
         Args:
-            x1: Start x coordinate (inclusive)
-            y1: Start y coordinate (inclusive)
-            x2: End x coordinate (exclusive)
-            y2: End y coordinate (exclusive)
-            image: PIL Image of the region to display (will be rotated to match hardware orientation)
+            x1, y1, x2, y2: Coordinates (for reference only, DisplayPartial always does full screen)
+            image: PIL Image of the FULL SCREEN (width=128, height=296)
         
-        The refresh blocks until the hardware operation completes.
-        Typical duration is 260-300ms based on UC8151 controller specifications.
-        
-        Note: Coordinates are in the framework's coordinate system (top-left origin).
-        The image will be rotated to match hardware orientation.
+        Note: Waveshare DisplayPartial always refreshes the full screen.
+        The "partial" refers to the refresh waveform (faster, less ghosting),
+        not the region size. The image parameter must be full-screen.
         """
         if not self._initialized:
             self.init()
         
-        # The image passed is a region image, but we need a full-screen buffer
-        # Create a full-screen white image and paste the region into it
-        full_image = Image.new("1", (self.width, self.height), 255)  # White background
-        full_image.paste(image, (x1, y1))
+        # Ensure we have a full-screen image
+        if image.size != (self.width, self.height):
+            # If a region was passed, create full-screen and paste it
+            full_image = Image.new("1", (self.width, self.height), 255)  # White background
+            full_image.paste(image, (x1, y1))
+            image = full_image
         
-        # Rotate 180 degrees to match hardware orientation
-        rotated = full_image.transpose(Image.ROTATE_180)
+        # Ensure 1-bit mode
+        if image.mode != "1":
+            image = image.convert("1")
         
-        # Convert to buffer format (full screen buffer)
-        buf = self._epd.getbuffer(rotated)
+        # Convert to buffer format - getbuffer handles orientation automatically
+        buf = self._epd.getbuffer(image)
         
-        # Set up partial refresh mode
-        self._epd.SetPartReg()
-        
-        # Set partial window with x/y coordinates
-        # Command 0x91: Enter partial mode
-        self._epd.send_command(0x91)
-        
-        # Command 0x90: Set partial window
-        self._epd.send_command(0x90)
-        
-        # Convert coordinates to hardware orientation (rotated 180 degrees)
-        # In hardware coordinates (from bottom-left), we need to invert
-        hw_x1 = self.width - x2
-        hw_x2 = self.width - x1 - 1
-        hw_y1 = self.height - y2
-        hw_y2 = self.height - y1 - 1
-        
-        # Clamp to display bounds
-        hw_x1 = max(0, min(hw_x1, self.width - 1))
-        hw_x2 = max(0, min(hw_x2, self.width - 1))
-        hw_y1 = max(0, min(hw_y1, self.height - 1))
-        hw_y2 = max(0, min(hw_y2, self.height - 1))
-        
-        # Send partial window coordinates
-        # Format: x_start, x_end, y_start (2 bytes), y_end (2 bytes), rotation
-        self._epd.send_data(hw_x1)
-        self._epd.send_data(hw_x2)
-        self._epd.send_data(int(hw_y1 / 256))
-        self._epd.send_data(hw_y1 % 256)
-        self._epd.send_data(int(hw_y2 / 256))
-        self._epd.send_data(hw_y2 % 256)
-        self._epd.send_data(0x28)  # Rotation
-        
-        # For partial refresh, we still send the full buffer
-        # but only the partial window region will be updated
-        # Create inverted buffer for old data (white background)
-        buf_inverted = [0x00] * len(buf)
-        for i in range(len(buf)):
-            buf_inverted[i] = ~buf[i] & 0xFF
-        
-        # Send old data (white background) - full buffer
-        self._epd.send_command(0x10)
-        self._epd.send_data2(buf)
-        epdconfig.delay_ms(10)
-        
-        # Send new data - full buffer (only partial window will update)
-        self._epd.send_command(0x13)
-        self._epd.send_data2(buf_inverted)
-        epdconfig.delay_ms(10)
-        
-        # Turn on display to execute refresh
-        self._epd.TurnOnDisplay()
+        # Use Waveshare DisplayPartial - this always refreshes full screen
+        # but uses a faster partial refresh waveform
+        self._epd.DisplayPartial(buf)
 
     def sleep(self) -> None:
         """Put the display into sleep mode."""
