@@ -203,7 +203,7 @@ class RefreshScheduler:
                         future.set_result("cancelled-on-shutdown")
                 return
             
-            # Expand to controller alignment (optimized width, full-height rows)
+            # Expand to controller alignment (byte boundaries for optimal performance)
             expanded = expand_to_controller_alignment(
                 region,
                 self._driver.width,
@@ -211,21 +211,22 @@ class RefreshScheduler:
             )
             
             # Get image for the expanded region
-            # Note: expand_to_controller_alignment() always returns full-width regions
-            # because the C library's displayRegion() function only takes y0, y1 coordinates,
-            # not x coordinates. This means it always refreshes full-width rows.
-            # However, we still optimize by only refreshing the necessary rows vertically
-            # (8-pixel aligned) instead of the entire screen.
+            # The Waveshare driver supports partial-width refreshes, so we can
+            # refresh only the necessary region (aligned to byte boundaries)
             image = self._framebuffer.snapshot_region(expanded)
             
             try:
-                # Calculate hardware coordinates (y0, y1 from bottom)
-                y0 = self._driver.height - expanded.y2
-                y1 = self._driver.height - expanded.y1
+                # Use x/y coordinates for partial refresh
+                # The Waveshare driver handles coordinate conversion internally
+                self._driver.partial_refresh(
+                    expanded.x1,
+                    expanded.y1,
+                    expanded.width(),
+                    expanded.height(),
+                    image
+                )
                 
-                self._driver.partial_refresh(y0, y1, image)
-                
-                # Mark the expanded region as flushed (full-width rows)
+                # Mark the expanded region as flushed
                 # This ensures the flushed buffer matches what's actually on the display
                 self._framebuffer.flush_region(expanded)
                 self._partial_refresh_count += 1

@@ -35,32 +35,56 @@ clear_data = bytes(clear_buf)
 clear_data_ptr = (c_uint8 * len(clear_data)).from_buffer_copy(clear_data)
 dll.display(clear_data_ptr)
 
-# Create test image - larger black square for visibility
-test_size = 20  # 20x20 pixels - larger and easier to see
-test_image = Image.new("1", (test_size, test_size), 255)  # White background
-draw = ImageDraw.Draw(test_image)
-# Draw a black square (leave 1 pixel border for visibility)
-draw.rectangle((1, 1, test_size-2, test_size-2), fill=0)  # Black square
-
-# Convert to bytes
-width, height = test_image.size
-bytes_per_row = (width + 7) // 8
-buf = [0xFF] * (bytes_per_row * height)
-pixels = test_image.load()
-
-for y in range(height):
-    for x in range(width):
-        if pixels[x, y] == 0:
-            byte_index = y * bytes_per_row + (x // 8)
-            bit_position = x % 8
-            buf[byte_index] &= ~(0x80 >> bit_position)
-
-image_data = bytes(buf)
-image_data_ptr = (c_uint8 * len(image_data)).from_buffer_copy(image_data)
-
 # Test coordinates - center of screen, larger area
+test_size = 20  # 20x20 pixels
 x1, y1 = 54, 138  # Center minus half of test_size
 x2, y2 = 74, 158  # Center plus half of test_size
+
+# Try different image formats - maybe it needs full-width rows like displayRegion?
+# Option 1: Small image matching region size
+small_image = Image.new("1", (test_size, test_size), 255)  # White background
+draw = ImageDraw.Draw(small_image)
+draw.rectangle((1, 1, test_size-2, test_size-2), fill=0)  # Black square
+
+# Option 2: Full-width image (like displayRegion might expect)
+full_width = 128
+full_image = Image.new("1", (full_width, test_size), 255)  # White background
+draw_full = ImageDraw.Draw(full_image)
+# Draw black square at the x position
+draw_full.rectangle((x1+1, 1, x1+test_size-2, test_size-2), fill=0)  # Black square at x position
+
+# Convert small image to bytes
+width_small, height_small = small_image.size
+bytes_per_row_small = (width_small + 7) // 8
+buf_small = [0xFF] * (bytes_per_row_small * height_small)
+pixels_small = small_image.load()
+
+for y in range(height_small):
+    for x in range(width_small):
+        if pixels_small[x, y] == 0:
+            byte_index = y * bytes_per_row_small + (x // 8)
+            bit_position = x % 8
+            buf_small[byte_index] &= ~(0x80 >> bit_position)
+
+image_data_small = bytes(buf_small)
+image_data_small_ptr = (c_uint8 * len(image_data_small)).from_buffer_copy(image_data_small)
+
+# Convert full-width image to bytes
+width_full, height_full = full_image.size
+bytes_per_row_full = (width_full + 7) // 8
+buf_full = [0xFF] * (bytes_per_row_full * height_full)
+pixels_full = full_image.load()
+
+for y in range(height_full):
+    for x in range(width_full):
+        if pixels_full[x, y] == 0:
+            byte_index = y * bytes_per_row_full + (x // 8)
+            bit_position = x % 8
+            buf_full[byte_index] &= ~(0x80 >> bit_position)
+
+image_data_full = bytes(buf_full)
+image_data_full_ptr = (c_uint8 * len(image_data_full)).from_buffer_copy(image_data_full)
+
 width, height = test_size, test_size
 
 # Configure function signature
@@ -94,17 +118,37 @@ if lib_path is None:
 
 lib_path_str = str(lib_path.resolve())
 
-# Test signatures - only test the ones that didn't crash
+# Test signatures with different image formats and coordinate interpretations
 tests = [
     {
-        "name": "displayPartial(image_data, x1, y1, x2, y2)",
+        "name": "displayPartial(image_data, x1, y1, x2, y2) - small image",
         "setup": "dll.displayPartial.argtypes = [POINTER(c_uint8), c_int, c_int, c_int, c_int]\ndll.displayPartial.restype = None",
-        "call": "dll.displayPartial(image_data_ptr, x1, y1, x2, y2)"
+        "call": "dll.displayPartial(image_data_small_ptr, x1, y1, x2, y2)",
+        "use_full_width": False
     },
     {
-        "name": "displayPartial(image_data, x, y, width, height)",
+        "name": "displayPartial(image_data, x1, y1, x2, y2) - full-width image",
         "setup": "dll.displayPartial.argtypes = [POINTER(c_uint8), c_int, c_int, c_int, c_int]\ndll.displayPartial.restype = None",
-        "call": "dll.displayPartial(image_data_ptr, x1, y1, width, height)"
+        "call": "dll.displayPartial(image_data_full_ptr, x1, y1, x2, y2)",
+        "use_full_width": True
+    },
+    {
+        "name": "displayPartial(image_data, x, y, width, height) - small image",
+        "setup": "dll.displayPartial.argtypes = [POINTER(c_uint8), c_int, c_int, c_int, c_int]\ndll.displayPartial.restype = None",
+        "call": "dll.displayPartial(image_data_small_ptr, x1, y1, width, height)",
+        "use_full_width": False
+    },
+    {
+        "name": "displayPartial(image_data, x, y, width, height) - full-width image",
+        "setup": "dll.displayPartial.argtypes = [POINTER(c_uint8), c_int, c_int, c_int, c_int]\ndll.displayPartial.restype = None",
+        "call": "dll.displayPartial(image_data_full_ptr, x1, y1, width, height)",
+        "use_full_width": True
+    },
+    {
+        "name": "displayPartial(image_data, x1, y1, x2, y2) - y from bottom (like displayRegion)",
+        "setup": "dll.displayPartial.argtypes = [POINTER(c_uint8), c_int, c_int, c_int, c_int]\ndll.displayPartial.restype = None",
+        "call": "dll.displayPartial(image_data_small_ptr, x1, 296-y2, x2, 296-y1)",  # y from bottom
+        "use_full_width": False
     },
 ]
 
@@ -123,6 +167,7 @@ for i, test in enumerate(tests, 1):
     print(f"  Looking for a 20x20 black square at center of screen (around x=54-74, y=138-158)")
     
     # Create temporary test script
+    # Update template to include both image formats
     test_script = test_script_template.format(
         lib_path=lib_path_str,
         signature_setup=test['setup'],

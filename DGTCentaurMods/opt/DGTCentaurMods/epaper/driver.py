@@ -1,44 +1,140 @@
 """
-Hardware driver wrapper for the native epaperDriver.so library.
+Hardware driver using Waveshare-style SPI communication.
+
+Replaces epaperDriver.so with a pure Python implementation that communicates
+directly with the UC8151 controller via SPI, following Waveshare's approach.
 """
 
 from __future__ import annotations
 
-import pathlib
-from ctypes import CDLL, c_int
+import time
+from typing import Optional
+
+try:
+    import spidev
+    import RPi.GPIO as GPIO
+except ImportError:
+    # For testing/development environments without hardware
+    spidev = None
+    GPIO = None
 
 from PIL import Image
 
 
+# UC8151 Register Commands
+UC8151_PSR = 0x00  # Panel Setting
+UC8151_PWR = 0x01  # Power Setting
+UC8151_POF = 0x02  # Power OFF
+UC8151_PON = 0x04  # Power ON
+UC8151_BTST = 0x06  # Booster Soft Start
+UC8151_DSLP = 0x07  # Deep Sleep
+UC8151_DTM1 = 0x10  # Data Start Transmission 1
+UC8151_DSP = 0x11  # Data Stop
+UC8151_DRF = 0x12  # Display Refresh
+UC8151_PDTM1 = 0x14  # Partial Data Start Transmission 1
+UC8151_PDTM2 = 0x15  # Partial Data Start Transmission 2
+UC8151_PDRF = 0x16  # Partial Display Refresh
+UC8151_LUT1 = 0x20  # LUT Register for VCOM
+UC8151_LUTWW = 0x21  # LUT Register for White to White
+UC8151_LUTBW = 0x22  # LUT Register for Black to White
+UC8151_LUTWB = 0x23  # LUT Register for White to Black
+UC8151_LUTBB = 0x24  # LUT Register for Black to Black
+UC8151_PLL = 0x30  # PLL Control
+UC8151_TSC = 0x40  # Temperature Sensor Control
+UC8151_TSE = 0x41  # Temperature Sensor Enable
+UC8151_TSW = 0x42  # Temperature Sensor Write
+UC8151_TSR = 0x43  # Temperature Sensor Read
+UC8151_CDI = 0x50  # VCOM and Data Interval Setting
+UC8151_TCON = 0x60  # TCON Setting
+UC8151_TRES = 0x61  # Resolution Setting
+UC8151_REV = 0x70  # Revision
+UC8151_FLG = 0x71  # Get Status
+UC8151_AMV = 0x80  # Auto Measure VCOM
+UC8151_VV = 0x81  # Read VCOM Value
+UC8151_VDCS = 0x82  # VCOM DC Setting
+UC8151_PWS = 0xE3  # Power Saving
+
+# GPIO pins (typical Waveshare configuration - adjust if needed)
+RST_PIN = 17
+DC_PIN = 25
+CS_PIN = 8
+BUSY_PIN = 24
+
+# Display dimensions
+EPD_WIDTH = 128
+EPD_HEIGHT = 296
+
+
 class Driver:
     """
-    Wraps the native epaperDriver.so shared library.
+    Waveshare-style driver for UC8151 ePaper display.
     
-    The shared object handles SPI communication with the UC8151 controller.
+    Uses direct SPI communication instead of epaperDriver.so.
+    Supports partial refreshes with x/y coordinates.
     """
 
     def __init__(self) -> None:
-        # Locate epaperDriver.so in the same directory
-        lib_path = pathlib.Path(__file__).resolve().parent / "epaperDriver.so"
-        if not lib_path.exists():
-            raise FileNotFoundError(f"Native ePaper driver not found at {lib_path}")
-        
-        self._dll = CDLL(str(lib_path))
-        self._dll.openDisplay()
-        
-        # Configure readBusy function signature
-        self._dll.readBusy.argtypes = []
-        self._dll.readBusy.restype = c_int
+        """Initialize the driver."""
+        if spidev is None or GPIO is None:
+            raise ImportError(
+                "spidev and RPi.GPIO are required. Install with: pip install spidev RPi.GPIO"
+            )
         
         # Display dimensions
-        self.width = 128
-        self.height = 296
+        self.width = EPD_WIDTH
+        self.height = EPD_HEIGHT
+        
+        # SPI and GPIO setup
+        self._spi: Optional[spidev.SpiDev] = None
+        self._gpio_initialized = False
+        
+        # Initialize GPIO
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+        GPIO.setup(RST_PIN, GPIO.OUT)
+        GPIO.setup(DC_PIN, GPIO.OUT)
+        GPIO.setup(CS_PIN, GPIO.OUT)
+        GPIO.setup(BUSY_PIN, GPIO.IN)
+        self._gpio_initialized = True
+        
+        # Initialize SPI
+        self._spi = spidev.SpiDev()
+        self._spi.open(0, 0)  # SPI bus 0, device 0
+        self._spi.max_speed_hz = 4000000  # 4MHz
+        self._spi.mode = 0b00
+        
+        # Set initial pin states
+        GPIO.output(CS_PIN, GPIO.HIGH)
+        GPIO.output(DC_PIN, GPIO.LOW)
+        GPIO.output(RST_PIN, GPIO.HIGH)
+
+    def _write_command(self, cmd: int) -> None:
+        """Write a command byte to the display."""
+        GPIO.output(DC_PIN, GPIO.LOW)  # Command mode
+        GPIO.output(CS_PIN, GPIO.LOW)
+        self._spi.xfer2([cmd])
+        GPIO.output(CS_PIN, GPIO.HIGH)
+
+    def _write_data(self, data: bytes | list[int]) -> None:
+        """Write data bytes to the display."""
+        GPIO.output(DC_PIN, GPIO.HIGH)  # Data mode
+        GPIO.output(CS_PIN, GPIO.LOW)
+        if isinstance(data, bytes):
+            self._spi.xfer2(list(data))
+        else:
+            self._spi.xfer2(data)
+        GPIO.output(CS_PIN, GPIO.HIGH)
+
+    def _wait_until_idle(self) -> None:
+        """Wait until the display is not busy."""
+        while GPIO.input(BUSY_PIN) == GPIO.LOW:
+            time.sleep(0.01)
 
     def _convert_to_bytes(self, image: Image.Image) -> bytes:
         """
-        Convert PIL Image to byte buffer format expected by driver.
+        Convert PIL Image to byte buffer format.
         
-        The driver expects a 1-bit monochrome bitmap in row-major order,
+        The display expects a 1-bit monochrome bitmap in row-major order,
         with each byte containing 8 pixels (MSB first, left to right).
         """
         width, height = image.size
@@ -50,64 +146,183 @@ class Driver:
         for y in range(height):
             for x in range(width):
                 if pixels[x, y] == 0:  # Black pixel
-                    # Calculate byte index: row offset + column byte
                     byte_index = y * bytes_per_row + (x // 8)
                     bit_position = x % 8
-                    # MSB first: bit 0 (leftmost) is at position 7, bit 7 (rightmost) is at position 0
+                    # MSB first: bit 0 (leftmost) is at position 7
                     buf[byte_index] &= ~(0x80 >> bit_position)
         
         return bytes(buf)
 
     def init(self) -> None:
-        """
-        Initialize the display hardware.
+        """Initialize the display hardware."""
+        # Reset
+        GPIO.output(RST_PIN, GPIO.LOW)
+        time.sleep(0.01)
+        GPIO.output(RST_PIN, GPIO.HIGH)
+        time.sleep(0.01)
         
-        The C library handles all timing internally.
-        """
-        self._dll.init()
+        # Power on sequence
+        self._write_command(UC8151_PON)
+        self._wait_until_idle()
+        
+        # Panel setting
+        self._write_command(UC8151_PSR)
+        self._write_data([0xBF, 0x0D])  # LUT from OTP, scan up
+        
+        # Power setting
+        self._write_command(UC8151_PWR)
+        self._write_data([0x03, 0x00, 0x2B, 0x2B, 0x09])
+        
+        # Booster soft start
+        self._write_command(UC8151_BTST)
+        self._write_data([0x17, 0x17, 0x17])
+        
+        # Power off sequence (to prepare for first display)
+        self._write_command(UC8151_POF)
+        self._wait_until_idle()
+        
+        # PLL control
+        self._write_command(UC8151_PLL)
+        self._write_data([0x3C])  # 50Hz
+        
+        # Temperature sensor
+        self._write_command(UC8151_TSE)
+        self._write_data([0x00])
+        
+        # Resolution setting
+        self._write_command(UC8151_TRES)
+        self._write_data([
+            (EPD_WIDTH >> 8) & 0xFF,
+            EPD_WIDTH & 0xFF,
+            (EPD_HEIGHT >> 8) & 0xFF,
+            EPD_HEIGHT & 0xFF
+        ])
+        
+        # VCOM and data interval
+        self._write_command(UC8151_CDI)
+        self._write_data([0x97])  # Border floating
+        
+        # Power on
+        self._write_command(UC8151_PON)
+        self._wait_until_idle()
 
     def reset(self) -> None:
-        """
-        Reset the display hardware.
-        
-        The C library handles all timing internally.
-        """
-        self._dll.reset()
+        """Reset the display hardware."""
+        GPIO.output(RST_PIN, GPIO.LOW)
+        time.sleep(0.01)
+        GPIO.output(RST_PIN, GPIO.HIGH)
+        time.sleep(0.01)
 
     def full_refresh(self, image: Image.Image) -> None:
         """
         Perform a full screen refresh.
         
-        The C library's display() function blocks until the hardware
-        refresh completes. Typical duration is 1.5-2.0 seconds based on
-        UC8151 controller specifications.
+        Blocks until the hardware refresh completes.
+        Typical duration is 1.5-2.0 seconds.
         """
         # Rotate 180 degrees to match hardware orientation
         rotated = image.transpose(Image.ROTATE_180)
-        self._dll.display(self._convert_to_bytes(rotated))
+        image_bytes = self._convert_to_bytes(rotated)
+        
+        # Power on
+        self._write_command(UC8151_PON)
+        self._wait_until_idle()
+        
+        # Send image data
+        self._write_command(UC8151_DTM1)
+        self._write_data(image_bytes)
+        
+        # Display refresh
+        self._write_command(UC8151_DRF)
+        self._wait_until_idle()
+        
+        # Power off
+        self._write_command(UC8151_POF)
+        self._wait_until_idle()
 
-    def partial_refresh(self, y0: int, y1: int, image: Image.Image) -> None:
+    def partial_refresh(self, x: int, y: int, width: int, height: int, image: Image.Image) -> None:
         """
-        Perform a partial screen refresh.
+        Perform a partial screen refresh with x/y coordinates.
         
         Args:
-            y0: Start row (in hardware coordinates, from bottom)
-            y1: End row (in hardware coordinates, from bottom)
-            image: Image to display (will be rotated)
+            x: X coordinate (left edge) of the region to refresh
+            y: Y coordinate (top edge) of the region to refresh
+            width: Width of the region to refresh
+            height: Height of the region to refresh
+            image: Image to display (should match the region size)
         
-        The C library's displayRegion() function blocks until the hardware
-        refresh completes. Typical duration is 260-300ms based on UC8151
-        controller specifications when using the correct LUT.
+        Blocks until the hardware refresh completes.
+        Typical duration is 260-300ms.
         """
         # Rotate 180 degrees to match hardware orientation
         rotated = image.transpose(Image.ROTATE_180)
-        self._dll.displayRegion(y0, y1, self._convert_to_bytes(rotated))
+        image_bytes = self._convert_to_bytes(rotated)
+        
+        # Convert coordinates to hardware orientation (rotated 180)
+        # Hardware coordinates are from bottom-left, so we need to flip
+        hw_x1 = self.width - x - width
+        hw_y1 = self.height - y - height
+        hw_x2 = self.width - x - 1
+        hw_y2 = self.height - y - 1
+        
+        # Power on
+        self._write_command(UC8151_PON)
+        self._wait_until_idle()
+        
+        # Set partial window (PDTM1 sets the window boundaries)
+        self._write_command(UC8151_PDTM1)
+        # Send window coordinates: XSTART, XEND, YSTART, YEND
+        self._write_data([
+            (hw_x1 >> 8) & 0xFF,
+            hw_x1 & 0xFF,
+            (hw_x2 >> 8) & 0xFF,
+            hw_x2 & 0xFF,
+            (hw_y1 >> 8) & 0xFF,
+            hw_y1 & 0xFF,
+            (hw_y2 >> 8) & 0xFF,
+            hw_y2 & 0xFF,
+            0x01  # Gates scan both inside and outside of the partial window
+        ])
+        
+        # Send image data (PDTM2 sends the actual image data)
+        self._write_command(UC8151_PDTM2)
+        self._write_data(image_bytes)
+        
+        # Partial display refresh
+        self._write_command(UC8151_PDRF)
+        self._wait_until_idle()
+        
+        # Power off
+        self._write_command(UC8151_POF)
+        self._wait_until_idle()
 
     def sleep(self) -> None:
         """Put the display into sleep mode."""
-        self._dll.sleepDisplay()
+        self._write_command(UC8151_DSLP)
+        self._write_data([0xA5])  # Deep sleep command
+        self._wait_until_idle()
 
     def shutdown(self) -> None:
-        """Power off the display."""
-        self._dll.powerOffDisplay()
-
+        """Power off the display and cleanup resources."""
+        try:
+            self._write_command(UC8151_POF)
+            self._wait_until_idle()
+            self.sleep()
+        except Exception:
+            pass  # Ignore errors during shutdown
+        
+        # Cleanup SPI
+        if self._spi is not None:
+            try:
+                self._spi.close()
+            except Exception:
+                pass
+            self._spi = None
+        
+        # Cleanup GPIO
+        if self._gpio_initialized:
+            try:
+                GPIO.cleanup([RST_PIN, DC_PIN, CS_PIN, BUSY_PIN])
+            except Exception:
+                pass
+            self._gpio_initialized = False
