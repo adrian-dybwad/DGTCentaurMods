@@ -39,18 +39,26 @@ logger = logging.getLogger(__name__)
 
 
 class RaspberryPi:
-    # Pin definition
-    RST_PIN  = 17
-    DC_PIN   = 25
-    CS_PIN   = 8
-    BUSY_PIN = 24
-    PWR_PIN  = 18
-    MOSI_PIN = 10
-    SCLK_PIN = 11
+    # Pin definition - DGT Centaur hardware configuration
+    # Can be overridden via environment variables
+    RST_PIN  = int(os.environ.get("EPAPER_RST_PIN", "12"))
+    DC_PIN   = int(os.environ.get("EPAPER_DC_PIN", "16"))
+    CS_PIN   = int(os.environ.get("EPAPER_CS_PIN", "18"))
+    BUSY_PIN = int(os.environ.get("EPAPER_BUSY_PIN", "13"))
+    PWR_PIN  = int(os.environ.get("EPAPER_PWR_PIN", "18"))  # May be same as CS_PIN or different
+    MOSI_PIN = int(os.environ.get("EPAPER_MOSI_PIN", "10"))  # SPI MOSI (usually fixed)
+    SCLK_PIN = int(os.environ.get("EPAPER_SCLK_PIN", "11"))  # SPI SCLK (usually fixed)
+    
+    # SPI bus and device - can be overridden via environment variables
+    SPI_BUS = int(os.environ.get("EPAPER_SPI_BUS", "0"))
+    SPI_DEVICE = int(os.environ.get("EPAPER_SPI_DEVICE", "0"))
 
     def __init__(self):
         import spidev
         import gpiozero
+        
+        logger.info(f"Initializing ePaper GPIO pins: RST={self.RST_PIN}, DC={self.DC_PIN}, CS={self.CS_PIN}, BUSY={self.BUSY_PIN}, PWR={self.PWR_PIN}")
+        logger.info(f"Initializing ePaper SPI: bus={self.SPI_BUS}, device={self.SPI_DEVICE}")
         
         self.SPI = spidev.SpiDev()
         self.GPIO_RST_PIN    = gpiozero.LED(self.RST_PIN)
@@ -139,8 +147,13 @@ class RaspberryPi:
             self.DEV_SPI.DEV_Module_Init()
 
         else:
-            # SPI device, bus = 0, device = 0
-            self.SPI.open(0, 0)
+            # SPI device - use configurable bus and device
+            try:
+                self.SPI.open(self.SPI_BUS, self.SPI_DEVICE)
+                logger.info(f"SPI opened successfully: bus={self.SPI_BUS}, device={self.SPI_DEVICE}")
+            except Exception as e:
+                logger.error(f"Failed to open SPI bus={self.SPI_BUS}, device={self.SPI_DEVICE}: {e}")
+                raise
             self.SPI.max_speed_hz = 4000000
             self.SPI.mode = 0b00
         return 0
