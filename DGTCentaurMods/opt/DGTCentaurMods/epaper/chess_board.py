@@ -41,12 +41,16 @@ class ChessBoardWidget(Widget):
     
     def _create_grey_pattern(self):
         """Create a grey checkerboard pattern for dark squares."""
-        pattern = Image.new("1", (16, 16), 255)
-        for i in range(16):
-            for j in range(16):
-                if (i + j) % 2 == 0:
-                    pattern.putpixel((i, j), 0)
-        self._grey_pattern = pattern
+        try:
+            pattern = Image.new("1", (16, 16), 255)
+            for i in range(16):
+                for j in range(16):
+                    if (i + j) % 2 == 0:
+                        pattern.putpixel((i, j), 0)
+            self._grey_pattern = pattern
+        except Exception:
+            # Fallback: create a simple grey pattern
+            self._grey_pattern = Image.new("1", (16, 16), 0)  # Solid black as fallback
     
     def _expand_fen(self, fen_board: str) -> list:
         """Expand FEN board string to 64 characters."""
@@ -116,18 +120,26 @@ class ChessBoardWidget(Widget):
                 x = dest_file * 16
                 y = dest_rank * 16
                 
+                # Check if there's a piece on this square
+                px = self._piece_x(symbol)
+                has_piece = px > 0
+                
                 # Draw square background
-                if is_dark:
-                    # Draw grey pattern for dark squares
-                    img.paste(self._grey_pattern, (x, y))
-                else:
-                    # Draw white square background
+                if is_dark and not has_piece:
+                    # Draw grey pattern for empty dark squares only
+                    if self._grey_pattern is not None:
+                        img.paste(self._grey_pattern, (x, y))
+                    else:
+                        # Fallback: use black square from sprite sheet
+                        square_bg = self._chess_font.crop((0, py, 16, py + 16))
+                        img.paste(square_bg, (x, y))
+                elif not has_piece:
+                    # Draw white square background for empty light squares
                     square_bg = self._chess_font.crop((0, py, 16, py + 16))
                     img.paste(square_bg, (x, y))
                 
-                # Draw piece if it exists
-                px = self._piece_x(symbol)
-                if px > 0:
+                # Draw piece if it exists (piece sprites include their square background)
+                if has_piece:
                     # For pieces on dark squares, use the piece from dark square row
                     # For pieces on light squares, use the piece from light square row
                     piece = self._chess_font.crop((px, py, px + 16, py + 16))
@@ -135,8 +147,12 @@ class ChessBoardWidget(Widget):
             
             # Draw board outline
             draw.rectangle([(0, 0), (127, 127)], fill=None, outline=0)
-        except Exception:
-            pass
+        except Exception as e:
+            # Log error but don't crash - return white image
+            import sys
+            print(f"Error rendering chess board: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
         
         return img
 
