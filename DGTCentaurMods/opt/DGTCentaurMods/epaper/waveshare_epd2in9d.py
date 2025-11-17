@@ -396,7 +396,7 @@ class EPD:
     
     def DisplayPartialRegion(self, image_buffer, x_start, y_start, x_end, y_end):
         """
-        Display a true partial update for a specific region.
+        Display a true partial update for a specific region using UC8151 commands.
         
         Args:
             image_buffer: Full-screen buffer (list of bytes)
@@ -408,16 +408,13 @@ class EPD:
         The region will be aligned to byte boundaries (8 pixels) for X coordinates.
         Only the specified region will be refreshed on the display.
         """
-        # Set partial refresh mode
-        self.SetPartReg()
-        
         # Align X coordinates to byte boundaries (8 pixels)
         x_start_byte = (x_start // 8) * 8
         x_end_byte = ((x_end + 7) // 8) * 8
         
-        # Convert to byte indices
+        # Convert to byte indices (for RAM addressing)
         x_start_byte_idx = x_start_byte // 8
-        x_end_byte_idx = (x_end_byte // 8) - 1  # Inclusive end
+        x_end_byte_idx = (x_end_byte // 8) - 1  # Inclusive end for RAM
         
         # Calculate region dimensions
         region_width_bytes = x_end_byte_idx - x_start_byte_idx + 1
@@ -425,60 +422,56 @@ class EPD:
         
         # Extract region buffer from full-screen buffer
         # getbuffer stores bytes in row-major order: byte_idx = y * bytes_per_row + x_byte
-        # This is equivalent to: int((x + y * width) / 8) where x = x_byte * 8
         bytes_per_row = self.width // 8
         region_buffer = []
         
         # Extract bytes row by row for the region
         for y in range(y_start, y_end):
             for x_byte in range(x_start_byte_idx, x_end_byte_idx + 1):
-                # Standard row-major formula
                 byte_idx = y * bytes_per_row + x_byte
                 if 0 <= byte_idx < len(image_buffer):
                     region_buffer.append(image_buffer[byte_idx])
         
-        # Set partial window using UC8151 commands
-        # Command 0x91: Enter partial mode
-        self.send_command(0x91)
+        # Use UC8151 commands for true partial update (following Arduino examples)
+        # Command 0x44: Set RAM X address start/end position (byte indices)
+        self.send_command(0x44)
+        self.send_data(x_start_byte_idx & 0xFF)
+        self.send_data(x_end_byte_idx & 0xFF)
         
-        # Command 0x90: Set partial window
-        self.send_command(0x90)
-        self.send_data(x_start_byte_idx)
-        self.send_data(x_end_byte_idx)
+        # Command 0x45: Set RAM Y address start/end position (pixel coordinates)
+        self.send_command(0x45)
         self.send_data(y_start & 0xFF)
         self.send_data((y_start >> 8) & 0x01)
-        self.send_data((y_end - 1) & 0xFF)
+        self.send_data((y_end - 1) & 0xFF)  # Inclusive end
         self.send_data(((y_end - 1) >> 8) & 0x01)
-        self.send_data(0x28)  # Rotation
         
-        # Set RAM address counters
         # Command 0x4E: Set RAM X address counter
         self.send_command(0x4E)
-        self.send_data(x_start_byte_idx)
+        self.send_data(x_start_byte_idx & 0xFF)
         
         # Command 0x4F: Set RAM Y address counter
         self.send_command(0x4F)
         self.send_data(y_start & 0xFF)
         self.send_data((y_start >> 8) & 0x01)
         
-        # Create inverted buffer for old data (white background)
-        buf_inverted = [0x00] * len(region_buffer)
-        for i in range(len(region_buffer)):
-            buf_inverted[i] = ~region_buffer[i] & 0xFF
-        
-        # Send old data (white background for the region)
-        # Command 0x10: Write old data
+        # Use differential update approach (like DisplayPartial)
+        # Command 0x10: Write old data to RAM (white background for the region)
         self.send_command(0x10)
         self.send_data2([0xFF] * len(region_buffer))  # White background
         epdconfig.delay_ms(10)
         
-        # Send new data (the actual image region)
-        # Command 0x13: Write new data
+        # Command 0x13: Write new data to RAM (the actual image region)
+        # Note: DisplayPartial inverts the buffer, so we do the same
+        buf_inverted = [0x00] * len(region_buffer)
+        for i in range(len(region_buffer)):
+            buf_inverted[i] = ~region_buffer[i] & 0xFF
+        
         self.send_command(0x13)
-        self.send_data2(region_buffer)
+        self.send_data2(buf_inverted)
         epdconfig.delay_ms(10)
         
         # Turn on display to execute partial refresh
+        # epd2in9d uses 0x12 for display refresh
         self.TurnOnDisplay()
         
     def Clear(self):
