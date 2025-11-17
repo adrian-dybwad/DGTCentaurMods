@@ -73,9 +73,20 @@ class DisplayManager:
             self._scheduler = RefreshScheduler(self._driver, self._framebuffer)
             self._scheduler.start()
             
+            # Give scheduler thread a moment to start
+            import time
+            time.sleep(0.1)
+            
             # Clear display on init
+            print("Clearing display with initial full refresh...")
             self._framebuffer.clear()
-            self._scheduler.submit(full=True).result(timeout=5.0)
+            future = self._scheduler.submit(full=True)
+            try:
+                result = future.result(timeout=10.0)  # Full refresh can take 1.5-2 seconds
+                print(f"Initial refresh completed: {result}")
+            except Exception as e:
+                print(f"WARNING: Initial refresh failed or timed out: {e}")
+                # Continue anyway - display might still work
             
             self._initialized = True
 

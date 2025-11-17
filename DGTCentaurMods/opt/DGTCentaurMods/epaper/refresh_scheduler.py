@@ -117,6 +117,7 @@ class RefreshScheduler:
 
     def _run(self) -> None:
         """Main scheduler loop."""
+        print("Refresh scheduler thread started")
         while not self._stop_event.is_set():
             self._wake_event.wait(timeout=1.0)
             self._wake_event.clear()
@@ -132,6 +133,8 @@ class RefreshScheduler:
             
             if not batch:
                 continue
+            
+            print(f"Processing batch of {len(batch)} refresh requests...")
             
             # Check if we need a full refresh
             # Force full refresh more frequently to prevent ghosting from fast-moving content
@@ -159,10 +162,11 @@ class RefreshScheduler:
 
     def _execute_full_refresh(self, batch: List[tuple[Optional[Region], Future]]) -> None:
         """Execute a full screen refresh."""
-        image = self._framebuffer.snapshot()
-        
         try:
+            image = self._framebuffer.snapshot()
+            print("Executing full refresh...")
             self._driver.full_refresh(image)
+            print("Full refresh completed, flushing framebuffer...")
             self._framebuffer.flush_all()
             self._partial_refresh_count = 0
             self._last_full_refresh = time.time()
@@ -172,7 +176,11 @@ class RefreshScheduler:
             for _, future in batch:
                 if not future.done():
                     future.set_result("full")
+            print("Full refresh futures completed")
         except Exception as e:
+            print(f"ERROR in full refresh: {e}")
+            import traceback
+            traceback.print_exc()
             # Mark futures as failed
             for _, future in batch:
                 if not future.done():
