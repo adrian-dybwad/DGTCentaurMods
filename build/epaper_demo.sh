@@ -2,10 +2,10 @@
 
 git pull
 
-cd ~/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods
+cd ~/DGTCentaurMods/DGTCentaurMods/opt
 
 # Activate the virtual environment
 source DGTCentaurMods/.venv/bin/activate
 
-python epaper_demo.py
+python DGTCentaurMods/epaper_demo.py
 
