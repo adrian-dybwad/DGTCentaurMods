@@ -223,10 +223,33 @@ python3 docs/epaper/test_displayPartial.py
 4. `displayPartial(image_data, x, y, width, height)`
 5. `displayPartial(x1, y1, x2, y2, width, height, image_data)`
 
+## Test Results
+
+### Initial Test (2025-01-XX)
+- **Test 1**: `displayPartial(x1, y1, x2, y2, image_data)` → **Segmentation fault**
+- **Status**: First signature tested is incorrect
+- **Next**: Use safer test script to test remaining signatures
+
+### Safer Test Script Created
+A new test script `test_displayPartial_safe.py` has been created that:
+- Runs each test in a separate subprocess
+- Prevents segfaults from killing the main process
+- Tests all 6 signatures automatically
+- Provides a summary of results
+
+**Usage**:
+```bash
+cd /opt/DGTCentaurMods/docs/epaper
+python3 test_displayPartial_safe.py
+```
+
 ## Next Steps Summary
 
 1. ✅ **Documentation Search**: Completed - no direct documentation found
-2. ⏳ **Test Function Signatures**: Test script created, needs to be run on hardware
+2. ⏳ **Test Function Signatures**: 
+   - Initial test: Test 1 failed with segfault
+   - Safer test script created: `test_displayPartial_safe.py`
+   - **Action needed**: Run safer test script on hardware
 3. ⏳ **Check Waveshare GitHub**: Manual check recommended (visit repository)
 4. ⏳ **Check Adafruit Documentation**: Manual check recommended (visit docs)
 5. ⏳ **Reverse Engineering**: Would require ARM disassembly tools on target platform

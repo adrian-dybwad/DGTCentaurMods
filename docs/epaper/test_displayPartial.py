@@ -11,8 +11,16 @@ Test carefully and monitor the display output.
 
 import sys
 import pathlib
+import signal
 from ctypes import CDLL, c_int, c_uint8, POINTER, Structure, byref
 from PIL import Image
+
+# Handle segmentation faults gracefully
+def segfault_handler(signum, frame):
+    print("  ❌ Segmentation fault - signature is incorrect")
+    raise SystemExit("Segfault detected")
+
+signal.signal(signal.SIGSEGV, segfault_handler)
 
 # Locate the library (try multiple possible paths)
 possible_paths = [
@@ -80,10 +88,18 @@ try:
     dll.displayPartial(x1, y1, x2, y2, image_data_ptr)
     print("  ✅ No crash - signature might be correct!")
     print("  Check display to see if partial update appeared")
+    print("  If you see a partial update, this is the correct signature!")
+except (SystemExit, KeyboardInterrupt):
+    raise
 except Exception as e:
     print(f"  ❌ Error: {e}")
 
-input("Press Enter to continue to next test...")
+print("\nPress Enter to continue to next test (or Ctrl+C to exit)...")
+try:
+    input()
+except KeyboardInterrupt:
+    print("\nExiting...")
+    sys.exit(0)
 
 # Signature 2: displayPartial(x, y, width, height, image_data)
 print("\nTest 2: displayPartial(x, y, width, height, image_data)")
@@ -93,10 +109,18 @@ try:
     dll.displayPartial(x1, y1, width, height, image_data_ptr)
     print("  ✅ No crash - signature might be correct!")
     print("  Check display to see if partial update appeared")
+    print("  If you see a partial update, this is the correct signature!")
+except (SystemExit, KeyboardInterrupt):
+    raise
 except Exception as e:
     print(f"  ❌ Error: {e}")
 
-input("Press Enter to continue to next test...")
+print("\nPress Enter to continue to next test (or Ctrl+C to exit)...")
+try:
+    input()
+except KeyboardInterrupt:
+    print("\nExiting...")
+    sys.exit(0)
 
 # Signature 3: displayPartial(image_data, x1, y1, x2, y2)
 print("\nTest 3: displayPartial(image_data, x1, y1, x2, y2)")
@@ -106,10 +130,18 @@ try:
     dll.displayPartial(image_data_ptr, x1, y1, x2, y2)
     print("  ✅ No crash - signature might be correct!")
     print("  Check display to see if partial update appeared")
+    print("  If you see a partial update, this is the correct signature!")
+except (SystemExit, KeyboardInterrupt):
+    raise
 except Exception as e:
     print(f"  ❌ Error: {e}")
 
-input("Press Enter to continue to next test...")
+print("\nPress Enter to continue to next test (or Ctrl+C to exit)...")
+try:
+    input()
+except KeyboardInterrupt:
+    print("\nExiting...")
+    sys.exit(0)
 
 # Signature 4: displayPartial(image_data, x, y, width, height)
 print("\nTest 4: displayPartial(image_data, x, y, width, height)")
@@ -119,10 +151,18 @@ try:
     dll.displayPartial(image_data_ptr, x1, y1, width, height)
     print("  ✅ No crash - signature might be correct!")
     print("  Check display to see if partial update appeared")
+    print("  If you see a partial update, this is the correct signature!")
+except (SystemExit, KeyboardInterrupt):
+    raise
 except Exception as e:
     print(f"  ❌ Error: {e}")
 
-input("Press Enter to continue to next test...")
+print("\nPress Enter to continue to next test (or Ctrl+C to exit)...")
+try:
+    input()
+except KeyboardInterrupt:
+    print("\nExiting...")
+    sys.exit(0)
 
 # Signature 5: displayPartial(x1, y1, x2, y2, width, height, image_data)
 print("\nTest 5: displayPartial(x1, y1, x2, y2, width, height, image_data)")
@@ -132,6 +172,28 @@ try:
     dll.displayPartial(x1, y1, x2, y2, width, height, image_data_ptr)
     print("  ✅ No crash - signature might be correct!")
     print("  Check display to see if partial update appeared")
+    print("  If you see a partial update, this is the correct signature!")
+except (SystemExit, KeyboardInterrupt):
+    raise
+except Exception as e:
+    print(f"  ❌ Error: {e}")
+
+# Try comparing with displayRegion signature - maybe it's similar?
+print("\n" + "=" * 60)
+print("Additional test: Comparing with displayRegion signature")
+print("=" * 60)
+print("\nNote: displayRegion takes (y0, y1, image_data)")
+print("Maybe displayPartial takes similar but with x coordinates?")
+print("\nTest 6: displayPartial(x0, x1, y0, y1, image_data) - like displayRegion")
+try:
+    dll.displayPartial.argtypes = [c_int, c_int, c_int, c_int, POINTER(c_uint8)]
+    dll.displayPartial.restype = None
+    # Try x coordinates first, then y (like displayRegion does y0, y1)
+    dll.displayPartial(x1, x2, y1, y2, image_data_ptr)
+    print("  ✅ No crash - signature might be correct!")
+    print("  Check display to see if partial update appeared")
+except (SystemExit, KeyboardInterrupt):
+    raise
 except Exception as e:
     print(f"  ❌ Error: {e}")
 
