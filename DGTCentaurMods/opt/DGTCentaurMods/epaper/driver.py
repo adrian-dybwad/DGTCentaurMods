@@ -8,6 +8,7 @@ directly with the UC8151 controller via SPI, following Waveshare's approach.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Optional
 
@@ -58,11 +59,17 @@ UC8151_VV = 0x81  # Read VCOM Value
 UC8151_VDCS = 0x82  # VCOM DC Setting
 UC8151_PWS = 0xE3  # Power Saving
 
-# GPIO pins (typical Waveshare configuration - adjust if needed)
-RST_PIN = 17
-DC_PIN = 25
-CS_PIN = 8
-BUSY_PIN = 24
+# GPIO pins - configurable via environment variables
+# Default values are typical Waveshare configuration for 2.9" display
+# To find the correct pins used by epaperDriver.so, check:
+# 1. Hardware documentation/schematics
+# 2. Use GPIO probing tools on a working system
+# 3. Check Waveshare epd2in9d.py source code
+# 4. Try common configurations: (17,25,8,24) or (17,25,0,24) or (17,25,1,24)
+RST_PIN = int(os.environ.get("EPAPER_RST_PIN", "17"))
+DC_PIN = int(os.environ.get("EPAPER_DC_PIN", "25"))
+CS_PIN = int(os.environ.get("EPAPER_CS_PIN", "8"))
+BUSY_PIN = int(os.environ.get("EPAPER_BUSY_PIN", "24"))
 
 # Display dimensions
 EPD_WIDTH = 128
@@ -105,9 +112,12 @@ class Driver:
             self._gpio_initialized = True
             
             # Initialize SPI
-            logger.info("Opening SPI device (bus 0, device 0)...")
+            # SPI bus and device configurable via environment variables
+            spi_bus = int(os.environ.get("EPAPER_SPI_BUS", "0"))
+            spi_device = int(os.environ.get("EPAPER_SPI_DEVICE", "0"))
+            logger.info(f"Opening SPI device (bus {spi_bus}, device {spi_device})...")
             self._spi = spidev.SpiDev()
-            self._spi.open(0, 0)  # SPI bus 0, device 0
+            self._spi.open(spi_bus, spi_device)
             self._spi.max_speed_hz = 4000000  # 4MHz
             self._spi.mode = 0b00
             logger.info("SPI initialized successfully")
@@ -129,13 +139,26 @@ class Driver:
         GPIO.output(CS_PIN, GPIO.HIGH)
 
     def _write_data(self, data: bytes | list[int]) -> None:
-        """Write data bytes to the display."""
+        """
+        Write data bytes to the display.
+        
+        Sends data in chunks to avoid SPI transfer size limits (4096 bytes max).
+        """
         GPIO.output(DC_PIN, GPIO.HIGH)  # Data mode
         GPIO.output(CS_PIN, GPIO.LOW)
+        
+        # Convert to list if needed
         if isinstance(data, bytes):
-            self._spi.xfer2(list(data))
+            data_list = list(data)
         else:
-            self._spi.xfer2(data)
+            data_list = data
+        
+        # Send in chunks of 4096 bytes to avoid SPI transfer limit
+        chunk_size = 4096
+        for i in range(0, len(data_list), chunk_size):
+            chunk = data_list[i:i + chunk_size]
+            self._spi.xfer2(chunk)
+        
         GPIO.output(CS_PIN, GPIO.HIGH)
 
     def _wait_until_idle(self) -> None:
