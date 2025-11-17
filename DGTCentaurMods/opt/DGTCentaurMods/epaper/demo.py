@@ -7,7 +7,16 @@ Uses only the new epaper framework - no legacy dependencies.
 import time
 import signal
 import sys
-from . import Manager, ClockWidget, BatteryWidget, TextWidget, BallWidget
+import os
+
+# Handle both direct execution and module execution
+if __name__ == "__main__":
+    # Add parent directory to path for direct execution
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from epaper import Manager, ClockWidget, BatteryWidget, TextWidget, BallWidget
+else:
+    # Relative import for module execution
+    from . import Manager, ClockWidget, BatteryWidget, TextWidget, BallWidget
 
 
 class EPaperDemo:
