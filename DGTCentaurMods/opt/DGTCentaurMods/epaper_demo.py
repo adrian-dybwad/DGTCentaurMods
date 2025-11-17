@@ -11,7 +11,7 @@ import os
 
 # Add current directory to path to import epaper package
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from epaper import Manager, ClockWidget, BatteryWidget, TextWidget, BallWidget
+from epaper import Manager, ClockWidget, BatteryWidget, ChessBoardWidget, GameAnalysisWidget
 
 
 class EPaperDemo:
@@ -22,14 +22,19 @@ class EPaperDemo:
         self.running = False
         self.clock = None
         self.battery = None
-        self.text = None
-        self.ball = None
+        self.chess_board = None
+        self.analysis = None
         
         # Animation state
-        self.ball_vx = 2
-        self.ball_vy = 2
-        self.text_update_counter = 0
+        self.analysis_update_counter = 0
         self.start_time = None
+        self.current_fen_index = 0
+        self.fen_positions = [
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+            "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2",
+            "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+        ]
     
     def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown."""
@@ -62,53 +67,36 @@ class EPaperDemo:
         self.battery = BatteryWidget(0, 24, level=75)
         self.display.add_widget(self.battery)
         
-        # Text widget filling most of the screen
-        self.text = TextWidget(0, 40, 128, 200, "ePaper Framework Demo\nInitializing...")
-        self.display.add_widget(self.text)
+        # Chess board widget (128x128)
+        self.chess_board = ChessBoardWidget(0, 40, self.fen_positions[0])
+        self.display.add_widget(self.chess_board)
         
-        # Bouncing ball widget (added last so it renders on top)
-        self.ball = BallWidget(64, 150, radius=8)
-        self.display.add_widget(self.ball)
+        # Game analysis widget below board (128x80)
+        self.analysis = GameAnalysisWidget(0, 168)
+        self.display.add_widget(self.analysis)
         
         print("Widgets configured")
     
-    def update_ball(self):
-        """Update ball position with wall bouncing."""
-        new_x = self.ball.x + self.ball_vx
-        new_y = self.ball.y + self.ball_vy
-        
-        # Bounce off left/right walls
-        if new_x <= 0 or new_x >= 128 - self.ball.width:
-            self.ball_vx = -self.ball_vx
-            new_x = max(0, min(128 - self.ball.width, new_x))
-        
-        # Bounce off top/bottom walls
-        if new_y <= 0 or new_y >= 296 - self.ball.height:
-            self.ball_vy = -self.ball_vy
-            new_y = max(0, min(296 - self.ball.height, new_y))
-        
-        self.ball.set_position(new_x, new_y)
+    def update_chess_board(self, elapsed_seconds):
+        """Update chess board position every 3 seconds."""
+        if int(elapsed_seconds) % 3 == 0:
+            fen_index = (int(elapsed_seconds) // 3) % len(self.fen_positions)
+            if fen_index != self.current_fen_index:
+                self.current_fen_index = fen_index
+                self.chess_board.set_fen(self.fen_positions[fen_index])
     
-    def update_text(self, elapsed_seconds):
-        """Update text widget every 5 seconds."""
-        if int(elapsed_seconds) % 5 == 0 and int(elapsed_seconds) != self.text_update_counter:
-            self.text_update_counter = int(elapsed_seconds)
-            
-            # Create multi-line text to fill screen
-            lines = [
-                f"Time: {int(elapsed_seconds)}s",
-                f"Counter: {self.text_update_counter}",
-                "",
-                "A" * 20,
-                "B" * 20,
-                "C" * 20,
-                "D" * 20,
-                "E" * 20,
-                "",
-                f"Ball: ({self.ball.x}, {self.ball.y})",
-                f"Speed: ({self.ball_vx}, {self.ball_vy})",
-            ]
-            self.text.set_text("\n".join(lines))
+    def update_analysis(self, elapsed_seconds):
+        """Update analysis widget with simulated evaluation."""
+        import math
+        
+        # Simulate evaluation score oscillating
+        base_score = 0.5 * math.sin(elapsed_seconds / 5.0) * 5.0
+        self.analysis.set_score(base_score)
+        self.analysis.add_score_to_history(base_score)
+        
+        # Alternate turn every 2 seconds
+        turn = "white" if (int(elapsed_seconds) // 2) % 2 == 0 else "black"
+        self.analysis.set_turn(turn)
     
     def update_battery(self, elapsed_seconds):
         """Animate battery level (demo only - not real battery)."""
@@ -135,8 +123,8 @@ class EPaperDemo:
                 elapsed = time.time() - self.start_time
                 
                 # Update widgets
-                self.update_ball()
-                self.update_text(elapsed)
+                self.update_chess_board(elapsed)
+                self.update_analysis(elapsed)
                 self.update_battery(elapsed)
                 
                 # Refresh display
