@@ -432,27 +432,23 @@ class EPD:
                 if 0 <= byte_idx < len(image_buffer):
                     region_buffer.append(image_buffer[byte_idx])
         
-        # Use UC8151 commands for true partial update (following Arduino examples)
-        # Command 0x44: Set RAM X address start/end position (byte indices)
-        self.send_command(0x44)
-        self.send_data(x_start_byte_idx & 0xFF)
-        self.send_data(x_end_byte_idx & 0xFF)
+        # Use epd2in9d partial update commands (like DisplayPartial)
+        # First set partial mode
+        self.SetPartReg()
         
-        # Command 0x45: Set RAM Y address start/end position (pixel coordinates)
-        self.send_command(0x45)
-        self.send_data(y_start & 0xFF)
-        self.send_data((y_start >> 8) & 0x01)
-        self.send_data((y_end - 1) & 0xFF)  # Inclusive end
-        self.send_data(((y_end - 1) >> 8) & 0x01)
+        # Command 0x91: Enter partial mode
+        self.send_command(0x91)
         
-        # Command 0x4E: Set RAM X address counter
-        self.send_command(0x4E)
-        self.send_data(x_start_byte_idx & 0xFF)
-        
-        # Command 0x4F: Set RAM Y address counter
-        self.send_command(0x4F)
-        self.send_data(y_start & 0xFF)
-        self.send_data((y_start >> 8) & 0x01)
+        # Command 0x90: Set partial window
+        # Format: x_start, x_end, y_start_low, y_start_high, y_end_low, y_end_high, rotation
+        self.send_command(0x90)
+        self.send_data(x_start_byte_idx & 0xFF)  # X start (byte index)
+        self.send_data(x_end_byte_idx & 0xFF)     # X end (byte index, inclusive)
+        self.send_data(y_start & 0xFF)            # Y start low byte
+        self.send_data((y_start >> 8) & 0x01)     # Y start high byte
+        self.send_data((y_end - 1) & 0xFF)        # Y end low byte (inclusive)
+        self.send_data(((y_end - 1) >> 8) & 0x01) # Y end high byte
+        self.send_data(0x28)                      # Rotation
         
         # Use differential update approach (like DisplayPartial)
         # Command 0x10: Write old data to RAM (white background for the region)

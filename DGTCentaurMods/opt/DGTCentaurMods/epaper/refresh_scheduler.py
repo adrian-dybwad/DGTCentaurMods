@@ -122,13 +122,20 @@ class RefreshScheduler:
             
             # Check if we need a full refresh
             time_since_full = time.time() - self._last_full_refresh
+            has_full_request = any(region is None for region, _ in batch)
             needs_full = (
-                any(region is None for region, _ in batch) or
+                has_full_request or
                 self._partial_refresh_count >= self._max_partial_refreshes or
                 time_since_full > 300  # Force full every 5 minutes
             )
             
             if needs_full:
+                if has_full_request:
+                    print(f"Full refresh requested explicitly")
+                elif self._partial_refresh_count >= self._max_partial_refreshes:
+                    print(f"Full refresh: reached max partial refreshes ({self._partial_refresh_count})")
+                elif time_since_full > 300:
+                    print(f"Full refresh: time since last full ({time_since_full:.1f}s) > 300s")
                 self._execute_full_refresh(batch)
             else:
                 self._execute_partial_refreshes(batch)
@@ -168,6 +175,7 @@ class RefreshScheduler:
         
         # Merge overlapping regions
         merged = merge_regions(regions)
+        print(f"Executing {len(merged)} partial refresh(es) for {len(regions)} region(s)")
         
         # Get full-screen snapshot once
         full_image = self._framebuffer.snapshot()
@@ -203,10 +211,12 @@ class RefreshScheduler:
                     time.sleep(self._min_refresh_interval)
                 
             except Exception as e:
-                for _, future in batch:
-                    if not future.done():
-                        future.set_exception(e)
-                return
+                print(f"ERROR in partial refresh: {e}")
+                import traceback
+                traceback.print_exc()
+                # Don't fail the whole batch - just log and continue
+                # The exception might be transient
+                continue
         
         # Complete all futures
         for _, future in batch:
