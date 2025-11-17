@@ -443,17 +443,18 @@ class EPD:
                 if 0 <= byte_idx < len(image_buffer):
                     region_data.append(image_buffer[byte_idx])
         
-        # Command 0x10: Write old data (white background for region)
-        # EPD_4IN2 uses a DATA buffer, but we'll use white (0xFF)
+        # Command 0x10: Write old data (original, non-inverted)
+        # DisplayPartial sends: self.send_data2(image) - original buffer
         self.send_command(0x10)
-        self.send_data2([0xFF] * len(region_data))
+        self.send_data2(region_data)  # Original region data, not inverted
         epdconfig.delay_ms(10)
         
-        # Command 0x13: Write new data (inverted region buffer)
+        # Command 0x13: Write new data
         # DisplayPartial inverts: buf[i] = ~image[i]
-        new_data = [~b & 0xFF for b in region_data]
+        # But if display shows inverted, try NOT inverting for partial updates
+        # The hardware might interpret partial updates differently than full screen
         self.send_command(0x13)
-        self.send_data2(new_data)
+        self.send_data2(region_data)  # Try non-inverted (opposite of DisplayPartial)
         epdconfig.delay_ms(10)
         
         # Turn on display (DisplayPartial doesn't use 0x12, just TurnOnDisplay)
