@@ -156,6 +156,9 @@ def main():
     # Also test pin 18 (currently set as PWR_PIN)
     print("\n" + "=" * 60)
     print("Testing pin 18 (currently configured as PWR_PIN):")
+    # Re-setup GPIO mode for second test
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
     states_18 = monitor_pin_during_operation(18, so_path)
     
     print("\n" + "=" * 60)
