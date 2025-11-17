@@ -121,46 +121,34 @@ class EPD:
         self.send_data(0x97)
 
     def getbuffer(self, image):
-        """
-        Convert PIL image to display buffer format.
-        Buffer format: 0 bit = white, 1 bit = black (inverted for DGT Centaur)
-        PIL format: 0 = black, 255 = white
-        """
-        buf = [0x00] * (int(self.width/8) * self.height)  # Start with all black
+        buf = [0xFF] * (int(self.width/8) * self.height)
         image_monocolor = image.convert('1')
         imwidth, imheight = image_monocolor.size
         pixels = image_monocolor.load()
-        if imwidth == self.width and imheight == self.height:
+        if(imwidth == self.width and imheight == self.height):
             for y in range(imheight):
                 for x in range(imwidth):
-                    # PIL: 0 = black, 255/1 = white
-                    # Buffer (inverted): set bit (1) = black, clear bit (0) = white
-                    if pixels[x, y] == 0:  # Black pixel -> set bit to 1
-                        buf[int((x + y * self.width) / 8)] |= (0x80 >> (x % 8))
-        elif imwidth == self.height and imheight == self.width:
+                    if pixels[x, y] == 0:
+                        buf[int((x + y * self.width) / 8)] &= ~(0x80 >> (x % 8))
+        elif(imwidth == self.height and imheight == self.width):
             for y in range(imheight):
                 for x in range(imwidth):
                     newx = y
                     newy = self.height - x - 1
-                    if pixels[x, y] == 0:  # Black pixel -> set bit to 1
-                        buf[int((newx + newy*self.width) / 8)] |= (0x80 >> (y % 8))
+                    if pixels[x, y] == 0:
+                        buf[int((newx + newy*self.width) / 8)] &= ~(0x80 >> (y % 8))
         return buf
 
     def display(self, image):
-        # For full refresh: 0x10 = old state (all white), 0x13 = new state
         self.send_command(0x10)
-        self.send_data2([0xFF] * int(self.width * self.height / 8))  # Old state: all white
+        self.send_data2([0x00] * int(self.width * self.height / 8))
         epdconfig.delay_ms(10)
         self.send_command(0x13)
-        self.send_data2(image)  # New state: image buffer (already inverted format)
+        self.send_data2(image)
         epdconfig.delay_ms(10)
         self.TurnOnDisplay()
         
     def DisplayPartial(self, image):
-        """
-        Display partial update.
-        image buffer format: 0 bit = white, 1 bit = black (inverted for DGT Centaur)
-        """
         self.SetPartReg()
         self.send_command(0x91)
         self.send_command(0x90)
@@ -172,27 +160,23 @@ class EPD:
         self.send_data(self.height % 256 - 1)
         self.send_data(0x28)
         
-        # For partial: 0x10 = old state (inverted), 0x13 = new state (original)
-        # Since our buffer is already inverted, we need to invert it for 0x10
-        buf_old = [0x00] * int(self.width * self.height / 8)
+        buf = [0x00] * int(self.width * self.height / 8)
         for i in range(0, int(self.width * self.height / 8)):
-            buf_old[i] = ~image[i] & 0xFF  # Invert for old state
-        
+            buf[i] = ~image[i]
         self.send_command(0x10)
-        self.send_data2(buf_old)  # Old state: inverted
+        self.send_data2(image)
         epdconfig.delay_ms(10)
         self.send_command(0x13)
-        self.send_data2(image)  # New state: original (already inverted format)
+        self.send_data2(buf)
         epdconfig.delay_ms(10)
         self.TurnOnDisplay()
         
     def Clear(self):
-        # Clear to white: buffer format 0x00 = all white (inverted format)
         self.send_command(0x10)
-        self.send_data2([0xFF] * int(self.width * self.height / 8))  # Old state: all black
+        self.send_data2([0x00] * int(self.width * self.height / 8))
         epdconfig.delay_ms(10)
         self.send_command(0x13)
-        self.send_data2([0x00] * int(self.width * self.height / 8))  # New state: all white
+        self.send_data2([0xFF] * int(self.width * self.height / 8))
         epdconfig.delay_ms(10)
         self.TurnOnDisplay()
 

@@ -86,6 +86,11 @@ class RefreshScheduler:
             # Get full-screen snapshot and rotate 180° for hardware orientation
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
+            
+            # Invert image colors for DGT Centaur hardware before converting to buffer
+            # This fixes color inversion without modifying Waveshare driver
+            full_image = Image.eval(full_image, lambda x: 255 - x)
+            
             buf = self._epd.getbuffer(full_image)
             self._epd.display(buf)
             self._framebuffer.flush_all()
@@ -113,6 +118,11 @@ class RefreshScheduler:
             # Get full-screen snapshot and rotate 180° for hardware orientation
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
+            
+            # Invert image colors for DGT Centaur hardware before converting to buffer
+            # This fixes color inversion without modifying Waveshare driver
+            full_image = Image.eval(full_image, lambda x: 255 - x)
+            
             buf = self._epd.getbuffer(full_image)
             
             # Use DisplayPartial - it handles the full screen buffer
