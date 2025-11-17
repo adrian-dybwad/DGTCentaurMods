@@ -1,9 +1,10 @@
 """
-ePaper display framework.
+Widget implementations for ePaper display.
 """
 
-from .manager import Manager
-from .widget import Widget
-from .widgets import ClockWidget, BatteryWidget, TextWidget, BallWidget
+from .clock import ClockWidget
+from .battery import BatteryWidget
+from .text import TextWidget
+from .ball import BallWidget
 
-__all__ = ['Manager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'BallWidget']
+__all__ = ['ClockWidget', 'BatteryWidget', 'TextWidget', 'BallWidget']

@@ -4,7 +4,7 @@ Clock widget displaying current time.
 
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
-from ..widget import Widget
+from ..framework.widget import Widget
 import os
 
 
