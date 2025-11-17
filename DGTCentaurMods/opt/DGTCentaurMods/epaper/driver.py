@@ -63,6 +63,8 @@ UC8151_PWS = 0xE3  # Power Saving
 # Default values are typical Waveshare configuration for 2.9" display
 # Note: CS_PIN=8 corresponds to SPI0 CE0 (hardware chip select)
 # If using hardware CS, set EPAPER_USE_HW_CS=true to let SPI handle CS automatically
+# IMPORTANT: When using hardware CS, the CS_PIN value is ignored - SPI hardware
+# automatically uses CE0 (GPIO 8) for device 0, CE1 (GPIO 7) for device 1
 # To find the correct pins used by epaperDriver.so, check:
 # 1. Hardware documentation/schematics
 # 2. Use GPIO probing tools on a working system
@@ -70,7 +72,7 @@ UC8151_PWS = 0xE3  # Power Saving
 # 4. Try common configurations: (17,25,8,24) or (17,25,0,24) or (17,25,1,24)
 RST_PIN = int(os.environ.get("EPAPER_RST_PIN", "17"))
 DC_PIN = int(os.environ.get("EPAPER_DC_PIN", "25"))
-CS_PIN = int(os.environ.get("EPAPER_CS_PIN", "8"))
+CS_PIN = int(os.environ.get("EPAPER_CS_PIN", "8"))  # Only used if not using hardware CS
 BUSY_PIN = int(os.environ.get("EPAPER_BUSY_PIN", "24"))
 USE_HW_CS = os.environ.get("EPAPER_USE_HW_CS", "").lower() == "true"
 
