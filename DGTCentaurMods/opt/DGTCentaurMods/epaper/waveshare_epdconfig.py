@@ -60,12 +60,40 @@ class RaspberryPi:
         logger.info(f"Initializing ePaper GPIO pins: RST={self.RST_PIN}, DC={self.DC_PIN}, CS={self.CS_PIN}, BUSY={self.BUSY_PIN}, PWR={self.PWR_PIN}")
         logger.info(f"Initializing ePaper SPI: bus={self.SPI_BUS}, device={self.SPI_DEVICE}")
         
+        # Initialize SPI
         self.SPI = spidev.SpiDev()
+        try:
+            self.SPI.open(self.SPI_BUS, self.SPI_DEVICE)
+            # Configure SPI mode and speed
+            # UC8151 typically uses SPI Mode 0 (CPOL=0, CPHA=0)
+            self.SPI.mode = 0
+            # Speed: 4MHz is safe, can go up to 10MHz for UC8151
+            self.SPI.max_speed_hz = 4000000
+            logger.info(f"SPI opened successfully: mode={self.SPI.mode}, speed={self.SPI.max_speed_hz}Hz")
+        except Exception as e:
+            logger.error(f"Failed to open SPI bus {self.SPI_BUS} device {self.SPI_DEVICE}: {e}")
+            raise
+        
+        # Initialize GPIO pins
         self.GPIO_RST_PIN    = gpiozero.LED(self.RST_PIN)
         self.GPIO_DC_PIN     = gpiozero.LED(self.DC_PIN)
         # self.GPIO_CS_PIN     = gpiozero.LED(self.CS_PIN)
         self.GPIO_PWR_PIN    = gpiozero.LED(self.PWR_PIN)
-        self.GPIO_BUSY_PIN   = gpiozero.Button(self.BUSY_PIN, pull_up = False)
+        # BUSY_PIN needs to be an input - use DigitalInputDevice for better control
+        # For UC8151, BUSY is typically active-low (LOW=busy), but may need pull-up resistor
+        # Try pull_up=True (internal pull-up) - if pin floats, it will read HIGH
+        # If hardware has external pull-up, pull_up=False might be needed
+        try:
+            from gpiozero import DigitalInputDevice
+            # Try with pull-up first - if pin is floating, it will read HIGH
+            # If hardware has external pull-up/down, this might conflict, but usually works
+            self.GPIO_BUSY_PIN = DigitalInputDevice(self.BUSY_PIN, pull_up=True)
+            logger.info(f"BUSY pin {self.BUSY_PIN} configured with pull_up=True")
+        except Exception as e:
+            logger.warning(f"Failed to use DigitalInputDevice: {e}, falling back to Button")
+            # Fallback to Button if DigitalInputDevice not available
+            # Button with pull_up=True means it reads HIGH when not pressed (idle)
+            self.GPIO_BUSY_PIN = gpiozero.Button(self.BUSY_PIN, pull_up=True)
 
         
 
@@ -93,24 +121,39 @@ class RaspberryPi:
 
     def digital_read(self, pin):
         if pin == self.BUSY_PIN:
-            return self.GPIO_BUSY_PIN.value
+            value = self.GPIO_BUSY_PIN.value
+            # gpiozero.Button returns 0 or 1, but we need to ensure it's the actual pin state
+            return value
         elif pin == self.RST_PIN:
-            return self.RST_PIN.value
+            # RST_PIN is an LED, not readable - return a default
+            return 0
         elif pin == self.DC_PIN:
-            return self.DC_PIN.value
+            # DC_PIN is an LED, not readable - return a default
+            return 0
         # elif pin == self.CS_PIN:
         #     return self.CS_PIN.value
         elif pin == self.PWR_PIN:
-            return self.PWR_PIN.value
+            # PWR_PIN is an LED, not readable - return a default
+            return 0
+        else:
+            return 0
 
     def delay_ms(self, delaytime):
         time.sleep(delaytime / 1000.0)
 
     def spi_writebyte(self, data):
-        self.SPI.writebytes(data)
+        try:
+            self.SPI.writebytes([data])
+        except Exception as e:
+            logger.error(f"SPI writebyte failed: {e}")
+            raise
 
     def spi_writebyte2(self, data):
-        self.SPI.writebytes2(data)
+        try:
+            self.SPI.writebytes2(data)
+        except Exception as e:
+            logger.error(f"SPI writebyte2 failed: {e}")
+            raise
 
     def DEV_SPI_write(self, data):
         self.DEV_SPI.DEV_SPI_SendData(data)

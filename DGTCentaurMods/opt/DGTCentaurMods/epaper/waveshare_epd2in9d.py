@@ -146,21 +146,47 @@ class EPD:
         import time
         timeout = 5.0  # 5 second timeout
         start_time = time.time()
-        # UC8151 BUSY pin: LOW (0) = busy, HIGH (1) = idle/ready
-        # Wait while pin is LOW (busy), exit when pin goes HIGH (idle)
+        
+        # Read initial state
         initial_state = epdconfig.digital_read(self.busy_pin)
-        logger.debug(f"Initial BUSY pin state: {initial_state} (0=busy, 1=idle)")
+        logger.debug(f"Initial BUSY pin state: {initial_state} (pin={self.busy_pin}, 0=busy/1=idle for active-low)")
+        
+        # UC8151 BUSY pin is typically active-low: LOW (0) = busy, HIGH (1) = idle
+        # With pull_up=True, floating pin reads HIGH (1), which is idle
+        # So we wait while pin is LOW (0) = busy, exit when HIGH (1) = idle
+        
+        # If pin is already HIGH, it might be idle (or floating with pull-up)
+        if initial_state == 1:
+            logger.debug("BUSY pin is HIGH - may already be idle, waiting briefly to confirm...")
+            epdconfig.delay_ms(50)
+            new_state = epdconfig.digital_read(self.busy_pin)
+            if new_state == 1:
+                logger.debug("BUSY pin still HIGH - assuming idle")
+                return
         
         # Wait while pin is LOW (0) = busy
-        while(epdconfig.digital_read(self.busy_pin) == 0):
+        check_count = 0
+        while True:
+            current_state = epdconfig.digital_read(self.busy_pin)
             elapsed = time.time() - start_time
-            if elapsed > timeout:
-                logger.warning(f"e-Paper busy timeout after {elapsed:.1f}s - pin still reads 0 (busy)")
-                logger.warning("Continuing anyway - hardware may be stuck or not responding")
+            
+            # Exit when pin goes HIGH (1) = idle
+            if current_state == 1:
+                logger.debug(f"e-Paper busy release (pin now HIGH/idle) after {elapsed:.2f}s")
                 break
-            self.send_command(0x71)
-            epdconfig.delay_ms(10)  
-        logger.debug("e-Paper busy release (pin now HIGH/idle)")
+            
+            # Check timeout
+            if elapsed > timeout:
+                logger.warning(f"e-Paper busy timeout after {elapsed:.1f}s - pin still reads {current_state} (LOW=busy)")
+                logger.warning(f"Pin {self.busy_pin} may be wrong, inverted, or hardware not responding")
+                logger.warning("Continuing anyway - display may still work if SPI is functioning")
+                break
+            
+            # Send command to check status periodically
+            if check_count % 10 == 0:  # Every 100ms
+                self.send_command(0x71)
+            epdconfig.delay_ms(10)
+            check_count += 1
         
     def TurnOnDisplay(self):
         self.send_command(0x12)
@@ -169,16 +195,34 @@ class EPD:
         
     def init(self):
         logger.info("Initializing e-Paper module...")
+        logger.info(f"Using pins: RST={self.reset_pin}, DC={self.dc_pin}, CS={self.cs_pin}, BUSY={self.busy_pin}")
+        
         init_result = epdconfig.module_init()
         if (init_result != 0):
             logger.error(f"module_init() returned {init_result}")
             return -1
         logger.info("Module initialized, resetting display...")
+        
+        # Check BUSY pin state before reset
+        busy_before = epdconfig.digital_read(self.busy_pin)
+        logger.info(f"BUSY pin state before reset: {busy_before}")
+        
         # EPD hardware init start
         self.reset()
         
-        logger.info("Sending power on command and waiting for ready...")
+        # Check BUSY pin state after reset
+        epdconfig.delay_ms(100)  # Give hardware time to respond
+        busy_after = epdconfig.digital_read(self.busy_pin)
+        logger.info(f"BUSY pin state after reset: {busy_after}")
+        
+        logger.info("Sending power on command (0x04) and waiting for ready...")
         self.send_command(0x04)
+        
+        # Check BUSY pin state after power on command
+        epdconfig.delay_ms(50)
+        busy_after_cmd = epdconfig.digital_read(self.busy_pin)
+        logger.info(f"BUSY pin state after 0x04 command: {busy_after_cmd}")
+        
         self.ReadBusy() #waiting for the electronic paper IC to release the idle signal
         logger.info("Display ready, configuring panel...")
 
