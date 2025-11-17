@@ -54,12 +54,17 @@ class EPD:
         epdconfig.spi_writebyte2(data)
         epdconfig.digital_write(self.cs_pin, 1)
         
-    def ReadBusy(self, timeout=5.0, inverted_logic=True):
+    def ReadBusy(self, timeout=5.0):
+        """
+        Wait for display to become idle.
+        For DGT Centaur: BUSY pin is inverted (HIGH=busy, LOW=idle).
+        """
         import time
         start = time.time()
-        while epdconfig.digital_read(self.busy_pin) == (0 if inverted_logic else 1):
+        # Wait while pin reads HIGH (busy) - inverted logic for DGT Centaur
+        while epdconfig.digital_read(self.busy_pin) == 1:
             if time.time() - start > timeout:
-                logger.warning(f"e-Paper busy timeout after {timeout}s - pin still reads {epdconfig.digital_read(self.busy_pin)} ({'LOW=busy' if inverted_logic else 'HIGH=busy'})")
+                logger.warning(f"e-Paper busy timeout after {timeout}s - pin still reads HIGH (busy)")
                 return
             self.send_command(0x71)
             epdconfig.delay_ms(10)
