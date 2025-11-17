@@ -441,29 +441,57 @@ class EPD:
         
         # Command 0x90: Set partial window
         # Format: x_start, x_end, y_start_low, y_start_high, y_end_low, y_end_high, rotation
+        # DisplayPartial uses: x_start=0, x_end=width-1 (pixel coordinates)
+        # For partial region, we use the byte-aligned pixel coordinates
         self.send_command(0x90)
-        self.send_data(x_start_byte_idx & 0xFF)  # X start (byte index)
-        self.send_data(x_end_byte_idx & 0xFF)     # X end (byte index, inclusive)
+        self.send_data(x_start_byte & 0xFF)      # X start (pixel coordinate, byte-aligned)
+        self.send_data((x_end_byte - 1) & 0xFF)  # X end (pixel coordinate, inclusive)
         self.send_data(y_start & 0xFF)            # Y start low byte
         self.send_data((y_start >> 8) & 0x01)     # Y start high byte
         self.send_data((y_end - 1) & 0xFF)        # Y end low byte (inclusive)
         self.send_data(((y_end - 1) >> 8) & 0x01) # Y end high byte
         self.send_data(0x28)                      # Rotation
         
+        # Set RAM address counters to the start of the region
+        # This tells the hardware where to start writing the data
+        # Command 0x4E: Set RAM X address counter (byte index)
+        self.send_command(0x4E)
+        self.send_data(x_start_byte_idx & 0xFF)
+        
+        # Command 0x4F: Set RAM Y address counter
+        self.send_command(0x4F)
+        self.send_data(y_start & 0xFF)
+        self.send_data((y_start >> 8) & 0x01)
+        
         # Use differential update approach (like DisplayPartial)
-        # Command 0x10: Write old data to RAM (white background for the region)
+        # IMPORTANT: DisplayPartial sends the FULL SCREEN buffer, not just the region
+        # The hardware uses the window (0x90) to determine which part to update
+        # So we need to send the full-screen buffer, not just the region buffer
+        
+        # Create full-screen buffers for old and new data
+        bytes_per_row = self.width // 8
+        full_buffer_size = bytes_per_row * self.height
+        
+        # Old data: white background (all 0xFF)
+        old_data_full = [0xFF] * full_buffer_size
+        
+        # New data: full-screen buffer with inverted region
+        new_data_full = list(image_buffer)  # Copy full buffer
+        # Invert the region in the full buffer (like DisplayPartial does)
+        for y in range(y_start, y_end):
+            for x_byte in range(x_start_byte_idx, x_end_byte_idx + 1):
+                byte_idx = y * bytes_per_row + x_byte
+                if 0 <= byte_idx < len(new_data_full):
+                    new_data_full[byte_idx] = ~new_data_full[byte_idx] & 0xFF
+        
+        # Command 0x10: Write old data to RAM (full screen, but only region is used)
         self.send_command(0x10)
-        self.send_data2([0xFF] * len(region_buffer))  # White background
+        self.send_data2(old_data_full)
         epdconfig.delay_ms(10)
         
-        # Command 0x13: Write new data to RAM (the actual image region)
-        # Note: DisplayPartial inverts the buffer, so we do the same
-        buf_inverted = [0x00] * len(region_buffer)
-        for i in range(len(region_buffer)):
-            buf_inverted[i] = ~region_buffer[i] & 0xFF
-        
+        # Command 0x13: Write new data to RAM (full screen, but only region is used)
         self.send_command(0x13)
-        self.send_data2(buf_inverted)
+        self.send_data2(new_data_full)
         epdconfig.delay_ms(10)
         
         # Turn on display to execute partial refresh
