@@ -143,7 +143,21 @@ class EPD:
         
     def ReadBusy(self):
         logger.debug("e-Paper busy")
-        while(epdconfig.digital_read(self.busy_pin) == 0):      # 0: idle, 1: busy
+        import time
+        timeout = 5.0  # 5 second timeout
+        start_time = time.time()
+        # Note: UC8151 BUSY pin is typically LOW (0) when busy, HIGH (1) when idle
+        # But Waveshare comment says "0: idle, 1: busy" - may be inverted logic
+        # Wait while pin reads as expected for busy state
+        initial_state = epdconfig.digital_read(self.busy_pin)
+        logger.debug(f"Initial BUSY pin state: {initial_state}")
+        
+        while(epdconfig.digital_read(self.busy_pin) == 0):      # 0: idle, 1: busy (per Waveshare comment)
+            elapsed = time.time() - start_time
+            if elapsed > timeout:
+                logger.warning(f"e-Paper busy timeout after {elapsed:.1f}s - pin still reads 0 (idle per comment)")
+                logger.warning("Continuing anyway - hardware may not be connected or pin logic may be inverted")
+                break
             self.send_command(0x71)
             epdconfig.delay_ms(10)  
         logger.debug("e-Paper busy release")
@@ -154,13 +168,19 @@ class EPD:
         self.ReadBusy()
         
     def init(self):
-        if (epdconfig.module_init() != 0):
+        logger.info("Initializing e-Paper module...")
+        init_result = epdconfig.module_init()
+        if (init_result != 0):
+            logger.error(f"module_init() returned {init_result}")
             return -1
+        logger.info("Module initialized, resetting display...")
         # EPD hardware init start
         self.reset()
         
+        logger.info("Sending power on command and waiting for ready...")
         self.send_command(0x04)
         self.ReadBusy() #waiting for the electronic paper IC to release the idle signal
+        logger.info("Display ready, configuring panel...")
 
         self.send_command(0x00)     #panel setting
         self.send_data(0x1f)        # LUT from OTP，KW-BF   KWR-AF    BWROTP 0f   BWOTP 1f

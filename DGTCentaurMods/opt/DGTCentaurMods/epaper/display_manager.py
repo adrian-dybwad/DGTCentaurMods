@@ -60,8 +60,15 @@ class DisplayManager:
             else:
                 self._driver = Driver()
             
-            self._driver.reset()
-            self._driver.init()
+            try:
+                print("Resetting display...")
+                self._driver.reset()
+                print("Initializing display hardware...")
+                self._driver.init()
+                print("Display hardware initialized successfully")
+            except Exception as e:
+                print(f"ERROR: Failed to initialize display: {e}")
+                raise
             
             self._scheduler = RefreshScheduler(self._driver, self._framebuffer)
             self._scheduler.start()

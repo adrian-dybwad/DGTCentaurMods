@@ -36,10 +36,13 @@ class Driver:
         This must be called before any display operations.
         """
         if not self._initialized:
-            result = self._epd.init()
-            if result != 0:
-                raise RuntimeError("Failed to initialize e-Paper display")
-            self._initialized = True
+            try:
+                result = self._epd.init()
+                if result != 0:
+                    raise RuntimeError(f"Failed to initialize e-Paper display (return code: {result})")
+                self._initialized = True
+            except Exception as e:
+                raise RuntimeError(f"Failed to initialize e-Paper display: {e}") from e
 
     def reset(self) -> None:
         """
