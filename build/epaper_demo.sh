@@ -7,5 +7,5 @@ cd ~/DGTCentaurMods/DGTCentaurMods/opt
 # Activate the virtual environment
 source DGTCentaurMods/.venv/bin/activate
 
-python DGTCentaurMods/epaper_demo.py
+python DGTCentaurMods/demo_epaper.py
 
