@@ -123,11 +123,16 @@ class Driver:
             # SPI bus and device configurable via environment variables
             spi_bus = int(os.environ.get("EPAPER_SPI_BUS", "0"))
             spi_device = int(os.environ.get("EPAPER_SPI_DEVICE", "0"))
+            spi_speed = int(os.environ.get("EPAPER_SPI_SPEED", "4000000"))  # Default 4MHz
+            spi_mode = int(os.environ.get("EPAPER_SPI_MODE", "0"))  # Default mode 0
             logger.info(f"Opening SPI device (bus {spi_bus}, device {spi_device})...")
+            logger.info(f"SPI settings: speed={spi_speed}Hz, mode={spi_mode}")
             self._spi = spidev.SpiDev()
             self._spi.open(spi_bus, spi_device)
-            self._spi.max_speed_hz = 4000000  # 4MHz
-            self._spi.mode = 0b00
+            self._spi.max_speed_hz = spi_speed
+            self._spi.mode = spi_mode
+            self._spi.lsbfirst = False  # MSB first
+            self._spi.bits_per_word = 8
             logger.info("SPI initialized successfully")
             
             # Set initial pin states
