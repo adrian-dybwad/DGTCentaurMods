@@ -3,8 +3,8 @@ Bouncing ball widget.
 """
 
 from PIL import Image, ImageDraw
-from ..framework.widget import Widget
-from ..framework.regions import Region
+from .framework.widget import Widget
+from .framework.regions import Region
 
 
 class BallWidget(Widget):

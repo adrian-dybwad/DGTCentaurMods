@@ -3,7 +3,7 @@ Text display widget.
 """
 
 from PIL import Image, ImageDraw, ImageFont
-from ..framework.widget import Widget
+from .framework.widget import Widget
 import os
 
 

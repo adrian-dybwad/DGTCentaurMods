@@ -7,7 +7,7 @@ Uses only the new epaper framework - no legacy dependencies.
 import time
 import signal
 import sys
-from epaper import Manager, ClockWidget, BatteryWidget, TextWidget, BallWidget
+from . import Manager, ClockWidget, BatteryWidget, TextWidget, BallWidget
 
 
 class EPaperDemo:

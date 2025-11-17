@@ -3,7 +3,7 @@ Battery level indicator widget.
 """
 
 from PIL import Image, ImageDraw
-from ..framework.widget import Widget
+from .framework.widget import Widget
 
 
 class BatteryWidget(Widget):
