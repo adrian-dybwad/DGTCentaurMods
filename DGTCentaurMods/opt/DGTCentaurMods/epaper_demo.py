@@ -157,9 +157,11 @@ def main():
                 text_update_counter = 0
             
             # Update display (framework handles dirty region detection)
+            # Only update if enough time has passed since last update to avoid queue buildup
             display.update()
             
             # Sleep for shorter interval for smoother animation (100ms)
+            # But note: actual refresh rate will be limited by display hardware (260-300ms for partial)
             time.sleep(0.1)
     
     except KeyboardInterrupt:

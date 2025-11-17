@@ -278,8 +278,12 @@ class DisplayManager:
                 # Add moved regions to ensure old positions are refreshed
                 dirty_regions.extend(moved_regions)
                 if dirty_regions:
-                    # Submit all dirty regions (scheduler will merge them)
-                    for region in dirty_regions:
+                    # Merge regions before submitting to reduce queue size
+                    from .regions import merge_regions
+                    merged_regions = merge_regions(dirty_regions)
+                    
+                    # Submit refresh requests for each merged region (fewer requests = less queue buildup)
+                    for region in merged_regions:
                         self._scheduler.submit(region, full=False)
 
     def clear(self) -> None:

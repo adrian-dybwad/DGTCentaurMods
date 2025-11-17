@@ -146,21 +146,21 @@ class EPD:
         import time
         timeout = 5.0  # 5 second timeout
         start_time = time.time()
-        # Note: UC8151 BUSY pin is typically LOW (0) when busy, HIGH (1) when idle
-        # But Waveshare comment says "0: idle, 1: busy" - may be inverted logic
-        # Wait while pin reads as expected for busy state
+        # UC8151 BUSY pin: LOW (0) = busy, HIGH (1) = idle/ready
+        # Wait while pin is LOW (busy), exit when pin goes HIGH (idle)
         initial_state = epdconfig.digital_read(self.busy_pin)
-        logger.debug(f"Initial BUSY pin state: {initial_state}")
+        logger.debug(f"Initial BUSY pin state: {initial_state} (0=busy, 1=idle)")
         
-        while(epdconfig.digital_read(self.busy_pin) == 0):      # 0: idle, 1: busy (per Waveshare comment)
+        # Wait while pin is LOW (0) = busy
+        while(epdconfig.digital_read(self.busy_pin) == 0):
             elapsed = time.time() - start_time
             if elapsed > timeout:
-                logger.warning(f"e-Paper busy timeout after {elapsed:.1f}s - pin still reads 0 (idle per comment)")
-                logger.warning("Continuing anyway - hardware may not be connected or pin logic may be inverted")
+                logger.warning(f"e-Paper busy timeout after {elapsed:.1f}s - pin still reads 0 (busy)")
+                logger.warning("Continuing anyway - hardware may be stuck or not responding")
                 break
             self.send_command(0x71)
             epdconfig.delay_ms(10)  
-        logger.debug("e-Paper busy release")
+        logger.debug("e-Paper busy release (pin now HIGH/idle)")
         
     def TurnOnDisplay(self):
         self.send_command(0x12)

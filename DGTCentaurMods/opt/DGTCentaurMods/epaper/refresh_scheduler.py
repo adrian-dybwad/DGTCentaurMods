@@ -110,6 +110,14 @@ class RefreshScheduler:
                     if not pending_future.done():
                         pending_future.set_result("skipped-by-full")
             
+            # Limit queue size to prevent memory buildup
+            # If queue is too large, skip this request (it will be picked up in next update)
+            max_queue_size = 10
+            if len(self._queue) >= max_queue_size and not full:
+                # Queue is full, skip this request
+                future.set_result("skipped-queue-full")
+                return future
+            
             self._queue.append((region, future))
         
         self._wake_event.set()
@@ -134,7 +142,10 @@ class RefreshScheduler:
             if not batch:
                 continue
             
-            print(f"Processing batch of {len(batch)} refresh requests...")
+            if len(batch) > 50:
+                print(f"WARNING: Processing large batch of {len(batch)} refresh requests - queue may be backing up")
+            else:
+                print(f"Processing batch of {len(batch)} refresh requests...")
             
             # Check if we need a full refresh
             # Force full refresh more frequently to prevent ghosting from fast-moving content
