@@ -165,15 +165,38 @@ class Driver:
         """
         Wait until the display is not busy.
         
-        BUSY pin is LOW when busy, HIGH when idle (active low).
+        BUSY pin logic: LOW when busy, HIGH when idle (active low).
+        If BUSY pin is not working, can be disabled via EPAPER_SKIP_BUSY env var.
         """
+        # Allow skipping BUSY wait if pin is not connected/working
+        if os.environ.get("EPAPER_SKIP_BUSY", "").lower() == "true":
+            logger.debug("Skipping BUSY pin wait (EPAPER_SKIP_BUSY=true)")
+            time.sleep(0.1)  # Small delay instead
+            return
+        
         timeout = 5.0  # 5 second timeout
         start_time = time.time()
+        initial_state = GPIO.input(BUSY_PIN)
+        logger.debug(f"BUSY pin state: {initial_state} (0=LOW/busy, 1=HIGH/idle)")
+        
+        # Standard interpretation: LOW when busy, HIGH when idle
+        if initial_state == GPIO.HIGH:
+            # Already idle, no need to wait
+            logger.debug("Display already idle (BUSY pin HIGH)")
+            return
+        
+        # Wait for pin to go HIGH (idle)
         while GPIO.input(BUSY_PIN) == GPIO.LOW:
-            if time.time() - start_time > timeout:
-                logger.warning("Timeout waiting for display to become idle")
+            elapsed = time.time() - start_time
+            if elapsed > timeout:
+                logger.warning(f"Timeout waiting for display to become idle after {elapsed:.2f}s")
+                logger.warning("If BUSY pin is not connected, set EPAPER_SKIP_BUSY=true")
                 break
             time.sleep(0.01)
+        
+        elapsed = time.time() - start_time
+        if elapsed > 0.01:
+            logger.debug(f"Waited {elapsed:.2f}s for display to become idle")
 
     def _convert_to_bytes(self, image: Image.Image) -> bytes:
         """
@@ -202,43 +225,44 @@ class Driver:
         """Initialize the display hardware."""
         logger.info("Initializing display hardware...")
         try:
-            # Reset
+            # Reset - longer delay to ensure proper reset
             logger.debug("Resetting display...")
             GPIO.output(RST_PIN, GPIO.LOW)
-            time.sleep(0.01)
+            time.sleep(0.02)  # Increased from 0.01
             GPIO.output(RST_PIN, GPIO.HIGH)
-            time.sleep(0.01)
+            time.sleep(0.02)  # Increased from 0.01
             
-            # Power on sequence
-            logger.debug("Powering on display...")
-            self._write_command(UC8151_PON)
-            self._wait_until_idle()
+            # Check BUSY pin state before starting
+            busy_state = GPIO.input(BUSY_PIN)
+            logger.debug(f"BUSY pin initial state: {busy_state} (0=LOW, 1=HIGH)")
             
-            # Panel setting
+            # Panel setting (must come first, before power on)
+            logger.debug("Setting panel configuration...")
             self._write_command(UC8151_PSR)
             self._write_data([0xBF, 0x0D])  # LUT from OTP, scan up
             
             # Power setting
+            logger.debug("Setting power configuration...")
             self._write_command(UC8151_PWR)
             self._write_data([0x03, 0x00, 0x2B, 0x2B, 0x09])
             
             # Booster soft start
+            logger.debug("Setting booster soft start...")
             self._write_command(UC8151_BTST)
             self._write_data([0x17, 0x17, 0x17])
             
-            # Power off sequence (to prepare for first display)
-            self._write_command(UC8151_POF)
-            self._wait_until_idle()
-            
             # PLL control
+            logger.debug("Setting PLL...")
             self._write_command(UC8151_PLL)
             self._write_data([0x3C])  # 50Hz
             
             # Temperature sensor
+            logger.debug("Setting temperature sensor...")
             self._write_command(UC8151_TSE)
             self._write_data([0x00])
             
             # Resolution setting
+            logger.debug(f"Setting resolution: {EPD_WIDTH}x{EPD_HEIGHT}...")
             self._write_command(UC8151_TRES)
             self._write_data([
                 (EPD_WIDTH >> 8) & 0xFF,
@@ -248,12 +272,17 @@ class Driver:
             ])
             
             # VCOM and data interval
+            logger.debug("Setting VCOM and data interval...")
             self._write_command(UC8151_CDI)
             self._write_data([0x97])  # Border floating
             
             # Power on
+            logger.debug("Powering on display...")
             self._write_command(UC8151_PON)
-            self._wait_until_idle()
+            # Don't wait for idle after PON during init - may not be ready yet
+            # Just wait a short time for power to stabilize
+            time.sleep(0.1)
+            
             logger.info("Display initialization complete")
         except Exception as e:
             logger.error(f"Failed to initialize display: {e}", exc_info=True)
@@ -273,14 +302,20 @@ class Driver:
         Blocks until the hardware refresh completes.
         Typical duration is 1.5-2.0 seconds.
         """
-        logger.debug("Starting full refresh...")
+        logger.info("Starting full refresh...")
         try:
             # Rotate 180 degrees to match hardware orientation
             rotated = image.transpose(Image.ROTATE_180)
             image_bytes = self._convert_to_bytes(rotated)
-            logger.debug(f"Image converted to bytes: {len(image_bytes)} bytes")
+            logger.debug(f"Image converted to bytes: {len(image_bytes)} bytes (expected: {EPD_WIDTH * EPD_HEIGHT // 8})")
+            
+            # Verify image size
+            expected_size = (EPD_WIDTH * EPD_HEIGHT) // 8
+            if len(image_bytes) != expected_size:
+                logger.warning(f"Image size mismatch: got {len(image_bytes)}, expected {expected_size}")
             
             # Power on
+            logger.debug("Powering on for refresh...")
             self._write_command(UC8151_PON)
             self._wait_until_idle()
             
@@ -288,16 +323,21 @@ class Driver:
             logger.debug("Sending image data...")
             self._write_command(UC8151_DTM1)
             self._write_data(image_bytes)
+            logger.debug("Image data sent")
             
             # Display refresh
             logger.debug("Triggering display refresh...")
+            refresh_start = time.time()
             self._write_command(UC8151_DRF)
             self._wait_until_idle()
+            refresh_duration = time.time() - refresh_start
+            logger.info(f"Display refresh completed in {refresh_duration:.2f}s")
             
             # Power off
+            logger.debug("Powering off...")
             self._write_command(UC8151_POF)
             self._wait_until_idle()
-            logger.debug("Full refresh complete")
+            logger.info("Full refresh complete")
         except Exception as e:
             logger.error(f"Full refresh failed: {e}", exc_info=True)
             raise
