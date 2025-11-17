@@ -156,6 +156,7 @@ class MoveState:
         self.legal_destination_squares = []
         self.computer_move_uci = ""
         self.is_forced_move = False
+        self.source_piece_color = None  # Store piece color when lifted (for captures)
     
     def reset(self):
         """Reset all move state variables."""
@@ -164,6 +165,7 @@ class MoveState:
         self.legal_destination_squares = []
         self.computer_move_uci = ""
         self.is_forced_move = False
+        self.source_piece_color = None
     
     def set_computer_move(self, uci_move: str, forced: bool = True):
         """Set the computer move that the player is expected to make."""
@@ -492,6 +494,8 @@ class GameManager:
             # Generate legal destination squares for this piece
             self.move_state.legal_destination_squares = self._calculate_legal_squares(field)
             self.move_state.source_square = field
+            # Store piece color for use during PLACE event (important for captures)
+            self.move_state.source_piece_color = piece_color
         
         # Track opposing side lifts
         if not is_current_player_piece:
@@ -508,6 +512,8 @@ class GameManager:
                 target = self.move_state.computer_move_uci[2:4]
                 target_square = chess.parse_square(target)
                 self.move_state.legal_destination_squares = [target_square]
+                # Store piece color for forced moves too
+                self.move_state.source_piece_color = piece_color
     
     def _handle_piece_place(self, field: int, piece_color):
         """Handle piece place event."""
@@ -571,6 +577,7 @@ class GameManager:
             board.ledsOff()
             self.move_state.source_square = INVALID_SQUARE
             self.move_state.legal_destination_squares = []
+            self.move_state.source_piece_color = None
         else:
             # Valid move
             self._execute_move(field)
@@ -623,7 +630,19 @@ class GameManager:
     def _field_callback(self, piece_event: int, field: int, time_in_seconds: float):
         """Handle field events (piece lift/place)."""
         field_name = chess.square_name(field)
-        piece_color = self.chess_board.color_at(field)
+        
+        # For LIFT events, get piece color from the field
+        # For PLACE events, use stored source piece color (important for captures)
+        # where the destination square may have the opponent's piece
+        if piece_event == 0:  # LIFT event
+            piece_color = self.chess_board.color_at(field)
+        else:  # PLACE event
+            if self.move_state.source_piece_color is not None:
+                # Use stored piece color from when the piece was lifted
+                piece_color = self.move_state.source_piece_color
+            else:
+                # Fallback to destination square if no stored color (shouldn't normally happen)
+                piece_color = self.chess_board.color_at(field)
         
         log.info(f"[GameManager._field_callback] piece_event={piece_event} field={field} fieldname={field_name} "
                  f"color_at={'White' if piece_color else 'Black'} time_in_seconds={time_in_seconds}")
