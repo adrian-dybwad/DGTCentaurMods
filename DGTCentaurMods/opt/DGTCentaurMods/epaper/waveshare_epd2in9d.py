@@ -51,7 +51,11 @@ class EPD:
     def send_data2(self, data):
         epdconfig.digital_write(self.dc_pin, 1)
         epdconfig.digital_write(self.cs_pin, 0)
-        epdconfig.spi_writebyte2(data)
+        # Send data in chunks to avoid SPI transfer size limits
+        chunk_size = 4096
+        for i in range(0, len(data), chunk_size):
+            chunk = data[i:i + chunk_size]
+            epdconfig.spi_writebyte2(chunk)
         epdconfig.digital_write(self.cs_pin, 1)
         
     def ReadBusy(self, timeout=5.0):

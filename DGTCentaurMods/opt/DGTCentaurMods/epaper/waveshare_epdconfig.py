@@ -68,6 +68,7 @@ class RaspberryPi:
             self.SPI.writebytes([data])
 
     def spi_writebyte2(self, data):
+        """Write data via SPI (assumes CS is already managed by caller)."""
         self.SPI.writebytes(data)
 
     def module_init(self):
