@@ -78,7 +78,7 @@ class Driver:
             y1: Start y coordinate (inclusive)
             x2: End x coordinate (exclusive)
             y2: End y coordinate (exclusive)
-            image: PIL Image to display (will be rotated to match hardware orientation)
+            image: PIL Image of the region to display (will be rotated to match hardware orientation)
         
         The refresh blocks until the hardware operation completes.
         Typical duration is 260-300ms based on UC8151 controller specifications.
@@ -89,8 +89,13 @@ class Driver:
         if not self._initialized:
             self.init()
         
+        # The image passed is a region image, but we need a full-screen buffer
+        # Create a full-screen white image and paste the region into it
+        full_image = Image.new("1", (self.width, self.height), 255)  # White background
+        full_image.paste(image, (x1, y1))
+        
         # Rotate 180 degrees to match hardware orientation
-        rotated = image.transpose(Image.ROTATE_180)
+        rotated = full_image.transpose(Image.ROTATE_180)
         
         # Convert to buffer format (full screen buffer)
         buf = self._epd.getbuffer(rotated)

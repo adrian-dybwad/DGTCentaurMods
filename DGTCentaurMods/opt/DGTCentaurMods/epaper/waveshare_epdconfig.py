@@ -301,22 +301,38 @@ class SunriseX3:
         self.GPIO.cleanup([self.RST_PIN, self.DC_PIN, self.CS_PIN, self.BUSY_PIN], self.PWR_PIN)
 
 
-if sys.version_info[0] == 2:
-    process = subprocess.Popen("cat /proc/cpuinfo | grep Raspberry", shell=True, stdout=subprocess.PIPE)
-else:
-    process = subprocess.Popen("cat /proc/cpuinfo | grep Raspberry", shell=True, stdout=subprocess.PIPE, text=True)
-output, _ = process.communicate()
-if sys.version_info[0] == 2:
-    output = output.decode(sys.stdout.encoding)
+# Platform detection with error handling
+try:
+    if sys.version_info[0] == 2:
+        process = subprocess.Popen("cat /proc/cpuinfo | grep Raspberry", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    else:
+        process = subprocess.Popen("cat /proc/cpuinfo | grep Raspberry", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    output, _ = process.communicate()
+    if sys.version_info[0] == 2:
+        output = output.decode(sys.stdout.encoding) if output else ""
+    output = output or ""
+except Exception:
+    output = ""
 
-if "Raspberry" in output:
-    implementation = RaspberryPi()
-elif os.path.exists('/sys/bus/platform/drivers/gpio-x3'):
-    implementation = SunriseX3()
-else:
-    implementation = JetsonNano()
-
-for func in [x for x in dir(implementation) if not x.startswith('_')]:
-    setattr(sys.modules[__name__], func, getattr(implementation, func))
+try:
+    if "Raspberry" in output:
+        implementation = RaspberryPi()
+    elif os.path.exists('/sys/bus/platform/drivers/gpio-x3'):
+        implementation = SunriseX3()
+    else:
+        implementation = JetsonNano()
+    
+    for func in [x for x in dir(implementation) if not x.startswith('_')]:
+        setattr(sys.modules[__name__], func, getattr(implementation, func))
+except Exception as e:
+    # If platform detection fails, default to RaspberryPi but log the error
+    logger.warning(f"Platform detection failed: {e}, defaulting to RaspberryPi")
+    try:
+        implementation = RaspberryPi()
+        for func in [x for x in dir(implementation) if not x.startswith('_')]:
+            setattr(sys.modules[__name__], func, getattr(implementation, func))
+    except Exception as e2:
+        logger.error(f"Failed to initialize RaspberryPi implementation: {e2}")
+        raise
 
 ### END OF FILE ###

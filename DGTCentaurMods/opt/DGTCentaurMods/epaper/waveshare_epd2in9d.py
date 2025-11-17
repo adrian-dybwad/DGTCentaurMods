@@ -30,7 +30,6 @@
 # THE SOFTWARE.
 #
 
-from distutils.command.build_scripts import build_scripts
 import logging
 from . import waveshare_epdconfig as epdconfig
 from PIL import Image
