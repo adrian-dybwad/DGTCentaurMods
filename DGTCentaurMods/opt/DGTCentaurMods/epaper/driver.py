@@ -61,6 +61,8 @@ UC8151_PWS = 0xE3  # Power Saving
 
 # GPIO pins - configurable via environment variables
 # Default values are typical Waveshare configuration for 2.9" display
+# Note: CS_PIN=8 corresponds to SPI0 CE0 (hardware chip select)
+# If using hardware CS, set EPAPER_USE_HW_CS=true to let SPI handle CS automatically
 # To find the correct pins used by epaperDriver.so, check:
 # 1. Hardware documentation/schematics
 # 2. Use GPIO probing tools on a working system
@@ -70,6 +72,7 @@ RST_PIN = int(os.environ.get("EPAPER_RST_PIN", "17"))
 DC_PIN = int(os.environ.get("EPAPER_DC_PIN", "25"))
 CS_PIN = int(os.environ.get("EPAPER_CS_PIN", "8"))
 BUSY_PIN = int(os.environ.get("EPAPER_BUSY_PIN", "24"))
+USE_HW_CS = os.environ.get("EPAPER_USE_HW_CS", "").lower() == "true"
 
 # Display dimensions
 EPD_WIDTH = 128
@@ -103,11 +106,14 @@ class Driver:
         try:
             # Initialize GPIO
             logger.info(f"Setting up GPIO pins: RST={RST_PIN}, DC={DC_PIN}, CS={CS_PIN}, BUSY={BUSY_PIN}")
+            logger.info(f"Hardware CS mode: {USE_HW_CS} (if True, SPI handles CS automatically)")
             GPIO.setmode(GPIO.BCM)
             GPIO.setwarnings(False)
             GPIO.setup(RST_PIN, GPIO.OUT)
             GPIO.setup(DC_PIN, GPIO.OUT)
-            GPIO.setup(CS_PIN, GPIO.OUT)
+            if not USE_HW_CS:
+                # Only setup CS as GPIO if not using hardware CS
+                GPIO.setup(CS_PIN, GPIO.OUT)
             GPIO.setup(BUSY_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)  # Pull up for input
             self._gpio_initialized = True
             
@@ -123,7 +129,8 @@ class Driver:
             logger.info("SPI initialized successfully")
             
             # Set initial pin states
-            GPIO.output(CS_PIN, GPIO.HIGH)
+            if not USE_HW_CS:
+                GPIO.output(CS_PIN, GPIO.HIGH)
             GPIO.output(DC_PIN, GPIO.LOW)
             GPIO.output(RST_PIN, GPIO.HIGH)
             logger.info("Driver initialization complete")
@@ -134,9 +141,14 @@ class Driver:
     def _write_command(self, cmd: int) -> None:
         """Write a command byte to the display."""
         GPIO.output(DC_PIN, GPIO.LOW)  # Command mode
-        GPIO.output(CS_PIN, GPIO.LOW)
+        if not USE_HW_CS:
+            GPIO.output(CS_PIN, GPIO.LOW)
+            time.sleep(0.0001)  # Small delay for CS to settle
         self._spi.xfer2([cmd])
-        GPIO.output(CS_PIN, GPIO.HIGH)
+        if not USE_HW_CS:
+            time.sleep(0.0001)  # Small delay before raising CS
+            GPIO.output(CS_PIN, GPIO.HIGH)
+            time.sleep(0.0001)  # Small delay after CS
 
     def _write_data(self, data: bytes | list[int]) -> None:
         """
@@ -145,7 +157,9 @@ class Driver:
         Sends data in chunks to avoid SPI transfer size limits (4096 bytes max).
         """
         GPIO.output(DC_PIN, GPIO.HIGH)  # Data mode
-        GPIO.output(CS_PIN, GPIO.LOW)
+        if not USE_HW_CS:
+            GPIO.output(CS_PIN, GPIO.LOW)
+            time.sleep(0.0001)  # Small delay for CS to settle
         
         # Convert to list if needed
         if isinstance(data, bytes):
@@ -159,7 +173,10 @@ class Driver:
             chunk = data_list[i:i + chunk_size]
             self._spi.xfer2(chunk)
         
-        GPIO.output(CS_PIN, GPIO.HIGH)
+        if not USE_HW_CS:
+            time.sleep(0.0001)  # Small delay before raising CS
+            GPIO.output(CS_PIN, GPIO.HIGH)
+            time.sleep(0.0001)  # Small delay after CS
 
     def _wait_until_idle(self) -> None:
         """
@@ -228,38 +245,43 @@ class Driver:
             # Reset - longer delay to ensure proper reset
             logger.debug("Resetting display...")
             GPIO.output(RST_PIN, GPIO.LOW)
-            time.sleep(0.02)  # Increased from 0.01
+            time.sleep(0.02)
             GPIO.output(RST_PIN, GPIO.HIGH)
-            time.sleep(0.02)  # Increased from 0.01
+            time.sleep(0.02)
             
             # Check BUSY pin state before starting
             busy_state = GPIO.input(BUSY_PIN)
-            logger.debug(f"BUSY pin initial state: {busy_state} (0=LOW, 1=HIGH)")
+            logger.info(f"BUSY pin initial state: {busy_state} (0=LOW, 1=HIGH)")
             
-            # Panel setting (must come first, before power on)
-            logger.debug("Setting panel configuration...")
+            # Panel setting (PSR) - must come first
+            logger.debug("Setting panel configuration (PSR)...")
             self._write_command(UC8151_PSR)
             self._write_data([0xBF, 0x0D])  # LUT from OTP, scan up
+            time.sleep(0.01)
             
-            # Power setting
-            logger.debug("Setting power configuration...")
+            # Power setting (PWR)
+            logger.debug("Setting power configuration (PWR)...")
             self._write_command(UC8151_PWR)
             self._write_data([0x03, 0x00, 0x2B, 0x2B, 0x09])
+            time.sleep(0.01)
             
-            # Booster soft start
-            logger.debug("Setting booster soft start...")
+            # Booster soft start (BTST)
+            logger.debug("Setting booster soft start (BTST)...")
             self._write_command(UC8151_BTST)
             self._write_data([0x17, 0x17, 0x17])
+            time.sleep(0.01)
             
             # PLL control
             logger.debug("Setting PLL...")
             self._write_command(UC8151_PLL)
             self._write_data([0x3C])  # 50Hz
+            time.sleep(0.01)
             
             # Temperature sensor
             logger.debug("Setting temperature sensor...")
             self._write_command(UC8151_TSE)
             self._write_data([0x00])
+            time.sleep(0.01)
             
             # Resolution setting
             logger.debug(f"Setting resolution: {EPD_WIDTH}x{EPD_HEIGHT}...")
@@ -270,18 +292,19 @@ class Driver:
                 (EPD_HEIGHT >> 8) & 0xFF,
                 EPD_HEIGHT & 0xFF
             ])
+            time.sleep(0.01)
             
             # VCOM and data interval
             logger.debug("Setting VCOM and data interval...")
             self._write_command(UC8151_CDI)
             self._write_data([0x97])  # Border floating
+            time.sleep(0.01)
             
             # Power on
-            logger.debug("Powering on display...")
+            logger.debug("Powering on display (PON)...")
             self._write_command(UC8151_PON)
-            # Don't wait for idle after PON during init - may not be ready yet
-            # Just wait a short time for power to stabilize
-            time.sleep(0.1)
+            # Wait for power to stabilize - don't use BUSY pin during init
+            time.sleep(0.2)
             
             logger.info("Display initialization complete")
         except Exception as e:
@@ -424,7 +447,10 @@ class Driver:
         # Cleanup GPIO
         if self._gpio_initialized:
             try:
-                GPIO.cleanup([RST_PIN, DC_PIN, CS_PIN, BUSY_PIN])
+                pins_to_cleanup = [RST_PIN, DC_PIN, BUSY_PIN]
+                if not USE_HW_CS:
+                    pins_to_cleanup.append(CS_PIN)
+                GPIO.cleanup(pins_to_cleanup)
             except Exception:
                 pass
             self._gpio_initialized = False
