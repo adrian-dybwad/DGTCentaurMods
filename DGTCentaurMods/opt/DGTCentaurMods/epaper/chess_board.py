@@ -75,23 +75,6 @@ class ChessBoardWidget(Widget):
         file = index % 8
         return (rank + file) % 2 == 0
     
-    def _fade_to_grey(self, img: Image.Image) -> Image.Image:
-        """Convert black pixels to grey pattern (checkerboard dither)."""
-        grey_img = img.copy()
-        width, height = grey_img.size
-        
-        for y in range(height):
-            for x in range(width):
-                pixel = img.getpixel((x, y))
-                if pixel == 0:  # Black pixel
-                    # Create checkerboard pattern for grey effect
-                    if (x + y) % 2 == 0:
-                        grey_img.putpixel((x, y), 0)  # Keep black
-                    else:
-                        grey_img.putpixel((x, y), 255)  # Make white
-        
-        return grey_img
-    
     def set_fen(self, fen: str) -> None:
         """Update the FEN string."""
         self.fen = fen
@@ -124,9 +107,6 @@ class ChessBoardWidget(Widget):
                 
                 # Always draw square background (empty square sprite at x=0)
                 square_bg = self._chess_font.crop((0, py, 16, py + 16))
-                # Fade black squares to grey
-                if is_dark:
-                    square_bg = self._fade_to_grey(square_bg)
                 img.paste(square_bg, (x, y))
                 
                 # Draw piece if it exists
