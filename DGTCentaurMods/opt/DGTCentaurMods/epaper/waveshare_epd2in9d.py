@@ -121,6 +121,11 @@ class EPD:
         self.send_data(0x97)
 
     def getbuffer(self, image):
+        """
+        Convert PIL image to display buffer format.
+        Buffer format: 0 bit = black, 1 bit = white (default 0xFF = all white)
+        PIL format: 0 = black, 255 = white
+        """
         buf = [0xFF] * (int(self.width/8) * self.height)
         image_monocolor = image.convert('1')
         imwidth, imheight = image_monocolor.size
@@ -128,14 +133,16 @@ class EPD:
         if imwidth == self.width and imheight == self.height:
             for y in range(imheight):
                 for x in range(imwidth):
-                    if pixels[x, y] == 0:
+                    # PIL: 0 = black, 255/1 = white
+                    # Buffer: clear bit (0) = black, set bit (1) = white
+                    if pixels[x, y] == 0:  # Black pixel
                         buf[int((x + y * self.width) / 8)] &= ~(0x80 >> (x % 8))
         elif imwidth == self.height and imheight == self.width:
             for y in range(imheight):
                 for x in range(imwidth):
                     newx = y
                     newy = self.height - x - 1
-                    if pixels[x, y] == 0:
+                    if pixels[x, y] == 0:  # Black pixel
                         buf[int((newx + newy*self.width) / 8)] &= ~(0x80 >> (y % 8))
         return buf
 

@@ -83,6 +83,7 @@ class RefreshScheduler:
     def _execute_full_refresh(self, batch: list) -> None:
         """Execute a full screen refresh."""
         try:
+            # Get full-screen snapshot and rotate 180° for hardware orientation
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
             buf = self._epd.getbuffer(full_image)
@@ -109,17 +110,17 @@ class RefreshScheduler:
             return
         
         try:
-            # Get full-screen snapshot
+            # Get full-screen snapshot and rotate 180° for hardware orientation
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
             buf = self._epd.getbuffer(full_image)
             
             # Use DisplayPartial - it handles the full screen buffer
+            # DisplayPartial refreshes the entire screen, so flush entire framebuffer
             self._epd.DisplayPartial(buf)
             
-            # Mark all dirty regions as flushed
-            for region in dirty_regions:
-                self._framebuffer.flush_region(region)
+            # Flush entire framebuffer since DisplayPartial refreshes full screen
+            self._framebuffer.flush_all()
             
             self._partial_refresh_count += 1
         except Exception as e:
