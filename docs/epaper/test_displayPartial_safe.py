@@ -25,10 +25,22 @@ dll = CDLL(str(lib_path))
 dll.openDisplay()
 dll.init()
 
-# Create test image
-test_image = Image.new("1", (12, 12), 255)
+# Clear display first with full white refresh
+print("Clearing display...")
+clear_image = Image.new("1", (128, 296), 255)  # White
+width, height = clear_image.size
+bytes_per_row = (width + 7) // 8
+clear_buf = [0xFF] * (bytes_per_row * height)
+clear_data = bytes(clear_buf)
+clear_data_ptr = (c_uint8 * len(clear_data)).from_buffer_copy(clear_data)
+dll.display(clear_data_ptr)
+
+# Create test image - larger black square for visibility
+test_size = 20  # 20x20 pixels - larger and easier to see
+test_image = Image.new("1", (test_size, test_size), 255)  # White background
 draw = ImageDraw.Draw(test_image)
-draw.ellipse((2, 2, 10, 10), fill=0)
+# Draw a black square (leave 1 pixel border for visibility)
+draw.rectangle((1, 1, test_size-2, test_size-2), fill=0)  # Black square
 
 # Convert to bytes
 width, height = test_image.size
@@ -46,10 +58,10 @@ for y in range(height):
 image_data = bytes(buf)
 image_data_ptr = (c_uint8 * len(image_data)).from_buffer_copy(image_data)
 
-# Test coordinates
-x1, y1 = 58, 142
-x2, y2 = 70, 154
-width, height = 12, 12
+# Test coordinates - center of screen, larger area
+x1, y1 = 54, 138  # Center minus half of test_size
+x2, y2 = 74, 158  # Center plus half of test_size
+width, height = test_size, test_size
 
 # Configure function signature
 {signature_setup}
@@ -82,18 +94,8 @@ if lib_path is None:
 
 lib_path_str = str(lib_path.resolve())
 
-# Test signatures
+# Test signatures - only test the ones that didn't crash
 tests = [
-    {
-        "name": "displayPartial(x1, y1, x2, y2, image_data)",
-        "setup": "dll.displayPartial.argtypes = [c_int, c_int, c_int, c_int, POINTER(c_uint8)]\ndll.displayPartial.restype = None",
-        "call": "dll.displayPartial(x1, y1, x2, y2, image_data_ptr)"
-    },
-    {
-        "name": "displayPartial(x, y, width, height, image_data)",
-        "setup": "dll.displayPartial.argtypes = [c_int, c_int, c_int, c_int, POINTER(c_uint8)]\ndll.displayPartial.restype = None",
-        "call": "dll.displayPartial(x1, y1, width, height, image_data_ptr)"
-    },
     {
         "name": "displayPartial(image_data, x1, y1, x2, y2)",
         "setup": "dll.displayPartial.argtypes = [POINTER(c_uint8), c_int, c_int, c_int, c_int]\ndll.displayPartial.restype = None",
@@ -104,22 +106,13 @@ tests = [
         "setup": "dll.displayPartial.argtypes = [POINTER(c_uint8), c_int, c_int, c_int, c_int]\ndll.displayPartial.restype = None",
         "call": "dll.displayPartial(image_data_ptr, x1, y1, width, height)"
     },
-    {
-        "name": "displayPartial(x1, y1, x2, y2, width, height, image_data)",
-        "setup": "dll.displayPartial.argtypes = [c_int, c_int, c_int, c_int, c_int, c_int, POINTER(c_uint8)]\ndll.displayPartial.restype = None",
-        "call": "dll.displayPartial(x1, y1, x2, y2, width, height, image_data_ptr)"
-    },
-    {
-        "name": "displayPartial(x0, x1, y0, y1, image_data) - like displayRegion",
-        "setup": "dll.displayPartial.argtypes = [c_int, c_int, c_int, c_int, POINTER(c_uint8)]\ndll.displayPartial.restype = None",
-        "call": "dll.displayPartial(x1, x2, y1, y2, image_data_ptr)"
-    },
 ]
 
 print("Testing displayPartial() function signatures")
 print("=" * 60)
 print(f"Library: {lib_path_str}")
-print(f"Test region: (58, 142) to (70, 154), Image: 12x12 pixels")
+print(f"Test region: (54, 138) to (74, 158), Image: 20x20 pixels (black square)")
+print("Display will be cleared first, then each successful signature will be tested")
 print("=" * 60)
 print()
 
@@ -127,6 +120,7 @@ results = []
 
 for i, test in enumerate(tests, 1):
     print(f"Test {i}: {test['name']}")
+    print(f"  Looking for a 20x20 black square at center of screen (around x=54-74, y=138-158)")
     
     # Create temporary test script
     test_script = test_script_template.format(
@@ -147,12 +141,14 @@ for i, test in enumerate(tests, 1):
             [sys.executable, temp_file],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=10  # Increased timeout for display refresh
         )
         
         if result.returncode == 0:
             print(f"  ✅ SUCCESS: {result.stdout.strip()}")
-            print(f"  ⚠️  Check display - if you see a partial update, this is the correct signature!")
+            print(f"  👀 CHECK DISPLAY NOW - Do you see a black square in the center?")
+            print(f"  📍 Expected location: center of screen (x=54-74, y=138-158)")
+            input(f"  Press Enter after checking the display, then we'll test the next signature...")
             results.append((i, test['name'], "SUCCESS"))
         else:
             if "Segmentation fault" in result.stderr or result.returncode == -11:
