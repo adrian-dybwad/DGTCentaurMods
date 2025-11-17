@@ -7,6 +7,7 @@ import queue
 import time
 from typing import Optional
 from concurrent.futures import Future
+from PIL import Image
 from .regions import Region, merge_regions, expand_to_byte_alignment
 from .framebuffer import FrameBuffer
 from .waveshare_epd2in9d import EPD
