@@ -127,23 +127,23 @@ class EPaperDemo:
             future.result(timeout=5.0)
             print("Screen cleared")
             
-            # Only draw rank 6 (squares a6 to h6) in its correct position
-            print("Drawing only rank 6 (a6 to h6) in correct position...")
+            # Only draw border and rank 8 (squares a8 to h8)
+            print("Drawing border and rank 8 (a8 to h8) only...")
             print("Press Ctrl+C to exit")
             
             self.running = True
             
-            # Set widget to only render rank 5 (0-indexed, which is rank 6 in chess notation)
-            self.chess_board.set_render_only_rank(5)
+            # Set widget to only render rank 7 (0-indexed, which is rank 8 in chess notation)
+            self.chess_board.set_render_only_rank(7)
             self.chess_board.set_render_only_file(None)  # Clear file filter
             
             # Render and update display
             self.display.update()
             
-            # Force full refresh to show rank 6 squares
+            # Force full refresh to show border and rank 8 squares
             future = self.display._scheduler.submit(full=True)
             future.result(timeout=5.0)
-            print("Rendered rank 6 squares (a6 to h6) in correct position")
+            print("Rendered border and rank 8 squares (a8 to h8)")
             
             # Keep running to maintain display
             while self.running:
