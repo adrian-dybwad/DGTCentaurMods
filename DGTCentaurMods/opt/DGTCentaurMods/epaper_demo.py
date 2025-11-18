@@ -121,6 +121,14 @@ class EPaperDemo:
             self.initialize_display()
             self.setup_widgets()
             
+            # Render widgets and force initial full refresh to clear ghosting
+            print("Rendering widgets and performing initial full refresh...")
+            self.display.update()
+            # Force full refresh to clear ghosting and display chess board
+            future = self.display._scheduler.submit(full=True)
+            future.result(timeout=5.0)  # Wait for full refresh to complete
+            print("Initial full refresh complete")
+            
             print("Demo started!")
             print("Press Ctrl+C to exit")
             
