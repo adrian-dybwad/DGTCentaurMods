@@ -6,9 +6,13 @@ from PIL import Image, ImageDraw
 from .framework.widget import Widget
 import os
 import sys
-import logging
 
-logger = logging.getLogger(__name__)
+try:
+    from DGTCentaurMods.board.logging import log
+except ImportError:
+    # Fallback for direct execution
+    import logging
+    log = logging.getLogger(__name__)
 
 # Import AssetManager - handle both direct execution and module execution
 try:
@@ -31,37 +35,37 @@ class ChessBoardWidget(Widget):
     
     def _load_chess_font(self):
         """Load chess piece sprite sheet."""
-        logger.debug("Attempting to load chesssprites sprite sheet")
+        log.info("Attempting to load chesssprites sprite sheet")
         
         try:
             font_path = AssetManager.get_resource_path("chesssprites_fen.bmp")
-            logger.debug(f"Resolved chesssprites path: {font_path}")
+            log.info(f"Resolved chesssprites path: {font_path}")
             
             if not font_path:
-                logger.error("AssetManager.get_resource_path() returned empty path for chesssprites_fen.bmp")
+                log.error("AssetManager.get_resource_path() returned empty path for chesssprites_fen.bmp")
                 self._chess_font = None
                 return
             
             if not os.path.exists(font_path):
-                logger.error(f"Chesssprites file not found at path: {font_path}")
+                log.error(f"Chesssprites file not found at path: {font_path}")
                 self._chess_font = None
                 return
             
-            logger.debug(f"Chesssprites file exists, attempting to open: {font_path}")
+            log.info(f"Chesssprites file exists, attempting to open: {font_path}")
             
             try:
                 self._chess_font = Image.open(font_path)
-                logger.debug(f"Successfully opened chesssprites image")
+                log.info(f"Successfully opened chesssprites image")
             except IOError as e:
-                logger.error(f"IOError opening chesssprites file {font_path}: {e}")
+                log.error(f"IOError opening chesssprites file {font_path}: {e}")
                 self._chess_font = None
                 return
             except OSError as e:
-                logger.error(f"OSError opening chesssprites file {font_path}: {e}")
+                log.error(f"OSError opening chesssprites file {font_path}: {e}")
                 self._chess_font = None
                 return
             except Exception as e:
-                logger.error(f"Unexpected error opening chesssprites file {font_path}: {type(e).__name__}: {e}")
+                log.error(f"Unexpected error opening chesssprites file {font_path}: {type(e).__name__}: {e}")
                 self._chess_font = None
                 return
             
@@ -69,12 +73,12 @@ class ChessBoardWidget(Widget):
             if self._chess_font is not None:
                 width, height = self._chess_font.size
                 mode = self._chess_font.mode
-                logger.info(f"Chesssprites image loaded: {width}x{height}, mode={mode}")
+                log.info(f"Chesssprites image loaded: {width}x{height}, mode={mode}")
                 
                 # Sprite sheet should be at least 208x32 (13 pieces * 16px width, 2 rows * 16px height)
                 # CRITICAL: Must have at least 32px height (2 rows) for light (y=0-16) and dark (y=16-32) squares
                 if height < 32:
-                    logger.error(
+                    log.error(
                         f"Chesssprites image height {height}px is insufficient! "
                         f"Required: 32px (2 rows of 16px each). "
                         f"Dark squares will fail to render (require y=16-32). "
@@ -83,20 +87,20 @@ class ChessBoardWidget(Widget):
                     self._chess_font = None
                     return
                 elif height < 48:
-                    logger.warning(
+                    log.warning(
                         f"Chesssprites image height {height}px is less than expected 48px. "
                         f"Expected 3 rows (48px) but minimum 2 rows (32px) is acceptable."
                     )
                 
                 if width < 208:
-                    logger.warning(
+                    log.warning(
                         f"Chesssprites image width {width}px is smaller than expected "
                         f"(minimum 208px for all pieces). Some pieces may be missing."
                     )
                 else:
-                    logger.debug(f"Chesssprites image dimensions validated: {width}x{height}")
+                    log.debug(f"Chesssprites image dimensions validated: {width}x{height}")
         except Exception as e:
-            logger.error(f"Unexpected error in _load_chess_font(): {type(e).__name__}: {e}", exc_info=True)
+            log.error(f"Unexpected error in _load_chess_font(): {type(e).__name__}: {e}", exc_info=True)
             self._chess_font = None
     
     def _expand_fen(self, fen_board: str) -> list:
@@ -140,20 +144,20 @@ class ChessBoardWidget(Widget):
     def _validate_crop_coords(self, x1: int, y1: int, x2: int, y2: int) -> bool:
         """Validate crop coordinates are within sprite sheet bounds."""
         if self._chess_font is None:
-            logger.warning("Cannot validate crop coordinates: chess font not loaded")
+            log.warning("Cannot validate crop coordinates: chess font not loaded")
             return False
         
         sheet_width, sheet_height = self._chess_font.size
         
         if x1 < 0 or y1 < 0 or x2 > sheet_width or y2 > sheet_height:
-            logger.warning(
+            log.warning(
                 f"Crop coordinates out of bounds: requested ({x1}, {y1}, {x2}, {y2}), "
                 f"sprite sheet size: {sheet_width}x{sheet_height}"
             )
             return False
         
         if x1 >= x2 or y1 >= y2:
-            logger.warning(
+            log.warning(
                 f"Invalid crop coordinates: x1={x1} >= x2={x2} or y1={y1} >= y2={y2}"
             )
             return False
@@ -170,26 +174,26 @@ class ChessBoardWidget(Widget):
         img = Image.new("1", (self.width, self.height), 255)
         
         if self._chess_font is None:
-            logger.warning("Cannot render chess board: chess font not loaded")
+            log.warning("Cannot render chess board: chess font not loaded")
             return img
         
         # Parse FEN
         try:
             fen_board = self.fen.split()[0]
-            logger.debug(f"Parsing FEN board string: {fen_board}")
+            log.info(f"Rendering chess board from FEN: {fen_board}")
         except (AttributeError, IndexError) as e:
-            logger.error(f"Error parsing FEN string '{self.fen}': {type(e).__name__}: {e}")
+            log.error(f"Error parsing FEN string '{self.fen}': {type(e).__name__}: {e}")
             return img
         
         # Expand FEN to 64 characters
         try:
             ordered = self._expand_fen(fen_board)
-            logger.debug(f"FEN expanded to {len(ordered)} squares")
+            log.info(f"FEN expanded to {len(ordered)} squares")
         except ValueError as e:
-            logger.error(f"Invalid FEN board string '{fen_board}': {e}")
+            log.error(f"Invalid FEN board string '{fen_board}': {e}")
             return img
         except Exception as e:
-            logger.error(f"Unexpected error expanding FEN '{fen_board}': {type(e).__name__}: {e}")
+            log.error(f"Unexpected error expanding FEN '{fen_board}': {type(e).__name__}: {e}")
             return img
         
         draw = ImageDraw.Draw(img)
@@ -215,7 +219,7 @@ class ChessBoardWidget(Widget):
                 # Row 1 (y=16-32): dark squares
                 bg_x1, bg_y1, bg_x2, bg_y2 = 0, py, 16, py + 16
                 if not self._validate_crop_coords(bg_x1, bg_y1, bg_x2, bg_y2):
-                    logger.error(
+                    log.error(
                         f"Invalid background crop coordinates for square {idx} "
                         f"(rank={rank}, file={file}, is_dark={is_dark}): "
                         f"requested ({bg_x1}, {bg_y1}, {bg_x2}, {bg_y2}), "
@@ -223,7 +227,7 @@ class ChessBoardWidget(Widget):
                     )
                     # If sprite sheet is too small, this will keep failing - log once per square type
                     if is_dark:
-                        logger.error(
+                        log.error(
                             f"Dark square rendering failed - sprite sheet may only have 1 row (16px) "
                             f"instead of required 2 rows (32px). Screen may reset due to invalid operations."
                         )
@@ -232,7 +236,7 @@ class ChessBoardWidget(Widget):
                 try:
                     square_bg = self._chess_font.crop((bg_x1, bg_y1, bg_x2, bg_y2))
                 except Exception as e:
-                    logger.error(
+                    log.error(
                         f"Error cropping square background at ({bg_x1}, {bg_y1}, {bg_x2}, {bg_y2}): "
                         f"{type(e).__name__}: {e}"
                     )
@@ -241,7 +245,7 @@ class ChessBoardWidget(Widget):
                 try:
                     img.paste(square_bg, (x, y))
                 except Exception as e:
-                    logger.error(
+                    log.error(
                         f"Error pasting square background at ({x}, {y}): {type(e).__name__}: {e}"
                     )
                     continue
@@ -251,7 +255,7 @@ class ChessBoardWidget(Widget):
                 if px > 0:
                     piece_x1, piece_y1, piece_x2, piece_y2 = px, py, px + 16, py + 16
                     if not self._validate_crop_coords(piece_x1, piece_y1, piece_x2, piece_y2):
-                        logger.warning(
+                        log.warning(
                             f"Invalid piece crop coordinates for symbol '{symbol}' at square {idx}: "
                             f"({piece_x1}, {piece_y1}, {piece_x2}, {piece_y2})"
                         )
@@ -260,7 +264,7 @@ class ChessBoardWidget(Widget):
                     try:
                         piece = self._chess_font.crop((piece_x1, piece_y1, piece_x2, piece_y2))
                     except Exception as e:
-                        logger.error(
+                        log.error(
                             f"Error cropping piece '{symbol}' at ({piece_x1}, {piece_y1}, {piece_x2}, {piece_y2}): "
                             f"{type(e).__name__}: {e}"
                         )
@@ -269,12 +273,12 @@ class ChessBoardWidget(Widget):
                     try:
                         img.paste(piece, (x, y))
                     except Exception as e:
-                        logger.error(
+                        log.error(
                             f"Error pasting piece '{symbol}' at ({x}, {y}): {type(e).__name__}: {e}"
                         )
                         continue
             except Exception as e:
-                logger.error(
+                log.error(
                     f"Unexpected error rendering square {idx} (symbol='{symbol}'): "
                     f"{type(e).__name__}: {e}"
                 )
@@ -284,7 +288,7 @@ class ChessBoardWidget(Widget):
         try:
             draw.rectangle([(0, 0), (127, 127)], fill=None, outline=0)
         except Exception as e:
-            logger.error(f"Error drawing board outline: {type(e).__name__}: {e}")
+            log.error(f"Error drawing board outline: {type(e).__name__}: {e}")
         
         return img
 

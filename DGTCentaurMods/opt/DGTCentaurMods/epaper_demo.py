@@ -8,6 +8,14 @@ import time
 import signal
 import sys
 import os
+import logging
+
+# Configure logging to show INFO level and above
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
 
 # Add current directory to path to import epaper package
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
