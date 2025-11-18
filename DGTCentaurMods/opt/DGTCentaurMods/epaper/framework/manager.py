@@ -61,8 +61,11 @@ class Manager:
         
         self._widgets.append(widget)
     
-    def update(self):
+    def update(self, full: bool = False):
         """Update the display with current widget states.
+        
+        Args:
+            full: If True, force a full refresh instead of partial refresh.
         
         Returns:
             Future: A Future that completes when the display refresh finishes.
@@ -145,7 +148,7 @@ class Manager:
         log.info(f"Manager.update(): Found {len(dirty_regions)} dirty regions before submitting refresh")
         
         # Submit refresh and return Future for caller to wait on
-        return self._scheduler.submit(full=False)
+        return self._scheduler.submit(full=full)
     
     def shutdown(self) -> None:
         """Shutdown the display."""
