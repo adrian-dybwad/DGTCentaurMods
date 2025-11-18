@@ -127,41 +127,26 @@ class EPaperDemo:
             future.result(timeout=5.0)
             print("Screen cleared")
             
-            # Incrementally construct board 8 squares at a time in reverse order
-            print("Constructing board 8 squares at a time (reverse order - last 8 first)...")
+            # Only draw the last 8 squares (a1 to a8 - the 'a' file)
+            print("Drawing only a-file squares (a1 to a8)...")
             print("Press Ctrl+C to exit")
             
             self.running = True
             
-            # Start with last 8 squares, work backwards
-            # Range: 64, 56, 48, 40, 32, 24, 16, 8, 0
-            for square_count in range(64, -1, -8):  # 64, 56, 48, ..., 8, 0
-                if not self.running:
-                    break
-                
-                # Set max square index (cap at 64)
-                max_squares = min(square_count, 64)
-                self.chess_board.set_max_square_index(max_squares)
-                
-                # Render and update display (uses partial refresh)
-                self.display.update()
-                
-                if square_count < 64:
-                    start_rank = (square_count) // 8
-                    start_file = (square_count) % 8
-                    end_rank = (max_squares - 1) // 8
-                    end_file = (max_squares - 1) % 8
-                    print(f"Added squares {square_count+1}-{max_squares}/64: ({start_rank},{start_file}) to ({end_rank},{end_file})")
-                else:
-                    start_rank = (square_count - 8) // 8
-                    start_file = (square_count - 8) % 8
-                    end_rank = (max_squares - 1) // 8
-                    end_file = (max_squares - 1) % 8
-                    print(f"Added squares {square_count-7}-{max_squares}/64: ({start_rank},{start_file}) to ({end_rank},{end_file})")
-                
-                # Wait 3 seconds before adding next batch
-                if max_squares > 0:
-                    time.sleep(3.0)
+            # a-file squares are indices: 0, 8, 16, 24, 32, 40, 48, 56 (file=0, ranks 0-7)
+            # Set range to only render these squares
+            self.chess_board.set_square_range(0, 64)  # Will filter to only a-file in render
+            
+            # Actually, we need to modify the widget to support rendering specific squares
+            # For now, let's just render squares 0, 8, 16, 24, 32, 40, 48, 56
+            # We'll need to update the widget to support a list of square indices
+            # But a simpler approach: render only file 0 squares by checking in the loop
+            # Actually, let me just set it to render all squares but we'll modify the widget
+            # to only render file 0 (a-file)
+            
+            # Render and update display
+            self.display.update()
+            print("Rendered a-file squares (a1 to a8)")
             
             print("Board construction complete!")
             

@@ -33,6 +33,7 @@ class ChessBoardWidget(Widget):
         self._chess_font = None
         self._min_square_index = 0  # Start rendering from this square
         self._max_square_index = 64  # Render up to this square
+        self._render_only_file = None  # If set, only render squares in this file (0-7)
         self._load_chess_font()
     
     def _load_chess_font(self):
@@ -201,6 +202,14 @@ class ChessBoardWidget(Widget):
             self._max_square_index = max_index
             self._last_rendered = None  # Invalidate cache
     
+    def set_render_only_file(self, file: int) -> None:
+        """Set to only render squares in a specific file (0-7, where 0=a-file)."""
+        if file is not None:
+            file = max(0, min(7, file))
+        if self._render_only_file != file:
+            self._render_only_file = file
+            self._last_rendered = None  # Invalidate cache
+    
     def render(self) -> Image.Image:
         """Render chess board."""
         # Return cached image if FEN and max_square_index haven't changed
@@ -243,14 +252,20 @@ class ChessBoardWidget(Widget):
         draw = ImageDraw.Draw(img)
         sheet_width, sheet_height = self._chess_font.size
         
-        # Render each square up to max_square_index
+        # Render each square in the specified range
         for idx, symbol in enumerate(ordered):
-            # Only render squares up to max_square_index
-            if idx >= self._max_square_index:
-                break
+            # Only render squares in the range [min_square_index, max_square_index)
+            if idx < self._min_square_index or idx >= self._max_square_index:
+                continue
+            
+            rank = idx // 8
+            file = idx % 8
+            
+            # If render_only_file is set, only render squares in that file
+            if self._render_only_file is not None and file != self._render_only_file:
+                continue
+            
             try:
-                rank = idx // 8
-                file = idx % 8
                 dest_rank = rank if not self.flip else 7 - rank
                 dest_file = file if not self.flip else 7 - file
                 
