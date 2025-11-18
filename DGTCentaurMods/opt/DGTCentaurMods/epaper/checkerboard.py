@@ -13,11 +13,11 @@ except ImportError:
 
 
 class CheckerboardWidget(Widget):
-    """Checkerboard widget that renders an 8x8 pixel checkerboard pattern."""
+    """Checkerboard widget that renders a checkerboard pattern with configurable square size."""
     
-    def __init__(self, x: int, y: int, width: int, height: int):
+    def __init__(self, x: int, y: int, width: int, height: int, square_size: int = 64):
         super().__init__(x, y, width, height)
-        self._square_size = 8  # 8x8 pixel squares
+        self._square_size = square_size
     
     def render(self) -> Image.Image:
         """Render checkerboard pattern."""
