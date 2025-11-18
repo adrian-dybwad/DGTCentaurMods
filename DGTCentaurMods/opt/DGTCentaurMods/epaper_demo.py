@@ -127,22 +127,47 @@ class EPaperDemo:
             future.result(timeout=5.0)
             print("Screen cleared")
             
-            # Only draw rank 8 (squares a8 to h8)
-            print("Drawing only rank 8 (a8 to h8)...")
+            # Draw blocks of 8 squares every 3 seconds
+            print("Drawing blocks of 8 squares every 3 seconds...")
             print("Press Ctrl+C to exit")
             
             self.running = True
             
-            # Set widget to only render rank 7 (0-indexed, which is rank 8 in chess notation)
-            self.chess_board.set_render_only_rank(7)
+            # Start with 0 squares, add 8 every 3 seconds
+            for square_count in range(0, 65, 8):  # 0, 8, 16, 24, 32, 40, 48, 64
+                if not self.running:
+                    break
+                
+                # Set max square index (cap at 64)
+                max_squares = min(square_count, 64)
+                self.chess_board.set_max_square_index(max_squares)
+                
+                # Clear file/rank filters to render all squares up to max
+                self.chess_board.set_render_only_file(None)
+                self.chess_board.set_render_only_rank(None)
+                
+                # Render and update display (uses partial refresh)
+                self.display.update()
+                
+                if square_count > 0:
+                    start_rank = (square_count - 8) // 8
+                    start_file = (square_count - 8) % 8
+                    end_rank = (max_squares - 1) // 8
+                    end_file = (max_squares - 1) % 8
+                    print(f"Added squares {square_count-7}-{max_squares}/64: rank {start_rank} file {start_file} to rank {end_rank} file {end_file}")
+                
+                # Wait 3 seconds before adding next batch
+                if max_squares < 64:
+                    time.sleep(3.0)
             
-            # Render and update display
+            print("Board construction complete!")
+            
+            # Final full refresh to ensure display completes
+            print("Performing final full refresh...")
             self.display.update()
-            
-            # Force full refresh to show rank 8 squares
             future = self.display._scheduler.submit(full=True)
             future.result(timeout=5.0)
-            print("Rendered rank 8 squares (a8 to h8)")
+            print("Final refresh complete")
             
             # Keep running to maintain display
             while self.running:

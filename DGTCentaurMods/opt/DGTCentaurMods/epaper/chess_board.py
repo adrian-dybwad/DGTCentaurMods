@@ -203,16 +203,16 @@ class ChessBoardWidget(Widget):
             self._max_square_index = max_index
             self._last_rendered = None  # Invalidate cache
     
-    def set_render_only_file(self, file: int) -> None:
-        """Set to only render squares in a specific file (0-7, where 0=a-file)."""
+    def set_render_only_file(self, file: int = None) -> None:
+        """Set to only render squares in a specific file (0-7, where 0=a-file). Pass None to clear filter."""
         if file is not None:
             file = max(0, min(7, file))
         if self._render_only_file != file:
             self._render_only_file = file
             self._last_rendered = None  # Invalidate cache
     
-    def set_render_only_rank(self, rank: int) -> None:
-        """Set to only render squares in a specific rank (0-7, where 0=rank 1)."""
+    def set_render_only_rank(self, rank: int = None) -> None:
+        """Set to only render squares in a specific rank (0-7, where 0=rank 1). Pass None to clear filter."""
         if rank is not None:
             rank = max(0, min(7, rank))
         if self._render_only_rank != rank:
