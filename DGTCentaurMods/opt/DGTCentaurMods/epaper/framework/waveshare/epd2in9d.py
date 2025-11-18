@@ -30,15 +30,17 @@
 # THE SOFTWARE.
 #
 
+from distutils.command.build_scripts import build_scripts
 import logging
 from . import epdconfig
 from PIL import Image
+import RPi.GPIO as GPIO
 
-EPD_WIDTH = 128
-EPD_HEIGHT = 296
+# Display resolution
+EPD_WIDTH       = 128
+EPD_HEIGHT      = 296
 
 logger = logging.getLogger(__name__)
-
 
 class EPD:
     def __init__(self):
@@ -49,13 +51,65 @@ class EPD:
         self.width = EPD_WIDTH
         self.height = EPD_HEIGHT
     
+    lut_vcom1 = [  
+        0x00, 0x19, 0x01, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00,
+    ]
+
+    lut_ww1 = [  
+        0x00, 0x19, 0x01, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ]
+
+    lut_bw1 = [  
+        0x80, 0x19, 0x01, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ]
+
+    lut_wb1 = [
+        0x40, 0x19, 0x01, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ]
+
+    lut_bb1 = [ 
+        0x00, 0x19, 0x01, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ]
+        
+    # Hardware reset
     def reset(self):
         epdconfig.digital_write(self.reset_pin, 1)
         epdconfig.delay_ms(20) 
         epdconfig.digital_write(self.reset_pin, 0)
         epdconfig.delay_ms(5)
         epdconfig.digital_write(self.reset_pin, 1)
-        epdconfig.delay_ms(20)   
+        epdconfig.delay_ms(20)  
         epdconfig.digital_write(self.reset_pin, 0)
         epdconfig.delay_ms(5)
         epdconfig.digital_write(self.reset_pin, 1)
@@ -68,39 +122,28 @@ class EPD:
     def send_command(self, command):
         epdconfig.digital_write(self.dc_pin, 0)
         epdconfig.digital_write(self.cs_pin, 0)
-        epdconfig.spi_writebyte(command)
+        epdconfig.spi_writebyte([command])
         epdconfig.digital_write(self.cs_pin, 1)
 
     def send_data(self, data):
         epdconfig.digital_write(self.dc_pin, 1)
         epdconfig.digital_write(self.cs_pin, 0)
-        epdconfig.spi_writebyte(data)
+        epdconfig.spi_writebyte([data])
         epdconfig.digital_write(self.cs_pin, 1)
 
+    # send a lot of data   
     def send_data2(self, data):
         epdconfig.digital_write(self.dc_pin, 1)
         epdconfig.digital_write(self.cs_pin, 0)
-        # Send data in chunks to avoid SPI transfer size limits
-        chunk_size = 4096
-        for i in range(0, len(data), chunk_size):
-            chunk = data[i:i + chunk_size]
-            epdconfig.spi_writebyte2(chunk)
+        epdconfig.spi_writebyte2(data)
         epdconfig.digital_write(self.cs_pin, 1)
         
-    def ReadBusy(self, timeout=5.0):
-        """
-        Wait for display to become idle.
-        For DGT Centaur: BUSY pin is inverted (HIGH=busy, LOW=idle).
-        """
-        import time
-        start = time.time()
-        # Wait while pin reads HIGH (busy) - inverted logic for DGT Centaur
-        while epdconfig.digital_read(self.busy_pin) == 1:
-            if time.time() - start > timeout:
-                logger.warning(f"e-Paper busy timeout after {timeout}s - pin still reads HIGH (busy)")
-                return
+    def ReadBusy(self):
+        logger.debug("e-Paper busy")
+        while(epdconfig.digital_read(self.busy_pin) == 0):      # 0: idle, 1: busy
             self.send_command(0x71)
-            epdconfig.delay_ms(10)
+            epdconfig.delay_ms(10)  
+        logger.debug("e-Paper busy release")
         
     def TurnOnDisplay(self):
         self.send_command(0x12)
@@ -108,19 +151,25 @@ class EPD:
         self.ReadBusy()
         
     def init(self):
-        if epdconfig.module_init() != 0:
+        if (epdconfig.module_init() != 0):
             return -1
+        # EPD hardware init start
         self.reset()
+        
         self.send_command(0x04)
-        self.ReadBusy()
-        self.send_command(0x00)
-        self.send_data(0x1f)
-        self.send_command(0x61)
-        self.send_data(0x80)
-        self.send_data(0x01)
-        self.send_data(0x28)
-        self.send_command(0X50)
-        self.send_data(0x97)
+        self.ReadBusy() #waiting for the electronic paper IC to release the idle signal
+
+        self.send_command(0x00)     #panel setting
+        self.send_data(0x1f)        # LUT from OTP，KW-BF   KWR-AF    BWROTP 0f   BWOTP 1f
+
+        self.send_command(0x61)     #resolution setting
+        self.send_data (0x80)       
+        self.send_data (0x01)       
+        self.send_data (0x28)       
+
+        self.send_command(0X50)     #VCOM AND DATA INTERVAL SETTING
+        self.send_data(0x97)        #WBmode  VBDF 17|D7 VBDW 97  VBDB 57   WBRmode  VBDF F7 VBDW 77  VBDB 37  VBDR B7
+
         return 0
     
     def SetPartReg(self):
@@ -130,24 +179,42 @@ class EPD:
         self.send_data(0x2b)
         self.send_data(0x2b)
         self.send_data(0x03)
-        self.send_command(0x06)
-        self.send_data(0x17)
-        self.send_data(0x17)
-        self.send_data(0x17)
+
+        self.send_command(0x06) #boost soft start
+        self.send_data(0x17)     #A
+        self.send_data(0x17)     #B
+        self.send_data(0x17)     #C
+
         self.send_command(0x04)
         self.ReadBusy()
-        self.send_command(0x00)
-        self.send_data(0xbf)
-        self.send_command(0x30)
-        self.send_data(0x3a)
-        self.send_command(0x61)
+
+        self.send_command(0x00) #panel setting
+        self.send_data(0xbf)     #LUT from OTP，128x296
+
+        self.send_command(0x30) #PLL setting
+        self.send_data(0x3a)     # 3a 100HZ   29 150Hz 39 200HZ 31 171HZ
+
+        self.send_command(0x61) #resolution setting
         self.send_data(self.width)
         self.send_data((self.height >> 8) & 0xff)
         self.send_data(self.height & 0xff)
-        self.send_command(0x82)
+
+        self.send_command(0x82) #vcom_DC setting
         self.send_data(0x12)
-        self.send_command(0X50)
+
+        self.send_command(0X50)     #VCOM AND DATA INTERVAL SETTING
         self.send_data(0x97)
+
+        self.send_command(0x20)         #vcom
+        self.send_data2(self.lut_vcom1)
+        self.send_command(0x21)         # ww --
+        self.send_data2(self.lut_ww1)
+        self.send_command(0x22)         # bw r
+        self.send_data2(self.lut_bw1)
+        self.send_command(0x23)         # wb w
+        self.send_data2(self.lut_wb1)
+        self.send_command(0x24)         # bb b
+        self.send_data2(self.lut_bb1)
 
     def getbuffer(self, image):
         buf = [0xFF] * (int(self.width/8) * self.height)
@@ -183,23 +250,27 @@ class EPD:
         self.send_command(0x90)
         self.send_data(0)
         self.send_data(self.width - 1)
+
         self.send_data(0)
         self.send_data(0)
         self.send_data(int(self.height / 256))
         self.send_data(self.height % 256 - 1)
         self.send_data(0x28)
         
+
         buf = [0x00] * int(self.width * self.height / 8)
         for i in range(0, int(self.width * self.height / 8)):
             buf[i] = ~image[i]
         self.send_command(0x10)
         self.send_data2(image)
         epdconfig.delay_ms(10)
+        
         self.send_command(0x13)
         self.send_data2(buf)
         epdconfig.delay_ms(10)
+          
         self.TurnOnDisplay()
-        
+
     def Clear(self):
         self.send_command(0x10)
         self.send_data2([0x00] * int(self.width * self.height / 8))
