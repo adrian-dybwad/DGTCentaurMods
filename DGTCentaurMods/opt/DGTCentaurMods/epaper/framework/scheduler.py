@@ -87,9 +87,6 @@ class Scheduler:
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
             
-            # Note: display() does NOT invert internally, so we don't invert here
-            # DisplayPartial() inverts internally, so we DO invert for partial refreshes
-            
             buf = self._epd.getbuffer(full_image)
             self._epd.display(buf)
             self._framebuffer.flush_all()
@@ -121,8 +118,10 @@ class Scheduler:
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
             
-            # Note: DisplayPartial() inverts the buffer internally (line 263 in epd2in9d.py),
-            # so we do NOT invert the PIL Image here - let DisplayPartial handle inversion
+            # DisplayPartial() inverts the buffer internally, so we must invert the image
+            # to compensate and get the correct colors on screen
+            full_image = Image.eval(full_image, lambda x: 255 - x)
+            
             buf = self._epd.getbuffer(full_image)
             
             # Use DisplayPartial - it handles the full screen buffer
