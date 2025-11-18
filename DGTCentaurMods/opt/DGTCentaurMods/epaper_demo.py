@@ -142,12 +142,8 @@ class EPaperDemo:
                 max_squares = min(square_count, 64)
                 self.chess_board.set_max_square_index(max_squares)
                 
-                # Render and update display
+                # Render and update display (uses partial refresh)
                 self.display.update()
-                
-                # Force full refresh to show the squares
-                future = self.display._scheduler.submit(full=True)
-                future.result(timeout=5.0)
                 
                 if square_count > 0:
                     start_rank = (square_count - 4) // 8
