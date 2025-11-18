@@ -118,10 +118,8 @@ class Scheduler:
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
             
-            # DisplayPartial() inverts the buffer internally, so we must invert the image
-            # to compensate and get the correct colors on screen
-            full_image = Image.eval(full_image, lambda x: 255 - x)
-            
+            # DisplayPartial handles buffer inversion internally (sends both 0x10 and 0x13 buffers)
+            # so we pass the image directly without pre-inversion
             buf = self._epd.getbuffer(full_image)
             
             # Use DisplayPartial - it handles the full screen buffer
