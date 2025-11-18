@@ -31,7 +31,8 @@ class ChessBoardWidget(Widget):
         self.fen = fen
         self.flip = flip
         self._chess_font = None
-        self._max_square_index = 64  # Render all squares by default
+        self._min_square_index = 0  # Start rendering from this square
+        self._max_square_index = 64  # Render up to this square
         self._load_chess_font()
     
     def _load_chess_font(self):
@@ -188,6 +189,15 @@ class ChessBoardWidget(Widget):
         """Set maximum square index to render (0-64). Used for incremental rendering."""
         max_index = max(0, min(64, max_index))
         if self._max_square_index != max_index:
+            self._max_square_index = max_index
+            self._last_rendered = None  # Invalidate cache
+    
+    def set_square_range(self, min_index: int, max_index: int) -> None:
+        """Set range of squares to render (0-64). Used for reverse order rendering."""
+        min_index = max(0, min(64, min_index))
+        max_index = max(0, min(64, max_index))
+        if self._min_square_index != min_index or self._max_square_index != max_index:
+            self._min_square_index = min_index
             self._max_square_index = max_index
             self._last_rendered = None  # Invalidate cache
     
