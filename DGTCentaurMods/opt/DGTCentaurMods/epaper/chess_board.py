@@ -2,7 +2,7 @@
 Chess board widget displaying a chess position from FEN.
 """
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 from .framework.widget import Widget
 import os
 import sys
@@ -58,10 +58,10 @@ class ChessBoardWidget(Widget):
                 log.info(f"Successfully opened chesssprites image")
                 
                 # Convert to "1" mode (1-bit monochrome) immediately to ensure deterministic rendering
-                # CRITICAL: Eliminate any dithering patterns that can cause screen crashes on ePaper
-                # Dithering creates checkerboard patterns that trigger constant refreshes and screen resets
+                # Use threshold=128 (no dithering) to ensure deterministic conversion
+                # Dithering can produce different results for the same input, causing flicker
                 if loaded_image.mode != "1":
-                    log.info(f"Converting chesssprites from {loaded_image.mode} to 1-bit monochrome (no dithering)")
+                    log.info(f"Converting chesssprites from {loaded_image.mode} to 1-bit monochrome (threshold=128, no dithering)")
                     # For palette mode, convert to RGB first to get actual colors, then to L
                     # This prevents palette inversion issues where palette indices don't match actual colors
                     if loaded_image.mode == "P":
@@ -69,22 +69,13 @@ class ChessBoardWidget(Widget):
                         loaded_image = loaded_image.convert("RGB").convert("L")
                     elif loaded_image.mode != "L":
                         loaded_image = loaded_image.convert("L")
-                    
-                    # CRITICAL: Eliminate dithering patterns that cause screen crashes on ePaper
-                    # Dithering creates checkerboard patterns that trigger constant refreshes
-                    # Apply median filter to remove dithering artifacts before thresholding
-                    # This converts checkerboard patterns into solid colors
-                    log.info("Applying median filter to eliminate dithering patterns")
-                    loaded_image = loaded_image.filter(ImageFilter.MedianFilter(size=3))
-                    
-                    # Use threshold to convert to pure black/white (no dithering)
-                    # Threshold at 127 ensures deterministic conversion
-                    self._chess_font = loaded_image.point(lambda x: 0 if x < 127 else 255, mode="1")
+                    # Use point transform with threshold for deterministic conversion (no dithering)
+                    self._chess_font = loaded_image.point(lambda x: 0 if x < 128 else 255, mode="1")
                 else:
                     # Image is already mode "1" - ensure correct palette (0=black, 255=white)
-                    # Convert to L first to normalize and eliminate any dithering, then back to "1"
-                    log.info("Chesssprites is already mode 1, normalizing palette to ensure 0=black, 255=white (no dithering)")
-                    self._chess_font = loaded_image.convert("L").point(lambda x: 0 if x < 127 else 255, mode="1")
+                    # Convert to L first to normalize, then back to "1" with correct palette
+                    log.info("Chesssprites is already mode 1, normalizing palette to ensure 0=black, 255=white")
+                    self._chess_font = loaded_image.convert("L").point(lambda x: 0 if x < 128 else 255, mode="1")
             except IOError as e:
                 log.error(f"IOError opening chesssprites file {font_path}: {e}")
                 self._chess_font = None
