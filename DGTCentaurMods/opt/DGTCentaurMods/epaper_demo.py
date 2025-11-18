@@ -58,8 +58,8 @@ class EPaperDemo:
         self.clock = ClockWidget(0, 0)
         self.display.add_widget(self.clock)
         
-        # Checkerboard widget covering full frame (128x296)
-        self.checkerboard = CheckerboardWidget(0, 0, 128, 296)
+        # Checkerboard widget below clock (clock is 24px high)
+        self.checkerboard = CheckerboardWidget(0, 24, 128, 272)
         self.display.add_widget(self.checkerboard)
         
         print("Widgets configured (clock and checkerboard)")
@@ -92,7 +92,8 @@ class EPaperDemo:
             
             print("Display active. Press Ctrl+C to exit")
             
-            # Keep running and update clock every second
+            # Set running flag and keep running to update clock every second
+            self.running = True
             last_update = time.time()
             while self.running:
                 current_time = time.time()
