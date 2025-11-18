@@ -58,10 +58,15 @@ class ChessBoardWidget(Widget):
                 log.info(f"Successfully opened chesssprites image")
                 
                 # Convert to "1" mode (1-bit monochrome) immediately to ensure deterministic rendering
-                # This prevents non-deterministic conversion when cropping/pasting RGB images
+                # Use threshold=128 (no dithering) to ensure deterministic conversion
+                # Dithering can produce different results for the same input, causing flicker
                 if loaded_image.mode != "1":
-                    log.info(f"Converting chesssprites from {loaded_image.mode} to 1-bit monochrome")
-                    self._chess_font = loaded_image.convert("1")
+                    log.info(f"Converting chesssprites from {loaded_image.mode} to 1-bit monochrome (threshold=128, no dithering)")
+                    # Convert to grayscale first, then threshold at 128 for deterministic 1-bit conversion
+                    if loaded_image.mode != "L":
+                        loaded_image = loaded_image.convert("L")
+                    # Use point transform with threshold for deterministic conversion (no dithering)
+                    self._chess_font = loaded_image.point(lambda x: 0 if x < 128 else 255, mode="1")
                 else:
                     self._chess_font = loaded_image
             except IOError as e:
