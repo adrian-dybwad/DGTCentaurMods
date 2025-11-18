@@ -58,8 +58,8 @@ class EPaperDemo:
         self.clock = ClockWidget(0, 0)
         self.display.add_widget(self.clock)
         
-        # Checkerboard widget below clock (clock is 24px high) with 16x16 pixel squares
-        self.checkerboard = CheckerboardWidget(0, 24, 128, 272, square_size=16)
+        # Checkerboard widget below clock (clock is 24px high) with 32x32 pixel squares
+        self.checkerboard = CheckerboardWidget(0, 24, 128, 272, square_size=32)
         self.display.add_widget(self.checkerboard)
         
         print("Widgets configured (clock and checkerboard)")
