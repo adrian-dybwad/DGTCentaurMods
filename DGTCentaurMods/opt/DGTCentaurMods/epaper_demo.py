@@ -127,14 +127,14 @@ class EPaperDemo:
             future.result(timeout=5.0)
             print("Screen cleared")
             
-            # Incrementally construct board 4 squares at a time
-            print("Constructing board 4 squares at a time...")
+            # Incrementally construct board 8 squares at a time
+            print("Constructing board 8 squares at a time...")
             print("Press Ctrl+C to exit")
             
             self.running = True
             
-            # Start with 0 squares, add 4 every 3 seconds
-            for square_count in range(0, 65, 4):  # 0, 4, 8, 12, ..., 64
+            # Start with 0 squares, add 8 every 3 seconds
+            for square_count in range(0, 65, 8):  # 0, 8, 16, 24, ..., 64
                 if not self.running:
                     break
                 
@@ -146,11 +146,11 @@ class EPaperDemo:
                 self.display.update()
                 
                 if square_count > 0:
-                    start_rank = (square_count - 4) // 8
-                    start_file = (square_count - 4) % 8
+                    start_rank = (square_count - 8) // 8
+                    start_file = (square_count - 8) % 8
                     end_rank = (max_squares - 1) // 8
                     end_file = (max_squares - 1) % 8
-                    print(f"Added squares {square_count-3}-{max_squares}/64: ({start_rank},{start_file}) to ({end_rank},{end_file})")
+                    print(f"Added squares {square_count-7}-{max_squares}/64: ({start_rank},{start_file}) to ({end_rank},{end_file})")
                 
                 # Wait 3 seconds before adding next batch
                 if max_squares < 64:
