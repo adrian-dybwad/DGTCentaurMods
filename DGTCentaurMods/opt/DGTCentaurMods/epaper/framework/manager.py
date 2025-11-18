@@ -11,6 +11,12 @@ from .scheduler import Scheduler
 from .widget import Widget
 from .regions import Region, merge_regions
 
+try:
+    from DGTCentaurMods.board.logging import log
+except ImportError:
+    import logging
+    log = logging.getLogger(__name__)
+
 
 class Manager:
     """Main coordinator for the ePaper framework."""
@@ -102,6 +108,14 @@ class Manager:
         # Render static widgets
         for widget in static_widgets:
             widget_image = widget.render()
+            # Debug: Check if pasting changes byte representation for chess board
+            if hasattr(widget, '__class__') and widget.__class__.__name__ == 'ChessBoardWidget':
+                before_bytes = canvas.crop((widget.x, widget.y, widget.x + widget.width, widget.y + widget.height)).tobytes()
+                widget_bytes = widget_image.tobytes()
+                log.debug(
+                    f"Manager.update(): Pasting ChessBoardWidget at ({widget.x},{widget.y}), "
+                    f"widget image bytes hash={hash(widget_bytes)}, canvas before bytes hash={hash(before_bytes)}"
+                )
             canvas.paste(widget_image, (widget.x, widget.y))
         
         # Render moving widgets last (on top)

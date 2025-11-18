@@ -6,6 +6,12 @@ from PIL import Image
 from typing import List, Optional
 from .regions import Region
 
+try:
+    from DGTCentaurMods.board.logging import log
+except ImportError:
+    import logging
+    log = logging.getLogger(__name__)
+
 
 class FrameBuffer:
     """Manages current and last-flushed framebuffers, computes dirty regions."""
@@ -32,8 +38,22 @@ class FrameBuffer:
                 current_block = self._current.crop((x, y, x2, y2))
                 flushed_block = self._flushed.crop((x, y, x2, y2))
                 
-                if current_block.tobytes() != flushed_block.tobytes():
+                current_bytes = current_block.tobytes()
+                flushed_bytes = flushed_block.tobytes()
+                
+                if current_bytes != flushed_bytes:
+                    # Debug: Log first few dirty regions with sample bytes
+                    if len(dirty_regions) < 3:
+                        current_sample = current_bytes[:16] if len(current_bytes) >= 16 else current_bytes
+                        flushed_sample = flushed_bytes[:16] if len(flushed_bytes) >= 16 else flushed_bytes
+                        log.debug(
+                            f"FrameBuffer.compute_dirty_regions(): Dirty block at ({x},{y})-({x2},{y2}), "
+                            f"current_bytes[:16]={current_sample.hex()}, flushed_bytes[:16]={flushed_sample.hex()}"
+                        )
                     dirty_regions.append(Region(x, y, x2, y2))
+        
+        if dirty_regions:
+            log.debug(f"FrameBuffer.compute_dirty_regions(): Found {len(dirty_regions)} dirty regions")
         
         return dirty_regions
     

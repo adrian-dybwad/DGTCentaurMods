@@ -187,6 +187,10 @@ class ChessBoardWidget(Widget):
         """Render chess board."""
         # Return cached image if FEN hasn't changed
         if self._last_rendered is not None:
+            # Debug: Check if cached image bytes are stable
+            cached_bytes = self._last_rendered.tobytes()
+            cached_hash = hash(cached_bytes)
+            log.debug(f"ChessBoardWidget.render(): Returning cached image, bytes hash={cached_hash}, size={len(cached_bytes)}")
             return self._last_rendered
         
         img = Image.new("1", (self.width, self.height), 255)
@@ -314,5 +318,8 @@ class ChessBoardWidget(Widget):
         
         # Cache the rendered image
         self._last_rendered = img
+        rendered_bytes = img.tobytes()
+        rendered_hash = hash(rendered_bytes)
+        log.info(f"ChessBoardWidget.render(): Created new image, bytes hash={rendered_hash}, size={len(rendered_bytes)}")
         return img
 
