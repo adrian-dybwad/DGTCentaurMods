@@ -127,14 +127,15 @@ class EPaperDemo:
             future.result(timeout=5.0)
             print("Screen cleared")
             
-            # Incrementally construct board 8 squares at a time
-            print("Constructing board 8 squares at a time...")
+            # Incrementally construct board 8 squares at a time in reverse order
+            print("Constructing board 8 squares at a time (reverse order - last 8 first)...")
             print("Press Ctrl+C to exit")
             
             self.running = True
             
-            # Start with 0 squares, add 8 every 3 seconds
-            for square_count in range(0, 65, 8):  # 0, 8, 16, 24, ..., 64
+            # Start with last 8 squares, work backwards
+            # Range: 64, 56, 48, 40, 32, 24, 16, 8, 0
+            for square_count in range(64, -1, -8):  # 64, 56, 48, ..., 8, 0
                 if not self.running:
                     break
                 
@@ -145,7 +146,13 @@ class EPaperDemo:
                 # Render and update display (uses partial refresh)
                 self.display.update()
                 
-                if square_count > 0:
+                if square_count < 64:
+                    start_rank = (square_count) // 8
+                    start_file = (square_count) % 8
+                    end_rank = (max_squares - 1) // 8
+                    end_file = (max_squares - 1) % 8
+                    print(f"Added squares {square_count+1}-{max_squares}/64: ({start_rank},{start_file}) to ({end_rank},{end_file})")
+                else:
                     start_rank = (square_count - 8) // 8
                     start_file = (square_count - 8) % 8
                     end_rank = (max_squares - 1) // 8
@@ -153,7 +160,7 @@ class EPaperDemo:
                     print(f"Added squares {square_count-7}-{max_squares}/64: ({start_rank},{start_file}) to ({end_rank},{end_file})")
                 
                 # Wait 3 seconds before adding next batch
-                if max_squares < 64:
+                if max_squares > 0:
                     time.sleep(3.0)
             
             print("Board construction complete!")
