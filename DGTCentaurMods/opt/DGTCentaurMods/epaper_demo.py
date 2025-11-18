@@ -82,6 +82,8 @@ class EPaperDemo:
             print("Rendering checkerboard pattern...")
             future = self.display.update(full=True)
             future.result(timeout=5.0)
+            future = self.display.update(full=True)
+            future.result(timeout=5.0)
             print("Update complete (full refresh)")
             
             print("Display active. Press Ctrl+C to exit")
