@@ -135,7 +135,7 @@ class EPaperDemo:
                 elapsed = time.time() - self.start_time
                 
                 # Update widgets
-                self.update_chess_board(elapsed)
+                # Chess board FEN is set once and not changed
                 self.update_analysis(elapsed)
                 self.update_battery(elapsed)
                 
