@@ -69,13 +69,29 @@ class ChessBoardWidget(Widget):
             if self._chess_font is not None:
                 width, height = self._chess_font.size
                 mode = self._chess_font.mode
-                logger.debug(f"Chesssprites image loaded: {width}x{height}, mode={mode}")
+                logger.info(f"Chesssprites image loaded: {width}x{height}, mode={mode}")
                 
                 # Sprite sheet should be at least 208x32 (13 pieces * 16px width, 2 rows * 16px height)
-                if width < 208 or height < 32:
+                # CRITICAL: Must have at least 32px height (2 rows) for light (y=0-16) and dark (y=16-32) squares
+                if height < 32:
+                    logger.error(
+                        f"Chesssprites image height {height}px is insufficient! "
+                        f"Required: 32px (2 rows of 16px each). "
+                        f"Dark squares will fail to render (require y=16-32). "
+                        f"This will cause rendering failures."
+                    )
+                    self._chess_font = None
+                    return
+                elif height < 48:
                     logger.warning(
-                        f"Chesssprites image dimensions {width}x{height} are smaller than expected "
-                        f"(minimum 208x32). Sprite sheet may be incomplete."
+                        f"Chesssprites image height {height}px is less than expected 48px. "
+                        f"Expected 3 rows (48px) but minimum 2 rows (32px) is acceptable."
+                    )
+                
+                if width < 208:
+                    logger.warning(
+                        f"Chesssprites image width {width}px is smaller than expected "
+                        f"(minimum 208px for all pieces). Some pieces may be missing."
                     )
                 else:
                     logger.debug(f"Chesssprites image dimensions validated: {width}x{height}")
@@ -195,12 +211,22 @@ class ChessBoardWidget(Widget):
                 y = dest_rank * 16
                 
                 # Always draw square background (empty square sprite at x=0)
+                # Row 0 (y=0-16): light squares
+                # Row 1 (y=16-32): dark squares
                 bg_x1, bg_y1, bg_x2, bg_y2 = 0, py, 16, py + 16
                 if not self._validate_crop_coords(bg_x1, bg_y1, bg_x2, bg_y2):
                     logger.error(
                         f"Invalid background crop coordinates for square {idx} "
-                        f"(rank={rank}, file={file}): ({bg_x1}, {bg_y1}, {bg_x2}, {bg_y2})"
+                        f"(rank={rank}, file={file}, is_dark={is_dark}): "
+                        f"requested ({bg_x1}, {bg_y1}, {bg_x2}, {bg_y2}), "
+                        f"sprite sheet: {sheet_width}x{sheet_height}"
                     )
+                    # If sprite sheet is too small, this will keep failing - log once per square type
+                    if is_dark:
+                        logger.error(
+                            f"Dark square rendering failed - sprite sheet may only have 1 row (16px) "
+                            f"instead of required 2 rows (32px). Screen may reset due to invalid operations."
+                        )
                     continue
                 
                 try:
