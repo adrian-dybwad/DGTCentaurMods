@@ -117,15 +117,19 @@ class Manager:
             widget_image = widget.render()
             widget_name = widget.__class__.__name__
             log.info(f"Manager.update(): Pasting {widget_name} at ({widget.x},{widget.y}), size={widget.width}x{widget.height}")
-            # Debug: Check if pasting changes byte representation for chess board
-            if widget_name == 'ChessBoardWidget':
-                before_bytes = canvas.crop((widget.x, widget.y, widget.x + widget.width, widget.y + widget.height)).tobytes()
-                widget_bytes = widget_image.tobytes()
-                log.debug(
-                    f"Manager.update(): Pasting ChessBoardWidget at ({widget.x},{widget.y}), "
-                    f"widget image bytes hash={hash(widget_bytes)}, canvas before bytes hash={hash(before_bytes)}"
-                )
+            
+            # Get canvas state before pasting
+            before_crop = canvas.crop((widget.x, widget.y, widget.x + widget.width, widget.y + widget.height))
+            before_bytes = before_crop.tobytes()
+            widget_bytes = widget_image.tobytes()
+            log.info(f"Manager.update(): Before paste - canvas region hash={hash(before_bytes)}, widget hash={hash(widget_bytes)}")
+            
             canvas.paste(widget_image, (widget.x, widget.y))
+            
+            # Get canvas state after pasting
+            after_crop = canvas.crop((widget.x, widget.y, widget.x + widget.width, widget.y + widget.height))
+            after_bytes = after_crop.tobytes()
+            log.info(f"Manager.update(): After paste - canvas region hash={hash(after_bytes)}, changed={before_bytes != after_bytes}")
         
         # Render moving widgets last (on top)
         for widget in moving_widgets:
@@ -135,6 +139,10 @@ class Manager:
                 canvas.paste(widget_image, (widget.x, widget.y), mask)
             else:
                 canvas.paste(widget_image, (widget.x, widget.y))
+        
+        # Check for dirty regions before submitting
+        dirty_regions = self._framebuffer.compute_dirty_regions()
+        log.info(f"Manager.update(): Found {len(dirty_regions)} dirty regions before submitting refresh")
         
         # Submit refresh and return Future for caller to wait on
         return self._scheduler.submit(full=False)

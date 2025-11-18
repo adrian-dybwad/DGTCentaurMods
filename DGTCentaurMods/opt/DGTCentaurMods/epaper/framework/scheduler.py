@@ -107,7 +107,10 @@ class Scheduler:
         """Execute partial refresh using Waveshare DisplayPartial."""
         dirty_regions = self._framebuffer.compute_dirty_regions()
         
+        print(f"Scheduler._execute_partial_refresh(): Found {len(dirty_regions)} dirty regions")
+        
         if not dirty_regions:
+            print("Scheduler._execute_partial_refresh(): No dirty regions, returning no-op")
             for _, future in batch:
                 if not future.done():
                     future.set_result("no-op")
