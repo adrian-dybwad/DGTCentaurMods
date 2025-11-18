@@ -22,7 +22,7 @@ MENU_TOP = TITLE_TOP + TITLE_HEIGHT
 MENU_ROW_HEIGHT = 24
 
 FONT_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
-CHESS_FONT = Image.open(AssetManager.get_resource_path("chesssprites.bmp"))
+CHESS_FONT = Image.open(AssetManager.get_resource_path("chesssprites_fen.bmp"))
 LOGO = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
 QR = Image.open(AssetManager.get_resource_path("qr-support.png")).resize((128, 128))
 _STANDBY_SNAPSHOT: Optional[Image.Image] = None
