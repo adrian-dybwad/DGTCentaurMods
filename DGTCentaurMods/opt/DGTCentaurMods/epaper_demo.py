@@ -124,6 +124,13 @@ class EPaperDemo:
             # Render widgets and force initial full refresh to clear ghosting
             print("Rendering widgets and performing initial full refresh...")
             self.display.update()
+            
+            # Save framebuffer image for testing
+            framebuffer_img = self.display._framebuffer.snapshot()
+            test_output_path = "/tmp/chess_board_framebuffer.png"
+            framebuffer_img.save(test_output_path)
+            print(f"Framebuffer image saved to: {test_output_path}")
+            
             # Force full refresh to clear ghosting and display chess board
             future = self.display._scheduler.submit(full=True)
             future.result(timeout=5.0)  # Wait for full refresh to complete
