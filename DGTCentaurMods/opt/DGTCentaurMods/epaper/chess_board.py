@@ -62,20 +62,13 @@ class ChessBoardWidget(Widget):
                 # Dithering can produce different results for the same input, causing flicker
                 if loaded_image.mode != "1":
                     log.info(f"Converting chesssprites from {loaded_image.mode} to 1-bit monochrome (threshold=128, no dithering)")
-                    # For palette mode, convert to RGB first to get actual colors, then to L
-                    # This prevents palette inversion issues where palette indices don't match actual colors
-                    if loaded_image.mode == "P":
-                        log.info("Image is palette mode, converting P → RGB → L to get actual colors")
-                        loaded_image = loaded_image.convert("RGB").convert("L")
-                    elif loaded_image.mode != "L":
+                    # Convert to grayscale first, then threshold at 128 for deterministic 1-bit conversion
+                    if loaded_image.mode != "L":
                         loaded_image = loaded_image.convert("L")
                     # Use point transform with threshold for deterministic conversion (no dithering)
                     self._chess_font = loaded_image.point(lambda x: 0 if x < 128 else 255, mode="1")
                 else:
-                    # Image is already mode "1" - ensure correct palette (0=black, 255=white)
-                    # Convert to L first to normalize, then back to "1" with correct palette
-                    log.info("Chesssprites is already mode 1, normalizing palette to ensure 0=black, 255=white")
-                    self._chess_font = loaded_image.convert("L").point(lambda x: 0 if x < 128 else 255, mode="1")
+                    self._chess_font = loaded_image
             except IOError as e:
                 log.error(f"IOError opening chesssprites file {font_path}: {e}")
                 self._chess_font = None
