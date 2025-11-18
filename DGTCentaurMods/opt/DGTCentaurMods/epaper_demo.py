@@ -127,35 +127,22 @@ class EPaperDemo:
             future.result(timeout=5.0)
             print("Screen cleared")
             
-            # Only draw the last 8 squares (a1 to a8 - the 'a' file)
+            # Only draw the a-file squares (a1 to a8)
             print("Drawing only a-file squares (a1 to a8)...")
             print("Press Ctrl+C to exit")
             
             self.running = True
             
-            # a-file squares are indices: 0, 8, 16, 24, 32, 40, 48, 56 (file=0, ranks 0-7)
-            # Set range to only render these squares
-            self.chess_board.set_square_range(0, 64)  # Will filter to only a-file in render
-            
-            # Actually, we need to modify the widget to support rendering specific squares
-            # For now, let's just render squares 0, 8, 16, 24, 32, 40, 48, 56
-            # We'll need to update the widget to support a list of square indices
-            # But a simpler approach: render only file 0 squares by checking in the loop
-            # Actually, let me just set it to render all squares but we'll modify the widget
-            # to only render file 0 (a-file)
+            # Set widget to only render file 0 (a-file)
+            self.chess_board.set_render_only_file(0)
             
             # Render and update display
             self.display.update()
-            print("Rendered a-file squares (a1 to a8)")
             
-            print("Board construction complete!")
-            
-            # Second full refresh at the end to ensure display completes
-            print("Performing final full refresh...")
-            self.display.update()
+            # Force full refresh to show the a-file squares
             future = self.display._scheduler.submit(full=True)
             future.result(timeout=5.0)
-            print("Final refresh complete")
+            print("Rendered a-file squares (a1 to a8)")
             
             # Keep running to maintain display
             while self.running:
