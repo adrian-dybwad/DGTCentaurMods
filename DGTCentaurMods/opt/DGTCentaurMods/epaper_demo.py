@@ -19,7 +19,7 @@ logging.basicConfig(
 
 # Add current directory to path to import epaper package
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from epaper import Manager, CheckerboardWidget
+from epaper import Manager, CheckerboardWidget, ClockWidget
 
 
 class EPaperDemo:
@@ -29,6 +29,7 @@ class EPaperDemo:
         self.display: Manager = None
         self.running = False
         self.checkerboard = None
+        self.clock = None
     
     def setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown."""
@@ -53,11 +54,15 @@ class EPaperDemo:
         """Create and add widgets to the display."""
         print("Setting up widgets...")
         
+        # Clock widget at top
+        self.clock = ClockWidget(0, 0)
+        self.display.add_widget(self.clock)
+        
         # Checkerboard widget covering full frame (128x296)
         self.checkerboard = CheckerboardWidget(0, 0, 128, 296)
         self.display.add_widget(self.checkerboard)
         
-        print("Widgets configured (checkerboard only)")
+        print("Widgets configured (clock and checkerboard)")
     
     def run(self):
         """Main demo loop."""
@@ -85,10 +90,17 @@ class EPaperDemo:
             future.result(timeout=5.0)
             print("Final refresh complete")
             
-            print("Checkerboard displayed. Press Ctrl+C to exit")
+            print("Display active. Press Ctrl+C to exit")
             
-            # Keep running to maintain display
+            # Keep running and update clock every second
+            last_update = time.time()
             while self.running:
+                current_time = time.time()
+                # Update clock every second
+                if current_time - last_update >= 1.0:
+                    future = self.display.update()
+                    future.result(timeout=5.0)
+                    last_update = current_time
                 time.sleep(0.1)
                 
         except KeyboardInterrupt:
