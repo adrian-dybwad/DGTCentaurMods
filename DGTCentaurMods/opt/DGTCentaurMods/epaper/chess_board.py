@@ -38,7 +38,7 @@ class ChessBoardWidget(Widget):
         log.info("Attempting to load chesssprites sprite sheet")
         
         try:
-            font_path = AssetManager.get_resource_path("chesssprites_fen_converted.bmp")
+            font_path = AssetManager.get_resource_path("chesssprites_fen_converted_72dpi.bmp")
             log.info(f"Resolved chesssprites path: {font_path}")
             
             if not font_path:
