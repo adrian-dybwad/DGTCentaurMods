@@ -36,6 +36,7 @@ class GameAnalysisWidget(Widget):
     
     def set_score(self, score_value: float, score_text: str = None) -> None:
         """Set evaluation score."""
+        old_score_text = self.score_text
         self.score_value = score_value
         if score_text is None:
             if abs(score_value) > 999:
@@ -48,10 +49,14 @@ class GameAnalysisWidget(Widget):
                 self.score_text = f"{score_value:5.1f}"
         else:
             self.score_text = score_text
-        self._last_rendered = None
+        # Only invalidate cache if score text actually changed
+        if self.score_text != old_score_text:
+            self._last_rendered = None
     
     def add_score_to_history(self, score: float) -> None:
         """Add score to history."""
+        # History always changes when adding, so always invalidate cache
+        # The bar chart width depends on history length
         self.score_history.append(score)
         if len(self.score_history) > self._max_history_size:
             self.score_history.pop(0)
@@ -59,8 +64,9 @@ class GameAnalysisWidget(Widget):
     
     def set_turn(self, turn: str) -> None:
         """Set current turn ('white' or 'black')."""
-        self.current_turn = turn
-        self._last_rendered = None
+        if self.current_turn != turn:
+            self.current_turn = turn
+            self._last_rendered = None
     
     def clear_history(self) -> None:
         """Clear score history."""
@@ -69,6 +75,10 @@ class GameAnalysisWidget(Widget):
     
     def render(self) -> Image.Image:
         """Render analysis widget."""
+        # Return cached image if available
+        if self._last_rendered is not None:
+            return self._last_rendered
+        
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
@@ -119,5 +129,7 @@ class GameAnalysisWidget(Widget):
         else:
             draw.ellipse((119, 14, 126, 21), fill=255, outline=0)
         
+        # Cache the rendered image
+        self._last_rendered = img
         return img
 

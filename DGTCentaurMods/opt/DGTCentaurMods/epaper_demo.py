@@ -97,14 +97,18 @@ class EPaperDemo:
         """Update analysis widget with simulated evaluation."""
         import math
         
-        # Simulate evaluation score oscillating
-        base_score = 0.5 * math.sin(elapsed_seconds / 5.0) * 5.0
-        self.analysis.set_score(base_score)
-        self.analysis.add_score_to_history(base_score)
-        
-        # Alternate turn every 2 seconds
-        turn = "white" if (int(elapsed_seconds) // 2) % 2 == 0 else "black"
-        self.analysis.set_turn(turn)
+        # Only update analysis every 0.5 seconds to reduce refresh frequency
+        if int(elapsed_seconds * 2) != getattr(self, '_last_analysis_update', -1):
+            self._last_analysis_update = int(elapsed_seconds * 2)
+            
+            # Simulate evaluation score oscillating
+            base_score = 0.5 * math.sin(elapsed_seconds / 5.0) * 5.0
+            self.analysis.set_score(base_score)
+            self.analysis.add_score_to_history(base_score)
+            
+            # Alternate turn every 2 seconds
+            turn = "white" if (int(elapsed_seconds) // 2) % 2 == 0 else "black"
+            self.analysis.set_turn(turn)
     
     def update_battery(self, elapsed_seconds):
         """Animate battery level (demo only - not real battery)."""

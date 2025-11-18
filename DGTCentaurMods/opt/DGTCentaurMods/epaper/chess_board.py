@@ -166,34 +166,43 @@ class ChessBoardWidget(Widget):
     
     def set_fen(self, fen: str) -> None:
         """Update the FEN string."""
-        self.fen = fen
-        self._last_rendered = None
+        if self.fen != fen:
+            self.fen = fen
+            self._last_rendered = None
     
     def render(self) -> Image.Image:
         """Render chess board."""
+        # Return cached image if FEN hasn't changed
+        if self._last_rendered is not None:
+            return self._last_rendered
+        
         img = Image.new("1", (self.width, self.height), 255)
         
         if self._chess_font is None:
             log.warning("Cannot render chess board: chess font not loaded")
+            self._last_rendered = img
             return img
         
         # Parse FEN
         try:
             fen_board = self.fen.split()[0]
-            log.info(f"Rendering chess board from FEN: {fen_board}")
+            log.debug(f"Rendering chess board from FEN: {fen_board}")
         except (AttributeError, IndexError) as e:
             log.error(f"Error parsing FEN string '{self.fen}': {type(e).__name__}: {e}")
+            self._last_rendered = img
             return img
         
         # Expand FEN to 64 characters
         try:
             ordered = self._expand_fen(fen_board)
-            log.info(f"FEN expanded to {len(ordered)} squares")
+            log.debug(f"FEN expanded to {len(ordered)} squares")
         except ValueError as e:
             log.error(f"Invalid FEN board string '{fen_board}': {e}")
+            self._last_rendered = img
             return img
         except Exception as e:
             log.error(f"Unexpected error expanding FEN '{fen_board}': {type(e).__name__}: {e}")
+            self._last_rendered = img
             return img
         
         draw = ImageDraw.Draw(img)
@@ -290,5 +299,7 @@ class ChessBoardWidget(Widget):
         except Exception as e:
             log.error(f"Error drawing board outline: {type(e).__name__}: {e}")
         
+        # Cache the rendered image
+        self._last_rendered = img
         return img
 
