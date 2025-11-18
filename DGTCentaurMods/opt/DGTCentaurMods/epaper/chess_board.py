@@ -29,7 +29,7 @@ class ChessBoardWidget(Widget):
     def _load_chess_font(self):
         """Load chess piece sprite sheet."""
         try:
-            font_path = AssetManager.get_resource_path("chesssprites.bmp")
+            font_path = AssetManager.get_resource_path("chesssprites_fen.bmp")
             if os.path.exists(font_path):
                 self._chess_font = Image.open(font_path)
             else:
