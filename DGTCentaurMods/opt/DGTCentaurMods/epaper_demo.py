@@ -68,7 +68,7 @@ class EPaperDemo:
         print("Setting up widgets...")
         
         # Chess board widget only (128x128) - testing in isolation
-        self.chess_board = ChessBoardWidget(0, 0, self.fen_positions[0])
+        self.chess_board = ChessBoardWidget(0, 0, self.fen_positions[0], flip=True)
         self.display.add_widget(self.chess_board)
         
         # Disabled other widgets for isolation testing
