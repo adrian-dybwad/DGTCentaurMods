@@ -221,7 +221,8 @@ class ChessBoardWidget(Widget):
     
     def render(self) -> Image.Image:
         """Render chess board."""
-        # Return cached image if FEN and max_square_index haven't changed
+        # Return cached image if FEN, filters, and range haven't changed
+        # Note: Cache is invalidated when filters/range change via setter methods
         if self._last_rendered is not None:
             # Debug: Check if cached image bytes are stable
             cached_bytes = self._last_rendered.tobytes()
@@ -264,10 +265,12 @@ class ChessBoardWidget(Widget):
         # Draw board outline first
         try:
             draw.rectangle([(0, 0), (127, 127)], fill=None, outline=0)
+            log.debug("Drew board outline")
         except Exception as e:
             log.error(f"Error drawing board outline: {type(e).__name__}: {e}")
         
         # Render each square in the specified range
+        squares_rendered = 0
         for idx, symbol in enumerate(ordered):
             # Only render squares in the range [min_square_index, max_square_index)
             if idx < self._min_square_index or idx >= self._max_square_index:
@@ -283,6 +286,8 @@ class ChessBoardWidget(Widget):
             # If render_only_rank is set, only render squares in that rank
             if self._render_only_rank is not None and rank != self._render_only_rank:
                 continue
+            
+            squares_rendered += 1
             
             try:
                 dest_rank = rank if not self.flip else 7 - rank
@@ -364,6 +369,8 @@ class ChessBoardWidget(Widget):
                     f"{type(e).__name__}: {e}"
                 )
                 continue
+        
+        log.info(f"ChessBoardWidget.render(): Rendered {squares_rendered} squares (rank_filter={self._render_only_rank}, file_filter={self._render_only_file}, range=[{self._min_square_index}, {self._max_square_index}))")
         
         # Cache the rendered image
         self._last_rendered = img
