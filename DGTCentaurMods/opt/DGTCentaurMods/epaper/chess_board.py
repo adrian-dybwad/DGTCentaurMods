@@ -261,6 +261,12 @@ class ChessBoardWidget(Widget):
         draw = ImageDraw.Draw(img)
         sheet_width, sheet_height = self._chess_font.size
         
+        # Draw board outline first
+        try:
+            draw.rectangle([(0, 0), (127, 127)], fill=None, outline=0)
+        except Exception as e:
+            log.error(f"Error drawing board outline: {type(e).__name__}: {e}")
+        
         # Render each square in the specified range
         for idx, symbol in enumerate(ordered):
             # Only render squares in the range [min_square_index, max_square_index)
@@ -358,12 +364,6 @@ class ChessBoardWidget(Widget):
                     f"{type(e).__name__}: {e}"
                 )
                 continue
-        
-        # Draw board outline
-        try:
-            draw.rectangle([(0, 0), (127, 127)], fill=None, outline=0)
-        except Exception as e:
-            log.error(f"Error drawing board outline: {type(e).__name__}: {e}")
         
         # Cache the rendered image
         self._last_rendered = img
