@@ -127,37 +127,47 @@ class EPaperDemo:
             future.result(timeout=5.0)
             print("Screen cleared")
             
-            # Incrementally construct board one square at a time
-            print("Constructing board one square at a time...")
+            # Incrementally construct board 4 squares at a time
+            print("Constructing board 4 squares at a time...")
             print("Press Ctrl+C to exit")
             
             self.running = True
             
-            # Start with 0 squares, add one every 3 seconds
-            for square_count in range(65):  # 0 to 64 squares
+            # Start with 0 squares, add 4 every 3 seconds
+            for square_count in range(0, 65, 4):  # 0, 4, 8, 12, ..., 64
                 if not self.running:
                     break
                 
-                # Set max square index
-                self.chess_board.set_max_square_index(square_count)
+                # Set max square index (cap at 64)
+                max_squares = min(square_count, 64)
+                self.chess_board.set_max_square_index(max_squares)
                 
                 # Render and update display
                 self.display.update()
                 
-                # Force full refresh to show the square
+                # Force full refresh to show the squares
                 future = self.display._scheduler.submit(full=True)
                 future.result(timeout=5.0)
                 
                 if square_count > 0:
-                    rank = (square_count - 1) // 8
-                    file = (square_count - 1) % 8
-                    print(f"Added square {square_count}/64: rank {rank}, file {file}")
+                    start_rank = (square_count - 4) // 8
+                    start_file = (square_count - 4) % 8
+                    end_rank = (max_squares - 1) // 8
+                    end_file = (max_squares - 1) % 8
+                    print(f"Added squares {square_count-3}-{max_squares}/64: ({start_rank},{start_file}) to ({end_rank},{end_file})")
                 
-                # Wait 3 seconds before adding next square
-                if square_count < 64:
+                # Wait 3 seconds before adding next batch
+                if max_squares < 64:
                     time.sleep(3.0)
             
             print("Board construction complete!")
+            
+            # Second full refresh at the end to ensure display completes
+            print("Performing final full refresh...")
+            self.display.update()
+            future = self.display._scheduler.submit(full=True)
+            future.result(timeout=5.0)
+            print("Final refresh complete")
             
             # Keep running to maintain display
             while self.running:
