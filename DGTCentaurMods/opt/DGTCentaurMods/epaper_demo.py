@@ -98,7 +98,7 @@ class EPaperDemo:
             while self.running:
                 current_time = time.time()
                 # Update clock every second
-                if current_time - last_update >= 1.0:
+                if current_time - last_update >= 5.0:
                     future = self.display.update()
                     future.result(timeout=5.0)
                     last_update = current_time
