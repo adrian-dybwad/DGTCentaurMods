@@ -9,6 +9,7 @@ from .text import TextWidget
 from .ball import BallWidget
 from .chess_board import ChessBoardWidget
 from .game_analysis import GameAnalysisWidget
+from .checkerboard import CheckerboardWidget
 
 __all__ = ['Manager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'BallWidget', 
-           'ChessBoardWidget', 'GameAnalysisWidget']
+           'ChessBoardWidget', 'GameAnalysisWidget', 'CheckerboardWidget']
