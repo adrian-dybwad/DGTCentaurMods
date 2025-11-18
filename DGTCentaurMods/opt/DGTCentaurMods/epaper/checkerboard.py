@@ -28,7 +28,10 @@ class CheckerboardWidget(Widget):
         squares_x = self.width // self._square_size
         squares_y = self.height // self._square_size
         
+        log.info(f"CheckerboardWidget.render(): Rendering {squares_x}x{squares_y} squares (size={self._square_size}px, widget={self.width}x{self.height})")
+        
         # Draw checkerboard pattern
+        squares_drawn = 0
         for row in range(squares_y):
             for col in range(squares_x):
                 # Alternate colors: black if (row + col) is odd
@@ -41,6 +44,11 @@ class CheckerboardWidget(Widget):
                 
                 fill_color = 0 if is_black else 255
                 draw.rectangle([(x1, y1), (x2, y2)], fill=fill_color)
+                squares_drawn += 1
+        
+        log.info(f"CheckerboardWidget.render(): Drew {squares_drawn} squares")
+        rendered_bytes = img.tobytes()
+        log.info(f"CheckerboardWidget.render(): Created image, bytes hash={hash(rendered_bytes)}, size={len(rendered_bytes)}")
         
         return img
 

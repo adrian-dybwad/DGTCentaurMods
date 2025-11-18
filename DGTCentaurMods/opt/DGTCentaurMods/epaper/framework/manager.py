@@ -61,10 +61,17 @@ class Manager:
         
         self._widgets.append(widget)
     
-    def update(self) -> None:
-        """Update the display with current widget states."""
+    def update(self):
+        """Update the display with current widget states.
+        
+        Returns:
+            Future: A Future that completes when the display refresh finishes.
+        """
         if not self._initialized or self._shutting_down:
-            return
+            from concurrent.futures import Future
+            future = Future()
+            future.set_result("not-initialized")
+            return future
         
         # Reset canvas to last flushed state
         canvas = self._framebuffer.get_canvas()
@@ -108,8 +115,10 @@ class Manager:
         # Render static widgets
         for widget in static_widgets:
             widget_image = widget.render()
+            widget_name = widget.__class__.__name__
+            log.info(f"Manager.update(): Pasting {widget_name} at ({widget.x},{widget.y}), size={widget.width}x{widget.height}")
             # Debug: Check if pasting changes byte representation for chess board
-            if hasattr(widget, '__class__') and widget.__class__.__name__ == 'ChessBoardWidget':
+            if widget_name == 'ChessBoardWidget':
                 before_bytes = canvas.crop((widget.x, widget.y, widget.x + widget.width, widget.y + widget.height)).tobytes()
                 widget_bytes = widget_image.tobytes()
                 log.debug(
@@ -127,8 +136,8 @@ class Manager:
             else:
                 canvas.paste(widget_image, (widget.x, widget.y))
         
-        # Submit refresh
-        self._scheduler.submit(full=False)
+        # Submit refresh and return Future for caller to wait on
+        return self._scheduler.submit(full=False)
     
     def shutdown(self) -> None:
         """Shutdown the display."""

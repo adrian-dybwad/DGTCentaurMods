@@ -75,7 +75,9 @@ class EPaperDemo:
             
             # Render checkerboard and update display
             print("Rendering checkerboard pattern...")
-            self.display.update()
+            future = self.display.update()
+            future.result(timeout=5.0)
+            print("Update complete")
             
             # Final full refresh to ensure display completes
             print("Performing final full refresh...")
