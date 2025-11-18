@@ -34,6 +34,7 @@ class ChessBoardWidget(Widget):
         self._min_square_index = 0  # Start rendering from this square
         self._max_square_index = 64  # Render up to this square
         self._render_only_file = None  # If set, only render squares in this file (0-7)
+        self._render_only_rank = None  # If set, only render squares in this rank (0-7)
         self._load_chess_font()
     
     def _load_chess_font(self):
@@ -210,6 +211,14 @@ class ChessBoardWidget(Widget):
             self._render_only_file = file
             self._last_rendered = None  # Invalidate cache
     
+    def set_render_only_rank(self, rank: int) -> None:
+        """Set to only render squares in a specific rank (0-7, where 0=rank 1)."""
+        if rank is not None:
+            rank = max(0, min(7, rank))
+        if self._render_only_rank != rank:
+            self._render_only_rank = rank
+            self._last_rendered = None  # Invalidate cache
+    
     def render(self) -> Image.Image:
         """Render chess board."""
         # Return cached image if FEN and max_square_index haven't changed
@@ -263,6 +272,10 @@ class ChessBoardWidget(Widget):
             
             # If render_only_file is set, only render squares in that file
             if self._render_only_file is not None and file != self._render_only_file:
+                continue
+            
+            # If render_only_rank is set, only render squares in that rank
+            if self._render_only_rank is not None and rank != self._render_only_rank:
                 continue
             
             try:

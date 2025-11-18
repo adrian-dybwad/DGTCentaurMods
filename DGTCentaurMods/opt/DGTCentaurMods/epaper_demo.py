@@ -127,22 +127,22 @@ class EPaperDemo:
             future.result(timeout=5.0)
             print("Screen cleared")
             
-            # Only draw the a-file squares (a1 to a8)
-            print("Drawing only a-file squares (a1 to a8)...")
+            # Only draw rank 2 (squares a2 to h2)
+            print("Drawing only rank 2 (a2 to h2)...")
             print("Press Ctrl+C to exit")
             
             self.running = True
             
-            # Set widget to only render file 0 (a-file)
-            self.chess_board.set_render_only_file(0)
+            # Set widget to only render rank 1 (0-indexed, which is rank 2 in chess notation)
+            self.chess_board.set_render_only_rank(1)
             
             # Render and update display
             self.display.update()
             
-            # Force full refresh to show the a-file squares
+            # Force full refresh to show rank 2 squares
             future = self.display._scheduler.submit(full=True)
             future.result(timeout=5.0)
-            print("Rendered a-file squares (a1 to a8)")
+            print("Rendered rank 2 squares (a2 to h2)")
             
             # Keep running to maintain display
             while self.running:
