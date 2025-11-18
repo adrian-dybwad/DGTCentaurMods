@@ -81,7 +81,7 @@ class RaspberryPi:
 
     def digital_read(self, pin):
         if pin == self.BUSY_PIN:
-            return self.GPIO_BUSY_PIN.value
+            return not self.GPIO_BUSY_PIN.value
         return 0
 
     def delay_ms(self, delaytime):
