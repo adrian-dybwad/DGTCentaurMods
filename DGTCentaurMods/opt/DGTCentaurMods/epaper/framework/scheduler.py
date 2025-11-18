@@ -87,9 +87,8 @@ class Scheduler:
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
             
-            # Invert image colors for DGT Centaur hardware before converting to buffer
-            # This fixes color inversion without modifying Waveshare driver
-            full_image = Image.eval(full_image, lambda x: 255 - x)
+            # Note: display() does NOT invert internally, so we don't invert here
+            # DisplayPartial() inverts internally, so we DO invert for partial refreshes
             
             buf = self._epd.getbuffer(full_image)
             self._epd.display(buf)
