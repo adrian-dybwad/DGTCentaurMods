@@ -54,8 +54,16 @@ class ChessBoardWidget(Widget):
             log.info(f"Chesssprites file exists, attempting to open: {font_path}")
             
             try:
-                self._chess_font = Image.open(font_path)
+                loaded_image = Image.open(font_path)
                 log.info(f"Successfully opened chesssprites image")
+                
+                # Convert to "1" mode (1-bit monochrome) immediately to ensure deterministic rendering
+                # This prevents non-deterministic conversion when cropping/pasting RGB images
+                if loaded_image.mode != "1":
+                    log.info(f"Converting chesssprites from {loaded_image.mode} to 1-bit monochrome")
+                    self._chess_font = loaded_image.convert("1")
+                else:
+                    self._chess_font = loaded_image
             except IOError as e:
                 log.error(f"IOError opening chesssprites file {font_path}: {e}")
                 self._chess_font = None
