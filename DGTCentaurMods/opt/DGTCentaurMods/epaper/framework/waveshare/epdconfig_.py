@@ -33,33 +33,34 @@ import sys
 import time
 import subprocess
 
-from ctypes import *
-
 logger = logging.getLogger(__name__)
+
+# DGT Centaur pin configuration
+RST_PIN = int(os.environ.get('EPAPER_RST_PIN', '12'))
+DC_PIN = int(os.environ.get('EPAPER_DC_PIN', '16'))
+CS_PIN = int(os.environ.get('EPAPER_CS_PIN', '18'))
+BUSY_PIN = int(os.environ.get('EPAPER_BUSY_PIN', '24'))
+PWR_PIN = int(os.environ.get('EPAPER_PWR_PIN', '18'))
+SPI_BUS = int(os.environ.get('EPAPER_SPI_BUS', '1'))
+SPI_DEVICE = int(os.environ.get('EPAPER_SPI_DEVICE', '0'))
 
 
 class RaspberryPi:
-    # Pin definition
-    RST_PIN  = 12
-    DC_PIN   = 16
-    CS_PIN   = 18
-    BUSY_PIN = 24
-    PWR_PIN  = 18
-    MOSI_PIN = 10
-    SCLK_PIN = 11
-
     def __init__(self):
         import spidev
         import gpiozero
         
-        self.SPI = spidev.SpiDev()
-        self.GPIO_RST_PIN    = gpiozero.LED(self.RST_PIN)
-        self.GPIO_DC_PIN     = gpiozero.LED(self.DC_PIN)
-        # self.GPIO_CS_PIN     = gpiozero.LED(self.CS_PIN)
-        self.GPIO_PWR_PIN    = gpiozero.LED(self.PWR_PIN)
-        self.GPIO_BUSY_PIN   = gpiozero.Button(self.BUSY_PIN, pull_up = False)
-
+        self.RST_PIN = RST_PIN
+        self.DC_PIN = DC_PIN
+        self.CS_PIN = CS_PIN
+        self.BUSY_PIN = BUSY_PIN
+        self.PWR_PIN = PWR_PIN
         
+        self.SPI = spidev.SpiDev()
+        self.GPIO_RST_PIN = gpiozero.LED(self.RST_PIN)
+        self.GPIO_DC_PIN = gpiozero.LED(self.DC_PIN)
+        self.GPIO_PWR_PIN = gpiozero.LED(self.PWR_PIN)
+        self.GPIO_BUSY_PIN = gpiozero.DigitalInputDevice(self.BUSY_PIN, pull_up=True)
 
     def digital_write(self, pin, value):
         if pin == self.RST_PIN:
@@ -72,11 +73,6 @@ class RaspberryPi:
                 self.GPIO_DC_PIN.on()
             else:
                 self.GPIO_DC_PIN.off()
-        # elif pin == self.CS_PIN:
-        #     if value:
-        #         self.GPIO_CS_PIN.on()
-        #     else:
-        #         self.GPIO_CS_PIN.off()
         elif pin == self.PWR_PIN:
             if value:
                 self.GPIO_PWR_PIN.on()
@@ -85,87 +81,54 @@ class RaspberryPi:
 
     def digital_read(self, pin):
         if pin == self.BUSY_PIN:
-            return self.GPIO_BUSY_PIN.value
-        elif pin == self.RST_PIN:
-            return self.RST_PIN.value
-        elif pin == self.DC_PIN:
-            return self.DC_PIN.value
-        # elif pin == self.CS_PIN:
-        #     return self.CS_PIN.value
-        elif pin == self.PWR_PIN:
-            return self.PWR_PIN.value
+            return not self.GPIO_BUSY_PIN.value
+        return 0
 
     def delay_ms(self, delaytime):
         time.sleep(delaytime / 1000.0)
 
     def spi_writebyte(self, data):
-        self.SPI.writebytes(data)
+        if isinstance(data, list):
+            self.SPI.writebytes(data)
+        else:
+            self.SPI.writebytes([data])
 
     def spi_writebyte2(self, data):
-        self.SPI.writebytes2(data)
+        """Write data via SPI (assumes CS is already managed by caller)."""
+        self.SPI.writebytes(data)
 
-    def DEV_SPI_write(self, data):
-        self.DEV_SPI.DEV_SPI_SendData(data)
-
-    def DEV_SPI_nwrite(self, data):
-        self.DEV_SPI.DEV_SPI_SendnData(data)
-
-    def DEV_SPI_read(self):
-        return self.DEV_SPI.DEV_SPI_ReadData()
-
-    def module_init(self, cleanup=False):
+    def module_init(self):
         self.GPIO_PWR_PIN.on()
-        
-        if cleanup:
-            find_dirs = [
-                os.path.dirname(os.path.realpath(__file__)),
-                '/usr/local/lib',
-                '/usr/lib',
-            ]
-            self.DEV_SPI = None
-            for find_dir in find_dirs:
-                val = int(os.popen('getconf LONG_BIT').read())
-                logging.debug("System is %d bit"%val)
-                if val == 64:
-                    so_filename = os.path.join(find_dir, 'DEV_Config_64.so')
-                else:
-                    so_filename = os.path.join(find_dir, 'DEV_Config_32.so')
-                if os.path.exists(so_filename):
-                    self.DEV_SPI = CDLL(so_filename)
-                    break
-            if self.DEV_SPI is None:
-                RuntimeError('Cannot find DEV_Config.so')
-
-            self.DEV_SPI.DEV_Module_Init()
-
-        else:
-            # SPI device, bus = 0, device = 0
-            self.SPI.open(1, 0)
-            self.SPI.max_speed_hz = 4000000
-            self.SPI.mode = 0b00
+        self.SPI.open(SPI_BUS, SPI_DEVICE)
+        self.SPI.max_speed_hz = 4000000
+        self.SPI.mode = 0b00
         return 0
 
-    def module_exit(self, cleanup=False):
+    def module_exit(self):
         logger.debug("spi end")
         self.SPI.close()
-
         self.GPIO_RST_PIN.off()
         self.GPIO_DC_PIN.off()
         self.GPIO_PWR_PIN.off()
         logger.debug("close 5V, Module enters 0 power consumption ...")
-        
-        if cleanup:
-            self.GPIO_RST_PIN.close()
-            self.GPIO_DC_PIN.close()
-            # self.GPIO_CS_PIN.close()
-            self.GPIO_PWR_PIN.close()
-            self.GPIO_BUSY_PIN.close()
+        self.GPIO_RST_PIN.close()
+        self.GPIO_DC_PIN.close()
+        self.GPIO_PWR_PIN.close()
+        self.GPIO_BUSY_PIN.close()
 
-        
 
-implementation = RaspberryPi()
+if sys.version_info[0] == 2:
+    process = subprocess.Popen("cat /proc/cpuinfo | grep Raspberry", shell=True, stdout=subprocess.PIPE)
+else:
+    process = subprocess.Popen("cat /proc/cpuinfo | grep Raspberry", shell=True, stdout=subprocess.PIPE, text=True)
+output, _ = process.communicate()
+if sys.version_info[0] == 2:
+    output = output.decode(sys.stdout.encoding)
+
+if "Raspberry" in output:
+    implementation = RaspberryPi()
+else:
+    raise RuntimeError("Only Raspberry Pi is supported")
 
 for func in [x for x in dir(implementation) if not x.startswith('_')]:
     setattr(sys.modules[__name__], func, getattr(implementation, func))
-
-### END OF FILE ###
