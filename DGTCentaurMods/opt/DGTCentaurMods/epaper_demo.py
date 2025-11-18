@@ -67,23 +67,19 @@ class EPaperDemo:
         """Create and add widgets to the display."""
         print("Setting up widgets...")
         
-        # Clock widget at top-left (24px high)
-        self.clock = ClockWidget(0, 0)
-        self.display.add_widget(self.clock)
-        
-        # Battery widget below clock
-        self.battery = BatteryWidget(0, 24, level=75)
-        self.display.add_widget(self.battery)
-        
-        # Chess board widget (128x128)
-        self.chess_board = ChessBoardWidget(0, 40, self.fen_positions[0])
+        # Chess board widget only (128x128) - testing in isolation
+        self.chess_board = ChessBoardWidget(0, 0, self.fen_positions[0])
         self.display.add_widget(self.chess_board)
         
-        # Game analysis widget below board (128x80)
-        self.analysis = GameAnalysisWidget(0, 168)
-        self.display.add_widget(self.analysis)
+        # Disabled other widgets for isolation testing
+        # self.clock = ClockWidget(0, 0)
+        # self.display.add_widget(self.clock)
+        # self.battery = BatteryWidget(0, 24, level=75)
+        # self.display.add_widget(self.battery)
+        # self.analysis = GameAnalysisWidget(0, 168)
+        # self.display.add_widget(self.analysis)
         
-        print("Widgets configured")
+        print("Widgets configured (chess board only)")
     
     def update_chess_board(self, elapsed_seconds):
         """Update chess board position every 3 seconds."""
@@ -136,8 +132,9 @@ class EPaperDemo:
                 
                 # Update widgets
                 # Chess board FEN is set once and not changed
-                self.update_analysis(elapsed)
-                self.update_battery(elapsed)
+                # Other widgets disabled for isolation testing
+                # self.update_analysis(elapsed)
+                # self.update_battery(elapsed)
                 
                 # Refresh display
                 self.display.update()
