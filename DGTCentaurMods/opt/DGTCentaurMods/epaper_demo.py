@@ -121,40 +121,46 @@ class EPaperDemo:
             self.initialize_display()
             self.setup_widgets()
             
-            # Render widgets and force initial full refresh to clear ghosting
-            print("Rendering widgets and performing initial full refresh...")
-            self.display.update()
-            
-            # Save framebuffer image for testing
-            framebuffer_img = self.display._framebuffer.snapshot()
-            test_output_path = "/tmp/chess_board_framebuffer.png"
-            framebuffer_img.save(test_output_path)
-            print(f"Framebuffer image saved to: {test_output_path}")
-            
-            # Force full refresh to clear ghosting and display chess board
+            # Clear screen with initial full refresh
+            print("Clearing screen...")
             future = self.display._scheduler.submit(full=True)
-            future.result(timeout=5.0)  # Wait for full refresh to complete
-            print("Initial full refresh complete")
+            future.result(timeout=5.0)
+            print("Screen cleared")
             
-            print("Demo started!")
+            # Incrementally construct board one square at a time
+            print("Constructing board one square at a time...")
             print("Press Ctrl+C to exit")
             
-            self.start_time = time.time()
             self.running = True
             
-            while self.running:
-                elapsed = time.time() - self.start_time
+            # Start with 0 squares, add one every 3 seconds
+            for square_count in range(65):  # 0 to 64 squares
+                if not self.running:
+                    break
                 
-                # Update widgets
-                # Chess board FEN is set once and not changed
-                # Other widgets disabled for isolation testing
-                # self.update_analysis(elapsed)
-                # self.update_battery(elapsed)
+                # Set max square index
+                self.chess_board.set_max_square_index(square_count)
                 
-                # Refresh display
+                # Render and update display
                 self.display.update()
                 
-                # Control frame rate
+                # Force full refresh to show the square
+                future = self.display._scheduler.submit(full=True)
+                future.result(timeout=5.0)
+                
+                if square_count > 0:
+                    rank = (square_count - 1) // 8
+                    file = (square_count - 1) % 8
+                    print(f"Added square {square_count}/64: rank {rank}, file {file}")
+                
+                # Wait 3 seconds before adding next square
+                if square_count < 64:
+                    time.sleep(3.0)
+            
+            print("Board construction complete!")
+            
+            # Keep running to maintain display
+            while self.running:
                 time.sleep(0.1)
                 
         except KeyboardInterrupt:

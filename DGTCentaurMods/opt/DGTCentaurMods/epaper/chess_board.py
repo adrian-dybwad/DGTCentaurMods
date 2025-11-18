@@ -31,6 +31,7 @@ class ChessBoardWidget(Widget):
         self.fen = fen
         self.flip = flip
         self._chess_font = None
+        self._max_square_index = 64  # Render all squares by default
         self._load_chess_font()
     
     def _load_chess_font(self):
@@ -183,9 +184,16 @@ class ChessBoardWidget(Widget):
             self.fen = fen
             self._last_rendered = None
     
+    def set_max_square_index(self, max_index: int) -> None:
+        """Set maximum square index to render (0-64). Used for incremental rendering."""
+        max_index = max(0, min(64, max_index))
+        if self._max_square_index != max_index:
+            self._max_square_index = max_index
+            self._last_rendered = None  # Invalidate cache
+    
     def render(self) -> Image.Image:
         """Render chess board."""
-        # Return cached image if FEN hasn't changed
+        # Return cached image if FEN and max_square_index haven't changed
         if self._last_rendered is not None:
             # Debug: Check if cached image bytes are stable
             cached_bytes = self._last_rendered.tobytes()
@@ -225,8 +233,11 @@ class ChessBoardWidget(Widget):
         draw = ImageDraw.Draw(img)
         sheet_width, sheet_height = self._chess_font.size
         
-        # Render each square
+        # Render each square up to max_square_index
         for idx, symbol in enumerate(ordered):
+            # Only render squares up to max_square_index
+            if idx >= self._max_square_index:
+                break
             try:
                 rank = idx // 8
                 file = idx % 8
