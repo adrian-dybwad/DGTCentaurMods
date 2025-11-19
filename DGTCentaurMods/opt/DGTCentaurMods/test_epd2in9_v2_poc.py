@@ -10,26 +10,17 @@ import time
 from pathlib import Path
 from PIL import Image, ImageDraw
 
-# Get script directory and project root
+# Get script directory
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent.parent.parent
 
-# Add tmp/e-Paper to path to import the V2 driver
-EPAPER_LIB_PATH = PROJECT_ROOT / 'tmp' / 'e-Paper' / 'RaspberryPi_JetsonNano' / 'python'
-if EPAPER_LIB_PATH.exists():
-    sys.path.insert(0, str(EPAPER_LIB_PATH))
-    from lib.waveshare_epd import epd2in9_V2
-    from lib import waveshare_epd
-else:
-    print(f"ERROR: e-Paper library not found at {EPAPER_LIB_PATH}")
-    sys.exit(1)
-
-# Use our epdconfig
+# Add script directory to path to import local epd2in9_V2
 sys.path.insert(0, str(SCRIPT_DIR))
-from epaper.framework.waveshare import epdconfig
 
-# Replace the epdconfig module in waveshare_epd with ours
-waveshare_epd.epdconfig = epdconfig
+# Import the local copy of epd2in9_V2
+import epd2in9_V2
+
+# Import our epdconfig (epd2in9_V2 will use it via fallback)
+from epaper.framework.waveshare import epdconfig
 
 
 def test_v2_driver():
