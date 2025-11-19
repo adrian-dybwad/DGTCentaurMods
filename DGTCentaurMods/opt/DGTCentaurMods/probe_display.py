@@ -71,11 +71,21 @@ class DisplayProbe:
         """Test if DisplayPartial() method exists and can be called."""
         try:
             if not self.epd:
+                self.results['display_partial_test_error'] = "EPD object is None"
                 return False
+            
+            # Debug: Check what methods are actually available
+            all_methods = [m for m in dir(self.epd) if not m.startswith('_')]
+            self.results['epd_methods'] = all_methods
             
             # Check if method exists
             has_method = hasattr(self.epd, 'DisplayPartial')
             self.results['has_display_partial'] = has_method
+            
+            # Also check if it's callable
+            if has_method:
+                is_callable = callable(getattr(self.epd, 'DisplayPartial', None))
+                self.results['display_partial_callable'] = is_callable
             
             if not has_method:
                 return False
@@ -111,10 +121,16 @@ class DisplayProbe:
         """Test if SetPartReg() method exists (epd2in9d feature)."""
         try:
             if not self.epd:
+                self.results['set_part_reg_test_error'] = "EPD object is None"
                 return False
             
             has_method = hasattr(self.epd, 'SetPartReg')
             self.results['has_set_part_reg'] = has_method
+            
+            # Also check if it's callable
+            if has_method:
+                is_callable = callable(getattr(self.epd, 'SetPartReg', None))
+                self.results['set_part_reg_callable'] = is_callable
             
             if has_method:
                 # Try calling it
@@ -223,20 +239,32 @@ class DisplayProbe:
         
         # Test 3: DisplayPartial method
         print("Test 3: DisplayPartial() method...", end=" ")
+        test_result = self.test_display_partial_method()
         has_method = self.results.get('has_display_partial', False)
         if has_method:
             print("✓ EXISTS", end=" ")
-            if self.test_display_partial_method():
+            if self.results.get('display_partial_works', False):
                 print("✓ WORKS")
             else:
                 print("✗ FAILED")
                 print(f"  Error: {self.results.get('display_partial_error', 'Unknown error')}")
         else:
             print("✗ NOT FOUND")
+            # Debug output
+            if 'epd_methods' in self.results:
+                methods = self.results['epd_methods']
+                print(f"  Available methods: {', '.join(sorted(methods)[:15])}...")
+                if 'DisplayPartial' not in methods:
+                    print(f"  'DisplayPartial' not in method list")
+                else:
+                    print(f"  'DisplayPartial' IS in method list but hasattr() returned False")
+            if 'display_partial_test_error' in self.results:
+                print(f"  Test error: {self.results['display_partial_test_error']}")
         print()
         
         # Test 4: SetPartReg method
         print("Test 4: SetPartReg() method...", end=" ")
+        test_result = self.test_set_part_reg_method()
         has_method = self.results.get('has_set_part_reg', False)
         if has_method:
             print("✓ EXISTS", end=" ")
@@ -244,8 +272,18 @@ class DisplayProbe:
                 print("✓ WORKS")
             else:
                 print("✗ FAILED")
+                print(f"  Error: {self.results.get('set_part_reg_error', 'Unknown error')}")
         else:
             print("✗ NOT FOUND")
+            # Debug output
+            if 'epd_methods' in self.results:
+                methods = self.results['epd_methods']
+                if 'SetPartReg' not in methods:
+                    print(f"  'SetPartReg' not in method list")
+                else:
+                    print(f"  'SetPartReg' IS in method list but hasattr() returned False")
+            if 'set_part_reg_test_error' in self.results:
+                print(f"  Test error: {self.results['set_part_reg_test_error']}")
         print()
         
         # Test 5: Panel setting
