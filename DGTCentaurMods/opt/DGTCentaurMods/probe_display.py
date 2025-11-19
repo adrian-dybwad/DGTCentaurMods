@@ -104,8 +104,12 @@ class DisplayProbe:
                     self.epd.SetPartReg()
                 
                 self.epd.DisplayPartial(buf)
-                # Wait a bit for the refresh to complete
-                time.sleep(0.5)
+                # DisplayPartial() calls TurnOnDisplay() which uses ReadBusy() to wait for completion
+                
+                # Immediately clear to white to avoid leaving black artifacts
+                self.epd.Clear()
+                # Clear() calls TurnOnDisplay() which uses ReadBusy() to wait for completion
+                
                 self.results['display_partial_works'] = True
                 return True
             except Exception as e:
@@ -204,6 +208,19 @@ class DisplayProbe:
         """Clean up resources."""
         try:
             if self.epd:
+                # Clear display to white before sleeping
+                try:
+                    self.epd.Clear()
+                    # Clear() calls TurnOnDisplay() which uses ReadBusy() to wait for completion
+                except Exception:
+                    # If Clear() fails, try using display() with white image
+                    try:
+                        white_image = Image.new('1', (self.epd.width, self.epd.height), 255)
+                        white_buf = self.epd.getbuffer(white_image)
+                        self.epd.display(white_buf)
+                        # display() calls TurnOnDisplay() which uses ReadBusy() to wait for completion
+                    except Exception:
+                        pass
                 self.epd.sleep()
             epdconfig.module_exit()
         except Exception:
