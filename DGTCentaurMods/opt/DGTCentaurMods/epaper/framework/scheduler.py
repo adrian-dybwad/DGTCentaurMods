@@ -24,6 +24,7 @@ class Scheduler:
         self._stop_event = threading.Event()
         self._max_partial_refreshes = 50
         self._partial_refresh_count = 0
+        self._in_partial_mode = False  # Track if display is in partial refresh mode
     
     def start(self) -> None:
         """Start the refresh scheduler thread."""
@@ -83,9 +84,12 @@ class Scheduler:
     def _execute_full_refresh(self, batch: list) -> None:
         """Execute a full screen refresh."""
         try:
-            # Re-initialize to ensure we're in full refresh mode (not partial mode)
+            # Only re-initialize if we're transitioning from partial mode to full mode
             # This ensures clean transition from partial refresh mode back to full refresh mode
-            self._epd.init()
+            # If we're already in full mode, we don't need to re-initialize
+            if self._in_partial_mode:
+                self._epd.init()
+                self._in_partial_mode = False
             
             # Get full-screen snapshot and rotate 180° for hardware orientation
             full_image = self._framebuffer.snapshot()
@@ -118,42 +122,35 @@ class Scheduler:
             return
         
         try:
-            # CRITICAL FIX: DisplayPartial() uses different buffer mapping than display()
-            # display() sends: 0x10=zeros, 0x13=image
-            # DisplayPartial() sends: 0x10=image, 0x13=~image
-            # 
-            # The display hardware interprets these differently. After a full refresh with display(),
-            # the display expects the image in 0x13. But DisplayPartial() puts it in 0x10.
-            # 
-            # The solution: We need to ensure the display is in partial mode state before
-            # using DisplayPartial(). Since DisplayPartial() calls SetPartReg() which configures
-            # partial mode, we should be fine. But the buffer format needs to match.
+            # If this is the first partial refresh after a full refresh, we need to ensure
+            # the display is in a known state. The sample code calls init() and Clear() before
+            # using DisplayPartial(). However, DisplayPartial() calls SetPartReg() which switches
+            # to partial mode, so we don't need to call init() here - SetPartReg() handles the mode switch.
             #
-            # Actually, looking at the sample code, they pass the buffer directly without inversion.
-            # The issue might be that we need to ensure we're starting from a known state.
-            # Let's try inverting the buffer so that when DisplayPartial() processes it,
-            # we get the same visual result as display().
+            # The sample code passes the buffer directly from getbuffer() to DisplayPartial()
+            # without any inversion. DisplayPartial() internally handles the buffer mapping:
+            # - 0x10: image buffer
+            # - 0x13: inverted image buffer (~image)
+            # The display hardware in partial mode interprets these buffers correctly.
             
             # Get full-screen snapshot and rotate 180° for hardware orientation
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
             
+            # Get buffer and pass directly to DisplayPartial() - no inversion needed
+            # DisplayPartial() handles buffer mapping internally
             buf = self._epd.getbuffer(full_image)
             
-            # Invert buffer: DisplayPartial sends image to 0x10 and ~image to 0x13
-            # But display() sends image to 0x13. To get same result, we need to invert
-            # so that DisplayPartial's 0x10 buffer matches what display() put in 0x13
-            inverted_buf = [(~b) & 0xFF for b in buf]
-            
             # Use DisplayPartial - it handles the full screen buffer
-            # DisplayPartial refreshes the entire screen, so flush entire framebuffer
-            # Note: DisplayPartial() calls SetPartReg() which puts display in partial mode
-            self._epd.DisplayPartial(inverted_buf)
+            # DisplayPartial() calls SetPartReg() which puts display in partial mode
+            # and handles the buffer mapping correctly
+            self._epd.DisplayPartial(buf)
             
             # Flush entire framebuffer since DisplayPartial refreshes full screen
             self._framebuffer.flush_all()
             
             self._partial_refresh_count += 1
+            self._in_partial_mode = True
         except Exception as e:
             print(f"ERROR in partial refresh: {e}")
             import traceback
