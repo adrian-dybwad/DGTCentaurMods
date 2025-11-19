@@ -89,6 +89,9 @@ class EPaperDemo:
             future = self.display.update(full=True)
             future.result(timeout=5.0)
             print("Update complete (full refresh) 3")
+            future = self.display.update(full=True)
+            future.result(timeout=5.0)
+            print("Update complete (full refresh) 4")
             
             print("Display active. Press Ctrl+C to exit")
             
