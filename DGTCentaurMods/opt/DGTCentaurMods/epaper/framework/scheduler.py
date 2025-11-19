@@ -128,6 +128,7 @@ class Scheduler:
             
             # Use DisplayPartial - it handles the full screen buffer
             # DisplayPartial refreshes the entire screen, so flush entire framebuffer
+            # Note: DisplayPartial() calls SetPartReg() which puts display in partial mode
             self._epd.DisplayPartial(buf)
             
             # Flush entire framebuffer since DisplayPartial refreshes full screen
