@@ -33,13 +33,14 @@ then
     cp $CONFIG $CONFIG.bak
     cp $CMDLINEFILE $CMDLINEFILE.bak
 
-    # Enable SPI bus if not enabled
+    # Disable SPI0 to avoid GPIO 7 conflict with e-Paper BUSY pin
     echo "::: Checking SPI"
-    # Ensure SPI master is enabled (idempotent)
-    if grep -q '^#dtparam=spi=on' "$CONFIG"; then
-      sed -i 's/^#dtparam=spi=on/dtparam=spi=on/' "$CONFIG"
-    elif ! grep -q '^dtparam=spi=on' "$CONFIG"; then
-      printf '%s\n' 'dtparam=spi=on' >> "$CONFIG"
+    # SPI0 uses GPIO 7 as CE1, which conflicts with e-Paper BUSY pin
+    # e-Paper display uses SPI1 instead (configured below)
+    if grep -q '^dtparam=spi=on' "$CONFIG"; then
+      sed -i 's/^dtparam=spi=on/#dtparam=spi=on  # Disabled: conflicts with e-Paper BUSY pin (GPIO 7)/' "$CONFIG"
+    elif ! grep -q '^#dtparam=spi=on' "$CONFIG" && ! grep -q 'dtparam=spi=off' "$CONFIG"; then
+      printf '%s\n' '#dtparam=spi=on  # Disabled: conflicts with e-Paper BUSY pin (GPIO 7)' >> "$CONFIG"
     fi
     
     echo -e "::: Checking SPI 1.0 bus."
@@ -51,8 +52,9 @@ then
       sed -i 's/^dtoverlay=spi1-1cs.*/dtoverlay=spi1-1cs,cs0_spidev=on/' "$CONFIG"
     fi
 
-    # Make sure SPI master is enabled in firmware
-    raspi-config nonint do_spi 0 || true
+    # Note: SPI0 is disabled above to avoid GPIO 7 conflict
+    # SPI1 is enabled via dtoverlay=spi1-1cs above
+    # raspi-config command removed to avoid re-enabling SPI0
   
     # Ensure the user has SPI permissions
     adduser pi spi || true
