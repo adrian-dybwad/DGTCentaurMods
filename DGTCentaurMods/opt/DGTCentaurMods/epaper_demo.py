@@ -103,7 +103,7 @@ class EPaperDemo:
                 # Update clock every second
                 if current_time - last_update >= 5.0:
                     # Use full refresh instead of partial refresh
-                    future = self.display.update(full=False)
+                    future = self.display.update(full=True)
                     future.result(timeout=5.0)
                     last_update = current_time
                 time.sleep(0.1)
