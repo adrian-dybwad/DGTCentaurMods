@@ -83,6 +83,10 @@ class Scheduler:
     def _execute_full_refresh(self, batch: list) -> None:
         """Execute a full screen refresh."""
         try:
+            # Re-initialize to ensure we're in full refresh mode (not partial mode)
+            # This ensures clean transition from partial refresh mode back to full refresh mode
+            self._epd.init()
+            
             # Get full-screen snapshot and rotate 180° for hardware orientation
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
