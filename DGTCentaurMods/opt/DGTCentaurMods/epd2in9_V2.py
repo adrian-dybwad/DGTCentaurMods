@@ -182,12 +182,7 @@ class EPD:
         logger.debug("e-Paper busy")
         start_time = time.time()
         timeout_seconds = timeout_ms / 1000.0
-        
-        while(epdconfig.digital_read(self.busy_pin) == 1):      #  0: idle, 1: busy
-            if time.time() - start_time > timeout_seconds:
-                pin_value = epdconfig.digital_read(self.busy_pin)
-                raise RuntimeError(f"ReadBusy timeout after {timeout_ms}ms. Busy pin value: {pin_value}")
-            epdconfig.delay_ms(10) 
+        time.delay(1.0)
         logger.debug("e-Paper busy release")  
 
     def TurnOnDisplay(self):
