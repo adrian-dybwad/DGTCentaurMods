@@ -247,6 +247,13 @@ class DisplayProbe:
         print("Test 2: EPD initialization (epd2in9d sequence)...", end=" ")
         if self.test_epd2in9d_init():
             print("✓ PASSED")
+            # Clear display to white immediately after init to ensure known state
+            try:
+                if self.epd:
+                    self.epd.Clear()
+                    print("  Display cleared to white")
+            except Exception as e:
+                print(f"  Warning: Could not clear display: {e}")
         else:
             print("✗ FAILED")
             print(f"  Error: {self.results.get('epd2in9d_init_error', 'Unknown error')}")
