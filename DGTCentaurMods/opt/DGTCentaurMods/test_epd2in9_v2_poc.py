@@ -34,11 +34,24 @@ def test_v2_driver():
         
         # Initialize hardware
         print("Initializing display...")
-        result = epd.init()
-        if result != 0:
-            print(f"ERROR: init() returned {result}")
+        # Check busy pin state before init
+        busy_value = epdconfig.digital_read(epd.busy_pin)
+        print(f"  Busy pin (GPIO {epd.busy_pin}) initial state: {busy_value} ({'HIGH' if busy_value else 'LOW'})")
+        print("  (This may take a few seconds, checking busy pin...)")
+        try:
+            result = epd.init()
+            if result != 0:
+                print(f"ERROR: init() returned {result}")
+                return False
+            print("Display initialized successfully")
+        except RuntimeError as e:
+            print(f"ERROR: {e}")
+            current_busy = epdconfig.digital_read(epd.busy_pin)
+            print(f"  Current busy pin value: {current_busy} ({'HIGH' if current_busy else 'LOW'})")
+            print("  This suggests the busy pin logic may be inverted for this display.")
+            print("  The V2 driver expects HIGH=busy, but your display may use LOW=busy.")
+            print("  Your working epd2in9d driver uses LOW=busy.")
             return False
-        print("Display initialized successfully")
         
         # Clear display
         print("Clearing display...")

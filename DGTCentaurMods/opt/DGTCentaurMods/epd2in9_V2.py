@@ -28,6 +28,7 @@
 #
 
 import logging
+import time
 try:
     from . import epdconfig
 except ImportError:
@@ -172,9 +173,20 @@ class EPD:
         epdconfig.spi_writebyte2(data)
         epdconfig.digital_write(self.cs_pin, 1)
         
-    def ReadBusy(self):
+    def ReadBusy(self, timeout_ms=5000):
+        """Wait for busy pin to go idle.
+        
+        Args:
+            timeout_ms: Maximum time to wait in milliseconds (default 5000ms)
+        """
         logger.debug("e-Paper busy")
+        start_time = time.time()
+        timeout_seconds = timeout_ms / 1000.0
+        
         while(epdconfig.digital_read(self.busy_pin) == 1):      #  0: idle, 1: busy
+            if time.time() - start_time > timeout_seconds:
+                pin_value = epdconfig.digital_read(self.busy_pin)
+                raise RuntimeError(f"ReadBusy timeout after {timeout_ms}ms. Busy pin value: {pin_value}")
             epdconfig.delay_ms(10) 
         logger.debug("e-Paper busy release")  
 
