@@ -118,18 +118,37 @@ class Scheduler:
             return
         
         try:
+            # CRITICAL FIX: DisplayPartial() uses different buffer mapping than display()
+            # display() sends: 0x10=zeros, 0x13=image
+            # DisplayPartial() sends: 0x10=image, 0x13=~image
+            # 
+            # The display hardware interprets these differently. After a full refresh with display(),
+            # the display expects the image in 0x13. But DisplayPartial() puts it in 0x10.
+            # 
+            # The solution: We need to ensure the display is in partial mode state before
+            # using DisplayPartial(). Since DisplayPartial() calls SetPartReg() which configures
+            # partial mode, we should be fine. But the buffer format needs to match.
+            #
+            # Actually, looking at the sample code, they pass the buffer directly without inversion.
+            # The issue might be that we need to ensure we're starting from a known state.
+            # Let's try inverting the buffer so that when DisplayPartial() processes it,
+            # we get the same visual result as display().
+            
             # Get full-screen snapshot and rotate 180° for hardware orientation
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
             
-            # DisplayPartial handles buffer inversion internally (sends both 0x10 and 0x13 buffers)
-            # so we pass the image directly without pre-inversion
             buf = self._epd.getbuffer(full_image)
+            
+            # Invert buffer: DisplayPartial sends image to 0x10 and ~image to 0x13
+            # But display() sends image to 0x13. To get same result, we need to invert
+            # so that DisplayPartial's 0x10 buffer matches what display() put in 0x13
+            inverted_buf = [(~b) & 0xFF for b in buf]
             
             # Use DisplayPartial - it handles the full screen buffer
             # DisplayPartial refreshes the entire screen, so flush entire framebuffer
             # Note: DisplayPartial() calls SetPartReg() which puts display in partial mode
-            self._epd.DisplayPartial(buf)
+            self._epd.DisplayPartial(inverted_buf)
             
             # Flush entire framebuffer since DisplayPartial refreshes full screen
             self._framebuffer.flush_all()
