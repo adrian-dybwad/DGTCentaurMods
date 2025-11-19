@@ -122,23 +122,32 @@ class Scheduler:
             return
         
         try:
-            # If this is the first partial refresh after a full refresh, we need to ensure
-            # the display is in a known state. The sample code calls init() and Clear() before
-            # using DisplayPartial(). However, DisplayPartial() calls SetPartReg() which switches
-            # to partial mode, so we don't need to call init() here - SetPartReg() handles the mode switch.
+            # CRITICAL: Before first partial refresh after full refresh, we must reset and clear
+            # the display to establish a known state, exactly like the sample code does.
+            # The sample code (epd_2in9d_test.py lines 79-80) always calls:
+            #   epd.init()    # Reset hardware, configure for full mode
+            #   epd.Clear()   # Clear to white using display() method
+            #   # THEN DisplayPartial() is called
             #
-            # The sample code passes the buffer directly from getbuffer() to DisplayPartial()
-            # without any inversion. DisplayPartial() internally handles the buffer mapping:
-            # - 0x10: image buffer
-            # - 0x13: inverted image buffer (~image)
-            # The display hardware in partial mode interprets these buffers correctly.
+            # This ensures the display hardware is in a known state before switching to partial mode.
+            # Without this, the hardware may incorrectly interpret the partial refresh buffers when
+            # transitioning from full mode (where image is in 0x13) to partial mode (where image is in 0x10).
+            if not self._in_partial_mode:
+                # We're transitioning from full mode to partial mode
+                # Reset and clear to establish known state (matches sample code pattern exactly)
+                self._epd.init()
+                self._epd.Clear()
             
             # Get full-screen snapshot and rotate 180° for hardware orientation
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
             
             # Get buffer and pass directly to DisplayPartial() - no inversion needed
-            # DisplayPartial() handles buffer mapping internally
+            # DisplayPartial() handles buffer mapping internally:
+            # - 0x10: image buffer
+            # - 0x13: inverted image buffer (~image)
+            # The display hardware in partial mode interprets these buffers correctly
+            # when starting from a known state (established by init() + Clear() above)
             buf = self._epd.getbuffer(full_image)
             
             # Use DisplayPartial - it handles the full screen buffer
