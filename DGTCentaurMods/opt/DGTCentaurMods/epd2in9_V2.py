@@ -182,7 +182,7 @@ class EPD:
         logger.debug("e-Paper busy")
         start_time = time.time()
         timeout_seconds = timeout_ms / 1000.0
-        time.delay(1.0)
+        time.sleep(1.0)
         logger.debug("e-Paper busy release")  
 
     def TurnOnDisplay(self):
