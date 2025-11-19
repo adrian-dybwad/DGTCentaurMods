@@ -83,7 +83,7 @@ class EPaperDemo:
             future = self.display.update(full=True)
             future.result(timeout=5.0)
             print("Update complete (full refresh) 1")
-            # time.sleep(1.0)
+            time.sleep(1.0)
             future = self.display.update(full=False)
             future.result(timeout=5.0)
             print("Update complete (full refresh) 2")
