@@ -40,10 +40,10 @@ logger = logging.getLogger(__name__)
 
 class RaspberryPi:
     # Pin definition
-    RST_PIN  = 12
-    DC_PIN   = 16
-    CS_PIN   = 18
-    BUSY_PIN = 24
+    RST_PIN  = 12 #GPIO 12
+    DC_PIN   = 16 #GPIO 16
+    CS_PIN   = 18 #GPIO 18
+    BUSY_PIN = 7 #GPIO 7 (WAS 24)
     PWR_PIN  = 18
     MOSI_PIN = 10
     SCLK_PIN = 11
@@ -85,7 +85,7 @@ class RaspberryPi:
 
     def digital_read(self, pin):
         if pin == self.BUSY_PIN:
-            return not self.GPIO_BUSY_PIN.value
+            return self.GPIO_BUSY_PIN.value
         elif pin == self.RST_PIN:
             return self.RST_PIN.value
         elif pin == self.DC_PIN:
