@@ -142,18 +142,21 @@ class Scheduler:
             full_image = self._framebuffer.snapshot()
             full_image = full_image.transpose(Image.ROTATE_180)
             
-            # Get buffer and pass directly to DisplayPartial() - no inversion needed
-            # DisplayPartial() handles buffer mapping internally:
-            # - 0x10: image buffer
-            # - 0x13: inverted image buffer (~image)
-            # The display hardware in partial mode interprets these buffers correctly
-            # when starting from a known state (established by init() + Clear() above)
+            # Get buffer from image
             buf = self._epd.getbuffer(full_image)
+            
+            # CRITICAL FIX: Invert the buffer before passing to DisplayPartial()
+            # DisplayPartial() sends: 0x10=image, 0x13=~image
+            # After Clear(), the display expects the image in a specific format.
+            # By inverting the buffer first, when DisplayPartial() inverts it again for 0x13,
+            # we get the correct result. This matches how the display hardware interprets
+            # the buffers in partial refresh mode after a full refresh Clear().
+            inverted_buf = [(~b) & 0xFF for b in buf]
             
             # Use DisplayPartial - it handles the full screen buffer
             # DisplayPartial() calls SetPartReg() which puts display in partial mode
-            # and handles the buffer mapping correctly
-            self._epd.DisplayPartial(buf)
+            # and sends: 0x10=inverted_buf, 0x13=~inverted_buf (which equals original buf)
+            self._epd.DisplayPartial(inverted_buf)
             
             # Flush entire framebuffer since DisplayPartial refreshes full screen
             self._framebuffer.flush_all()
