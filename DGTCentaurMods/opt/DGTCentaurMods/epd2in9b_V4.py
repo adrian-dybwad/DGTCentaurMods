@@ -29,7 +29,7 @@
 
 
 import logging
-from epaper.framework.waveshare import epdconfig
+from . import epdconfig
 
 # Display resolution
 EPD_WIDTH       = 128

@@ -70,64 +70,55 @@ def test_v4_driver():
         print("Full refresh complete")
         time.sleep(3)
         
-        # Test fast refresh
-        print("Testing fast refresh...")
+        # Test fast refresh (using horizontal orientation like the example)
+        print("Testing fast refresh (horizontal orientation)...")
         epd.init_Fast()
-        blackimage2 = Image.new('1', (epd.width, epd.height), 255)
-        draw2 = ImageDraw.Draw(blackimage2)
-        draw2.rectangle([10, 10, 50, 50], fill=255)  # White rectangle (erase)
-        draw2.rectangle([60, 10, 100, 50], fill=0)  # New black rectangle
-        draw2.text((10, 60), "V4 Fast Test", fill=0)
+        # Horizontal image: (height, width) = (296, 128)
+        HBlackimage = Image.new('1', (epd.height, epd.width), 255)
+        draw2 = ImageDraw.Draw(HBlackimage)
+        draw2.text((10, 0), 'V4 Fast Test', fill=0)
+        draw2.text((10, 20), '2.9inch e-Paper b V4', fill=0)
+        draw2.line((20, 50, 70, 100), fill=0)
+        draw2.line((70, 50, 20, 100), fill=0)
+        draw2.rectangle((20, 50, 70, 100), outline=0)
         
-        blackbuf2 = epd.getbuffer(blackimage2)
+        blackbuf2 = epd.getbuffer(HBlackimage)
         epd.display_Fast(blackbuf2, None)
         print("Fast refresh complete")
         time.sleep(3)
         
-        # Test base refresh
-        print("Testing base refresh...")
-        epd.init()
-        blackimage3 = Image.new('1', (epd.width, epd.height), 255)
-        draw3 = ImageDraw.Draw(blackimage3)
-        draw3.rectangle([10, 10, 50, 50], fill=255)  # White rectangle
-        draw3.rectangle([110, 10, 150, 50], fill=0)  # New black rectangle
-        draw3.text((10, 60), "V4 Base Test", fill=0)
-        
-        blackbuf3 = epd.getbuffer(blackimage3)
-        epd.display_Base(blackbuf3, None)
-        print("Base refresh complete")
-        time.sleep(3)
-        
-        # Test partial refresh
+        # Test partial refresh (following example pattern)
         print("Testing partial refresh...")
-        blackimage4 = Image.new('1', (epd.width, epd.height), 255)
-        draw4 = ImageDraw.Draw(blackimage4)
-        draw4.text((10, 100), "V4 Partial Test", fill=0)
+        epd.init()
+        # Use display_Base_color before partial updates (as shown in example)
+        epd.display_Base_color(0xFF)
+        # Horizontal image for partial updates
+        HBlackimage2 = Image.new('1', (epd.height, epd.width), 255)
+        draw3 = ImageDraw.Draw(HBlackimage2)
+        draw3.rectangle((10, 10, 120, 50), fill=255)
+        draw3.text((10, 10), "V4 Partial Test", fill=0)
         
-        blackbuf4 = epd.getbuffer(blackimage4)
-        # Partial update: Xstart, Ystart, Xend, Yend
-        epd.display_Partial(blackbuf4, 0, 100, epd.width, 120)
+        blackbuf3 = epd.getbuffer(HBlackimage2)
+        # Partial update coordinates: Xstart, Ystart, Xend, Yend
+        # Following example: epd.display_Partial(..., 10, epd.height - 120, 50, epd.height - 10)
+        epd.display_Partial(blackbuf3, 10, epd.height - 120, 50, epd.height - 10)
         print("Partial refresh complete")
         time.sleep(2)
         
-        # Test multiple partial refreshes
+        # Test multiple partial refreshes (time display pattern from example)
         print("Testing multiple partial refreshes...")
         for i in range(5):
-            blackimage5 = Image.new('1', (epd.width, epd.height), 255)
-            draw5 = ImageDraw.Draw(blackimage5)
-            draw5.rectangle([10, 130, 100, 150], fill=255)  # Clear previous
-            draw5.text((10, 130), f"Count: {i}", fill=0)
-            blackbuf5 = epd.getbuffer(blackimage5)
-            epd.display_Partial(blackbuf5, 0, 130, epd.width, 150)
+            HBlackimage3 = Image.new('1', (epd.height, epd.width), 255)
+            draw4 = ImageDraw.Draw(HBlackimage3)
+            draw4.rectangle((10, 10, 120, 50), fill=255)
+            # Simulate time display
+            draw4.text((10, 10), f"Count: {i:02d}", fill=0)
+            newimage = HBlackimage3.crop([10, 10, 120, 50])
+            HBlackimage3.paste(newimage, (10, 10))
+            blackbuf4 = epd.getbuffer(HBlackimage3)
+            epd.display_Partial(blackbuf4, 10, epd.height - 120, 50, epd.height - 10)
             print(f"  Partial refresh {i+1}/5")
             time.sleep(1)
-        
-        # Test clear fast
-        print("Testing fast clear...")
-        epd.init_Fast()
-        epd.Clear_Fast()
-        print("Fast clear complete")
-        time.sleep(2)
         
         # Final clear
         print("Clearing display...")
