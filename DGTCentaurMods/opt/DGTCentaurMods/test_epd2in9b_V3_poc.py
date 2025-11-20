@@ -62,6 +62,7 @@ def test_v3_driver():
         print("Testing horizontal orientation display...")
         # Horizontal image: (height, width) = (296, 128)
         HBlackimage = Image.new('1', (epd.height, epd.width), 255)
+        HRYimage = Image.new('1', (epd.height, epd.width), 255)  # All white for monochrome
         drawblack = ImageDraw.Draw(HBlackimage)
         drawblack.text((10, 0), 'V3 Horizontal Test', fill=0)
         drawblack.text((10, 20), '2.9inch e-Paper b V3', fill=0)
@@ -70,7 +71,8 @@ def test_v3_driver():
         drawblack.rectangle((20, 50, 70, 100), outline=0)
         
         blackbuf = epd.getbuffer(HBlackimage)
-        epd.display(blackbuf, None)  # Only black image, no red/yellow
+        rybuf = epd.getbuffer(HRYimage)
+        epd.display(blackbuf, rybuf)
         print("Horizontal display complete")
         time.sleep(3)
         
@@ -78,6 +80,7 @@ def test_v3_driver():
         print("Testing vertical orientation display...")
         # Vertical image: (width, height) = (128, 296)
         LBlackimage = Image.new('1', (epd.width, epd.height), 255)
+        LRYimage = Image.new('1', (epd.width, epd.height), 255)  # All white for monochrome
         drawblack2 = ImageDraw.Draw(LBlackimage)
         drawblack2.text((2, 0), 'V3 Vertical Test', fill=0)
         drawblack2.text((2, 20), '2.9inch epd b V3', fill=0)
@@ -87,13 +90,15 @@ def test_v3_driver():
         drawblack2.rectangle((70, 90, 120, 140), fill=0)
         
         blackbuf2 = epd.getbuffer(LBlackimage)
-        epd.display(blackbuf2, None)
+        rybuf2 = epd.getbuffer(LRYimage)
+        epd.display(blackbuf2, rybuf2)
         print("Vertical display complete")
         time.sleep(3)
         
         # Test drawing shapes (following example pattern)
         print("Testing shape drawing...")
         HBlackimage2 = Image.new('1', (epd.height, epd.width), 255)
+        HRYimage2 = Image.new('1', (epd.height, epd.width), 255)  # All white for monochrome
         drawblack3 = ImageDraw.Draw(HBlackimage2)
         drawblack3.text((10, 0), 'Shape Test', fill=0)
         drawblack3.rectangle((20, 50, 70, 100), outline=0)
@@ -101,7 +106,8 @@ def test_v3_driver():
         drawblack3.polygon([(140, 50), (160, 100), (120, 100)], outline=0)
         
         blackbuf3 = epd.getbuffer(HBlackimage2)
-        epd.display(blackbuf3, None)
+        rybuf3 = epd.getbuffer(HRYimage2)
+        epd.display(blackbuf3, rybuf3)
         print("Shape drawing complete")
         time.sleep(3)
         
