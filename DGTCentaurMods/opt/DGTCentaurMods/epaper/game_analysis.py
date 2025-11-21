@@ -52,6 +52,8 @@ class GameAnalysisWidget(Widget):
         # Only invalidate cache if score text actually changed
         if self.score_text != old_score_text:
             self._last_rendered = None
+            # Trigger update if scheduler is available
+            self.request_update(full=False)
     
     def add_score_to_history(self, score: float) -> None:
         """Add score to history."""
@@ -61,17 +63,23 @@ class GameAnalysisWidget(Widget):
         if len(self.score_history) > self._max_history_size:
             self.score_history.pop(0)
         self._last_rendered = None
+        # Trigger update if scheduler is available
+        self.request_update(full=False)
     
     def set_turn(self, turn: str) -> None:
         """Set current turn ('white' or 'black')."""
         if self.current_turn != turn:
             self.current_turn = turn
             self._last_rendered = None
+            # Trigger update if scheduler is available
+            self.request_update(full=False)
     
     def clear_history(self) -> None:
         """Clear score history."""
         self.score_history = []
         self._last_rendered = None
+        # Trigger update if scheduler is available
+        self.request_update(full=False)
     
     def render(self) -> Image.Image:
         """Render analysis widget."""

@@ -186,6 +186,8 @@ class ChessBoardWidget(Widget):
         if self.fen != fen:
             self.fen = fen
             self._last_rendered = None
+            # Trigger update if scheduler is available
+            self.request_update(full=False)
     
     def set_max_square_index(self, max_index: int) -> None:
         """Set maximum square index to render (0-64). Used for incremental rendering."""

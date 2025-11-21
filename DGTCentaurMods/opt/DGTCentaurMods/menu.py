@@ -657,12 +657,10 @@ class StatusBar:
         return clock
 
     def print_once(self) -> None:
-        """Update status bar widget by invalidating its cache."""
+        """Update status bar widget by invalidating and requesting update."""
         global status_bar_widget
         if status_bar_widget:
-            status_bar_widget._last_rendered = None  # Force re-render
-            manager = _get_display_manager()
-            manager.update(full=False)
+            status_bar_widget.update(full=False)
 
     def print(self) -> None:
         self.print_once()

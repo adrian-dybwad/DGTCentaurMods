@@ -500,14 +500,12 @@ class UCIGame:
             self.display_manager.update(full=False).result(timeout=5.0)
         
         # Clear screen by resetting widgets
+        # Widgets will trigger updates automatically via request_update()
         if self.chess_board_widget:
             self.chess_board_widget.set_fen(manager.getFEN())
         if self.game_analysis_bottom:
             self.game_analysis_bottom.clear_history()
             self.game_analysis_bottom.set_score(0.0, "0.0")
-        # Status bar widget will auto-update on next render
-        if self.display_manager:
-            self.display_manager.update(full=False).result(timeout=5.0)
         
         # Display end screen
         log.info("Displaying end screen")
@@ -651,21 +649,17 @@ class UCIGame:
         
         # Sync history to widget (only add new score, don't rebuild entire history)
         # The widget maintains its own history, we just need to add the new score
+        # Widgets will trigger updates automatically via request_update()
         if self.is_first_move == 0:
             if self.game_analysis_bottom:
                 self.game_analysis_bottom.add_score_to_history(-display_score)
-        
-        # Update display
-        if self.display_manager:
-            self.display_manager.update(full=False).result(timeout=5.0)
     
     def _clear_evaluation_graphs(self):
         """Clear evaluation graphs from screen."""
         if self.game_analysis_bottom:
+            # Widgets will trigger updates automatically via request_update()
             self.game_analysis_bottom.clear_history()
             self.game_analysis_bottom.set_score(0.0, "0.0")
-        if self.display_manager:
-            self.display_manager.update(full=False).result(timeout=5.0)
     
     def _write_text(self, row: int, text: str):
         """Write text on a given line number."""
@@ -676,9 +670,9 @@ class UCIGame:
     def _draw_board(self, fen: str):
         """Draw the chess board from FEN string."""
         try:
-            if self.chess_board_widget and self.display_manager:
+            if self.chess_board_widget:
+                # Widget will trigger update automatically via request_update()
                 self.chess_board_widget.set_fen(fen)
-                self.display_manager.update(full=False).result(timeout=5.0)
         except Exception as e:
             log.error(f"Error in _draw_board: {e}")
             import traceback

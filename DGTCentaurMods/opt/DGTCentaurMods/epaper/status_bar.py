@@ -28,6 +28,22 @@ class StatusBarWidget(Widget):
         super().__init__(x, y, 128, 16)
         self._font = self._load_font()
     
+    def invalidate(self) -> None:
+        """Invalidate the widget cache to force re-render on next update."""
+        self._last_rendered = None
+    
+    def update(self, full: bool = False):
+        """Invalidate cache and request display update.
+        
+        Args:
+            full: If True, force a full refresh instead of partial refresh.
+        
+        Returns:
+            Future: A Future that completes when the display refresh finishes.
+        """
+        self.invalidate()
+        return self.request_update(full=full)
+    
     def _load_font(self):
         """Load font with fallbacks."""
         font_paths = [

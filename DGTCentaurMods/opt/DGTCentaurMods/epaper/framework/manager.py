@@ -59,6 +59,10 @@ class Manager:
                 import warnings
                 warnings.warn(f"Widget at {new_region} overlaps with widget at {existing.get_region()}")
         
+        # Pass scheduler and update callback to widget so it can trigger updates
+        widget.set_scheduler(self._scheduler)
+        widget.set_update_callback(self.update)
+        
         self._widgets.append(widget)
     
     def update(self, full: bool = False):
