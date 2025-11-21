@@ -28,6 +28,7 @@ class Scheduler:
         self._queue = queue.Queue(maxsize=10)
         self._thread = None
         self._stop_event = threading.Event()
+        self._wake_event = threading.Event()  # Event to wake scheduler for immediate processing
         self._max_partial_refreshes = 50
         self._partial_refresh_count = 0
         self._in_partial_mode = False  # Track if display is in partial refresh mode
@@ -45,11 +46,19 @@ class Scheduler:
         if self._thread is not None:
             self._thread.join(timeout=5.0)
     
-    def submit(self, full: bool = False) -> Future:
-        """Submit a refresh request."""
+    def submit(self, full: bool = False, immediate: bool = False) -> Future:
+        """Submit a refresh request.
+        
+        Args:
+            full: If True, force a full refresh instead of partial refresh.
+            immediate: If True, wake scheduler immediately to process without batching delay.
+        """
         future = Future()
         try:
             self._queue.put_nowait((full, future))
+            if immediate:
+                # Wake scheduler thread immediately for urgent updates (e.g., menu arrow)
+                self._wake_event.set()
         except queue.Full:
             future.set_result("queue-full")
         return future
@@ -63,6 +72,19 @@ class Scheduler:
                 
                 # Collect batch of requests
                 while len(batch) < 10:
+                    # Check if we should wake up immediately (for urgent updates like menu navigation)
+                    if self._wake_event.is_set():
+                        self._wake_event.clear()
+                        # Try to get item immediately without waiting
+                        try:
+                            item = self._queue.get_nowait()
+                            batch.append(item)
+                            timeout = 0.0
+                            continue
+                        except queue.Empty:
+                            # No items yet, but wake event was set - process what we have
+                            break
+                    
                     try:
                         item = self._queue.get(timeout=timeout)
                         batch.append(item)
