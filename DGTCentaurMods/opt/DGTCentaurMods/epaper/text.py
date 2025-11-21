@@ -32,7 +32,10 @@ class TextWidget(Widget):
     
     def set_text(self, text: str) -> None:
         """Set the text to display."""
-        self.text = text
+        if self.text != text:
+            self.text = text
+            self._last_rendered = None
+            self.request_update(full=False)
     
     def render(self) -> Image.Image:
         """Render text."""

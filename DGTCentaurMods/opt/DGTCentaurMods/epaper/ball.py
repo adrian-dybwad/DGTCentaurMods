@@ -18,11 +18,13 @@ class BallWidget(Widget):
     
     def set_position(self, x: int, y: int) -> None:
         """Set ball position."""
-        self._prev_x = self.x
-        self._prev_y = self.y
-        self.x = x
-        self.y = y
-        self._last_rendered = None
+        if self.x != x or self.y != y:
+            self._prev_x = self.x
+            self._prev_y = self.y
+            self.x = x
+            self.y = y
+            self._last_rendered = None
+            self.request_update(full=False)
     
     def get_previous_region(self) -> Region:
         """Get the previous position region for clearing."""

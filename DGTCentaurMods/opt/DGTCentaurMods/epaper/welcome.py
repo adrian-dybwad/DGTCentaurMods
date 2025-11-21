@@ -44,8 +44,10 @@ class WelcomeWidget(Widget):
     
     def set_status_text(self, status_text: str) -> None:
         """Update the status text (kept for compatibility, but status bar shows time now)."""
-        self.status_text = status_text
-        self._last_rendered = None  # Force re-render
+        if self.status_text != status_text:
+            self.status_text = status_text
+            self._last_rendered = None
+            self.request_update(full=False)
     
     def render(self) -> Image.Image:
         """Render the welcome screen."""

@@ -31,11 +31,17 @@ class BatteryWidget(Widget):
     
     def set_level(self, level: int) -> None:
         """Set battery level (0-20, where 20 is fully charged)."""
-        self.level = max(0, min(20, level))
+        if self.level != level:
+            self.level = max(0, min(20, level))
+            self._last_rendered = None
+            self.request_update(full=False)
     
     def set_charger_connected(self, connected: bool) -> None:
         """Set charger connection status."""
-        self.charger_connected = connected
+        if self.charger_connected != connected:
+            self.charger_connected = connected
+            self._last_rendered = None
+            self.request_update(full=False)
     
     def update_from_board(self) -> None:
         """Update battery level and charger status from board."""
