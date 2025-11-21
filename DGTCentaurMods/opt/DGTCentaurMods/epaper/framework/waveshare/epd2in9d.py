@@ -51,7 +51,7 @@ class EPD:
         self.width = EPD_WIDTH
         self.height = EPD_HEIGHT
         # Store the last image sent for partial refresh
-        self.old_buffer = [0x00] * int(self.width * self.height / 8)    
+        self.old_buffer = [0xFF] * int(self.width * self.height / 8)    
          
     lut_vcom1 = [  
         0x00, 0x19, 0x01, 0x00, 0x00, 0x01,
