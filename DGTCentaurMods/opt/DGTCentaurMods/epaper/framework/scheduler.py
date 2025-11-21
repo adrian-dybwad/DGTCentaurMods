@@ -69,26 +69,22 @@ class Scheduler:
             try:
                 batch = []
                 timeout = 0.1
-                immediate_mode = False
                 
-                # Check if we should process immediately (for urgent updates like menu navigation)
-                if self._wake_event.is_set():
-                    self._wake_event.clear()
-                    immediate_mode = True
-                    # In immediate mode, process only the first item without batching
-                    try:
-                        item = self._queue.get_nowait()
-                        batch.append(item)
-                        # Process immediately without collecting more items
-                        if batch:
-                            self._process_batch(batch)
-                        continue
-                    except queue.Empty:
-                        # No items yet, but wake event was set - continue to normal batching
-                        pass
-                
-                # Normal batching mode - collect requests with timeout
+                # Collect batch of requests
                 while len(batch) < 10:
+                    # Check if we should wake up immediately (for urgent updates like menu navigation)
+                    if self._wake_event.is_set():
+                        self._wake_event.clear()
+                        # Try to get item immediately without waiting
+                        try:
+                            item = self._queue.get_nowait()
+                            batch.append(item)
+                            timeout = 0.0
+                            continue
+                        except queue.Empty:
+                            # No items yet, but wake event was set - process what we have
+                            break
+                    
                     try:
                         item = self._queue.get(timeout=timeout)
                         batch.append(item)

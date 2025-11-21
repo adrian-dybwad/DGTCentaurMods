@@ -425,16 +425,21 @@ def eventsThread(keycallback, fieldcallback, tout):
                         log.error(f"Error in piece detection thread: {e}")
 
             try:
-                # Process keys one at a time from the queue to ensure sequential processing
-                # This prevents state accumulation when keys are pressed rapidly
-                # Only get one key per iteration - remaining keys stay in queue for next iteration
+                # Consume from queue to ensure all keys are processed, not just the last one
+                # This prevents missing rapid key presses
                 if hasattr(controller, 'get_next_key'):
-                    key_pressed = controller.get_next_key(timeout=0.0)  # Non-blocking, get only one key
-                    if key_pressed is not None:
-                        log.debug(f"[board.events] Got key from queue: {key_pressed}")
+                    while True:
+                        key = controller.get_next_key(timeout=0.0)  # Non-blocking
+                        if key is None:
+                            break
+                        keys_to_process.append(key)
+                        log.debug(f"[board.events] Got key from queue: {key}")
                 else:
                     log.error("[board.events] Controller doesn't have get_next_key() method - keys will not be detected!")
-                    key_pressed = None
+                
+                # Use first key for PLAY button logic
+                if keys_to_process:
+                    key_pressed = keys_to_process[0]
 
                 if key_pressed == Key.PLAY:
                     breaktime = time.time() + 0.5
@@ -482,17 +487,16 @@ def eventsThread(keycallback, fieldcallback, tout):
             except:
                 pass
             time.sleep(0.05)
-            # Process key sequentially to ensure each key press results in exactly one action
-            # This prevents state accumulation when keys are pressed rapidly
-            # Remaining keys stay in the queue and will be processed in subsequent iterations
-            if standby != True and key_pressed is not None:
-                to = time.time() + tout
-                log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
-                # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
-                try:
-                    keycallback(key_pressed)
-                except Exception as e:
-                    log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
+            # Process all queued keys to avoid missing rapid presses
+            if standby != True and keys_to_process:
+                for key_pressed in keys_to_process:
+                    to = time.time() + tout
+                    log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
+                    # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
+                    try:
+                        keycallback(key_pressed)
+                    except Exception as e:
+                        log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
         else:
             # If pauseEvents() hold timeout in the thread
             to = time.time() + 100000
