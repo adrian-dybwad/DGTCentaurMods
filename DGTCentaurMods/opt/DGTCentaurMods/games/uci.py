@@ -75,7 +75,6 @@ class UCIGame:
         # Display manager and widgets
         self.display_manager = None
         self.chess_board_widget = None
-        self.game_analysis_top = None
         self.game_analysis_bottom = None
         
         # Set game info
@@ -95,17 +94,51 @@ class UCIGame:
         self.chess_board_widget = ChessBoardWidget(0, 81, initial_fen)
         self.display_manager.add_widget(self.chess_board_widget)
         
-        # Create game analysis widget at top (y=1) and bottom (y=209)
-        # Top widget for current evaluation
-        self.game_analysis_top = GameAnalysisWidget(0, 1, 128, 80)
-        self.display_manager.add_widget(self.game_analysis_top)
-        
-        # Bottom widget for flipped evaluation
+        # Create game analysis widget at bottom (y=209) for flipped evaluation
         self.game_analysis_bottom = GameAnalysisWidget(0, 209, 128, 80)
         self.display_manager.add_widget(self.game_analysis_bottom)
         
+        # Draw initial status bar
+        self._draw_status_bar()
+        
         # Initial display update
         self.display_manager.update(full=True).result(timeout=10.0)
+    
+    def _draw_status_bar(self) -> None:
+        """Draw status bar with time and battery icon."""
+        if not self.display_manager:
+            return
+        canvas = self.display_manager._framebuffer.get_canvas()
+        draw = ImageDraw.Draw(canvas)
+        status_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
+        STATUS_BAR_HEIGHT = 16
+        
+        # Draw status bar background
+        draw.rectangle([0, 0, 128, STATUS_BAR_HEIGHT], fill=255, outline=255)
+        
+        # Draw time
+        clock = time.strftime("%H:%M")
+        draw.text((2, -1), clock, font=status_font, fill=0)
+        
+        # Draw battery icon
+        self._draw_battery_icon_to_canvas(canvas, top_padding=1)
+    
+    def _draw_battery_icon_to_canvas(self, canvas: Image.Image, top_padding: int = 2) -> None:
+        """Draw battery icon directly to canvas."""
+        indicator = "battery1"
+        if board.batterylevel >= 18:
+            indicator = "battery4"
+        elif board.batterylevel >= 12:
+            indicator = "battery3"
+        elif board.batterylevel >= 6:
+            indicator = "battery2"
+        if board.chargerconnected > 0:
+            indicator = "batteryc"
+            if board.batterylevel == 20:
+                indicator = "batterycf"
+        path = AssetManager.get_resource_path(f"{indicator}.bmp")
+        image = Image.open(path)
+        canvas.paste(image, (98, top_padding))
     
     def _should_enable_graphs(self) -> bool:
         """Determine if evaluation graphs should be enabled based on hardware."""
@@ -255,8 +288,6 @@ class UCIGame:
                 # Remove widgets
                 if self.chess_board_widget and self.chess_board_widget in self.display_manager._widgets:
                     self.display_manager._widgets.remove(self.chess_board_widget)
-                if self.game_analysis_top and self.game_analysis_top in self.display_manager._widgets:
-                    self.display_manager._widgets.remove(self.game_analysis_top)
                 if self.game_analysis_bottom and self.game_analysis_bottom in self.display_manager._widgets:
                     self.display_manager._widgets.remove(self.game_analysis_bottom)
                 self.display_manager.shutdown()
@@ -379,12 +410,11 @@ class UCIGame:
         # Clear screen by resetting widgets
         if self.chess_board_widget:
             self.chess_board_widget.set_fen(manager.getFEN())
-        if self.game_analysis_top:
-            self.game_analysis_top.clear_history()
-            self.game_analysis_top.set_score(0.0, "0.0")
         if self.game_analysis_bottom:
             self.game_analysis_bottom.clear_history()
             self.game_analysis_bottom.set_score(0.0, "0.0")
+        # Redraw status bar
+        self._draw_status_bar()
         if self.display_manager:
             self.display_manager.update(full=False).result(timeout=5.0)
         
@@ -504,12 +534,11 @@ class UCIGame:
         # Clear screen by resetting widgets
         if self.chess_board_widget:
             self.chess_board_widget.set_fen(manager.getFEN())
-        if self.game_analysis_top:
-            self.game_analysis_top.clear_history()
-            self.game_analysis_top.set_score(0.0, "0.0")
         if self.game_analysis_bottom:
             self.game_analysis_bottom.clear_history()
             self.game_analysis_bottom.set_score(0.0, "0.0")
+        # Redraw status bar
+        self._draw_status_bar()
         if self.display_manager:
             self.display_manager.update(full=False).result(timeout=5.0)
         
@@ -645,12 +674,6 @@ class UCIGame:
         else:
             self.is_first_move = 0
         
-        # Update top widget (normal orientation)
-        if self.game_analysis_top:
-            self.game_analysis_top.set_score(display_score, score_text)
-            turn_str = "white" if self.current_turn == chess.WHITE else "black"
-            self.game_analysis_top.set_turn(turn_str)
-        
         # Update bottom widget (flipped orientation)
         if self.game_analysis_bottom:
             # For bottom widget, flip the score and turn
@@ -659,11 +682,9 @@ class UCIGame:
             self.game_analysis_bottom.set_score(flipped_score, score_text)
             self.game_analysis_bottom.set_turn(flipped_turn)
         
-        # Sync history to widgets (only add new score, don't rebuild entire history)
-        # The widgets maintain their own history, we just need to add the new score
+        # Sync history to widget (only add new score, don't rebuild entire history)
+        # The widget maintains its own history, we just need to add the new score
         if self.is_first_move == 0:
-            if self.game_analysis_top:
-                self.game_analysis_top.add_score_to_history(display_score)
             if self.game_analysis_bottom:
                 self.game_analysis_bottom.add_score_to_history(-display_score)
         
@@ -673,9 +694,6 @@ class UCIGame:
     
     def _clear_evaluation_graphs(self):
         """Clear evaluation graphs from screen."""
-        if self.game_analysis_top:
-            self.game_analysis_top.clear_history()
-            self.game_analysis_top.set_score(0.0, "0.0")
         if self.game_analysis_bottom:
             self.game_analysis_bottom.clear_history()
             self.game_analysis_bottom.set_score(0.0, "0.0")
