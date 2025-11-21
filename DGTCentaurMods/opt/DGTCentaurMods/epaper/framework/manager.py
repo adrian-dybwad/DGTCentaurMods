@@ -151,7 +151,7 @@ class Manager:
         # First update after init must be a full refresh to establish baseline
         # Partial refresh mode requires the display to be in a known state
         if self._first_update:
-            full = True
+            #full = True
             self._first_update = False
         
         # Submit refresh and return Future for caller to wait on
