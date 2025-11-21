@@ -275,7 +275,8 @@ class EPD:
         
         # Send inverted old/previous content to 0x10
         self.send_command(0x10)
-        self.send_data2(old_image)
+        self.send_data2([0x00] * int(self.width * self.height / 8))
+        #self.send_data2(old_image)
         epdconfig.delay_ms(10)
         
         # Send new/current content to 0x13
