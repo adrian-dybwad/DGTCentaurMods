@@ -269,7 +269,9 @@ class MenuRenderer:
                 y_pos = desc_top + 2 + (idx * 16)
                 draw.text((5, y_pos), line, font=self._description_font, fill=0)
         
-        log.info(">>> MenuRenderer.draw() canvas updated, EXITING")
+        # NOTE: Do NOT call manager.update() here - it resets the canvas to flushed state
+        # The update will be called in doMenu() after status bar is drawn
+        log.info(">>> MenuRenderer.draw() canvas updated (not submitting yet), EXITING")
 
     def change_selection(self, new_index: int) -> None:
         """
@@ -600,9 +602,14 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     log.info(f">>> doMenu: Final framebuffer menu area has {non_white_final} non-white pixels")
     
     # Submit full refresh to display everything (menu + status bar)
+    # CRITICAL: Manager.update() resets canvas to flushed state for widgets, but we're drawing directly.
+    # So we need to submit directly to the scheduler with full=True, which will take a snapshot
+    # of the current framebuffer (with our drawing) and display it.
     import time
     submit_start = time.time()
-    future = manager.update(full=True)
+    # Submit directly to scheduler with full=True to bypass widget rendering
+    # The scheduler will take a snapshot of the current framebuffer and display it
+    future = manager._scheduler.submit(full=True)
     future.result(timeout=10.0)  # Wait for completion
     submit_duration = time.time() - submit_start
     log.info(f">>> doMenu: full refresh complete after {submit_duration:.3f}s, about to BLOCK on event_key.wait()")
