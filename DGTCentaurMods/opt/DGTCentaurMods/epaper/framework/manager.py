@@ -9,7 +9,6 @@ from .waveshare.epd2in9d import EPD
 from .framebuffer import FrameBuffer
 from .scheduler import Scheduler
 from .widget import Widget
-from .regions import Region, merge_regions
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -143,9 +142,6 @@ class Manager:
             else:
                 canvas.paste(widget_image, (widget.x, widget.y))
         
-        # Check for dirty regions before submitting
-        dirty_regions = self._framebuffer.compute_dirty_regions()
-        log.info(f"Manager.update(): Found {len(dirty_regions)} dirty regions before submitting refresh")
         
         # Submit refresh and return Future for caller to wait on
         log.info(f"Manager.update(): Submitting refresh with full={full}")
