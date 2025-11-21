@@ -525,16 +525,16 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     log.info(">>> doMenu: renderer.draw() complete, menu content is in framebuffer")
     
     # Create and render arrow widget
+    # Calculate widget position and dimensions
+    arrow_box_top = renderer.body_top  # Top position of arrow box (first selectable row)
+    arrow_widget_height = len(ordered_menu) * renderer.row_height if ordered_menu else renderer.row_height
     arrow_widget = MenuArrowWidget(
         x=0,
-        y=STATUS_BAR_HEIGHT,
-        width=renderer.arrow_width,
-        height=296 - STATUS_BAR_HEIGHT,
+        y=arrow_box_top,  # Position at top of selectable rows
+        width=renderer.arrow_width + 1,  # +1 for vertical line on rightmost side
+        height=arrow_widget_height,  # Total height of all selectable rows
         row_height=renderer.row_height,
-        body_top=renderer.body_top - STATUS_BAR_HEIGHT,  # Adjust for widget's y position
-        num_entries=len(ordered_menu),
-        title=actual_title if actual_title else None,
-        title_height=TITLE_HEIGHT if actual_title else 0
+        num_entries=len(ordered_menu)
     )
     
     # Render arrow widget to framebuffer

@@ -13,29 +13,22 @@ from DGTCentaurMods.board.logging import log
 class MenuArrowWidget(Widget):
     """Widget that displays a menu arrow and handles key-based navigation."""
     
-    def __init__(self, x: int, y: int, width: int, height: int, 
-                 row_height: int, body_top: int, num_entries: int,
-                 title: Optional[str] = None, title_height: int = 0):
+    def __init__(self, x: int, y: int, width: int, height: int,
+                 row_height: int, num_entries: int):
         """
         Initialize menu arrow widget.
         
         Args:
-            x: X position
-            y: Y position
-            width: Widget width (arrow column width)
-            height: Widget height (full menu area height)
+            x: X position of widget
+            y: Y position of widget (absolute screen position)
+            width: Widget width (arrow column width + vertical line)
+            height: Widget height (total height of all selectable rows)
             row_height: Height of each menu row
-            body_top: Y position where menu body starts
-            num_entries: Number of menu entries
-            title: Optional menu title (for redrawing on refresh)
-            title_height: Height of title area if present
+            num_entries: Number of selectable menu entries
         """
         super().__init__(x, y, width, height)
         self.row_height = row_height
-        self.body_top = body_top
         self.num_entries = num_entries
-        self.title = title
-        self.title_height = title_height
         self.selected_index = 0
         self._key_callback: Optional[Callable] = None
         self._original_key_callback: Optional[Callable] = None
@@ -56,34 +49,36 @@ class MenuArrowWidget(Widget):
             self.request_update(full=False)
     
     def _row_top(self, idx: int) -> int:
-        """Calculate Y position for a given row index."""
-        return self.body_top + (idx * self.row_height)
+        """Calculate relative Y position within widget for a given row index.
+        
+        Uses total height and current index to position the arrow.
+        """
+        return idx * self.row_height
     
     def render(self) -> Image.Image:
         """Render the arrow column with arrow at current selection."""
         img = Image.new("1", (self.width, self.height), 255)  # White background
         draw = ImageDraw.Draw(img)
         
-        # Clear arrow column area
-        arrow_region = (0, self.body_top - self.y, self.width, self.height)
-        draw.rectangle(arrow_region, fill=255, outline=255)
+        # Clear entire arrow box area
+        draw.rectangle((0, 0, self.width, self.height), fill=255, outline=255)
         
-        # Draw arrow at selected position
-        if self.num_entries > 0:
-            selected_top = self._row_top(self.selected_index) - self.y
+        # Draw arrow at selected position (within the arrow box)
+        if self.num_entries > 0 and self.selected_index < self.num_entries:
+            selected_top = self._row_top(self.selected_index)
+            # Arrow is drawn on the left side, leaving space for vertical line on right
+            arrow_width = self.width - 1  # Leave 1 pixel for vertical line
             draw.polygon(
                 [
                     (2, selected_top + 2),
                     (2, selected_top + self.row_height - 2),
-                    (self.width - 3, selected_top + (self.row_height // 2)),
+                    (arrow_width - 3, selected_top + (self.row_height // 2)),
                 ],
                 fill=0,
             )
         
-        # Draw vertical line
-        line_y1 = self.body_top - self.y
-        line_y2 = self.height - 1
-        draw.line((self.width, line_y1, self.width, line_y2), fill=0, width=1)
+        # Draw vertical line on the rightmost side of the widget
+        draw.line((self.width - 1, 0, self.width - 1, self.height - 1), fill=0, width=1)
         
         return img
     
@@ -144,26 +139,25 @@ class MenuArrowWidget(Widget):
                 canvas = manager._framebuffer.get_canvas()
                 draw = ImageDraw.Draw(canvas)
                 
-                # Calculate absolute positions (body_top is relative to widget y)
-                absolute_body_top = self.y + self.body_top
-                
-                # Clear arrow column
-                arrow_region = (self.x, absolute_body_top, self.x + self.width, 295)
+                # Clear entire arrow box area
+                arrow_region = (self.x, self.y, self.x + self.width, self.y + self.height)
                 draw.rectangle(arrow_region, fill=255, outline=255)
                 
-                # Draw arrow at new position (row_top is relative to widget y, so add self.y)
-                arrow_top = self.y + self._row_top(self.selected_index)
-                draw.polygon(
-                    [
-                        (self.x + 2, arrow_top + 2),
-                        (self.x + 2, arrow_top + self.row_height - 2),
-                        (self.x + self.width - 3, arrow_top + (self.row_height // 2)),
-                    ],
-                    fill=0,
-                )
+                # Draw arrow at new position (within the arrow box)
+                if self.num_entries > 0 and self.selected_index < self.num_entries:
+                    arrow_top = self.y + self._row_top(self.selected_index)
+                    arrow_width = self.width - 1  # Leave 1 pixel for vertical line
+                    draw.polygon(
+                        [
+                            (self.x + 2, arrow_top + 2),
+                            (self.x + 2, arrow_top + self.row_height - 2),
+                            (self.x + arrow_width - 3, arrow_top + (self.row_height // 2)),
+                        ],
+                        fill=0,
+                    )
                 
-                # Draw vertical line
-                draw.line((self.x + self.width, absolute_body_top, self.x + self.width, 295), fill=0, width=1)
+                # Draw vertical line on the rightmost side
+                draw.line((self.x + self.width - 1, self.y, self.x + self.width - 1, self.y + self.height - 1), fill=0, width=1)
                 
                 # Submit immediate partial refresh
                 manager._scheduler.submit(full=False, immediate=True)
