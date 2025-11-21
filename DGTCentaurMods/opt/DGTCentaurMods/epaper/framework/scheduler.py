@@ -138,18 +138,13 @@ class Scheduler:
                 self._epd.init()
                 self._epd.Clear()
             
-            # Get old (flushed) and new (current) snapshots
-            old_image = self._framebuffer.snapshot_flushed()
-            new_image = self._framebuffer.snapshot()
+            # Get new (current) snapshots
+            image = self._framebuffer.snapshot()
             
-            # Get buffers from images
-            old_buf = self._epd.getbuffer(old_image)
-            new_buf = self._epd.getbuffer(new_image)
+            # Get buffer from image
+            buf = self._epd.getbuffer(image)
             
-            # Use DisplayPartial following Waveshare pattern:
-            # 0x10 = old/previous content (from flushed buffer)
-            # 0x13 = new/current content (from current buffer)
-            self._epd.DisplayPartial(old_buf, new_buf)
+            self._epd.DisplayPartial(buf)
             
             # Flush entire framebuffer since DisplayPartial refreshes full screen
             self._framebuffer.flush_all()
