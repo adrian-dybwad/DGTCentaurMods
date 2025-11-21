@@ -28,7 +28,6 @@ class Manager:
         self._widgets: List[Widget] = []
         self._initialized = False
         self._shutting_down = False
-        self._first_update = True  # Track if this is the first update after init
     
     def init(self) -> None:
         """Initialize the display."""
@@ -147,12 +146,6 @@ class Manager:
         # Check for dirty regions before submitting
         dirty_regions = self._framebuffer.compute_dirty_regions()
         log.info(f"Manager.update(): Found {len(dirty_regions)} dirty regions before submitting refresh")
-        
-        # First update after init must be a full refresh to establish baseline
-        # Partial refresh mode requires the display to be in a known state
-        if self._first_update:
-            #full = True
-            self._first_update = False
         
         # Submit refresh and return Future for caller to wait on
         log.info(f"Manager.update(): Submitting refresh with full={full}")

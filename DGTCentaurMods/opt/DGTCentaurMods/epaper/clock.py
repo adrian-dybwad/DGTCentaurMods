@@ -17,17 +17,17 @@ class ClockWidget(Widget):
     
     def _load_font(self):
         """Load font with fallbacks."""
-        font_paths = [
-            '/opt/DGTCentaurMods/resources/fixed_01.ttf',
-            'resources/fixed_01.ttf',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-        ]
-        for path in font_paths:
-            if os.path.exists(path):
-                try:
-                    return ImageFont.truetype(path, 20)
-                except:
-                    pass
+        # font_paths = [
+        #     '/opt/DGTCentaurMods/resources/fixed_01.ttf',
+        #     'resources/fixed_01.ttf',
+        #     '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        # ]
+        # for path in font_paths:
+        #     if os.path.exists(path):
+        #         try:
+        #             return ImageFont.truetype(path, 20)
+        #         except:
+        #             pass
         return ImageFont.load_default()
     
     def render(self) -> Image.Image:

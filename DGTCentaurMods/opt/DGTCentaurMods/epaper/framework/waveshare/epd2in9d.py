@@ -51,7 +51,7 @@ class EPD:
         self.width = EPD_WIDTH
         self.height = EPD_HEIGHT
         # Store the last image sent for partial refresh
-        self.old_buffer = [0xFF] * int(self.width * self.height / 8)    
+        self.buffer = [0xFF] * int(self.width * self.height / 8)    
          
     lut_vcom1 = [  
         0x00, 0x19, 0x01, 0x00, 0x00, 0x01,
@@ -244,19 +244,15 @@ class EPD:
         self.send_command(0x13)
         self.send_data2(image)
         epdconfig.delay_ms(10)
-        # Store image as old_buffer for next partial refresh
-        #self.old_buffer = image.copy() if hasattr(image, 'copy') else list(image)
-        self.old_buffer = [0xFF] * int(self.width * self.height / 8)    
-
+        self.buffer = [0xFF] * int(self.width * self.height / 8)    
         self.TurnOnDisplay()
         
-    def DisplayPartial(self, old_image, new_image):
+    def DisplayPartial(self, image):
         """
         Display partial refresh following Waveshare pattern.
         
         Args:
-            old_image: Buffer containing the old/previous content (sent to 0x10, inverted)
-            new_image: Buffer containing the new/current content (sent to 0x13)
+            image: Buffer containing the new/current content (sent to 0x13)
         """
         self.SetPartReg()
         self.send_command(0x91)
@@ -270,30 +266,18 @@ class EPD:
         self.send_data(self.height % 256 - 1)
         self.send_data(0x28)
         
-        buf_old = [0x00] * int(self.width * self.height / 8)
-        for i in range(0, int(self.width * self.height / 8)):
-            buf_old[i] = ~old_image[i]
-        buf_new = [0x00] * int(self.width * self.height / 8)
-        for i in range(0, int(self.width * self.height / 8)):
-            buf_new[i] = ~new_image[i]
-        # Invert old/previous content before sending to 0x10
-        inverted_old = [(~b) & 0xFF for b in old_image]
-        
-        # Send inverted old/previous content to 0x10
+        # Send old/previous content to 0x10
         self.send_command(0x10)
-        #self.send_data2([0xFF] * int(self.width * self.height / 8))
-        print(f"{' '.join(f'{b:02x}' for b in self.old_buffer)}")
-        self.send_data2(self.old_buffer)
+        self.send_data2(self.buffer)
         epdconfig.delay_ms(10)
         
-        print(f"{' '.join(f'{b:02x}' for b in new_image)}")
         # Send new/current content to 0x13
         self.send_command(0x13)
-        self.send_data2(new_image)
+        self.send_data2(image)
         epdconfig.delay_ms(10)
           
-        # Store image as old_buffer for next partial refresh
-        self.old_buffer = new_image.copy() if hasattr(new_image, 'copy') else list(new_image)
+        # Store image as buffer for next partial refresh
+        self.buffer = image.copy() if hasattr(image, 'copy') else list(image)
 
         self.TurnOnDisplay()
 
