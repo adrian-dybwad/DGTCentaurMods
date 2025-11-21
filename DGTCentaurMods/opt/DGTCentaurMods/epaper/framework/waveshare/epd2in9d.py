@@ -50,7 +50,9 @@ class EPD:
         self.cs_pin = epdconfig.CS_PIN
         self.width = EPD_WIDTH
         self.height = EPD_HEIGHT
-    
+        # Store the last image sent for partial refresh
+        self.old_buffer = [0x00] * int(self.width * self.height / 8)    
+         
     lut_vcom1 = [  
         0x00, 0x19, 0x01, 0x00, 0x00, 0x01,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -242,6 +244,9 @@ class EPD:
         self.send_command(0x13)
         self.send_data2(image)
         epdconfig.delay_ms(10)
+        # Store image as old_buffer for next partial refresh
+        self.old_buffer = image.copy() if hasattr(image, 'copy') else list(image)
+
         self.TurnOnDisplay()
         
     def DisplayPartial(self, old_image, new_image):
@@ -276,8 +281,8 @@ class EPD:
         # Send inverted old/previous content to 0x10
         self.send_command(0x10)
         #self.send_data2([0xFF] * int(self.width * self.height / 8))
-        print(f"{' '.join(f'{b:02x}' for b in buf_old)}")
-        self.send_data2(buf_old)
+        print(f"{' '.join(f'{b:02x}' for b in self.old_buffer)}")
+        self.send_data2(self.old_buffer)
         epdconfig.delay_ms(10)
         
         print(f"{' '.join(f'{b:02x}' for b in new_image)}")
@@ -286,6 +291,9 @@ class EPD:
         self.send_data2(new_image)
         epdconfig.delay_ms(10)
           
+        # Store image as old_buffer for next partial refresh
+        self.old_buffer = new_image.copy() if hasattr(new_image, 'copy') else list(new_image)
+
         self.TurnOnDisplay()
 
     def Clear(self):
