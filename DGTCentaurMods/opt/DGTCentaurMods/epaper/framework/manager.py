@@ -9,6 +9,7 @@ from .waveshare.epd2in9d import EPD
 from .framebuffer import FrameBuffer
 from .scheduler import Scheduler
 from .widget import Widget
+from .waveshare import epdconfig
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -75,7 +76,7 @@ class Manager:
             future.set_result("not-initialized")
             return future
         
-        # Reset canvas to last flushed state
+        # Reset canvas to last flushed state (no rotation during rendering)
         canvas = self._framebuffer.get_canvas()
         canvas.paste(self._framebuffer._flushed)
         

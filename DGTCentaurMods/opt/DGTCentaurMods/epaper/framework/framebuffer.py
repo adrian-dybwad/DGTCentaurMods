@@ -22,9 +22,18 @@ class FrameBuffer:
         self._current = Image.new("1", (width, height), 255)  # White
         self._flushed = Image.new("1", (width, height), 255)   # White
     
-    def get_canvas(self) -> Image.Image:
-        """Get the current framebuffer for rendering."""
-        return self._current
+    def get_canvas(self, rotation: int = 0) -> Image.Image:
+        """Get the current framebuffer for rendering.
+        
+        Args:
+            rotation: Rotation angle in degrees (0, 90, 180, or 270). Default is 0.
+        
+        Returns:
+            Rotated image if rotation is specified, otherwise the original image.
+        """
+        if rotation == 0:
+            return self._current
+        return self._current.rotate(-rotation, expand=False)
     
     def compute_dirty_regions(self, block_size: int = 8) -> List[Region]:
         """Compute dirty regions by comparing current to flushed state."""
@@ -66,10 +75,30 @@ class FrameBuffer:
         """Mark entire framebuffer as flushed."""
         self._flushed = self._current.copy()
     
-    def snapshot(self) -> Image.Image:
-        """Get a snapshot of the current framebuffer."""
-        return self._current.copy()
+    def snapshot(self, rotation: int = 0) -> Image.Image:
+        """Get a snapshot of the current framebuffer.
+        
+        Args:
+            rotation: Rotation angle in degrees (0, 90, 180, or 270). Default is 0.
+        
+        Returns:
+            Rotated snapshot if rotation is specified, otherwise the original snapshot.
+        """
+        img = self._current.copy()
+        if rotation == 0:
+            return img
+        return img.rotate(-rotation, expand=False)
     
-    def snapshot_flushed(self) -> Image.Image:
-        """Get a snapshot of the flushed (old) framebuffer."""
-        return self._flushed.copy()
+    def snapshot_flushed(self, rotation: int = 0) -> Image.Image:
+        """Get a snapshot of the flushed (old) framebuffer.
+        
+        Args:
+            rotation: Rotation angle in degrees (0, 90, 180, or 270). Default is 0.
+        
+        Returns:
+            Rotated snapshot if rotation is specified, otherwise the original snapshot.
+        """
+        img = self._flushed.copy()
+        if rotation == 0:
+            return img
+        return img.rotate(-rotation, expand=False)

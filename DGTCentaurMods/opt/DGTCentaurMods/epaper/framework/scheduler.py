@@ -11,6 +11,7 @@ from PIL import Image
 from .regions import Region, merge_regions, expand_to_byte_alignment
 from .framebuffer import FrameBuffer
 from .waveshare.epd2in9d import EPD
+from .waveshare import epdconfig
 
 
 class Scheduler:
@@ -92,8 +93,8 @@ class Scheduler:
                 self._epd.init()
                 self._in_partial_mode = False
             
-            # Get full-screen snapshot
-            full_image = self._framebuffer.snapshot()
+            # Get full-screen snapshot with rotation
+            full_image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
             
             buf = self._epd.getbuffer(full_image)
             self._epd.display(buf)
@@ -138,8 +139,8 @@ class Scheduler:
                 self._epd.init()
                 self._epd.Clear()
             
-            # Get new (current) snapshots
-            image = self._framebuffer.snapshot()
+            # Get new (current) snapshot with rotation
+            image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
             
             # Get buffer from image
             buf = self._epd.getbuffer(image)

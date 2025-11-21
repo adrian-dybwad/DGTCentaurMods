@@ -43,10 +43,13 @@ class RaspberryPi:
     RST_PIN  = 12 #GPIO 12
     DC_PIN   = 16 #GPIO 16
     CS_PIN   = 18 #GPIO 18
-    BUSY_PIN = 7 #GPIO 7 (WAS 24)
-    PWR_PIN  = 18
+    BUSY_PIN = 7 #GPIO 7
+    PWR_PIN  = 18 # Probably permanently connected to power
     MOSI_PIN = 10
     SCLK_PIN = 11
+    
+    # Display rotation (0, 90, 180, or 270 degrees)
+    ROTATION = 180
 
     def __init__(self):
         import spidev
