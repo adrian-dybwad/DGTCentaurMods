@@ -37,6 +37,7 @@ from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
 from DGTCentaurMods.epaper import Manager, WelcomeWidget, StatusBarWidget, TextWidget
+from DGTCentaurMods.epaper.menu_arrow import MenuArrowWidget
 from DGTCentaurMods.epaper.framework.regions import Region
 from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.board.logging import log
@@ -48,6 +49,7 @@ centaur_software = "/home/pi/centaur/centaur"
 game_folder = "games"
 
 event_key = threading.Event()
+_active_arrow_widget: Optional[MenuArrowWidget] = None
 idle = False # ensure defined before keyPressed can be called
 
 # Constants matching old widgets module
@@ -248,21 +250,7 @@ class MenuRenderer:
             entry_image = entry_widget.render()
             canvas.paste(entry_image, (text_x, top))
         
-        # Draw arrow indicator column (matches original pattern)
-        arrow_region = Region(0, self.body_top, self.arrow_width, 296)
-        draw.rectangle([arrow_region.x1, arrow_region.y1, arrow_region.x2, arrow_region.y2], fill=255, outline=255)  # Clear arrow column
-        # Draw arrow at selected position
-        selected_top = self._row_top(self.selected_index)
-        draw.polygon(
-            [
-                (2, selected_top + 2),
-                (2, selected_top + self.row_height - 2),
-                (self.arrow_width - 3, selected_top + (self.row_height // 2)),
-            ],
-            fill=0,
-        )
-        # Draw vertical line (matches original)
-        draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
+        # Arrow will be drawn by MenuArrowWidget, not here
         
         # Draw description if present using TextWidget (white background, level 0)
         if self.description:
@@ -286,63 +274,10 @@ class MenuRenderer:
         """
         Change the selected menu item.
         
-        Matches original implementation exactly: Only redraw the arrow indicator column.
-        The original code does NOT redraw menu entries - they stay as plain text.
-        Only the arrow column (full height) is redrawn and refreshed.
+        This method is deprecated - selection is now handled by MenuArrowWidget.
+        Kept for backward compatibility but does nothing.
         """
-        if not self.entries:
-            return
-        new_index = max(0, min(new_index, self.max_index()))
-        if new_index == self.selected_index:
-            return
-        
-        # Update selection index
-        self.selected_index = new_index
-        
-        # Original pattern: Only redraw the arrow indicator column
-        # CRITICAL: _expand_region() expands partial refreshes to FULL WIDTH (0-128)
-        # and aligns to 8-pixel boundaries. This means our 20-pixel-wide arrow column
-        # refresh becomes a full-width refresh from y1 to 295.
-        # 
-        # Since the expansion affects full width, if title exists, we must redraw it
-        # to prevent fading. The expanded region will include the title area anyway.
-        arrow_region = Region(0, self.body_top, self.arrow_width, 295)
-        
-        manager = _get_display_manager()
-        canvas = manager._framebuffer.get_canvas()
-        draw = ImageDraw.Draw(canvas)
-        
-        # If title exists, redraw it to prevent fading from full-width refresh using TextWidget
-        if self.title:
-            title_top = MENU_BODY_TOP_WITH_TITLE - TITLE_HEIGHT
-            title_text = f"[ {self.title} ]"
-            title_widget = TextWidget(0, 0, 128, TITLE_HEIGHT, title_text,
-                                     background=3, font_size=18)
-            title_image = title_widget.render()
-            canvas.paste(title_image, (0, title_top))
-        
-        # Clear arrow column from body_top down
-        draw.rectangle([arrow_region.x1, arrow_region.y1, arrow_region.x2, arrow_region.y2], fill=255, outline=255)
-        
-        # Draw arrow at new selection position
-        arrow_top = self._row_top(new_index)
-        draw.polygon(
-            [
-                (2, arrow_top + 2),
-                (2, arrow_top + self.row_height - 2),
-                (self.arrow_width - 3, arrow_top + (self.row_height // 2)),
-            ],
-            fill=0,
-        )
-        
-        # Draw vertical line from body_top
-        draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
-        
-        # Submit partial refresh directly to scheduler (bypassing Manager.update() which resets canvas)
-        # This will detect dirty regions and do a partial refresh
-        # Use immediate=True to wake scheduler immediately for responsive menu navigation
-        # Don't wait for completion - return immediately so key presses aren't missed
-        manager._scheduler.submit(full=False, immediate=True)
+        pass
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
@@ -427,12 +362,20 @@ class MenuRenderer:
         return lines
 
 def keyPressed(id):
-    # This functiion receives key presses
+    # This function receives key presses
     log.info("in menu.py keyPressed: " + str(id))
     global menuitem
     global curmenu
     global selection
     global event_key
+    global _active_arrow_widget
+    
+    # If arrow widget is active, let it handle the key
+    if _active_arrow_widget is not None:
+        if _active_arrow_widget.handle_key(id):
+            return  # Widget handled the key
+    
+    # Original key handling for non-menu contexts
     if idle:
         if id == board.Key.TICK:
             event_key.set()
@@ -581,6 +524,24 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     renderer.draw(initial_index)
     log.info(">>> doMenu: renderer.draw() complete, menu content is in framebuffer")
     
+    # Create and render arrow widget
+    arrow_widget = MenuArrowWidget(
+        x=0,
+        y=STATUS_BAR_HEIGHT,
+        width=renderer.arrow_width,
+        height=296 - STATUS_BAR_HEIGHT,
+        row_height=renderer.row_height,
+        body_top=renderer.body_top - STATUS_BAR_HEIGHT,  # Adjust for widget's y position
+        num_entries=len(ordered_menu),
+        title=actual_title if actual_title else None,
+        title_height=TITLE_HEIGHT if actual_title else 0
+    )
+    
+    # Render arrow widget to framebuffer
+    arrow_image = arrow_widget.render()
+    canvas = manager._framebuffer.get_canvas()
+    canvas.paste(arrow_image, (arrow_widget.x, arrow_widget.y))
+    
     # Verify framebuffer has menu content before proceeding
     snapshot_before_status = manager._framebuffer.snapshot()
     log.info(f">>> doMenu: Framebuffer snapshot after menu draw: size={snapshot_before_status.size}")
@@ -618,30 +579,39 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     non_white_final = sum(1 for p in pixels_final if p != 255)
     log.info(f">>> doMenu: Final framebuffer menu area has {non_white_final} non-white pixels")
     
-    # Submit partial refresh to display everything (menu + status bar)
-    # CRITICAL: Manager.update() resets canvas to flushed state for widgets, but we're drawing directly.
-    # So we need to submit directly to the scheduler with full=False (partial refresh).
-    # The scheduler will detect dirty regions and do a partial refresh.
+    # Submit partial refresh to display everything (menu + status bar + arrow)
     import time
     submit_start = time.time()
-    # Submit directly to scheduler with full=False (partial refresh) to bypass widget rendering
-    # The scheduler will take a snapshot of the current framebuffer, detect dirty regions, and do partial refresh
-    # Note: Status bar widget will be rendered by Manager.update(), but we're bypassing that here
-    # The status bar widget will be included in the next Manager.update() call
     future = manager._scheduler.submit(full=False)
     future.result(timeout=10.0)  # Wait for completion
     submit_duration = time.time() - submit_start
-    log.info(f">>> doMenu: partial refresh complete after {submit_duration:.3f}s, about to BLOCK on event_key.wait()")
+    log.info(f">>> doMenu: partial refresh complete after {submit_duration:.3f}s, about to BLOCK on arrow widget")
+    
+    # Use arrow widget to wait for selection
     try:
-        event_key.wait()
-        log.info(">>> doMenu: event_key.wait() RETURNED - selection made")
+        result = arrow_widget.wait_for_selection(initial_index)
+        log.info(f">>> doMenu: arrow widget returned result='{result}'")
+        
+        # Map widget result to menu selection
+        if result == "SELECTED":
+            # Get the selected menu key from the widget's current selection index
+            selected_idx = arrow_widget.selected_index
+            if ordered_menu and selected_idx < len(ordered_menu):
+                selection = ordered_menu[selected_idx][0]
+            else:
+                selection = "BACK"
+        elif result == "BACK":
+            selection = "BACK"
+        elif result == "HELP":
+            selection = "BTNHELP"
+        else:
+            selection = "BACK"
+        
+        log.info(f">>> doMenu: returning selection='{selection}'")
+        return selection
     except KeyboardInterrupt:
         log.info(">>> doMenu: KeyboardInterrupt caught")
-        event_key.clear()
         return "SHUTDOWN"
-    event_key.clear()
-    log.info(f">>> doMenu: returning selection='{selection}'")
-    return selection
 
 def changedCallback(piece_event, field, time_in_seconds):
     log.info(f"changedCallback: {piece_event} {field} {time_in_seconds}")
