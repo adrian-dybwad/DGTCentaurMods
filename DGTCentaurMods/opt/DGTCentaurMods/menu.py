@@ -709,11 +709,13 @@ def show_welcome():
     log.info(">>> show_welcome() EXITING, idle=False")
 
 
-log.info(">>> MAIN: About to call show_welcome() - this will BLOCK until key press")
-show_welcome()
-log.info(">>> MAIN: show_welcome() returned, about to start statusbar")
-statusbar.start()
-log.info(">>> MAIN: statusbar.start() complete - entering menu loop")
+# Only run main menu initialization if menu.py is executed directly (not when imported)
+if __name__ == "__main__":
+    log.info(">>> MAIN: About to call show_welcome() - this will BLOCK until key press")
+    show_welcome()
+    log.info(">>> MAIN: show_welcome() returned, about to start statusbar")
+    statusbar.start()
+    log.info(">>> MAIN: statusbar.start() complete - entering menu loop")
 
 
 def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:
@@ -996,592 +998,594 @@ def get_lichess_client():
 
 
 # Handle the menu structure
-while True:    
-    menu = {}
-    if os.path.exists(centaur_software):
-        centaur_item = {"Centaur": "DGT Centaur"}
-        menu.update(centaur_item)
-    menu.update({"pegasus": "DGT Pegasus"})
-    if centaur.lichess_api:
-        lichess_item = {"Lichess": "Lichess"}
-        menu.update(lichess_item)
-    if centaur.get_menuEngines() != "unchecked":
-        menu.update({"Engines": "Engines"})
-    if centaur.get_menuHandBrain() != "unchecked":
-        menu.update({"HandBrain": "Hand + Brain"})
-    if centaur.get_menu1v1Analysis() != "unchecked":
-        menu.update({"1v1Analysis": "1v1 Analysis"})
-    if centaur.get_menuEmulateEB() != "unchecked":
-        menu.update({"EmulateEB": "e-Board"})
-    if centaur.get_menuCast() != "unchecked":
-        menu.update({"Cast": "Chromecast"})
-    log.debug("Checking for custom files")
-    pyfiles = os.listdir("/home/pi")
-    foundpyfiles = 0
-    for pyfile in pyfiles:        
-        if pyfile[-3:] == ".py" and pyfile != "firstboot.py":
-            log.debug("found custom files")
-            foundpyfiles = 1
-            break
-    log.debug("Custom file check complete")
-    if foundpyfiles == 1:
-        menu.update({"Custom": "Custom"})
-    if centaur.get_menuSettings() != "unchecked":
-        menu.update({"settings": "Settings"})
-    if centaur.get_menuAbout() != "unchecked":
-        menu.update({"About": "About"})                                
-    result = doMenu(menu, "Main menu")
-    # Historical note: previous firmware called into the raw epaper driver here.
-    # time.sleep(0.7)
-    # time.sleep(1)
-    if result == "SHUTDOWN":
-        # Graceful shutdown requested via Ctrl+C
-        try:
-            statusbar.stop()
-            board.cleanup(leds_off=True)
-            board.pauseEvents()
-        except:
-            pass
-        break
-    if result == "BACK":
-        board.beep(board.SOUND_POWER_OFF)
-        show_welcome()
-    if result == "Cast":
-        chromecast_menu()
-    if result == "Centaur":
-        loading_screen()
-        #time.sleep(1)
-        board.pauseEvents()
-        board.cleanup(leds_off=True)
-        statusbar.stop()
-        time.sleep(1)
+# Only run menu loop if menu.py is executed directly (not when imported)
+if __name__ == "__main__":
+    while True:    
+        menu = {}
         if os.path.exists(centaur_software):
-            # Ensure file is executable (Trixie compatibility)
+            centaur_item = {"Centaur": "DGT Centaur"}
+            menu.update(centaur_item)
+        menu.update({"pegasus": "DGT Pegasus"})
+        if centaur.lichess_api:
+            lichess_item = {"Lichess": "Lichess"}
+            menu.update(lichess_item)
+        if centaur.get_menuEngines() != "unchecked":
+            menu.update({"Engines": "Engines"})
+        if centaur.get_menuHandBrain() != "unchecked":
+            menu.update({"HandBrain": "Hand + Brain"})
+        if centaur.get_menu1v1Analysis() != "unchecked":
+            menu.update({"1v1Analysis": "1v1 Analysis"})
+        if centaur.get_menuEmulateEB() != "unchecked":
+            menu.update({"EmulateEB": "e-Board"})
+        if centaur.get_menuCast() != "unchecked":
+            menu.update({"Cast": "Chromecast"})
+        log.debug("Checking for custom files")
+        pyfiles = os.listdir("/home/pi")
+        foundpyfiles = 0
+        for pyfile in pyfiles:        
+            if pyfile[-3:] == ".py" and pyfile != "firstboot.py":
+                log.debug("found custom files")
+                foundpyfiles = 1
+                break
+        log.debug("Custom file check complete")
+        if foundpyfiles == 1:
+            menu.update({"Custom": "Custom"})
+        if centaur.get_menuSettings() != "unchecked":
+            menu.update({"settings": "Settings"})
+        if centaur.get_menuAbout() != "unchecked":
+            menu.update({"About": "About"})                                
+        result = doMenu(menu, "Main menu")
+        # Historical note: previous firmware called into the raw epaper driver here.
+        # time.sleep(0.7)
+        # time.sleep(1)
+        if result == "SHUTDOWN":
+            # Graceful shutdown requested via Ctrl+C
             try:
-                os.chmod(centaur_software, 0o755)
-            except Exception as e:
-                log.warning(f"Could not set execute permissions on centaur: {e}")
-            # Change directory and use relative path (bypasses sudo secure_path, Trixie compatibility)
-            # Don't restore directory since we exit immediately after
-            os.chdir("/home/pi/centaur")
-            # Use os.system to launch interactive application (blocks until process completes)
-            os.system("sudo ./centaur")
-        else:
-            log.error(f"Centaur executable not found at {centaur_software}")
-            write_text(0, "Centaur not found")
-            time.sleep(2)
-            continue
-        # Once started we cannot return to DGTCentaurMods, we can kill that
-        time.sleep(3)
-        os.system("sudo systemctl stop DGTCentaurMods.service")
-        sys.exit()
-    if result == "pegasus":
-        rc = run_external_script(f"{game_folder}/pegasus.py", start_key_polling=True)
-    if result == "EmulateEB":
-        result = doMenu("EmulateEB")
-        if result == "dgtclassic":
-            rc = run_external_script(f"{game_folder}/eboard.py", start_key_polling=True)
-        if result == "millennium":
-            rc = run_external_script(f"{game_folder}/millennium.py", start_key_polling=True)
-    if result == "1v1Analysis":
-        rc = run_external_script(f"{game_folder}/1v1Analysis.py", start_key_polling=True)
-    if result == "settings":
-        setmenu = {
-            "WiFi": "Wifi Setup",
-            "Pairing": "BT Pair",
-            "Sound": "Sound",
-            "LichessAPI": "Lichess API",
-            "reverseshell": "Shell 7777",
-            "update": "Update opts",            
-            "Shutdown": "Shutdown",
-            "Reboot": "Reboot",
-        }
-        topmenu = False
-        while topmenu == False:
-            result = doMenu(setmenu, "settings")
-            log.debug(result)
-            if result == "update":
-                topmenu = False
-                while topmenu == False:
-                    updatemenu = {"status": "State: " + update.getStatus()}
-                    package = "/tmp/dgtcentaurmods_armhf.deb"
-                    if update.getStatus() == "enabled":
-                        updatemenu.update(
-                            {
-                                "channel": "Chnl: " + update.getChannel(),
-                                "policy": "Plcy: " + update.getPolicy(),
-                            }
-                        )
-                    # Check for .deb files in the /home/pi folder that have been uploaded by webdav
-                    updatemenu["lastrelease"] = "Last Release"
-                    debfiles = os.listdir("/home/pi")
-                    log.debug("Check for deb files that system can update to")
-                    for debfile in debfiles:        
-                        if debfile[-4:] == ".deb" and debfile[:15] == "dgtcentaurmods_":
-                            log.debug("Found " + debfile)
-                            updatemenu[debfile] = debfile[15:debfile.find("_",15)]                    
-                    selection = ""
-                    result = doMenu(updatemenu, "Update opts")
-                    if result == "status":
-                        result = doMenu(
-                            {"enable": "Enable", "disable": "Disable"}, "Status"
-                        )
-                        log.debug(result)
-                        if result == "enable":
-                            update.enable()
-                        if result == "disable":
-                            update.disable()
+                statusbar.stop()
+                board.cleanup(leds_off=True)
+                board.pauseEvents()
+            except:
+                pass
+            break
+        if result == "BACK":
+            board.beep(board.SOUND_POWER_OFF)
+            show_welcome()
+        if result == "Cast":
+            chromecast_menu()
+        if result == "Centaur":
+            loading_screen()
+            #time.sleep(1)
+            board.pauseEvents()
+            board.cleanup(leds_off=True)
+            statusbar.stop()
+            time.sleep(1)
+            if os.path.exists(centaur_software):
+                # Ensure file is executable (Trixie compatibility)
+                try:
+                    os.chmod(centaur_software, 0o755)
+                except Exception as e:
+                    log.warning(f"Could not set execute permissions on centaur: {e}")
+                # Change directory and use relative path (bypasses sudo secure_path, Trixie compatibility)
+                # Don't restore directory since we exit immediately after
+                os.chdir("/home/pi/centaur")
+                # Use os.system to launch interactive application (blocks until process completes)
+                os.system("sudo ./centaur")
+            else:
+                log.error(f"Centaur executable not found at {centaur_software}")
+                write_text(0, "Centaur not found")
+                time.sleep(2)
+                continue
+            # Once started we cannot return to DGTCentaurMods, we can kill that
+            time.sleep(3)
+            os.system("sudo systemctl stop DGTCentaurMods.service")
+            sys.exit()
+        if result == "pegasus":
+            rc = run_external_script(f"{game_folder}/pegasus.py", start_key_polling=True)
+        if result == "EmulateEB":
+            result = doMenu("EmulateEB")
+            if result == "dgtclassic":
+                rc = run_external_script(f"{game_folder}/eboard.py", start_key_polling=True)
+            if result == "millennium":
+                rc = run_external_script(f"{game_folder}/millennium.py", start_key_polling=True)
+        if result == "1v1Analysis":
+            rc = run_external_script(f"{game_folder}/1v1Analysis.py", start_key_polling=True)
+        if result == "settings":
+            setmenu = {
+                "WiFi": "Wifi Setup",
+                "Pairing": "BT Pair",
+                "Sound": "Sound",
+                "LichessAPI": "Lichess API",
+                "reverseshell": "Shell 7777",
+                "update": "Update opts",            
+                "Shutdown": "Shutdown",
+                "Reboot": "Reboot",
+            }
+            topmenu = False
+            while topmenu == False:
+                result = doMenu(setmenu, "settings")
+                log.debug(result)
+                if result == "update":
+                    topmenu = False
+                    while topmenu == False:
+                        updatemenu = {"status": "State: " + update.getStatus()}
+                        package = "/tmp/dgtcentaurmods_armhf.deb"
+                        if update.getStatus() == "enabled":
+                            updatemenu.update(
+                                {
+                                    "channel": "Chnl: " + update.getChannel(),
+                                    "policy": "Plcy: " + update.getPolicy(),
+                                }
+                            )
+                        # Check for .deb files in the /home/pi folder that have been uploaded by webdav
+                        updatemenu["lastrelease"] = "Last Release"
+                        debfiles = os.listdir("/home/pi")
+                        log.debug("Check for deb files that system can update to")
+                        for debfile in debfiles:        
+                            if debfile[-4:] == ".deb" and debfile[:15] == "dgtcentaurmods_":
+                                log.debug("Found " + debfile)
+                                updatemenu[debfile] = debfile[15:debfile.find("_",15)]                    
+                        selection = ""
+                        result = doMenu(updatemenu, "Update opts")
+                        if result == "status":
+                            result = doMenu(
+                                {"enable": "Enable", "disable": "Disable"}, "Status"
+                            )
+                            log.debug(result)
+                            if result == "enable":
+                                update.enable()
+                            if result == "disable":
+                                update.disable()
+                                try:
+                                    os.remove(package)
+                                except:
+                                    pass
+                        if result == "channel":
+                            result = doMenu({"stable": "Stable", "beta": "Beta"}, "Channel")
+                            update.setChannel(result)
+                        if result == "policy":
+                            result = doMenu(
+                                {"always": "Always", "revision": "Revisions"}, "Policy"
+                            )
+                            update.setPolicy(result)
+                        if result == "lastrelease":
+                            log.debug("Last Release")
+                            update_source = update.conf.read_value('update', 'source')
+                            log.debug(update_source)
+                            url = 'https://raw.githubusercontent.com/{}/master/DGTCentaurMods/DEBIAN/versions'.format(update_source)                   
+                            log.debug(url)
+                            ver = None
+                            try:
+                                with urllib.request.urlopen(url) as versions:
+                                    ver = json.loads(versions.read().decode())
+                                    log.debug(ver)
+                            except Exception as e:
+                                log.debug('!! Cannot download update info: ', e)
+                            pass
+                            if ver != None:
+                                log.debug(ver["stable"]["release"])
+                                download_url = 'https://github.com/{}/releases/download/v{}/dgtcentaurmods_{}_armhf.deb'.format(update_source,ver["stable"]["release"],ver["stable"]["release"])
+                                log.debug(download_url)
+                                try:
+                                    urllib.request.urlretrieve(download_url,'/tmp/dgtcentaurmods_armhf.deb')
+                                    log.debug("downloaded to /tmp")
+                                    os.system("cp -f /home/pi/" + result + " /tmp/dgtcentaurmods_armhf.deb")
+                                    log.debug("Starting update")
+                                    update.updateInstall()
+                                except:
+                                    pass
+                        if os.path.exists("/home/pi/" + result):
+                            log.debug("User selected .deb file. Doing update")
+                            log.debug("Copying .deb file to /tmp")
+                            os.system("cp -f /home/pi/" + result + " /tmp/dgtcentaurmods_armhf.deb")
+                            log.debug("Starting update")
+                            update.updateInstall()
+                        if selection == "BACK":
+                            # Trigger the update system to appply new settings
                             try:
                                 os.remove(package)
                             except:
                                 pass
-                    if result == "channel":
-                        result = doMenu({"stable": "Stable", "beta": "Beta"}, "Channel")
-                        update.setChannel(result)
-                    if result == "policy":
-                        result = doMenu(
-                            {"always": "Always", "revision": "Revisions"}, "Policy"
-                        )
-                        update.setPolicy(result)
-                    if result == "lastrelease":
-                        log.debug("Last Release")
-                        update_source = update.conf.read_value('update', 'source')
-                        log.debug(update_source)
-                        url = 'https://raw.githubusercontent.com/{}/master/DGTCentaurMods/DEBIAN/versions'.format(update_source)                   
-                        log.debug(url)
-                        ver = None
-                        try:
-                            with urllib.request.urlopen(url) as versions:
-                                ver = json.loads(versions.read().decode())
-                                log.debug(ver)
-                        except Exception as e:
-                            log.debug('!! Cannot download update info: ', e)
-                        pass
-                        if ver != None:
-                            log.debug(ver["stable"]["release"])
-                            download_url = 'https://github.com/{}/releases/download/v{}/dgtcentaurmods_{}_armhf.deb'.format(update_source,ver["stable"]["release"],ver["stable"]["release"])
-                            log.debug(download_url)
-                            try:
-                                urllib.request.urlretrieve(download_url,'/tmp/dgtcentaurmods_armhf.deb')
-                                log.debug("downloaded to /tmp")
-                                os.system("cp -f /home/pi/" + result + " /tmp/dgtcentaurmods_armhf.deb")
-                                log.debug("Starting update")
-                                update.updateInstall()
-                            except:
-                                pass
-                    if os.path.exists("/home/pi/" + result):
-                        log.debug("User selected .deb file. Doing update")
-                        log.debug("Copying .deb file to /tmp")
-                        os.system("cp -f /home/pi/" + result + " /tmp/dgtcentaurmods_armhf.deb")
-                        log.debug("Starting update")
-                        update.updateInstall()
-                    if selection == "BACK":
-                        # Trigger the update system to appply new settings
-                        try:
-                            os.remove(package)
-                        except:
-                            pass
-                        finally:
-                            threading.Thread(target=update.main, args=()).start()
-                        topmenu = True
-                        log.debug("return to settings")
-                        selection = ""
-            topmenu = False
-            if selection == "BACK":
-                topmenu = True
-                result = ""
-
-            if result == "Sound":
-                soundmenu = {"On": "On", "Off": "Off"}
-                result = doMenu(soundmenu, "Sound")
-                if result == "On":
-                    centaur.set_sound("on")
-                if result == "Off":
-                    centaur.set_sound("off")
-            if result == "WiFi":
-                if network.check_network():
-                    wifimenu = {"wpa2": "WPA2-PSK", "wps": "WPS Setup"}
-                else:
-                    wifimenu = {
-                        "wpa2": "WPA2-PSK",
-                        "wps": "WPS Setup",
-                        "recover": "Recover wifi",
-                    }
-                if network.check_network():
-                    cmd = (
-                        'sudo sh -c "'
-                        + str(pathlib.Path(__file__).parent.resolve())
-                        + '/scripts/wifi_backup.sh backup"'
-                    )                    
-                    centaur.shell_run(cmd)
-                result = doMenu(wifimenu, "Wifi Setup")
-                if result != "BACK":
-                    if result == "wpa2":
-                        # Scan for WiFi networks
-                        import subprocess
-                        try:
-                            scan_result = subprocess.run(['sudo', 'iwlist', 'wlan0', 'scan'], capture_output=True, text=True)
-                            if scan_result.returncode == 0:
-                                networks = []
-                                lines = scan_result.stdout.split('\n')
-                                for line in lines:
-                                    if 'ESSID:' in line:
-                                        essid = line.split('ESSID:')[1].strip().strip('"')
-                                        if essid and essid not in networks:
-                                            networks.append(essid)
-                                
-                                if networks:
-                                    # Create menu for networks
-                                    network_menu = {}
-                                    for ssid in sorted(networks):
-                                        network_menu[ssid] = ssid
-                                    
-                                    # Use doMenu to select network
-                                    selected_network = doMenu(network_menu, "WiFi Networks")
-                                    
-                                    if selected_network and selected_network != "BACK":
-                                        # Get password using getText
-                                        from DGTCentaurMods.ui.get_text_from_board import getText
-                                        password = getText("Enter WiFi password")
-                                        #password = board.getText("Enter WiFi password")
-                                        
-                                        if password:
-                                            write_text(0, f"Connecting to")
-                                            write_text(1, selected_network)
-                                            # Connect to the network
-                                            if connect_to_wifi(selected_network, password):
-                                                write_text(3, "Connected!")
-                                            else:
-                                                write_text(3, "Connection failed!")
-                                            time.sleep(2)
-                                        else:
-                                            write_text(0, "No password provided")
-                                            time.sleep(2)
-
-                                else:
-                                    write_text(0, "No networks found")
-                                    time.sleep(2)
-                            else:
-                                write_text(0, "Scan failed")
-                                time.sleep(2)
-                        except Exception as e:
-                            write_text(0, f"Error: {str(e)[:20]}")
-                            time.sleep(2)
-                    if result == "wps":
-                        if network.check_network():
+                            finally:
+                                threading.Thread(target=update.main, args=()).start()
+                            topmenu = True
+                            log.debug("return to settings")
                             selection = ""
-                            curmenu = None
-                            IP = network.check_network()
-                            clear_screen()
-                            write_text(0, "Network is up.")
-                            write_text(1, "Press OK to")
-                            write_text(2, "disconnect")
-                            write_text(4, IP)
-                            timeout = time.time() + 15
-                            while time.time() < timeout:
-                                if selection == "BTNTICK":
-                                    network.wps_disconnect_all()
-                                    break
-                                time.sleep(2)
-                        else:
-                            wpsMenu = {"connect": "Connect wifi"}
-                            result = doMenu(wpsMenu, "WPS")
-                            if result == "connect":
-                                clear_screen()
-                                write_text(0, "Press WPS button")
-                                network.wps_connect()
-                    if result == "recover":
-                        selection = ""
+                topmenu = False
+                if selection == "BACK":
+                    topmenu = True
+                    result = ""
+
+                if result == "Sound":
+                    soundmenu = {"On": "On", "Off": "Off"}
+                    result = doMenu(soundmenu, "Sound")
+                    if result == "On":
+                        centaur.set_sound("on")
+                    if result == "Off":
+                        centaur.set_sound("off")
+                if result == "WiFi":
+                    if network.check_network():
+                        wifimenu = {"wpa2": "WPA2-PSK", "wps": "WPS Setup"}
+                    else:
+                        wifimenu = {
+                            "wpa2": "WPA2-PSK",
+                            "wps": "WPS Setup",
+                            "recover": "Recover wifi",
+                        }
+                    if network.check_network():
                         cmd = (
                             'sudo sh -c "'
                             + str(pathlib.Path(__file__).parent.resolve())
-                            + '/scripts/wifi_backup.sh restore"'
-                        )
-                        centaur.shell_run(cmd)                    
-                        timeout = time.time() + 20
-                        clear_screen()
-                        write_text(0, "Waiting for")
-                        write_text(1, "network...")
-                        while not network.check_network() and time.time() < timeout:
-                            time.sleep(1)
-                        if not network.check_network():
-                            write_text(1, "Failed to restore...")
-                            time.sleep(4)
+                            + '/scripts/wifi_backup.sh backup"'
+                        )                    
+                        centaur.shell_run(cmd)
+                    result = doMenu(wifimenu, "Wifi Setup")
+                    if result != "BACK":
+                        if result == "wpa2":
+                            # Scan for WiFi networks
+                            import subprocess
+                            try:
+                                scan_result = subprocess.run(['sudo', 'iwlist', 'wlan0', 'scan'], capture_output=True, text=True)
+                                if scan_result.returncode == 0:
+                                    networks = []
+                                    lines = scan_result.stdout.split('\n')
+                                    for line in lines:
+                                        if 'ESSID:' in line:
+                                            essid = line.split('ESSID:')[1].strip().strip('"')
+                                            if essid and essid not in networks:
+                                                networks.append(essid)
+                                
+                                    if networks:
+                                        # Create menu for networks
+                                        network_menu = {}
+                                        for ssid in sorted(networks):
+                                            network_menu[ssid] = ssid
+                                    
+                                        # Use doMenu to select network
+                                        selected_network = doMenu(network_menu, "WiFi Networks")
+                                    
+                                        if selected_network and selected_network != "BACK":
+                                            # Get password using getText
+                                            from DGTCentaurMods.ui.get_text_from_board import getText
+                                            password = getText("Enter WiFi password")
+                                            #password = board.getText("Enter WiFi password")
+                                        
+                                            if password:
+                                                write_text(0, f"Connecting to")
+                                                write_text(1, selected_network)
+                                                # Connect to the network
+                                                if connect_to_wifi(selected_network, password):
+                                                    write_text(3, "Connected!")
+                                                else:
+                                                    write_text(3, "Connection failed!")
+                                                time.sleep(2)
+                                            else:
+                                                write_text(0, "No password provided")
+                                                time.sleep(2)
 
-            if result == "Pairing":
-                bluetooth_pairing()
-            if result == "LichessAPI":
-                rc = run_external_script("config/lichesstoken.py", start_key_polling=True)
-            if result == "Shutdown":
-                # Stop statusbar
-                statusbar.stop()
+                                    else:
+                                        write_text(0, "No networks found")
+                                        time.sleep(2)
+                                else:
+                                    write_text(0, "Scan failed")
+                                    time.sleep(2)
+                            except Exception as e:
+                                write_text(0, f"Error: {str(e)[:20]}")
+                                time.sleep(2)
+                        if result == "wps":
+                            if network.check_network():
+                                selection = ""
+                                curmenu = None
+                                IP = network.check_network()
+                                clear_screen()
+                                write_text(0, "Network is up.")
+                                write_text(1, "Press OK to")
+                                write_text(2, "disconnect")
+                                write_text(4, IP)
+                                timeout = time.time() + 15
+                                while time.time() < timeout:
+                                    if selection == "BTNTICK":
+                                        network.wps_disconnect_all()
+                                        break
+                                    time.sleep(2)
+                            else:
+                                wpsMenu = {"connect": "Connect wifi"}
+                                result = doMenu(wpsMenu, "WPS")
+                                if result == "connect":
+                                    clear_screen()
+                                    write_text(0, "Press WPS button")
+                                    network.wps_connect()
+                        if result == "recover":
+                            selection = ""
+                            cmd = (
+                                'sudo sh -c "'
+                                + str(pathlib.Path(__file__).parent.resolve())
+                                + '/scripts/wifi_backup.sh restore"'
+                            )
+                            centaur.shell_run(cmd)                    
+                            timeout = time.time() + 20
+                            clear_screen()
+                            write_text(0, "Waiting for")
+                            write_text(1, "network...")
+                            while not network.check_network() and time.time() < timeout:
+                                time.sleep(1)
+                            if not network.check_network():
+                                write_text(1, "Failed to restore...")
+                                time.sleep(4)
+
+                if result == "Pairing":
+                    bluetooth_pairing()
+                if result == "LichessAPI":
+                    rc = run_external_script("config/lichesstoken.py", start_key_polling=True)
+                if result == "Shutdown":
+                    # Stop statusbar
+                    statusbar.stop()
                 
-                # Pause events and cleanup board
-                board.pauseEvents()
-                board.cleanup(leds_off=False)  # LEDs handled by shutdown()
+                    # Pause events and cleanup board
+                    board.pauseEvents()
+                    board.cleanup(leds_off=False)  # LEDs handled by shutdown()
                 
-                # Execute shutdown (handles LEDs, e-paper, controller sleep)
-                board.shutdown()
+                    # Execute shutdown (handles LEDs, e-paper, controller sleep)
+                    board.shutdown()
                 
-                # Exit cleanly
-                sys.exit()
-            if result == "Reboot":
-                board.beep(board.SOUND_POWER_OFF)
-                manager = _get_display_manager()
-                clear_screen()
-                time.sleep(5)
-                manager.shutdown()
-                time.sleep(2)
+                    # Exit cleanly
+                    sys.exit()
+                if result == "Reboot":
+                    board.beep(board.SOUND_POWER_OFF)
+                    manager = _get_display_manager()
+                    clear_screen()
+                    time.sleep(5)
+                    manager.shutdown()
+                    time.sleep(2)
                 
-                # LED cascade pattern h1→h8 (squares 0 to 7) for reboot
-                try:
-                    for i in range(0, 8):
-                        board.led(i, intensity=5)
-                        time.sleep(0.2)
-                except Exception:
-                    pass
+                    # LED cascade pattern h1→h8 (squares 0 to 7) for reboot
+                    try:
+                        for i in range(0, 8):
+                            board.led(i, intensity=5)
+                            time.sleep(0.2)
+                    except Exception:
+                        pass
                 
-                board.pauseEvents()
-                board.cleanup(leds_off=True)
-                os.system("/sbin/shutdown -r now &")
-                sys.exit()
-            if result == "reverseshell":
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.bind(("0.0.0.0", 7777))
-                s.listen(1)
-                conn, addr = s.accept()
-                conn.send(b'With great power comes great responsibility! Use this if you\n')
-                conn.send(b'can\'t get into ssh for some reason. Otherwise use ssh!\n')
-                conn.send(b'\nBy using this you agree that a modified DGT Centaur Mods board\n')
-                conn.send(b'is the best chessboard in the world.\n')
-                conn.send(b'----------------------------------------------------------------------\n')                
-                os.dup2(conn.fileno(),0)
-                os.dup2(conn.fileno(),1)
-                os.dup2(conn.fileno(),2)
-                p=subprocess.call(["/bin/bash","-i"])
-    if result == "Lichess":
-        result = doMenu("Lichess")
-        log.debug('menu active: lichess')
-        if result != "BACK":
-            if result == "Ongoing":
-                log.debug('menu active: Ongoing')
-                client = get_lichess_client()
-                ongoing_games = client.games.get_ongoing(10)
-                ongoing_menu = {}
-                log.debug(f"{ongoing_menu}")
-                for game in ongoing_games:
-                    gameid = game["gameId"]
-                    opponent = game['opponent']['id']
-                    if game['color'] == 'white':
-                        desc = f"{client.account.get()['username']} vs. {opponent}"
+                    board.pauseEvents()
+                    board.cleanup(leds_off=True)
+                    os.system("/sbin/shutdown -r now &")
+                    sys.exit()
+                if result == "reverseshell":
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.bind(("0.0.0.0", 7777))
+                    s.listen(1)
+                    conn, addr = s.accept()
+                    conn.send(b'With great power comes great responsibility! Use this if you\n')
+                    conn.send(b'can\'t get into ssh for some reason. Otherwise use ssh!\n')
+                    conn.send(b'\nBy using this you agree that a modified DGT Centaur Mods board\n')
+                    conn.send(b'is the best chessboard in the world.\n')
+                    conn.send(b'----------------------------------------------------------------------\n')                
+                    os.dup2(conn.fileno(),0)
+                    os.dup2(conn.fileno(),1)
+                    os.dup2(conn.fileno(),2)
+                    p=subprocess.call(["/bin/bash","-i"])
+        if result == "Lichess":
+            result = doMenu("Lichess")
+            log.debug('menu active: lichess')
+            if result != "BACK":
+                if result == "Ongoing":
+                    log.debug('menu active: Ongoing')
+                    client = get_lichess_client()
+                    ongoing_games = client.games.get_ongoing(10)
+                    ongoing_menu = {}
+                    log.debug(f"{ongoing_menu}")
+                    for game in ongoing_games:
+                        gameid = game["gameId"]
+                        opponent = game['opponent']['id']
+                        if game['color'] == 'white':
+                            desc = f"{client.account.get()['username']} vs. {opponent}"
+                        else:
+                            desc = f" {opponent} vs. {client.account.get()['username']}"
+                        ongoing_menu[gameid] = desc
+                    log.debug(f"ongoing menu: {ongoing_menu}")
+                    if len(ongoing_menu) > 0:
+                        result = doMenu(ongoing_menu, "Current games:")
+                        if result != "BACK":
+                            log.debug(f"menu current games")
+                            game_id = result
+                            log.debug(f"staring lichess")
+                            rc = run_external_script(f"{game_folder}/lichess.py", "Ongoing", game_id, start_key_polling=True)
                     else:
-                        desc = f" {opponent} vs. {client.account.get()['username']}"
-                    ongoing_menu[gameid] = desc
-                log.debug(f"ongoing menu: {ongoing_menu}")
-                if len(ongoing_menu) > 0:
-                    result = doMenu(ongoing_menu, "Current games:")
+                        log.warning("No ongoing games!")
+                        write_text(1, "No ongoing games!")
+                        time.sleep(3)
+
+
+                elif result == "Challenges":
+                    client = get_lichess_client()
+                    challenge_menu = {}
+                    # very ugly call, there is no adequate method in berserk's API,
+                    # see https://github.com/rhgrant10/berserk/blob/master/berserk/todo.md
+                    challenges = client._r.get('api/challenge')
+                    for challenge in challenges['in']:
+                        challenge_menu[f"{challenge['id']}:in"] = f"in: {challenge['challenger']['id']}"
+                    for challenge in challenges['out']:
+                        challenge_menu[f"{challenge['id']}:out"] = f"out: {challenge['destUser']['id']}"
+                    result = doMenu(challenge_menu, "Challenges")
                     if result != "BACK":
-                        log.debug(f"menu current games")
-                        game_id = result
-                        log.debug(f"staring lichess")
-                        rc = run_external_script(f"{game_folder}/lichess.py", "Ongoing", game_id, start_key_polling=True)
-                else:
-                    log.warning("No ongoing games!")
-                    write_text(1, "No ongoing games!")
-                    time.sleep(3)
+                        log.debug('menu active: Challenge')
+                        game_id, challenge_direction = result.split(":")
+                        rc = run_external_script(f"{game_folder}/lichess.py", "Challenge", game_id, challenge_direction, start_key_polling=True)
 
-
-            elif result == "Challenges":
-                client = get_lichess_client()
-                challenge_menu = {}
-                # very ugly call, there is no adequate method in berserk's API,
-                # see https://github.com/rhgrant10/berserk/blob/master/berserk/todo.md
-                challenges = client._r.get('api/challenge')
-                for challenge in challenges['in']:
-                    challenge_menu[f"{challenge['id']}:in"] = f"in: {challenge['challenger']['id']}"
-                for challenge in challenges['out']:
-                    challenge_menu[f"{challenge['id']}:out"] = f"out: {challenge['destUser']['id']}"
-                result = doMenu(challenge_menu, "Challenges")
-                if result != "BACK":
-                    log.debug('menu active: Challenge')
-                    game_id, challenge_direction = result.split(":")
-                    rc = run_external_script(f"{game_folder}/lichess.py", "Challenge", game_id, challenge_direction, start_key_polling=True)
-
-            else:  # new Rated or Unrated
-                if result == "Rated":
-                    rated = True
-                else:
-                    assert result == "Unrated", "Wrong game type"  #nie można rzucać wyjątków, bo cała aplikacja się sypie
-                    rated = False
-                result = doMenu(COLOR_MENU, "Color")
-                if result != "BACK":
-                    color = result
-                    timemenu = {
-                        "10 , 5": "10+5 minutes",
-                        "15 , 10": "15+10 minutes",
-                        "30 , 0": "30 minutes",
-                        "30 , 20": "30+20 minutes",
-                        "45 , 45": "45+45 minutes",
-                        "60 , 20": "60+20 minutes",
-                        "60 , 30": "60+30 minutes",
-                        "90 , 30": "90+30 minutes",
-                    }
-                    result = doMenu(timemenu, "Time")
-
+                else:  # new Rated or Unrated
+                    if result == "Rated":
+                        rated = True
+                    else:
+                        assert result == "Unrated", "Wrong game type"  #nie można rzucać wyjątków, bo cała aplikacja się sypie
+                        rated = False
+                    result = doMenu(COLOR_MENU, "Color")
                     if result != "BACK":
-                        # split time and increment '10 , 5' -> ['10', '5']
-                        seek_time = result.split(",")
-                        gtime = int(seek_time[0])
-                        gincrement = int(seek_time[1])
-                        rc = run_external_script(f"{game_folder}/lichess.py", "New", gtime, gincrement, rated, color, start_key_polling=True)
-    if result == "Engines":
-        enginemenu = {}
-        # Pick up the engines from the engines folder and build the menu
-        enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/engines/"
-        enginefiles = os.listdir(enginepath)
-        enginefiles = list(
-            filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
-        )        
-        for f in enginefiles:
-            fn = str(f)
-            if "." not in fn:
-                # If this file don't have an extension then it is an engine
-                enginemenu[fn] = fn
-        result = doMenu(enginemenu, "Engines")
-        log.debug("Engines")
-        log.debug(result)
-        if result != "BACK":
-            # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
-            enginefile = enginepath + result
-            ucifile = enginepath + result + ".uci"
-            
-            # Get engine description from .uci file if it exists
-            engine_desc = None
-            # Check both engines/ and defaults/engines/ directories for .uci files
-            ucifile_paths = [
-                enginepath + result + ".uci",  # engines/ directory
-                str(pathlib.Path(__file__).parent.resolve()) + "/defaults/engines/" + result + ".uci"  # defaults/engines/ directory
-            ]
-            for ucifile_path in ucifile_paths:
-                if os.path.exists(ucifile_path):
-                    config = configparser.ConfigParser()
-                    config.read(ucifile_path)
-                    if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
-                        engine_desc = config['DEFAULT']['Description']
-                    break
-            
-            color = doMenu(COLOR_MENU, result, engine_desc)
-            # Current game will launch the screen for the current
-            log.info("ucifile: " + ucifile)
-            if color != "BACK":
-                if os.path.exists(ucifile):
-                    # Read the uci file and build a menu
-                    config = configparser.ConfigParser()
-                    config.read(ucifile)
-                    log.debug(config.sections())
-                    smenu = {}
-                    for sect in config.sections():
-                        smenu[sect] = sect
-                    sec = doMenu(smenu, result)
-                    if sec != "BACK":
-                        rc = run_external_script(f"{game_folder}/uci.py", color, result, sec, start_key_polling=True)
-                else:
-                    # With no uci file we just call the engine
-                    rc = run_external_script(f"{game_folder}/uci.py", color, result, start_key_polling=True)
-    if result == "HandBrain":
-        # Pick up the engines from the engines folder and build the menu
-        enginemenu = {}
-        enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/engines/"
-        enginefiles = os.listdir(enginepath)
-        enginefiles = list(
-            filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
-        )
-        log.debug(enginefiles)
-        for f in enginefiles:
-            fn = str(f)
-            if ".uci" not in fn:
-                # If this file is not .uci then assume it is an engine
-                enginemenu[fn] = fn
-        result = doMenu(enginemenu, "HandBrain")
-        log.debug(result)
-        if result != "BACK":
-            # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
-            enginefile = enginepath + result
-            ucifile = enginepath + result + ".uci"
-            
-            # Get engine description from .uci file if it exists
-            engine_desc = None
-            # Check both engines/ and defaults/engines/ directories for .uci files
-            ucifile_paths = [
-                enginepath + result + ".uci",  # engines/ directory
-                str(pathlib.Path(__file__).parent.resolve()) + "/defaults/engines/" + result + ".uci"  # defaults/engines/ directory
-            ]
-            for ucifile_path in ucifile_paths:
-                if os.path.exists(ucifile_path):
-                    config = configparser.ConfigParser()
-                    config.read(ucifile_path)
-                    if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
-                        engine_desc = config['DEFAULT']['Description']
-                    break
-            
-            color = doMenu(COLOR_MENU, result, engine_desc)
-            # Current game will launch the screen for the current
-            if color != "BACK":
-                if os.path.exists(ucifile):
-                    # Read the uci file and build a menu
-                    config = configparser.ConfigParser()
-                    config.read(ucifile)
-                    log.info(config.sections())
-                    smenu = {}
-                    for sect in config.sections():
-                        smenu[sect] = sect
-                    sec = doMenu(smenu, result)
-                    if sec != "BACK":
-                        rc = run_external_script(f"{game_folder}/handbrain.py", color, result, sec, start_key_polling=True)
-                else:
-                    # With no uci file we just call the engine
-                    rc = run_external_script(f"{game_folder}/handbrain.py", color, result, start_key_polling=True)
-    if result == "Custom":
-        pyfiles = os.listdir("/home/pi")
-        menuitems = {}
-        for pyfile in pyfiles:        
-            if pyfile[-3:] == ".py" and pyfile != "firstboot.py":                
-                menuitems[pyfile] = pyfile
-        result = doMenu(menuitems,"Custom Scripts")
-        if result.find("..") < 0:
-            log.info("Running custom file: " + result)
-            os.system("python /home/pi/" + result)
+                        color = result
+                        timemenu = {
+                            "10 , 5": "10+5 minutes",
+                            "15 , 10": "15+10 minutes",
+                            "30 , 0": "30 minutes",
+                            "30 , 20": "30+20 minutes",
+                            "45 , 45": "45+45 minutes",
+                            "60 , 20": "60+20 minutes",
+                            "60 , 30": "60+30 minutes",
+                            "90 , 30": "90+30 minutes",
+                        }
+                        result = doMenu(timemenu, "Time")
 
-    if result == "About" or result == "BTNHELP":
-        selection = ""
-        clear_screen()
-        statusbar.print()
-        # Use subprocess.run for proper resource cleanup
-        result = subprocess.run(
-            ["dpkg", "-l"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        version = ""
-        if result.returncode == 0:
-            for line in result.stdout.split('\n'):
-                if 'dgtcentaurmods' in line:
-                    parts = line.split()
-                    if len(parts) >= 3:
-                        version = parts[2]
+                        if result != "BACK":
+                            # split time and increment '10 , 5' -> ['10', '5']
+                            seek_time = result.split(",")
+                            gtime = int(seek_time[0])
+                            gincrement = int(seek_time[1])
+                            rc = run_external_script(f"{game_folder}/lichess.py", "New", gtime, gincrement, rated, color, start_key_polling=True)
+        if result == "Engines":
+            enginemenu = {}
+            # Pick up the engines from the engines folder and build the menu
+            enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/engines/"
+            enginefiles = os.listdir(enginepath)
+            enginefiles = list(
+                filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
+            )        
+            for f in enginefiles:
+                fn = str(f)
+                if "." not in fn:
+                    # If this file don't have an extension then it is an engine
+                    enginemenu[fn] = fn
+            result = doMenu(enginemenu, "Engines")
+            log.debug("Engines")
+            log.debug(result)
+            if result != "BACK":
+                # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
+                enginefile = enginepath + result
+                ucifile = enginepath + result + ".uci"
+            
+                # Get engine description from .uci file if it exists
+                engine_desc = None
+                # Check both engines/ and defaults/engines/ directories for .uci files
+                ucifile_paths = [
+                    enginepath + result + ".uci",  # engines/ directory
+                    str(pathlib.Path(__file__).parent.resolve()) + "/defaults/engines/" + result + ".uci"  # defaults/engines/ directory
+                ]
+                for ucifile_path in ucifile_paths:
+                    if os.path.exists(ucifile_path):
+                        config = configparser.ConfigParser()
+                        config.read(ucifile_path)
+                        if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
+                            engine_desc = config['DEFAULT']['Description']
                         break
-        write_text(1, "Get support:")
-        write_text(9, "DGTCentaur")
-        write_text(10, "      Mods")
-        write_text(11, "Ver:" + version)        
-        qr = Image.open(AssetManager.get_resource_path("qr-support.png")).resize((128, 128))
-        manager = _get_display_manager()
-        canvas = manager._framebuffer.get_canvas()
-        canvas.paste(qr, (0, 42))
-        manager.update(full=True)
-        timeout = time.time() + 15
-        while selection == "" and time.time() < timeout:
-            if selection == "BTNTICK" or selection == "BTNBACK":
-                break
-        clear_screen()        
+            
+                color = doMenu(COLOR_MENU, result, engine_desc)
+                # Current game will launch the screen for the current
+                log.info("ucifile: " + ucifile)
+                if color != "BACK":
+                    if os.path.exists(ucifile):
+                        # Read the uci file and build a menu
+                        config = configparser.ConfigParser()
+                        config.read(ucifile)
+                        log.debug(config.sections())
+                        smenu = {}
+                        for sect in config.sections():
+                            smenu[sect] = sect
+                        sec = doMenu(smenu, result)
+                        if sec != "BACK":
+                            rc = run_external_script(f"{game_folder}/uci.py", color, result, sec, start_key_polling=True)
+                    else:
+                        # With no uci file we just call the engine
+                        rc = run_external_script(f"{game_folder}/uci.py", color, result, start_key_polling=True)
+        if result == "HandBrain":
+            # Pick up the engines from the engines folder and build the menu
+            enginemenu = {}
+            enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/engines/"
+            enginefiles = os.listdir(enginepath)
+            enginefiles = list(
+                filter(lambda x: os.path.isfile(enginepath + x), os.listdir(enginepath))
+            )
+            log.debug(enginefiles)
+            for f in enginefiles:
+                fn = str(f)
+                if ".uci" not in fn:
+                    # If this file is not .uci then assume it is an engine
+                    enginemenu[fn] = fn
+            result = doMenu(enginemenu, "HandBrain")
+            log.debug(result)
+            if result != "BACK":
+                # There are two options here. Either a file exists in the engines folder as enginename.uci which will give us menu options, or one doesn't and we run it as default
+                enginefile = enginepath + result
+                ucifile = enginepath + result + ".uci"
+            
+                # Get engine description from .uci file if it exists
+                engine_desc = None
+                # Check both engines/ and defaults/engines/ directories for .uci files
+                ucifile_paths = [
+                    enginepath + result + ".uci",  # engines/ directory
+                    str(pathlib.Path(__file__).parent.resolve()) + "/defaults/engines/" + result + ".uci"  # defaults/engines/ directory
+                ]
+                for ucifile_path in ucifile_paths:
+                    if os.path.exists(ucifile_path):
+                        config = configparser.ConfigParser()
+                        config.read(ucifile_path)
+                        if 'DEFAULT' in config and 'Description' in config['DEFAULT']:
+                            engine_desc = config['DEFAULT']['Description']
+                        break
+            
+                color = doMenu(COLOR_MENU, result, engine_desc)
+                # Current game will launch the screen for the current
+                if color != "BACK":
+                    if os.path.exists(ucifile):
+                        # Read the uci file and build a menu
+                        config = configparser.ConfigParser()
+                        config.read(ucifile)
+                        log.info(config.sections())
+                        smenu = {}
+                        for sect in config.sections():
+                            smenu[sect] = sect
+                        sec = doMenu(smenu, result)
+                        if sec != "BACK":
+                            rc = run_external_script(f"{game_folder}/handbrain.py", color, result, sec, start_key_polling=True)
+                    else:
+                        # With no uci file we just call the engine
+                        rc = run_external_script(f"{game_folder}/handbrain.py", color, result, start_key_polling=True)
+        if result == "Custom":
+            pyfiles = os.listdir("/home/pi")
+            menuitems = {}
+            for pyfile in pyfiles:        
+                if pyfile[-3:] == ".py" and pyfile != "firstboot.py":                
+                    menuitems[pyfile] = pyfile
+            result = doMenu(menuitems,"Custom Scripts")
+            if result.find("..") < 0:
+                log.info("Running custom file: " + result)
+                os.system("python /home/pi/" + result)
+
+        if result == "About" or result == "BTNHELP":
+            selection = ""
+            clear_screen()
+            statusbar.print()
+            # Use subprocess.run for proper resource cleanup
+            result = subprocess.run(
+                ["dpkg", "-l"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            version = ""
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if 'dgtcentaurmods' in line:
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            version = parts[2]
+                            break
+            write_text(1, "Get support:")
+            write_text(9, "DGTCentaur")
+            write_text(10, "      Mods")
+            write_text(11, "Ver:" + version)        
+            qr = Image.open(AssetManager.get_resource_path("qr-support.png")).resize((128, 128))
+            manager = _get_display_manager()
+            canvas = manager._framebuffer.get_canvas()
+            canvas.paste(qr, (0, 42))
+            manager.update(full=True)
+            timeout = time.time() + 15
+            while selection == "" and time.time() < timeout:
+                if selection == "BTNTICK" or selection == "BTNBACK":
+                    break
+            clear_screen()        
