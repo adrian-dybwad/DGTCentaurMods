@@ -114,8 +114,10 @@ class UCIGame:
         self.game_analysis_bottom = GameAnalysisWidget(0, 144, 128, 80)
         self.display_manager.add_widget(self.game_analysis_bottom)
         
-        # Initial display update with full refresh to clear any menu content
-        self.display_manager.update(full=True).result(timeout=10.0)
+        # Widgets should trigger their own updates when ready
+        # For initial display, have one widget trigger a full refresh
+        if self.status_bar_widget and self.status_bar_widget._update_callback:
+            self.status_bar_widget.request_update(full=True).result(timeout=10.0)
     
     def _should_enable_graphs(self) -> bool:
         """Determine if evaluation graphs should be enabled based on hardware."""
@@ -505,7 +507,9 @@ class UCIGame:
             termination_widget = TextWidget(30, 221, 98, 12, termination_type, 
                                            background=0, font_size=12)
             self.display_manager.add_widget(termination_widget)
-            self.display_manager.update(full=False).result(timeout=5.0)
+            # Widget triggers its own update
+            if termination_widget._update_callback:
+                termination_widget.request_update(full=False).result(timeout=5.0)
             
             time.sleep(0.3)
             
@@ -514,7 +518,9 @@ class UCIGame:
             termination_widget = TextWidget(30, 57, 98, 12, termination_type, 
                                            background=0, font_size=12)
             self.display_manager.add_widget(termination_widget)
-            self.display_manager.update(full=False).result(timeout=5.0)
+            # Widget triggers its own update
+            if termination_widget._update_callback:
+                termination_widget.request_update(full=False).result(timeout=5.0)
         
         # Clear screen by resetting widgets
         # Widgets will trigger updates automatically via request_update()
@@ -551,8 +557,9 @@ class UCIGame:
         game_over_widget.set_score_history(self.score_history)
         self.display_manager.add_widget(game_over_widget)
         
-        # Update display
-        self.display_manager.update(full=False).result(timeout=5.0)
+        # Widget triggers its own update
+        if game_over_widget._update_callback:
+            game_over_widget.request_update(full=False).result(timeout=5.0)
     
     def _handle_move(self, move_uci: str):
         """Handle a move made on the board."""

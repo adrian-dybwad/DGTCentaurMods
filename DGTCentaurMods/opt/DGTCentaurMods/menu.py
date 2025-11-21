@@ -550,12 +550,15 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     if status_bar_widget and status_bar_widget not in manager._widgets:
         manager.add_widget(status_bar_widget)
     
-    # Render all widgets (text widgets, arrow widget, status bar) via manager
-    log.info(">>> doMenu: rendering all widgets via manager.update()")
-    log.info(f">>> doMenu: manager._widgets contains: {[w.__class__.__name__ for w in manager._widgets]}")
-    future = manager.update(full=False)
-    future.result(timeout=10.0)  # Wait for completion
-    log.info(">>> doMenu: manager.update() complete, all widgets rendered")
+    # Widgets should call request_update() themselves when ready
+    # The arrow widget triggers its own update after being added
+    log.info(f">>> doMenu: all widgets added, manager._widgets contains: {[w.__class__.__name__ for w in manager._widgets]}")
+    # Wait for arrow widget to trigger its update (it does this automatically)
+    if arrow_widget._update_callback:
+        future = arrow_widget.request_update(full=False)
+        if future:
+            future.result(timeout=10.0)
+    log.info(">>> doMenu: all widgets rendered")
     
     # Use arrow widget to wait for selection
     try:
@@ -680,15 +683,18 @@ def show_welcome():
     log.info(">>> show_welcome() cleared all widgets")
     
     # Create and add welcome widget
+    # Widget should call request_update() itself when ready
     status_text = statusbar.build() if 'statusbar' in globals() else "READY"
     welcome_widget = WelcomeWidget(status_text=status_text)
     manager.add_widget(welcome_widget)
     
-    # Update display with partial refresh to show welcome screen
-    log.info(">>> show_welcome() updating display with welcome widget")
-    future = manager.update(full=False)
-    future.result(timeout=5.0)
-    log.info(">>> show_welcome() display updated")
+    # Widget triggers its own update after being added
+    log.info(">>> show_welcome() waiting for welcome widget update")
+    if welcome_widget._update_callback:
+        future = welcome_widget.request_update(full=False)
+        if future:
+            future.result(timeout=5.0)
+    log.info(">>> show_welcome() welcome widget displayed")
     
     idle = True
     log.info(">>> show_welcome() setting idle=True, about to BLOCK on event_key.wait()")

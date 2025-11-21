@@ -51,7 +51,10 @@ class Manager:
             raise RuntimeError(f"Failed to initialize display: {e}") from e
     
     def add_widget(self, widget: Widget) -> None:
-        """Add a widget to the display."""
+        """Add a widget to the display.
+        
+        The widget should call request_update() when it's ready to be displayed.
+        """
         # Check for overlaps
         new_region = widget.get_region()
         for existing in self._widgets:
