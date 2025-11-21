@@ -73,10 +73,10 @@ class EPaperDemo:
             self.setup_widgets()
             
             # Clear screen with initial full refresh
-            print("Clearing screen...")
-            future = self.display._scheduler.submit(full=True)
-            future.result(timeout=5.0)
-            print("Screen cleared")
+            # print("Clearing screen...")
+            # future = self.display._scheduler.submit(full=True)
+            # future.result(timeout=5.0)
+            # print("Screen cleared")
             
             # Render checkerboard and update display using full refresh
             # print("Rendering checkerboard pattern...")
