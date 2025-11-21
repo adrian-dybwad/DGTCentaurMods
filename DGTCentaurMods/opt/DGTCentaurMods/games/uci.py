@@ -25,7 +25,8 @@ from DGTCentaurMods.games import manager
 from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget, StatusBarWidget, TextWidget
 from DGTCentaurMods.epaper.game_over import GameOverWidget
 from DGTCentaurMods.display.ui_components import AssetManager
-from DGTCentaurMods.menu import _get_display_manager
+# Lazy import to avoid executing menu.py's module-level code (board initialization, etc.)
+# from DGTCentaurMods.menu import _get_display_manager
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
 
@@ -88,12 +89,14 @@ class UCIGame:
     
     def _init_display(self):
         """Initialize display manager and widgets."""
+        # Lazy import to avoid executing menu.py's module-level code
+        from DGTCentaurMods.menu import _get_display_manager, status_bar_widget
+        
         # Use the global display manager from menu.py
         # This ensures we use the same Manager instance that controls the hardware
         self.display_manager = _get_display_manager()
         
         # Clear all widgets except status bar (which is managed globally)
-        from DGTCentaurMods.menu import status_bar_widget
         widgets_to_keep = []
         if status_bar_widget and status_bar_widget in self.display_manager._widgets:
             widgets_to_keep.append(status_bar_widget)
@@ -263,6 +266,7 @@ class UCIGame:
         try:
             if self.display_manager:
                 # Remove only our widgets, not the global status bar
+                # Lazy import to avoid executing menu.py's module-level code
                 from DGTCentaurMods.menu import status_bar_widget
                 if self.chess_board_widget and self.chess_board_widget in self.display_manager._widgets:
                     self.display_manager._widgets.remove(self.chess_board_widget)
@@ -493,6 +497,7 @@ class UCIGame:
         # Display termination message using TextWidget
         if self.display_manager:
             # Remove existing widgets except global status bar
+            # Lazy import to avoid executing menu.py's module-level code
             from DGTCentaurMods.menu import status_bar_widget
             widgets_to_keep = []
             if status_bar_widget and status_bar_widget in self.display_manager._widgets:
@@ -536,6 +541,7 @@ class UCIGame:
             return
         
         # Remove all widgets except global status bar
+        # Lazy import to avoid executing menu.py's module-level code
         from DGTCentaurMods.menu import status_bar_widget
         widgets_to_keep = []
         if status_bar_widget and status_bar_widget in self.display_manager._widgets:
