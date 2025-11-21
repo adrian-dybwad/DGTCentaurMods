@@ -55,7 +55,7 @@ class Scheduler:
         """
         future = Future()
         try:
-            self._queue.put_nowait((full, immediate, future))
+            self._queue.put_nowait((full, future))
             if immediate:
                 # Wake scheduler thread immediately for urgent updates (e.g., menu arrow)
                 self._wake_event.set()
@@ -78,37 +78,20 @@ class Scheduler:
                         # Try to get item immediately without waiting
                         try:
                             item = self._queue.get_nowait()
-                            full, immediate, future = item
-                            if immediate:
-                                # Process immediate requests individually right away - don't batch
-                                self._process_batch([(full, future)])
-                                # Continue to check for more immediate requests
-                                timeout = 0.0
-                                continue
-                            else:
-                                batch.append((full, future))
-                                timeout = 0.0
-                                continue
+                            batch.append(item)
+                            timeout = 0.0
+                            continue
                         except queue.Empty:
                             # No items yet, but wake event was set - process what we have
                             break
                     
                     try:
                         item = self._queue.get(timeout=timeout)
-                        full, immediate, future = item
-                        if immediate:
-                            # Process immediate requests individually right away - don't batch
-                            self._process_batch([(full, future)])
-                            # Continue to check for more immediate requests
-                            timeout = 0.0
-                            continue
-                        else:
-                            batch.append((full, future))
-                            timeout = 0.0
+                        batch.append(item)
+                        timeout = 0.0
                     except queue.Empty:
                         break
                 
-                # Process any remaining non-immediate batched requests
                 if batch:
                     self._process_batch(batch)
                     
@@ -118,11 +101,7 @@ class Scheduler:
                 traceback.print_exc()
     
     def _process_batch(self, batch: list) -> None:
-        """Process a batch of refresh requests.
-        
-        Args:
-            batch: List of (full, future) tuples (immediate flag already used for routing)
-        """
+        """Process a batch of refresh requests."""
         full_refresh = any(full for full, _ in batch)
         #print(f"Scheduler._process_batch(): full_refresh={full_refresh}, partial_refresh_count={self._partial_refresh_count}")
         if full_refresh or self._partial_refresh_count >= self._max_partial_refreshes:
