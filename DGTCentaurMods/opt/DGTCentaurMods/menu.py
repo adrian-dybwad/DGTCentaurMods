@@ -524,7 +524,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     renderer.draw(initial_index)
     log.info(">>> doMenu: renderer.draw() complete, menu content is in framebuffer")
     
-    # Create and render arrow widget
+    # Create arrow widget and add it to manager so it uses proper widget mechanism
     # Calculate widget position and dimensions
     arrow_box_top = renderer.body_top  # Top position of arrow box (first selectable row)
     arrow_widget_height = len(ordered_menu) * renderer.row_height if ordered_menu else renderer.row_height
@@ -537,10 +537,11 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         num_entries=len(ordered_menu)
     )
     
-    # Render arrow widget to framebuffer
-    arrow_image = arrow_widget.render()
-    canvas = manager._framebuffer.get_canvas()
-    canvas.paste(arrow_image, (arrow_widget.x, arrow_widget.y))
+    # Add widget to manager so it's part of the widget system
+    manager.add_widget(arrow_widget)
+    
+    # Render arrow widget to framebuffer via manager update
+    manager.update(full=False).result(timeout=5.0)
     
     # Verify framebuffer has menu content before proceeding
     snapshot_before_status = manager._framebuffer.snapshot()
@@ -607,10 +608,21 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         else:
             selection = "BACK"
         
+        # Remove arrow widget from manager after selection
+        try:
+            manager._widgets.remove(arrow_widget)
+        except ValueError:
+            pass  # Widget already removed
+        
         log.info(f">>> doMenu: returning selection='{selection}'")
         return selection
     except KeyboardInterrupt:
         log.info(">>> doMenu: KeyboardInterrupt caught")
+        # Remove arrow widget from manager on interrupt
+        try:
+            manager._widgets.remove(arrow_widget)
+        except ValueError:
+            pass
         return "SHUTDOWN"
 
 def changedCallback(piece_event, field, time_in_seconds):

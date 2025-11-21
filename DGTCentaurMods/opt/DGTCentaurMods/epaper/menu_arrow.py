@@ -129,38 +129,13 @@ class MenuArrowWidget(Widget):
         return False  # Not handled
     
     def _update_selection(self, new_index: int) -> None:
-        """Update selection and refresh display."""
+        """Update selection and refresh display using widget mechanism."""
         if new_index != self.selected_index:
             self.selected_index = new_index
-            self._last_rendered = None
-            # Draw arrow directly to framebuffer and submit
-            manager = self._get_manager()
-            if manager:
-                canvas = manager._framebuffer.get_canvas()
-                draw = ImageDraw.Draw(canvas)
-                
-                # Clear entire arrow box area
-                arrow_region = (self.x, self.y, self.x + self.width, self.y + self.height)
-                draw.rectangle(arrow_region, fill=255, outline=255)
-                
-                # Draw arrow at new position (within the arrow box)
-                if self.num_entries > 0 and self.selected_index < self.num_entries:
-                    arrow_top = self.y + self._row_top(self.selected_index)
-                    arrow_width = self.width - 1  # Leave 1 pixel for vertical line
-                    draw.polygon(
-                        [
-                            (self.x + 2, arrow_top + 2),
-                            (self.x + 2, arrow_top + self.row_height - 2),
-                            (self.x + arrow_width - 3, arrow_top + (self.row_height // 2)),
-                        ],
-                        fill=0,
-                    )
-                
-                # Draw vertical line on the rightmost side
-                draw.line((self.x + self.width - 1, self.y, self.x + self.width - 1, self.y + self.height - 1), fill=0, width=1)
-                
-                # Submit immediate partial refresh
-                manager._scheduler.submit(full=False, immediate=True)
+            self._last_rendered = None  # Invalidate cache so render() will regenerate
+            # Use widget mechanism: request_update() triggers Manager.update()
+            # which will call render() on this widget and paste it to framebuffer
+            self.request_update(full=False)
     
     def _get_manager(self):
         """Get the display manager instance."""
