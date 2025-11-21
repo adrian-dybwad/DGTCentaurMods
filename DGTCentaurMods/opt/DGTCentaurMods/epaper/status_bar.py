@@ -31,6 +31,22 @@ class StatusBarWidget(Widget):
         self._wifi_widget = WiFiStatusWidget(80, 0)
         self._battery_widget = BatteryWidget(98, 1)
     
+    def set_scheduler(self, scheduler) -> None:
+        """Set scheduler and propagate to child widgets."""
+        super().set_scheduler(scheduler)
+        # Propagate scheduler to child widgets so they can trigger updates
+        self._clock_widget.set_scheduler(scheduler)
+        self._wifi_widget.set_scheduler(scheduler)
+        self._battery_widget.set_scheduler(scheduler)
+    
+    def set_update_callback(self, callback) -> None:
+        """Set update callback and propagate to child widgets."""
+        super().set_update_callback(callback)
+        # Propagate callback to child widgets so they can trigger updates
+        self._clock_widget.set_update_callback(callback)
+        self._wifi_widget.set_update_callback(callback)
+        self._battery_widget.set_update_callback(callback)
+    
     def invalidate(self) -> None:
         """Invalidate the widget cache to force re-render on next update."""
         self._last_rendered = None
