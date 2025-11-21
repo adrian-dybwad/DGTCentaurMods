@@ -30,9 +30,6 @@ class ClockWidget(Widget):
             self.format = "%H:%M:%S"
         else:
             self.format = "%H:%M"
-        # Override format if explicitly provided
-        if format:
-            self.format = format
         self.font_size = font_size
         self.font_path = font_path
         self._font = None
@@ -79,16 +76,6 @@ class ClockWidget(Widget):
                 log.error(f"Error in clock update loop: {e}")
                 time.sleep(0.1)
     
-    def set_show_seconds(self, show_seconds: bool) -> None:
-        """Set whether to show seconds in the time display."""
-        if self.show_seconds != show_seconds:
-            self.show_seconds = show_seconds
-            if show_seconds:
-                self.format = "%H:%M:%S"
-            else:
-                self.format = "%H:%M"
-            self._last_rendered_time = None  # Force update
-            self._last_rendered = None
     
     def _load_font(self):
         """Load font with fallbacks."""
