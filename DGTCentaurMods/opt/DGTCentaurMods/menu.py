@@ -36,7 +36,7 @@ from DGTCentaurMods.display.ui_components import AssetManager
 
 from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
-from DGTCentaurMods.epaper import Manager, WelcomeWidget, StatusBarWidget
+from DGTCentaurMods.epaper import Manager, WelcomeWidget, StatusBarWidget, TextWidget
 from DGTCentaurMods.epaper.framework.regions import Region
 from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.board.logging import log
@@ -221,39 +221,32 @@ class MenuRenderer:
         canvas = manager._framebuffer.get_canvas()
         draw = ImageDraw.Draw(canvas)
         
-        # Load fonts
-        font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
-        
         # Clear entire screen area below status bar first
         clear_region = Region(0, STATUS_BAR_HEIGHT, 128, 296)
         draw.rectangle([clear_region.x1, clear_region.y1, clear_region.x2, clear_region.y2], fill=255, outline=255)
         
-        # Draw title if present
+        # Draw title if present using TextWidget with 50% dithered background (level 3)
         if self.title:
             log.info(f">>> MenuRenderer.draw() drawing title: '{self.title}'")
             title_text = f"[ {self.title} ]"
             title_top = MENU_BODY_TOP_WITH_TITLE - TITLE_HEIGHT
-            title_region = Region(0, title_top, 128, title_top + TITLE_HEIGHT)
-            # Create 50% dithered pattern (checkerboard) for title background
-            dither_pattern = Image.new("1", (128, TITLE_HEIGHT), 255)
-            dither_draw = ImageDraw.Draw(dither_pattern)
-            for y in range(TITLE_HEIGHT):
-                for x in range(128):
-                    if (x + y) % 2 == 0:
-                        dither_draw.point((x, y), fill=0)
-            canvas.paste(dither_pattern, (title_region.x1, title_region.y1))
-            draw.text((0, title_top - 1), title_text, font=font_18, fill=255)
+            title_widget = TextWidget(0, 0, 128, TITLE_HEIGHT, title_text, 
+                                     background=3, font_size=18)
+            title_image = title_widget.render()
+            canvas.paste(title_image, (0, title_top))
         
-        # Draw all menu entries (matches original: plain text, no inversion)
+        # Draw all menu entries using TextWidget (white background, level 0)
+        # Position text after vertical line (arrow_width) with 2 pixel gap
+        text_x = self.arrow_width + 2
+        text_width = 128 - text_x
         log.info(f">>> MenuRenderer.draw() drawing {len(self.entries)} entries, body_top={self.body_top}")
         for idx, entry in enumerate(self.entries):
             top = self._row_top(idx)
             log.info(f">>> MenuRenderer.draw() entry {idx}: top={top}, label='{entry.label}'")
-            # Original pattern: All entries are plain text (white background, black text)
-            entry_region = Region(0, top, 128, top + self.row_height)
-            draw.rectangle([entry_region.x1, entry_region.y1, entry_region.x2, entry_region.y2], fill=255, outline=255)  # White background
-            text = f"    {entry.label}"
-            draw.text((0, top - 1), text, font=font_18, fill=0)  # Black text
+            entry_widget = TextWidget(0, 0, text_width, self.row_height, entry.label,
+                                     background=0, font_size=18)
+            entry_image = entry_widget.render()
+            canvas.paste(entry_image, (text_x, top))
         
         # Draw arrow indicator column (matches original pattern)
         arrow_region = Region(0, self.body_top, self.arrow_width, 296)
@@ -271,16 +264,19 @@ class MenuRenderer:
         # Draw vertical line (matches original)
         draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
         
-        # Draw description if present
+        # Draw description if present using TextWidget (white background, level 0)
         if self.description:
             log.info(">>> MenuRenderer.draw() drawing description")
             desc_top = self._row_top(len(self.entries)) + DESCRIPTION_GAP
-            desc_region = Region(0, desc_top, 128, 296)
+            desc_region = Region(0, desc_top, 128, 296 - desc_top)
             draw.rectangle([desc_region.x1, desc_region.y1, desc_region.x2, desc_region.y2], fill=255, outline=255)
             wrapped = self._wrap_text(self.description, max_width=desc_region.x2 - desc_region.x1 - 10)
             for idx, line in enumerate(wrapped[:9]):
                 y_pos = desc_top + 2 + (idx * 16)
-                draw.text((5, y_pos), line, font=self._description_font, fill=0)
+                desc_widget = TextWidget(5, 0, 123, 16, line,
+                                        background=0, font_size=16)
+                desc_image = desc_widget.render()
+                canvas.paste(desc_image, (5, y_pos))
         
         # NOTE: Do NOT call manager.update() here - it resets the canvas to flushed state
         # The update will be called in doMenu() after status bar is drawn
@@ -315,22 +311,15 @@ class MenuRenderer:
         manager = _get_display_manager()
         canvas = manager._framebuffer.get_canvas()
         draw = ImageDraw.Draw(canvas)
-        font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
         
-        # If title exists, redraw it to prevent fading from full-width refresh
+        # If title exists, redraw it to prevent fading from full-width refresh using TextWidget
         if self.title:
             title_top = MENU_BODY_TOP_WITH_TITLE - TITLE_HEIGHT
-            title_region = Region(0, title_top, 128, title_top + TITLE_HEIGHT)
-            # Create 50% dithered pattern (checkerboard) for title background
-            dither_pattern = Image.new("1", (128, TITLE_HEIGHT), 255)
-            dither_draw = ImageDraw.Draw(dither_pattern)
-            for y in range(TITLE_HEIGHT):
-                for x in range(128):
-                    if (x + y) % 2 == 0:
-                        dither_draw.point((x, y), fill=0)
-            canvas.paste(dither_pattern, (title_region.x1, title_region.y1))
             title_text = f"[ {self.title} ]"
-            draw.text((0, title_top - 1), title_text, font=font_18, fill=255)
+            title_widget = TextWidget(0, 0, 128, TITLE_HEIGHT, title_text,
+                                     background=3, font_size=18)
+            title_image = title_widget.render()
+            canvas.paste(title_image, (0, title_top))
         
         # Clear arrow column from body_top down
         draw.rectangle([arrow_region.x1, arrow_region.y1, arrow_region.x2, arrow_region.y2], fill=255, outline=255)
@@ -419,6 +408,7 @@ class MenuRenderer:
         service.submit_region(region)
 
     def _wrap_text(self, text: str, max_width: int) -> List[str]:
+        """Wrap text to fit within max_width using description font."""
         words = text.split()
         if not words:
             return []
