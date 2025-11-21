@@ -245,7 +245,7 @@ class EPD:
         self.send_data2(image)
         epdconfig.delay_ms(10)
         # Store image as old_buffer for next partial refresh
-        self.old_buffer = image.copy() if hasattr(image, 'copy') else list(image)
+        #self.old_buffer = image.copy() if hasattr(image, 'copy') else list(image)
 
         self.TurnOnDisplay()
         
