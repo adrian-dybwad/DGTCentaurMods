@@ -249,7 +249,7 @@ class EPD:
         Display partial refresh following Waveshare pattern.
         
         Args:
-            old_image: Buffer containing the old/previous content (sent to 0x10)
+            old_image: Buffer containing the old/previous content (sent to 0x10, inverted)
             new_image: Buffer containing the new/current content (sent to 0x13)
         """
         self.SetPartReg()
@@ -264,9 +264,12 @@ class EPD:
         self.send_data(self.height % 256 - 1)
         self.send_data(0x28)
         
-        # Send old/previous content to 0x10
+        # Invert old/previous content before sending to 0x10
+        inverted_old = [(~b) & 0xFF for b in old_image]
+        
+        # Send inverted old/previous content to 0x10
         self.send_command(0x10)
-        self.send_data2(old_image)
+        self.send_data2(inverted_old)
         epdconfig.delay_ms(10)
         
         # Send new/current content to 0x13
