@@ -36,7 +36,7 @@ from DGTCentaurMods.display.ui_components import AssetManager
 
 from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
-from DGTCentaurMods.epaper import Manager
+from DGTCentaurMods.epaper import Manager, WelcomeWidget
 from DGTCentaurMods.epaper.framework.regions import Region
 from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.board.logging import log
@@ -700,9 +700,18 @@ def show_welcome():
     log.info(">>> show_welcome() calling display manager init")
     manager = _get_display_manager()
     log.info(">>> show_welcome() display manager initialized")
-    log.info(">>> show_welcome() calling welcome_screen()")
-    welcome_screen(status_text=statusbar.build() if 'statusbar' in globals() else "READY")
-    log.info(">>> show_welcome() welcome_screen() complete")
+    
+    # Create and add welcome widget
+    status_text = statusbar.build() if 'statusbar' in globals() else "READY"
+    welcome_widget = WelcomeWidget(status_text=status_text)
+    manager.add_widget(welcome_widget)
+    
+    # Update display with full refresh to show welcome screen
+    log.info(">>> show_welcome() updating display with welcome widget")
+    future = manager.update(full=True)
+    future.result(timeout=10.0)
+    log.info(">>> show_welcome() display updated")
+    
     idle = True
     log.info(">>> show_welcome() setting idle=True, about to BLOCK on event_key.wait()")
     try:
@@ -714,6 +723,9 @@ def show_welcome():
         raise  # Re-raise to exit program
     event_key.clear()
     idle = False
+    
+    # Remove welcome widget before showing menu
+    manager._widgets.remove(welcome_widget)
     log.info(">>> show_welcome() EXITING, idle=False")
 
 
