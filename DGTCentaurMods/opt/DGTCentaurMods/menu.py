@@ -157,7 +157,7 @@ def loading_screen() -> None:
     logo = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
     canvas.paste(logo, (0, 20))
     draw.text((0, 200), "     Loading", font=font_18, fill=0)
-    future = manager.update(full=True)
+    future = manager.update(full=False)
     future.result(timeout=10.0)
 
 
