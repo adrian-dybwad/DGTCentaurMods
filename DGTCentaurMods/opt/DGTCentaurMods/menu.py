@@ -711,7 +711,6 @@ def show_welcome():
     # Remove all widgets (including welcome widget) before showing menu
     # Don't update display here - doMenu() will render the menu on a fresh white canvas
     # This avoids triggering a full flash from the scheduler's transition logic
-    manager._widgets.clear()
     log.info(">>> show_welcome() EXITING, idle=False")
 
 
