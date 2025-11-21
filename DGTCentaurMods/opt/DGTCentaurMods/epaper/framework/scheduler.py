@@ -75,7 +75,7 @@ class Scheduler:
     def _process_batch(self, batch: list) -> None:
         """Process a batch of refresh requests."""
         full_refresh = any(full for full, _ in batch)
-        
+        print(f"Scheduler._process_batch(): full_refresh={full_refresh}, partial_refresh_count={self._partial_refresh_count}")
         if full_refresh or self._partial_refresh_count >= self._max_partial_refreshes:
             self._execute_full_refresh(batch)
         else:
@@ -83,6 +83,7 @@ class Scheduler:
     
     def _execute_full_refresh(self, batch: list) -> None:
         """Execute a full screen refresh."""
+        print(f"Scheduler._execute_full_refresh(): Entering")
         try:
             # Only re-initialize if we're transitioning from partial mode to full mode
             # This ensures clean transition from partial refresh mode back to full refresh mode

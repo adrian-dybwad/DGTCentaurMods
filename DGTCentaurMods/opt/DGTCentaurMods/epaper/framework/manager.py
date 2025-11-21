@@ -155,6 +155,7 @@ class Manager:
             self._first_update = False
         
         # Submit refresh and return Future for caller to wait on
+        log.info(f"Manager.update(): Submitting refresh with full={full}")
         return self._scheduler.submit(full=full)
     
     def shutdown(self) -> None:
