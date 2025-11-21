@@ -264,20 +264,23 @@ class EPD:
         self.send_data(self.height % 256 - 1)
         self.send_data(0x28)
         
-        buf = [0x00] * int(self.width * self.height / 8)
+        buf_old = [0x00] * int(self.width * self.height / 8)
         for i in range(0, int(self.width * self.height / 8)):
-            buf[i] = ~old_image[i]
+            buf_old[i] = ~old_image[i]
+        buf_new = [0x00] * int(self.width * self.height / 8)
+        for i in range(0, int(self.width * self.height / 8)):
+            buf_new[i] = ~new_image[i]
         # Invert old/previous content before sending to 0x10
         inverted_old = [(~b) & 0xFF for b in old_image]
         
         # Send inverted old/previous content to 0x10
         self.send_command(0x10)
-        self.send_data2(buf)
+        self.send_data2(buf_old)
         epdconfig.delay_ms(10)
         
         # Send new/current content to 0x13
         self.send_command(0x13)
-        self.send_data2(new_image)
+        self.send_data2(buf_new)
         epdconfig.delay_ms(10)
           
         self.TurnOnDisplay()
