@@ -123,6 +123,8 @@ class Manager:
         for widget in static_widgets:
             widget_image = widget.render()
             widget_name = widget.__class__.__name__
+            if widget_name == "MenuArrowWidget":
+                log.info(f">>> Manager.update(): Rendering MenuArrowWidget at ({widget.x},{widget.y}), selected_index={widget.selected_index if hasattr(widget, 'selected_index') else 'N/A'}")
             #log.info(f"Manager.update(): Pasting {widget_name} at ({widget.x},{widget.y}), size={widget.width}x{widget.height}")
             
             # Get canvas state before pasting
