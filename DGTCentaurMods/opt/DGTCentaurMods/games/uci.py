@@ -86,24 +86,31 @@ class UCIGame:
     
     def _init_display(self):
         """Initialize display manager and widgets."""
+        # Clear any existing menu widgets by getting a fresh manager
+        # This ensures we start with a clean state
         self.display_manager = Manager()
         self.display_manager.init()
+        
+        # Clear the entire screen first to remove any menu content
+        canvas = self.display_manager._framebuffer.get_canvas()
+        draw = ImageDraw.Draw(canvas)
+        draw.rectangle([0, 0, 128, 296], fill=255, outline=255)
         
         # Create status bar widget at top (y=0)
         self.status_bar_widget = StatusBarWidget(0, 0)
         self.display_manager.add_widget(self.status_bar_widget)
         
-        # Create chess board widget at y=81 (matching current top=81)
+        # Create chess board widget at y=16 (below status bar)
         # Start with initial position
         initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-        self.chess_board_widget = ChessBoardWidget(0, 81, initial_fen)
+        self.chess_board_widget = ChessBoardWidget(0, 16, initial_fen)
         self.display_manager.add_widget(self.chess_board_widget)
         
-        # Create game analysis widget at bottom (y=209) for flipped evaluation
-        self.game_analysis_bottom = GameAnalysisWidget(0, 209, 128, 80)
+        # Create game analysis widget at bottom (y=144, which is 16+128) for flipped evaluation
+        self.game_analysis_bottom = GameAnalysisWidget(0, 144, 128, 80)
         self.display_manager.add_widget(self.game_analysis_bottom)
         
-        # Initial display update
+        # Initial display update with full refresh to clear any menu content
         self.display_manager.update(full=True).result(timeout=10.0)
     
     def _should_enable_graphs(self) -> bool:
@@ -376,15 +383,13 @@ class UCIGame:
         manager.resetBoard()
         
         # Clear screen by resetting widgets
+        # Widgets will trigger updates automatically via request_update()
         if self.chess_board_widget:
             self.chess_board_widget.set_fen(manager.getFEN())
         if self.game_analysis_bottom:
             self.game_analysis_bottom.clear_history()
             self.game_analysis_bottom.set_score(0.0, "0.0")
-        # Redraw status bar
-        self._draw_status_bar()
-        if self.display_manager:
-            self.display_manager.update(full=False).result(timeout=5.0)
+        # Status bar widget updates itself automatically
         
         self.score_history = []
         self.current_turn = chess.WHITE
@@ -672,7 +677,11 @@ class UCIGame:
         try:
             if self.chess_board_widget:
                 # Widget will trigger update automatically via request_update()
+                # set_fen() calls request_update() which triggers Manager.update()
                 self.chess_board_widget.set_fen(fen)
+                log.debug(f"_draw_board: Updated chess board widget with FEN: {fen[:20]}...")
+            else:
+                log.warning("_draw_board: chess_board_widget is None!")
         except Exception as e:
             log.error(f"Error in _draw_board: {e}")
             import traceback
