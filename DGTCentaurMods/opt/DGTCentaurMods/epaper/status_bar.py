@@ -26,8 +26,8 @@ class StatusBarWidget(Widget):
         if not os.path.exists(font_path):
             font_path = 'resources/Font.ttc'
         self._clock_widget = ClockWidget(2, 0, width=76, height=16, 
-                                         format="%H:%M:%S", font_size=14, font_path=font_path,
-                                         show_seconds=True)
+                                         font_size=14, font_path=font_path,
+                                         show_seconds=False)
         self._wifi_widget = WiFiStatusWidget(80, 0)
         self._battery_widget = BatteryWidget(98, 1)
     

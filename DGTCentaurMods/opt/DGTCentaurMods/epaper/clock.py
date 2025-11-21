@@ -21,7 +21,7 @@ class ClockWidget(Widget):
     """Clock widget displaying current time with automatic updates."""
     
     def __init__(self, x: int, y: int, width: int = 128, height: int = 24, 
-                 format: str = "%H:%M:%S", font_size: int = None, font_path: str = None,
+                 font_size: int = None, font_path: str = None,
                  show_seconds: bool = True):
         super().__init__(x, y, width, height)
         self.show_seconds = show_seconds
