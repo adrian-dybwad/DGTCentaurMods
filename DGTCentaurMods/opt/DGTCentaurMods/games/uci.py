@@ -386,7 +386,7 @@ class UCIGame:
             self.game_analysis_bottom.clear_history()
             self.game_analysis_bottom.set_score(0.0, "0.0")
         if self.display_manager:
-            self.display_manager.update(full=True).result(timeout=10.0)
+            self.display_manager.update(full=False).result(timeout=5.0)
         
         self.score_history = []
         self.current_turn = chess.WHITE
@@ -511,7 +511,7 @@ class UCIGame:
             self.game_analysis_bottom.clear_history()
             self.game_analysis_bottom.set_score(0.0, "0.0")
         if self.display_manager:
-            self.display_manager.update(full=True).result(timeout=10.0)
+            self.display_manager.update(full=False).result(timeout=5.0)
         
         # Display end screen
         log.info("Displaying end screen")
@@ -551,7 +551,7 @@ class UCIGame:
         if self.display_manager:
             canvas = self.display_manager._framebuffer.get_canvas()
             canvas.paste(image, (0, 0))
-            self.display_manager.update(full=True).result(timeout=10.0)
+            self.display_manager.update(full=False).result(timeout=5.0)
     
     def _handle_move(self, move_uci: str):
         """Handle a move made on the board."""

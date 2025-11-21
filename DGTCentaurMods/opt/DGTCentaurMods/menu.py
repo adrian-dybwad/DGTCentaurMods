@@ -706,10 +706,10 @@ def show_welcome():
     welcome_widget = WelcomeWidget(status_text=status_text)
     manager.add_widget(welcome_widget)
     
-    # Update display with full refresh to show welcome screen
+    # Update display with partial refresh to show welcome screen
     log.info(">>> show_welcome() updating display with welcome widget")
-    future = manager.update(full=True)
-    future.result(timeout=10.0)
+    future = manager.update(full=False)
+    future.result(timeout=5.0)
     log.info(">>> show_welcome() display updated")
     
     idle = True
