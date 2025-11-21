@@ -80,44 +80,27 @@ class Manager:
             future.set_result("not-initialized")
             return future
         
-        # Reset canvas to last flushed state (no rotation during rendering)
+        # Get canvas and clear it to white - start fresh for each update
+        # The e-paper driver handles its own state, so we just create the complete image
         canvas = self._framebuffer.get_canvas()
-        canvas.paste(self._framebuffer._flushed)
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(canvas)
+        draw.rectangle((0, 0, self._epd.width, self._epd.height), fill=255)  # Fill with white
         
         # Separate static and moving widgets
         static_widgets = []
         moving_widgets = []
-        moved_regions = []
         
         for widget in self._widgets:
             if hasattr(widget, 'get_previous_region'):
                 # Moving widget (like ball)
                 prev_region = widget.get_previous_region()
                 if prev_region.x1 != widget.x or prev_region.y1 != widget.y:
-                    moved_regions.append(prev_region)
                     moving_widgets.append(widget)
                 else:
                     static_widgets.append(widget)
             else:
                 static_widgets.append(widget)
-        
-        # Clear moved regions by re-rendering overlapping static widgets
-        for moved_region in moved_regions:
-            cleared = False
-            for static in static_widgets:
-                if moved_region.intersects(static.get_region()):
-                    static_image = static.render()
-                    canvas.paste(static_image, (static.x, static.y))
-                    cleared = True
-            
-            # If no static widget overlaps, clear with white
-            if not cleared:
-                from PIL import ImageDraw
-                draw = ImageDraw.Draw(canvas)
-                draw.rectangle(
-                    [moved_region.x1, moved_region.y1, moved_region.x2, moved_region.y2],
-                    fill=255
-                )
         
         # Render static widgets
         for widget in static_widgets:
@@ -125,20 +108,7 @@ class Manager:
             widget_name = widget.__class__.__name__
             if widget_name == "MenuArrowWidget":
                 log.info(f">>> Manager.update(): Rendering MenuArrowWidget at ({widget.x},{widget.y}), selected_index={widget.selected_index if hasattr(widget, 'selected_index') else 'N/A'}")
-            #log.info(f"Manager.update(): Pasting {widget_name} at ({widget.x},{widget.y}), size={widget.width}x{widget.height}")
-            
-            # Get canvas state before pasting
-            before_crop = canvas.crop((widget.x, widget.y, widget.x + widget.width, widget.y + widget.height))
-            before_bytes = before_crop.tobytes()
-            widget_bytes = widget_image.tobytes()
-            #log.info(f"Manager.update(): Before paste - canvas region hash={hash(before_bytes)}, widget hash={hash(widget_bytes)}")
-            
             canvas.paste(widget_image, (widget.x, widget.y))
-            
-            # Get canvas state after pasting
-            after_crop = canvas.crop((widget.x, widget.y, widget.x + widget.width, widget.y + widget.height))
-            after_bytes = after_crop.tobytes()
-            #log.info(f"Manager.update(): After paste - canvas region hash={hash(after_bytes)}, changed={before_bytes != after_bytes}")
         
         # Render moving widgets last (on top)
         for widget in moving_widgets:
@@ -149,9 +119,7 @@ class Manager:
             else:
                 canvas.paste(widget_image, (widget.x, widget.y))
         
-        
         # Submit refresh and return Future for caller to wait on
-        #log.info(f"Manager.update(): Submitting refresh with full={full}")
         return self._scheduler.submit(full=full)
     
     def shutdown(self) -> None:

@@ -740,7 +740,7 @@ class AsyncCentaur:
         last_key_pressed = self._last_key
         self._last_key = None
         return last_key_pressed
-    
+
     def get_next_key(self, timeout=0.0):
         """
         Get the next key from the queue (non-blocking by default).

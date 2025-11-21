@@ -22,8 +22,10 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.games import manager
-from DGTCentaurMods.epaper import Manager, ChessBoardWidget, GameAnalysisWidget, StatusBarWidget
+from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget, StatusBarWidget, TextWidget
+from DGTCentaurMods.epaper.game_over import GameOverWidget
 from DGTCentaurMods.display.ui_components import AssetManager
+from DGTCentaurMods.menu import _get_display_manager
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
 
@@ -36,7 +38,7 @@ import os
 import threading
 from random import randint
 import configparser
-from PIL import Image, ImageDraw, ImageFont
+# PIL imports no longer needed - all drawing is done via widgets
 import signal
 
 
@@ -86,19 +88,21 @@ class UCIGame:
     
     def _init_display(self):
         """Initialize display manager and widgets."""
-        # Clear any existing menu widgets by getting a fresh manager
-        # This ensures we start with a clean state
-        self.display_manager = Manager()
-        self.display_manager.init()
+        # Use the global display manager from menu.py
+        # This ensures we use the same Manager instance that controls the hardware
+        self.display_manager = _get_display_manager()
         
-        # Clear the entire screen first to remove any menu content
-        canvas = self.display_manager._framebuffer.get_canvas()
-        draw = ImageDraw.Draw(canvas)
-        draw.rectangle([0, 0, 128, 296], fill=255, outline=255)
+        # Clear all widgets except status bar (which is managed globally)
+        from DGTCentaurMods.menu import status_bar_widget
+        widgets_to_keep = []
+        if status_bar_widget and status_bar_widget in self.display_manager._widgets:
+            widgets_to_keep.append(status_bar_widget)
         
-        # Create status bar widget at top (y=0)
-        self.status_bar_widget = StatusBarWidget(0, 0)
-        self.display_manager.add_widget(self.status_bar_widget)
+        self.display_manager._widgets.clear()
+        self.display_manager._widgets.extend(widgets_to_keep)
+        
+        # Use the global status bar widget
+        self.status_bar_widget = status_bar_widget
         
         # Create chess board widget at y=16 (below status bar)
         # Start with initial position
@@ -255,17 +259,17 @@ class UCIGame:
         # Clean up engines
         self._cleanup_engines()
         
-        # Clean up display
+        # Clean up display widgets (but don't shutdown the global manager)
         try:
             if self.display_manager:
-                # Remove widgets
-                if self.status_bar_widget and self.status_bar_widget in self.display_manager._widgets:
-                    self.display_manager._widgets.remove(self.status_bar_widget)
+                # Remove only our widgets, not the global status bar
+                from DGTCentaurMods.menu import status_bar_widget
                 if self.chess_board_widget and self.chess_board_widget in self.display_manager._widgets:
                     self.display_manager._widgets.remove(self.chess_board_widget)
                 if self.game_analysis_bottom and self.game_analysis_bottom in self.display_manager._widgets:
                     self.display_manager._widgets.remove(self.game_analysis_bottom)
-                self.display_manager.shutdown()
+                # Don't remove status_bar_widget - it's managed globally
+                # Don't call shutdown() - the global manager should stay alive
         except Exception as e:
             log.error(f"Error cleaning up display: {e}")
         
@@ -486,22 +490,30 @@ class UCIGame:
         """Handle game termination event."""
         termination_type = termination_event[12:]  # Remove "Termination." prefix
         
-        # Display termination message
-        image = Image.new('1', (128, 12), 255)
-        draw = ImageDraw.Draw(image)
-        font12 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 12)
-        draw.text((30, 0), termination_type, font=font12, fill=0)
-        
-        # Draw to framebuffer directly
+        # Display termination message using TextWidget
         if self.display_manager:
-            canvas = self.display_manager._framebuffer.get_canvas()
-            canvas.paste(image, (0, 221))
+            # Remove existing widgets except global status bar
+            from DGTCentaurMods.menu import status_bar_widget
+            widgets_to_keep = []
+            if status_bar_widget and status_bar_widget in self.display_manager._widgets:
+                widgets_to_keep.append(status_bar_widget)
+            
+            self.display_manager._widgets.clear()
+            self.display_manager._widgets.extend(widgets_to_keep)
+            
+            # Create termination message widget at bottom (y=221)
+            termination_widget = TextWidget(30, 221, 98, 12, termination_type, 
+                                           background=0, font_size=12)
+            self.display_manager.add_widget(termination_widget)
             self.display_manager.update(full=False).result(timeout=5.0)
+            
             time.sleep(0.3)
             
-            image = image.transpose(Image.FLIP_TOP_BOTTOM)
-            image = image.transpose(Image.FLIP_LEFT_RIGHT)
-            canvas.paste(image, (0, 57))
+            # Move termination message to top (y=57)
+            self.display_manager._widgets.remove(termination_widget)
+            termination_widget = TextWidget(30, 57, 98, 12, termination_type, 
+                                           background=0, font_size=12)
+            self.display_manager.add_widget(termination_widget)
             self.display_manager.update(full=False).result(timeout=5.0)
         
         # Clear screen by resetting widgets
@@ -519,38 +531,28 @@ class UCIGame:
         self.should_stop = True
     
     def _draw_end_screen(self):
-        """Draw the game over screen."""
-        image = Image.new('1', (128, 292), 255)
-        draw = ImageDraw.Draw(image)
-        font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
+        """Draw the game over screen using GameOverWidget."""
+        if not self.display_manager:
+            return
         
-        draw.text((0, 0), "   GAME OVER", font=font18, fill=0)
+        # Remove all widgets except global status bar
+        from DGTCentaurMods.menu import status_bar_widget
+        widgets_to_keep = []
+        if status_bar_widget and status_bar_widget in self.display_manager._widgets:
+            widgets_to_keep.append(status_bar_widget)
+        
+        self.display_manager._widgets.clear()
+        self.display_manager._widgets.extend(widgets_to_keep)
+        
+        # Create game over widget
         result = manager.getResult()
-        draw.text((0, 20), "          " + result, font=font18, fill=0)
+        game_over_widget = GameOverWidget(0, 0, 128, 296)
+        game_over_widget.set_result(result)
+        game_over_widget.set_score_history(self.score_history)
+        self.display_manager.add_widget(game_over_widget)
         
-        # Draw score history if available
-        if len(self.score_history) > 0:
-            log.info("Drawing score history")
-            draw.line([(0, 114), (128, 114)], fill=0, width=1)
-            bar_width = 128 / len(self.score_history)
-            if bar_width > 8:
-                bar_width = 8
-            
-            bar_offset = 0
-            for score in self.score_history:
-                color = 255 if score >= 0 else 0
-                draw.rectangle(
-                    [(bar_offset, 114), (bar_offset + bar_width, 114 - (score * 4))],
-                    fill=color,
-                    outline=0
-                )
-                bar_offset += bar_width
-        
-        # Draw to framebuffer directly
-        if self.display_manager:
-            canvas = self.display_manager._framebuffer.get_canvas()
-            canvas.paste(image, (0, 0))
-            self.display_manager.update(full=False).result(timeout=5.0)
+        # Update display
+        self.display_manager.update(full=False).result(timeout=5.0)
     
     def _handle_move(self, move_uci: str):
         """Handle a move made on the board."""
