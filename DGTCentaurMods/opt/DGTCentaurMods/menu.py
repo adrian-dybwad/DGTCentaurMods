@@ -205,6 +205,8 @@ class MenuRenderer:
         self.arrow_width = 20
         self.selected_index = 0
         self._description_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
+        self._last_change_time = 0.0  # Timestamp of last change_selection call for debouncing
+        self._change_lock = threading.Lock()  # Lock to prevent concurrent changes
 
     def max_index(self) -> int:
         return max(0, len(self.entries) - 1)
@@ -286,6 +288,8 @@ class MenuRenderer:
         Matches original implementation exactly: Only redraw the arrow indicator column.
         The original code does NOT redraw menu entries - they stay as plain text.
         Only the arrow column (full height) is redrawn and refreshed.
+        
+        Includes debouncing to prevent rapid state accumulation from multiple key presses.
         """
         if not self.entries:
             return
@@ -293,8 +297,27 @@ class MenuRenderer:
         if new_index == self.selected_index:
             return
         
-        # Update selection index
-        self.selected_index = new_index
+        # Use lock to prevent concurrent modifications
+        with self._change_lock:
+            # Double-check selected_index hasn't changed while waiting for lock
+            if new_index == self.selected_index:
+                return
+            
+            # Debounce: If called too quickly after previous call, update index but skip redraw
+            # The next iteration will process this change after the scheduler has processed the previous one
+            import time
+            current_time = time.time()
+            time_since_last = current_time - self._last_change_time
+            if time_since_last < 0.05:  # 50ms debounce window
+                # Update the target index - the next call (after debounce window) will redraw
+                # This prevents multiple rapid redraws from accumulating state
+                log.debug(f"[MenuRenderer] Debouncing change_selection: {time_since_last*1000:.1f}ms since last change, updating index to {new_index}")
+                self.selected_index = new_index
+                return
+            
+            # Update selection index and timestamp
+            self.selected_index = new_index
+            self._last_change_time = current_time
         
         # Original pattern: Only redraw the arrow indicator column
         # CRITICAL: _expand_region() expands partial refreshes to FULL WIDTH (0-128)
@@ -338,7 +361,8 @@ class MenuRenderer:
         # Submit partial refresh directly to scheduler (bypassing Manager.update() which resets canvas)
         # This will detect dirty regions and do a partial refresh
         # Use immediate=True to wake scheduler immediately for responsive menu navigation
-        # Don't wait for completion - return immediately so key presses aren't missed
+        # The scheduler will process this immediately without batching, and debouncing prevents
+        # rapid subsequent calls from modifying the canvas before the snapshot is taken
         manager._scheduler.submit(full=False, immediate=True)
 
     def _row_top(self, idx: int) -> int:
