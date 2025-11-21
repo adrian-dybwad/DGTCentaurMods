@@ -398,6 +398,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 to = time.time() + tout
                 events_paused = False
 
+            key_pressed = None
             # Process all queued keys to avoid missing rapid presses
             # Drain the queue to process all pending keys in this iteration
             keys_to_process = []
@@ -424,22 +425,21 @@ def eventsThread(keycallback, fieldcallback, tout):
                         log.error(f"Error in piece detection thread: {e}")
 
             try:
-                # CRITICAL FIX: Consume from queue instead of single _last_key value
-                # This ensures all keys are processed, not just the last one
-                # Drain queue to get all pending keys
-                while True:
-                    key = controller.get_next_key(timeout=0.0)  # Non-blocking
-                    if key is None:
-                        break
-                    keys_to_process.append(key)
-                
-                # Fallback to _last_key for backward compatibility (if queue is empty)
-                if not keys_to_process:
-                    key_pressed = controller.get_and_reset_last_key()
-                    if key_pressed is not None:
-                        keys_to_process.append(key_pressed)
+                # Consume from queue to ensure all keys are processed, not just the last one
+                # This prevents missing rapid key presses
+                if hasattr(controller, 'get_next_key'):
+                    while True:
+                        key = controller.get_next_key(timeout=0.0)  # Non-blocking
+                        if key is None:
+                            break
+                        keys_to_process.append(key)
+                        log.debug(f"[board.events] Got key from queue: {key}")
                 else:
-                    key_pressed = keys_to_process[0]  # Use first key for PLAY button logic
+                    log.error("[board.events] Controller doesn't have get_next_key() method - keys will not be detected!")
+                
+                # Use first key for PLAY button logic
+                if keys_to_process:
+                    key_pressed = keys_to_process[0]
 
                 if key_pressed == Key.PLAY:
                     breaktime = time.time() + 0.5
