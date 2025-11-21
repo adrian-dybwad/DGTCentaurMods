@@ -36,8 +36,8 @@ from DGTCentaurMods.display.ui_components import AssetManager
 
 from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
-from DGTCentaurMods.display.epaper_service import service, widgets
-from DGTCentaurMods.display.epaper_service.regions import Region
+from DGTCentaurMods.epaper import Manager
+from DGTCentaurMods.epaper.framework.regions import Region
 from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.board.logging import log
 
@@ -50,23 +50,137 @@ game_folder = "games"
 event_key = threading.Event()
 idle = False # ensure defined before keyPressed can be called
 
-MENU_ROW_HEIGHT = widgets.MENU_ROW_HEIGHT
-MENU_BODY_TOP_WITH_TITLE = widgets.MENU_TOP
-MENU_BODY_TOP_NO_TITLE = widgets.STATUS_BAR_HEIGHT + widgets.TITLE_GAP
+# Constants matching old widgets module
+STATUS_BAR_HEIGHT = 16
+TITLE_GAP = 8
+TITLE_HEIGHT = 24
+TITLE_TOP = STATUS_BAR_HEIGHT + TITLE_GAP
+MENU_TOP = TITLE_TOP + TITLE_HEIGHT
+MENU_ROW_HEIGHT = 24
+MENU_BODY_TOP_WITH_TITLE = MENU_TOP
+MENU_BODY_TOP_NO_TITLE = STATUS_BAR_HEIGHT + TITLE_GAP
 DESCRIPTION_GAP = 8
+
+# Global display manager
+display_manager: Optional[Manager] = None
 
 current_renderer: Optional["MenuRenderer"] = None
 
 
-def _paint_region(region: Region, painter: Callable[[object], None]) -> None:
-    with service.acquire_canvas() as canvas:
-        painter(canvas)
-        canvas.mark_dirty(region)
-    service.submit_region(region)
+def _get_display_manager() -> Manager:
+    """Get or create the global display manager."""
+    global display_manager
+    if display_manager is None:
+        display_manager = Manager()
+        display_manager.init()
+    return display_manager
+
+
+def _paint_region(region: Region, painter: Callable[[Image.Image, ImageDraw.ImageDraw], None]) -> None:
+    """Paint a region using the display manager's framebuffer."""
+    manager = _get_display_manager()
+    canvas = manager._framebuffer.get_canvas()
+    draw = ImageDraw.Draw(canvas)
+    painter(canvas, draw)
+    # Update display - the scheduler will handle dirty regions
+    manager.update(full=False)
 
 
 def _clear_rect(x1: int, y1: int, x2: int, y2: int) -> None:
-    widgets.clear_area(Region(x1, y1, x2, y2))
+    """Clear a rectangular area."""
+    manager = _get_display_manager()
+    canvas = manager._framebuffer.get_canvas()
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle([x1, y1, x2, y2], fill=255, outline=255)
+    manager.update(full=False)
+
+
+def _draw_battery_icon_to_canvas(canvas: Image.Image, top_padding: int = 2) -> None:
+    """Draw battery icon directly to canvas (for use within canvas context)."""
+    indicator = "battery1"
+    if board.batterylevel >= 18:
+        indicator = "battery4"
+    elif board.batterylevel >= 12:
+        indicator = "battery3"
+    elif board.batterylevel >= 6:
+        indicator = "battery2"
+    if board.chargerconnected > 0:
+        indicator = "batteryc"
+        if board.batterylevel == 20:
+            indicator = "batterycf"
+    path = AssetManager.get_resource_path(f"{indicator}.bmp")
+    image = Image.open(path)
+    canvas.paste(image, (98, top_padding))
+
+
+def clear_screen() -> None:
+    """Clear the entire screen."""
+    log.info(">>> clear_screen() ENTERED")
+    manager = _get_display_manager()
+    canvas = manager._framebuffer.get_canvas()
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle([0, 0, 128, 296], fill=255, outline=255)
+    log.info(">>> clear_screen() canvas cleared, submitting full refresh")
+    future = manager.update(full=True)
+    future.result(timeout=10.0)
+    log.info(">>> clear_screen() EXITING")
+
+
+def write_text(row: int, text: str, *, inverted: bool = False) -> None:
+    """Write text at a specific row."""
+    ROW_HEIGHT = 20
+    top = row * ROW_HEIGHT
+    manager = _get_display_manager()
+    canvas = manager._framebuffer.get_canvas()
+    draw = ImageDraw.Draw(canvas)
+    font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
+    fill, fg = (0, 255) if inverted else (255, 0)
+    draw.rectangle([0, top, 128, top + ROW_HEIGHT], fill=fill, outline=fill)
+    draw.text((0, top - 1), text, font=font_18, fill=fg)
+    manager.update(full=False)
+
+
+def loading_screen() -> None:
+    """Display loading screen."""
+    manager = _get_display_manager()
+    canvas = manager._framebuffer.get_canvas()
+    draw = ImageDraw.Draw(canvas)
+    font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
+    logo = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
+    canvas.paste(logo, (0, 20))
+    draw.text((0, 200), "     Loading", font=font_18, fill=0)
+    future = manager.update(full=True)
+    future.result(timeout=10.0)
+
+
+def welcome_screen(status_text: str = "READY") -> None:
+    """Display welcome screen."""
+    from DGTCentaurMods.board.logging import log
+    log.info(f">>> welcome_screen() ENTERED with status_text='{status_text}'")
+    manager = _get_display_manager()
+    canvas = manager._framebuffer.get_canvas()
+    draw = ImageDraw.Draw(canvas)
+    font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
+    status_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
+    
+    # Draw status bar
+    status_region = Region(0, 0, 128, STATUS_BAR_HEIGHT)
+    draw.rectangle([status_region.x1, status_region.y1, status_region.x2, status_region.y2], fill=255, outline=255)
+    draw.text((2, -1), status_text, font=status_font, fill=0)
+    # Draw battery icon
+    _draw_battery_icon_to_canvas(canvas, top_padding=1)
+    
+    # Draw welcome content
+    welcome_region = Region(0, STATUS_BAR_HEIGHT, 128, 296)
+    draw.rectangle([welcome_region.x1, welcome_region.y1, welcome_region.x2, welcome_region.y2], fill=255, outline=255)
+    logo = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
+    canvas.paste(logo, (0, STATUS_BAR_HEIGHT + 4))
+    draw.text((0, STATUS_BAR_HEIGHT + 180), "   Press [>||]", font=font_18, fill=0)
+    
+    log.info(">>> welcome_screen() canvas updated, submitting full refresh")
+    future = manager.update(full=True)
+    future.result(timeout=10.0)
+    log.info(">>> welcome_screen() EXITING")
 
 
 @dataclass
@@ -97,66 +211,65 @@ class MenuRenderer:
         # Draw everything in a single canvas operation to ensure atomicity
         # CRITICAL: Clear the entire menu area first, then draw menu content
         log.info(">>> MenuRenderer.draw() acquiring canvas for all menu drawing")
-        with service.acquire_canvas() as canvas:
-            draw = canvas.draw
-            
-            # Clear entire screen area below status bar first
-            clear_region = Region(0, widgets.STATUS_BAR_HEIGHT, 128, 296)
-            draw.rectangle(clear_region.to_box(), fill=255, outline=255)
-            canvas.mark_dirty(clear_region)
-            
-            # Draw title if present
-            if self.title:
-                log.info(f">>> MenuRenderer.draw() drawing title: '{self.title}'")
-                title_text = f"[ {self.title} ]"
-                title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
-                title_region = Region(0, title_top, 128, title_top + widgets.TITLE_HEIGHT)
-                draw.rectangle(title_region.to_box(), fill=0, outline=0)
-                draw.text((0, title_top - 1), title_text, font=widgets.FONT_18, fill=255)
-                canvas.mark_dirty(title_region)
-            
-            # Draw all menu entries (matches original: plain text, no inversion)
-            log.info(f">>> MenuRenderer.draw() drawing {len(self.entries)} entries, body_top={self.body_top}")
-            for idx, entry in enumerate(self.entries):
-                top = self._row_top(idx)
-                log.info(f">>> MenuRenderer.draw() entry {idx}: top={top}, label='{entry.label}'")
-                # Original pattern: All entries are plain text (white background, black text)
-                entry_region = Region(0, top, 128, top + self.row_height)
-                draw.rectangle(entry_region.to_box(), fill=255, outline=255)  # White background
-                text = f"    {entry.label}"
-                draw.text((0, top - 1), text, font=widgets.FONT_18, fill=0)  # Black text
-                canvas.mark_dirty(entry_region)
-            
-            # Draw arrow indicator column (matches original pattern)
-            arrow_region = Region(0, self.body_top, self.arrow_width, 296)
-            draw.rectangle(arrow_region.to_box(), fill=255, outline=255)  # Clear arrow column
-            # Draw arrow at selected position
-            selected_top = self._row_top(self.selected_index)
-            draw.polygon(
-                [
-                    (2, selected_top + 2),
-                    (2, selected_top + self.row_height - 2),
-                    (self.arrow_width - 3, selected_top + (self.row_height // 2)),
-                ],
-                fill=0,
-            )
-            # Draw vertical line (matches original)
-            draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
-            canvas.mark_dirty(arrow_region)
-            
-            # Draw description if present
-            if self.description:
-                log.info(">>> MenuRenderer.draw() drawing description")
-                desc_top = self._row_top(len(self.entries)) + DESCRIPTION_GAP
-                desc_region = Region(0, desc_top, 128, 296)
-                draw.rectangle(desc_region.to_box(), fill=255, outline=255)
-                wrapped = self._wrap_text(self.description, max_width=desc_region.x2 - desc_region.x1 - 10)
-                for idx, line in enumerate(wrapped[:9]):
-                    y_pos = desc_top + 2 + (idx * 16)
-                    draw.text((5, y_pos), line, font=self._description_font, fill=0)
-                canvas.mark_dirty(desc_region)
+        manager = _get_display_manager()
+        canvas = manager._framebuffer.get_canvas()
+        draw = ImageDraw.Draw(canvas)
         
-        log.info(">>> MenuRenderer.draw() canvas released, EXITING")
+        # Load fonts
+        font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
+        
+        # Clear entire screen area below status bar first
+        clear_region = Region(0, STATUS_BAR_HEIGHT, 128, 296)
+        draw.rectangle([clear_region.x1, clear_region.y1, clear_region.x2, clear_region.y2], fill=255, outline=255)
+        
+        # Draw title if present
+        if self.title:
+            log.info(f">>> MenuRenderer.draw() drawing title: '{self.title}'")
+            title_text = f"[ {self.title} ]"
+            title_top = MENU_BODY_TOP_WITH_TITLE - TITLE_HEIGHT
+            title_region = Region(0, title_top, 128, title_top + TITLE_HEIGHT)
+            draw.rectangle([title_region.x1, title_region.y1, title_region.x2, title_region.y2], fill=0, outline=0)
+            draw.text((0, title_top - 1), title_text, font=font_18, fill=255)
+        
+        # Draw all menu entries (matches original: plain text, no inversion)
+        log.info(f">>> MenuRenderer.draw() drawing {len(self.entries)} entries, body_top={self.body_top}")
+        for idx, entry in enumerate(self.entries):
+            top = self._row_top(idx)
+            log.info(f">>> MenuRenderer.draw() entry {idx}: top={top}, label='{entry.label}'")
+            # Original pattern: All entries are plain text (white background, black text)
+            entry_region = Region(0, top, 128, top + self.row_height)
+            draw.rectangle([entry_region.x1, entry_region.y1, entry_region.x2, entry_region.y2], fill=255, outline=255)  # White background
+            text = f"    {entry.label}"
+            draw.text((0, top - 1), text, font=font_18, fill=0)  # Black text
+        
+        # Draw arrow indicator column (matches original pattern)
+        arrow_region = Region(0, self.body_top, self.arrow_width, 296)
+        draw.rectangle([arrow_region.x1, arrow_region.y1, arrow_region.x2, arrow_region.y2], fill=255, outline=255)  # Clear arrow column
+        # Draw arrow at selected position
+        selected_top = self._row_top(self.selected_index)
+        draw.polygon(
+            [
+                (2, selected_top + 2),
+                (2, selected_top + self.row_height - 2),
+                (self.arrow_width - 3, selected_top + (self.row_height // 2)),
+            ],
+            fill=0,
+        )
+        # Draw vertical line (matches original)
+        draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
+        
+        # Draw description if present
+        if self.description:
+            log.info(">>> MenuRenderer.draw() drawing description")
+            desc_top = self._row_top(len(self.entries)) + DESCRIPTION_GAP
+            desc_region = Region(0, desc_top, 128, 296)
+            draw.rectangle([desc_region.x1, desc_region.y1, desc_region.x2, desc_region.y2], fill=255, outline=255)
+            wrapped = self._wrap_text(self.description, max_width=desc_region.x2 - desc_region.x1 - 10)
+            for idx, line in enumerate(wrapped[:9]):
+                y_pos = desc_top + 2 + (idx * 16)
+                draw.text((5, y_pos), line, font=self._description_font, fill=0)
+        
+        log.info(">>> MenuRenderer.draw() canvas updated, EXITING")
 
     def change_selection(self, new_index: int) -> None:
         """
@@ -184,41 +297,40 @@ class MenuRenderer:
         # to prevent fading. The expanded region will include the title area anyway.
         arrow_region = Region(0, self.body_top, self.arrow_width, 295)
         
-        with service.acquire_canvas() as canvas:
-            draw = canvas.draw
-            
-            # If title exists, redraw it to prevent fading from full-width refresh
-            if self.title:
-                title_top = MENU_BODY_TOP_WITH_TITLE - widgets.TITLE_HEIGHT
-                title_region = Region(0, title_top, 128, title_top + widgets.TITLE_HEIGHT)
-                draw.rectangle(title_region.to_box(), fill=0, outline=0)
-                title_text = f"[ {self.title} ]"
-                draw.text((0, title_top - 1), title_text, font=widgets.FONT_18, fill=255)
-                canvas.mark_dirty(title_region)
-            
-            # Clear arrow column from body_top down
-            draw.rectangle(arrow_region.to_box(), fill=255, outline=255)
-            
-            # Draw arrow at new selection position
-            arrow_top = self._row_top(new_index)
-            draw.polygon(
-                [
-                    (2, arrow_top + 2),
-                    (2, arrow_top + self.row_height - 2),
-                    (self.arrow_width - 3, arrow_top + (self.row_height // 2)),
-                ],
-                fill=0,
-            )
-            
-            # Draw vertical line from body_top
-            draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
-            
-            canvas.mark_dirty(arrow_region)
+        manager = _get_display_manager()
+        canvas = manager._framebuffer.get_canvas()
+        draw = ImageDraw.Draw(canvas)
+        font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
+        
+        # If title exists, redraw it to prevent fading from full-width refresh
+        if self.title:
+            title_top = MENU_BODY_TOP_WITH_TITLE - TITLE_HEIGHT
+            title_region = Region(0, title_top, 128, title_top + TITLE_HEIGHT)
+            draw.rectangle([title_region.x1, title_region.y1, title_region.x2, title_region.y2], fill=0, outline=0)
+            title_text = f"[ {self.title} ]"
+            draw.text((0, title_top - 1), title_text, font=font_18, fill=255)
+        
+        # Clear arrow column from body_top down
+        draw.rectangle([arrow_region.x1, arrow_region.y1, arrow_region.x2, arrow_region.y2], fill=255, outline=255)
+        
+        # Draw arrow at new selection position
+        arrow_top = self._row_top(new_index)
+        draw.polygon(
+            [
+                (2, arrow_top + 2),
+                (2, arrow_top + self.row_height - 2),
+                (self.arrow_width - 3, arrow_top + (self.row_height // 2)),
+            ],
+            fill=0,
+        )
+        
+        # Draw vertical line from body_top
+        draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
         
         # Refresh only the arrow column region (matches original: Region(0, 20 + shift, 20, 295))
         # _expand_region() will expand this to full width, but we submit just the arrow column
         # Full-width refresh only happens in doMenu() when navigating to a NEW submenu
-        service.submit_region(arrow_region, await_completion=False)
+        manager.update(full=False)
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
@@ -429,9 +541,9 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     global selection
     global quickselect
     global event_key
-    log.info(">>> doMenu: ensuring service is initialized")
-    service.init()
-    log.info(">>> doMenu: service.init() complete")
+    log.info(">>> doMenu: ensuring display manager is initialized")
+    manager = _get_display_manager()
+    log.info(">>> doMenu: display manager initialized")
     
     # CRITICAL: Don't clear screen separately - draw menu directly over existing content
     # Clearing then immediately drawing causes rapid successive full refreshes that interfere
@@ -457,10 +569,10 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     log.info(">>> doMenu: renderer.draw() complete, menu content is in framebuffer")
     
     # Verify framebuffer has menu content before proceeding
-    snapshot_before_status = service.snapshot()
+    snapshot_before_status = manager._framebuffer.snapshot()
     log.info(f">>> doMenu: Framebuffer snapshot after menu draw: size={snapshot_before_status.size}")
     # Check if menu area has content (sample a few pixels)
-    menu_area = snapshot_before_status.crop((0, widgets.STATUS_BAR_HEIGHT, 128, widgets.STATUS_BAR_HEIGHT + 50))
+    menu_area = snapshot_before_status.crop((0, STATUS_BAR_HEIGHT, 128, STATUS_BAR_HEIGHT + 50))
     pixels = list(menu_area.getdata())
     non_white_pixels = sum(1 for p in pixels if p != 255)
     log.info(f">>> doMenu: Menu area has {non_white_pixels} non-white pixels out of {len(pixels)} total")
@@ -470,33 +582,28 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     # Draw status bar directly to framebuffer (don't submit region yet)
     log.info(">>> doMenu: drawing status bar to framebuffer")
     status_text = statusbar.build()
-    with service.acquire_canvas() as canvas:
-        draw = canvas.draw
-        status_region = Region(0, 0, 128, widgets.STATUS_BAR_HEIGHT)
-        draw.rectangle(status_region.to_box(), fill=255, outline=255)
-        draw.text((2, -1), status_text, font=widgets.STATUS_FONT, fill=0)
-        canvas.mark_dirty(status_region)
-        # Draw battery icon
-        from DGTCentaurMods.display.epaper_service.widgets import _draw_battery_icon_to_canvas
-        _draw_battery_icon_to_canvas(canvas, top_padding=1)
+    canvas = manager._framebuffer.get_canvas()
+    draw = ImageDraw.Draw(canvas)
+    status_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
+    status_region = Region(0, 0, 128, STATUS_BAR_HEIGHT)
+    draw.rectangle([status_region.x1, status_region.y1, status_region.x2, status_region.y2], fill=255, outline=255)
+    draw.text((2, -1), status_text, font=status_font, fill=0)
+    # Draw battery icon
+    _draw_battery_icon_to_canvas(canvas, top_padding=1)
     
     log.info(">>> doMenu: status bar drawn to framebuffer")
     # Verify final framebuffer state
-    snapshot_final = service.snapshot()
-    menu_area_final = snapshot_final.crop((0, widgets.STATUS_BAR_HEIGHT, 128, widgets.STATUS_BAR_HEIGHT + 50))
+    snapshot_final = manager._framebuffer.snapshot()
+    menu_area_final = snapshot_final.crop((0, STATUS_BAR_HEIGHT, 128, STATUS_BAR_HEIGHT + 50))
     pixels_final = list(menu_area_final.getdata())
     non_white_final = sum(1 for p in pixels_final if p != 255)
     log.info(f">>> doMenu: Final framebuffer menu area has {non_white_final} non-white pixels")
     
-    # Wait for any pending refreshes from previous menu navigation before submitting new menu
-    log.info(">>> doMenu: waiting for all pending refreshes before submitting new menu full refresh")
-    service.await_all_pending()
-    log.info(">>> doMenu: all pending refreshes complete, submitting full refresh to display menu")
-    
     # Submit full refresh to display everything (menu + status bar)
     import time
     submit_start = time.time()
-    service.submit_full(await_completion=True)
+    future = manager.update(full=True)
+    future.result(timeout=10.0)  # Wait for completion
     submit_duration = time.time() - submit_start
     log.info(f">>> doMenu: full refresh complete after {submit_duration:.3f}s, about to BLOCK on event_key.wait()")
     try:
@@ -516,8 +623,53 @@ def changedCallback(piece_event, field, time_in_seconds):
 
 
 # Turn Leds off, beep, clear DGT Centaur Serial
-service.init()
-statusbar = widgets.status_bar()
+_get_display_manager()  # Initialize display
+# Create a simple statusbar class
+class StatusBar:
+    """Simple helper that prints time + battery indicator."""
+    def __init__(self) -> None:
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+
+    def build(self) -> str:
+        clock = time.strftime("%H:%M")
+        return clock
+
+    def print_once(self) -> None:
+        manager = _get_display_manager()
+        canvas = manager._framebuffer.get_canvas()
+        draw = ImageDraw.Draw(canvas)
+        status_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
+        status_region = Region(0, 0, 128, STATUS_BAR_HEIGHT)
+        draw.rectangle([status_region.x1, status_region.y1, status_region.x2, status_region.y2], fill=255, outline=255)
+        draw.text((2, -1), self.build(), font=status_font, fill=0)
+        _draw_battery_icon_to_canvas(canvas, top_padding=1)
+        manager.update(full=False)
+
+    def print(self) -> None:
+        self.print_once()
+
+    def start(self) -> None:
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._loop, name="epaper-status-bar", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=0.5)
+            self._thread = None
+
+    def _loop(self) -> None:
+        """Status bar update loop."""
+        time.sleep(30)
+        while self._running:
+            self.print_once()
+            time.sleep(30)
+
+statusbar = StatusBar()
 update = centaur.UpdateSystem()
 log.info("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
@@ -538,12 +690,12 @@ log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
 def show_welcome():
     global idle
     log.info(">>> show_welcome() ENTERED")
-    log.info(">>> show_welcome() calling service.init()")
-    service.init()
-    log.info(">>> show_welcome() service.init() complete")
-    log.info(">>> show_welcome() calling widgets.welcome_screen()")
-    widgets.welcome_screen(status_text=statusbar.build() if 'statusbar' in globals() else "READY")
-    log.info(">>> show_welcome() widgets.welcome_screen() complete")
+    log.info(">>> show_welcome() calling display manager init")
+    manager = _get_display_manager()
+    log.info(">>> show_welcome() display manager initialized")
+    log.info(">>> show_welcome() calling welcome_screen()")
+    welcome_screen(status_text=statusbar.build() if 'statusbar' in globals() else "READY")
+    log.info(">>> show_welcome() welcome_screen() complete")
     idle = True
     log.info(">>> show_welcome() setting idle=True, about to BLOCK on event_key.wait()")
     try:
@@ -613,7 +765,7 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
     # Register signal handler for graceful shutdown
     original_handler = signal.signal(signal.SIGINT, signal_handler)
     try:
-        widgets.loading_screen()
+        loading_screen()
         board.pauseEvents()
         board.cleanup(leds_off=True)
         statusbar.stop()
@@ -640,10 +792,10 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         # Restore original signal handler
         signal.signal(signal.SIGINT, original_handler)
         log.info(">>> Reinitializing after external script...")
-        service.init()
-        log.info(">>> service.init() complete")
-        widgets.clear_screen()
-        log.info(">>> widgets.clear_screen() complete")
+        _get_display_manager()  # Reinitialize display
+        log.info(">>> display manager initialized")
+        clear_screen()
+        log.info(">>> clear_screen() complete")
         board.run_background(start_key_polling=start_key_polling)
         log.info(">>> board.run_background() complete")
         board.unPauseEvents()
@@ -662,16 +814,16 @@ def bluetooth_pairing():
     """
     from DGTCentaurMods.board.bluetooth_controller import BluetoothController
     
-    widgets.clear_screen()
-    widgets.write_text(0, "Pair Now use")
-    widgets.write_text(1, "any passcode if")
-    widgets.write_text(2, "prompted.")
-    widgets.write_text(4, "Times out in")
-    widgets.write_text(5, "one minute.")
+    clear_screen()
+    write_text(0, "Pair Now use")
+    write_text(1, "any passcode if")
+    write_text(2, "prompted.")
+    write_text(4, "Times out in")
+    write_text(5, "one minute.")
     
     def on_device_detected():
         """Callback when pairing device is detected"""
-        widgets.write_text(8, "Pairing...")
+        write_text(8, "Pairing...")
     
     # Create Bluetooth controller instance and start pairing with 60 second timeout
     bluetooth_controller = BluetoothController()
@@ -681,14 +833,14 @@ def bluetooth_pairing():
     )
     
     # Show result
-    widgets.clear_screen()
+    clear_screen()
     if paired:
-        widgets.write_text(0, "Paired!")
+        write_text(0, "Paired!")
         time.sleep(2)
     else:
-        widgets.write_text(0, "Pairing timeout")
+        write_text(0, "Pairing timeout")
         time.sleep(2)
-    widgets.clear_screen()
+    clear_screen()
     
     return paired
 
@@ -706,17 +858,17 @@ def chromecast_menu():
     os.system("ps -ef | grep 'cchandler.py' | grep -v grep | awk '{print $2}' | xargs -r kill -9")
     
     # Discover Chromecasts
-    widgets.clear_screen()
-    widgets.write_text(0, "Discovering...")
-    widgets.write_text(1, "Chromecasts...")
+    clear_screen()
+    write_text(0, "Discovering...")
+    write_text(1, "Chromecasts...")
     time.sleep(1)
     
     try:
         chromecasts = pychromecast.get_chromecasts()
     except Exception as e:
-        widgets.clear_screen()
-        widgets.write_text(0, "Discovery failed")
-        widgets.write_text(1, str(e)[:20])
+        clear_screen()
+        write_text(0, "Discovery failed")
+        write_text(1, str(e)[:20])
         time.sleep(2)
         return
     
@@ -732,9 +884,9 @@ def chromecast_menu():
             cc_mapping[friendly_name] = cc
     
     if not cc_menu:
-        widgets.clear_screen()
-        widgets.write_text(0, "No Chromecasts")
-        widgets.write_text(1, "found")
+        clear_screen()
+        write_text(0, "No Chromecasts")
+        write_text(1, "found")
         time.sleep(2)
         return
     
@@ -750,17 +902,17 @@ def chromecast_menu():
     os.system(cmd)
     
     # Show feedback
-    widgets.clear_screen()
-    widgets.write_text(0, "Streaming to:")
+    clear_screen()
+    write_text(0, "Streaming to:")
     # Truncate long names to fit on screen (20 chars per line)
     if len(result) > 20:
-        widgets.write_text(1, result[:20])
+        write_text(1, result[:20])
         if len(result) > 40:
-            widgets.write_text(2, result[20:40])
+            write_text(2, result[20:40])
         else:
-            widgets.write_text(2, result[20:])
+            write_text(2, result[20:])
     else:
-        widgets.write_text(1, result)
+        write_text(1, result)
     time.sleep(2)
 
 
@@ -898,7 +1050,7 @@ while True:
     if result == "Cast":
         chromecast_menu()
     if result == "Centaur":
-        widgets.loading_screen()
+        loading_screen()
         #time.sleep(1)
         board.pauseEvents()
         board.cleanup(leds_off=True)
@@ -917,7 +1069,7 @@ while True:
             os.system("sudo ./centaur")
         else:
             log.error(f"Centaur executable not found at {centaur_software}")
-            widgets.write_text(0, "Centaur not found")
+            write_text(0, "Centaur not found")
             time.sleep(2)
             continue
         # Once started we cannot return to DGTCentaurMods, we can kill that
@@ -1095,37 +1247,37 @@ while True:
                                         #password = board.getText("Enter WiFi password")
                                         
                                         if password:
-                                            widgets.write_text(0, f"Connecting to")
-                                            widgets.write_text(1, selected_network)
+                                            write_text(0, f"Connecting to")
+                                            write_text(1, selected_network)
                                             # Connect to the network
                                             if connect_to_wifi(selected_network, password):
-                                                widgets.write_text(3, "Connected!")
+                                                write_text(3, "Connected!")
                                             else:
-                                                widgets.write_text(3, "Connection failed!")
+                                                write_text(3, "Connection failed!")
                                             time.sleep(2)
                                         else:
-                                            widgets.write_text(0, "No password provided")
+                                            write_text(0, "No password provided")
                                             time.sleep(2)
 
                                 else:
-                                    widgets.write_text(0, "No networks found")
+                                    write_text(0, "No networks found")
                                     time.sleep(2)
                             else:
-                                widgets.write_text(0, "Scan failed")
+                                write_text(0, "Scan failed")
                                 time.sleep(2)
                         except Exception as e:
-                            widgets.write_text(0, f"Error: {str(e)[:20]}")
+                            write_text(0, f"Error: {str(e)[:20]}")
                             time.sleep(2)
                     if result == "wps":
                         if network.check_network():
                             selection = ""
                             curmenu = None
                             IP = network.check_network()
-                            widgets.clear_screen()
-                            widgets.write_text(0, "Network is up.")
-                            widgets.write_text(1, "Press OK to")
-                            widgets.write_text(2, "disconnect")
-                            widgets.write_text(4, IP)
+                            clear_screen()
+                            write_text(0, "Network is up.")
+                            write_text(1, "Press OK to")
+                            write_text(2, "disconnect")
+                            write_text(4, IP)
                             timeout = time.time() + 15
                             while time.time() < timeout:
                                 if selection == "BTNTICK":
@@ -1136,8 +1288,8 @@ while True:
                             wpsMenu = {"connect": "Connect wifi"}
                             result = doMenu(wpsMenu, "WPS")
                             if result == "connect":
-                                widgets.clear_screen()
-                                widgets.write_text(0, "Press WPS button")
+                                clear_screen()
+                                write_text(0, "Press WPS button")
                                 network.wps_connect()
                     if result == "recover":
                         selection = ""
@@ -1148,13 +1300,13 @@ while True:
                         )
                         centaur.shell_run(cmd)                    
                         timeout = time.time() + 20
-                        widgets.clear_screen()
-                        widgets.write_text(0, "Waiting for")
-                        widgets.write_text(1, "network...")
+                        clear_screen()
+                        write_text(0, "Waiting for")
+                        write_text(1, "network...")
                         while not network.check_network() and time.time() < timeout:
                             time.sleep(1)
                         if not network.check_network():
-                            widgets.write_text(1, "Failed to restore...")
+                            write_text(1, "Failed to restore...")
                             time.sleep(4)
 
             if result == "Pairing":
@@ -1176,10 +1328,10 @@ while True:
                 sys.exit()
             if result == "Reboot":
                 board.beep(board.SOUND_POWER_OFF)
-                service.init()
-                widgets.clear_screen()
+                manager = _get_display_manager()
+                clear_screen()
                 time.sleep(5)
-                service.shutdown()
+                manager.shutdown()
                 time.sleep(2)
                 
                 # LED cascade pattern h1→h8 (squares 0 to 7) for reboot
@@ -1236,7 +1388,7 @@ while True:
                         rc = run_external_script(f"{game_folder}/lichess.py", "Ongoing", game_id, start_key_polling=True)
                 else:
                     log.warning("No ongoing games!")
-                    widgets.write_text(1, "No ongoing games!")
+                    write_text(1, "No ongoing games!")
                     time.sleep(3)
 
 
@@ -1403,7 +1555,7 @@ while True:
 
     if result == "About" or result == "BTNHELP":
         selection = ""
-        widgets.clear_screen()
+        clear_screen()
         statusbar.print()
         # Use subprocess.run for proper resource cleanup
         result = subprocess.run(
@@ -1420,14 +1572,17 @@ while True:
                     if len(parts) >= 3:
                         version = parts[2]
                         break
-        widgets.write_text(1, "Get support:")
-        widgets.write_text(9, "DGTCentaur")
-        widgets.write_text(10, "      Mods")
-        widgets.write_text(11, "Ver:" + version)        
+        write_text(1, "Get support:")
+        write_text(9, "DGTCentaur")
+        write_text(10, "      Mods")
+        write_text(11, "Ver:" + version)        
         qr = Image.open(AssetManager.get_resource_path("qr-support.png")).resize((128, 128))
-        widgets.draw_image(qr, 0, 42)
+        manager = _get_display_manager()
+        canvas = manager._framebuffer.get_canvas()
+        canvas.paste(qr, (0, 42))
+        manager.update(full=True)
         timeout = time.time() + 15
         while selection == "" and time.time() < timeout:
             if selection == "BTNTICK" or selection == "BTNBACK":
                 break
-        widgets.clear_screen()        
+        clear_screen()        
