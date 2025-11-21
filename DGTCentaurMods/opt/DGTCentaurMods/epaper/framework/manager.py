@@ -119,20 +119,20 @@ class Manager:
         for widget in static_widgets:
             widget_image = widget.render()
             widget_name = widget.__class__.__name__
-            log.info(f"Manager.update(): Pasting {widget_name} at ({widget.x},{widget.y}), size={widget.width}x{widget.height}")
+            #log.info(f"Manager.update(): Pasting {widget_name} at ({widget.x},{widget.y}), size={widget.width}x{widget.height}")
             
             # Get canvas state before pasting
             before_crop = canvas.crop((widget.x, widget.y, widget.x + widget.width, widget.y + widget.height))
             before_bytes = before_crop.tobytes()
             widget_bytes = widget_image.tobytes()
-            log.info(f"Manager.update(): Before paste - canvas region hash={hash(before_bytes)}, widget hash={hash(widget_bytes)}")
+            #log.info(f"Manager.update(): Before paste - canvas region hash={hash(before_bytes)}, widget hash={hash(widget_bytes)}")
             
             canvas.paste(widget_image, (widget.x, widget.y))
             
             # Get canvas state after pasting
             after_crop = canvas.crop((widget.x, widget.y, widget.x + widget.width, widget.y + widget.height))
             after_bytes = after_crop.tobytes()
-            log.info(f"Manager.update(): After paste - canvas region hash={hash(after_bytes)}, changed={before_bytes != after_bytes}")
+            #log.info(f"Manager.update(): After paste - canvas region hash={hash(after_bytes)}, changed={before_bytes != after_bytes}")
         
         # Render moving widgets last (on top)
         for widget in moving_widgets:
@@ -145,7 +145,7 @@ class Manager:
         
         
         # Submit refresh and return Future for caller to wait on
-        log.info(f"Manager.update(): Submitting refresh with full={full}")
+        #log.info(f"Manager.update(): Submitting refresh with full={full}")
         return self._scheduler.submit(full=full)
     
     def shutdown(self) -> None:
