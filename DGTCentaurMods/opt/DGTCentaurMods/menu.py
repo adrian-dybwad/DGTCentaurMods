@@ -494,6 +494,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     global selection
     global quickselect
     global event_key
+    global status_bar_widget
     log.info(">>> doMenu: ensuring display manager is initialized")
     manager = _get_display_manager()
     log.info(">>> doMenu: display manager initialized")
@@ -540,7 +541,6 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     menuitem = (initial_index + 1) if ordered_menu else 1
     
     # Ensure status bar widget is added to manager (it was preserved during MenuRenderer.draw() clear)
-    global status_bar_widget
     if status_bar_widget and status_bar_widget not in manager._widgets:
         manager.add_widget(status_bar_widget)
     
@@ -571,7 +571,6 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
             selection = "BACK"
         
         # SAFER APPROACH: Remove all widgets except status bar after selection
-        global status_bar_widget
         widgets_to_keep = []
         if status_bar_widget and status_bar_widget in manager._widgets:
             widgets_to_keep.append(status_bar_widget)
@@ -584,7 +583,6 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     except KeyboardInterrupt:
         log.info(">>> doMenu: KeyboardInterrupt caught")
         # SAFER APPROACH: Remove all widgets except status bar on interrupt
-        global status_bar_widget
         widgets_to_keep = []
         if status_bar_widget and status_bar_widget in manager._widgets:
             widgets_to_keep.append(status_bar_widget)
