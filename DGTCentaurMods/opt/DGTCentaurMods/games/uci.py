@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.games import manager
-from DGTCentaurMods.epaper import Manager, ChessBoardWidget, GameAnalysisWidget
+from DGTCentaurMods.epaper import Manager, ChessBoardWidget, GameAnalysisWidget, StatusBarWidget
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
@@ -76,6 +76,7 @@ class UCIGame:
         self.display_manager = None
         self.chess_board_widget = None
         self.game_analysis_bottom = None
+        self.status_bar_widget = None
         
         # Set game info
         if self.computer_color == chess.BLACK:
@@ -88,6 +89,10 @@ class UCIGame:
         self.display_manager = Manager()
         self.display_manager.init()
         
+        # Create status bar widget at top (y=0)
+        self.status_bar_widget = StatusBarWidget(0, 0)
+        self.display_manager.add_widget(self.status_bar_widget)
+        
         # Create chess board widget at y=81 (matching current top=81)
         # Start with initial position
         initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -98,47 +103,8 @@ class UCIGame:
         self.game_analysis_bottom = GameAnalysisWidget(0, 209, 128, 80)
         self.display_manager.add_widget(self.game_analysis_bottom)
         
-        # Draw initial status bar
-        self._draw_status_bar()
-        
         # Initial display update
         self.display_manager.update(full=True).result(timeout=10.0)
-    
-    def _draw_status_bar(self) -> None:
-        """Draw status bar with time and battery icon."""
-        if not self.display_manager:
-            return
-        canvas = self.display_manager._framebuffer.get_canvas()
-        draw = ImageDraw.Draw(canvas)
-        status_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
-        STATUS_BAR_HEIGHT = 16
-        
-        # Draw status bar background
-        draw.rectangle([0, 0, 128, STATUS_BAR_HEIGHT], fill=255, outline=255)
-        
-        # Draw time
-        clock = time.strftime("%H:%M")
-        draw.text((2, -1), clock, font=status_font, fill=0)
-        
-        # Draw battery icon
-        self._draw_battery_icon_to_canvas(canvas, top_padding=1)
-    
-    def _draw_battery_icon_to_canvas(self, canvas: Image.Image, top_padding: int = 2) -> None:
-        """Draw battery icon directly to canvas."""
-        indicator = "battery1"
-        if board.batterylevel >= 18:
-            indicator = "battery4"
-        elif board.batterylevel >= 12:
-            indicator = "battery3"
-        elif board.batterylevel >= 6:
-            indicator = "battery2"
-        if board.chargerconnected > 0:
-            indicator = "batteryc"
-            if board.batterylevel == 20:
-                indicator = "batterycf"
-        path = AssetManager.get_resource_path(f"{indicator}.bmp")
-        image = Image.open(path)
-        canvas.paste(image, (98, top_padding))
     
     def _should_enable_graphs(self) -> bool:
         """Determine if evaluation graphs should be enabled based on hardware."""
@@ -286,6 +252,8 @@ class UCIGame:
         try:
             if self.display_manager:
                 # Remove widgets
+                if self.status_bar_widget and self.status_bar_widget in self.display_manager._widgets:
+                    self.display_manager._widgets.remove(self.status_bar_widget)
                 if self.chess_board_widget and self.chess_board_widget in self.display_manager._widgets:
                     self.display_manager._widgets.remove(self.chess_board_widget)
                 if self.game_analysis_bottom and self.game_analysis_bottom in self.display_manager._widgets:
@@ -537,8 +505,7 @@ class UCIGame:
         if self.game_analysis_bottom:
             self.game_analysis_bottom.clear_history()
             self.game_analysis_bottom.set_score(0.0, "0.0")
-        # Redraw status bar
-        self._draw_status_bar()
+        # Status bar widget will auto-update on next render
         if self.display_manager:
             self.display_manager.update(full=False).result(timeout=5.0)
         

@@ -11,6 +11,7 @@ from .chess_board import ChessBoardWidget
 from .game_analysis import GameAnalysisWidget
 from .checkerboard import CheckerboardWidget
 from .welcome import WelcomeWidget
+from .status_bar import StatusBarWidget
 
 __all__ = ['Manager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'BallWidget', 
-           'ChessBoardWidget', 'GameAnalysisWidget', 'CheckerboardWidget', 'WelcomeWidget']
+           'ChessBoardWidget', 'GameAnalysisWidget', 'CheckerboardWidget', 'WelcomeWidget', 'StatusBarWidget']

@@ -36,7 +36,7 @@ from DGTCentaurMods.display.ui_components import AssetManager
 
 from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
-from DGTCentaurMods.epaper import Manager, WelcomeWidget
+from DGTCentaurMods.epaper import Manager, WelcomeWidget, StatusBarWidget
 from DGTCentaurMods.epaper.framework.regions import Region
 from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.board.logging import log
@@ -64,15 +64,21 @@ DESCRIPTION_GAP = 8
 # Global display manager
 display_manager: Optional[Manager] = None
 
+# Global status bar widget
+status_bar_widget: Optional[StatusBarWidget] = None
+
 current_renderer: Optional["MenuRenderer"] = None
 
 
 def _get_display_manager() -> Manager:
     """Get or create the global display manager."""
-    global display_manager
+    global display_manager, status_bar_widget
     if display_manager is None:
         display_manager = Manager()
         display_manager.init()
+        # Create and add status bar widget
+        status_bar_widget = StatusBarWidget(0, 0)
+        display_manager.add_widget(status_bar_widget)
     return display_manager
 
 
@@ -581,19 +587,25 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     
     menuitem = (initial_index + 1) if ordered_menu else 1
     
-    # Draw status bar directly to framebuffer (don't submit region yet)
-    log.info(">>> doMenu: drawing status bar to framebuffer")
-    status_text = statusbar.build()
-    canvas = manager._framebuffer.get_canvas()
-    draw = ImageDraw.Draw(canvas)
-    status_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
-    status_region = Region(0, 0, 128, STATUS_BAR_HEIGHT)
-    draw.rectangle([status_region.x1, status_region.y1, status_region.x2, status_region.y2], fill=255, outline=255)
-    draw.text((2, -1), status_text, font=status_font, fill=0)
-    # Draw battery icon
-    _draw_battery_icon_to_canvas(canvas, top_padding=1)
+    # Render status bar widget directly to framebuffer (since menu is drawn directly, not via widgets)
+    log.info(">>> doMenu: rendering status bar widget to framebuffer")
+    global status_bar_widget
+    if status_bar_widget:
+        status_bar_image = status_bar_widget.render()
+        canvas = manager._framebuffer.get_canvas()
+        canvas.paste(status_bar_image, (status_bar_widget.x, status_bar_widget.y))
+    else:
+        # Fallback: draw status bar directly if widget not available
+        status_text = statusbar.build()
+        canvas = manager._framebuffer.get_canvas()
+        draw = ImageDraw.Draw(canvas)
+        status_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
+        status_region = Region(0, 0, 128, STATUS_BAR_HEIGHT)
+        draw.rectangle([status_region.x1, status_region.y1, status_region.x2, status_region.y2], fill=255, outline=255)
+        draw.text((2, -1), status_text, font=status_font, fill=0)
+        _draw_battery_icon_to_canvas(canvas, top_padding=1)
     
-    log.info(">>> doMenu: status bar drawn to framebuffer")
+    log.info(">>> doMenu: status bar rendered to framebuffer")
     # Verify final framebuffer state
     snapshot_final = manager._framebuffer.snapshot()
     menu_area_final = snapshot_final.crop((0, STATUS_BAR_HEIGHT, 128, STATUS_BAR_HEIGHT + 50))
@@ -609,6 +621,8 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     submit_start = time.time()
     # Submit directly to scheduler with full=False (partial refresh) to bypass widget rendering
     # The scheduler will take a snapshot of the current framebuffer, detect dirty regions, and do partial refresh
+    # Note: Status bar widget will be rendered by Manager.update(), but we're bypassing that here
+    # The status bar widget will be included in the next Manager.update() call
     future = manager._scheduler.submit(full=False)
     future.result(timeout=10.0)  # Wait for completion
     submit_duration = time.time() - submit_start
@@ -643,15 +657,12 @@ class StatusBar:
         return clock
 
     def print_once(self) -> None:
-        manager = _get_display_manager()
-        canvas = manager._framebuffer.get_canvas()
-        draw = ImageDraw.Draw(canvas)
-        status_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
-        status_region = Region(0, 0, 128, STATUS_BAR_HEIGHT)
-        draw.rectangle([status_region.x1, status_region.y1, status_region.x2, status_region.y2], fill=255, outline=255)
-        draw.text((2, -1), self.build(), font=status_font, fill=0)
-        _draw_battery_icon_to_canvas(canvas, top_padding=1)
-        manager.update(full=False)
+        """Update status bar widget by invalidating its cache."""
+        global status_bar_widget
+        if status_bar_widget:
+            status_bar_widget._last_rendered = None  # Force re-render
+            manager = _get_display_manager()
+            manager.update(full=False)
 
     def print(self) -> None:
         self.print_once()
