@@ -360,12 +360,13 @@ class MenuRenderer:
 
 def keyPressed(id):
     # This function receives key presses
-    log.info(f">>> keyPressed: key_id={id}, _active_arrow_widget={_active_arrow_widget is not None}")
     global menuitem
     global curmenu
     global selection
     global event_key
     global _active_arrow_widget
+    
+    log.info(f">>> keyPressed: key_id={id}, _active_arrow_widget={_active_arrow_widget is not None}")
     
     # If arrow widget is active, let it handle the key
     if _active_arrow_widget is not None:
