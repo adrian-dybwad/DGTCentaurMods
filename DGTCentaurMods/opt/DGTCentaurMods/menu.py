@@ -234,7 +234,14 @@ class MenuRenderer:
             title_text = f"[ {self.title} ]"
             title_top = MENU_BODY_TOP_WITH_TITLE - TITLE_HEIGHT
             title_region = Region(0, title_top, 128, title_top + TITLE_HEIGHT)
-            draw.rectangle([title_region.x1, title_region.y1, title_region.x2, title_region.y2], fill=0, outline=0)
+            # Create 50% dithered pattern (checkerboard) for title background
+            dither_pattern = Image.new("1", (128, TITLE_HEIGHT), 255)
+            dither_draw = ImageDraw.Draw(dither_pattern)
+            for y in range(TITLE_HEIGHT):
+                for x in range(128):
+                    if (x + y) % 2 == 0:
+                        dither_draw.point((x, y), fill=0)
+            canvas.paste(dither_pattern, (title_region.x1, title_region.y1))
             draw.text((0, title_top - 1), title_text, font=font_18, fill=255)
         
         # Draw all menu entries (matches original: plain text, no inversion)
@@ -314,7 +321,14 @@ class MenuRenderer:
         if self.title:
             title_top = MENU_BODY_TOP_WITH_TITLE - TITLE_HEIGHT
             title_region = Region(0, title_top, 128, title_top + TITLE_HEIGHT)
-            draw.rectangle([title_region.x1, title_region.y1, title_region.x2, title_region.y2], fill=0, outline=0)
+            # Create 50% dithered pattern (checkerboard) for title background
+            dither_pattern = Image.new("1", (128, TITLE_HEIGHT), 255)
+            dither_draw = ImageDraw.Draw(dither_pattern)
+            for y in range(TITLE_HEIGHT):
+                for x in range(128):
+                    if (x + y) % 2 == 0:
+                        dither_draw.point((x, y), fill=0)
+            canvas.paste(dither_pattern, (title_region.x1, title_region.y1))
             title_text = f"[ {self.title} ]"
             draw.text((0, title_top - 1), title_text, font=font_18, fill=255)
         
