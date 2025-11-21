@@ -277,8 +277,6 @@ class EPD:
         self.send_command(0x10)
         #self.send_data2([0xFF] * int(self.width * self.height / 8))
         print(f"{' '.join(f'{b:02x}' for b in old_image)}")
-        print(old_image)
-        print(buf_old)
         self.send_data2(old_image)
         epdconfig.delay_ms(10)
         
