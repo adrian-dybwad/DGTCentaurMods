@@ -437,9 +437,23 @@ def eventsThread(keycallback, fieldcallback, tout):
                 else:
                     log.error("[board.events] Controller doesn't have get_next_key() method - keys will not be detected!")
                 
-                # Use first key for PLAY button logic
+                # Process all queued keys IMMEDIATELY to avoid delay
+                # This ensures rapid key presses are handled as soon as they're detected
+                if standby != True and keys_to_process:
+                    for key_pressed in keys_to_process:
+                        to = time.time() + tout
+                        log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
+                        # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
+                        try:
+                            keycallback(key_pressed)
+                        except Exception as e:
+                            log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
+                
+                # Use first key for PLAY button logic (only if not already processed)
                 if keys_to_process:
                     key_pressed = keys_to_process[0]
+                else:
+                    key_pressed = None
 
                 if key_pressed == Key.PLAY:
                     breaktime = time.time() + 0.5
@@ -487,16 +501,6 @@ def eventsThread(keycallback, fieldcallback, tout):
             except:
                 pass
             time.sleep(0.05)
-            # Process all queued keys to avoid missing rapid presses
-            if standby != True and keys_to_process:
-                for key_pressed in keys_to_process:
-                    to = time.time() + tout
-                    log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
-                    # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
-                    try:
-                        keycallback(key_pressed)
-                    except Exception as e:
-                        log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
         else:
             # If pauseEvents() hold timeout in the thread
             to = time.time() + 100000
