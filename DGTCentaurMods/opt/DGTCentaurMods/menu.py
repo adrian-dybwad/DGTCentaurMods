@@ -329,10 +329,10 @@ class MenuRenderer:
         # Draw vertical line from body_top
         draw.line((self.arrow_width, self.body_top, self.arrow_width, 295), fill=0, width=1)
         
-        # Refresh only the arrow column region (matches original: Region(0, 20 + shift, 20, 295))
-        # _expand_region() will expand this to full width, but we submit just the arrow column
-        # Full-width refresh only happens in doMenu() when navigating to a NEW submenu
-        manager.update(full=False)
+        # Submit partial refresh directly to scheduler (bypassing Manager.update() which resets canvas)
+        # This will detect dirty regions and do a partial refresh
+        future = manager._scheduler.submit(full=False)
+        future.result(timeout=5.0)  # Wait for completion
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
@@ -601,18 +601,18 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     non_white_final = sum(1 for p in pixels_final if p != 255)
     log.info(f">>> doMenu: Final framebuffer menu area has {non_white_final} non-white pixels")
     
-    # Submit full refresh to display everything (menu + status bar)
+    # Submit partial refresh to display everything (menu + status bar)
     # CRITICAL: Manager.update() resets canvas to flushed state for widgets, but we're drawing directly.
-    # So we need to submit directly to the scheduler with full=True, which will take a snapshot
-    # of the current framebuffer (with our drawing) and display it.
+    # So we need to submit directly to the scheduler with full=False (partial refresh).
+    # The scheduler will detect dirty regions and do a partial refresh.
     import time
     submit_start = time.time()
-    # Submit directly to scheduler with full=True to bypass widget rendering
-    # The scheduler will take a snapshot of the current framebuffer and display it
-    future = manager._scheduler.submit(full=True)
+    # Submit directly to scheduler with full=False (partial refresh) to bypass widget rendering
+    # The scheduler will take a snapshot of the current framebuffer, detect dirty regions, and do partial refresh
+    future = manager._scheduler.submit(full=False)
     future.result(timeout=10.0)  # Wait for completion
     submit_duration = time.time() - submit_start
-    log.info(f">>> doMenu: full refresh complete after {submit_duration:.3f}s, about to BLOCK on event_key.wait()")
+    log.info(f">>> doMenu: partial refresh complete after {submit_duration:.3f}s, about to BLOCK on event_key.wait()")
     try:
         event_key.wait()
         log.info(">>> doMenu: event_key.wait() RETURNED - selection made")
