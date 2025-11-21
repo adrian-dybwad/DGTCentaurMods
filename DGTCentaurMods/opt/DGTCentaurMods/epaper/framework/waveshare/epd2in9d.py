@@ -280,7 +280,7 @@ class EPD:
         
         # Send new/current content to 0x13
         self.send_command(0x13)
-        self.send_data2(buf_new)
+        self.send_data2(new_image)
         epdconfig.delay_ms(10)
           
         self.TurnOnDisplay()
