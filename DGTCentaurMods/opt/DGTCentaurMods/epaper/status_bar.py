@@ -1,10 +1,11 @@
 """
-Status bar widget displaying time and battery icon.
+Status bar widget displaying time, WiFi status, and battery icon.
 """
 
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
 from .framework.widget import Widget
+from .wifi_status import WiFiStatusWidget
 import os
 import sys
 
@@ -22,11 +23,12 @@ except ImportError:
 
 
 class StatusBarWidget(Widget):
-    """Status bar widget displaying time and battery icon."""
+    """Status bar widget displaying time, WiFi status, and battery icon."""
     
     def __init__(self, x: int = 0, y: int = 0):
         super().__init__(x, y, 128, 16)
         self._font = self._load_font()
+        self._wifi_widget = WiFiStatusWidget(80, 0)
     
     def invalidate(self) -> None:
         """Invalidate the widget cache to force re-render on next update."""
@@ -81,7 +83,7 @@ class StatusBarWidget(Widget):
             return Image.new("1", (16, 16), 255)
     
     def render(self) -> Image.Image:
-        """Render status bar with time and battery icon."""
+        """Render status bar with time, WiFi status, and battery icon."""
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
@@ -89,6 +91,10 @@ class StatusBarWidget(Widget):
         now = datetime.now()
         time_str = now.strftime("%H:%M")
         draw.text((2, -1), time_str, font=self._font, fill=0)
+        
+        # Draw WiFi status icon (to the left of battery)
+        wifi_icon = self._wifi_widget.render()
+        img.paste(wifi_icon, (80, 0))
         
         # Draw battery icon
         battery_icon = self._get_battery_icon()
