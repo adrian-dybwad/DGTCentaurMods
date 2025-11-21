@@ -649,18 +649,23 @@ statusbar = StatusBar()
 update = centaur.UpdateSystem()
 log.info("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
-# Subscribe to board events. First parameter is the function for key presses. The second is the function for
-# field activity
-board.subscribeEvents(keyPressed, changedCallback, timeout=900)
-board.printChessState()
-resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
-log.info(f"Discovery: RESPONSE FROM F0 - {' '.join(f'{b:02x}' for b in resp)}")
-resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F4)
-log.info(f"Discovery: RESPONSE FROM F4 - {' '.join(f'{b:02x}' for b in resp)}")
-resp = board.sendCommand(command.DGT_BUS_SEND_96)
-log.info(f"Discovery: RESPONSE FROM 96 - {' '.join(f'{b:02x}' for b in resp)}")
-resp = board.sendCommand(command.DGT_BUS_SEND_STATE)
-log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
+
+# Only initialize board events if menu.py is the main script (not when imported)
+# This prevents conflicts when other scripts (like uci.py) import from menu.py
+if __name__ == "__main__" or not hasattr(board, '_events_initialized'):
+    # Subscribe to board events. First parameter is the function for key presses. The second is the function for
+    # field activity
+    board.subscribeEvents(keyPressed, changedCallback, timeout=900)
+    board._events_initialized = True  # Mark as initialized to prevent re-initialization
+    board.printChessState()
+    resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
+    log.info(f"Discovery: RESPONSE FROM F0 - {' '.join(f'{b:02x}' for b in resp)}")
+    resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F4)
+    log.info(f"Discovery: RESPONSE FROM F4 - {' '.join(f'{b:02x}' for b in resp)}")
+    resp = board.sendCommand(command.DGT_BUS_SEND_96)
+    log.info(f"Discovery: RESPONSE FROM 96 - {' '.join(f'{b:02x}' for b in resp)}")
+    resp = board.sendCommand(command.DGT_BUS_SEND_STATE)
+    log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
 
 
 def show_welcome():
