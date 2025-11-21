@@ -69,3 +69,7 @@ class FrameBuffer:
     def snapshot(self) -> Image.Image:
         """Get a snapshot of the current framebuffer."""
         return self._current.copy()
+    
+    def snapshot_flushed(self) -> Image.Image:
+        """Get a snapshot of the flushed (old) framebuffer."""
+        return self._flushed.copy()

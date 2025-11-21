@@ -138,25 +138,21 @@ class Scheduler:
                 self._epd.init()
                 self._epd.Clear()
             
-            # Get full-screen snapshot and rotate 180° for hardware orientation
-            full_image = self._framebuffer.snapshot()
-            full_image = full_image.transpose(Image.ROTATE_180)
+            # Get old (flushed) and new (current) snapshots, rotate 180° for hardware orientation
+            old_image = self._framebuffer.snapshot_flushed()
+            old_image = old_image.transpose(Image.ROTATE_180)
             
-            # Get buffer from image
-            buf = self._epd.getbuffer(full_image)
+            new_image = self._framebuffer.snapshot()
+            new_image = new_image.transpose(Image.ROTATE_180)
             
-            # CRITICAL FIX: Invert the buffer before passing to DisplayPartial()
-            # DisplayPartial() sends: 0x10=image, 0x13=~image
-            # After Clear(), the display expects the image in a specific format.
-            # By inverting the buffer first, when DisplayPartial() inverts it again for 0x13,
-            # we get the correct result. This matches how the display hardware interprets
-            # the buffers in partial refresh mode after a full refresh Clear().
-            inverted_buf = [(~b) & 0xFF for b in buf]
+            # Get buffers from images
+            old_buf = self._epd.getbuffer(old_image)
+            new_buf = self._epd.getbuffer(new_image)
             
-            # Use DisplayPartial - it handles the full screen buffer
-            # DisplayPartial() calls SetPartReg() which puts display in partial mode
-            # and sends: 0x10=inverted_buf, 0x13=~inverted_buf (which equals original buf)
-            self._epd.DisplayPartial(inverted_buf)
+            # Use DisplayPartial following Waveshare pattern:
+            # 0x10 = old/previous content (from flushed buffer)
+            # 0x13 = new/current content (from current buffer)
+            self._epd.DisplayPartial(old_buf, new_buf)
             
             # Flush entire framebuffer since DisplayPartial refreshes full screen
             self._framebuffer.flush_all()
