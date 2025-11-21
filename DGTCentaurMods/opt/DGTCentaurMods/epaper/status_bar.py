@@ -2,12 +2,12 @@
 Status bar widget displaying time, WiFi status, and battery icon.
 """
 
-from PIL import Image, ImageDraw, ImageFont
-from datetime import datetime
+from PIL import Image
 from .framework.widget import Widget
+from .clock import ClockWidget
 from .wifi_status import WiFiStatusWidget
+from .battery import BatteryWidget
 import os
-import sys
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -15,20 +15,21 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
-try:
-    from DGTCentaurMods.display.ui_components import AssetManager
-except ImportError:
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from display.ui_components import AssetManager
-
 
 class StatusBarWidget(Widget):
     """Status bar widget displaying time, WiFi status, and battery icon."""
     
     def __init__(self, x: int = 0, y: int = 0):
         super().__init__(x, y, 128, 16)
-        self._font = self._load_font()
+        # Create clock widget with HH:MM format (no seconds for status bar), 14pt font
+        font_path = '/opt/DGTCentaurMods/resources/Font.ttc'
+        if not os.path.exists(font_path):
+            font_path = 'resources/Font.ttc'
+        self._clock_widget = ClockWidget(2, 0, width=76, height=16, 
+                                         format="%H:%M", font_size=14, font_path=font_path,
+                                         show_seconds=False)
         self._wifi_widget = WiFiStatusWidget(80, 0)
+        self._battery_widget = BatteryWidget(98, 1)
     
     def invalidate(self) -> None:
         """Invalidate the widget cache to force re-render on next update."""
@@ -46,58 +47,22 @@ class StatusBarWidget(Widget):
         self.invalidate()
         return self.request_update(full=full)
     
-    def _load_font(self):
-        """Load font with fallbacks."""
-        font_paths = [
-            '/opt/DGTCentaurMods/resources/Font.ttc',
-            'resources/Font.ttc',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-        ]
-        for path in font_paths:
-            if os.path.exists(path):
-                try:
-                    return ImageFont.truetype(path, 14)
-                except:
-                    pass
-        return ImageFont.load_default()
-    
-    def _get_battery_icon(self) -> Image.Image:
-        """Get battery icon based on current battery state."""
-        try:
-            from DGTCentaurMods.board import board
-            indicator = "battery1"
-            if board.batterylevel >= 18:
-                indicator = "battery4"
-            elif board.batterylevel >= 12:
-                indicator = "battery3"
-            elif board.batterylevel >= 6:
-                indicator = "battery2"
-            if board.chargerconnected > 0:
-                indicator = "batteryc"
-                if board.batterylevel == 20:
-                    indicator = "batterycf"
-            path = AssetManager.get_resource_path(f"{indicator}.bmp")
-            return Image.open(path)
-        except Exception as e:
-            log.error(f"Failed to load battery icon: {e}")
-            return Image.new("1", (16, 16), 255)
-    
     def render(self) -> Image.Image:
         """Render status bar with time, WiFi status, and battery icon."""
         img = Image.new("1", (self.width, self.height), 255)
-        draw = ImageDraw.Draw(img)
         
-        # Draw time (HH:MM format)
-        now = datetime.now()
-        time_str = now.strftime("%H:%M")
-        draw.text((2, -1), time_str, font=self._font, fill=0)
+        # Draw time using ClockWidget
+        clock_image = self._clock_widget.render()
+        img.paste(clock_image, (self._clock_widget.x, self._clock_widget.y))
         
         # Draw WiFi status icon (to the left of battery)
         wifi_icon = self._wifi_widget.render()
         img.paste(wifi_icon, (80, 0))
         
-        # Draw battery icon
-        battery_icon = self._get_battery_icon()
+        # Draw battery icon using BatteryWidget
+        # Update battery widget from board state before rendering
+        self._battery_widget.update_from_board()
+        battery_icon = self._battery_widget.render()
         img.paste(battery_icon, (98, 1))
         
         return img

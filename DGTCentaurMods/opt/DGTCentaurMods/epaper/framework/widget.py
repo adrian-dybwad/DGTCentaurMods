@@ -43,9 +43,9 @@ class Widget(ABC):
         """Request a display update.
         
         This method should be called by widgets when their state changes
-        and they need the display to refresh. It will:
-        1. Call the update callback (Manager.update()) to render all widgets
-        2. The callback internally submits to the scheduler
+        and they need the display to refresh. It calls Manager.update() which:
+        1. Renders all widgets to the framebuffer
+        2. Submits the complete framebuffer to the scheduler
         
         Args:
             full: If True, force a full refresh instead of partial refresh.
@@ -53,13 +53,14 @@ class Widget(ABC):
         Returns:
             Future: A Future that completes when the display refresh finishes.
             Returns None if update callback is not available.
+        
+        Note:
+            Widgets should NOT call the scheduler directly. The Manager must
+            render all widgets first before submitting to ensure consistent state.
         """
         if self._update_callback is not None:
             return self._update_callback(full)
-        # Fallback: if no callback, try direct scheduler submission
-        # (but this won't render widgets, so content may be stale)
-        if self._scheduler is not None:
-            return self._scheduler.submit(full=full)
+        # No callback available - cannot update without Manager
         return None
     
     def get_region(self) -> Region:
