@@ -338,8 +338,8 @@ class MenuRenderer:
         # Submit partial refresh directly to scheduler (bypassing Manager.update() which resets canvas)
         # This will detect dirty regions and do a partial refresh
         # Use immediate=True to wake scheduler immediately for responsive menu navigation
-        future = manager._scheduler.submit(full=False, immediate=True)
-        future.result(timeout=5.0)  # Wait for completion
+        # Don't wait for completion - return immediately so key presses aren't missed
+        manager._scheduler.submit(full=False, immediate=True)
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
