@@ -360,7 +360,7 @@ class MenuRenderer:
 
 def keyPressed(id):
     # This function receives key presses
-    log.info("in menu.py keyPressed: " + str(id))
+    log.info(f">>> keyPressed: key_id={id}, _active_arrow_widget={_active_arrow_widget is not None}")
     global menuitem
     global curmenu
     global selection
@@ -369,7 +369,10 @@ def keyPressed(id):
     
     # If arrow widget is active, let it handle the key
     if _active_arrow_widget is not None:
-        if _active_arrow_widget.handle_key(id):
+        log.info(f">>> keyPressed: delegating to arrow widget.handle_key({id})")
+        handled = _active_arrow_widget.handle_key(id)
+        log.info(f">>> keyPressed: arrow widget.handle_key returned {handled}")
+        if handled:
             return  # Widget handled the key
     
     # Original key handling for non-menu contexts
@@ -537,6 +540,8 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     
     # Add arrow widget to manager so it's part of the widget system
     manager.add_widget(arrow_widget)
+    log.info(f">>> doMenu: arrow widget added to manager, widgets count={len(manager._widgets)}")
+    log.info(f">>> doMenu: arrow widget has update_callback={arrow_widget._update_callback is not None}")
     
     menuitem = (initial_index + 1) if ordered_menu else 1
     
@@ -546,6 +551,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     
     # Render all widgets (text widgets, arrow widget, status bar) via manager
     log.info(">>> doMenu: rendering all widgets via manager.update()")
+    log.info(f">>> doMenu: manager._widgets contains: {[w.__class__.__name__ for w in manager._widgets]}")
     future = manager.update(full=False)
     future.result(timeout=10.0)  # Wait for completion
     log.info(">>> doMenu: manager.update() complete, all widgets rendered")

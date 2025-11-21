@@ -131,11 +131,14 @@ class MenuArrowWidget(Widget):
     def _update_selection(self, new_index: int) -> None:
         """Update selection and refresh display using widget mechanism."""
         if new_index != self.selected_index:
+            log.info(f">>> MenuArrowWidget._update_selection: changing from {self.selected_index} to {new_index}")
             self.selected_index = new_index
             self._last_rendered = None  # Invalidate cache so render() will regenerate
             # Use widget mechanism: request_update() triggers Manager.update()
             # which will call render() on this widget and paste it to framebuffer
-            self.request_update(full=False)
+            log.info(f">>> MenuArrowWidget._update_selection: calling request_update(), _update_callback={self._update_callback is not None}")
+            result = self.request_update(full=False)
+            log.info(f">>> MenuArrowWidget._update_selection: request_update() returned {result}")
     
     def _get_manager(self):
         """Get the display manager instance."""
@@ -175,17 +178,21 @@ class MenuArrowWidget(Widget):
         try:
             import DGTCentaurMods.menu as menu_module
             menu_module._active_arrow_widget = self
+            log.info(f">>> MenuArrowWidget.wait_for_selection: registered as active arrow widget, initial_index={initial_index}")
         except Exception as e:
             log.error(f"Error registering arrow widget: {e}")
         
         # Wait for selection event
+        log.info(">>> MenuArrowWidget.wait_for_selection: waiting for key press...")
         try:
             self._selection_event.wait()
             result = self._selection_result or "BACK"
+            log.info(f">>> MenuArrowWidget.wait_for_selection: event received, result='{result}'")
             return result
         finally:
             # Deactivate
             self._active = False
+            log.info(">>> MenuArrowWidget.wait_for_selection: deactivating arrow widget")
             try:
                 import DGTCentaurMods.menu as menu_module
                 menu_module._active_arrow_widget = None
