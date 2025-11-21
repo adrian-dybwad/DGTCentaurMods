@@ -152,12 +152,12 @@ class EPaperDemo:
                     self.last_fen_update = current_time
                 
                 # Update display every 0.5 seconds (or on demand)
-                if current_time - last_update >= 0.5:
+                if current_time - last_update >= 0.1:
                     future = self.display.update(full=False)
                     future.result(timeout=5.0)
                     last_update = current_time
                 
-                time.sleep(0.1)
+                time.sleep(0.02)
                 
         except KeyboardInterrupt:
             pass
