@@ -218,18 +218,17 @@ class MenuRenderer:
         
         manager = _get_display_manager()
         
-        # Remove any existing menu text widgets from previous draw
-        # Filter by TextWidget type and menu area position (below status bar)
-        from DGTCentaurMods.epaper.text import TextWidget as TextWidgetType
-        widgets_to_remove = [
-            w for w in manager._widgets
-            if isinstance(w, TextWidgetType) and w.y >= STATUS_BAR_HEIGHT
-        ]
-        for widget in widgets_to_remove:
-            try:
-                manager._widgets.remove(widget)
-            except ValueError:
-                pass
+        # SAFER APPROACH: Remove all widgets except status bar, then re-add only what we need
+        # This ensures a clean state and avoids leftover widgets
+        global status_bar_widget
+        widgets_to_keep = []
+        if status_bar_widget and status_bar_widget in manager._widgets:
+            widgets_to_keep.append(status_bar_widget)
+        
+        # Clear all widgets except status bar
+        manager._widgets.clear()
+        manager._widgets.extend(widgets_to_keep)
+        log.info(f">>> MenuRenderer.draw() cleared all widgets except {len(widgets_to_keep)} status bar widget(s)")
         
         # Create and add title widget if present
         if self.title:
@@ -540,7 +539,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     
     menuitem = (initial_index + 1) if ordered_menu else 1
     
-    # Ensure status bar widget is added to manager
+    # Ensure status bar widget is added to manager (it was preserved during MenuRenderer.draw() clear)
     global status_bar_widget
     if status_bar_widget and status_bar_widget not in manager._widgets:
         manager.add_widget(status_bar_widget)
@@ -571,44 +570,27 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         else:
             selection = "BACK"
         
-        # Remove all menu widgets from manager after selection
-        try:
-            manager._widgets.remove(arrow_widget)
-        except ValueError:
-            pass  # Widget already removed
+        # SAFER APPROACH: Remove all widgets except status bar after selection
+        global status_bar_widget
+        widgets_to_keep = []
+        if status_bar_widget and status_bar_widget in manager._widgets:
+            widgets_to_keep.append(status_bar_widget)
         
-        # Remove all menu text widgets (filter by TextWidget type and menu area position)
-        from DGTCentaurMods.epaper.text import TextWidget as TextWidgetType
-        widgets_to_remove = [
-            w for w in manager._widgets
-            if isinstance(w, TextWidgetType) and w.y >= STATUS_BAR_HEIGHT
-        ]
-        for widget in widgets_to_remove:
-            try:
-                manager._widgets.remove(widget)
-            except ValueError:
-                pass
+        manager._widgets.clear()
+        manager._widgets.extend(widgets_to_keep)
         
         log.info(f">>> doMenu: returning selection='{selection}'")
         return selection
     except KeyboardInterrupt:
         log.info(">>> doMenu: KeyboardInterrupt caught")
-        # Remove all menu widgets from manager on interrupt
-        try:
-            manager._widgets.remove(arrow_widget)
-        except ValueError:
-            pass
-        # Remove all menu text widgets
-        from DGTCentaurMods.epaper.text import TextWidget as TextWidgetType
-        widgets_to_remove = [
-            w for w in manager._widgets
-            if isinstance(w, TextWidgetType) and w.y >= STATUS_BAR_HEIGHT
-        ]
-        for widget in widgets_to_remove:
-            try:
-                manager._widgets.remove(widget)
-            except ValueError:
-                pass
+        # SAFER APPROACH: Remove all widgets except status bar on interrupt
+        global status_bar_widget
+        widgets_to_keep = []
+        if status_bar_widget and status_bar_widget in manager._widgets:
+            widgets_to_keep.append(status_bar_widget)
+        
+        manager._widgets.clear()
+        manager._widgets.extend(widgets_to_keep)
         return "SHUTDOWN"
 
 def changedCallback(piece_event, field, time_in_seconds):
@@ -683,6 +665,10 @@ def show_welcome():
     manager = _get_display_manager()
     log.info(">>> show_welcome() display manager initialized")
     
+    # SAFER APPROACH: Remove all widgets, then add only welcome widget
+    manager._widgets.clear()
+    log.info(">>> show_welcome() cleared all widgets")
+    
     # Create and add welcome widget
     status_text = statusbar.build() if 'statusbar' in globals() else "READY"
     welcome_widget = WelcomeWidget(status_text=status_text)
@@ -706,8 +692,10 @@ def show_welcome():
     event_key.clear()
     idle = False
     
-    # Remove welcome widget before showing menu
-    manager._widgets.remove(welcome_widget)
+    # Remove all widgets (including welcome widget) before showing menu
+    manager._widgets.clear()
+    # Update display to clear welcome widget
+    manager.update(full=False).result(timeout=5.0)
     log.info(">>> show_welcome() EXITING, idle=False")
 
 
