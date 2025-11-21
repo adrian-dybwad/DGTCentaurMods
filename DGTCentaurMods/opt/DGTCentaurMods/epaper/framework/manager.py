@@ -172,4 +172,4 @@ class Manager:
             
             self._epd.sleep()
         except Exception as e:
-            print(f"Error during shutdown: {e}")
+            log.error(f"Error during shutdown: {e}")

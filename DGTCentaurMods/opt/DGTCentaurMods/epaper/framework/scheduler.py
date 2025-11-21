@@ -13,6 +13,11 @@ from .framebuffer import FrameBuffer
 from .waveshare.epd2in9d import EPD
 from .waveshare import epdconfig
 
+try:
+    from DGTCentaurMods.board.logging import log
+except ImportError:
+    import logging
+    log = logging.getLogger(__name__)
 
 class Scheduler:
     """Background thread that schedules display refreshes using Waveshare DisplayPartial."""
@@ -69,14 +74,14 @@ class Scheduler:
                     self._process_batch(batch)
                     
             except Exception as e:
-                print(f"ERROR in refresh scheduler: {e}")
+                log.error(f"ERROR in refresh scheduler: {e}")
                 import traceback
                 traceback.print_exc()
     
     def _process_batch(self, batch: list) -> None:
         """Process a batch of refresh requests."""
         full_refresh = any(full for full, _ in batch)
-        print(f"Scheduler._process_batch(): full_refresh={full_refresh}, partial_refresh_count={self._partial_refresh_count}")
+        #print(f"Scheduler._process_batch(): full_refresh={full_refresh}, partial_refresh_count={self._partial_refresh_count}")
         if full_refresh or self._partial_refresh_count >= self._max_partial_refreshes:
             self._execute_full_refresh(batch)
         else:
@@ -84,7 +89,7 @@ class Scheduler:
     
     def _execute_full_refresh(self, batch: list) -> None:
         """Execute a full screen refresh."""
-        print(f"Scheduler._execute_full_refresh(): Entering")
+        #print(f"Scheduler._execute_full_refresh(): Entering")
         try:
             # Only re-initialize if we're transitioning from partial mode to full mode
             # This ensures clean transition from partial refresh mode back to full refresh mode
@@ -101,7 +106,7 @@ class Scheduler:
             self._framebuffer.flush_all()
             self._partial_refresh_count = 0
         except Exception as e:
-            print(f"ERROR in full refresh: {e}")
+            #print(f"ERROR in full refresh: {e}")
             import traceback
             traceback.print_exc()
         
@@ -113,10 +118,10 @@ class Scheduler:
         """Execute partial refresh using Waveshare DisplayPartial."""
         dirty_regions = self._framebuffer.compute_dirty_regions()
         
-        print(f"Scheduler._execute_partial_refresh(): Found {len(dirty_regions)} dirty regions")
+        #print(f"Scheduler._execute_partial_refresh(): Found {len(dirty_regions)} dirty regions")
         
         if not dirty_regions:
-            print("Scheduler._execute_partial_refresh(): No dirty regions, returning no-op")
+            #print("Scheduler._execute_partial_refresh(): No dirty regions, returning no-op")
             for _, future in batch:
                 if not future.done():
                     future.set_result("no-op")
@@ -153,7 +158,7 @@ class Scheduler:
             self._partial_refresh_count += 1
             self._in_partial_mode = True
         except Exception as e:
-            print(f"ERROR in partial refresh: {e}")
+            log.error(f"ERROR in partial refresh: {e}")
             import traceback
             traceback.print_exc()
         
