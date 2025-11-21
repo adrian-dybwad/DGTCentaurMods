@@ -22,7 +22,7 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.games import manager
-from DGTCentaurMods.display.epaper_service import service, widgets
+from DGTCentaurMods.epaper import Manager, ChessBoardWidget, GameAnalysisWidget
 from DGTCentaurMods.display.ui_components import AssetManager
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
@@ -72,11 +72,40 @@ class UCIGame:
         self.uci_options = {}
         self._load_uci_options()
         
+        # Display manager and widgets
+        self.display_manager = None
+        self.chess_board_widget = None
+        self.game_analysis_top = None
+        self.game_analysis_bottom = None
+        
         # Set game info
         if self.computer_color == chess.BLACK:
             manager.setGameInfo(self.uci_options_desc, "", "", "Player", self.engine_name)
         else:
             manager.setGameInfo(self.uci_options_desc, "", "", self.engine_name, "Player")
+    
+    def _init_display(self):
+        """Initialize display manager and widgets."""
+        self.display_manager = Manager()
+        self.display_manager.init()
+        
+        # Create chess board widget at y=81 (matching current top=81)
+        # Start with initial position
+        initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        self.chess_board_widget = ChessBoardWidget(0, 81, initial_fen)
+        self.display_manager.add_widget(self.chess_board_widget)
+        
+        # Create game analysis widget at top (y=1) and bottom (y=209)
+        # Top widget for current evaluation
+        self.game_analysis_top = GameAnalysisWidget(0, 1, 128, 80)
+        self.display_manager.add_widget(self.game_analysis_top)
+        
+        # Bottom widget for flipped evaluation
+        self.game_analysis_bottom = GameAnalysisWidget(0, 209, 128, 80)
+        self.display_manager.add_widget(self.game_analysis_bottom)
+        
+        # Initial display update
+        self.display_manager.update(full=True).result(timeout=10.0)
     
     def _should_enable_graphs(self) -> bool:
         """Determine if evaluation graphs should be enabled based on hardware."""
@@ -220,6 +249,20 @@ class UCIGame:
         # Clean up engines
         self._cleanup_engines()
         
+        # Clean up display
+        try:
+            if self.display_manager:
+                # Remove widgets
+                if self.chess_board_widget and self.chess_board_widget in self.display_manager._widgets:
+                    self.display_manager._widgets.remove(self.chess_board_widget)
+                if self.game_analysis_top and self.game_analysis_top in self.display_manager._widgets:
+                    self.display_manager._widgets.remove(self.game_analysis_top)
+                if self.game_analysis_bottom and self.game_analysis_bottom in self.display_manager._widgets:
+                    self.display_manager._widgets.remove(self.game_analysis_bottom)
+                self.display_manager.shutdown()
+        except Exception as e:
+            log.error(f"Error cleaning up display: {e}")
+        
         # Clean up board
         try:
             board.ledsOff()
@@ -332,7 +375,18 @@ class UCIGame:
         manager.resetMoveState()
         board.ledsOff()
         manager.resetBoard()
-        widgets.clear_screen()
+        
+        # Clear screen by resetting widgets
+        if self.chess_board_widget:
+            self.chess_board_widget.set_fen(manager.getFEN())
+        if self.game_analysis_top:
+            self.game_analysis_top.clear_history()
+            self.game_analysis_top.set_score(0.0, "0.0")
+        if self.game_analysis_bottom:
+            self.game_analysis_bottom.clear_history()
+            self.game_analysis_bottom.set_score(0.0, "0.0")
+        if self.display_manager:
+            self.display_manager.update(full=True).result(timeout=10.0)
         
         self.score_history = []
         self.current_turn = chess.WHITE
@@ -434,12 +488,30 @@ class UCIGame:
         draw = ImageDraw.Draw(image)
         font12 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 12)
         draw.text((30, 0), termination_type, font=font12, fill=0)
-        widgets.draw_image(image, 0, 221)
-        time.sleep(0.3)
-        image = image.transpose(Image.FLIP_TOP_BOTTOM)
-        image = image.transpose(Image.FLIP_LEFT_RIGHT)
-        widgets.draw_image(image, 0, 57)
-        widgets.clear_screen()
+        
+        # Draw to framebuffer directly
+        if self.display_manager:
+            canvas = self.display_manager._framebuffer.get_canvas()
+            canvas.paste(image, (0, 221))
+            self.display_manager.update(full=False).result(timeout=5.0)
+            time.sleep(0.3)
+            
+            image = image.transpose(Image.FLIP_TOP_BOTTOM)
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
+            canvas.paste(image, (0, 57))
+            self.display_manager.update(full=False).result(timeout=5.0)
+        
+        # Clear screen by resetting widgets
+        if self.chess_board_widget:
+            self.chess_board_widget.set_fen(manager.getFEN())
+        if self.game_analysis_top:
+            self.game_analysis_top.clear_history()
+            self.game_analysis_top.set_score(0.0, "0.0")
+        if self.game_analysis_bottom:
+            self.game_analysis_bottom.clear_history()
+            self.game_analysis_bottom.set_score(0.0, "0.0")
+        if self.display_manager:
+            self.display_manager.update(full=True).result(timeout=10.0)
         
         # Display end screen
         log.info("Displaying end screen")
@@ -471,11 +543,15 @@ class UCIGame:
                 draw.rectangle(
                     [(bar_offset, 114), (bar_offset + bar_width, 114 - (score * 4))],
                     fill=color,
-                    outline='black'
+                    outline=0
                 )
                 bar_offset += bar_width
         
-        widgets.draw_image(image, 0, 0)
+        # Draw to framebuffer directly
+        if self.display_manager:
+            canvas = self.display_manager._framebuffer.get_canvas()
+            canvas.paste(image, (0, 0))
+            self.display_manager.update(full=True).result(timeout=10.0)
     
     def _handle_move(self, move_uci: str):
         """Handle a move made on the board."""
@@ -541,11 +617,6 @@ class UCIGame:
         
         score_value = self._extract_score_value(info)
         
-        # Draw evaluation bars
-        image = Image.new('1', (128, 80), 255)
-        draw = ImageDraw.Draw(image)
-        font12 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 12)
-        
         # Format score text
         score_text = "{:5.1f}".format(score_value)
         if score_value > 999:
@@ -557,18 +628,16 @@ class UCIGame:
             score_text = "Mate in " + "{:2.0f}".format(mate_moves)
             score_value = score_value * 100000
         
-        draw.text((50, 12), score_text, font=font12, fill=0)
-        draw.rectangle([(0, 1), (127, 11)], fill=None, outline='black')
-        
-        # Calculate indicator position
-        if score_value > 12:
-            score_value = 12
-        if score_value < -12:
-            score_value = -12
+        # Clamp score for display
+        display_score = score_value
+        if display_score > 12:
+            display_score = 12
+        if display_score < -12:
+            display_score = -12
         
         # Add to history
         if self.is_first_move == 0:
-            self.score_history.append(score_value)
+            self.score_history.append(display_score)
             # Limit history size to prevent memory leak
             MAX_HISTORY_SIZE = 200
             if len(self.score_history) > MAX_HISTORY_SIZE:
@@ -576,59 +645,55 @@ class UCIGame:
         else:
             self.is_first_move = 0
         
-        # Draw indicator
-        offset = (128 / 25) * (score_value + 12)
-        if offset < 128:
-            draw.rectangle([(offset, 1), (127, 11)], fill=0, outline='black')
+        # Update top widget (normal orientation)
+        if self.game_analysis_top:
+            self.game_analysis_top.set_score(display_score, score_text)
+            turn_str = "white" if self.current_turn == chess.WHITE else "black"
+            self.game_analysis_top.set_turn(turn_str)
         
-        # Draw bar chart
-        if len(self.score_history) > 0:
-            draw.line([(0, 50), (128, 50)], fill=0, width=1)
-            bar_width = 128 / len(self.score_history)
-            if bar_width > 8:
-                bar_width = 8
-            
-            bar_offset = 0
-            for score in self.score_history:
-                color = 255 if score >= 0 else 0
-                y_calc = 50 - (score * 2)
-                y0 = min(50, y_calc)
-                y1 = max(50, y_calc)
-                draw.rectangle(
-                    [(bar_offset, y0), (bar_offset + bar_width, y1)],
-                    fill=color,
-                    outline='black'
-                )
-                bar_offset += bar_width
+        # Update bottom widget (flipped orientation)
+        if self.game_analysis_bottom:
+            # For bottom widget, flip the score and turn
+            flipped_score = -display_score
+            flipped_turn = "black" if self.current_turn == chess.WHITE else "white"
+            self.game_analysis_bottom.set_score(flipped_score, score_text)
+            self.game_analysis_bottom.set_turn(flipped_turn)
         
-        # Draw turn indicator
-        tmp = image.copy()
-        dr2 = ImageDraw.Draw(tmp)
-        if self.current_turn == chess.WHITE:
-            dr2.ellipse((119, 14, 126, 21), fill=0, outline=0)
-        widgets.draw_image(tmp, 0, 209)
-
-        if self.current_turn == chess.BLACK:
-            draw.ellipse((119, 14, 126, 21), fill=0, outline=0)
-
-        image = image.transpose(Image.FLIP_TOP_BOTTOM)
-        image = image.transpose(Image.FLIP_LEFT_RIGHT)
-        widgets.draw_image(image, 0, 1)
+        # Sync history to widgets (only add new score, don't rebuild entire history)
+        # The widgets maintain their own history, we just need to add the new score
+        if self.is_first_move == 0:
+            if self.game_analysis_top:
+                self.game_analysis_top.add_score_to_history(display_score)
+            if self.game_analysis_bottom:
+                self.game_analysis_bottom.add_score_to_history(-display_score)
+        
+        # Update display
+        if self.display_manager:
+            self.display_manager.update(full=False).result(timeout=5.0)
     
     def _clear_evaluation_graphs(self):
         """Clear evaluation graphs from screen."""
-        blank = Image.new('1', (128, 80), 255)
-        widgets.draw_image(blank, 0, 209)
-        widgets.draw_image(blank, 0, 1)
+        if self.game_analysis_top:
+            self.game_analysis_top.clear_history()
+            self.game_analysis_top.set_score(0.0, "0.0")
+        if self.game_analysis_bottom:
+            self.game_analysis_bottom.clear_history()
+            self.game_analysis_bottom.set_score(0.0, "0.0")
+        if self.display_manager:
+            self.display_manager.update(full=False).result(timeout=5.0)
     
     def _write_text(self, row: int, text: str):
         """Write text on a given line number."""
-        widgets.write_text(row, text)
+        # Text display is handled by widgets, skip for now
+        # This was only used for "Starting game..." message
+        pass
     
     def _draw_board(self, fen: str):
         """Draw the chess board from FEN string."""
         try:
-            widgets.draw_board(fen, top=81)
+            if self.chess_board_widget and self.display_manager:
+                self.chess_board_widget.set_fen(fen)
+                self.display_manager.update(full=False).result(timeout=5.0)
         except Exception as e:
             log.error(f"Error in _draw_board: {e}")
             import traceback
@@ -636,8 +701,8 @@ class UCIGame:
     
     def run(self):
         """Run the UCI game."""
-        # Initialize ePaper service
-        service.init()
+        # Initialize display
+        self._init_display()
         
         # Set initial turn
         self.current_turn = chess.WHITE
