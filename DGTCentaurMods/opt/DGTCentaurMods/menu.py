@@ -216,59 +216,57 @@ class MenuRenderer:
         self.selected_index = max(0, min(selected_index, self.max_index()))
         log.info(f">>> MenuRenderer.draw() normalized selected_index={self.selected_index}")
         
-        # Draw everything in a single canvas operation to ensure atomicity
-        # CRITICAL: Clear the entire menu area first, then draw menu content
-        log.info(">>> MenuRenderer.draw() acquiring canvas for all menu drawing")
         manager = _get_display_manager()
-        canvas = manager._framebuffer.get_canvas()
-        draw = ImageDraw.Draw(canvas)
         
-        # Clear entire screen area below status bar first
-        clear_region = Region(0, STATUS_BAR_HEIGHT, 128, 296)
-        draw.rectangle([clear_region.x1, clear_region.y1, clear_region.x2, clear_region.y2], fill=255, outline=255)
+        # Remove any existing menu text widgets from previous draw
+        # Filter by TextWidget type and menu area position (below status bar)
+        from DGTCentaurMods.epaper.text import TextWidget as TextWidgetType
+        widgets_to_remove = [
+            w for w in manager._widgets
+            if isinstance(w, TextWidgetType) and w.y >= STATUS_BAR_HEIGHT
+        ]
+        for widget in widgets_to_remove:
+            try:
+                manager._widgets.remove(widget)
+            except ValueError:
+                pass
         
-        # Draw title if present using TextWidget with 50% dithered background (level 3)
+        # Create and add title widget if present
         if self.title:
-            log.info(f">>> MenuRenderer.draw() drawing title: '{self.title}'")
+            log.info(f">>> MenuRenderer.draw() creating title widget: '{self.title}'")
             title_text = f"[ {self.title} ]"
             title_top = MENU_BODY_TOP_WITH_TITLE - TITLE_HEIGHT
-            title_widget = TextWidget(0, 0, 128, TITLE_HEIGHT, title_text, 
+            title_widget = TextWidget(0, title_top, 128, TITLE_HEIGHT, title_text, 
                                      background=3, font_size=18)
-            title_image = title_widget.render()
-            canvas.paste(title_image, (0, title_top))
+            manager.add_widget(title_widget)
         
-        # Draw all menu entries using TextWidget (white background, level 0)
+        # Create and add menu entry widgets
         # Position text after vertical line (arrow_width) with 2 pixel gap
         text_x = self.arrow_width + 2
         text_width = 128 - text_x
-        log.info(f">>> MenuRenderer.draw() drawing {len(self.entries)} entries, body_top={self.body_top}")
+        log.info(f">>> MenuRenderer.draw() creating {len(self.entries)} entry widgets, body_top={self.body_top}")
         for idx, entry in enumerate(self.entries):
             top = self._row_top(idx)
             log.info(f">>> MenuRenderer.draw() entry {idx}: top={top}, label='{entry.label}'")
-            entry_widget = TextWidget(0, 0, text_width, self.row_height, entry.label,
+            entry_widget = TextWidget(text_x, top, text_width, self.row_height, entry.label,
                                      background=0, font_size=18)
-            entry_image = entry_widget.render()
-            canvas.paste(entry_image, (text_x, top))
+            manager.add_widget(entry_widget)
         
         # Arrow will be drawn by MenuArrowWidget, not here
         
-        # Draw description if present using TextWidget (white background, level 0)
+        # Create and add description widgets if present
         if self.description:
-            log.info(">>> MenuRenderer.draw() drawing description")
+            log.info(">>> MenuRenderer.draw() creating description widgets")
             desc_top = self._row_top(len(self.entries)) + DESCRIPTION_GAP
-            desc_region = Region(0, desc_top, 128, 296 - desc_top)
-            draw.rectangle([desc_region.x1, desc_region.y1, desc_region.x2, desc_region.y2], fill=255, outline=255)
-            wrapped = self._wrap_text(self.description, max_width=desc_region.x2 - desc_region.x1 - 10)
+            desc_width = 128 - 10  # Leave 5px margin on each side
+            wrapped = self._wrap_text(self.description, max_width=desc_width - 10)
             for idx, line in enumerate(wrapped[:9]):
                 y_pos = desc_top + 2 + (idx * 16)
-                desc_widget = TextWidget(5, 0, 123, 16, line,
+                desc_widget = TextWidget(5, y_pos, 123, 16, line,
                                         background=0, font_size=16)
-                desc_image = desc_widget.render()
-                canvas.paste(desc_image, (5, y_pos))
+                manager.add_widget(desc_widget)
         
-        # NOTE: Do NOT call manager.update() here - it resets the canvas to flushed state
-        # The update will be called in doMenu() after status bar is drawn
-        log.info(">>> MenuRenderer.draw() canvas updated (not submitting yet), EXITING")
+        log.info(">>> MenuRenderer.draw() widgets created and added to manager, EXITING")
 
     def change_selection(self, new_index: int) -> None:
         """
@@ -522,7 +520,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         initial_index = max(0, min(len(ordered_menu) - 1, menuitem - 1))
     log.info(f">>> doMenu: calling renderer.draw(initial_index={initial_index})")
     renderer.draw(initial_index)
-    log.info(">>> doMenu: renderer.draw() complete, menu content is in framebuffer")
+    log.info(">>> doMenu: renderer.draw() complete, text widgets added to manager")
     
     # Create arrow widget and add it to manager so it uses proper widget mechanism
     # Calculate widget position and dimensions
@@ -537,56 +535,21 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         num_entries=len(ordered_menu)
     )
     
-    # Add widget to manager so it's part of the widget system
+    # Add arrow widget to manager so it's part of the widget system
     manager.add_widget(arrow_widget)
-    
-    # Render arrow widget to framebuffer via manager update
-    manager.update(full=False).result(timeout=5.0)
-    
-    # Verify framebuffer has menu content before proceeding
-    snapshot_before_status = manager._framebuffer.snapshot()
-    log.info(f">>> doMenu: Framebuffer snapshot after menu draw: size={snapshot_before_status.size}")
-    # Check if menu area has content (sample a few pixels)
-    menu_area = snapshot_before_status.crop((0, STATUS_BAR_HEIGHT, 128, STATUS_BAR_HEIGHT + 50))
-    pixels = list(menu_area.getdata())
-    non_white_pixels = sum(1 for p in pixels if p != 255)
-    log.info(f">>> doMenu: Menu area has {non_white_pixels} non-white pixels out of {len(pixels)} total")
     
     menuitem = (initial_index + 1) if ordered_menu else 1
     
-    # Render status bar widget directly to framebuffer (since menu is drawn directly, not via widgets)
-    log.info(">>> doMenu: rendering status bar widget to framebuffer")
+    # Ensure status bar widget is added to manager
     global status_bar_widget
-    if status_bar_widget:
-        status_bar_image = status_bar_widget.render()
-        canvas = manager._framebuffer.get_canvas()
-        canvas.paste(status_bar_image, (status_bar_widget.x, status_bar_widget.y))
-    else:
-        # Fallback: draw status bar directly if widget not available
-        status_text = statusbar.build()
-        canvas = manager._framebuffer.get_canvas()
-        draw = ImageDraw.Draw(canvas)
-        status_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
-        status_region = Region(0, 0, 128, STATUS_BAR_HEIGHT)
-        draw.rectangle([status_region.x1, status_region.y1, status_region.x2, status_region.y2], fill=255, outline=255)
-        draw.text((2, -1), status_text, font=status_font, fill=0)
-        _draw_battery_icon_to_canvas(canvas, top_padding=1)
+    if status_bar_widget and status_bar_widget not in manager._widgets:
+        manager.add_widget(status_bar_widget)
     
-    log.info(">>> doMenu: status bar rendered to framebuffer")
-    # Verify final framebuffer state
-    snapshot_final = manager._framebuffer.snapshot()
-    menu_area_final = snapshot_final.crop((0, STATUS_BAR_HEIGHT, 128, STATUS_BAR_HEIGHT + 50))
-    pixels_final = list(menu_area_final.getdata())
-    non_white_final = sum(1 for p in pixels_final if p != 255)
-    log.info(f">>> doMenu: Final framebuffer menu area has {non_white_final} non-white pixels")
-    
-    # Submit partial refresh to display everything (menu + status bar + arrow)
-    import time
-    submit_start = time.time()
-    future = manager._scheduler.submit(full=False)
+    # Render all widgets (text widgets, arrow widget, status bar) via manager
+    log.info(">>> doMenu: rendering all widgets via manager.update()")
+    future = manager.update(full=False)
     future.result(timeout=10.0)  # Wait for completion
-    submit_duration = time.time() - submit_start
-    log.info(f">>> doMenu: partial refresh complete after {submit_duration:.3f}s, about to BLOCK on arrow widget")
+    log.info(">>> doMenu: manager.update() complete, all widgets rendered")
     
     # Use arrow widget to wait for selection
     try:
@@ -608,21 +571,44 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         else:
             selection = "BACK"
         
-        # Remove arrow widget from manager after selection
+        # Remove all menu widgets from manager after selection
         try:
             manager._widgets.remove(arrow_widget)
         except ValueError:
             pass  # Widget already removed
         
+        # Remove all menu text widgets (filter by TextWidget type and menu area position)
+        from DGTCentaurMods.epaper.text import TextWidget as TextWidgetType
+        widgets_to_remove = [
+            w for w in manager._widgets
+            if isinstance(w, TextWidgetType) and w.y >= STATUS_BAR_HEIGHT
+        ]
+        for widget in widgets_to_remove:
+            try:
+                manager._widgets.remove(widget)
+            except ValueError:
+                pass
+        
         log.info(f">>> doMenu: returning selection='{selection}'")
         return selection
     except KeyboardInterrupt:
         log.info(">>> doMenu: KeyboardInterrupt caught")
-        # Remove arrow widget from manager on interrupt
+        # Remove all menu widgets from manager on interrupt
         try:
             manager._widgets.remove(arrow_widget)
         except ValueError:
             pass
+        # Remove all menu text widgets
+        from DGTCentaurMods.epaper.text import TextWidget as TextWidgetType
+        widgets_to_remove = [
+            w for w in manager._widgets
+            if isinstance(w, TextWidgetType) and w.y >= STATUS_BAR_HEIGHT
+        ]
+        for widget in widgets_to_remove:
+            try:
+                manager._widgets.remove(widget)
+            except ValueError:
+                pass
         return "SHUTDOWN"
 
 def changedCallback(piece_event, field, time_in_seconds):
