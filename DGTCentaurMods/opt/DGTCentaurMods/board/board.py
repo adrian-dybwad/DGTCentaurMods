@@ -398,7 +398,9 @@ def eventsThread(keycallback, fieldcallback, tout):
                 to = time.time() + tout
                 events_paused = False
 
-            key_pressed = None
+            # Process all queued keys to avoid missing rapid presses
+            # Drain the queue to process all pending keys in this iteration
+            keys_to_process = []
             if not standby:
                 #Hold fields activity on standby
                 if fieldcallback != None:
@@ -422,8 +424,22 @@ def eventsThread(keycallback, fieldcallback, tout):
                         log.error(f"Error in piece detection thread: {e}")
 
             try:
-
-                key_pressed = controller.get_and_reset_last_key()
+                # CRITICAL FIX: Consume from queue instead of single _last_key value
+                # This ensures all keys are processed, not just the last one
+                # Drain queue to get all pending keys
+                while True:
+                    key = controller.get_next_key(timeout=0.0)  # Non-blocking
+                    if key is None:
+                        break
+                    keys_to_process.append(key)
+                
+                # Fallback to _last_key for backward compatibility (if queue is empty)
+                if not keys_to_process:
+                    key_pressed = controller.get_and_reset_last_key()
+                    if key_pressed is not None:
+                        keys_to_process.append(key_pressed)
+                else:
+                    key_pressed = keys_to_process[0]  # Use first key for PLAY button logic
 
                 if key_pressed == Key.PLAY:
                     breaktime = time.time() + 0.5
@@ -471,14 +487,16 @@ def eventsThread(keycallback, fieldcallback, tout):
             except:
                 pass
             time.sleep(0.05)
-            if standby != True and key_pressed is not None:
-                to = time.time() + tout
-                log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
-                # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
-                try:
-                    keycallback(key_pressed)
-                except Exception as e:
-                    log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
+            # Process all queued keys to avoid missing rapid presses
+            if standby != True and keys_to_process:
+                for key_pressed in keys_to_process:
+                    to = time.time() + tout
+                    log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
+                    # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
+                    try:
+                        keycallback(key_pressed)
+                    except Exception as e:
+                        log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
         else:
             # If pauseEvents() hold timeout in the thread
             to = time.time() + 100000

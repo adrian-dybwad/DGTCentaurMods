@@ -733,10 +733,33 @@ class AsyncCentaur:
         """
         Non-blocking: return the last key-up event as Key and reset it.
         Returns None if no key-up has been recorded since last call.
+        
+        NOTE: This method is deprecated for event handling. Use get_next_key()
+        or consume from key_up_queue directly to avoid missing rapid key presses.
         """
         last_key_pressed = self._last_key
         self._last_key = None
         return last_key_pressed
+    
+    def get_next_key(self, timeout=0.0):
+        """
+        Get the next key from the queue (non-blocking by default).
+        
+        Args:
+            timeout: Time to wait for a key (0.0 = non-blocking, None = blocking)
+        
+        Returns:
+            Key object or None if no key available
+        """
+        try:
+            if timeout is None:
+                return self.key_up_queue.get()
+            elif timeout == 0.0:
+                return self.key_up_queue.get_nowait()
+            else:
+                return self.key_up_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
 
     
 

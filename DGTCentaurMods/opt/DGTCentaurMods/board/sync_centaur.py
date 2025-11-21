@@ -627,10 +627,35 @@ class SyncCentaur:
                     return key
     
     def get_and_reset_last_key(self):
-        """Non-blocking: return the last key-up event and reset it"""
+        """
+        Non-blocking: return the last key-up event and reset it.
+        
+        NOTE: This method is deprecated for event handling. Use get_next_key()
+        or consume from key_up_queue directly to avoid missing rapid key presses.
+        """
         last_key = self._last_key
         self._last_key = None
         return last_key
+    
+    def get_next_key(self, timeout=0.0):
+        """
+        Get the next key from the queue (non-blocking by default).
+        
+        Args:
+            timeout: Time to wait for a key (0.0 = non-blocking, None = blocking)
+        
+        Returns:
+            Key object or None if no key available
+        """
+        try:
+            if timeout is None:
+                return self.key_up_queue.get()
+            elif timeout == 0.0:
+                return self.key_up_queue.get_nowait()
+            else:
+                return self.key_up_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
     
     def _send_command(self, command_name: str, data: Optional[bytes] = None):
         """
