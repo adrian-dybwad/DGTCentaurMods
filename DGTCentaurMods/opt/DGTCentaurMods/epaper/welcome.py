@@ -61,7 +61,7 @@ class WelcomeWidget(Widget):
         # Draw welcome content
         draw.rectangle([0, STATUS_BAR_HEIGHT, 128, 296], fill=255, outline=255)
         img.paste(self._logo, (0, STATUS_BAR_HEIGHT + 4))
-        draw.text((0, STATUS_BAR_HEIGHT + 180), "   Press [>||]", font=self._font_18, fill=0)
+        draw.text((0, STATUS_BAR_HEIGHT + 180), "   Press [✓]", font=self._font_18, fill=0)
         
         return img
 
