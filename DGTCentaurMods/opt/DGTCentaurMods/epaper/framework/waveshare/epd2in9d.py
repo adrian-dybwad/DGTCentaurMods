@@ -276,8 +276,8 @@ class EPD:
         # Send inverted old/previous content to 0x10
         self.send_command(0x10)
         #self.send_data2([0xFF] * int(self.width * self.height / 8))
-        print(f"{' '.join(f'{b:02x}' for b in old_image)}")
-        self.send_data2(old_image)
+        print(f"{' '.join(f'{b:02x}' for b in buf_old)}")
+        self.send_data2(buf_old)
         epdconfig.delay_ms(10)
         
         print(f"{' '.join(f'{b:02x}' for b in new_image)}")
