@@ -244,14 +244,7 @@ class EPD:
         epdconfig.delay_ms(10)
         self.TurnOnDisplay()
         
-    def DisplayPartial(self, old_image, new_image):
-        """
-        Display partial refresh following Waveshare pattern.
-        
-        Args:
-            old_image: Buffer containing the old/previous content (sent to 0x10, inverted)
-            new_image: Buffer containing the new/current content (sent to 0x13)
-        """
+    def DisplayPartial(self, image):
         self.SetPartReg()
         self.send_command(0x91)
         self.send_command(0x90)
@@ -264,17 +257,16 @@ class EPD:
         self.send_data(self.height % 256 - 1)
         self.send_data(0x28)
         
-        # Invert old/previous content before sending to 0x10
-        inverted_old = [(~b) & 0xFF for b in old_image]
-        
-        # Send inverted old/previous content to 0x10
+
+        buf = [0x00] * int(self.width * self.height / 8)
+        for i in range(0, int(self.width * self.height / 8)):
+            buf[i] = ~image[i]
         self.send_command(0x10)
-        self.send_data2(inverted_old)
+        self.send_data2(image)
         epdconfig.delay_ms(10)
         
-        # Send new/current content to 0x13
         self.send_command(0x13)
-        self.send_data2(new_image)
+        self.send_data2(buf)
         epdconfig.delay_ms(10)
           
         self.TurnOnDisplay()
