@@ -91,9 +91,8 @@ class Scheduler:
                 self._epd.init()
                 self._in_partial_mode = False
             
-            # Get full-screen snapshot and rotate 180° for hardware orientation
+            # Get full-screen snapshot
             full_image = self._framebuffer.snapshot()
-            full_image = full_image.transpose(Image.ROTATE_180)
             
             buf = self._epd.getbuffer(full_image)
             self._epd.display(buf)
@@ -138,12 +137,9 @@ class Scheduler:
                 self._epd.init()
                 self._epd.Clear()
             
-            # Get old (flushed) and new (current) snapshots, rotate 180° for hardware orientation
+            # Get old (flushed) and new (current) snapshots
             old_image = self._framebuffer.snapshot_flushed()
-            old_image = old_image.transpose(Image.ROTATE_180)
-            
             new_image = self._framebuffer.snapshot()
-            new_image = new_image.transpose(Image.ROTATE_180)
             
             # Get buffers from images
             old_buf = self._epd.getbuffer(old_image)
