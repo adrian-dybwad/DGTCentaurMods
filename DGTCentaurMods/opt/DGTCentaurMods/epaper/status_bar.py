@@ -21,13 +21,13 @@ class StatusBarWidget(Widget):
     
     def __init__(self, x: int = 0, y: int = 0):
         super().__init__(x, y, 128, 16)
-        # Create clock widget with HH:MM format (no seconds for status bar), 14pt font
+        # Create clock widget with HH:MM:SS format (showing seconds), 14pt font
         font_path = '/opt/DGTCentaurMods/resources/Font.ttc'
         if not os.path.exists(font_path):
             font_path = 'resources/Font.ttc'
         self._clock_widget = ClockWidget(2, 0, width=76, height=16, 
-                                         format="%H:%M", font_size=14, font_path=font_path,
-                                         show_seconds=False)
+                                         format="%H:%M:%S", font_size=14, font_path=font_path,
+                                         show_seconds=True)
         self._wifi_widget = WiFiStatusWidget(80, 0)
         self._battery_widget = BatteryWidget(98, 1)
     
