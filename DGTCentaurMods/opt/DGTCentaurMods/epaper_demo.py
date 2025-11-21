@@ -79,32 +79,21 @@ class EPaperDemo:
             print("Screen cleared")
             
             # Render checkerboard and update display using full refresh
-            print("Rendering checkerboard pattern...")
-            future = self.display.update(full=True)
-            future.result(timeout=5.0)
-            print("Update complete (full refresh) 1")
-            time.sleep(1.0)
-            future = self.display.update(full=False)
-            future.result(timeout=5.0)
-            print("Update complete (full refresh) 2")
-            # time.sleep(1.0)
+            # print("Rendering checkerboard pattern...")
             # future = self.display.update(full=True)
             # future.result(timeout=5.0)
-            # print("Update complete (full refresh) 3")
+            # print("Update complete (full refresh) 1")
             # time.sleep(1.0)
-            # future = self.display.update(full=True)
-            # future.result(timeout=5.0)
-            # print("Update complete (full refresh) 4")
             
             print("Display active. Press Ctrl+C to exit")
             
             # Set running flag and keep running to update clock every second
             self.running = True
-            last_update = time.time()
+            last_update = 0 #time.time()
             while self.running:
                 current_time = time.time()
                 # Update clock every second
-                if current_time - last_update >= 5.0:
+                if current_time - last_update >= 1.0:
                     # Use full refresh instead of partial refresh
                     future = self.display.update(full=False)
                     future.result(timeout=5.0)
