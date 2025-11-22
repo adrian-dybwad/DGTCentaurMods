@@ -99,7 +99,7 @@ class MenuArrowWidget(Widget):
             new_index = self.selected_index + 1
             if new_index > self.max_index():
                 new_index = 0
-            log.info(f">>> MenuArrowWidget.handle_key: new_index={new_index}")
+            log.info(f">>> MenuArrowWidget.handle_key: new_index={new_index} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
             self._update_selection(new_index)
             return True  # Handled
         
@@ -107,7 +107,7 @@ class MenuArrowWidget(Widget):
             new_index = self.selected_index - 1
             if new_index < 0:
                 new_index = self.max_index()
-            log.info(f">>> MenuArrowWidget.handle_key: new_index={new_index}")
+            log.info(f">>> MenuArrowWidget.handle_key: new_index={new_index} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
             self._update_selection(new_index)
             return True  # Handled
         
