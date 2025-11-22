@@ -38,6 +38,7 @@ from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
 from DGTCentaurMods.epaper import Manager, WelcomeWidget, StatusBarWidget, TextWidget
 from DGTCentaurMods.epaper.menu_arrow import MenuArrowWidget
+from DGTCentaurMods.epaper.menu_widget import MenuWidget, MenuEntry as MenuWidgetEntry
 from DGTCentaurMods.epaper.framework.regions import Region
 from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.board.logging import log
@@ -69,8 +70,6 @@ display_manager: Optional[Manager] = None
 # Global status bar widget
 status_bar_widget: Optional[StatusBarWidget] = None
 
-current_renderer: Optional["MenuRenderer"] = None
-
 
 def _get_display_manager() -> Manager:
     """Get or create the global display manager."""
@@ -86,81 +85,6 @@ def _get_display_manager() -> Manager:
     
     return display_manager
 
-@dataclass
-class MenuEntry:
-    key: str
-    label: str
-
-
-class MenuRenderer:
-    def __init__(self, title: Optional[str], entries: Sequence[MenuEntry], description: Optional[str]) -> None:
-        self.title = title or ""
-        self.entries: List[MenuEntry] = list(entries)
-        self.description = (description or "").strip()
-        self.row_height = MENU_ROW_HEIGHT
-        self.body_top = MENU_BODY_TOP_WITH_TITLE if title else MENU_BODY_TOP_NO_TITLE
-        self.arrow_width = 20
-        self.selected_index = 0
-        self._description_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
-
-    def max_index(self) -> int:
-        return max(0, len(self.entries) - 1)
-
-    def draw(self, selected_index: int) -> None:
-        log.debug(f">>> MenuRenderer.draw() ENTERED with selected_index={selected_index}")
-        self.selected_index = max(0, min(selected_index, self.max_index()))
-        log.debug(f">>> MenuRenderer.draw() normalized selected_index={self.selected_index}")
-        
-        manager = _get_display_manager()
-        
-        # SAFER APPROACH: Remove all widgets except status bar, then re-add only what we need
-        # This ensures a clean state and avoids leftover widgets
-        global status_bar_widget
-        widgets_to_keep = []
-        if status_bar_widget and status_bar_widget in manager._widgets:
-            widgets_to_keep.append(status_bar_widget)
-        
-        # Clear all widgets except status bar
-        manager._widgets.clear()
-        manager._widgets.extend(widgets_to_keep)
-        log.debug(f">>> MenuRenderer.draw() cleared all widgets except {len(widgets_to_keep)} status bar widget(s)")
-        
-        # Create and add title widget if present
-        if self.title:
-            log.debug(f">>> MenuRenderer.draw() creating title widget: '{self.title}'")
-            title_text = f"[ {self.title} ]"
-            title_top = MENU_BODY_TOP_WITH_TITLE - TITLE_HEIGHT
-            title_widget = TextWidget(0, title_top, 128, TITLE_HEIGHT, title_text, 
-                                     background=3, font_size=18)
-            manager.add_widget(title_widget)
-        
-        # Create and add menu entry widgets
-        # Position text after vertical line (arrow_width) with 2 pixel gap
-        text_x = self.arrow_width + 4
-        text_width = 128 - text_x
-        log.debug(f">>> MenuRenderer.draw() creating {len(self.entries)} entry widgets, body_top={self.body_top}")
-        for idx, entry in enumerate(self.entries):
-            top = self._row_top(idx)
-            log.debug(f">>> MenuRenderer.draw() entry {idx}: top={top}, label='{entry.label}'")
-            entry_widget = TextWidget(text_x, top, text_width, self.row_height, entry.label,
-                                     background=0, font_size=16)
-            manager.add_widget(entry_widget)
-        
-        # Arrow will be drawn by MenuArrowWidget, not here
-        
-        # Create and add description widgets if present
-        if self.description:
-            log.debug(">>> MenuRenderer.draw() creating description widgets")
-            desc_top = self._row_top(len(self.entries)) + DESCRIPTION_GAP
-            desc_width = 128 - 10  # Leave 5px margin on each side
-            desc_widget = TextWidget(5, desc_top, desc_width, 150, self.description,
-                                    background=0, font_size=14, wrapText=True)
-            manager.add_widget(desc_widget)
-    
-        log.info(">>> MenuRenderer.draw() widgets created and added to manager, EXITING")
-
-    def _row_top(self, idx: int) -> int:
-        return self.body_top + (idx * self.row_height)
 
 
 def keyPressed(id):
@@ -224,8 +148,6 @@ def keyPressed(id):
             menuitem = len(curmenu)
         if menuitem > len(curmenu):
             menuitem = 1
-        if current_renderer:
-            current_renderer.change_selection(menuitem - 1)
 
 
 quickselect = 0
@@ -319,21 +241,38 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
 
     quickselect = 1    
     ordered_menu = list(actual_menu.items()) if actual_menu else []
-    log.info(f">>> doMenu: creating MenuRenderer with {len(ordered_menu)} entries")
-    renderer = MenuRenderer(actual_title, [MenuEntry(k, v) for k, v in ordered_menu], actual_description)
-    global current_renderer
-    current_renderer = renderer
+    
+    # Convert menu items to MenuWidgetEntry format
+    menu_entries = [MenuWidgetEntry(key=k, label=v, description=None) for k, v in ordered_menu]
+    
     initial_index = 0
     if ordered_menu:
         initial_index = max(0, min(len(ordered_menu) - 1, menuitem - 1))
-    log.info(f">>> doMenu: calling renderer.draw(initial_index={initial_index})")
-    renderer.draw(initial_index)
-    log.info(">>> doMenu: renderer.draw() complete, text widgets added to manager")
     
-    # Create arrow widget and add it to manager so it uses proper widget mechanism
-    # Calculate widget position and dimensions
-    arrow_box_top = renderer.body_top  # Top position of arrow box (first selectable row)
-    arrow_widget_height = len(ordered_menu) * renderer.row_height if ordered_menu else renderer.row_height
+    # Clear widgets except status bar
+    widgets_to_keep = []
+    if status_bar_widget and status_bar_widget in manager._widgets:
+        widgets_to_keep.append(status_bar_widget)
+    manager._widgets.clear()
+    manager._widgets.extend(widgets_to_keep)
+    
+    # Create menu widget (full screen, positioned below status bar)
+    menu_widget = MenuWidget(
+        x=0,
+        y=0,
+        width=128,
+        height=296,  # Full e-paper height
+        title=actual_title,
+        entries=menu_entries,
+        selected_index=initial_index
+    )
+    manager.add_widget(menu_widget)
+    log.info(f">>> doMenu: created MenuWidget with {len(menu_entries)} entries, selected_index={initial_index}")
+    
+    # Create arrow widget for key handling (it will update menu_widget selection)
+    # Calculate arrow widget position based on menu widget layout
+    arrow_box_top = menu_widget._menu_top
+    arrow_widget_height = len(menu_entries) * menu_widget.MENU_ROW_HEIGHT if menu_entries else menu_widget.MENU_ROW_HEIGHT
     
     # Define callbacks for registering/unregistering the arrow widget
     def register_arrow_widget(widget):
@@ -344,37 +283,40 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         global _active_arrow_widget
         _active_arrow_widget = None
     
+    # Create arrow widget that updates menu widget selection
     arrow_widget = MenuArrowWidget(
         x=0,
-        y=arrow_box_top,  # Position at top of selectable rows
-        width=renderer.arrow_width + 1,  # +1 for vertical line on rightmost side
-        height=arrow_widget_height,  # Total height of all selectable rows
-        row_height=renderer.row_height,
-        num_entries=len(ordered_menu),
+        y=arrow_box_top,
+        width=menu_widget.ARROW_WIDTH + 1,  # +1 for vertical line
+        height=arrow_widget_height,
+        row_height=menu_widget.MENU_ROW_HEIGHT,
+        num_entries=len(menu_entries),
         register_callback=register_arrow_widget,
         unregister_callback=unregister_arrow_widget
     )
     
-    # Add arrow widget to manager so it's part of the widget system
+    # Link arrow widget to menu widget - when arrow selection changes, update menu widget
+    def update_menu_selection(index: int):
+        menu_widget.set_selection(index)
+    
+    # Store callback in arrow widget (we'll need to modify MenuArrowWidget to use it)
+    arrow_widget._menu_widget_callback = update_menu_selection
+    
     manager.add_widget(arrow_widget)
-    log.info(f">>> doMenu: arrow widget added to manager, widgets count={len(manager._widgets)}")
-    log.info(f">>> doMenu: arrow widget has update_callback={arrow_widget._update_callback is not None}")
+    log.info(f">>> doMenu: arrow widget added to manager")
     
     menuitem = (initial_index + 1) if ordered_menu else 1
     
-    # Ensure status bar widget is added to manager (it was preserved during MenuRenderer.draw() clear)
+    # Ensure status bar widget is added
     if status_bar_widget and status_bar_widget not in manager._widgets:
         manager.add_widget(status_bar_widget)
     
-    # Widgets should call request_update() themselves when ready
-    # The arrow widget triggers its own update after being added
-    log.info(f">>> doMenu: all widgets added, manager._widgets contains: {[w.__class__.__name__ for w in manager._widgets]}")
-    # Wait for arrow widget to trigger its update (it does this automatically)
-    if arrow_widget._update_callback:
-        future = arrow_widget.request_update(full=False)
+    # Trigger initial render
+    if menu_widget._update_callback:
+        future = menu_widget.request_update(full=False)
         if future:
             future.result(timeout=10.0)
-    log.info(">>> doMenu: all widgets rendered")
+    log.info(">>> doMenu: menu widget rendered")
     
     # Use arrow widget to wait for selection
     try:

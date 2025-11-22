@@ -41,6 +41,7 @@ class MenuArrowWidget(Widget):
         self._active = False
         self._register_callback = register_callback
         self._unregister_callback = unregister_callback
+        self._menu_widget_callback: Optional[Callable[[int], None]] = None  # Callback to update menu widget
         
     def max_index(self) -> int:
         """Get maximum valid selection index."""
@@ -62,31 +63,21 @@ class MenuArrowWidget(Widget):
         return idx * self.row_height
     
     def render(self) -> Image.Image:
-        """Render the arrow column with arrow at current selection."""
-        img = Image.new("1", (self.width, self.height), 255)  # White background
-        draw = ImageDraw.Draw(img)
+        """Render transparent/empty image since MenuWidget handles all visual rendering.
         
-        # Clear entire arrow box area
-        draw.rectangle((0, 0, self.width, self.height), fill=255, outline=255)
+        This widget only handles key events; the MenuWidget renders the arrow and menu.
+        """
+        # Return white image - will be made transparent via mask
+        return Image.new("1", (self.width, self.height), 255)
+    
+    def get_mask(self) -> Optional[Image.Image]:
+        """Return a mask that makes this widget completely transparent.
         
-        # Draw arrow at selected position (within the arrow box)
-        if self.num_entries > 0 and self.selected_index < self.num_entries:
-            selected_top = self._row_top(self.selected_index)
-            # Arrow is drawn on the left side, leaving space for vertical line on right
-            arrow_width = self.width - 1  # Leave 1 pixel for vertical line
-            draw.polygon(
-                [
-                    (2, selected_top + 2),
-                    (2, selected_top + self.row_height - 2),
-                    (arrow_width - 3, selected_top + (self.row_height // 2)),
-                ],
-                fill=0,
-            )
-        
-        # Draw vertical line on the rightmost side of the widget
-        draw.line((self.width - 1, 0, self.width - 1, self.height - 1), fill=0, width=1)
-        
-        return img
+        Since MenuWidget handles all rendering, this widget should be invisible.
+        """
+        # Return all-white mask (0 = transparent, 255 = opaque)
+        # Using all zeros makes it completely transparent
+        return Image.new("L", (self.width, self.height), 0)  # All transparent
     
     def handle_key(self, key_id):
         """Handle key press events. Called from menu's keyPressed function."""
@@ -142,6 +133,11 @@ class MenuArrowWidget(Widget):
             log.info(f">>> MenuArrowWidget._update_selection: changing from {self.selected_index} to {new_index}")
             self.selected_index = new_index
             self._last_rendered = None  # Invalidate cache so render() will regenerate
+            
+            # Update menu widget selection if callback provided
+            if self._menu_widget_callback:
+                self._menu_widget_callback(new_index)
+            
             # Use widget mechanism: request_update() triggers Manager.update()
             # which will call render() on this widget and paste it to framebuffer
             log.info(f">>> MenuArrowWidget._update_selection: calling request_update(), _update_callback={self._update_callback is not None}")
