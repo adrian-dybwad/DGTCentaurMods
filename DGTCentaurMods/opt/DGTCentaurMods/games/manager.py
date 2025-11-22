@@ -459,8 +459,8 @@ class GameManager:
                 log.warning(f"[GameManager._provide_correction_guidance] Pieces missing at: {[chess.square_name(sq) for sq in missing_squares]}")
             elif len(extra_squares) > 0:
                 board.ledsOff()
-                # Use ledArray for continuous flashing instead of single flash
-                board.ledArray(extra_squares, speed=5, intensity=5)
+                # Use ledArray for continuous flashing
+                board.ledArray(extra_squares, speed=10, intensity=5)
                 log.warning(f"[GameManager._provide_correction_guidance] Extra pieces at: {[chess.square_name(sq) for sq in extra_squares]}")
     
     def _handle_field_event_in_correction_mode(self, piece_event: int, field: int, time_in_seconds: float):
