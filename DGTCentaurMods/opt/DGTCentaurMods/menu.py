@@ -350,7 +350,7 @@ threading.Timer(300, update.main).start()
 
 # Only initialize board events if menu.py is the main script (not when imported)
 # This prevents conflicts when other scripts (like uci.py) import from menu.py
-if __name__ == "__main__" or not hasattr(board, '_events_initialized'):
+if __name__ == "__main__": #or not hasattr(board, '_events_initialized'):
     # Subscribe to board events. First parameter is the function for key presses. The second is the function for
     # field activity
     board.subscribeEvents(keyPressed, changedCallback, timeout=900)
