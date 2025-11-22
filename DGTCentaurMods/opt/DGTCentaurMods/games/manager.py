@@ -380,6 +380,9 @@ class GameManager:
         self.correction_mode.exit()
         log.warning("[GameManager._exit_correction_mode] Exited correction mode")
         
+        # Turn off correction LEDs first
+        board.ledsOff()
+        
         # Reset move state variables
         self.move_state.source_square = INVALID_SQUARE
         self.move_state.legal_destination_squares = []
