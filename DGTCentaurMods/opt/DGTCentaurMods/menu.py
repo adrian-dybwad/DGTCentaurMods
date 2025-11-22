@@ -640,13 +640,6 @@ def show_welcome():
     welcome_widget = WelcomeWidget(status_text=status_text)
     manager.add_widget(welcome_widget)
     
-    # Widget triggers its own update after being added
-    log.info(">>> show_welcome() waiting for welcome widget update")
-    if welcome_widget._update_callback:
-        future = welcome_widget.request_update(full=False)
-        if future:
-            future.result(timeout=5.0)
-    log.info(">>> show_welcome() welcome widget displayed")
     
     idle = True
     log.info(">>> show_welcome() setting idle=True, about to BLOCK on event_key.wait()")
