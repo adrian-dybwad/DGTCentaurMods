@@ -51,6 +51,7 @@ class EPD:
         self.width = EPD_WIDTH
         self.height = EPD_HEIGHT
         # Store the last image sent for partial refresh
+        print("-------------------------------- e-Paper display INITIALIZED - resetting buffer -------------------------------")
         self.buffer = [0xFF] * int(self.width * self.height / 8)    
          
     lut_vcom1 = [  
@@ -242,6 +243,7 @@ class EPD:
         self.send_command(0x13)
         self.send_data2(image)
         epdconfig.delay_ms(10)
+        print("-------------------------------- e-Paper display complete - resetting buffer -------------------------------")
         self.buffer = [0xFF] * int(self.width * self.height / 8)    
         self.TurnOnDisplay()
         
