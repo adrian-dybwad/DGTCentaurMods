@@ -86,6 +86,9 @@ class Manager:
         # Get canvas and clear it to white - start fresh for each update
         # The e-paper driver handles its own state, so we just create the complete image
         canvas = self._framebuffer.get_canvas()
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(canvas)
+        draw.rectangle((0, 0, self._epd.width, self._epd.height), fill=255)  # Fill with white
         
         # Separate static and moving widgets
         static_widgets = []
