@@ -37,19 +37,10 @@ class WelcomeWidget(Widget):
         try:
             self._font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
             self._logo = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
-            self.request_update(full=False)
         except Exception as e:
             log.error(f"Failed to load welcome widget resources: {e}")
             self._font_18 = ImageFont.load_default()
             self._logo = Image.new("1", (128, 128), 255)
-            self.request_update(full=False)
-    
-    def set_status_text(self, status_text: str) -> None:
-        """Update the status text (kept for compatibility, but status bar shows time now)."""
-        if self.status_text != status_text:
-            self.status_text = status_text
-            self._last_rendered = None
-            self.request_update(full=False)
     
     def render(self) -> Image.Image:
         """Render the welcome screen."""

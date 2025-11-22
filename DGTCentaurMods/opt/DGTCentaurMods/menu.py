@@ -753,7 +753,8 @@ def get_lichess_client():
 
 # Handle the menu structure
 # Only run menu loop if menu.py is executed directly (not when imported)
-if __name__ == "__main__":
+if __name__ == "__main__":  
+    show_welcome()  # Show welcome screen first, wait for tick
     while True:    
         menu = {}
         if os.path.exists(centaur_software):
