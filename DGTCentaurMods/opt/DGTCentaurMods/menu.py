@@ -452,6 +452,7 @@ def show_welcome():
     status_text = statusbar.build() if 'statusbar' in globals() else "READY"
     welcome_widget = WelcomeWidget(status_text=status_text)
     manager.add_widget(welcome_widget)
+    manager.update(full=False)
     
     
     idle = True
