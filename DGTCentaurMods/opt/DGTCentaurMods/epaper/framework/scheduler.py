@@ -43,6 +43,16 @@ class Scheduler:
     def stop(self) -> None:
         """Stop the refresh scheduler thread."""
         self._stop_event.set()
+        # Wake the thread if it's waiting
+        self._wake_event.set()
+        # Drain the queue to prevent new operations from starting
+        while not self._queue.empty():
+            try:
+                _, future = self._queue.get_nowait()
+                if not future.done():
+                    future.set_result("shutdown")
+            except queue.Empty:
+                break
         if self._thread is not None:
             self._thread.join(timeout=5.0)
     
@@ -111,6 +121,13 @@ class Scheduler:
     
     def _execute_full_refresh(self, batch: list) -> None:
         """Execute a full screen refresh."""
+        # Check if shutdown was requested before using hardware
+        if self._stop_event.is_set():
+            for _, future in batch:
+                if not future.done():
+                    future.set_result("shutdown")
+            return
+        
         #print(f"Scheduler._execute_full_refresh(): Entering")
         try:
             # Only re-initialize if we're transitioning from partial mode to full mode
@@ -128,9 +145,11 @@ class Scheduler:
             self._framebuffer.flush_all()
             self._partial_refresh_count = 0
         except Exception as e:
-            #print(f"ERROR in full refresh: {e}")
-            import traceback
-            traceback.print_exc()
+            # Don't log errors during shutdown (SPI may be closed)
+            if not self._stop_event.is_set():
+                #print(f"ERROR in full refresh: {e}")
+                import traceback
+                traceback.print_exc()
         
         for _, future in batch:
             if not future.done():
@@ -138,6 +157,13 @@ class Scheduler:
     
     def _execute_partial_refresh(self, batch: list) -> None:
         """Execute partial refresh using Waveshare DisplayPartial."""
+        # Check if shutdown was requested before using hardware
+        if self._stop_event.is_set():
+            for _, future in batch:
+                if not future.done():
+                    future.set_result("shutdown")
+            return
+        
         dirty_regions = self._framebuffer.compute_dirty_regions()
         
         #print(f"Scheduler._execute_partial_refresh(): Found {len(dirty_regions)} dirty regions")
@@ -161,10 +187,24 @@ class Scheduler:
             # Without this, the hardware may incorrectly interpret the partial refresh buffers when
             # transitioning from full mode (where image is in 0x13) to partial mode (where image is in 0x10).
             if not self._in_partial_mode:
+                # Check again before using hardware (might have been shut down while processing)
+                if self._stop_event.is_set():
+                    for _, future in batch:
+                        if not future.done():
+                            future.set_result("shutdown")
+                    return
+                
                 # We're transitioning from full mode to partial mode
                 # Reset and clear to establish known state (matches sample code pattern exactly)
                 self._epd.init()
                 self._epd.Clear()
+            
+            # Final check before continuing (SPI might be closed during shutdown)
+            if self._stop_event.is_set():
+                for _, future in batch:
+                    if not future.done():
+                        future.set_result("shutdown")
+                return
             
             # Get new (current) snapshot with rotation
             image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
@@ -180,9 +220,11 @@ class Scheduler:
             self._partial_refresh_count += 1
             self._in_partial_mode = True
         except Exception as e:
-            log.error(f"ERROR in partial refresh: {e}")
-            import traceback
-            traceback.print_exc()
+            # Don't log errors during shutdown (SPI may be closed)
+            if not self._stop_event.is_set():
+                log.error(f"ERROR in partial refresh: {e}")
+                import traceback
+                traceback.print_exc()
         
         for _, future in batch:
             if not future.done():

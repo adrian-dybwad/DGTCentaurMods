@@ -85,11 +85,6 @@ def _get_display_manager() -> Manager:
 
 
 
-# Legacy functions removed - replaced by widgets:
-# - clear_screen() -> Manager.update() clears screen automatically
-# - write_text() -> TextWidget
-# - loading_screen() -> Use widgets instead
-
 
 @dataclass
 class MenuEntry:
@@ -148,7 +143,7 @@ class MenuRenderer:
             top = self._row_top(idx)
             log.info(f">>> MenuRenderer.draw() entry {idx}: top={top}, label='{entry.label}'")
             entry_widget = TextWidget(text_x, top, text_width, self.row_height, entry.label,
-                                     background=0, font_size=18)
+                                     background=0, font_size=16)
             manager.add_widget(entry_widget)
         
         # Arrow will be drawn by MenuArrowWidget, not here
@@ -158,51 +153,15 @@ class MenuRenderer:
             log.info(">>> MenuRenderer.draw() creating description widgets")
             desc_top = self._row_top(len(self.entries)) + DESCRIPTION_GAP
             desc_width = 128 - 10  # Leave 5px margin on each side
-            wrapped = self._wrap_text(self.description, max_width=desc_width - 10)
-            for idx, line in enumerate(wrapped[:9]):
-                y_pos = desc_top + 2 + (idx * 16)
-                desc_widget = TextWidget(5, y_pos, 123, 16, line,
-                                        background=0, font_size=16)
-                manager.add_widget(desc_widget)
-        
+            desc_widget = TextWidget(5, desc_top, desc_width, 150, self.description,
+                                    background=0, font_size=14, wrapText=True)
+            manager.add_widget(desc_widget)
+    
         log.info(">>> MenuRenderer.draw() widgets created and added to manager, EXITING")
-
-    def change_selection(self, new_index: int) -> None:
-        """
-        Change the selected menu item.
-        
-        This method is deprecated - selection is now handled by MenuArrowWidget.
-        Kept for backward compatibility but does nothing.
-        """
-        pass
 
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
 
-    # Legacy drawing methods removed - replaced by widgets:
-    # - _draw_entry() -> TextWidget for menu entries
-    # - _draw_entries() -> TextWidget instances created in draw()
-    # - _draw_arrow() -> MenuArrowWidget
-    # - _draw_description() -> TextWidget instances created in draw()
-
-    def _wrap_text(self, text: str, max_width: int) -> List[str]:
-        """Wrap text to fit within max_width using description font."""
-        words = text.split()
-        if not words:
-            return []
-        lines: List[str] = []
-        current = words[0]
-        temp_image = Image.new("1", (1, 1), 255)
-        temp_draw = ImageDraw.Draw(temp_image)
-        for word in words[1:]:
-            candidate = f"{current} {word}"
-            if temp_draw.textlength(candidate, font=self._description_font) <= max_width:
-                current = candidate
-            else:
-                lines.append(current)
-                current = word
-        lines.append(current)
-        return lines
 
 def keyPressed(id):
     # This function receives key presses
