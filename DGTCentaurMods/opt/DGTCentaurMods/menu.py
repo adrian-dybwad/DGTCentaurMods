@@ -55,7 +55,7 @@ idle = False # ensure defined before keyPressed can be called
 # Constants matching old widgets module
 STATUS_BAR_HEIGHT = 16
 TITLE_GAP = 8
-TITLE_HEIGHT = 24
+TITLE_HEIGHT = 26
 TITLE_TOP = STATUS_BAR_HEIGHT + TITLE_GAP
 MENU_TOP = TITLE_TOP + TITLE_HEIGHT
 MENU_ROW_HEIGHT = 20
@@ -136,7 +136,7 @@ class MenuRenderer:
         
         # Create and add menu entry widgets
         # Position text after vertical line (arrow_width) with 2 pixel gap
-        text_x = self.arrow_width + 2
+        text_x = self.arrow_width + 4
         text_width = 128 - text_x
         log.debug(f">>> MenuRenderer.draw() creating {len(self.entries)} entry widgets, body_top={self.body_top}")
         for idx, entry in enumerate(self.entries):
