@@ -6,6 +6,7 @@ import os
 import threading
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget
+from .text import TextWidget
 from typing import List, Optional, Sequence, Callable
 from dataclasses import dataclass
 
@@ -48,6 +49,7 @@ class MenuWidget(Widget):
                  title: Optional[str] = None,
                  entries: Sequence[MenuEntry] = None,
                  selected_index: int = 0,
+                 menu_description: Optional[str] = None,
                  register_callback: Optional[Callable[['MenuWidget'], None]] = None,
                  unregister_callback: Optional[Callable[[], None]] = None):
         """
@@ -61,6 +63,7 @@ class MenuWidget(Widget):
             title: Optional menu title
             entries: List of menu entries
             selected_index: Currently selected entry index
+            menu_description: Optional menu-level description (used as fallback if entry has no description)
             register_callback: Optional callback to register this widget as active (called with self)
             unregister_callback: Optional callback to unregister this widget (called with no args)
         """
@@ -68,6 +71,7 @@ class MenuWidget(Widget):
         self.title = title or ""
         self.entries: List[MenuEntry] = list(entries) if entries else []
         self.selected_index = max(0, min(selected_index, len(self.entries) - 1) if self.entries else 0)
+        self.menu_description = (menu_description or "").strip()  # Menu-level description fallback
         
         # Key handling state
         self._active = False
@@ -75,42 +79,12 @@ class MenuWidget(Widget):
         self._selection_result: Optional[str] = None
         self._register_callback = register_callback
         self._unregister_callback = unregister_callback
+        self._arrow_widget_callback: Optional[Callable[[int], None]] = None  # Callback to update arrow widget
         
         # Calculate layout positions
         self._title_top = self.STATUS_BAR_HEIGHT + self.TITLE_GAP if self.title else 0
         self._menu_top = self._title_top + (self.TITLE_HEIGHT if self.title else 0)
-        self._text_x = self.ARROW_WIDTH + 4  # Text starts after arrow column
-        
-        # Load fonts
-        self._title_font = self._load_font(18)
-        self._entry_font = self._load_font(16)
-        self._description_font = self._load_font(14)
-    
-    def _load_font(self, size: int) -> ImageFont.FreeTypeFont:
-        """Load font with fallbacks."""
-        font_paths = []
-        if AssetManager is not None:
-            try:
-                default_font_path = AssetManager.get_resource_path("Font.ttc")
-                if default_font_path:
-                    font_paths.append(default_font_path)
-            except:
-                pass
-        
-        font_paths.extend([
-            '/opt/DGTCentaurMods/resources/Font.ttc',
-            'resources/Font.ttc',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-        ])
-        
-        for path in font_paths:
-            try:
-                if path and os.path.exists(path):
-                    return ImageFont.truetype(path, size)
-            except:
-                continue
-        
-        return ImageFont.load_default()
+        self._text_x = self.ARROW_WIDTH + 4  # Text starts after arrow column (was +2, now +4 to match old implementation)
     
     def set_selection(self, index: int) -> None:
         """Set the selected entry index and trigger re-render."""
@@ -118,6 +92,11 @@ class MenuWidget(Widget):
         if new_index != self.selected_index:
             self.selected_index = new_index
             self._last_rendered = None  # Invalidate cache
+            
+            # Update arrow widget if callback provided
+            if self._arrow_widget_callback:
+                self._arrow_widget_callback(new_index)
+            
             self.request_update(full=False)
     
     def set_entries(self, entries: Sequence[MenuEntry], selected_index: int = 0) -> None:
@@ -236,83 +215,84 @@ class MenuWidget(Widget):
         """Calculate Y position for a menu row."""
         return self._menu_top + (idx * self.MENU_ROW_HEIGHT)
     
-    def _wrap_text(self, text: str, max_width: int, font: ImageFont.FreeTypeFont) -> List[str]:
-        """Wrap text to fit within max_width using the specified font."""
-        words = text.split()
-        if not words:
-            return []
-        
-        lines = []
-        current = words[0]
-        temp_image = Image.new("1", (1, 1), 255)
-        temp_draw = ImageDraw.Draw(temp_image)
-        
-        for word in words[1:]:
-            candidate = f"{current} {word}"
-            if temp_draw.textlength(candidate, font=font) <= max_width:
-                current = candidate
-            else:
-                lines.append(current)
-                current = word
-        
-        lines.append(current)
-        return lines
     
     def render(self) -> Image.Image:
         """Render the complete menu: title, entries, arrow, and description."""
         img = Image.new("1", (self.width, self.height), 255)  # White background
         draw = ImageDraw.Draw(img)
         
-        # Draw title if present
+        # Draw title if present using TextWidget with background
         if self.title:
             title_text = f"[ {self.title} ]"
             title_y = self._title_top
-            draw.text((0, title_y), title_text, font=self._title_font, fill=0)
+            
+            # Use TextWidget to render title with background dithering (background=3 = medium dither)
+            title_widget = TextWidget(
+                x=0,
+                y=title_y,
+                width=self.width,
+                height=self.TITLE_HEIGHT,
+                text=title_text,
+                background=3,  # Medium dither (checkerboard pattern)
+                font_size=18,
+                wrapText=False
+            )
+            
+            # Render the title widget and paste it into the menu image
+            title_image = title_widget.render()
+            img.paste(title_image, (0, title_y))
         
         # Draw menu entries and arrow
         text_width = self.width - self._text_x
         for idx, entry in enumerate(self.entries):
             row_y = self._row_top(idx)
             
-            # Draw entry text
-            draw.text((self._text_x, row_y), entry.label, font=self._entry_font, fill=0)
+            # Use TextWidget to render entry text (matching old implementation)
+            entry_widget = TextWidget(
+                x=self._text_x,
+                y=row_y,
+                width=text_width,
+                height=self.MENU_ROW_HEIGHT,
+                text=entry.label,
+                background=0,  # White background (no dithering)
+                font_size=16,
+                wrapText=False
+            )
             
-            # Draw arrow if this is the selected entry
-            if idx == self.selected_index:
-                arrow_width = self.ARROW_WIDTH - 1  # Leave 1 pixel for vertical line
-                draw.polygon(
-                    [
-                        (2, row_y + 2),
-                        (2, row_y + self.MENU_ROW_HEIGHT - 2),
-                        (arrow_width - 3, row_y + (self.MENU_ROW_HEIGHT // 2)),
-                    ],
-                    fill=0,
-                )
+            # Render the entry widget and paste it into the menu image
+            entry_image = entry_widget.render()
+            img.paste(entry_image, (self._text_x, row_y))
         
-        # Draw vertical line on the right side of arrow column
-        menu_height = len(self.entries) * self.MENU_ROW_HEIGHT if self.entries else 0
-        if menu_height > 0:
-            draw.line((self.ARROW_WIDTH - 1, self._menu_top, self.ARROW_WIDTH - 1, 
-                       self._menu_top + menu_height - 1), fill=0, width=1)
-        
-        # Draw description for selected entry
+        # Draw description for selected entry (or menu-level description as fallback)
+        desc_text = None
         if self.entries and self.selected_index < len(self.entries):
             entry = self.entries[self.selected_index]
-            if entry.description:
-                desc_text = entry.description
-                desc_top = self._row_top(len(self.entries)) + self.DESCRIPTION_GAP
-                desc_width = self.width - 10  # 5px margin on each side
-                
-                # Wrap text to fit width
-                wrapped_lines = self._wrap_text(desc_text, desc_width, self._description_font)
-                
-                # Draw wrapped text
-                line_height = 16  # Approximate line height for font size 14
-                for line_idx, line in enumerate(wrapped_lines):
-                    y_pos = desc_top + (line_idx * line_height)
-                    if y_pos + line_height > self.height:
-                        break  # Don't draw beyond widget height
-                    draw.text((5, y_pos), line, font=self._description_font, fill=0)
+            # Use entry description if available, otherwise fall back to menu-level description
+            desc_text = entry.description if entry.description else self.menu_description
+        elif self.menu_description:
+            # No entries or invalid selection, but we have a menu-level description
+            desc_text = self.menu_description
+        
+        if desc_text:
+            desc_top = self._row_top(len(self.entries)) + self.DESCRIPTION_GAP
+            desc_width = self.width - 10  # 5px margin on each side
+            desc_height = self.height - desc_top  # Available height for description
+            
+            # Use TextWidget to render wrapped description text
+            desc_widget = TextWidget(
+                x=5,  # 5px margin from left
+                y=desc_top,
+                width=desc_width,
+                height=desc_height,
+                text=desc_text,
+                background=0,  # White background (no dithering)
+                font_size=14,
+                wrapText=True
+            )
+            
+            # Render the description widget and paste it into the menu image
+            desc_image = desc_widget.render()
+            img.paste(desc_image, (5, desc_top))
         
         return img
 

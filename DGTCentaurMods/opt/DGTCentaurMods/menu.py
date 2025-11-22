@@ -38,6 +38,7 @@ from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
 from DGTCentaurMods.epaper import Manager, WelcomeWidget, StatusBarWidget, TextWidget
 from DGTCentaurMods.epaper.menu_widget import MenuWidget, MenuEntry as MenuWidgetEntry
+from DGTCentaurMods.epaper.menu_arrow import MenuArrowWidget
 from DGTCentaurMods.epaper.framework.regions import Region
 from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.board.logging import log
@@ -50,6 +51,7 @@ game_folder = "games"
 
 event_key = threading.Event()
 _active_menu_widget: Optional[MenuWidget] = None
+_active_arrow_widget: Optional[MenuArrowWidget] = None
 idle = False # ensure defined before keyPressed can be called
 
 # Constants matching old widgets module
@@ -92,14 +94,14 @@ def keyPressed(id):
     global curmenu
     global selection
     global event_key
-    global _active_menu_widget
+    global _active_arrow_widget
     
-    log.info(f">>> keyPressed: key_id={id}, _active_menu_widget={_active_menu_widget is not None}")
+    log.info(f">>> keyPressed: key_id={id}, _active_arrow_widget={_active_arrow_widget is not None}")
     
-    # If menu widget is active, let it handle the key
-    if _active_menu_widget is not None:
-        handled = _active_menu_widget.handle_key(id)
-        log.info(f">>> keyPressed: menu widget.handle_key returned {handled}")
+    # If arrow widget is active, let it handle the key
+    if _active_arrow_widget is not None:
+        handled = _active_arrow_widget.handle_key(id)
+        log.info(f">>> keyPressed: arrow widget.handle_key returned {handled}")
         if handled:
             return  # Widget handled the key
     
@@ -255,14 +257,20 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     manager._widgets.clear()
     manager._widgets.extend(widgets_to_keep)
     
-    # Define callbacks for registering/unregistering the menu widget
-    def register_menu_widget(widget):
-        global _active_menu_widget
-        _active_menu_widget = widget
+    # Define callbacks for registering/unregistering the arrow widget
+    def register_arrow_widget(widget):
+        global _active_arrow_widget
+        _active_arrow_widget = widget
     
-    def unregister_menu_widget():
-        global _active_menu_widget
-        _active_menu_widget = None
+    def unregister_arrow_widget():
+        global _active_arrow_widget
+        _active_arrow_widget = None
+    
+    # Calculate menu layout positions
+    title_top = STATUS_BAR_HEIGHT + TITLE_GAP if actual_title else 0
+    menu_top = title_top + (TITLE_HEIGHT if actual_title else 0)
+    arrow_width = 20
+    arrow_height = len(menu_entries) * MENU_ROW_HEIGHT if menu_entries else 0
     
     # Create menu widget (full screen, positioned below status bar)
     menu_widget = MenuWidget(
@@ -273,11 +281,38 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         title=actual_title,
         entries=menu_entries,
         selected_index=initial_index,
-        register_callback=register_menu_widget,
-        unregister_callback=unregister_menu_widget
+        menu_description=actual_description,  # Pass menu-level description as fallback
+        register_callback=None,  # MenuWidget doesn't handle keys anymore
+        unregister_callback=None
     )
     manager.add_widget(menu_widget)
     log.info(f">>> doMenu: created MenuWidget with {len(menu_entries)} entries, selected_index={initial_index}")
+    
+    # Create arrow widget (positioned at menu top, arrow column width)
+    arrow_widget = MenuArrowWidget(
+        x=0,
+        y=menu_top,
+        width=arrow_width,
+        height=arrow_height,
+        row_height=MENU_ROW_HEIGHT,
+        num_entries=len(menu_entries),
+        register_callback=register_arrow_widget,
+        unregister_callback=unregister_arrow_widget
+    )
+    manager.add_widget(arrow_widget)
+    log.info(f">>> doMenu: created MenuArrowWidget at y={menu_top}, height={arrow_height}")
+    
+    # Set up bidirectional callbacks to keep widgets in sync
+    def update_menu_selection(index: int):
+        """Callback from arrow widget to update menu widget selection."""
+        menu_widget.set_selection(index)
+    
+    def update_arrow_selection(index: int):
+        """Callback from menu widget to update arrow widget selection."""
+        arrow_widget.set_selection(index)
+    
+    arrow_widget._menu_widget_callback = update_menu_selection
+    menu_widget._arrow_widget_callback = update_arrow_selection
     
     menuitem = (initial_index + 1) if ordered_menu else 1
     
@@ -290,17 +325,21 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         future = menu_widget.request_update(full=False)
         if future:
             future.result(timeout=10.0)
-    log.info(">>> doMenu: menu widget rendered")
+    if arrow_widget._update_callback:
+        future = arrow_widget.request_update(full=False)
+        if future:
+            future.result(timeout=10.0)
+    log.info(">>> doMenu: menu and arrow widgets rendered")
     
-    # Use menu widget to wait for selection
+    # Use arrow widget to wait for selection
     try:
-        result = menu_widget.wait_for_selection(initial_index)
-        log.info(f">>> doMenu: menu widget returned result='{result}'")
+        result = arrow_widget.wait_for_selection(initial_index)
+        log.info(f">>> doMenu: arrow widget returned result='{result}'")
         
         # Map widget result to menu selection
         if result == "SELECTED":
-            # Get the selected menu key from the widget's current selection index
-            selected_idx = menu_widget.selected_index
+            # Get the selected menu key from the arrow widget's current selection index
+            selected_idx = arrow_widget.selected_index
             if ordered_menu and selected_idx < len(ordered_menu):
                 selection = ordered_menu[selected_idx][0]
             else:

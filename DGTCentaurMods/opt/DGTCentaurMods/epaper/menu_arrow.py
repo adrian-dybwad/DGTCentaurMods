@@ -63,21 +63,32 @@ class MenuArrowWidget(Widget):
         return idx * self.row_height
     
     def render(self) -> Image.Image:
-        """Render transparent/empty image since MenuWidget handles all visual rendering.
+        """Render the arrow and vertical line for the selected menu entry."""
+        img = Image.new("1", (self.width, self.height), 255)  # White background
+        draw = ImageDraw.Draw(img)
         
-        This widget only handles key events; the MenuWidget renders the arrow and menu.
-        """
-        # Return white image - will be made transparent via mask
-        return Image.new("1", (self.width, self.height), 255)
-    
-    def get_mask(self) -> Optional[Image.Image]:
-        """Return a mask that makes this widget completely transparent.
+        # Draw arrow for selected entry
+        row_y = self._row_top(self.selected_index)
+        arrow_width = self.width - 1  # Leave 1 pixel for vertical line
+        draw.polygon(
+            [
+                (2, row_y + 2),
+                (2, row_y + self.row_height - 2),
+                (arrow_width - 3, row_y + (self.row_height // 2)),
+            ],
+            fill=0,
+        )
         
-        Since MenuWidget handles all rendering, this widget should be invisible.
-        """
-        # Return all-white mask (0 = transparent, 255 = opaque)
-        # Using all zeros makes it completely transparent
-        return Image.new("L", (self.width, self.height), 0)  # All transparent
+        # Draw vertical line on the right side of arrow column
+        menu_height = self.num_entries * self.row_height if self.num_entries > 0 else 0
+        if menu_height > 0:
+            draw.line(
+                (self.width - 1, 0, self.width - 1, menu_height - 1),
+                fill=0,
+                width=1
+            )
+        
+        return img
     
     def handle_key(self, key_id):
         """Handle key press events. Called from menu's keyPressed function."""
