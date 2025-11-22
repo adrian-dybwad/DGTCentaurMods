@@ -197,7 +197,7 @@ class MenuWidget(Widget):
             _description_widget = TextWidget(5, desc_top, desc_width, 150, initial_desc,
                                                   background=0, font_size=14, wrapText=True)
             desc_img = _description_widget.render()
-            img.paste(desc_img, (_description_widget.x, self._description_widget.y))
+            img.paste(desc_img, (_description_widget.x, _description_widget.y))
         
         return img
     
