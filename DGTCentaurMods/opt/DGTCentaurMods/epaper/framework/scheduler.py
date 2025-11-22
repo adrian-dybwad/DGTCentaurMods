@@ -119,11 +119,12 @@ class Scheduler:
         #print(f"Scheduler._process_batch(): full_refresh={full_refresh}, partial_refresh_count={self._partial_refresh_count}")
         if full_refresh or self._partial_refresh_count >= self._max_partial_refreshes:
             if full_refresh:
-                log.warning(f"Scheduler: Executing FULL refresh due to explicit request (will cause flashing)")
+                log.warning(f"Scheduler._process_batch(): Executing FULL refresh due to explicit request (will cause flashing). _in_partial_mode={self._in_partial_mode}")
             else:
-                log.warning(f"Scheduler: Executing FULL refresh due to partial refresh count ({self._partial_refresh_count}) exceeding max ({self._max_partial_refreshes}) (will cause flashing)")
+                log.warning(f"Scheduler._process_batch(): Executing FULL refresh due to partial refresh count ({self._partial_refresh_count}) exceeding max ({self._max_partial_refreshes}) (will cause flashing). _in_partial_mode={self._in_partial_mode}")
             self._execute_full_refresh(batch)
         else:
+            log.debug(f"Scheduler._process_batch(): Executing PARTIAL refresh. _in_partial_mode={self._in_partial_mode}, partial_refresh_count={self._partial_refresh_count}")
             self._execute_partial_refresh(batch)
     
     def _execute_full_refresh(self, batch: list) -> None:
@@ -141,8 +142,12 @@ class Scheduler:
             # This ensures clean transition from partial refresh mode back to full refresh mode
             # If we're already in full mode, we don't need to re-initialize
             if self._in_partial_mode:
+                log.warning(f"Scheduler._execute_full_refresh(): Transitioning from PARTIAL to FULL mode (resetting _in_partial_mode to False). This will cause the next partial refresh to re-initialize!")
+                import traceback
+                log.warning(f"Stack trace:\n{''.join(traceback.format_stack())}")
                 self._epd.init()
                 self._in_partial_mode = False
+                log.warning(f"Scheduler._execute_full_refresh(): _in_partial_mode is now False")
             
             # Get full-screen snapshot with rotation
             full_image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
