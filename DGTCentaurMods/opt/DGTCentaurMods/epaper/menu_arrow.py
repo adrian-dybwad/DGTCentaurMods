@@ -41,7 +41,6 @@ class MenuArrowWidget(Widget):
         self._active = False
         self._register_callback = register_callback
         self._unregister_callback = unregister_callback
-        self._menu_widget_callback: Optional[Callable[[int], None]] = None  # Callback to update menu widget
         
     def max_index(self) -> int:
         """Get maximum valid selection index."""
@@ -63,30 +62,29 @@ class MenuArrowWidget(Widget):
         return idx * self.row_height
     
     def render(self) -> Image.Image:
-        """Render the arrow and vertical line for the selected menu entry."""
+        """Render the arrow column with arrow at current selection."""
         img = Image.new("1", (self.width, self.height), 255)  # White background
         draw = ImageDraw.Draw(img)
         
-        # Draw arrow for selected entry
-        row_y = self._row_top(self.selected_index)
-        arrow_width = self.width - 1  # Leave 1 pixel for vertical line
-        draw.polygon(
-            [
-                (2, row_y + 2),
-                (2, row_y + self.row_height - 2),
-                (arrow_width - 3, row_y + (self.row_height // 2)),
-            ],
-            fill=0,
-        )
+        # Clear entire arrow box area
+        draw.rectangle((0, 0, self.width, self.height), fill=255, outline=255)
         
-        # Draw vertical line on the right side of arrow column
-        menu_height = self.num_entries * self.row_height if self.num_entries > 0 else 0
-        if menu_height > 0:
-            draw.line(
-                (self.width - 1, 0, self.width - 1, menu_height - 1),
+        # Draw arrow at selected position (within the arrow box)
+        if self.num_entries > 0 and self.selected_index < self.num_entries:
+            selected_top = self._row_top(self.selected_index)
+            # Arrow is drawn on the left side, leaving space for vertical line on right
+            arrow_width = self.width - 1  # Leave 1 pixel for vertical line
+            draw.polygon(
+                [
+                    (2, selected_top + 2),
+                    (2, selected_top + self.row_height - 2),
+                    (arrow_width - 3, selected_top + (self.row_height // 2)),
+                ],
                 fill=0,
-                width=1
             )
+        
+        # Draw vertical line on the rightmost side of the widget
+        draw.line((self.width - 1, 0, self.width - 1, self.height - 1), fill=0, width=1)
         
         return img
     
@@ -144,11 +142,6 @@ class MenuArrowWidget(Widget):
             log.info(f">>> MenuArrowWidget._update_selection: changing from {self.selected_index} to {new_index}")
             self.selected_index = new_index
             self._last_rendered = None  # Invalidate cache so render() will regenerate
-            
-            # Update menu widget selection if callback provided
-            if self._menu_widget_callback:
-                self._menu_widget_callback(new_index)
-            
             # Use widget mechanism: request_update() triggers Manager.update()
             # which will call render() on this widget and paste it to framebuffer
             log.info(f">>> MenuArrowWidget._update_selection: calling request_update(), _update_callback={self._update_callback is not None}")
