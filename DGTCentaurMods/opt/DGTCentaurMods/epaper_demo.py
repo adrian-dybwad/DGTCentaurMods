@@ -187,7 +187,7 @@ class EPaperDemo:
         self.display._widgets.clear()
         
         # Splash screen widget fills entire screen
-        self.splash_screen = SplashScreen(status_text="DEMO")
+        self.splash_screen = SplashScreen(message="DEMO")
         self.display.add_widget(self.splash_screen)
         self.splash_screen.request_update(full=True)
         

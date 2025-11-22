@@ -24,9 +24,9 @@ except ImportError:
 class SplashScreen(Widget):
     """Splash screen widget with logo and press prompt."""
     
-    def __init__(self, status_text: str = "READY"):
+    def __init__(self, message: str = "   Press [✓]"):
         super().__init__(0, 0, 128, 296)  # Full screen widget
-        self.status_text = status_text
+        self.message = message
         self._font_18 = None
         self._logo = None
         self._status_bar_widget = StatusBarWidget(0, 0)
@@ -56,7 +56,6 @@ class SplashScreen(Widget):
         # Draw splash screen content
         draw.rectangle([0, STATUS_BAR_HEIGHT, 128, 296], fill=255, outline=255)
         img.paste(self._logo, (0, STATUS_BAR_HEIGHT + 4))
-        draw.text((0, STATUS_BAR_HEIGHT + 180), "   Press [✓]", font=self._font_18, fill=0)
+        draw.text((0, STATUS_BAR_HEIGHT + 180), self.message, font=self._font_18, fill=0)
         
         return img
-
