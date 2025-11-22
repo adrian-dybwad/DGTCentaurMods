@@ -84,25 +84,6 @@ def _get_display_manager() -> Manager:
     return display_manager
 
 
-def _paint_region(region: Region, painter: Callable[[Image.Image, ImageDraw.ImageDraw], None]) -> None:
-    """Paint a region using the display manager's framebuffer."""
-    manager = _get_display_manager()
-    canvas = manager._framebuffer.get_canvas()
-    draw = ImageDraw.Draw(canvas)
-    painter(canvas, draw)
-    # Update display - the scheduler will handle dirty regions
-    manager.update(full=False)
-
-
-def _clear_rect(x1: int, y1: int, x2: int, y2: int) -> None:
-    """Clear a rectangular area."""
-    manager = _get_display_manager()
-    canvas = manager._framebuffer.get_canvas()
-    draw = ImageDraw.Draw(canvas)
-    draw.rectangle([x1, y1, x2, y2], fill=255, outline=255)
-    manager.update(full=False)
-
-
 def _draw_battery_icon_to_canvas(canvas: Image.Image, top_padding: int = 2) -> None:
     """Draw battery icon directly to canvas (for use within canvas context)."""
     indicator = "battery1"
@@ -1593,4 +1574,4 @@ if __name__ == "__main__":
             while selection == "" and time.time() < timeout:
                 if selection == "BTNTICK" or selection == "BTNBACK":
                     break
-            clear_screen()        
+            #clear_screen()        
