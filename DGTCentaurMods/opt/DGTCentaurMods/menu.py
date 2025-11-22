@@ -84,23 +84,6 @@ def _get_display_manager() -> Manager:
     return display_manager
 
 
-def _draw_battery_icon_to_canvas(canvas: Image.Image, top_padding: int = 2) -> None:
-    """Draw battery icon directly to canvas (for use within canvas context)."""
-    indicator = "battery1"
-    if board.batterylevel >= 18:
-        indicator = "battery4"
-    elif board.batterylevel >= 12:
-        indicator = "battery3"
-    elif board.batterylevel >= 6:
-        indicator = "battery2"
-    if board.chargerconnected > 0:
-        indicator = "batteryc"
-        if board.batterylevel == 20:
-            indicator = "batterycf"
-    path = AssetManager.get_resource_path(f"{indicator}.bmp")
-    image = Image.open(path)
-    canvas.paste(image, (98, top_padding))
-
 
 def clear_screen() -> None:
     return
@@ -561,46 +544,6 @@ def changedCallback(piece_event, field, time_in_seconds):
 # Turn Leds off, beep, clear DGT Centaur Serial
 _get_display_manager()  # Initialize display
 # Create a simple statusbar class
-class StatusBar:
-    """Simple helper that prints time + battery indicator."""
-    def __init__(self) -> None:
-        self._running = False
-        self._thread: Optional[threading.Thread] = None
-
-    def build(self) -> str:
-        clock = time.strftime("%H:%M")
-        return clock
-
-    def print_once(self) -> None:
-        """Update status bar widget by invalidating and requesting update."""
-        global status_bar_widget
-        if status_bar_widget:
-            status_bar_widget.update(full=False)
-
-    def print(self) -> None:
-        self.print_once()
-
-    def start(self) -> None:
-        if self._running:
-            return
-        self._running = True
-        self._thread = threading.Thread(target=self._loop, name="epaper-status-bar", daemon=True)
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._running = False
-        if self._thread:
-            self._thread.join(timeout=0.5)
-            self._thread = None
-
-    def _loop(self) -> None:
-        """Status bar update loop."""
-        time.sleep(30)
-        while self._running:
-            self.print_once()
-            time.sleep(30)
-
-statusbar = StatusBar()
 update = centaur.UpdateSystem()
 log.info("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
@@ -657,15 +600,6 @@ def show_welcome():
     # Don't update display here - doMenu() will render the menu on a fresh white canvas
     # This avoids triggering a full flash from the scheduler's transition logic
     log.info(">>> show_welcome() EXITING, idle=False")
-
-
-# Only run main menu initialization if menu.py is executed directly (not when imported)
-if __name__ == "__main__":
-    log.info(">>> MAIN: About to call show_welcome() - this will BLOCK until key press")
-    show_welcome()
-    log.info(">>> MAIN: show_welcome() returned, about to start statusbar")
-    statusbar.start()
-    log.info(">>> MAIN: statusbar.start() complete - entering menu loop")
 
 
 def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:
