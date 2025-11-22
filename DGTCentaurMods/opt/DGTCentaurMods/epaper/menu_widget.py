@@ -223,10 +223,8 @@ class MenuWidget(Widget):
     
     def handle_key(self, key_id):
         """Handle key press events. Delegates to arrow widget."""
-        if not self._active:
-            return False
-        
-        # Delegate to arrow widget
+        # Always delegate to arrow widget - it manages its own active state
+        # The arrow widget's active state is set in wait_for_selection()
         if self._arrow_widget:
             handled = self._arrow_widget.handle_key(key_id)
             if handled:
