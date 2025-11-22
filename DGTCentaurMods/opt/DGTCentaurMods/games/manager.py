@@ -529,6 +529,30 @@ class GameManager:
         
         # Ignore stale PLACE events without corresponding LIFT
         if self.move_state.source_square < 0 and self.move_state.opponent_source_square < 0:
+            # First, check if this PLACE event created an invalid board state (extra piece)
+            # This check should happen for ALL cases, not just non-forced moves
+            if self.board_state_history:
+                current_state = board.getChessState()
+                expected_state = self.board_state_history[-1]
+                if current_state is not None and expected_state is not None:
+                    # Check if there are extra pieces (pieces on squares that shouldn't have them)
+                    extra_squares = []
+                    if len(current_state) == BOARD_SIZE and len(expected_state) == BOARD_SIZE:
+                        for i in range(BOARD_SIZE):
+                            if expected_state[i] == 0 and current_state[i] == 1:
+                                extra_squares.append(i)
+                    
+                    if len(extra_squares) > 0:
+                        log.warning(f"[GameManager._handle_piece_place] PLACE event without LIFT created invalid board state with {len(extra_squares)} extra piece(s) at {[chess.square_name(sq) for sq in extra_squares]}, entering correction mode")
+                        board.beep(board.SOUND_WRONG_MOVE)
+                        self._enter_correction_mode()
+                        self._provide_correction_guidance(current_state, expected_state)
+                        return
+                else:
+                    log.debug(f"[GameManager._handle_piece_place] Cannot check board state: current_state={current_state is not None}, expected_state={expected_state is not None}")
+            else:
+                log.debug(f"[GameManager._handle_piece_place] Cannot check board state: board_state_history is empty")
+            
             if self.correction_mode.just_exited:
                 # Check if this is the forced move source square
                 if self.move_state.is_forced_move and self.move_state.computer_move_uci:
