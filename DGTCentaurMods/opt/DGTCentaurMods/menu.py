@@ -75,27 +75,16 @@ current_renderer: Optional["MenuRenderer"] = None
 def _get_display_manager() -> Manager:
     """Get or create the global display manager."""
     global display_manager, status_bar_widget
-    import traceback
-    
-    log.warning(f"_get_display_manager() called. display_manager is None: {display_manager is None}")
-    log.warning(f"_get_display_manager() called. display_manager id: {id(display_manager) if display_manager is not None else 'None'}")
-    log.warning(f"Stack trace:\n{''.join(traceback.format_stack())}")
     
     if display_manager is None:
-        log.warning("_get_display_manager() CREATING NEW Manager instance!")
         display_manager = Manager()
         display_manager.init()
         # Create and add status bar widget
         status_bar_widget = StatusBarWidget(0, 0)
         display_manager.add_widget(status_bar_widget)
         log.warning(f"_get_display_manager() created Manager with id: {id(display_manager)}")
-    else:
-        log.warning(f"_get_display_manager() RETURNING EXISTING Manager with id: {id(display_manager)}")
     
     return display_manager
-
-
-
 
 @dataclass
 class MenuEntry:
@@ -118,9 +107,9 @@ class MenuRenderer:
         return max(0, len(self.entries) - 1)
 
     def draw(self, selected_index: int) -> None:
-        log.info(f">>> MenuRenderer.draw() ENTERED with selected_index={selected_index}")
+        log.debug(f">>> MenuRenderer.draw() ENTERED with selected_index={selected_index}")
         self.selected_index = max(0, min(selected_index, self.max_index()))
-        log.info(f">>> MenuRenderer.draw() normalized selected_index={self.selected_index}")
+        log.debug(f">>> MenuRenderer.draw() normalized selected_index={self.selected_index}")
         
         manager = _get_display_manager()
         
@@ -134,11 +123,11 @@ class MenuRenderer:
         # Clear all widgets except status bar
         manager._widgets.clear()
         manager._widgets.extend(widgets_to_keep)
-        log.info(f">>> MenuRenderer.draw() cleared all widgets except {len(widgets_to_keep)} status bar widget(s)")
+        log.debug(f">>> MenuRenderer.draw() cleared all widgets except {len(widgets_to_keep)} status bar widget(s)")
         
         # Create and add title widget if present
         if self.title:
-            log.info(f">>> MenuRenderer.draw() creating title widget: '{self.title}'")
+            log.debug(f">>> MenuRenderer.draw() creating title widget: '{self.title}'")
             title_text = f"[ {self.title} ]"
             title_top = MENU_BODY_TOP_WITH_TITLE - TITLE_HEIGHT
             title_widget = TextWidget(0, title_top, 128, TITLE_HEIGHT, title_text, 
@@ -149,10 +138,10 @@ class MenuRenderer:
         # Position text after vertical line (arrow_width) with 2 pixel gap
         text_x = self.arrow_width + 2
         text_width = 128 - text_x
-        log.info(f">>> MenuRenderer.draw() creating {len(self.entries)} entry widgets, body_top={self.body_top}")
+        log.debug(f">>> MenuRenderer.draw() creating {len(self.entries)} entry widgets, body_top={self.body_top}")
         for idx, entry in enumerate(self.entries):
             top = self._row_top(idx)
-            log.info(f">>> MenuRenderer.draw() entry {idx}: top={top}, label='{entry.label}'")
+            log.debug(f">>> MenuRenderer.draw() entry {idx}: top={top}, label='{entry.label}'")
             entry_widget = TextWidget(text_x, top, text_width, self.row_height, entry.label,
                                      background=0, font_size=16)
             manager.add_widget(entry_widget)
@@ -161,7 +150,7 @@ class MenuRenderer:
         
         # Create and add description widgets if present
         if self.description:
-            log.info(">>> MenuRenderer.draw() creating description widgets")
+            log.debug(">>> MenuRenderer.draw() creating description widgets")
             desc_top = self._row_top(len(self.entries)) + DESCRIPTION_GAP
             desc_width = 128 - 10  # Leave 5px margin on each side
             desc_widget = TextWidget(5, desc_top, desc_width, 150, self.description,
@@ -186,7 +175,6 @@ def keyPressed(id):
     
     # If arrow widget is active, let it handle the key
     if _active_arrow_widget is not None:
-        log.info(f">>> keyPressed: delegating to arrow widget.handle_key({id})")
         handled = _active_arrow_widget.handle_key(id)
         log.info(f">>> keyPressed: arrow widget.handle_key returned {handled}")
         if handled:
