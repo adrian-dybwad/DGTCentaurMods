@@ -116,14 +116,6 @@ class MenuWidget(Widget):
                                      background=0, font_size=16)
             self._entry_widgets.append(entry_widget)
         
-        # Create description widget
-        desc_top = self.body_top + (len(self.entries) * self.row_height) + DESCRIPTION_GAP
-        desc_width = self.width - 10  # Leave 5px margin on each side
-        initial_desc = self._get_description_for_index(self.selected_index)
-        if initial_desc:
-            self._description_widget = TextWidget(5, desc_top, desc_width, 150, initial_desc,
-                                                  background=0, font_size=14, wrapText=True)
-        
         # Create arrow widget
         arrow_box_top = self.body_top
         arrow_widget_height = len(self.entries) * self.row_height if self.entries else self.row_height
@@ -138,10 +130,6 @@ class MenuWidget(Widget):
             if self._unregister_callback:
                 self._unregister_callback()
         
-        def description_update_callback(selected_index: int):
-            """Update description when selection changes."""
-            self._update_description(selected_index)
-        
         self._arrow_widget = MenuArrowWidget(
             x=0,
             y=arrow_box_top,
@@ -151,7 +139,6 @@ class MenuWidget(Widget):
             num_entries=len(self.entries),
             register_callback=arrow_register_callback,
             unregister_callback=arrow_unregister_callback,
-            description_update_callback=description_update_callback
         )
         
         # Set initial selection
@@ -169,17 +156,6 @@ class MenuWidget(Widget):
                 return entry.description
         return self.description
     
-    def _update_description(self, selected_index: int) -> None:
-        """Update description widget to show description for selected entry."""
-        if self._description_widget is None:
-            return
-        
-        new_desc = self._get_description_for_index(selected_index)
-        if new_desc:
-            self._description_widget.set_text(new_desc)
-        elif self._description_widget.text:
-            self._description_widget.set_text("")
-    
     def max_index(self) -> int:
         """Get maximum valid selection index."""
         return max(0, len(self.entries) - 1)
@@ -191,7 +167,6 @@ class MenuWidget(Widget):
             self.selected_index = new_index
             if self._arrow_widget:
                 self._arrow_widget.set_selection(new_index)
-            self._update_description(new_index)
             self._last_rendered = None
             self.request_update(full=False)
     
@@ -214,10 +189,15 @@ class MenuWidget(Widget):
             arrow_img = self._arrow_widget.render()
             img.paste(arrow_img, (self._arrow_widget.x, self._arrow_widget.y))
         
-        # Render description widget if present (positions are already relative to widget)
-        if self._description_widget:
-            desc_img = self._description_widget.render()
-            img.paste(desc_img, (self._description_widget.x, self._description_widget.y))
+        # Create description widget
+        desc_top = self.body_top + (len(self.entries) * self.row_height) + DESCRIPTION_GAP
+        desc_width = self.width - 10  # Leave 5px margin on each side
+        initial_desc = self._get_description_for_index(self.selected_index)
+        if initial_desc:
+            _description_widget = TextWidget(5, desc_top, desc_width, 150, initial_desc,
+                                                  background=0, font_size=14, wrapText=True)
+            desc_img = _description_widget.render()
+            img.paste(desc_img, (_description_widget.x, self._description_widget.y))
         
         return img
     
@@ -229,7 +209,7 @@ class MenuWidget(Widget):
             handled = self._arrow_widget.handle_key(key_id)
             if handled:
                 # Update our selection index to match arrow widget
-                self.selected_index = self._arrow_widget.selected_index
+                self.set_selection(self._arrow_widget.selected_index)
                 # Check if selection event was triggered
                 if self._arrow_widget._selection_event.is_set():
                     self._selection_result = self._arrow_widget._selection_result
