@@ -116,13 +116,13 @@ class Scheduler:
     def _process_batch(self, batch: list) -> None:
         """Process a batch of refresh requests.
         
-        For rapid updates, only the last item in the batch is processed to avoid
-        displaying intermediate states. Earlier items are marked as complete but not displayed.
+        For rapid updates, only the last item in the batch is processed to ensure
+        we display the final state. Earlier items are marked as complete but not displayed.
         """
         if not batch:
             return
         
-        # Use only the last item in the batch - this ensures rapid updates show the final state
+        # Use only the last item in the batch - this ensures we get the final framebuffer state
         # Complete all earlier futures as "skipped" since they're superseded by later updates
         if len(batch) > 1:
             for full, future in batch[:-1]:
@@ -166,7 +166,13 @@ class Scheduler:
                 self._in_partial_mode = False
                 log.warning(f"Scheduler._execute_full_refresh(): _in_partial_mode is now False")
             
-            # Get full-screen snapshot with rotation
+            # CRITICAL: Take snapshot IMMEDIATELY before use to ensure we get the absolute latest
+            # framebuffer state. This is especially important for rapid updates where the framebuffer
+            # may have been updated multiple times since the request was queued.
+            # Small delay to ensure any pending rendering operations have completed
+            time.sleep(0.001)  # 1ms delay to ensure framebuffer writes are complete
+            
+            # Get full-screen snapshot with rotation - taken at the last possible moment
             full_image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
             
             buf = self._epd.getbuffer(full_image)
@@ -250,7 +256,13 @@ class Scheduler:
                         future.set_result("shutdown")
                 return
             
-            # Get new (current) snapshot with rotation
+            # CRITICAL: Take snapshot IMMEDIATELY before use to ensure we get the absolute latest
+            # framebuffer state. This is especially important for rapid updates where the framebuffer
+            # may have been updated multiple times since the request was queued.
+            # Small delay to ensure any pending rendering operations have completed
+            time.sleep(0.001)  # 1ms delay to ensure framebuffer writes are complete
+            
+            # Get new (current) snapshot with rotation - taken at the last possible moment
             image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
             
             # Get buffer from image
