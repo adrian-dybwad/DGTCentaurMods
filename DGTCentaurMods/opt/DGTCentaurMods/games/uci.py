@@ -511,7 +511,7 @@ class UCIGame:
             if termination_widget._update_callback:
                 termination_widget.request_update(full=False).result(timeout=5.0)
             
-        time.sleep(0.3)
+            time.sleep(0.3)
             
             # Move termination message to top (y=57)
             self.display_manager._widgets.remove(termination_widget)

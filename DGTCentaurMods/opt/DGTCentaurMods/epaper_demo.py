@@ -21,7 +21,7 @@ logging.basicConfig(
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from epaper import (Manager, StatusBarWidget, TextWidget, BallWidget, 
                     ChessBoardWidget, GameAnalysisWidget, CheckerboardWidget,
-                    WelcomeWidget, GameOverWidget, MenuArrowWidget)
+                    SplashScreen, GameOverWidget, MenuArrowWidget)
 
 
 class EPaperDemo:
@@ -38,7 +38,7 @@ class EPaperDemo:
         self.chess_board = None
         self.game_analysis = None
         self.checkerboard = None
-        self.welcome = None
+        self.splash_screen = None
         self.game_over = None
         self.menu_arrow = None
         
@@ -61,7 +61,7 @@ class EPaperDemo:
         self.last_fen_update = 0
         
         # Demo mode cycling
-        self.demo_mode = 0  # 0=all widgets, 1=greyscale demo, 2=welcome, 3=game_over, 4=menu_arrow, 5=wrapped_text
+        self.demo_mode = 0  # 0=all widgets, 1=greyscale demo, 2=splash_screen, 3=game_over, 4=menu_arrow, 5=wrapped_text
         self.last_mode_change = 0
         self.mode_duration = 10.0  # Show each mode for 10 seconds
     
@@ -180,18 +180,18 @@ class EPaperDemo:
         print("Greyscale demo widgets configured")
     
     def setup_widgets_welcome(self):
-        """Setup welcome widget demo."""
-        print("Setting up welcome widget demo...")
+        """Setup splash screen demo."""
+        print("Setting up splash screen demo...")
         
         # Clear all widgets
         self.display._widgets.clear()
         
-        # Welcome widget fills entire screen
-        self.welcome = WelcomeWidget(status_text="DEMO")
-        self.display.add_widget(self.welcome)
-        self.welcome.request_update(full=True)
+        # Splash screen widget fills entire screen
+        self.splash_screen = SplashScreen(status_text="DEMO")
+        self.display.add_widget(self.splash_screen)
+        self.splash_screen.request_update(full=True)
         
-        print("Welcome widget configured")
+        print("Splash screen configured")
     
     def setup_widgets_game_over(self):
         """Setup game over widget demo."""
@@ -362,7 +362,7 @@ class EPaperDemo:
             print("Mode: Greyscale backgrounds")
             self.setup_widgets_greyscale_demo()
         elif self.demo_mode == 2:
-            print("Mode: Welcome widget")
+            print("Mode: Splash screen")
             self.setup_widgets_welcome()
         elif self.demo_mode == 3:
             print("Mode: Game over widget")

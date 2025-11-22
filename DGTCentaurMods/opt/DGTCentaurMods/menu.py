@@ -36,7 +36,7 @@ from DGTCentaurMods.display.ui_components import AssetManager
 
 from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
-from DGTCentaurMods.epaper import Manager, WelcomeWidget, StatusBarWidget, TextWidget
+from DGTCentaurMods.epaper import Manager, SplashScreen, StatusBarWidget, TextWidget
 from DGTCentaurMods.epaper.menu_widget import MenuWidget, MenuEntry
 from DGTCentaurMods.epaper.framework.regions import Region
 from PIL import Image, ImageDraw, ImageFont
@@ -377,11 +377,10 @@ def show_welcome():
     manager._widgets.clear()
     log.info(">>> show_welcome() cleared all widgets")
     
-    # Create and add welcome widget
+    # Create and add splash screen widget
     # Widget should call request_update() itself when ready
-    status_text = statusbar.build() if 'statusbar' in globals() else "READY"
-    welcome_widget = WelcomeWidget(status_text=status_text)
-    manager.add_widget(welcome_widget)
+    splash_screen = SplashScreen(message="   Press [✓]")
+    manager.add_widget(splash_screen)
     
     # CRITICAL: Await the update to ensure partial mode transition completes
     # before continuing. This ensures _in_partial_mode is set to True before
@@ -460,10 +459,10 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
     # Register signal handler for graceful shutdown
     original_handler = signal.signal(signal.SIGINT, signal_handler)
     try:
-        loading_screen()
+        splash_screen = SplashScreen(message="     Loading")
+        manager.add_widget(splash_screen)
         board.pauseEvents()
         board.cleanup(leds_off=True)
-        statusbar.stop()
 
         script_path = str((pathlib.Path(__file__).parent / script_rel_path).resolve())
         log.info(f"script_path: {script_path}")
@@ -489,15 +488,13 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         log.info(">>> Reinitializing after external script...")
         _get_display_manager()  # Reinitialize display
         log.info(">>> display manager initialized")
-        clear_screen()
+        manager.update(full=True)
         log.info(">>> clear_screen() complete")
         board.run_background(start_key_polling=start_key_polling)
         log.info(">>> board.run_background() complete")
         board.unPauseEvents()
         log.info(">>> board.unPauseEvents() complete")
-        statusbar.start()
-        log.info(">>> statusbar.start() complete")
-
+  
 
 def bluetooth_pairing():
     """
@@ -736,7 +733,6 @@ if __name__ == "__main__":
         if result == "SHUTDOWN":
             # Graceful shutdown requested via Ctrl+C
             try:
-                statusbar.stop()
                 board.cleanup(leds_off=True)
                 board.pauseEvents()
             except:
@@ -752,7 +748,6 @@ if __name__ == "__main__":
             #time.sleep(1)
             board.pauseEvents()
             board.cleanup(leds_off=True)
-            statusbar.stop()
             time.sleep(1)
             if os.path.exists(centaur_software):
                 # Ensure file is executable (Trixie compatibility)

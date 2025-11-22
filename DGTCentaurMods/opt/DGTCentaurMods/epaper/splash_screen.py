@@ -1,5 +1,5 @@
 """
-Welcome screen widget displayed on startup.
+Splash screen widget displayed on startup.
 """
 
 from PIL import Image, ImageDraw, ImageFont
@@ -21,8 +21,8 @@ except ImportError:
     from display.ui_components import AssetManager
 
 
-class WelcomeWidget(Widget):
-    """Welcome screen widget with logo and press prompt."""
+class SplashScreen(Widget):
+    """Splash screen widget with logo and press prompt."""
     
     def __init__(self, status_text: str = "READY"):
         super().__init__(0, 0, 128, 296)  # Full screen widget
@@ -38,12 +38,12 @@ class WelcomeWidget(Widget):
             self._font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
             self._logo = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
         except Exception as e:
-            log.error(f"Failed to load welcome widget resources: {e}")
+            log.error(f"Failed to load splash screen resources: {e}")
             self._font_18 = ImageFont.load_default()
             self._logo = Image.new("1", (128, 128), 255)
     
     def render(self) -> Image.Image:
-        """Render the welcome screen."""
+        """Render the splash screen."""
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
@@ -53,7 +53,7 @@ class WelcomeWidget(Widget):
         status_bar_image = self._status_bar_widget.render()
         img.paste(status_bar_image, (0, 0))
         
-        # Draw welcome content
+        # Draw splash screen content
         draw.rectangle([0, STATUS_BAR_HEIGHT, 128, 296], fill=255, outline=255)
         img.paste(self._logo, (0, STATUS_BAR_HEIGHT + 4))
         draw.text((0, STATUS_BAR_HEIGHT + 180), "   Press [✓]", font=self._font_18, fill=0)
