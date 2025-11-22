@@ -61,7 +61,7 @@ class EPaperDemo:
         self.last_fen_update = 0
         
         # Demo mode cycling
-        self.demo_mode = 0  # 0=all widgets, 1=greyscale demo, 2=welcome, 3=game_over
+        self.demo_mode = 0  # 0=all widgets, 1=greyscale demo, 2=welcome, 3=game_over, 4=menu_arrow, 5=wrapped_text
         self.last_mode_change = 0
         self.mode_duration = 10.0  # Show each mode for 10 seconds
     
@@ -313,9 +313,47 @@ class EPaperDemo:
                 self.display.shutdown()
             print("Demo complete")
     
+    def setup_widgets_wrapped_text(self):
+        """Setup wrapped text widget demo."""
+        print("Setting up wrapped text demo...")
+        
+        # Clear all widgets
+        self.display._widgets.clear()
+        
+        # Status bar at top
+        self.status_bar = StatusBarWidget(0, 0)
+        self.display.add_widget(self.status_bar)
+        if self.status_bar._update_callback:
+            self.status_bar.request_update(full=False)
+        
+        # Long text to demonstrate wrapping
+        long_text = (
+            "This is a demonstration of the text wrapping feature in the TextWidget. "
+            "When wrapText is enabled, the widget automatically wraps text to fit within "
+            "its specified width and height. The text is broken into multiple lines "
+            "based on word boundaries and the available space. This is useful for "
+            "displaying longer descriptions, instructions, or other multi-line content "
+            "on the e-paper display."
+        )
+        
+        # Create wrapped text widget with medium background dithering
+        wrapped_widget = TextWidget(
+            5, 20,  # Position with small margin
+            118, 260,  # Width and height to fill most of screen below status bar
+            text=long_text,
+            background=2,  # Light dither background
+            font_size=14,
+            wrapText=True
+        )
+        self.text_widgets.append(wrapped_widget)
+        self.display.add_widget(wrapped_widget)
+        wrapped_widget.request_update(full=False)
+        
+        print("Wrapped text widget configured")
+    
     def _cycle_demo_mode(self):
         """Cycle through different demo modes."""
-        self.demo_mode = (self.demo_mode + 1) % 5
+        self.demo_mode = (self.demo_mode + 1) % 6
         
         if self.demo_mode == 0:
             print("Mode: All widgets")
@@ -332,6 +370,9 @@ class EPaperDemo:
         elif self.demo_mode == 4:
             print("Mode: Menu arrow widget")
             self.setup_widgets_menu_arrow()
+        elif self.demo_mode == 5:
+            print("Mode: Wrapped text widget")
+            self.setup_widgets_wrapped_text()
     
     def _update_ball(self):
         """Update ball position with bouncing physics."""

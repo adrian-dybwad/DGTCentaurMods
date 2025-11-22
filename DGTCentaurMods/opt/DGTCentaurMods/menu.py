@@ -85,45 +85,10 @@ def _get_display_manager() -> Manager:
 
 
 
-def clear_screen() -> None:
-    return
-    """Clear the entire screen."""
-    log.info(">>> clear_screen() ENTERED")
-    manager = _get_display_manager()
-    canvas = manager._framebuffer.get_canvas()
-    draw = ImageDraw.Draw(canvas)
-    draw.rectangle([0, 0, 128, 296], fill=255, outline=255)
-    log.info(">>> clear_screen() canvas cleared, submitting full refresh")
-    future = manager.update(full=True)
-    future.result(timeout=10.0)
-    log.info(">>> clear_screen() EXITING")
-
-
-def write_text(row: int, text: str, *, inverted: bool = False) -> None:
-    """Write text at a specific row."""
-    ROW_HEIGHT = 20
-    top = row * ROW_HEIGHT
-    manager = _get_display_manager()
-    canvas = manager._framebuffer.get_canvas()
-    draw = ImageDraw.Draw(canvas)
-    font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
-    fill, fg = (0, 255) if inverted else (255, 0)
-    draw.rectangle([0, top, 128, top + ROW_HEIGHT], fill=fill, outline=fill)
-    draw.text((0, top - 1), text, font=font_18, fill=fg)
-    manager.update(full=False)
-
-
-def loading_screen() -> None:
-    """Display loading screen."""
-    manager = _get_display_manager()
-    canvas = manager._framebuffer.get_canvas()
-    draw = ImageDraw.Draw(canvas)
-    font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
-    logo = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
-    canvas.paste(logo, (0, 20))
-    draw.text((0, 200), "     Loading", font=font_18, fill=0)
-    future = manager.update(full=False)
-    future.result(timeout=10.0)
+# Legacy functions removed - replaced by widgets:
+# - clear_screen() -> Manager.update() clears screen automatically
+# - write_text() -> TextWidget
+# - loading_screen() -> Use widgets instead
 
 
 @dataclass
@@ -214,65 +179,11 @@ class MenuRenderer:
     def _row_top(self, idx: int) -> int:
         return self.body_top + (idx * self.row_height)
 
-    def _draw_entry(self, idx: int, selected: bool) -> None:
-        """
-        Draw menu entry to framebuffer without submitting refresh.
-        Used during initial menu draw - selection changes use direct canvas access.
-        """
-        if idx < 0 or idx >= len(self.entries):
-            return
-        text = f"    {self.entries[idx].label}"
-        # Use direct canvas access to avoid widgets.draw_menu_entry() which submits refresh
-        top = self._row_top(idx)
-        with service.acquire_canvas() as canvas:
-            draw = canvas.draw
-            region = Region(0, top, 128, top + self.row_height)
-            if selected:
-                draw.rectangle(region.to_box(), fill=0, outline=0)  # Black background
-                draw.text((0, top - 1), text, font=widgets.FONT_18, fill=255)  # White text
-            else:
-                draw.rectangle(region.to_box(), fill=255, outline=255)  # White background
-                draw.text((0, top - 1), text, font=widgets.FONT_18, fill=0)  # Black text
-            canvas.mark_dirty(region)
-
-    def _draw_entries(self) -> None:
-        for idx, _ in enumerate(self.entries):
-            self._draw_entry(idx, selected=(idx == self.selected_index))
-
-    def _draw_arrow(self, idx: int, selected: bool) -> None:
-        if idx < 0 or idx >= len(self.entries):
-            return
-        top = self._row_top(idx)
-        region = Region(0, top, self.arrow_width, top + self.row_height)
-        with service.acquire_canvas() as canvas:
-            draw = canvas.draw
-            draw.rectangle(region.to_box(), fill=255, outline=255)
-            if selected and self.entries:
-                draw.polygon(
-                    [
-                        (2, top + 2),
-                        (2, top + self.row_height - 2),
-                        (self.arrow_width - 3, top + (self.row_height // 2)),
-                    ],
-                    fill=0,
-                )
-            canvas.mark_dirty(region)
-        # DO NOT submit refresh here - batch all selection changes and refresh once
-
-    def _draw_description(self) -> None:
-        if not self.description:
-            return
-        top = self._row_top(len(self.entries)) + DESCRIPTION_GAP
-        region = Region(0, top, 128, 296)
-        widgets.clear_area(region)
-        wrapped = self._wrap_text(self.description, max_width=region.x2 - region.x1 - 10)
-        with service.acquire_canvas() as canvas:
-            draw = canvas.draw
-            for idx, line in enumerate(wrapped[:9]):
-                y_pos = top + 2 + (idx * 16)
-                draw.text((5, y_pos), line, font=self._description_font, fill=0)
-            canvas.mark_dirty(region)
-        service.submit_region(region)
+    # Legacy drawing methods removed - replaced by widgets:
+    # - _draw_entry() -> TextWidget for menu entries
+    # - _draw_entries() -> TextWidget instances created in draw()
+    # - _draw_arrow() -> MenuArrowWidget
+    # - _draw_description() -> TextWidget instances created in draw()
 
     def _wrap_text(self, text: str, max_width: int) -> List[str]:
         """Wrap text to fit within max_width using description font."""

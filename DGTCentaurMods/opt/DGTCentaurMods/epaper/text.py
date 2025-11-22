@@ -18,10 +18,11 @@ except ImportError:
 
 
 class TextWidget(Widget):
-    """Text display widget with configurable background dithering."""
+    """Text display widget with configurable background dithering and text wrapping."""
     
     def __init__(self, x: int, y: int, width: int, height: int, text: str = "", 
-                 background: int = 0, font_size: int = 12, font_path: str = None):
+                 background: int = 0, font_size: int = 12, font_path: str = None,
+                 wrapText: bool = False):
         """
         Initialize text widget.
         
@@ -40,12 +41,14 @@ class TextWidget(Widget):
                 5 = solid black
             font_size: Font size in points
             font_path: Optional path to font file (defaults to Font.ttc if None)
+            wrapText: If True, wrap text to fit within widget width and height
         """
         super().__init__(x, y, width, height)
         self.text = text
         self.background = max(0, min(5, background))  # Clamp to 0-5
         self.font_size = font_size
         self.font_path = font_path
+        self.wrapText = wrapText
         self._font = self._load_font()
     
     def _load_font(self):
@@ -89,6 +92,13 @@ class TextWidget(Widget):
         """Set the text to display."""
         if self.text != text:
             self.text = text
+            self._last_rendered = None
+            self.request_update(full=False)
+    
+    def set_wrap_text(self, wrapText: bool) -> None:
+        """Enable or disable text wrapping."""
+        if self.wrapText != wrapText:
+            self.wrapText = wrapText
             self._last_rendered = None
             self.request_update(full=False)
     
@@ -142,6 +152,37 @@ class TextWidget(Widget):
         
         return pattern
     
+    def _wrap_text(self, text: str, max_width: int) -> list:
+        """
+        Wrap text to fit within max_width using the widget's font.
+        
+        Args:
+            text: Text to wrap
+            max_width: Maximum width in pixels
+            
+        Returns:
+            List of wrapped text lines
+        """
+        words = text.split()
+        if not words:
+            return []
+        
+        lines = []
+        current = words[0]
+        temp_image = Image.new("1", (1, 1), 255)
+        temp_draw = ImageDraw.Draw(temp_image)
+        
+        for word in words[1:]:
+            candidate = f"{current} {word}"
+            if temp_draw.textlength(candidate, font=self._font) <= max_width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        
+        lines.append(current)
+        return lines
+    
     def render(self) -> Image.Image:
         """Render text with background."""
         img = self._create_dither_pattern()
@@ -151,5 +192,24 @@ class TextWidget(Widget):
         # For backgrounds 0-2, use black text; for 3-5, use white text
         text_fill = 0 if self.background < 3 else 255
         
-        draw.text((0, -1), self.text, font=self._font, fill=text_fill)
+        if self.wrapText:
+            # Wrap text to fit within widget width
+            wrapped_lines = self._wrap_text(self.text, self.width)
+            
+            # Calculate line height based on font size
+            # Use font size + 2 pixels for spacing
+            line_height = self.font_size + 2
+            
+            # Draw each line, respecting widget height
+            max_lines = max(1, self.height // line_height)
+            for idx, line in enumerate(wrapped_lines[:max_lines]):
+                y_pos = idx * line_height
+                # Stop if line would exceed widget height
+                if y_pos + line_height > self.height:
+                    break
+                draw.text((0, y_pos - 1), line, font=self._font, fill=text_fill)
+        else:
+            # Single line text (original behavior)
+            draw.text((0, -1), self.text, font=self._font, fill=text_fill)
+        
         return img
