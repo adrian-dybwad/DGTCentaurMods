@@ -330,7 +330,10 @@ def _piece_x(piece: str) -> int:
 def _is_dark_square(index: int) -> bool:
     rank = index // 8
     file = index % 8
-    return (rank + file) % 2 == 0
+    # Invert the formula: (rank + file) % 2 == 1 for dark squares
+    # This corrects the color inversion issue where squares were drawn with inverted colors
+    # Standard chess: a1 (rank 0, file 0 when flipped) should be dark
+    return (rank + file) % 2 == 1
 
 
 def _expand_fen(fen: str) -> list[str]:
