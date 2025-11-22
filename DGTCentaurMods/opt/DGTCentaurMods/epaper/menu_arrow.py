@@ -16,7 +16,8 @@ class MenuArrowWidget(Widget):
     def __init__(self, x: int, y: int, width: int, height: int,
                  row_height: int, num_entries: int,
                  register_callback: Optional[Callable[['MenuArrowWidget'], None]] = None,
-                 unregister_callback: Optional[Callable[[], None]] = None):
+                 unregister_callback: Optional[Callable[[], None]] = None,
+                 description_update_callback: Optional[Callable[[int], None]] = None):
         """
         Initialize menu arrow widget.
         
@@ -29,6 +30,7 @@ class MenuArrowWidget(Widget):
             num_entries: Number of selectable menu entries
             register_callback: Optional callback to register this widget as active (called with self)
             unregister_callback: Optional callback to unregister this widget (called with no args)
+            description_update_callback: Optional callback to update description when selection changes (called with selected_index)
         """
         super().__init__(x, y, width, height)
         self.row_height = row_height
@@ -41,6 +43,7 @@ class MenuArrowWidget(Widget):
         self._active = False
         self._register_callback = register_callback
         self._unregister_callback = unregister_callback
+        self._description_update_callback = description_update_callback
         
     def max_index(self) -> int:
         """Get maximum valid selection index."""
@@ -142,6 +145,11 @@ class MenuArrowWidget(Widget):
             log.info(f">>> MenuArrowWidget._update_selection: changing from {self.selected_index} to {new_index}")
             self.selected_index = new_index
             self._last_rendered = None  # Invalidate cache so render() will regenerate
+            
+            # Update description if callback is provided
+            if self._description_update_callback:
+                self._description_update_callback(new_index)
+            
             # Use widget mechanism: request_update() triggers Manager.update()
             # which will call render() on this widget and paste it to framebuffer
             log.info(f">>> MenuArrowWidget._update_selection: calling request_update(), _update_callback={self._update_callback is not None}")

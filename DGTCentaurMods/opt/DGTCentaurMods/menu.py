@@ -39,6 +39,7 @@ from DGTCentaurMods.board.sync_centaur import command
 from DGTCentaurMods.epaper import Manager, WelcomeWidget, StatusBarWidget, TextWidget
 from DGTCentaurMods.epaper.menu_widget import MenuWidget, MenuEntry
 from DGTCentaurMods.epaper.framework.regions import Region
+from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.board.logging import log
 
 menuitem = 1
@@ -243,7 +244,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     ordered_menu = list(actual_menu.items()) if actual_menu else []
     
     # Convert menu items to MenuEntry format
-    menu_entries = [MenuEntry(key=k, label=v, description=None) for k, v in ordered_menu]
+    menu_entries = [MenuEntry(key=k, label=v) for k, v in ordered_menu]
     
     initial_index = 0
     if ordered_menu:
@@ -273,8 +274,8 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         height=296 - STATUS_BAR_HEIGHT,  # Remaining height after status bar
         title=actual_title,
         entries=menu_entries,
+        description=actual_description,  # Pass menu-level description as fallback
         selected_index=initial_index,
-        menu_description=actual_description,  # Pass menu-level description as fallback
         register_callback=register_menu_widget,
         unregister_callback=unregister_menu_widget
     )
