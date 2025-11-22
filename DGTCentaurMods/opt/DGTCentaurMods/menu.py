@@ -462,6 +462,7 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         splash_screen = SplashScreen(message="     Loading")
         manager = _get_display_manager()
         manager.add_widget(splash_screen)
+        manager.update(full=False)
         board.pauseEvents()
         board.cleanup(leds_off=True)
 
