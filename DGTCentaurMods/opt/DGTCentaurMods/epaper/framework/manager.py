@@ -22,9 +22,6 @@ class Manager:
     """Main coordinator for the ePaper framework."""
     
     def __init__(self):
-        import traceback
-        log.warning(f"Manager.__init__() called - CREATING NEW Manager instance with id: {id(self)}")
-        log.warning(f"Stack trace:\n{''.join(traceback.format_stack())}")
         self._epd = EPD()
         self._framebuffer = FrameBuffer(self._epd.width, self._epd.height)
         self._scheduler = Scheduler(self._framebuffer, self._epd)
@@ -116,8 +113,6 @@ class Manager:
         for widget in static_widgets:
             widget_image = widget.render()
             widget_name = widget.__class__.__name__
-            if widget_name == "MenuArrowWidget":
-                log.info(f">>> Manager.update(): Rendering MenuArrowWidget at ({widget.x},{widget.y}), selected_index={widget.selected_index if hasattr(widget, 'selected_index') else 'N/A'}")
             canvas.paste(widget_image, (widget.x, widget.y))
         
         # Render moving widgets last (on top)
