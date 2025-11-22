@@ -412,7 +412,7 @@ def changedCallback(piece_event, field, time_in_seconds):
 
 
 # Turn Leds off, beep, clear DGT Centaur Serial
-# Display manager is initialized lazily via _get_display_manager() when needed
+_get_display_manager()  # Initialize display
 # Create a simple statusbar class
 update = centaur.UpdateSystem()
 log.info("Setting checking for updates in 5 mins.")
