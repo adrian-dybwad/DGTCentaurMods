@@ -31,7 +31,14 @@ class WelcomeWidget(Widget):
         self._logo = None
         self._status_bar_widget = StatusBarWidget(0, 0)
         self._load_resources()
-    
+
+    def set_update_callback(self, callback) -> None:
+        """Set update callback and automatically trigger initial display."""
+        super().set_update_callback(callback)
+        # Automatically request update when callback is set (widget is added to manager)
+        if callback is not None:
+            self.request_update(full=False)
+
     def _load_resources(self):
         """Load fonts and images."""
         try:
