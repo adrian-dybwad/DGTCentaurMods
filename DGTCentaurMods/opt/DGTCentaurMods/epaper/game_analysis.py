@@ -10,12 +10,13 @@ import os
 class GameAnalysisWidget(Widget):
     """Widget displaying chess game analysis information."""
     
-    def __init__(self, x: int, y: int, width: int = 128, height: int = 80):
+    def __init__(self, x: int, y: int, width: int = 128, height: int = 80, bottom_color: str = "black"):
         super().__init__(x, y, width, height)
         self.score_value = 0.0
         self.score_text = "0.0"
         self.score_history = []
         self.current_turn = "white"  # "white" or "black"
+        self.bottom_color = bottom_color  # "white" or "black" - color at bottom of board
         self._font = self._load_font()
         self._max_history_size = 200
     
@@ -90,15 +91,37 @@ class GameAnalysisWidget(Widget):
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
+        # Adjust score for display based on bottom color
+        # Score is always from white's perspective (positive = white advantage)
+        # If bottom is black (board is flipped), we need to flip (negative = black losing, positive = black winning)
+        # If bottom is white (board not flipped), no adjustment needed (positive = white winning, negative = white losing)
+        # This ensures negative always represents bottom color's disadvantage
+        display_score_value = -self.score_value if self.bottom_color == "black" else self.score_value
+        
+        # Format score text for display (adjust if needed)
+        # Regenerate text from adjusted display_score_value to ensure consistency
+        if self.bottom_color == "black":
+            # Regenerate text from adjusted score to match the bar display
+            if abs(display_score_value) > 999:
+                display_score_text = ""
+            elif abs(display_score_value) >= 100:
+                mate_moves = abs(display_score_value)
+                display_score_text = f"Mate {int(mate_moves)}"
+            else:
+                display_score_text = f"{display_score_value:5.1f}"
+        else:
+            # Use original text (no adjustment needed when bottom is white - board not flipped)
+            display_score_text = self.score_text
+        
         # Draw score text
-        if self.score_text:
-            draw.text((50, 12), self.score_text, font=self._font, fill=0)
+        if display_score_text:
+            draw.text((50, 12), display_score_text, font=self._font, fill=0)
         
         # Draw score indicator box
         draw.rectangle([(0, 1), (127, 11)], fill=None, outline=0)
         
         # Calculate indicator position (clamp score between -12 and 12)
-        score_display = self.score_value
+        score_display = display_score_value
         if score_display > 12:
             score_display = 12
         if score_display < -12:
@@ -120,8 +143,10 @@ class GameAnalysisWidget(Widget):
             
             bar_offset = 0
             for score in self.score_history:
-                color = 255 if score >= 0 else 0
-                y_calc = chart_y - (score * 2)
+                # Adjust score for display if bottom_color is black (board is flipped)
+                adjusted_score = -score if self.bottom_color == "black" else score
+                color = 255 if adjusted_score >= 0 else 0
+                y_calc = chart_y - (adjusted_score * 2)
                 y0 = min(chart_y, y_calc)
                 y1 = max(chart_y, y_calc)
                 draw.rectangle(

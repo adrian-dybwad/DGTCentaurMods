@@ -110,8 +110,14 @@ class UCIGame:
         self.chess_board_widget = ChessBoardWidget(0, 16, initial_fen)
         self.display_manager.add_widget(self.chess_board_widget)
         
-        # Create game analysis widget at bottom (y=144, which is 16+128) for flipped evaluation
-        self.game_analysis_bottom = GameAnalysisWidget(0, 144, 128, 80)
+        # Determine bottom color based on board orientation
+        # If board is flipped (flip=True), black is at bottom; if not flipped, white is at bottom
+        # Note: White at bottom = not flipped, Black at bottom = flipped (terminology)
+        bottom_color = "black" if self.chess_board_widget.flip else "white"
+        
+        # Create game analysis widget at bottom (y=144, which is 16+128)
+        # Widget will adjust scores internally based on bottom_color
+        self.game_analysis_bottom = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color)
         self.display_manager.add_widget(self.game_analysis_bottom)
         
         # Widgets should trigger their own updates when ready
@@ -653,20 +659,19 @@ class UCIGame:
         else:
             self.is_first_move = 0
         
-        # Update bottom widget (flipped orientation)
+        # Update bottom widget (widget handles perspective flipping internally)
         if self.game_analysis_bottom:
-            # For bottom widget, flip the score and turn
-            flipped_score = -display_score
-            flipped_turn = "black" if self.current_turn == chess.WHITE else "white"
-            self.game_analysis_bottom.set_score(flipped_score, score_text)
-            self.game_analysis_bottom.set_turn(flipped_turn)
+            # Pass raw scores from white's perspective - widget will flip if needed
+            self.game_analysis_bottom.set_score(display_score, score_text)
+            self.game_analysis_bottom.set_turn("white" if self.current_turn == chess.WHITE else "black")
         
         # Sync history to widget (only add new score, don't rebuild entire history)
         # The widget maintains its own history, we just need to add the new score
         # Widgets will trigger updates automatically via request_update()
+        # Pass raw scores - widget will flip for display if needed
         if self.is_first_move == 0:
             if self.game_analysis_bottom:
-                self.game_analysis_bottom.add_score_to_history(-display_score)
+                self.game_analysis_bottom.add_score_to_history(display_score)
     
     def _clear_evaluation_graphs(self):
         """Clear evaluation graphs from screen."""
