@@ -129,8 +129,13 @@ class Manager:
             else:
                 canvas.paste(widget_image, (widget.x, widget.y))
         
-        # Submit refresh and return Future for caller to wait on
-        return self._scheduler.submit(full=full)
+        # CRITICAL: Capture snapshot of framebuffer state at this exact moment
+        # This ensures each update request carries its own image state, so rapid
+        # updates display all intermediate states, not just the final one
+        snapshot = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
+        
+        # Submit refresh with the captured snapshot and return Future
+        return self._scheduler.submit(full=full, image=snapshot)
     
     def shutdown(self) -> None:
         """Shutdown the display."""

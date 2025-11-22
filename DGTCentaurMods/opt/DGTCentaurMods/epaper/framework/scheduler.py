@@ -48,7 +48,8 @@ class Scheduler:
         # Drain the queue to prevent new operations from starting
         while not self._queue.empty():
             try:
-                _, future = self._queue.get_nowait()
+                item = self._queue.get_nowait()
+                _, future, _ = item if len(item) == 3 else (item[0], item[1], None)
                 if not future.done():
                     future.set_result("shutdown")
             except queue.Empty:
@@ -56,19 +57,21 @@ class Scheduler:
         if self._thread is not None:
             self._thread.join(timeout=5.0)
     
-    def submit(self, full: bool = False, immediate: bool = False) -> Future:
+    def submit(self, full: bool = False, immediate: bool = False, image: Optional[Image.Image] = None) -> Future:
         """Submit a refresh request.
         
         Args:
             full: If True, force a full refresh instead of partial refresh.
             immediate: If True, wake scheduler immediately to process without batching delay.
+            image: Optional pre-captured image snapshot. If provided, this exact image will be
+                   displayed. If None, scheduler will take snapshot from framebuffer when processing.
         """
         if full:
             log.warning(f"Scheduler.submit() called with full=True (will cause flashing refresh)")
         
         future = Future()
         try:
-            self._queue.put_nowait((full, future))
+            self._queue.put_nowait((full, future, image))
             if immediate:
                 # Wake scheduler thread immediately for urgent updates (e.g., menu arrow)
                 self._wake_event.set()
@@ -116,64 +119,56 @@ class Scheduler:
     def _process_batch(self, batch: list) -> None:
         """Process a batch of refresh requests.
         
-        For rapid updates, only the last item in the batch is processed to ensure
-        we display the final state. Earlier items are marked as complete but not displayed.
+        Each item in the batch is processed separately to ensure rapid updates
+        (like menu navigation) display all intermediate states, not just the final state.
+        Each item carries its own image snapshot captured at render time.
         """
-        if not batch:
-            return
-        
-        # Use only the last item in the batch - this ensures we get the final framebuffer state
-        # Complete all earlier futures as "skipped" since they're superseded by later updates
-        if len(batch) > 1:
-            for full, future in batch[:-1]:
-                if not future.done():
-                    future.set_result("skipped")
-            log.debug(f"Scheduler._process_batch(): Processing last of {len(batch)} items, skipping {len(batch)-1} earlier updates")
-        
-        # Process only the last item
-        last_full, last_future = batch[-1]
-        full_refresh = last_full or self._partial_refresh_count >= self._max_partial_refreshes
-        
-        if full_refresh:
-            if last_full:
-                log.warning(f"Scheduler._process_batch(): Executing FULL refresh due to explicit request (will cause flashing). _in_partial_mode={self._in_partial_mode}")
-            else:
-                log.warning(f"Scheduler._process_batch(): Executing FULL refresh due to partial refresh count ({self._partial_refresh_count}) exceeding max ({self._max_partial_refreshes}) (will cause flashing). _in_partial_mode={self._in_partial_mode}")
-            self._execute_full_refresh([(last_full, last_future)])
-        else:
-            log.debug(f"Scheduler._process_batch(): Executing PARTIAL refresh. _in_partial_mode={self._in_partial_mode}, partial_refresh_count={self._partial_refresh_count}")
-            self._execute_partial_refresh([(last_full, last_future)])
-    
-    def _execute_full_refresh(self, batch: list) -> None:
-        """Execute a full screen refresh."""
-        # Check if shutdown was requested before using hardware
-        if self._stop_event.is_set():
-            for _, future in batch:
+        # Process each item separately to ensure all updates are displayed
+        for item in batch:
+            if self._stop_event.is_set():
+                full, future, _ = item if len(item) == 3 else (item[0], item[1], None)
                 if not future.done():
                     future.set_result("shutdown")
+                continue
+            
+            # Unpack item (handle both old format and new format with image)
+            if len(item) == 3:
+                full, future, image = item
+            else:
+                full, future = item
+                image = None
+            
+            full_refresh = full or self._partial_refresh_count >= self._max_partial_refreshes
+            if full_refresh:
+                if full:
+                    log.debug(f"Scheduler._process_batch(): Executing FULL refresh due to explicit request. _in_partial_mode={self._in_partial_mode}")
+                else:
+                    log.debug(f"Scheduler._process_batch(): Executing FULL refresh due to partial refresh count ({self._partial_refresh_count}) exceeding max ({self._max_partial_refreshes}). _in_partial_mode={self._in_partial_mode}")
+                self._execute_full_refresh_single(full, future, image)
+            else:
+                log.debug(f"Scheduler._process_batch(): Executing PARTIAL refresh. _in_partial_mode={self._in_partial_mode}, partial_refresh_count={self._partial_refresh_count}")
+                self._execute_partial_refresh_single(full, future, image)
+    
+    def _execute_full_refresh_single(self, full: bool, future: Future, image: Optional[Image.Image]) -> None:
+        """Execute a full screen refresh for a single request."""
+        # Check if shutdown was requested before using hardware
+        if self._stop_event.is_set():
+            if not future.done():
+                future.set_result("shutdown")
             return
         
-        #print(f"Scheduler._execute_full_refresh(): Entering")
         try:
             # Only re-initialize if we're transitioning from partial mode to full mode
-            # This ensures clean transition from partial refresh mode back to full refresh mode
-            # If we're already in full mode, we don't need to re-initialize
             if self._in_partial_mode:
-                log.warning(f"Scheduler._execute_full_refresh(): Transitioning from PARTIAL to FULL mode (resetting _in_partial_mode to False). This will cause the next partial refresh to re-initialize!")
-                import traceback
-                log.warning(f"Stack trace:\n{''.join(traceback.format_stack())}")
+                log.debug(f"Scheduler._execute_full_refresh_single(): Transitioning from PARTIAL to FULL mode")
                 self._epd.init()
                 self._in_partial_mode = False
-                log.warning(f"Scheduler._execute_full_refresh(): _in_partial_mode is now False")
             
-            # CRITICAL: Take snapshot IMMEDIATELY before use to ensure we get the absolute latest
-            # framebuffer state. This is especially important for rapid updates where the framebuffer
-            # may have been updated multiple times since the request was queued.
-            # Small delay to ensure any pending rendering operations have completed
-            time.sleep(0.001)  # 1ms delay to ensure framebuffer writes are complete
-            
-            # Get full-screen snapshot with rotation - taken at the last possible moment
-            full_image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
+            # Use provided image if available, otherwise take snapshot from framebuffer
+            if image is not None:
+                full_image = image
+            else:
+                full_image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
             
             buf = self._epd.getbuffer(full_image)
             self._epd.display(buf)
@@ -182,91 +177,66 @@ class Scheduler:
         except Exception as e:
             # Don't log errors during shutdown (SPI may be closed)
             if not self._stop_event.is_set():
-                #print(f"ERROR in full refresh: {e}")
+                log.error(f"ERROR in full refresh: {e}")
                 import traceback
                 traceback.print_exc()
         
-        for _, future in batch:
-            if not future.done():
-                future.set_result("full")
+        if not future.done():
+            future.set_result("full")
     
-    def _execute_partial_refresh(self, batch: list) -> None:
-        """Execute partial refresh using Waveshare DisplayPartial."""
+    def _execute_partial_refresh_single(self, full: bool, future: Future, image: Optional[Image.Image]) -> None:
+        """Execute partial refresh for a single request."""
         # Check if shutdown was requested before using hardware
         if self._stop_event.is_set():
-            for _, future in batch:
-                if not future.done():
-                    future.set_result("shutdown")
+            if not future.done():
+                future.set_result("shutdown")
             return
         
         try:
             # CRITICAL: Before first partial refresh after full refresh, we must reset and clear
             # the display to establish a known state, exactly like the sample code does.
-            # The sample code (epd_2in9d_test.py lines 79-80) always calls:
-            #   epd.init()    # Reset hardware, configure for full mode
-            #   epd.Clear()   # Clear to white using display() method
-            #   # THEN DisplayPartial() is called
-            #
-            # This ensures the display hardware is in a known state before switching to partial mode.
-            # Without this, the hardware may incorrectly interpret the partial refresh buffers when
-            # transitioning from full mode (where image is in 0x13) to partial mode (where image is in 0x10).
-            #
-            # IMPORTANT: This transition logic must happen BEFORE checking for dirty regions,
-            # so that _in_partial_mode is set to True even if there are no dirty regions.
-            # Otherwise, subsequent partial refresh requests will incorrectly re-initialize the display.
             if not self._in_partial_mode:
                 # Check again before using hardware (might have been shut down while processing)
                 if self._stop_event.is_set():
-                    for _, future in batch:
-                        if not future.done():
-                            future.set_result("shutdown")
+                    if not future.done():
+                        future.set_result("shutdown")
                     return
                 
                 # We're transitioning from full mode to partial mode
                 # Reset and clear to establish known state (matches sample code pattern exactly)
-                log.warning(f"Scheduler._execute_partial_refresh(): _in_partial_mode is False, transitioning to partial mode (calling init() and Clear()). This should only happen once after initialization!")
-                import traceback
-                log.warning(f"Stack trace:\n{''.join(traceback.format_stack())}")
+                log.debug(f"Scheduler._execute_partial_refresh_single(): Transitioning to partial mode (calling init() and Clear())")
                 self._epd.init()
                 self._epd.Clear()
                 # Mark as in partial mode immediately after transition, even if no dirty regions
                 self._in_partial_mode = True
-                log.info(f"Scheduler._execute_partial_refresh(): Transition complete, _in_partial_mode is now True")
+                log.debug(f"Scheduler._execute_partial_refresh_single(): Transition complete, _in_partial_mode is now True")
+            
+            # If image was provided, use it directly (captured at render time)
+            # Otherwise, check for dirty regions and take snapshot from framebuffer
+            if image is not None:
+                # Use the provided image - this is the exact state when Manager.update() was called
+                display_image = image
             else:
-                log.debug(f"Scheduler._execute_partial_refresh(): Already in partial mode, skipping transition")
-            
-            # Check for dirty regions after transition logic
-            dirty_regions = self._framebuffer.compute_dirty_regions()
-            
-            #print(f"Scheduler._execute_partial_refresh(): Found {len(dirty_regions)} dirty regions")
-            
-            if not dirty_regions:
-                #print("Scheduler._execute_partial_refresh(): No dirty regions, returning no-op")
-                # Even though there are no dirty regions, we've already transitioned to partial mode
-                # so mark futures as complete
-                for _, future in batch:
+                # Fallback: check for dirty regions and take snapshot from framebuffer
+                dirty_regions = self._framebuffer.compute_dirty_regions()
+                
+                if not dirty_regions:
+                    # No dirty regions, mark as no-op
                     if not future.done():
                         future.set_result("no-op")
-                return
+                    return
+                
+                # Get snapshot from framebuffer
+                display_image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
             
             # Final check before continuing (SPI might be closed during shutdown)
             if self._stop_event.is_set():
-                for _, future in batch:
-                    if not future.done():
-                        future.set_result("shutdown")
+                if not future.done():
+                    future.set_result("shutdown")
                 return
             
-            # CRITICAL: Take snapshot IMMEDIATELY before use to ensure we get the absolute latest
-            # framebuffer state. This is especially important for rapid updates where the framebuffer
-            # may have been updated multiple times since the request was queued.
-            # Small delay to ensure any pending rendering operations have completed
-            time.sleep(0.001)  # 1ms delay to ensure framebuffer writes are complete
-            
-            # Get new (current) snapshot with rotation - taken at the last possible moment
-            image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
-            
             # Get buffer from image
-            buf = self._epd.getbuffer(image)
+            buf = self._epd.getbuffer(display_image)
             
             self._epd.DisplayPartial(buf)
             
@@ -274,7 +244,6 @@ class Scheduler:
             self._framebuffer.flush_all()
             
             self._partial_refresh_count += 1
-            # _in_partial_mode is already True from transition logic above
         except Exception as e:
             # Don't log errors during shutdown (SPI may be closed)
             if not self._stop_event.is_set():
@@ -282,6 +251,5 @@ class Scheduler:
                 import traceback
                 traceback.print_exc()
         
-        for _, future in batch:
-            if not future.done():
-                future.set_result("partial")
+        if not future.done():
+            future.set_result("partial")
