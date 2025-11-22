@@ -171,17 +171,6 @@ class Scheduler:
                     future.set_result("shutdown")
             return
         
-        dirty_regions = self._framebuffer.compute_dirty_regions()
-        
-        #print(f"Scheduler._execute_partial_refresh(): Found {len(dirty_regions)} dirty regions")
-        
-        if not dirty_regions:
-            #print("Scheduler._execute_partial_refresh(): No dirty regions, returning no-op")
-            for _, future in batch:
-                if not future.done():
-                    future.set_result("no-op")
-            return
-        
         try:
             # CRITICAL: Before first partial refresh after full refresh, we must reset and clear
             # the display to establish a known state, exactly like the sample code does.
@@ -193,6 +182,10 @@ class Scheduler:
             # This ensures the display hardware is in a known state before switching to partial mode.
             # Without this, the hardware may incorrectly interpret the partial refresh buffers when
             # transitioning from full mode (where image is in 0x13) to partial mode (where image is in 0x10).
+            #
+            # IMPORTANT: This transition logic must happen BEFORE checking for dirty regions,
+            # so that _in_partial_mode is set to True even if there are no dirty regions.
+            # Otherwise, subsequent partial refresh requests will incorrectly re-initialize the display.
             if not self._in_partial_mode:
                 # Check again before using hardware (might have been shut down while processing)
                 if self._stop_event.is_set():
@@ -203,8 +196,25 @@ class Scheduler:
                 
                 # We're transitioning from full mode to partial mode
                 # Reset and clear to establish known state (matches sample code pattern exactly)
+                log.info("Scheduler: Transitioning from full mode to partial mode (calling init() and Clear())")
                 self._epd.init()
                 self._epd.Clear()
+                # Mark as in partial mode immediately after transition, even if no dirty regions
+                self._in_partial_mode = True
+            
+            # Check for dirty regions after transition logic
+            dirty_regions = self._framebuffer.compute_dirty_regions()
+            
+            #print(f"Scheduler._execute_partial_refresh(): Found {len(dirty_regions)} dirty regions")
+            
+            if not dirty_regions:
+                #print("Scheduler._execute_partial_refresh(): No dirty regions, returning no-op")
+                # Even though there are no dirty regions, we've already transitioned to partial mode
+                # so mark futures as complete
+                for _, future in batch:
+                    if not future.done():
+                        future.set_result("no-op")
+                return
             
             # Final check before continuing (SPI might be closed during shutdown)
             if self._stop_event.is_set():
@@ -225,7 +235,7 @@ class Scheduler:
             self._framebuffer.flush_all()
             
             self._partial_refresh_count += 1
-            self._in_partial_mode = True
+            # _in_partial_mode is already True from transition logic above
         except Exception as e:
             # Don't log errors during shutdown (SPI may be closed)
             if not self._stop_event.is_set():
