@@ -346,13 +346,25 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     # Calculate widget position and dimensions
     arrow_box_top = renderer.body_top  # Top position of arrow box (first selectable row)
     arrow_widget_height = len(ordered_menu) * renderer.row_height if ordered_menu else renderer.row_height
+    
+    # Define callbacks for registering/unregistering the arrow widget
+    def register_arrow_widget(widget):
+        global _active_arrow_widget
+        _active_arrow_widget = widget
+    
+    def unregister_arrow_widget():
+        global _active_arrow_widget
+        _active_arrow_widget = None
+    
     arrow_widget = MenuArrowWidget(
         x=0,
         y=arrow_box_top,  # Position at top of selectable rows
         width=renderer.arrow_width + 1,  # +1 for vertical line on rightmost side
         height=arrow_widget_height,  # Total height of all selectable rows
         row_height=renderer.row_height,
-        num_entries=len(ordered_menu)
+        num_entries=len(ordered_menu),
+        register_callback=register_arrow_widget,
+        unregister_callback=unregister_arrow_widget
     )
     
     # Add arrow widget to manager so it's part of the widget system

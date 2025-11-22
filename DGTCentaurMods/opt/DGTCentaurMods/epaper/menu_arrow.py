@@ -14,7 +14,9 @@ class MenuArrowWidget(Widget):
     """Widget that displays a menu arrow and handles key-based navigation."""
     
     def __init__(self, x: int, y: int, width: int, height: int,
-                 row_height: int, num_entries: int):
+                 row_height: int, num_entries: int,
+                 register_callback: Optional[Callable[['MenuArrowWidget'], None]] = None,
+                 unregister_callback: Optional[Callable[[], None]] = None):
         """
         Initialize menu arrow widget.
         
@@ -25,6 +27,8 @@ class MenuArrowWidget(Widget):
             height: Widget height (total height of all selectable rows)
             row_height: Height of each menu row
             num_entries: Number of selectable menu entries
+            register_callback: Optional callback to register this widget as active (called with self)
+            unregister_callback: Optional callback to unregister this widget (called with no args)
         """
         super().__init__(x, y, width, height)
         self.row_height = row_height
@@ -35,6 +39,8 @@ class MenuArrowWidget(Widget):
         self._selection_event = threading.Event()
         self._selection_result: Optional[str] = None
         self._active = False
+        self._register_callback = register_callback
+        self._unregister_callback = unregister_callback
         
     def max_index(self) -> int:
         """Get maximum valid selection index."""
@@ -140,14 +146,6 @@ class MenuArrowWidget(Widget):
             result = self.request_update(full=False)
             log.info(f">>> MenuArrowWidget._update_selection: request_update() returned {result}")
     
-    def _get_manager(self):
-        """Get the display manager instance."""
-        try:
-            from DGTCentaurMods.menu import _get_display_manager
-            return _get_display_manager()
-        except:
-            return None
-    
     def wait_for_selection(self, initial_index: int = 0) -> str:
         """
         Block and wait for user selection via key presses.
@@ -175,12 +173,12 @@ class MenuArrowWidget(Widget):
         self._selection_event.clear()
         
         # Register this widget as the active arrow widget
-        try:
-            import DGTCentaurMods.menu as menu_module
-            menu_module._active_arrow_widget = self
-            log.info(f">>> MenuArrowWidget.wait_for_selection: registered as active arrow widget, initial_index={initial_index}")
-        except Exception as e:
-            log.error(f"Error registering arrow widget: {e}")
+        if self._register_callback:
+            try:
+                self._register_callback(self)
+                log.info(f">>> MenuArrowWidget.wait_for_selection: registered as active arrow widget, initial_index={initial_index}")
+            except Exception as e:
+                log.error(f"Error registering arrow widget: {e}")
         
         # Wait for selection event
         log.info(">>> MenuArrowWidget.wait_for_selection: waiting for key press...")
@@ -193,9 +191,9 @@ class MenuArrowWidget(Widget):
             # Deactivate
             self._active = False
             log.info(">>> MenuArrowWidget.wait_for_selection: deactivating arrow widget")
-            try:
-                import DGTCentaurMods.menu as menu_module
-                menu_module._active_arrow_widget = None
-            except:
-                pass
+            if self._unregister_callback:
+                try:
+                    self._unregister_callback()
+                except Exception as e:
+                    log.error(f"Error unregistering arrow widget: {e}")
 
