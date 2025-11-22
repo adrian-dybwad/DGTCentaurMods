@@ -32,22 +32,17 @@ class WelcomeWidget(Widget):
         self._status_bar_widget = StatusBarWidget(0, 0)
         self._load_resources()
 
-    def set_update_callback(self, callback) -> None:
-        """Set update callback and automatically trigger initial display."""
-        super().set_update_callback(callback)
-        # Automatically request update when callback is set (widget is added to manager)
-        if callback is not None:
-            self.request_update(full=False)
-
     def _load_resources(self):
         """Load fonts and images."""
         try:
             self._font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
             self._logo = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
+            self.request_update(full=False)
         except Exception as e:
             log.error(f"Failed to load welcome widget resources: {e}")
             self._font_18 = ImageFont.load_default()
             self._logo = Image.new("1", (128, 128), 255)
+            self.request_update(full=False)
     
     def set_status_text(self, status_text: str) -> None:
         """Update the status text (kept for compatibility, but status bar shows time now)."""
