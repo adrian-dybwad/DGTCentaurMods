@@ -10,7 +10,7 @@ from .ball import BallWidget
 from .chess_board import ChessBoardWidget
 from .game_analysis import GameAnalysisWidget
 from .checkerboard import CheckerboardWidget
-from .welcome import SplashScreen
+from .splash_screen import SplashScreen
 from .status_bar import StatusBarWidget
 from .wifi_status import WiFiStatusWidget
 from .game_over import GameOverWidget
