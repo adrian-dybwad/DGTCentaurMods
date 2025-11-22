@@ -70,6 +70,8 @@ class MenuWidget(Widget):
         self.selected_index = selected_index
         self._register_callback = register_callback
         self._unregister_callback = unregister_callback
+
+        log.info(f">>> MenuWidget.__init__: x={x}, y={y}, width={width}, height={height}, title={title}, entries={entries}, description={description}, selected_index={selected_index}")
         
         # Calculate body top position relative to widget (widget is at y=STATUS_BAR_HEIGHT)
         # MENU_BODY_TOP_WITH_TITLE is absolute screen position, so subtract widget's y
