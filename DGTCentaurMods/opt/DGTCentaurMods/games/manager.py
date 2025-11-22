@@ -228,6 +228,7 @@ class GameManager:
         self.source_file = ""
         self.game_db_id = -1
         self.database_session = None
+        self.cached_result = None  # Cache game result for thread-safe access
         
         # UI state
         self.is_showing_promotion = False
@@ -291,8 +292,15 @@ class GameManager:
                 game_record.result = result_string
                 self.database_session.flush()
                 self.database_session.commit()
+                self.cached_result = result_string  # Cache the result for thread-safe access
+                log.info(f"[GameManager.{context}] Updated game result in database: id={self.game_db_id}, result={result_string}, termination={termination}")
             else:
-                log.warning(f"[GameManager.{context}] Game with id {self.game_db_id} not found in database")
+                if self.game_db_id == -1:
+                    log.warning(f"[GameManager.{context}] Game with id -1 not found in database (game was never initialized in database). Result: {result_string}, termination: {termination}")
+                else:
+                    log.warning(f"[GameManager.{context}] Game with id {self.game_db_id} not found in database. Result: {result_string}, termination: {termination}")
+                # Cache the result even if not found in database
+                self.cached_result = result_string
         
         if self.event_callback is not None:
             self.event_callback(termination)
@@ -751,6 +759,7 @@ class GameManager:
                 
                 # Get the game ID
                 self.game_db_id = self.database_session.query(func.max(models.Game.id)).scalar()
+                log.info(f"[GameManager._reset_game] Game initialized in database with id={self.game_db_id}, source={self.source_file}, event={self.game_info['event']}, white={self.game_info['white']}, black={self.game_info['black']}")
                 
                 # Create initial game move entry
                 game_move = models.GameMove(
@@ -775,6 +784,12 @@ class GameManager:
         self.key_callback = key_callback
         self.takeback_callback = takeback_callback
         
+        # Create database session in this thread to ensure all SQL operations happen in the same thread
+        thread_id = threading.get_ident()
+        Session = sessionmaker(bind=models.engine)
+        self.database_session = Session()
+        log.info(f"[GameManager._game_thread] Database session created in thread {thread_id}")
+        
         board.ledsOff()
         log.info("[GameManager._game_thread] Subscribing to events")
         
@@ -783,10 +798,28 @@ class GameManager:
         except Exception as e:
             log.error(f"[GameManager._game_thread] Error subscribing to events: {e}")
             log.error(f"[GameManager._game_thread] Error: {sys.exc_info()[1]}")
+            # Clean up session before returning
+            if self.database_session is not None:
+                try:
+                    self.database_session.close()
+                    self.database_session = None
+                except Exception:
+                    self.database_session = None
             return
         
-        while not self.should_stop:
-            time.sleep(0.1)
+        try:
+            while not self.should_stop:
+                time.sleep(0.1)
+        finally:
+            # Clean up database session in the same thread it was created
+            if self.database_session is not None:
+                try:
+                    log.info(f"[GameManager._game_thread] Closing database session in thread {thread_id}")
+                    self.database_session.close()
+                    self.database_session = None
+                except Exception as e:
+                    log.error(f"[GameManager._game_thread] Error closing database session: {e}")
+                    self.database_session = None
     
     def set_game_info(self, event: str, site: str, round_str: str, white: str, black: str):
         """Set game metadata for PGN files."""
@@ -837,7 +870,24 @@ class GameManager:
     
     def get_result(self) -> str:
         """Get the result of the last game."""
+        current_thread_id = threading.get_ident()
+        game_thread_id = self.game_thread.ident if self.game_thread is not None else None
+        
+        # Check if we're in the game thread
+        if current_thread_id != game_thread_id:
+            # Not in game thread - use cached result
+            if self.cached_result is not None:
+                log.debug(f"[GameManager.get_result] Called from different thread (current={current_thread_id}, game_thread={game_thread_id}), returning cached result: {self.cached_result}")
+                return self.cached_result
+            else:
+                log.warning(f"[GameManager.get_result] Called from different thread (current={current_thread_id}, game_thread={game_thread_id}) and no cached result available")
+                return "Unknown"
+        
+        # We're in the game thread - can safely access database
         if self.database_session is None:
+            # Fall back to cached result if available
+            if self.cached_result is not None:
+                return self.cached_result
             return "Unknown"
         
         game_data = self.database_session.execute(
@@ -855,7 +905,9 @@ class GameManager:
         ).first()
         
         if game_data is not None:
-            return str(game_data.result)
+            result = str(game_data.result)
+            self.cached_result = result  # Update cache
+            return result
         return "Unknown"
     
     def get_board(self):
@@ -872,8 +924,8 @@ class GameManager:
         self._collect_board_state()
         
         self.source_file = inspect.getsourcefile(sys._getframe(1))
-        Session = sessionmaker(bind=models.engine)
-        self.database_session = Session()
+        thread_id = threading.get_ident()
+        log.info(f"[GameManager.subscribe_game] GameManager initialized, source_file={self.source_file}, thread_id={thread_id}")
         
         self.should_stop = False
         self.game_thread = threading.Thread(
@@ -889,12 +941,11 @@ class GameManager:
         board.ledsOff()
         self.clock_manager.stop()
         
-        if self.database_session is not None:
-            try:
-                self.database_session.close()
-                self.database_session = None
-            except Exception:
-                self.database_session = None
+        # Wait for game thread to finish (it will clean up the database session)
+        if self.game_thread is not None:
+            self.game_thread.join(timeout=1.0)
+            if self.game_thread.is_alive():
+                log.warning("[GameManager.unsubscribe_game] Game thread did not finish within timeout")
 
 
 # Global instance for backward compatibility
