@@ -34,10 +34,7 @@ class Widget(ABC):
         This allows widgets to trigger full update cycles that render all widgets.
         """
         self._update_callback = callback
-        # Automatically trigger initial display when callback is set
-        if callback is not None:
-            self.request_update(full=False)
-
+            
     def get_scheduler(self) -> Optional['Scheduler']:
         """Get the scheduler for this widget."""
         return self._scheduler
