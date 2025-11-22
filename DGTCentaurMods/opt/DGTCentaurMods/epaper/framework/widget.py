@@ -58,6 +58,14 @@ class Widget(ABC):
             Widgets should NOT call the scheduler directly. The Manager must
             render all widgets first before submitting to ensure consistent state.
         """
+        if full:
+            try:
+                from DGTCentaurMods.board.logging import log
+            except ImportError:
+                import logging
+                log = logging.getLogger(__name__)
+            log.warning(f"Widget {self.__class__.__name__} requesting FULL refresh (will cause flashing)")
+        
         if self._update_callback is not None:
             return self._update_callback(full)
         # No callback available - cannot update without Manager

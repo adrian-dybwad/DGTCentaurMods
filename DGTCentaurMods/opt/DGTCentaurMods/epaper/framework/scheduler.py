@@ -63,6 +63,9 @@ class Scheduler:
             full: If True, force a full refresh instead of partial refresh.
             immediate: If True, wake scheduler immediately to process without batching delay.
         """
+        if full:
+            log.warning(f"Scheduler.submit() called with full=True (will cause flashing refresh)")
+        
         future = Future()
         try:
             self._queue.put_nowait((full, future))
@@ -115,6 +118,10 @@ class Scheduler:
         full_refresh = any(full for full, _ in batch)
         #print(f"Scheduler._process_batch(): full_refresh={full_refresh}, partial_refresh_count={self._partial_refresh_count}")
         if full_refresh or self._partial_refresh_count >= self._max_partial_refreshes:
+            if full_refresh:
+                log.warning(f"Scheduler: Executing FULL refresh due to explicit request (will cause flashing)")
+            else:
+                log.warning(f"Scheduler: Executing FULL refresh due to partial refresh count ({self._partial_refresh_count}) exceeding max ({self._max_partial_refreshes}) (will cause flashing)")
             self._execute_full_refresh(batch)
         else:
             self._execute_partial_refresh(batch)

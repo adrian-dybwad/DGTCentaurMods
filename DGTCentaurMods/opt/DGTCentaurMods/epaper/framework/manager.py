@@ -77,6 +77,9 @@ class Manager:
         Returns:
             Future: A Future that completes when the display refresh finishes.
         """
+        if full:
+            log.warning(f"Manager.update() called with full=True (will cause flashing refresh)")
+        
         if not self._initialized or self._shutting_down:
             from concurrent.futures import Future
             future = Future()

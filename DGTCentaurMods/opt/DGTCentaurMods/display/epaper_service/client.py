@@ -110,6 +110,8 @@ class EpaperService:
             future.result()
 
     def submit_full(self, *, await_completion: bool = False) -> None:
+        from DGTCentaurMods.board.logging import log
+        log.warning("EpaperService.submit_full() called - will cause flashing refresh")
         if not self._scheduler:
             raise RuntimeError("ePaper service not initialized")
         future = self._scheduler.submit(None, full=True)

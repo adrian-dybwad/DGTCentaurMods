@@ -1339,6 +1339,7 @@ if __name__ == "__main__":
             manager = _get_display_manager()
             canvas = manager._framebuffer.get_canvas()
             canvas.paste(qr, (0, 42))
+            log.warning("About screen: Calling manager.update(full=True) - will cause flashing refresh")
             manager.update(full=True)
             timeout = time.time() + 15
             while selection == "" and time.time() < timeout:
