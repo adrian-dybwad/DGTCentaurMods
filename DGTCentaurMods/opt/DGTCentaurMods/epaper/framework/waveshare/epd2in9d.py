@@ -44,6 +44,9 @@ logger = logging.getLogger(__name__)
 
 class EPD:
     def __init__(self):
+        import traceback
+        logger.warning(f"EPD.__init__() called - CREATING NEW EPD instance with id: {id(self)}")
+        logger.warning(f"Stack trace:\n{''.join(traceback.format_stack())}")
         self.reset_pin = epdconfig.RST_PIN
         self.dc_pin = epdconfig.DC_PIN
         self.busy_pin = epdconfig.BUSY_PIN
@@ -52,7 +55,8 @@ class EPD:
         self.height = EPD_HEIGHT
         # Store the last image sent for partial refresh
         print("-------------------------------- e-Paper display INITIALIZED - resetting buffer -------------------------------")
-        self.buffer = [0xFF] * int(self.width * self.height / 8)    
+        self.buffer = [0xFF] * int(self.width * self.height / 8)
+        logger.warning(f"EPD.__init__() completed - EPD id: {id(self)}")    
          
     lut_vcom1 = [  
         0x00, 0x19, 0x01, 0x00, 0x00, 0x01,

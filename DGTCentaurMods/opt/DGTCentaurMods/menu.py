@@ -75,12 +75,23 @@ current_renderer: Optional["MenuRenderer"] = None
 def _get_display_manager() -> Manager:
     """Get or create the global display manager."""
     global display_manager, status_bar_widget
+    import traceback
+    
+    log.warning(f"_get_display_manager() called. display_manager is None: {display_manager is None}")
+    log.warning(f"_get_display_manager() called. display_manager id: {id(display_manager) if display_manager is not None else 'None'}")
+    log.warning(f"Stack trace:\n{''.join(traceback.format_stack())}")
+    
     if display_manager is None:
+        log.warning("_get_display_manager() CREATING NEW Manager instance!")
         display_manager = Manager()
         display_manager.init()
         # Create and add status bar widget
         status_bar_widget = StatusBarWidget(0, 0)
         display_manager.add_widget(status_bar_widget)
+        log.warning(f"_get_display_manager() created Manager with id: {id(display_manager)}")
+    else:
+        log.warning(f"_get_display_manager() RETURNING EXISTING Manager with id: {id(display_manager)}")
+    
     return display_manager
 
 

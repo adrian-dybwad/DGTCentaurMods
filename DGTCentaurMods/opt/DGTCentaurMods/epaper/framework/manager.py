@@ -22,12 +22,16 @@ class Manager:
     """Main coordinator for the ePaper framework."""
     
     def __init__(self):
+        import traceback
+        log.warning(f"Manager.__init__() called - CREATING NEW Manager instance with id: {id(self)}")
+        log.warning(f"Stack trace:\n{''.join(traceback.format_stack())}")
         self._epd = EPD()
         self._framebuffer = FrameBuffer(self._epd.width, self._epd.height)
         self._scheduler = Scheduler(self._framebuffer, self._epd)
         self._widgets: List[Widget] = []
         self._initialized = False
         self._shutting_down = False
+        log.warning(f"Manager.__init__() completed - Manager id: {id(self)}, EPD id: {id(self._epd)}")
     
     def init(self) -> None:
         """Initialize the display."""
