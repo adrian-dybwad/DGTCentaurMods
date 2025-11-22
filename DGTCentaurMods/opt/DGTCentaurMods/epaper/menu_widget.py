@@ -3,9 +3,10 @@ Menu widget that renders title, entries, arrow, and description.
 """
 
 import os
+import threading
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Callable
 from dataclasses import dataclass
 
 try:
@@ -18,6 +19,11 @@ try:
 except ImportError:
     import logging
     log = logging.getLogger(__name__)
+
+try:
+    from DGTCentaurMods.board import board
+except ImportError:
+    board = None
 
 
 @dataclass
@@ -41,7 +47,9 @@ class MenuWidget(Widget):
     def __init__(self, x: int, y: int, width: int, height: int,
                  title: Optional[str] = None,
                  entries: Sequence[MenuEntry] = None,
-                 selected_index: int = 0):
+                 selected_index: int = 0,
+                 register_callback: Optional[Callable[['MenuWidget'], None]] = None,
+                 unregister_callback: Optional[Callable[[], None]] = None):
         """
         Initialize menu widget.
         
@@ -53,11 +61,20 @@ class MenuWidget(Widget):
             title: Optional menu title
             entries: List of menu entries
             selected_index: Currently selected entry index
+            register_callback: Optional callback to register this widget as active (called with self)
+            unregister_callback: Optional callback to unregister this widget (called with no args)
         """
         super().__init__(x, y, width, height)
         self.title = title or ""
         self.entries: List[MenuEntry] = list(entries) if entries else []
         self.selected_index = max(0, min(selected_index, len(self.entries) - 1) if self.entries else 0)
+        
+        # Key handling state
+        self._active = False
+        self._selection_event = threading.Event()
+        self._selection_result: Optional[str] = None
+        self._register_callback = register_callback
+        self._unregister_callback = unregister_callback
         
         # Calculate layout positions
         self._title_top = self.STATUS_BAR_HEIGHT + self.TITLE_GAP if self.title else 0
@@ -107,6 +124,113 @@ class MenuWidget(Widget):
         """Update menu entries and trigger re-render."""
         self.entries = list(entries)
         self.set_selection(selected_index)
+    
+    def max_index(self) -> int:
+        """Get maximum valid selection index."""
+        return max(0, len(self.entries) - 1)
+    
+    def handle_key(self, key_id) -> bool:
+        """Handle key press events. Called from menu's keyPressed function."""
+        if not self._active:
+            return False  # Not handling keys
+        
+        if not board:
+            return False
+        
+        log.info(f">>> MenuWidget.handle_key: key={key_id}, selected_index={self.selected_index}")
+        
+        if key_id == board.Key.DOWN:
+            new_index = self.selected_index + 1
+            if new_index > self.max_index():
+                new_index = 0
+            log.info(f">>> MenuWidget.handle_key: new_index={new_index}")
+            self.set_selection(new_index)
+            return True  # Handled
+        
+        elif key_id == board.Key.UP:
+            new_index = self.selected_index - 1
+            if new_index < 0:
+                new_index = self.max_index()
+            log.info(f">>> MenuWidget.handle_key: new_index={new_index}")
+            self.set_selection(new_index)
+            return True  # Handled
+        
+        elif key_id == board.Key.TICK:
+            # Selection confirmed
+            self._selection_result = "SELECTED"
+            self._selection_event.set()
+            return True  # Handled
+        
+        elif key_id == board.Key.BACK:
+            # Back pressed
+            self._selection_result = "BACK"
+            self._selection_event.set()
+            return True  # Handled
+        
+        elif key_id == board.Key.HELP:
+            # Help pressed
+            self._selection_result = "HELP"
+            self._selection_event.set()
+            return True  # Handled
+        
+        elif key_id == board.Key.LONG_PLAY:
+            # Shutdown
+            if board:
+                board.shutdown()
+            return True  # Handled
+        
+        return False  # Not handled
+    
+    def wait_for_selection(self, initial_index: int = 0) -> str:
+        """
+        Block and wait for user selection via key presses.
+        
+        This method:
+        1. Sets up key event handling
+        2. Blocks waiting for a selection event (TICK, BACK, HELP)
+        3. Updates arrow position based on UP/DOWN keys
+        4. Returns the selection result
+        
+        Args:
+            initial_index: Initial selection index
+            
+        Returns:
+            "SELECTED" if TICK was pressed
+            "BACK" if BACK was pressed
+            "HELP" if HELP was pressed
+        """
+        # Set initial selection
+        self.set_selection(initial_index)
+        
+        # Activate key handling
+        self._active = True
+        self._selection_result = None
+        self._selection_event.clear()
+        
+        # Register this widget as the active menu widget
+        if self._register_callback:
+            try:
+                self._register_callback(self)
+                log.info(f">>> MenuWidget.wait_for_selection: registered as active menu widget, initial_index={initial_index}")
+            except Exception as e:
+                log.error(f"Error registering menu widget: {e}")
+        
+        # Wait for selection event
+        log.info(">>> MenuWidget.wait_for_selection: waiting for key press...")
+        try:
+            self._selection_event.wait()
+            result = self._selection_result or "BACK"
+            log.info(f">>> MenuWidget.wait_for_selection: event received, result='{result}'")
+            return result
+        finally:
+            # Deactivate
+            self._active = False
+            log.info(">>> MenuWidget.wait_for_selection: deactivating menu widget")
+            if self._unregister_callback:
+                try:
+                    self._unregister_callback()
+                except Exception as e:
+                    log.error(f"Error unregistering menu widget: {e}")
     
     def _row_top(self, idx: int) -> int:
         """Calculate Y position for a menu row."""

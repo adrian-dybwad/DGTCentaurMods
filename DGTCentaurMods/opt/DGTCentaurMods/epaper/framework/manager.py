@@ -118,7 +118,12 @@ class Manager:
             widget_name = widget.__class__.__name__
             if widget_name == "MenuArrowWidget":
                 log.info(f">>> Manager.update(): Rendering MenuArrowWidget at ({widget.x},{widget.y}), selected_index={widget.selected_index if hasattr(widget, 'selected_index') else 'N/A'}")
-            canvas.paste(widget_image, (widget.x, widget.y))
+            # Check for mask on static widgets too (for transparent widgets like MenuArrowWidget)
+            mask = widget.get_mask()
+            if mask:
+                canvas.paste(widget_image, (widget.x, widget.y), mask)
+            else:
+                canvas.paste(widget_image, (widget.x, widget.y))
         
         # Render moving widgets last (on top)
         for widget in moving_widgets:
