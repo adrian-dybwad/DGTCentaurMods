@@ -452,8 +452,17 @@ def show_welcome():
     status_text = statusbar.build() if 'statusbar' in globals() else "READY"
     welcome_widget = WelcomeWidget(status_text=status_text)
     manager.add_widget(welcome_widget)
-    manager.update(full=False)
     
+    # CRITICAL: Await the update to ensure partial mode transition completes
+    # before continuing. This ensures _in_partial_mode is set to True before
+    # any subsequent updates (like the menu) are processed.
+    future = manager.update(full=False)
+    if future:
+        try:
+            future.result(timeout=10.0)
+            log.info(">>> show_welcome() welcome screen update completed, display is now in partial mode")
+        except Exception as e:
+            log.error(f">>> show_welcome() welcome screen update failed: {e}")
     
     idle = True
     log.info(">>> show_welcome() setting idle=True, about to BLOCK on event_key.wait()")

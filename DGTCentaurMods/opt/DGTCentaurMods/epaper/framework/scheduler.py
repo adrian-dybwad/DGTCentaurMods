@@ -196,11 +196,16 @@ class Scheduler:
                 
                 # We're transitioning from full mode to partial mode
                 # Reset and clear to establish known state (matches sample code pattern exactly)
-                log.info("Scheduler: Transitioning from full mode to partial mode (calling init() and Clear())")
+                log.warning(f"Scheduler._execute_partial_refresh(): _in_partial_mode is False, transitioning to partial mode (calling init() and Clear()). This should only happen once after initialization!")
+                import traceback
+                log.warning(f"Stack trace:\n{''.join(traceback.format_stack())}")
                 self._epd.init()
                 self._epd.Clear()
                 # Mark as in partial mode immediately after transition, even if no dirty regions
                 self._in_partial_mode = True
+                log.info(f"Scheduler._execute_partial_refresh(): Transition complete, _in_partial_mode is now True")
+            else:
+                log.debug(f"Scheduler._execute_partial_refresh(): Already in partial mode, skipping transition")
             
             # Check for dirty regions after transition logic
             dirty_regions = self._framebuffer.compute_dirty_regions()
