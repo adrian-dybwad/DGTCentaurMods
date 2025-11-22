@@ -103,6 +103,7 @@ def _draw_battery_icon_to_canvas(canvas: Image.Image, top_padding: int = 2) -> N
 
 
 def clear_screen() -> None:
+    return
     """Clear the entire screen."""
     log.info(">>> clear_screen() ENTERED")
     manager = _get_display_manager()
@@ -140,36 +141,6 @@ def loading_screen() -> None:
     draw.text((0, 200), "     Loading", font=font_18, fill=0)
     future = manager.update(full=False)
     future.result(timeout=10.0)
-
-
-def welcome_screen(status_text: str = "READY") -> None:
-    """Display welcome screen."""
-    from DGTCentaurMods.board.logging import log
-    log.info(f">>> welcome_screen() ENTERED with status_text='{status_text}'")
-    manager = _get_display_manager()
-    canvas = manager._framebuffer.get_canvas()
-    draw = ImageDraw.Draw(canvas)
-    font_18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
-    status_font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
-    
-    # Draw status bar
-    status_region = Region(0, 0, 128, STATUS_BAR_HEIGHT)
-    draw.rectangle([status_region.x1, status_region.y1, status_region.x2, status_region.y2], fill=255, outline=255)
-    draw.text((2, -1), status_text, font=status_font, fill=0)
-    # Draw battery icon
-    _draw_battery_icon_to_canvas(canvas, top_padding=1)
-    
-    # Draw welcome content
-    welcome_region = Region(0, STATUS_BAR_HEIGHT, 128, 296)
-    draw.rectangle([welcome_region.x1, welcome_region.y1, welcome_region.x2, welcome_region.y2], fill=255, outline=255)
-    logo = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
-    canvas.paste(logo, (0, STATUS_BAR_HEIGHT + 4))
-    draw.text((0, STATUS_BAR_HEIGHT + 180), "   Press [>||]", font=font_18, fill=0)
-    
-    log.info(">>> welcome_screen() canvas updated, submitting full refresh")
-    future = manager.update(full=True)
-    future.result(timeout=10.0)
-    log.info(">>> welcome_screen() EXITING")
 
 
 @dataclass
