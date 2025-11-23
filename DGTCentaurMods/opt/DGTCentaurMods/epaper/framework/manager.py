@@ -10,6 +10,7 @@ from .framebuffer import FrameBuffer
 from .scheduler import Scheduler
 from .widget import Widget
 from .waveshare import epdconfig
+from ..status_bar import StatusBarWidget
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -48,6 +49,8 @@ class Manager:
             self._framebuffer.flush_all()
             
             self._initialized = True
+            self.clear_widgets()
+
         except Exception as e:
             raise RuntimeError(f"Failed to initialize display: {e}") from e
     
@@ -70,6 +73,21 @@ class Manager:
         self._widgets.append(widget)
 
         return self.update(full=False)
+    
+    def clear_widgets(self) -> None:
+        """Clear all widgets from the display."""
+        self._widgets.clear()
+        # Create and add status bar widget
+        status_bar_widget = StatusBarWidget(0, 0)
+        future = display_manager.add_widget(status_bar_widget)
+        log.warning(f"_get_display_manager() created Manager with id: {id(display_manager)}")
+        if future:
+            try:
+                future.result(timeout=10.0)
+                log.debug(">>> _get_display_manager() status bar widget update completed, display is now in partial mode")
+            except Exception as e:
+                log.error(f">>> _get_display_manager() status bar widget update failed: {e}")
+
     
     def update(self, full: bool = False):
         """Update the display with current widget states.

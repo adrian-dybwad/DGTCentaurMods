@@ -36,7 +36,7 @@ from DGTCentaurMods.asset_manager import AssetManager
 
 from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
-from DGTCentaurMods.epaper import Manager, SplashScreen, StatusBarWidget, TextWidget
+from DGTCentaurMods.epaper import Manager, SplashScreen, TextWidget
 from DGTCentaurMods.epaper.menu_widget import MenuWidget, MenuEntry
 from DGTCentaurMods.epaper.framework.regions import Region
 from PIL import Image, ImageDraw, ImageFont
@@ -63,30 +63,19 @@ MENU_BODY_TOP_WITH_TITLE = MENU_TOP
 MENU_BODY_TOP_NO_TITLE = STATUS_BAR_HEIGHT + TITLE_GAP
 DESCRIPTION_GAP = 8
 
-# Global display manager
-display_manager: Optional[Manager] = None
 
-# Global status bar widget
-status_bar_widget: Optional[StatusBarWidget] = None
 
 def _get_display_manager() -> Manager:
     """Get or create the global display manager."""
-    global display_manager, status_bar_widget
+    global display_manager
     
     if display_manager is None:
         display_manager = Manager()
         display_manager.init()
-        # Create and add status bar widget
-        status_bar_widget = StatusBarWidget(0, 0)
-        future = display_manager.add_widget(status_bar_widget)
-        log.warning(f"_get_display_manager() created Manager with id: {id(display_manager)}")
-        if future:
-            try:
-                future.result(timeout=10.0)
-                log.debug(">>> _get_display_manager() status bar widget update completed, display is now in partial mode")
-            except Exception as e:
-                log.error(f">>> _get_display_manager() status bar widget update failed: {e}")
     return display_manager
+
+# Global display manager
+display_manager: Optional[Manager] = _get_display_manager()
 
 def keyPressed(id):
     # This function receives key presses
@@ -227,7 +216,6 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     global selection
     global quickselect
     global event_key
-    global status_bar_widget
     log.info(">>> doMenu: ensuring display manager is initialized")
     manager = _get_display_manager()
     log.info(">>> doMenu: display manager initialized")
@@ -252,16 +240,8 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     if ordered_menu:
         initial_index = max(0, min(len(ordered_menu) - 1, menuitem - 1))
     
-    # Clear widgets except status bar
-    widgets_to_keep = []
-    if status_bar_widget and status_bar_widget in manager._widgets:
-        widgets_to_keep.append(status_bar_widget)
-    manager._widgets.clear()
+    manager.clear_widgets()
 
-    log.debug(f">>> doMenu: adding {len(widgets_to_keep)} widgets to manager")
-    log.debug(f">>> doMenu: widgets to keep: {widgets_to_keep}")
-    manager._widgets.extend(widgets_to_keep)
-    
     # Define callbacks for registering/unregistering the menu widget
     def register_menu_widget(widget):
         global _active_menu_widget
@@ -311,25 +291,14 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         else:
             selection = "BACK"
         
-        # SAFER APPROACH: Remove all widgets except status bar after selection
-        widgets_to_keep = []
-        if status_bar_widget and status_bar_widget in manager._widgets:
-            widgets_to_keep.append(status_bar_widget)
-        
-        manager._widgets.clear()
-        manager._widgets.extend(widgets_to_keep)
+        manager.clear_widgets()
         
         log.info(f">>> doMenu: returning selection='{selection}'")
         return selection
     except KeyboardInterrupt:
         log.info(">>> doMenu: KeyboardInterrupt caught")
-        # SAFER APPROACH: Remove all widgets except status bar on interrupt
-        widgets_to_keep = []
-        if status_bar_widget and status_bar_widget in manager._widgets:
-            widgets_to_keep.append(status_bar_widget)
-        
-        manager._widgets.clear()
-        manager._widgets.extend(widgets_to_keep)
+        manager.clear_widgets()
+        manager.add_widget(SplashScreen(message="   Shutdown"))
         return "SHUTDOWN"
 
 def changedCallback(piece_event, field, time_in_seconds):
@@ -369,12 +338,6 @@ def show_welcome():
     manager = _get_display_manager()
     log.info(">>> show_welcome() display manager initialized")
     
-    # SAFER APPROACH: Remove all widgets, then add only welcome widget
-    manager._widgets.clear()
-    log.info(">>> show_welcome() cleared all widgets")
-    
-    # Create and add splash screen widget
-    # Widget should call request_update() itself when ready
     splash_screen = SplashScreen(message="   Press [✓]")
     manager.add_widget(splash_screen)
     
