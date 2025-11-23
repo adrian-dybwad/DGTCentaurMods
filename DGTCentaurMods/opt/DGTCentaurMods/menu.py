@@ -420,6 +420,7 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
                     pass
             return 130  # Standard exit code for SIGINT
     finally:
+        log.info(">>> run_external_script() cleanup complete")
         # Restore original signal handler
         signal.signal(signal.SIGINT, original_handler)
         log.info(">>> Reinitializing after external script...")
