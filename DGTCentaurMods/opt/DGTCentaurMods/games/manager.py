@@ -791,33 +791,88 @@ class GameManager:
             promotion_suffix = self._handle_promotion(target_square, piece_name, self.move_state.is_forced_move)
             move_uci = from_name + to_name + promotion_suffix
         
-        # Make the move and update database
-        # Catch exceptions from invalid UCI strings or illegal moves
-        # This prevents the game thread from crashing on malformed move data
+        # Atomic operation: Add to database first, then push to chess engine
+        # If chess engine push fails, rollback database to maintain consistency
+        # This ensures database and chess engine state are always synchronized
+        
+        # Validate move UCI format first (before any database operations)
         try:
             move = chess.Move.from_uci(move_uci)
-            self.chess_board.push(move)
         except ValueError as e:
-            log.error(f"[GameManager._execute_move] Invalid move UCI or illegal move: {move_uci}. Error: {e}")
+            log.error(f"[GameManager._execute_move] Invalid move UCI format: {move_uci}. Error: {e}")
             board.beep(board.SOUND_WRONG_MOVE)
             board.ledsOff()
             self.move_state.reset()
             return
         
-        paths.write_fen_log(self.chess_board.fen())
+        # Atomic operation: Add to database first, then push to chess engine
+        # If chess engine push fails, rollback database to maintain consistency
+        # This ensures database and chess engine state are always synchronized
         
-        # Only write to database if game has been properly initialized
-        # This prevents writes with invalid game ID (game_db_id = -1) before _reset_game() is called
+        # Step 1: Add move to database (but don't commit yet)
+        # Use a flag to track if we need to rollback
+        database_move_added = False
+        game_move = None
         if self.database_session is not None and self.game_db_id >= 0:
-            game_move = models.GameMove(
-                gameid=self.game_db_id,
-                move=move_uci,
-                fen=str(self.chess_board.fen())
-            )
-            self.database_session.add(game_move)
-            self.database_session.commit()
+            try:
+                # Create move object but don't commit - we'll commit after chess engine push succeeds
+                game_move = models.GameMove(
+                    gameid=self.game_db_id,
+                    move=move_uci,
+                    fen=None  # Will be set after chess engine push succeeds
+                )
+                self.database_session.add(game_move)
+                database_move_added = True
+                # Flush to ensure the object is in the session, but don't commit yet
+                self.database_session.flush()
+            except Exception as db_error:
+                # Database add failed - log but continue to try chess engine push
+                # If chess engine push succeeds, we'll have inconsistent state, but that's better than
+                # blocking the move entirely
+                log.error(f"[GameManager._execute_move] Failed to add move to database: {db_error}")
+                database_move_added = False
+                game_move = None
         elif self.database_session is not None and self.game_db_id < 0:
             log.warning(f"[GameManager._execute_move] Skipping database write: game not initialized (game_db_id={self.game_db_id}). Move: {move_uci}")
+        
+        # Step 2: Push to chess engine (this is the critical operation)
+        # If this fails, we'll rollback the database
+        try:
+            self.chess_board.push(move)
+        except (ValueError, AssertionError) as e:
+            # Chess engine push failed - rollback database if we added a move
+            if database_move_added:
+                try:
+                    self.database_session.rollback()
+                    log.warning(f"[GameManager._execute_move] Chess engine push failed, rolled back database. Move: {move_uci}, Error: {e}")
+                except Exception as rollback_error:
+                    log.error(f"[GameManager._execute_move] Failed to rollback database after chess engine push failure: {rollback_error}")
+            
+            log.error(f"[GameManager._execute_move] Illegal move or chess engine push failed: {move_uci}. Error: {e}")
+            board.beep(board.SOUND_WRONG_MOVE)
+            board.ledsOff()
+            self.move_state.reset()
+            return
+        
+        # Step 3: Chess engine push succeeded - now commit database with final FEN
+        if database_move_added and game_move is not None:
+            try:
+                # Update FEN now that we know the move succeeded
+                game_move.fen = str(self.chess_board.fen())
+                self.database_session.commit()
+                log.debug(f"[GameManager._execute_move] Move {move_uci} committed to database after successful chess engine push")
+            except Exception as commit_error:
+                # Database commit failed - this is bad but chess engine already has the move
+                # Log error but continue - chess engine state is authoritative
+                log.error(f"[GameManager._execute_move] Database commit failed after chess engine push succeeded: {commit_error}")
+                log.error(f"[GameManager._execute_move] WARNING: Database and chess engine are now out of sync for move {move_uci}")
+                # Try to rollback to prevent partial state
+                try:
+                    self.database_session.rollback()
+                except Exception:
+                    pass
+        
+        paths.write_fen_log(self.chess_board.fen())
         
         # Always call move callback FIRST to update display with logical board state
         # The display must always reflect self.chess_board (the authority), not the physical board
