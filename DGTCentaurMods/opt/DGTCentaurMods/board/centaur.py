@@ -19,7 +19,6 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
-from DGTCentaurMods.display.epaper_service import widgets
 from DGTCentaurMods.board.settings import Settings
 from subprocess import PIPE, Popen, check_output
 import subprocess
@@ -258,8 +257,8 @@ class UpdateSystem:
     def updateInstall(self):
         # Check for available update
         log.debug('Put the board in update mode')
-        widgets.write_text(3, '    System will')
-        widgets.write_text(4, '       update')
+        #widgets.write_text(3, '    System will')
+        #widgets.write_text(4, '       update')
         script_path = pathlib.Path(__file__).resolve().parents[1] / "update" / "update.py"
         if not script_path.exists():
             log.error(f"Update script missing at {script_path}")
