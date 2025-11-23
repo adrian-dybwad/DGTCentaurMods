@@ -1053,6 +1053,24 @@ class GameManager:
             self._handle_field_event_in_correction_mode(piece_event, field, time_in_seconds)
             return
         
+        # Check for starting position when piece is placed
+        if piece_event == 1:  # PLACE event
+            current_state = board.getChessState()
+            if current_state is not None:
+                log.debug(f"[GameManager._field_callback] Checking starting position. State length: {len(current_state) if current_state else 0}")
+                if self._is_starting_position(current_state):
+                    log.info("[GameManager._field_callback] Starting position detected via piece placement")
+                    # Also verify logical board is in starting position to avoid false positives
+                    with self._lock:
+                        logical_fen = self.chess_board.fen()
+                        is_logical_start = (logical_fen == STARTING_FEN or len(self.chess_board.move_stack) == 0)
+                    if is_logical_start:
+                        log.info("[GameManager._field_callback] Starting position confirmed (both physical and logical), resetting game")
+                        self._reset_game()
+                        return
+                    else:
+                        log.debug(f"[GameManager._field_callback] Physical board in starting position but logical board is not (moves: {len(self.chess_board.move_stack)}, FEN: {logical_fen[:30]}...)")
+        
         is_lift = (piece_event == 0)
         is_place = (piece_event == 1)
         
@@ -1060,27 +1078,6 @@ class GameManager:
             self._handle_piece_lift(field, piece_color)
             self.correction_mode.clear_exit_flag()
         elif is_place:
-            # Check for starting position when piece is placed
-            # This check happens before processing the move to catch manual resets
-            # Add a small delay to ensure board state is fully updated after piece placement
-            time.sleep(0.15)  # Delay to allow board state to stabilize after piece placement
-            current_state = board.getChessState()
-            if current_state is not None and len(current_state) == BOARD_SIZE:
-                if self._is_starting_position(current_state):
-                    # Check if no move is in progress (user manually resetting board)
-                    no_move_in_progress = (self.move_state.source_square < 0)
-                    
-                    # Also check if logical board matches (both conditions indicate intentional reset)
-                    with self._lock:
-                        is_logical_start = (self.chess_board.fen() == STARTING_FEN)
-                    
-                    if no_move_in_progress or is_logical_start:
-                        log.info(f"[GameManager._field_callback] Starting position detected via piece placement (no_move_in_progress={no_move_in_progress}, is_logical_start={is_logical_start})")
-                        self._reset_game()
-                        return
-                    else:
-                        log.debug(f"[GameManager._field_callback] Physical board in starting position but move in progress or logical board differs (FEN: {self.chess_board.fen()[:30]}...)")
-            
             self._handle_piece_place(field, piece_color)
     
     def _key_callback(self, key_pressed):
