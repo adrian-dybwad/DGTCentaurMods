@@ -694,8 +694,7 @@ class GameManager:
             # This check should happen for ALL cases, not just non-forced moves
             # 
             # IMPORTANT: Use the logical chess board state (FEN) as the expected state, not the physical board state.
-            # This ensures consistency with the chess board widget display and avoids false positives when
-            # the physical board matches the logical state but board_state_history contains stale data.
+            # This ensures consistency with the chess board widget display.
             # 
             # Timing assumption: This check occurs immediately after a PLACE event, so chess_board should
             # reflect the current logical game state. The chess_board is updated synchronously in _execute_move()
@@ -1139,7 +1138,6 @@ class GameManager:
             # Step 4: Reset all game state
             self.move_state.reset()  # Clear move state (source square, legal moves, forced moves, etc.)
             self.chess_board.reset()  # Reset logical board to starting position
-            self.board_state_history = []  # Clear board state history
             self.cached_result = None  # Clear cached game result
             
             # Step 5: Reset UI state
