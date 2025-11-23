@@ -668,7 +668,21 @@ class GameManager:
             self._execute_move(field)
     
     def _execute_move(self, target_square: int):
-        """Execute a move from source to target square."""
+        """Execute a move from source to target square.
+        
+        Prevents moves from being executed after the game has ended.
+        If the game is already over, logs a warning and returns early.
+        """
+        # Check if game is already over before executing move
+        # This prevents moves from being executed after game termination, which would corrupt game state
+        outcome = self.chess_board.outcome(claim_draw=True)
+        if outcome is not None:
+            log.warning(f"[GameManager._execute_move] Attempted to execute move after game ended. Result: {self.chess_board.result()}, Termination: {outcome.termination}")
+            board.beep(board.SOUND_WRONG_MOVE)
+            board.ledsOff()
+            self.move_state.reset()
+            return
+        
         from_name = chess.square_name(self.move_state.source_square)
         to_name = chess.square_name(target_square)
         piece_name = str(self.chess_board.piece_at(self.move_state.source_square))
