@@ -156,11 +156,21 @@ class GameAnalysisWidget(Widget):
                 )
                 bar_offset += bar_width
         
-        # Draw turn indicator (white circle for white, black circle for black)
-        if self.current_turn == "white":
-            draw.ellipse((119, 14, 126, 21), fill=0, outline=0)
+        # Draw turn indicator showing which color is at the bottom of the board
+        # When board is flipped (bottom_color == "black"), we need to invert the turn
+        # to show which color is physically at the bottom
+        if self.bottom_color == "black":
+            # Board is flipped: invert the turn to show bottom color
+            bottom_turn = "black" if self.current_turn == "white" else "white"
         else:
+            # Board not flipped: turn directly indicates bottom color
+            bottom_turn = self.current_turn
+        
+        # Draw circle: white circle (fill=255) for white at bottom, black circle (fill=0) for black at bottom
+        if bottom_turn == "white":
             draw.ellipse((119, 14, 126, 21), fill=255, outline=0)
+        else:
+            draw.ellipse((119, 14, 126, 21), fill=0, outline=0)
         
         # Cache the rendered image
         self._last_rendered = img
