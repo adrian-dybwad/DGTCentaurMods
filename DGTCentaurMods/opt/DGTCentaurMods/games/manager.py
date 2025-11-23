@@ -694,7 +694,18 @@ class GameManager:
             move_uci = from_name + to_name + promotion_suffix
         
         # Make the move and update database
-        self.chess_board.push(chess.Move.from_uci(move_uci))
+        # Catch exceptions from invalid UCI strings or illegal moves
+        # This prevents the game thread from crashing on malformed move data
+        try:
+            move = chess.Move.from_uci(move_uci)
+            self.chess_board.push(move)
+        except ValueError as e:
+            log.error(f"[GameManager._execute_move] Invalid move UCI or illegal move: {move_uci}. Error: {e}")
+            board.beep(board.SOUND_WRONG_MOVE)
+            board.ledsOff()
+            self.move_state.reset()
+            return
+        
         paths.write_fen_log(self.chess_board.fen())
         
         if self.database_session is not None:
