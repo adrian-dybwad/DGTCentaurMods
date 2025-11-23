@@ -552,10 +552,10 @@ class UCIGame:
         
         # Manually trigger game start for UCI mode
         log.info("Triggering NEW_GAME event")
-        display_manager.add_widget(SplashScreen(message="   Starting game..."))
-        time.sleep(1)
+        #display_manager.add_widget(SplashScreen(message="   Starting game..."))
+        #time.sleep(1)
         self._handle_game_event(manager.EVENT_NEW_GAME)
-        time.sleep(1)
+        #time.sleep(1)
         log.info("Game started, triggering initial turn")
         log.info("Triggering initial white turn")
         self._handle_game_event(manager.EVENT_WHITE_TURN)
