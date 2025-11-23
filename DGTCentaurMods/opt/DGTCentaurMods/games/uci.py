@@ -22,12 +22,13 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.games import manager
-from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget, StatusBarWidget, TextWidget
+from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget, TextWidget
 from DGTCentaurMods.epaper.game_over import GameOverWidget
 from DGTCentaurMods.asset_manager import AssetManager
-from DGTCentaurMods.menu import _get_display_manager
+from DGTCentaurMods.menu import display_manager
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.epaper.splash_screen import SplashScreen
 
 import time
 import chess
@@ -73,11 +74,8 @@ class UCIGame:
         self.uci_options = {}
         self._load_uci_options()
         
-        # Display manager and widgets
-        self.display_manager = None
         self.chess_board_widget = None
         self.game_analysis = None
-        self.status_bar_widget = None
         
         # Set game info
         if self.computer_color == chess.BLACK:
@@ -86,28 +84,12 @@ class UCIGame:
             manager.setGameInfo(self.uci_options_desc, "", "", self.engine_name, "Player")
     
     def _init_display(self):
-        """Initialize display manager and widgets."""
-        # Use the global display manager from menu.py
-        # This ensures we use the same Manager instance that controls the hardware
-        self.display_manager = _get_display_manager()
-        
-        # Clear all widgets except status bar (which is managed globally)
-        from DGTCentaurMods.menu import status_bar_widget
-        widgets_to_keep = []
-        if status_bar_widget and status_bar_widget in self.display_manager._widgets:
-            widgets_to_keep.append(status_bar_widget)
-        
-        self.display_manager._widgets.clear()
-        self.display_manager._widgets.extend(widgets_to_keep)
-        
-        # Use the global status bar widget
-        self.status_bar_widget = status_bar_widget
         
         # Create chess board widget at y=16 (below status bar)
         # Start with initial position
         initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
         self.chess_board_widget = ChessBoardWidget(0, 16, initial_fen)
-        self.display_manager.add_widget(self.chess_board_widget)
+        display_manager.add_widget(self.chess_board_widget)
         
         # Determine bottom color based on board orientation
         # If board is flipped (flip=True), black is at bottom; if not flipped, white is at bottom
@@ -118,13 +100,8 @@ class UCIGame:
         # Widget will adjust scores internally based on bottom_color
         # Pass analysis engine so widget can call it directly
         self.game_analysis = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color, analysis_engine=self.analysis_engine)
-        self.display_manager.add_widget(self.game_analysis)
+        display_manager.add_widget(self.game_analysis)
         
-        # Widgets should trigger their own updates when ready
-        # For initial display, have one widget trigger a full refresh
-        if self.status_bar_widget and self.status_bar_widget._update_callback:
-            self.status_bar_widget.request_update(full=True).result(timeout=10.0)
-    
     def _should_enable_graphs(self) -> bool:
         """Determine if evaluation graphs should be enabled based on hardware."""
         try:
@@ -266,28 +243,15 @@ class UCIGame:
         
         # Clean up engines
         self._cleanup_engines()
+        if self.game_analysis:
+            try:
+                self.game_analysis._stop_analysis_worker()
+            except Exception as e:
+                log.warning(f"Error stopping analysis worker: {e}")
         
-        # Clean up display widgets (but don't shutdown the global manager)
-        try:
-            if self.display_manager:
-                # Stop analysis worker thread before removing widget
-                if self.game_analysis:
-                    try:
-                        self.game_analysis._stop_analysis_worker()
-                    except Exception as e:
-                        log.warning(f"Error stopping analysis worker: {e}")
-                
-                # Remove only our widgets, not the global status bar
-                from DGTCentaurMods.menu import status_bar_widget
-                if self.chess_board_widget and self.chess_board_widget in self.display_manager._widgets:
-                    self.display_manager._widgets.remove(self.chess_board_widget)
-                if self.game_analysis and self.game_analysis in self.display_manager._widgets:
-                    self.display_manager._widgets.remove(self.game_analysis)
-                # Don't remove status_bar_widget - it's managed globally
-                # Don't call shutdown() - the global manager should stay alive
-        except Exception as e:
-            log.error(f"Error cleaning up display: {e}")
-        
+        display_manager.clear_widgets()
+        display_manager.add_widget(SplashScreen(message="   Exiting UCI"))
+
         # Clean up board
         try:
             board.ledsOff()
@@ -481,64 +445,13 @@ class UCIGame:
     
     def _handle_game_termination(self, termination_event: str):
         """Handle game termination event."""
+
+        log.info(f"Game termination event: {termination_event}")
         termination_type = termination_event[12:]  # Remove "Termination." prefix
         
-        # Display termination message using TextWidget
-        if self.display_manager:
-            # Remove existing widgets except global status bar
-            from DGTCentaurMods.menu import status_bar_widget
-            widgets_to_keep = []
-            if status_bar_widget and status_bar_widget in self.display_manager._widgets:
-                widgets_to_keep.append(status_bar_widget)
-            
-            self.display_manager._widgets.clear()
-            self.display_manager._widgets.extend(widgets_to_keep)
-            
-            # Create termination message widget at bottom (y=221)
-            termination_widget = TextWidget(30, 221, 98, 12, termination_type, 
-                                           background=0, font_size=12)
-            self.display_manager.add_widget(termination_widget)
-            # Widget triggers its own update
-            if termination_widget._update_callback:
-                termination_widget.request_update(full=False).result(timeout=5.0)
-            
-            time.sleep(0.3)
-            
-            # Move termination message to top (y=57)
-            self.display_manager._widgets.remove(termination_widget)
-            termination_widget = TextWidget(30, 57, 98, 12, termination_type, 
-                                           background=0, font_size=12)
-            self.display_manager.add_widget(termination_widget)
-            # Widget triggers its own update
-            if termination_widget._update_callback:
-                termination_widget.request_update(full=False).result(timeout=5.0)
-        
-        # Clear screen by resetting widgets
-        # Widgets will trigger updates automatically via request_update()
-        if self.chess_board_widget:
-            self.chess_board_widget.set_fen(manager.getFEN())
-        if self.game_analysis:
-            self.game_analysis.reset()
-        
-        # Display end screen
-        log.info("Displaying end screen")
-        self._draw_end_screen()
-        time.sleep(10)
-        self.should_stop = True
-    
-    def _draw_end_screen(self):
+        display_manager.clear_widgets()
+
         """Draw the game over screen using GameOverWidget."""
-        if not self.display_manager:
-            return
-        
-        # Remove all widgets except global status bar
-        from DGTCentaurMods.menu import status_bar_widget
-        widgets_to_keep = []
-        if status_bar_widget and status_bar_widget in self.display_manager._widgets:
-            widgets_to_keep.append(status_bar_widget)
-        
-        self.display_manager._widgets.clear()
-        self.display_manager._widgets.extend(widgets_to_keep)
         
         # Create game over widget
         result = manager.getResult()
@@ -551,10 +464,6 @@ class UCIGame:
             game_over_widget.set_score_history([])
         self.display_manager.add_widget(game_over_widget)
         
-        # Widget triggers its own update
-        if game_over_widget._update_callback:
-            game_over_widget.request_update(full=False).result(timeout=5.0)
-    
     def _handle_move(self, move_uci: str):
         """Handle a move made on the board."""
         try:
@@ -608,7 +517,6 @@ class UCIGame:
     def _clear_evaluation_graphs(self):
         """Clear evaluation graphs from screen."""
         if self.game_analysis:
-            # Widgets will trigger updates automatically via request_update()
             self.game_analysis.clear_history()
             self.game_analysis.set_score(0.0, "0.0")
     
@@ -622,8 +530,6 @@ class UCIGame:
         """Draw the chess board from FEN string."""
         try:
             if self.chess_board_widget:
-                # Widget will trigger update automatically via request_update()
-                # set_fen() calls request_update() which triggers Manager.update()
                 self.chess_board_widget.set_fen(fen)
                 log.debug(f"_draw_board: Updated chess board widget with FEN: {fen[:20]}...")
             else:
