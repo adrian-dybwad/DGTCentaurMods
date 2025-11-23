@@ -84,9 +84,6 @@ globals().update({f"{name}_DATA": spec.default_data for name, spec in COMMANDS.i
 # Explicit definitions for linter (already exported above, but needed for static analysis)
 DGT_BUS_SEND_CHANGES_RESP = COMMANDS["DGT_BUS_SEND_CHANGES"].expected_resp_type
 DGT_BUS_SEND_STATE_RESP = COMMANDS["DGT_BUS_SEND_STATE"].expected_resp_type
-
-# Export for use in this module
-__all__.extend(['DGT_BUS_SEND_STATE_RESP', 'DGT_BUS_SEND_CHANGES_RESP'])
 DGT_BUS_POLL_KEYS_RESP = COMMANDS["DGT_BUS_POLL_KEYS"].expected_resp_type
 
 # Export name namespace for commands, e.g. command.LED_OFF_CMD -> "LED_OFF_CMD"
@@ -121,7 +118,7 @@ KEY_CODE_BY_NAME = {v: k for k, v in KEY_NAME_BY_CODE.items()}
 Key = IntEnum('Key', {name: code for name, code in KEY_CODE_BY_NAME.items()})
 
 
-__all__ = ['SyncCentaur', 'DGT_BUS_SEND_CHANGES', 'DGT_SEND_BATTERY_INFO', 'DGT_BUTTON_CODES', 'command']
+__all__ = ['SyncCentaur', 'DGT_BUS_SEND_CHANGES', 'DGT_SEND_BATTERY_INFO', 'DGT_BUTTON_CODES', 'command', 'DGT_BUS_SEND_STATE_RESP', 'DGT_BUS_SEND_CHANGES_RESP', 'DGT_BUS_POLL_KEYS_RESP']
 
 
 class SyncCentaur:
