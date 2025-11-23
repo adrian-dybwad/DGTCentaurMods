@@ -69,7 +69,6 @@ display_manager: Optional[Manager] = None
 # Global status bar widget
 status_bar_widget: Optional[StatusBarWidget] = None
 
-
 def _get_display_manager() -> Manager:
     """Get or create the global display manager."""
     global display_manager, status_bar_widget
@@ -79,12 +78,15 @@ def _get_display_manager() -> Manager:
         display_manager.init()
         # Create and add status bar widget
         status_bar_widget = StatusBarWidget(0, 0)
-        display_manager.add_widget(status_bar_widget)
+        future = display_manager.add_widget(status_bar_widget)
         log.warning(f"_get_display_manager() created Manager with id: {id(display_manager)}")
-    
+        if future:
+            try:
+                future.result(timeout=10.0)
+                log.debug(">>> _get_display_manager() status bar widget update completed, display is now in partial mode")
+            except Exception as e:
+                log.error(f">>> _get_display_manager() status bar widget update failed: {e}")
     return display_manager
-
-
 
 def keyPressed(id):
     # This function receives key presses
@@ -284,17 +286,6 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     
     menuitem = (initial_index + 1) if ordered_menu else 1
     
-    # Ensure status bar widget is added
-    if status_bar_widget and status_bar_widget not in manager._widgets:
-        manager.add_widget(status_bar_widget)
-    
-    # Trigger initial render
-    if menu_widget._update_callback:
-        future = menu_widget.request_update(full=False)
-        if future:
-            future.result(timeout=10.0)
-    log.info(">>> doMenu: menu widget rendered")
-    
     # Use menu widget to wait for selection
     try:
         result = menu_widget.wait_for_selection(initial_index)
@@ -382,17 +373,6 @@ def show_welcome():
     splash_screen = SplashScreen(message="   Press [✓]")
     manager.add_widget(splash_screen)
     
-    # CRITICAL: Await the update to ensure partial mode transition completes
-    # before continuing. This ensures _in_partial_mode is set to True before
-    # any subsequent updates (like the menu) are processed.
-    future = manager.update(full=False)
-    if future:
-        try:
-            future.result(timeout=10.0)
-            log.info(">>> show_welcome() welcome screen update completed, display is now in partial mode")
-        except Exception as e:
-            log.error(f">>> show_welcome() welcome screen update failed: {e}")
-    
     idle = True
     log.info(">>> show_welcome() setting idle=True, about to BLOCK on event_key.wait()")
     try:
@@ -462,7 +442,6 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         splash_screen = SplashScreen(message="     Loading")
         manager = _get_display_manager()
         manager.add_widget(splash_screen)
-        manager.update(full=False)
         board.pauseEvents()
         board.cleanup(leds_off=True)
 

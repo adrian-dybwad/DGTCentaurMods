@@ -68,6 +68,8 @@ class Manager:
         widget.set_update_callback(self.update)
         
         self._widgets.append(widget)
+
+        return self.update(full=False)
     
     def update(self, full: bool = False):
         """Update the display with current widget states.
