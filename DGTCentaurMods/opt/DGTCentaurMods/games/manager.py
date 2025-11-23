@@ -692,11 +692,27 @@ class GameManager:
         from_name = chess.square_name(self.move_state.source_square)
         to_name = chess.square_name(target_square)
         piece_name = str(self.chess_board.piece_at(self.move_state.source_square))
-        promotion_suffix = self._handle_promotion(target_square, piece_name, self.move_state.is_forced_move)
         
         if self.move_state.is_forced_move:
+            # For forced moves, use the computer move UCI directly
+            # However, we need to ensure promotion is included if needed
             move_uci = self.move_state.computer_move_uci
+            
+            # Check if promotion is needed (pawn reaching promotion rank)
+            is_white_promotion = (target_square // BOARD_WIDTH) == PROMOTION_ROW_WHITE and piece_name == "P"
+            is_black_promotion = (target_square // BOARD_WIDTH) == PROMOTION_ROW_BLACK and piece_name == "p"
+            
+            if (is_white_promotion or is_black_promotion):
+                # Promotion is needed - check if UCI already includes it
+                if len(move_uci) < 5:
+                    # UCI doesn't include promotion piece - this should not happen if move was validated
+                    # but handle it gracefully by defaulting to queen
+                    log.warning(f"[GameManager._execute_move] Forced move UCI '{move_uci}' missing promotion piece for promotion move, defaulting to queen")
+                    move_uci = move_uci + "q"
+                # If UCI already has promotion (length >= 5), use it as-is
         else:
+            # For non-forced moves, get promotion choice from user if needed
+            promotion_suffix = self._handle_promotion(target_square, piece_name, self.move_state.is_forced_move)
             move_uci = from_name + to_name + promotion_suffix
         
         # Make the move and update database
@@ -970,8 +986,32 @@ class GameManager:
         self.clock_manager.start(get_current_turn, is_starting_position, is_showing_promotion)
     
     def computer_move(self, uci_move: str, forced: bool = True):
-        """Set the computer move that the player is expected to make."""
+        """Set the computer move that the player is expected to make.
+        
+        Validates that the move is legal at the current position and that the game
+        is not already over before setting up the forced move.
+        """
+        # Check if game is already over
+        outcome = self.chess_board.outcome(claim_draw=True)
+        if outcome is not None:
+            log.warning(f"[GameManager.computer_move] Attempted to set forced move after game ended. Result: {self.chess_board.result()}, Termination: {outcome.termination}")
+            return
+        
+        # Validate move UCI format
         if not self.move_state.set_computer_move(uci_move, forced):
+            return
+        
+        # Validate that the move is legal at the current position
+        # This prevents illegal moves from being set up, which would fail when executed
+        try:
+            move = chess.Move.from_uci(uci_move)
+            if move not in self.chess_board.legal_moves:
+                log.error(f"[GameManager.computer_move] Illegal move: {uci_move}. Legal moves: {list(self.chess_board.legal_moves)[:10]}...")
+                board.beep(board.SOUND_WRONG_MOVE)
+                return
+        except ValueError as e:
+            log.error(f"[GameManager.computer_move] Invalid move UCI format: {uci_move}. Error: {e}")
+            board.beep(board.SOUND_WRONG_MOVE)
             return
         
         # Light up LEDs to indicate the move
