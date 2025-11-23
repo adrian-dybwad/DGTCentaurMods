@@ -238,7 +238,6 @@ class GameManager:
         # Thread control
         self.should_stop = False
         self.game_thread = None
-        self._lock = threading.Lock()  # Lock for thread-safe access to shared state
     
     def _is_starting_position(self, board_state) -> bool:
         """Check if the board is in the starting position."""
@@ -273,51 +272,10 @@ class GameManager:
         return state
     
     def _collect_board_state(self):
-        """Append the current board state to history.
-        
-        The logical chess board (self.chess_board) is the source of truth. This method:
-        1. Always derives state from the logical chess board (authority)
-        2. Optionally reads physical board state for validation/comparison
-        3. Stores the logical state in history
-        
-        This ensures:
-        - History always reflects the logical game state (source of truth)
-        - Physical board errors don't corrupt the logical state
-        - Takeback detection works correctly (requires history[-2])
-        - Correction mode can detect when physical board doesn't match logical board
-        """
-        try:
-            # Always use logical chess board as the source of truth
-            logical_state = self._chess_board_to_state(self.chess_board)
-            
-            # Optionally validate against physical board (for discrepancy detection)
-            # But don't let physical board errors affect the logical state
-            physical_state = board.getChessState()
-            if physical_state is not None and len(physical_state) == BOARD_SIZE:
-                # Compare physical vs logical for discrepancy detection
-                if not self._validate_board_state(physical_state, logical_state):
-                    log.warning("[GameManager._collect_board_state] Physical board state differs from logical board state. Logical board is authoritative.")
-                    # Log the discrepancy but continue with logical state
-                    log.debug(f"[GameManager._collect_board_state] Logical FEN: {self.chess_board.fen()}")
-            elif physical_state is None:
-                log.debug("[GameManager._collect_board_state] Physical board state unavailable (communication timeout), using logical board state")
-            else:
-                log.warning(f"[GameManager._collect_board_state] Physical board state invalid (length {len(physical_state) if physical_state else 0}), using logical board state")
-            
-            # Store logical state in history (source of truth)
-            self.board_state_history.append(logical_state)
-            log.info(f"[GameManager._collect_board_state] Collected board state from logical chess board, history size: {len(self.board_state_history)}")
-        except ValueError as e:
-            log.error(f"[GameManager._collect_board_state] Failed to generate state from logical chess board: {e}")
-            # This is a critical error - the logical board should always be valid
-            # Don't append invalid state to history
-            import traceback
-            traceback.print_exc()
-        except Exception as e:
-            log.error(f"[GameManager._collect_board_state] Unexpected error: {e}")
-            import traceback
-            traceback.print_exc()
-            # Don't crash - the move was still executed in the chess board object
+        """Append the current board state to history."""
+        current_state = board.getChessState()
+        self.board_state_history.append(current_state)
+        log.info(f"[GameManager._collect_board_state] Collected board state, history size: {len(self.board_state_history)}")
     
     def _validate_board_state(self, current_state, expected_state) -> bool:
         """Validate board state by comparing piece presence."""
@@ -385,12 +343,10 @@ class GameManager:
         board.beep(board.SOUND_GENERAL)
         if not is_forced:
             screen_backup = service.snapshot()
-            with self._lock:
-                self.is_showing_promotion = True
+            self.is_showing_promotion = True
             widgets.promotion_options(PROMOTION_DISPLAY_LINE)
             promotion_choice = self._wait_for_promotion_choice()
-            with self._lock:
-                self.is_showing_promotion = False
+            self.is_showing_promotion = False
             service.blit(screen_backup, 0, 0)
             return promotion_choice
         return ""
@@ -410,48 +366,14 @@ class GameManager:
             return "q"  # Default to queen on timeout/other
     
     def _check_takeback(self) -> bool:
-        """Check if a takeback is in progress by comparing physical board against logical board's previous state.
-        
-        The logical chess board is the authority. We detect takebacks when the physical board
-        matches the logical board's state from two moves ago (before the last move).
-        """
+        """Check if a takeback is in progress by comparing board states."""
         if self.takeback_callback is None or len(self.board_state_history) < 2:
             return False
         
-        # Check if chess board has moves to pop (history might be incomplete)
-        if len(self.chess_board.move_stack) == 0:
-            log.warning("[GameManager._check_takeback] Cannot takeback: no moves in chess board")
-            return False
+        current_state = board.getChessState()
+        previous_state = self.board_state_history[-2]
         
-        # Get current physical board state
-        current_physical_state = board.getChessState()
-        if current_physical_state is None:
-            log.debug("[GameManager._check_takeback] Physical board state unavailable, cannot detect takeback")
-            return False
-        
-        # Get expected state from logical board history (source of truth)
-        # history[-2] is the state before the last move (two moves ago)
-        expected_logical_state = self.board_state_history[-2]
-        
-        # Validate that history state matches what we expect from chess board
-        # If history is incomplete, we need to reconstruct the expected state from chess board
-        try:
-            # Create a temporary board to get the state before the last move
-            temp_board = chess.Board(self.chess_board.fen())
-            if len(temp_board.move_stack) > 0:
-                temp_board.pop()
-                expected_from_board = self._chess_board_to_state(temp_board)
-                # Verify history matches chess board state
-                if not self._validate_board_state(expected_logical_state, expected_from_board):
-                    log.warning("[GameManager._check_takeback] History state does not match chess board state - history may be incomplete")
-                    # Use chess board state as authoritative
-                    expected_logical_state = expected_from_board
-        except Exception as e:
-            log.error(f"[GameManager._check_takeback] Failed to validate history state: {e}")
-            # Continue with history state, but log the issue
-        
-        # Compare physical board against logical board's previous state
-        if self._validate_board_state(current_physical_state, expected_logical_state):
+        if self._validate_board_state(current_state, previous_state):
             log.info("[GameManager._check_takeback] Takeback detected")
             board.ledsOff()
             self.board_state_history = self.board_state_history[:-1]
@@ -465,32 +387,28 @@ class GameManager:
                     self.database_session.delete(last_move)
                     self.database_session.commit()
             
-            # Pop move from chess board (should succeed since we checked move_stack length)
-            try:
-                self.chess_board.pop()
-            except IndexError:
-                log.error("[GameManager._check_takeback] Failed to pop move from chess board - no moves available")
-                return False
-            
+            self.chess_board.pop()
             paths.write_fen_log(self.chess_board.fen())
             board.beep(board.SOUND_GENERAL)
             
             if self.takeback_callback is not None:
                 self.takeback_callback()
             
-            # Verify physical board matches logical board after takeback
-            # Logical chess board is the authority - physical board must conform
+            # Verify board is correct after takeback
+            # Use logical chess board state (FEN) as expected state for consistency with correction mode
             time.sleep(0.2)
-            current_physical = board.getChessState()
-            # If logical board state conversion fails, we cannot reliably continue
-            expected_logical_state = self._chess_board_to_state(self.chess_board)
+            current = board.getChessState()
+            try:
+                expected_state = self._chess_board_to_state(self.chess_board)
+            except ValueError as e:
+                log.error(f"[GameManager._check_takeback] Failed to get expected state: {e}, falling back to board_state_history")
+                expected_state = self.board_state_history[-1] if self.board_state_history else None
             
-            if current_physical is not None:
-                if not self._validate_board_state(current_physical, expected_logical_state):
-                    log.info("[GameManager._check_takeback] Physical board does not match logical board after takeback, entering correction mode")
-                    self._enter_correction_mode()
-                    # Provide correction guidance: physical board should conform to logical board
-                    self._provide_correction_guidance(current_physical, expected_logical_state)
+            if expected_state is not None and not self._validate_board_state(current, expected_state):
+                log.info("[GameManager._check_takeback] Board state incorrect after takeback, entering correction mode")
+                self._enter_correction_mode()
+                # Provide correction guidance using logical state
+                self._provide_correction_guidance(current, expected_state)
             
             return True
         return False
@@ -500,12 +418,13 @@ class GameManager:
         
         Uses logical chess board state (FEN) as expected state for consistency with
         the chess board widget display and correction guidance.
-        
-        Raises:
-            ValueError: If logical board state conversion fails - cannot reliably continue
         """
-        # If logical board state conversion fails, we cannot reliably continue
-        expected_state = self._chess_board_to_state(self.chess_board)
+        try:
+            expected_state = self._chess_board_to_state(self.chess_board)
+        except ValueError as e:
+            log.error(f"[GameManager._enter_correction_mode] Failed to get expected state from chess board: {e}, falling back to board_state_history")
+            # Fall back to physical board state history if logical state unavailable
+            expected_state = self.board_state_history[-1] if self.board_state_history else None
         
         self.correction_mode.enter(expected_state)
         log.warning(f"[GameManager._enter_correction_mode] Entered correction mode")
@@ -530,87 +449,6 @@ class GameManager:
                 if from_sq is not None and to_sq is not None:
                     board.ledFromTo(from_sq, to_sq)
                     log.info(f"[GameManager._exit_correction_mode] Restored forced move LEDs: {self.move_state.computer_move_uci}")
-    
-    def _reconcile_state_after_checksum_failure(self):
-        """Reconcile state after a checksum mismatch causes a lost board state response.
-        
-        When a checksum mismatch occurs, the board state response is lost. This method:
-        1. If a player move was in progress, resets to the last known good state (before the move started)
-        2. If a forced move was in play, ensures the physical board matches the logical board
-        3. Enters correction mode to guide the user to fix any discrepancies
-        
-        The logical chess board (self.chess_board) is the authority - the physical board must conform.
-        """
-        log.warning("[GameManager._reconcile_state_after_checksum_failure] Checksum failure detected, reconciling state")
-        
-        # Check if a player move was in progress (piece lifted but not yet placed)
-        move_in_progress = self.move_state.source_square >= 0
-        
-        if move_in_progress:
-            # A player move was in progress - we lost the physical state, so we need to reset
-            # to the last known good state (before the move started)
-            log.warning("[GameManager._reconcile_state_after_checksum_failure] Player move in progress, resetting to last known good state")
-            
-            # Reset move state - this cancels the move in progress
-            self.move_state.reset()
-            board.ledsOff()
-            
-            # The logical board state is still correct (no move was executed)
-            # We just need to ensure the physical board matches it
-            # Get expected state from logical board
-            # If logical board state conversion fails, we cannot reliably continue
-            expected_state = self._chess_board_to_state(self.chess_board)
-            
-            # Enter correction mode to guide user to fix physical board
-            self._enter_correction_mode()
-            # Get current physical state and provide guidance
-            time.sleep(0.2)  # Brief delay to allow board to stabilize
-            current_physical = board.getChessState()
-            if current_physical is not None:
-                self._provide_correction_guidance(current_physical, expected_state)
-            else:
-                log.warning("[GameManager._reconcile_state_after_checksum_failure] Could not get current physical state for correction guidance")
-        
-        elif self.move_state.is_forced_move:
-            # A forced move was in play - ensure physical board matches logical board
-            log.warning("[GameManager._reconcile_state_after_checksum_failure] Forced move in play, ensuring physical board matches logical board")
-            
-            # Get expected state from logical board
-            # If logical board state conversion fails, we cannot reliably continue
-            expected_state = self._chess_board_to_state(self.chess_board)
-            
-            # Restore forced move LEDs
-            if self.move_state.computer_move_uci and len(self.move_state.computer_move_uci) >= MIN_UCI_MOVE_LENGTH:
-                from_sq, to_sq = self._uci_to_squares(self.move_state.computer_move_uci)
-                if from_sq is not None and to_sq is not None:
-                    board.ledFromTo(from_sq, to_sq)
-                    log.info(f"[GameManager._reconcile_state_after_checksum_failure] Restored forced move LEDs: {self.move_state.computer_move_uci}")
-            
-            # Check if physical board matches expected state
-            time.sleep(0.2)  # Brief delay to allow board to stabilize
-            current_physical = board.getChessState()
-            if current_physical is not None:
-                if not self._validate_board_state(current_physical, expected_state):
-                    log.warning("[GameManager._reconcile_state_after_checksum_failure] Physical board does not match logical board, entering correction mode")
-                    self._enter_correction_mode()
-                    self._provide_correction_guidance(current_physical, expected_state)
-            else:
-                log.warning("[GameManager._reconcile_state_after_checksum_failure] Could not get current physical state for validation")
-        
-        else:
-            # No move in progress - just ensure physical board matches logical board
-            log.info("[GameManager._reconcile_state_after_checksum_failure] No move in progress, verifying physical board matches logical board")
-            
-            # If logical board state conversion fails, we cannot reliably continue
-            expected_state = self._chess_board_to_state(self.chess_board)
-            
-            time.sleep(0.2)  # Brief delay to allow board to stabilize
-            current_physical = board.getChessState()
-            if current_physical is not None:
-                if not self._validate_board_state(current_physical, expected_state):
-                    log.warning("[GameManager._reconcile_state_after_checksum_failure] Physical board does not match logical board, entering correction mode")
-                    self._enter_correction_mode()
-                    self._provide_correction_guidance(current_physical, expected_state)
     
     def _provide_correction_guidance(self, current_state, expected_state):
         """Provide LED guidance to correct misplaced pieces using Hungarian algorithm."""
@@ -759,10 +597,19 @@ class GameManager:
             # reflect the current logical game state. The chess_board is updated synchronously in _execute_move()
             # before any subsequent events can occur, so there should be no race condition.
             current_state = board.getChessState()
-            # If logical board state conversion fails, we cannot reliably continue
-            expected_state = self._chess_board_to_state(self.chess_board)
+            try:
+                expected_state = self._chess_board_to_state(self.chess_board)
+            except ValueError as e:
+                log.error(f"[GameManager._handle_piece_place] Failed to get expected state from chess board: {e}")
+                # Fall back to physical board state history if available
+                if self.board_state_history:
+                    expected_state = self.board_state_history[-1]
+                    log.warning("[GameManager._handle_piece_place] Using fallback expected state from board_state_history")
+                else:
+                    log.debug("[GameManager._handle_piece_place] Cannot check board state: no expected state available")
+                    expected_state = None
             
-            if current_state is not None:
+            if current_state is not None and expected_state is not None:
                 # Check if there are extra pieces (pieces on squares that shouldn't have them)
                 extra_squares = []
                 if len(current_state) == BOARD_SIZE and len(expected_state) == BOARD_SIZE:
@@ -822,9 +669,19 @@ class GameManager:
             if not is_takeback:
                 self._enter_correction_mode()
                 current_state = board.getChessState()
-                # If logical board state conversion fails, we cannot reliably continue
-                expected_state = self._chess_board_to_state(self.chess_board)
-                self._provide_correction_guidance(current_state, expected_state)
+                try:
+                    expected_state = self._chess_board_to_state(self.chess_board)
+                except ValueError as e:
+                    log.error(f"[GameManager._handle_piece_place] Failed to get expected state: {e}")
+                    # Fall back to physical board state history if available
+                    if self.board_state_history:
+                        expected_state = self.board_state_history[-1]
+                        log.warning("[GameManager._handle_piece_place] Using fallback expected state from board_state_history")
+                    else:
+                        expected_state = None
+                
+                if expected_state is not None:
+                    self._provide_correction_guidance(current_state, expected_state)
             return
         
         # Legal placement
@@ -840,165 +697,47 @@ class GameManager:
     
     def _execute_move(self, target_square: int):
         """Execute a move from source to target square."""
-        with self._lock:
-            # Check if game is already over before executing move
-            if self.chess_board.outcome(claim_draw=True) is not None:
-                log.warning("[GameManager._execute_move] Attempted to execute move in finished game, ignoring")
-                return
-            
-            from_name = chess.square_name(self.move_state.source_square)
-            to_name = chess.square_name(target_square)
-            piece_name = str(self.chess_board.piece_at(self.move_state.source_square))
-            is_forced = self.move_state.is_forced_move
+        from_name = chess.square_name(self.move_state.source_square)
+        to_name = chess.square_name(target_square)
+        piece_name = str(self.chess_board.piece_at(self.move_state.source_square))
+        promotion_suffix = self._handle_promotion(target_square, piece_name, self.move_state.is_forced_move)
         
-        promotion_suffix = self._handle_promotion(target_square, piece_name, is_forced)
+        if self.move_state.is_forced_move:
+            move_uci = self.move_state.computer_move_uci
+        else:
+            move_uci = from_name + to_name + promotion_suffix
         
-        with self._lock:
-            if self.move_state.is_forced_move:
-                move_uci = self.move_state.computer_move_uci
-                # Validate forced move is still legal (board state may have changed)
-                try:
-                    move = chess.Move.from_uci(move_uci)
-                    if move not in self.chess_board.legal_moves:
-                        log.error(f"[GameManager._execute_move] Forced move {move_uci} is no longer legal on current board")
-                        board.beep(board.SOUND_WRONG_MOVE)
-                        # Reset forced move state
-                        self.move_state.reset()
-                        # Enter correction mode to guide user
-                        self._enter_correction_mode()
-                        current_state = board.getChessState()
-                        # If logical board state conversion fails, we cannot reliably continue
-                        expected_state = self._chess_board_to_state(self.chess_board)
-                        if current_state is not None:
-                            self._provide_correction_guidance(current_state, expected_state)
-                        return
-                except ValueError as e:
-                    log.error(f"[GameManager._execute_move] Invalid forced move UCI {move_uci}: {e}")
-                    board.beep(board.SOUND_WRONG_MOVE)
-                    self.move_state.reset()
-                    return
-            else:
-                move_uci = from_name + to_name + promotion_suffix
-            
-            # Validate move is legal before attempting database write
-            try:
-                move = chess.Move.from_uci(move_uci)
-                if move not in self.chess_board.legal_moves:
-                    log.error(f"[GameManager._execute_move] Move {move_uci} is not legal on current board")
-                    board.beep(board.SOUND_WRONG_MOVE)
-                    # Enter correction mode to guide user
-                    self._enter_correction_mode()
-                    current_state = board.getChessState()
-                    # If logical board state conversion fails, we cannot reliably continue
-                    expected_state = self._chess_board_to_state(self.chess_board)
-                    if current_state is not None:
-                        self._provide_correction_guidance(current_state, expected_state)
-                    return
-            except ValueError as e:
-                log.error(f"[GameManager._execute_move] Invalid move UCI {move_uci}: {e}")
-                board.beep(board.SOUND_WRONG_MOVE)
-                # Enter correction mode to guide user
-                self._enter_correction_mode()
-                current_state = board.getChessState()
-                # If logical board state conversion fails, we cannot reliably continue
-                expected_state = self._chess_board_to_state(self.chess_board)
-                if current_state is not None:
-                    self._provide_correction_guidance(current_state, expected_state)
-                return
-            
-            # Calculate expected FEN after move (using temporary board copy)
-            temp_board = chess.Board(self.chess_board.fen())
-            temp_board.push(move)
-            expected_fen = temp_board.fen()
-            
-            # Add to database first (but don't commit yet) - makes operations atomic
-            game_move = None
-            if self.database_session is not None and self.game_db_id != -1:
-                try:
-                    game_move = models.GameMove(
-                        gameid=self.game_db_id,
-                        move=move_uci,
-                        fen=str(expected_fen)
-                    )
-                    self.database_session.add(game_move)
-                    # Don't commit yet - wait for chess board push to succeed
-                except Exception as e:
-                    log.error(f"[GameManager._execute_move] Failed to add move to database: {e}")
-                    # Continue anyway - database is secondary to board state
-            
-            # Now push to chess board - if this fails, we'll rollback database
-            try:
-                self.chess_board.push(move)
-            except ValueError as e:
-                log.error(f"[GameManager._execute_move] Failed to execute move {move_uci}: {e}")
-                board.beep(board.SOUND_WRONG_MOVE)
-                # Rollback database if we added the move
-                if game_move is not None and self.database_session is not None:
-                    try:
-                        self.database_session.rollback()
-                        log.info(f"[GameManager._execute_move] Rolled back database transaction due to chess board push failure")
-                    except Exception as rollback_error:
-                        log.error(f"[GameManager._execute_move] Failed to rollback database session: {rollback_error}")
-                # Enter correction mode to guide user
-                self._enter_correction_mode()
-                current_state = board.getChessState()
-                # If logical board state conversion fails, we cannot reliably continue
-                expected_state = self._chess_board_to_state(self.chess_board)
-                if current_state is not None:
-                    self._provide_correction_guidance(current_state, expected_state)
-                return
-            
-            # Chess board push succeeded - now commit database
-            if game_move is not None and self.database_session is not None:
-                try:
-                    self.database_session.commit()
-                except Exception as e:
-                    log.error(f"[GameManager._execute_move] Failed to commit move to database: {e}")
-                    log.warning(f"[GameManager._execute_move] Board state updated but database commit failed - move: {move_uci}")
-                    # Rollback the session to clear the failed transaction
-                    try:
-                        self.database_session.rollback()
-                    except Exception as rollback_error:
-                        log.error(f"[GameManager._execute_move] Failed to rollback database session: {rollback_error}")
-                    # Note: Chess board state is already updated and is the source of truth
+        # Make the move and update database
+        self.chess_board.push(chess.Move.from_uci(move_uci))
+        paths.write_fen_log(self.chess_board.fen())
         
-        # Get FEN after successful move
-        with self._lock:
-            fen = self.chess_board.fen()
+        if self.database_session is not None:
+            game_move = models.GameMove(
+                gameid=self.game_db_id,
+                move=move_uci,
+                fen=str(self.chess_board.fen())
+            )
+            self.database_session.add(game_move)
+            self.database_session.commit()
         
-        paths.write_fen_log(fen)
-        
-        # Collect board state (may fail if board communication is down, but move is already executed)
-        with self._lock:
-            self._collect_board_state()
-            self.move_state.reset()
-        
+        self._collect_board_state()
+        self.move_state.reset()
         board.ledsOff()
         
-        # Always call move callback to update display, even if board state collection failed
-        # The chess board object has the correct state, so the display should reflect it
         if self.move_callback is not None:
-            try:
-                self.move_callback(move_uci)
-            except Exception as e:
-                log.error(f"[GameManager._execute_move] Error in move callback: {e}")
-                import traceback
-                traceback.print_exc()
+            self.move_callback(move_uci)
         
         board.beep(board.SOUND_GENERAL)
         board.led(target_square)
         
         # Check game outcome
-        with self._lock:
-            outcome = self.chess_board.outcome(claim_draw=True)
-            if outcome is None:
-                self._switch_turn_with_event()
-            else:
-                result_string = str(self.chess_board.result())
-                termination = str(outcome.termination)
-        
-        if outcome is not None:
+        outcome = self.chess_board.outcome(claim_draw=True)
+        if outcome is None:
+            self._switch_turn_with_event()
+        else:
             board.beep(board.SOUND_GENERAL)
+            result_string = str(self.chess_board.result())
+            termination = str(outcome.termination)
             self._update_game_result(result_string, termination, "_execute_move")
     
     def _field_callback(self, piece_event: int, field: int, time_in_seconds: float):
@@ -1069,38 +808,6 @@ class GameManager:
         """Reset the game to starting position."""
         try:
             log.info("[GameManager._reset_game] Resetting game to starting position")
-            
-            # End current game if one exists and hasn't been ended yet
-            with self._lock:
-                # Check if game was already over
-                outcome = self.chess_board.outcome(claim_draw=True)
-                game_was_over = outcome is not None
-                
-                if self.game_db_id != -1 and self.database_session is not None:
-                    game_record = self.database_session.query(models.Game).filter(
-                        models.Game.id == self.game_db_id
-                    ).first()
-                    if game_record is not None and game_record.result is None:
-                        # Game exists but has no result - mark appropriately
-                        if game_was_over:
-                            # Game was over but result wasn't recorded - record it now
-                            result_string = str(self.chess_board.result())
-                            termination = str(outcome.termination)
-                            log.info(f"[GameManager._reset_game] Ending current game (id={self.game_db_id}) with result {result_string} due to reset")
-                            game_record.result = result_string
-                            self.database_session.flush()
-                            self.database_session.commit()
-                            self.cached_result = result_string
-                            log.info(f"[GameManager._reset_game] Recorded game {self.game_db_id} result: {result_string}, termination: {termination}")
-                        else:
-                            # Game was in progress - mark as abandoned
-                            log.info(f"[GameManager._reset_game] Ending current game (id={self.game_db_id}) as abandoned due to reset")
-                            game_record.result = "*"  # "*" indicates game abandoned/incomplete
-                            self.database_session.flush()
-                            self.database_session.commit()
-                            self.cached_result = "*"
-                            log.info(f"[GameManager._reset_game] Marked game {self.game_db_id} as abandoned in database")
-            
             self.move_state.reset()
             self.chess_board.reset()
             paths.write_fen_log(self.chess_board.fen())
@@ -1129,22 +836,17 @@ class GameManager:
                 self.database_session.commit()
                 
                 # Get the game ID
-                game_id = self.database_session.query(func.max(models.Game.id)).scalar()
-                if game_id is None:
-                    log.error("[GameManager._reset_game] Failed to get game ID after creation - query returned None")
-                    raise ValueError("Game ID query returned None after game creation")
-                self.game_db_id = game_id
+                self.game_db_id = self.database_session.query(func.max(models.Game.id)).scalar()
                 log.info(f"[GameManager._reset_game] Game initialized in database with id={self.game_db_id}, source={self.source_file}, event={self.game_info['event']}, white={self.game_info['white']}, black={self.game_info['black']}")
                 
                 # Create initial game move entry
-                if self.game_db_id != -1:
-                    game_move = models.GameMove(
-                        gameid=self.game_db_id,
-                        move='',
-                        fen=str(self.chess_board.fen())
-                    )
-                    self.database_session.add(game_move)
-                    self.database_session.commit()
+                game_move = models.GameMove(
+                    gameid=self.game_db_id,
+                    move='',
+                    fen=str(self.chess_board.fen())
+                )
+                self.database_session.add(game_move)
+                self.database_session.commit()
             
             self.board_state_history = []
             self._collect_board_state()
@@ -1183,16 +885,6 @@ class GameManager:
         board.ledsOff()
         log.info("[GameManager._game_thread] Subscribing to events")
         
-        # Register failure callback for checksum mismatches
-        # This allows us to reconcile state when board state responses are lost
-        try:
-            from DGTCentaurMods.board import board as board_module
-            if hasattr(board_module.controller, '_failure_callback'):
-                board_module.controller._failure_callback = self._reconcile_state_after_checksum_failure
-                log.info("[GameManager._game_thread] Registered checksum failure callback")
-        except Exception as e:
-            log.warning(f"[GameManager._game_thread] Could not register failure callback: {e}")
-        
         try:
             board.subscribeEvents(self._key_callback, self._field_callback)
         except Exception as e:
@@ -1214,10 +906,7 @@ class GameManager:
             return
         
         try:
-            while True:
-                with self._lock:
-                    if self.should_stop:
-                        break
+            while not self.should_stop:
                 time.sleep(0.1)
         finally:
             # Clean up database session and engine in the same thread they were created
@@ -1255,26 +944,23 @@ class GameManager:
     def start_clock(self):
         """Start the clock thread."""
         def get_current_turn():
-            with self._lock:
-                return self.chess_board.turn
+            return self.chess_board.turn
         
         def is_starting_position():
             current_state = board.getChessState()
             return self._is_starting_position(current_state)
         
         def is_showing_promotion():
-            with self._lock:
-                return self.is_showing_promotion
+            return self.is_showing_promotion
         
         self.clock_manager.start(get_current_turn, is_starting_position, is_showing_promotion)
     
     def computer_move(self, uci_move: str, forced: bool = True):
         """Set the computer move that the player is expected to make."""
-        with self._lock:
-            if not self.move_state.set_computer_move(uci_move, forced):
-                return
+        if not self.move_state.set_computer_move(uci_move, forced):
+            return
         
-        # Light up LEDs to indicate the move (outside lock to avoid blocking)
+        # Light up LEDs to indicate the move
         from_sq, to_sq = self._uci_to_squares(uci_move)
         if from_sq is not None and to_sq is not None:
             board.ledFromTo(from_sq, to_sq)
@@ -1332,15 +1018,11 @@ class GameManager:
     
     def get_board(self):
         """Get the current chess board state."""
-        with self._lock:
-            # Return a copy to avoid external modification and thread safety issues
-            # Create a new board from FEN to ensure thread safety
-            return chess.Board(self.chess_board.fen())
+        return self.chess_board
     
     def get_fen(self) -> str:
         """Get current board position as FEN string."""
-        with self._lock:
-            return self.chess_board.fen()
+        return self.chess_board.fen()
     
     def subscribe_game(self, event_callback, move_callback, key_callback, takeback_callback=None):
         """Subscribe to the game manager."""
@@ -1361,8 +1043,7 @@ class GameManager:
     
     def unsubscribe_game(self):
         """Stop the game manager."""
-        with self._lock:
-            self.should_stop = True
+        self.should_stop = True
         board.ledsOff()
         self.clock_manager.stop()
         
