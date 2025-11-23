@@ -257,6 +257,9 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     if status_bar_widget and status_bar_widget in manager._widgets:
         widgets_to_keep.append(status_bar_widget)
     manager._widgets.clear()
+
+    log.debug(f">>> doMenu: adding {len(widgets_to_keep)} widgets to manager")
+    log.debug(f">>> doMenu: widgets to keep: {widgets_to_keep}")
     manager._widgets.extend(widgets_to_keep)
     
     # Define callbacks for registering/unregistering the menu widget
@@ -281,10 +284,12 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         register_callback=register_menu_widget,
         unregister_callback=unregister_menu_widget
     )
+
     manager.add_widget(menu_widget)
     log.info(f">>> doMenu: created MenuWidget with {len(menu_entries)} entries, selected_index={initial_index}")
     
     menuitem = (initial_index + 1) if ordered_menu else 1
+    
     
     # Use menu widget to wait for selection
     try:
