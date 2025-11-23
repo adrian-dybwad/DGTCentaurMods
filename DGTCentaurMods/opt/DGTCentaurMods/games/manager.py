@@ -213,7 +213,6 @@ class GameManager:
         # Logical chess board - this is the AUTHORITY for game state
         # Physical board must conform to this state
         self.chess_board = chess.Board()
-        self.board_state_history = []
         self.clock_manager = ClockManager()
         self.move_state = MoveState()
         self.correction_mode = CorrectionMode()
@@ -277,27 +276,6 @@ class GameManager:
             raise ValueError(f"Failed to convert chess board to state: {e}") from e
         
         return state
-    
-    def _collect_board_state(self):
-        """Append the current board state to history.
-        
-        Handles failures gracefully to prevent history from becoming incomplete.
-        If board state collection fails, logs a warning but continues execution.
-        """
-        try:
-            current_state = board.getChessState()
-            if current_state is not None:
-                if len(current_state) == BOARD_SIZE:
-                    self.board_state_history.append(current_state)
-                    log.info(f"[GameManager._collect_board_state] Collected board state, history size: {len(self.board_state_history)}")
-                else:
-                    log.warning(f"[GameManager._collect_board_state] Invalid board state length: {len(current_state)}, expected {BOARD_SIZE}")
-            else:
-                log.warning(f"[GameManager._collect_board_state] Failed to collect board state: getChessState() returned None (likely due to timeout, queue full, or checksum failure)")
-        except Exception as e:
-            log.error(f"[GameManager._collect_board_state] Error collecting board state: {e}")
-            import traceback
-            traceback.print_exc()
     
     def _validate_board_state(self, current_state, expected_state) -> bool:
         """Validate board state by comparing piece presence."""
@@ -396,50 +374,49 @@ class GameManager:
     def _check_takeback(self) -> bool:
         """Check if a takeback is in progress by comparing board states.
         
+        Uses the logical chess board to determine the expected previous state,
+        ensuring consistency with the game state. This is especially important
+        for captures where the physical board state might not match exactly.
+        
         If board state history is incomplete, attempts to recover by reconstructing
         the previous state from the chess board's move stack.
         """
         if self.takeback_callback is None:
             return False
         
+        # Check if there are any moves to take back
+        if len(self.chess_board.move_stack) == 0:
+            log.debug("[GameManager._check_takeback] No moves to take back")
+            return False
+        
+        # Get current physical board state
         current_state = board.getChessState()
         if current_state is None or len(current_state) != BOARD_SIZE:
             log.warning("[GameManager._check_takeback] Cannot check takeback: current board state is invalid")
             return False
         
-        # Try to get previous state from history
+        # Get expected previous state from logical chess board (the authority)
+        # This ensures consistency, especially for captures
         previous_state = None
-        if len(self.board_state_history) >= 2:
-            previous_state = self.board_state_history[-2]
-        elif len(self.chess_board.move_stack) > 0:
-            # Recovery: reconstruct previous state from chess board move stack
-            # This handles cases where board state collection failed earlier
-            log.warning("[GameManager._check_takeback] Board state history incomplete, attempting recovery from chess board move stack")
-            try:
-                # Temporarily pop the last move to get previous position
-                last_move = self.chess_board.pop()
-                previous_state = self._chess_board_to_state(self.chess_board)
-                # Push the move back
-                self.chess_board.push(last_move)
-                log.info("[GameManager._check_takeback] Successfully recovered previous state from chess board")
-            except Exception as e:
-                log.error(f"[GameManager._check_takeback] Failed to recover previous state from chess board: {e}")
-                return False
-        else:
-            # No history and no moves - can't do takeback
-            log.warning("[GameManager._check_takeback] Cannot check takeback: no board state history and no moves to recover from")
+        try:
+            # Temporarily pop the last move to get previous position
+            last_move = self.chess_board.pop()
+            previous_state = self._chess_board_to_state(self.chess_board)
+            # Push the move back to restore state
+            self.chess_board.push(last_move)
+            log.debug("[GameManager._check_takeback] Reconstructed previous state from logical chess board")
+        except Exception as e:
+            log.error(f"[GameManager._check_takeback] Failed to reconstruct previous state from chess board: {e}")
             return False
         
         if previous_state is None or len(previous_state) != BOARD_SIZE:
             log.warning("[GameManager._check_takeback] Cannot check takeback: previous board state is invalid")
             return False
         
+        # Compare current physical state with expected previous state from logical board
         if self._validate_board_state(current_state, previous_state):
             log.info("[GameManager._check_takeback] Takeback detected")
             board.ledsOff()
-            # Update history if it has entries, otherwise it will be rebuilt on next collection
-            if len(self.board_state_history) > 0:
-                self.board_state_history = self.board_state_history[:-1]
             
             # Remove last move from database
             if self.database_session is not None:
@@ -955,9 +932,6 @@ class GameManager:
                     log.warning(f"[GameManager._execute_move] Physical board does not match logical board after move {move_uci}, entering correction mode")
                     self._enter_correction_mode()
                     self._provide_correction_guidance(current_physical_state, expected_logical_state)
-                else:
-                    # Physical board matches - collect state for history
-                    self._collect_board_state()
             else:
                 # Can't validate - log warning but continue
                 log.warning(f"[GameManager._execute_move] Could not validate physical board state (current={current_physical_state is not None}, expected={expected_logical_state is not None})")
@@ -1336,8 +1310,6 @@ class GameManager:
     
     def subscribe_game(self, event_callback, move_callback, key_callback, takeback_callback=None):
         """Subscribe to the game manager."""
-        self.board_state_history = []
-        self._collect_board_state()
         
         self.source_file = inspect.getsourcefile(sys._getframe(1))
         thread_id = threading.get_ident()
