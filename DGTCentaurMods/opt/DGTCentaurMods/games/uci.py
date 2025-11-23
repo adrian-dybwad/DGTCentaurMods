@@ -565,11 +565,12 @@ class UCIGame:
             while not self.should_stop:
                 time.sleep(0.1)
         except KeyboardInterrupt:
-            log.info("\n>>> Caught KeyboardInterrupt, cleaning up...")
-            self.cleanup_and_exit()
+            log.info("\n>>> Caught KeyboardInterrupt...")
         finally:
             log.info(">>> Final cleanup")
-            self.cleanup_and_exit()
+            self.cleanup()
+            log.info(">>> UCI Game: Goodbye!")
+            sys.exit(0)
 
 
 def cleanup_and_exit(signum=None, frame=None):
