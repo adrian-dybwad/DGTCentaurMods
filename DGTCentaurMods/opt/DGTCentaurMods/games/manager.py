@@ -157,6 +157,7 @@ class MoveState:
         self.computer_move_uci = ""
         self.is_forced_move = False
         self.source_piece_color = None  # Store piece color when lifted (for captures)
+        self.captured_piece_restored_square = INVALID_SQUARE  # Track when captured piece is placed on destination during takeback
     
     def reset(self):
         """Reset all move state variables."""
@@ -166,6 +167,7 @@ class MoveState:
         self.computer_move_uci = ""
         self.is_forced_move = False
         self.source_piece_color = None
+        self.captured_piece_restored_square = INVALID_SQUARE
     
     def set_computer_move(self, uci_move: str, forced: bool = True):
         """Set the computer move that the player is expected to make."""
@@ -374,17 +376,13 @@ class GameManager:
     def _check_takeback(self) -> bool:
         """Check if a takeback is in progress by comparing board states.
         
-        Uses the logical chess board to determine the expected previous state,
-        ensuring consistency with the game state. This is especially important
-        for captures where the physical board state might not match exactly.
+        Supports three takeback scenarios:
+        1. Non-capturing takeback: Full board state matches previous state
+        2. Capturing takeback (capturing piece first): Capturing piece moved back to source, destination empty
+        3. Capturing takeback (captured piece first): Captured piece restored to destination, then capturing piece moved to source
         
-        For captures, checks if either:
-        1. The capturing piece has been moved back to its source square (even if
-           the captured piece hasn't been restored yet), OR
-        2. The captured piece has been restored to the destination square (even if
-           the capturing piece hasn't been moved back yet).
-        This allows takeback detection during the process of taking back a capture,
-        regardless of the order in which pieces are moved.
+        Uses the logical chess board to determine the expected previous state,
+        ensuring consistency with the game state.
         """
         if self.takeback_callback is None:
             return False
@@ -419,7 +417,7 @@ class GameManager:
             log.warning("[GameManager._check_takeback] Cannot check takeback: previous board state is invalid")
             return False
         
-        # Compare current physical state with expected previous state from logical board
+        # Scenario 1: Full board state match (non-capturing takeback or complete capturing takeback)
         if self._validate_board_state(current_state, previous_state):
             log.info("[GameManager._check_takeback] Takeback detected - board state matches previous state")
             board.ledsOff()
@@ -454,24 +452,18 @@ class GameManager:
             
             return True
         
-        # For captures, also check if the capturing piece has been moved back to its source square
-        # This handles the case where user is in the process of taking back a capture
-        # but hasn't yet restored the captured piece
+        # For captures, check partial takeback states
         if last_move is not None and self.chess_board.is_capture(last_move):
             last_move_source = last_move.from_square
             last_move_dest = last_move.to_square
             
-            # Check if capturing piece is back on source square and destination square is empty
-            # (indicating the capturing piece has been moved back, but captured piece not yet restored)
-            # Also check if we're being called from a specific takeback attempt (piece placed on source)
+            # Scenario 2: Capturing piece moved back to source first, destination empty
+            # (capturing piece first, captured piece not yet restored)
             if (current_state[last_move_source] == 1 and 
                 current_state[last_move_dest] == 0 and
                 previous_state[last_move_source] == 1 and
                 previous_state[last_move_dest] == 1):
-                # Capturing piece is back on source, destination is empty (captured piece not yet restored)
-                # This is a partial takeback state - proceed with takeback and let correction mode
-                # guide the user to restore the captured piece
-                log.info(f"[GameManager._check_takeback] Partial takeback detected for capture: capturing piece moved back to source {chess.square_name(last_move_source)}, destination {chess.square_name(last_move_dest)} is empty - proceeding with takeback")
+                log.info(f"[GameManager._check_takeback] Partial takeback detected (capturing piece first): capturing piece moved back to source {chess.square_name(last_move_source)}, destination {chess.square_name(last_move_dest)} is empty - proceeding with takeback")
                 
                 board.ledsOff()
                 
@@ -504,47 +496,54 @@ class GameManager:
                 
                 return True
             
-            # Also check if captured piece is back on destination square and source square is empty
-            # (indicating the captured piece has been restored, but capturing piece not yet moved back)
-            if (current_state[last_move_dest] == 1 and 
-                current_state[last_move_source] == 0 and
+            # Scenario 3: Captured piece restored to destination first, then capturing piece moved to source
+            # (captured piece first, then capturing piece)
+            # This scenario is detected when:
+            # - We've tracked that a captured piece was restored to destination
+            # - Capturing piece is now on source
+            # - Captured piece is on destination
+            # - This matches the previous state
+            if (self.move_state.captured_piece_restored_square == last_move_dest and
+                current_state[last_move_source] == 1 and 
+                current_state[last_move_dest] == 1 and
                 previous_state[last_move_source] == 1 and
                 previous_state[last_move_dest] == 1):
-                # Captured piece is back on destination, source is empty (capturing piece not yet moved back)
-                # This is a partial takeback state - proceed with takeback and let correction mode
-                # guide the user to move the capturing piece back
-                log.info(f"[GameManager._check_takeback] Partial takeback detected for capture: captured piece restored on destination {chess.square_name(last_move_dest)}, source {chess.square_name(last_move_source)} is empty - proceeding with takeback")
-                
-                board.ledsOff()
-                
-                # Remove last move from database
-                if self.database_session is not None:
-                    db_last_move = self.database_session.query(models.GameMove).order_by(
-                        models.GameMove.id.desc()
-                    ).first()
-                    if db_last_move is not None:
-                        self.database_session.delete(db_last_move)
-                        self.database_session.commit()
-                
-                self.chess_board.pop()
-                paths.write_fen_log(self.chess_board.fen())
-                board.beep(board.SOUND_GENERAL)
-                
-                if self.takeback_callback is not None:
-                    self.takeback_callback()
-                
-                # Verify board is correct after takeback - capturing piece should be moved back
-                time.sleep(0.2)
-                current = board.getChessState()
-                expected_state = self._chess_board_to_state(self.chess_board)
-                
-                if expected_state is not None and not self._validate_board_state(current, expected_state):
-                    log.info("[GameManager._check_takeback] Board state incorrect after takeback (capturing piece not moved back), entering correction mode")
-                    self._enter_correction_mode()
-                    # Provide correction guidance using logical state
-                    self._provide_correction_guidance(current, expected_state)
-                
-                return True
+                # Verify this is actually a match (should be caught by Scenario 1, but check explicitly)
+                if self._validate_board_state(current_state, previous_state):
+                    log.info(f"[GameManager._check_takeback] Takeback detected (captured piece first): captured piece restored to {chess.square_name(last_move_dest)}, capturing piece moved to source {chess.square_name(last_move_source)} - proceeding with takeback")
+                    
+                    board.ledsOff()
+                    
+                    # Remove last move from database
+                    if self.database_session is not None:
+                        db_last_move = self.database_session.query(models.GameMove).order_by(
+                            models.GameMove.id.desc()
+                        ).first()
+                        if db_last_move is not None:
+                            self.database_session.delete(db_last_move)
+                            self.database_session.commit()
+                    
+                    self.chess_board.pop()
+                    paths.write_fen_log(self.chess_board.fen())
+                    board.beep(board.SOUND_GENERAL)
+                    
+                    if self.takeback_callback is not None:
+                        self.takeback_callback()
+                    
+                    # Verify board is correct after takeback
+                    time.sleep(0.2)
+                    current = board.getChessState()
+                    expected_state = self._chess_board_to_state(self.chess_board)
+                    
+                    if expected_state is not None and not self._validate_board_state(current, expected_state):
+                        log.info("[GameManager._check_takeback] Board state incorrect after takeback, entering correction mode")
+                        self._enter_correction_mode()
+                        # Provide correction guidance using logical state
+                        self._provide_correction_guidance(current, expected_state)
+                    
+                    # Clear the captured piece tracking
+                    self.move_state.captured_piece_restored_square = INVALID_SQUARE
+                    return True
         
         return False
     
@@ -800,18 +799,15 @@ class GameManager:
         
         # Clear exit flag on valid LIFT (handled in lift handler)
         
-        # Check for takeback: if piece is placed on source or destination square of last move, check for takeback
-        # This handles both cases:
-        # 1. Taking piece moved back to source square
-        # 2. Captured piece restored to destination square (for captures)
+        # Check for takeback scenarios
         if len(self.chess_board.move_stack) > 0:
             last_move = self.chess_board.move_stack[-1]
             last_move_source = last_move.from_square
             last_move_dest = last_move.to_square
             
-            # Check if piece is being placed on the source square of the last move
-            # AND the piece was lifted from the destination square of the last move
-            # This indicates a takeback attempt (taking piece back)
+            # Scenario 1: Capturing piece placed on source square (from destination)
+            # This handles the case where user is taking back a capture by moving the capturing piece
+            # back to its source square
             if field == last_move_source and self.move_state.source_square == last_move_dest:
                 log.info(f"[GameManager._handle_piece_place] Potential takeback detected: piece from {chess.square_name(last_move_dest)} placed on {chess.square_name(last_move_source)} (source of last move)")
                 is_takeback = self._check_takeback()
@@ -822,13 +818,42 @@ class GameManager:
                     return
                 # If takeback check failed, continue with normal processing
             
-            # Also check if piece is being placed on the destination square of the last move
-            # AND it's a capture (for restoring the captured piece)
-            # This handles the case where captured piece is restored first
-            # We check the board state directly, not just move_state, since the piece might
-            # have been lifted from anywhere (including off-board)
-            if field == last_move_dest and self.chess_board.is_capture(last_move):
-                log.info(f"[GameManager._handle_piece_place] Potential takeback detected: piece placed on {chess.square_name(last_move_dest)} (destination of last capture)")
+            # Scenario 2: Captured piece placed on destination square first
+            # This handles the case where user places the captured piece on the destination square
+            # before moving the capturing piece back to source.
+            # For this to work, the capturing piece must have been lifted from destination first,
+            # leaving it empty, then the captured piece is placed there.
+            if (self.chess_board.is_capture(last_move) and 
+                field == last_move_dest and 
+                self.move_state.source_square == last_move_dest):
+                # User lifted capturing piece from destination, now placing captured piece there
+                # Check if this matches the previous state (destination should have had a piece)
+                current_state = board.getChessState()
+                if current_state is not None and len(current_state) == BOARD_SIZE:
+                    try:
+                        # Get previous state to check if destination had a piece
+                        temp_last_move = self.chess_board.pop()
+                        previous_state = self._chess_board_to_state(self.chess_board)
+                        self.chess_board.push(temp_last_move)
+                        
+                        if (previous_state is not None and 
+                            len(previous_state) == BOARD_SIZE and
+                            previous_state[last_move_dest] == 1):
+                            # Captured piece is being restored to destination
+                            log.info(f"[GameManager._handle_piece_place] Captured piece restored to destination {chess.square_name(last_move_dest)} - tracking for takeback")
+                            self.move_state.captured_piece_restored_square = last_move_dest
+                            # Reset source square since we're tracking the captured piece restoration
+                            self.move_state.source_square = INVALID_SQUARE
+                            board.ledsOff()
+                            return
+                    except Exception as e:
+                        log.error(f"[GameManager._handle_piece_place] Error checking captured piece restoration: {e}")
+            
+            # Scenario 3: Capturing piece placed on source after captured piece was restored
+            # Check if captured piece was already restored and now capturing piece is being moved to source
+            if (self.move_state.captured_piece_restored_square == last_move_dest and
+                field == last_move_source):
+                log.info(f"[GameManager._handle_piece_place] Capturing piece placed on source {chess.square_name(last_move_source)} after captured piece restored - checking takeback")
                 is_takeback = self._check_takeback()
                 if is_takeback:
                     # Takeback was successful, reset move state and return
