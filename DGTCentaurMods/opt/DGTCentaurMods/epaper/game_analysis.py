@@ -10,7 +10,7 @@ import os
 class GameAnalysisWidget(Widget):
     """Widget displaying chess game analysis information."""
     
-    def __init__(self, x: int, y: int, width: int = 128, height: int = 80, bottom_color: str = "black"):
+    def __init__(self, x: int, y: int, width: int = 128, height: int = 80, bottom_color: str = "black", analysis_engine=None):
         super().__init__(x, y, width, height)
         self.score_value = 0.0
         self.score_text = "0.0"
@@ -19,6 +19,7 @@ class GameAnalysisWidget(Widget):
         self.bottom_color = bottom_color  # "white" or "black" - color at bottom of board
         self._font = self._load_font()
         self._max_history_size = 200
+        self.analysis_engine = analysis_engine  # chess.engine.SimpleEngine for analysis
     
     def _load_font(self):
         """Load font with fallbacks."""
@@ -80,6 +81,112 @@ class GameAnalysisWidget(Widget):
         self.score_history = []
         self._last_rendered = None
         # Trigger update if scheduler is available
+        self.request_update(full=False)
+    
+    def get_score_history(self) -> list:
+        """Get a copy of the score history."""
+        return self.score_history.copy()
+    
+    def analyze_position(self, board, current_turn: str, is_first_move: bool = False, time_limit: float = 0.5) -> None:
+        """
+        Analyze a chess position using the analysis engine and update the widget.
+        
+        Sequence:
+        1. Update all quick changes (turn indicator) - invalidate cache and trigger update
+        2. Perform slow engine analysis
+        3. Update score and history - invalidate cache and trigger update
+        
+        Args:
+            board: chess.Board object to analyze
+            current_turn: Current turn as "white" or "black"
+            is_first_move: Whether this is the first move (skip adding to history)
+            time_limit: Time limit for analysis in seconds (default 0.5)
+        """
+        if self.analysis_engine is None or board is None:
+            return
+        
+        # Step 1: Update turn indicator immediately (fast operation)
+        # This allows the turn circle to update before the slow analysis completes
+        self.set_turn(current_turn)
+        
+        # Step 2: Perform slow engine analysis
+        try:
+            import chess.engine
+            info = self.analysis_engine.analyse(board, chess.engine.Limit(time=time_limit))
+            
+            # Step 3: Update score and history (will invalidate cache and trigger update)
+            self.update_from_analysis(info, current_turn, is_first_move)
+        except Exception as e:
+            # Log error but don't crash - widget will just not update score
+            import logging
+            log = logging.getLogger(__name__)
+            log.warning(f"Error analyzing position: {e}")
+    
+    def update_from_analysis(self, analysis_info: dict, current_turn: str, is_first_move: bool = False) -> None:
+        """
+        Update widget from raw chess engine analysis info.
+        
+        Handles all parsing, formatting, and history management internally.
+        Updates all state, then invalidates cache and triggers a single update.
+        
+        Args:
+            analysis_info: Raw analysis info dict from chess engine (must contain "score")
+            current_turn: Current turn as "white" or "black" (already updated in analyze_position)
+            is_first_move: Whether this is the first move (skip adding to history)
+        """
+        if "score" not in analysis_info:
+            return
+        
+        # Extract score value from engine analysis info
+        score_str = str(analysis_info["score"])
+        
+        if "Mate" in score_str:
+            # Extract mate value
+            mate_str = score_str[13:24]
+            mate_str = mate_str[1:mate_str.find(")")]
+            score_value = float(mate_str)
+            score_value = score_value / 100
+        else:
+            # Extract centipawn value
+            cp_str = score_str[11:24]
+            cp_str = cp_str[1:cp_str.find(")")]
+            score_value = float(cp_str)
+            score_value = score_value / 100
+        
+        # Negate if black is winning (scores are from white's perspective)
+        if "BLACK" in score_str:
+            score_value = score_value * -1
+        
+        # Format score text
+        score_text = "{:5.1f}".format(score_value)
+        if score_value > 999:
+            score_text = ""
+        
+        # Handle mate scores
+        if "Mate" in score_str:
+            mate_moves = abs(score_value * 100)
+            score_text = "Mate in " + "{:2.0f}".format(mate_moves)
+            score_value = score_value * 100000
+        
+        # Clamp score for display (between -12 and 12)
+        display_score = score_value
+        if display_score > 12:
+            display_score = 12
+        if display_score < -12:
+            display_score = -12
+        
+        # Update score state directly (without triggering update)
+        self.score_value = display_score
+        self.score_text = score_text
+        
+        # Add to history (skip first move)
+        if not is_first_move:
+            self.score_history.append(display_score)
+            if len(self.score_history) > self._max_history_size:
+                self.score_history.pop(0)
+        
+        # Single cache invalidation and update trigger for all changes
+        self._last_rendered = None
         self.request_update(full=False)
     
     def render(self) -> Image.Image:

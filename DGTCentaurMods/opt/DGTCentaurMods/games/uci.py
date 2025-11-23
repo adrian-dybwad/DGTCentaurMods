@@ -66,7 +66,6 @@ class UCIGame:
         self.should_stop = False
         self.is_first_move = True
         self.graphs_enabled = self._should_enable_graphs()
-        self.score_history = []
         self.last_event = None
         self.is_cleaned_up = False
         
@@ -117,7 +116,8 @@ class UCIGame:
         
         # Create game analysis widget at bottom (y=144, which is 16+128)
         # Widget will adjust scores internally based on bottom_color
-        self.game_analysis_bottom = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color)
+        # Pass analysis engine so widget can call it directly
+        self.game_analysis_bottom = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color, analysis_engine=self.analysis_engine)
         self.display_manager.add_widget(self.game_analysis_bottom)
         
         # Widgets should trigger their own updates when ready
@@ -320,12 +320,7 @@ class UCIGame:
             self.graphs_enabled = True
             self.is_first_move = True
             board_obj = manager.getBoard()
-            if board_obj is not None:
-                info = self.analysis_engine.analyse(
-                    board_obj,
-                    chess.engine.Limit(time=0.5)
-                )
-                self._draw_evaluation_graphs(info)
+            self._update_analysis_widget(board_obj)
     
     def _execute_computer_move(self, uci_move: str):
         """Execute the computer move by setting up LEDs and flags."""
@@ -403,7 +398,6 @@ class UCIGame:
             self.game_analysis_bottom.set_score(0.0, "0.0")
         # Status bar widget updates itself automatically
         
-        self.score_history = []
         self.current_turn = chess.WHITE
         self.is_first_move = True
         
@@ -413,12 +407,7 @@ class UCIGame:
         
         if self.graphs_enabled:
             board_obj = manager.getBoard()
-            if board_obj is not None:
-                info = self.analysis_engine.analyse(
-                    board_obj,
-                    chess.engine.Limit(time=0.1)
-                )
-                self._draw_evaluation_graphs(info)
+            self._update_analysis_widget(board_obj)
         
     
     def _handle_white_turn(self):
@@ -428,12 +417,7 @@ class UCIGame:
         
         if self.graphs_enabled:
             board_obj = manager.getBoard()
-            if board_obj is not None:
-                info = self.analysis_engine.analyse(
-                    board_obj,
-                    chess.engine.Limit(time=0.5)
-                )
-                self._draw_evaluation_graphs(info)
+            self._update_analysis_widget(board_obj)
         
         self._draw_board(manager.getFEN())
         
@@ -447,12 +431,7 @@ class UCIGame:
         
         if self.graphs_enabled:
             board_obj = manager.getBoard()
-            if board_obj is not None:
-                info = self.analysis_engine.analyse(
-                    board_obj,
-                    chess.engine.Limit(time=0.5)
-                )
-                self._draw_evaluation_graphs(info)
+            self._update_analysis_widget(board_obj)
         
         self._draw_board(manager.getFEN())
         
@@ -560,7 +539,11 @@ class UCIGame:
         result = manager.getResult()
         game_over_widget = GameOverWidget(0, 0, 128, 296)
         game_over_widget.set_result(result)
-        game_over_widget.set_score_history(self.score_history)
+        # Get score history from analysis widget
+        if self.game_analysis_bottom:
+            game_over_widget.set_score_history(self.game_analysis_bottom.get_score_history())
+        else:
+            game_over_widget.set_score_history([])
         self.display_manager.add_widget(game_over_widget)
         
         # Widget triggers its own update
@@ -596,82 +579,23 @@ class UCIGame:
         else:
             self._handle_game_event(manager.EVENT_WHITE_TURN)
     
-    def _extract_score_value(self, score_info) -> float:
-        """Extract score value from engine analysis info."""
-        score_str = str(score_info["score"])
-        
-        if "Mate" in score_str:
-            # Extract mate value
-            mate_str = score_str[13:24]
-            mate_str = mate_str[1:mate_str.find(")")]
-            score_value = float(mate_str)
-            score_value = score_value / 100
-        else:
-            # Extract centipawn value
-            cp_str = score_str[11:24]
-            cp_str = cp_str[1:cp_str.find(")")]
-            score_value = float(cp_str)
-            score_value = score_value / 100
-        
-        # Negate if black is winning
-        if "BLACK" in score_str:
-            score_value = score_value * -1
-        
-        return score_value
-    
-    def _draw_evaluation_graphs(self, info):
-        """Draw evaluation graphs to the screen."""
-        if "score" not in info:
-            log.info("evaluationGraphs: No score in info, skipping")
-            return
-        
+    def _update_analysis_widget(self, board_obj):
+        """Trigger analysis widget to analyze position."""
         if not self.graphs_enabled:
-            self._clear_evaluation_graphs()
+            if self.game_analysis_bottom:
+                self.game_analysis_bottom.clear_history()
+                self.game_analysis_bottom.set_score(0.0, "0.0")
             return
         
-        score_value = self._extract_score_value(info)
-        
-        # Format score text
-        score_text = "{:5.1f}".format(score_value)
-        if score_value > 999:
-            score_text = ""
-        
-        score_str = str(info["score"])
-        if "Mate" in score_str:
-            mate_moves = abs(score_value * 100)
-            score_text = "Mate in " + "{:2.0f}".format(mate_moves)
-            score_value = score_value * 100000
-        
-        # Clamp score for display
-        display_score = score_value
-        if display_score > 12:
-            display_score = 12
-        if display_score < -12:
-            display_score = -12
-        
-        # Add to history
-        if self.is_first_move == 0:
-            self.score_history.append(display_score)
-            # Limit history size to prevent memory leak
-            MAX_HISTORY_SIZE = 200
-            if len(self.score_history) > MAX_HISTORY_SIZE:
-                self.score_history.pop(0)
-        else:
-            self.is_first_move = 0
-        
-        # Update bottom widget (widget handles perspective flipping internally)
-        if self.game_analysis_bottom:
-            # Pass raw scores from white's perspective - widget will flip if needed
-            self.game_analysis_bottom.set_score(display_score, score_text)
-            self.game_analysis_bottom.set_turn("white" if self.current_turn == chess.WHITE else "black")
-        
-        # Sync history to widget (only add new score, don't rebuild entire history)
-        # The widget maintains its own history, we just need to add the new score
-        # Widgets will trigger updates automatically via request_update()
-        # Pass raw scores - widget will flip for display if needed
-        if self.is_first_move == 0:
-            if self.game_analysis_bottom:
-                self.game_analysis_bottom.add_score_to_history(display_score)
+        # Widget handles engine call, parsing, formatting, and history management
+        if self.game_analysis_bottom and board_obj is not None:
+            current_turn_str = "white" if self.current_turn == chess.WHITE else "black"
+            # Determine time limit: shorter for first move, longer for subsequent moves
+            time_limit = 0.1 if self.is_first_move else 0.5
+            self.game_analysis_bottom.analyze_position(board_obj, current_turn_str, self.is_first_move, time_limit)
+            # Mark that we've processed at least one move
+            if self.is_first_move:
+                self.is_first_move = False
     
     def _clear_evaluation_graphs(self):
         """Clear evaluation graphs from screen."""
