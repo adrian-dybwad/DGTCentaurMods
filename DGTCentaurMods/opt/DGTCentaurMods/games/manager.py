@@ -245,6 +245,32 @@ class GameManager:
             return False
         return bytearray(board_state) == STARTING_POSITION_STATE
     
+    def _chess_board_to_state(self, chess_board: chess.Board) -> bytearray:
+        """Convert chess board object to board state bytearray.
+        
+        Args:
+            chess_board: The chess.Board object representing the logical game state
+            
+        Returns:
+            bytearray: Board state where 1 indicates a piece is present, 0 indicates empty
+            
+        Raises:
+            ValueError: If chess_board is None or invalid
+        """
+        if chess_board is None:
+            raise ValueError("chess_board cannot be None")
+        
+        state = bytearray(BOARD_SIZE)
+        try:
+            for square in range(BOARD_SIZE):
+                piece = chess_board.piece_at(square)
+                state[square] = 1 if piece is not None else 0
+        except Exception as e:
+            log.error(f"[GameManager._chess_board_to_state] Error converting chess board to state: {e}")
+            raise ValueError(f"Failed to convert chess board to state: {e}") from e
+        
+        return state
+    
     def _collect_board_state(self):
         """Append the current board state to history."""
         current_state = board.getChessState()
@@ -369,18 +395,37 @@ class GameManager:
                 self.takeback_callback()
             
             # Verify board is correct after takeback
+            # Use logical chess board state (FEN) as expected state for consistency with correction mode
             time.sleep(0.2)
             current = board.getChessState()
-            if not self._validate_board_state(current, self.board_state_history[-1] if self.board_state_history else None):
+            try:
+                expected_state = self._chess_board_to_state(self.chess_board)
+            except ValueError as e:
+                log.error(f"[GameManager._check_takeback] Failed to get expected state: {e}, falling back to board_state_history")
+                expected_state = self.board_state_history[-1] if self.board_state_history else None
+            
+            if expected_state is not None and not self._validate_board_state(current, expected_state):
                 log.info("[GameManager._check_takeback] Board state incorrect after takeback, entering correction mode")
                 self._enter_correction_mode()
+                # Provide correction guidance using logical state
+                self._provide_correction_guidance(current, expected_state)
             
             return True
         return False
     
     def _enter_correction_mode(self):
-        """Enter correction mode to guide user in fixing board state."""
-        expected_state = self.board_state_history[-1] if self.board_state_history else None
+        """Enter correction mode to guide user in fixing board state.
+        
+        Uses logical chess board state (FEN) as expected state for consistency with
+        the chess board widget display and correction guidance.
+        """
+        try:
+            expected_state = self._chess_board_to_state(self.chess_board)
+        except ValueError as e:
+            log.error(f"[GameManager._enter_correction_mode] Failed to get expected state from chess board: {e}, falling back to board_state_history")
+            # Fall back to physical board state history if logical state unavailable
+            expected_state = self.board_state_history[-1] if self.board_state_history else None
+        
         self.correction_mode.enter(expected_state)
         log.warning(f"[GameManager._enter_correction_mode] Entered correction mode")
     
@@ -543,27 +588,48 @@ class GameManager:
         if self.move_state.source_square < 0 and self.move_state.opponent_source_square < 0:
             # First, check if this PLACE event created an invalid board state (extra piece)
             # This check should happen for ALL cases, not just non-forced moves
-            if self.board_state_history:
-                current_state = board.getChessState()
-                expected_state = self.board_state_history[-1]
-                if current_state is not None and expected_state is not None:
-                    # Check if there are extra pieces (pieces on squares that shouldn't have them)
-                    extra_squares = []
-                    if len(current_state) == BOARD_SIZE and len(expected_state) == BOARD_SIZE:
-                        for i in range(BOARD_SIZE):
-                            if expected_state[i] == 0 and current_state[i] == 1:
-                                extra_squares.append(i)
-                    
-                    if len(extra_squares) > 0:
-                        log.warning(f"[GameManager._handle_piece_place] PLACE event without LIFT created invalid board state with {len(extra_squares)} extra piece(s) at {[chess.square_name(sq) for sq in extra_squares]}, entering correction mode")
-                        board.beep(board.SOUND_WRONG_MOVE)
-                        self._enter_correction_mode()
-                        self._provide_correction_guidance(current_state, expected_state)
-                        return
+            # 
+            # IMPORTANT: Use the logical chess board state (FEN) as the expected state, not the physical board state.
+            # This ensures consistency with the chess board widget display and avoids false positives when
+            # the physical board matches the logical state but board_state_history contains stale data.
+            # 
+            # Timing assumption: This check occurs immediately after a PLACE event, so chess_board should
+            # reflect the current logical game state. The chess_board is updated synchronously in _execute_move()
+            # before any subsequent events can occur, so there should be no race condition.
+            current_state = board.getChessState()
+            try:
+                expected_state = self._chess_board_to_state(self.chess_board)
+            except ValueError as e:
+                log.error(f"[GameManager._handle_piece_place] Failed to get expected state from chess board: {e}")
+                # Fall back to physical board state history if available
+                if self.board_state_history:
+                    expected_state = self.board_state_history[-1]
+                    log.warning("[GameManager._handle_piece_place] Using fallback expected state from board_state_history")
                 else:
-                    log.debug(f"[GameManager._handle_piece_place] Cannot check board state: current_state={current_state is not None}, expected_state={expected_state is not None}")
+                    log.debug("[GameManager._handle_piece_place] Cannot check board state: no expected state available")
+                    expected_state = None
+            
+            if current_state is not None and expected_state is not None:
+                # Check if there are extra pieces (pieces on squares that shouldn't have them)
+                extra_squares = []
+                if len(current_state) == BOARD_SIZE and len(expected_state) == BOARD_SIZE:
+                    for i in range(BOARD_SIZE):
+                        if expected_state[i] == 0 and current_state[i] == 1:
+                            extra_squares.append(i)
+                    
+                    # Debug logging for troubleshooting
+                    if len(extra_squares) > 0:
+                        log.debug(f"[GameManager._handle_piece_place] Current FEN: {self.chess_board.fen()}")
+                        log.debug(f"[GameManager._handle_piece_place] Extra pieces detected: {[chess.square_name(sq) for sq in extra_squares]}")
+                
+                if len(extra_squares) > 0:
+                    log.warning(f"[GameManager._handle_piece_place] PLACE event without LIFT created invalid board state with {len(extra_squares)} extra piece(s) at {[chess.square_name(sq) for sq in extra_squares]}, entering correction mode")
+                    board.beep(board.SOUND_WRONG_MOVE)
+                    self._enter_correction_mode()
+                    self._provide_correction_guidance(current_state, expected_state)
+                    return
             else:
-                log.debug(f"[GameManager._handle_piece_place] Cannot check board state: board_state_history is empty")
+                log.debug(f"[GameManager._handle_piece_place] Cannot check board state: current_state={current_state is not None}, expected_state={expected_state is not None}")
             
             if self.correction_mode.just_exited:
                 # Check if this is the forced move source square
@@ -603,8 +669,19 @@ class GameManager:
             if not is_takeback:
                 self._enter_correction_mode()
                 current_state = board.getChessState()
-                if self.board_state_history:
-                    self._provide_correction_guidance(current_state, self.board_state_history[-1])
+                try:
+                    expected_state = self._chess_board_to_state(self.chess_board)
+                except ValueError as e:
+                    log.error(f"[GameManager._handle_piece_place] Failed to get expected state: {e}")
+                    # Fall back to physical board state history if available
+                    if self.board_state_history:
+                        expected_state = self.board_state_history[-1]
+                        log.warning("[GameManager._handle_piece_place] Using fallback expected state from board_state_history")
+                    else:
+                        expected_state = None
+                
+                if expected_state is not None:
+                    self._provide_correction_guidance(current_state, expected_state)
             return
         
         # Legal placement
