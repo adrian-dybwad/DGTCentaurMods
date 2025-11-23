@@ -552,8 +552,7 @@ class UCIGame:
         
         # Manually trigger game start for UCI mode
         log.info("Triggering NEW_GAME event")
-        self._write_text(0, "Starting game...")
-        self._write_text(1, "              ")
+        display_manager.add_widget(SplashScreen(message="   Starting game..."))
         time.sleep(1)
         self._handle_game_event(manager.EVENT_NEW_GAME)
         time.sleep(1)
