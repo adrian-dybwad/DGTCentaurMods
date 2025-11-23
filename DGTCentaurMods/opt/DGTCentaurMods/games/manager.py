@@ -1091,10 +1091,11 @@ class GameManager:
             # Step 10: Notify callbacks of new game (but don't create DB entry yet)
             if self.event_callback is not None:
                 self.event_callback(EVENT_NEW_GAME)
-                self.event_callback(EVENT_WHITE_TURN)
-            
-            # Step 11: Collect initial board state
-            self._collect_board_state()
+                # Determine which turn event to send based on current board state
+                if self.chess_board.turn == chess.WHITE:
+                    self.event_callback(EVENT_WHITE_TURN)
+                else:
+                    self.event_callback(EVENT_BLACK_TURN)
             
             # Step 12: Audio/visual feedback for game abandonment
             board.beep(board.SOUND_GENERAL)
