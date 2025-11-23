@@ -23,7 +23,7 @@
 
 from DGTCentaurMods.game import gamemanager
 from DGTCentaurMods.display.epaper_service import service, widgets
-from DGTCentaurMods.display.ui_components import AssetManager
+from DGTCentaurMods.asset_manager import AssetManager
 import time
 import chess
 import chess.engine

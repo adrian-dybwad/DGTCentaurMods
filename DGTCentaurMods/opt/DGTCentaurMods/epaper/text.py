@@ -8,11 +8,11 @@ import os
 import sys
 
 try:
-    from DGTCentaurMods.display.ui_components import AssetManager
+    from DGTCentaurMods.asset_manager import AssetManager
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     try:
-        from display.ui_components import AssetManager
+        from asset_manager import AssetManager
     except ImportError:
         AssetManager = None
 

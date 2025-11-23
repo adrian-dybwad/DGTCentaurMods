@@ -25,7 +25,7 @@ import dbus
 from DGTCentaurMods.thirdparty.advertisement import Advertisement
 from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic, Descriptor
 from DGTCentaurMods.board import *
-from DGTCentaurMods.display.ui_components import AssetManager
+from DGTCentaurMods.asset_manager import AssetManager
 import time
 import threading
 import os

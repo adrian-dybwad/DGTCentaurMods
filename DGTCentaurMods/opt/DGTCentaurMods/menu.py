@@ -32,7 +32,7 @@ import subprocess
 import signal
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence, Tuple
-from DGTCentaurMods.display.ui_components import AssetManager
+from DGTCentaurMods.asset_manager import AssetManager
 
 from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command

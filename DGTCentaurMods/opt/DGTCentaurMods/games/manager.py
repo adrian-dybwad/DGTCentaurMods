@@ -644,8 +644,6 @@ class GameManager:
     
     def _handle_piece_place(self, field: int, piece_color):
         """Handle piece place event."""
-        # Note: Takeback detection is now done in _field_callback before routing to this function
-        # This ensures takeback works regardless of correction mode state
         
         is_current_player_piece = (self.chess_board.turn == chess.WHITE) == (piece_color == True)
         

@@ -24,7 +24,7 @@
 from DGTCentaurMods.games import manager
 from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget, StatusBarWidget, TextWidget
 from DGTCentaurMods.epaper.game_over import GameOverWidget
-from DGTCentaurMods.display.ui_components import AssetManager
+from DGTCentaurMods.asset_manager import AssetManager
 from DGTCentaurMods.menu import _get_display_manager
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log

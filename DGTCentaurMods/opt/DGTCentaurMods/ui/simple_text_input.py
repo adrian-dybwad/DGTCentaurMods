@@ -38,7 +38,7 @@ def simple_text_input(
     Simple text input using only button navigation.
     More reliable than getText as it doesn't rely on board state detection.
     """
-    from DGTCentaurMods.display.ui_components import AssetManager
+    from DGTCentaurMods.asset_manager import AssetManager
 
     # Load fonts
     def load_font(sz: int):

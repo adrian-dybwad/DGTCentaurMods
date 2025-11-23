@@ -39,4 +39,4 @@ class AssetManager():
             return "/home/pi/resources/" + resource_file
         else:
             return "/opt/DGTCentaurMods/resources/" + resource_file
-        
+

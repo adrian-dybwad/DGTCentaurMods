@@ -28,7 +28,7 @@ from DGTCentaurMods.board.sync_centaur import SyncCentaur, command, Key
 import sys
 import os
 import chess
-from DGTCentaurMods.display.ui_components import AssetManager
+from DGTCentaurMods.asset_manager import AssetManager
 from DGTCentaurMods.board.settings import Settings
 from DGTCentaurMods.board import centaur
 import time

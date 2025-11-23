@@ -15,10 +15,10 @@ except ImportError:
     log = logging.getLogger(__name__)
 
 try:
-    from DGTCentaurMods.display.ui_components import AssetManager
+    from DGTCentaurMods.asset_manager import AssetManager
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from display.ui_components import AssetManager
+    from asset_manager import AssetManager
 
 
 class SplashScreen(Widget):

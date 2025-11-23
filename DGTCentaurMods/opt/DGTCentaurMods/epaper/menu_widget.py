@@ -13,7 +13,7 @@ from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
 
 try:
-    from DGTCentaurMods.display.ui_components import AssetManager
+    from DGTCentaurMods.asset_manager import AssetManager
 except ImportError:
     AssetManager = None
 

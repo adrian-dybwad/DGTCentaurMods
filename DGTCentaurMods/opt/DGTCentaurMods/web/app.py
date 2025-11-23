@@ -21,7 +21,7 @@
 
 from flask import Flask, render_template, Response, request, redirect, send_file, abort
 from DGTCentaurMods.db import models
-from DGTCentaurMods.display.ui_components import AssetManager
+from DGTCentaurMods.asset_manager import AssetManager
 from .chessboard import LiveBoard
 from . import centaurflask
 from PIL import Image, ImageDraw, ImageFont
