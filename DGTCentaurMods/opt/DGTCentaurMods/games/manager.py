@@ -30,7 +30,7 @@ from DGTCentaurMods.board import board
 from DGTCentaurMods.display.epaper_service import service, widgets
 from DGTCentaurMods.db import models
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import func, select
+from sqlalchemy import func, select, create_engine
 from scipy.optimize import linear_sum_assignment
 import threading
 import time
@@ -228,6 +228,7 @@ class GameManager:
         self.source_file = ""
         self.game_db_id = -1
         self.database_session = None
+        self.database_engine = None  # Engine created in game thread
         self.cached_result = None  # Cache game result for thread-safe access
         
         # UI state
@@ -784,11 +785,25 @@ class GameManager:
         self.key_callback = key_callback
         self.takeback_callback = takeback_callback
         
-        # Create database session in this thread to ensure all SQL operations happen in the same thread
+        # Create database engine and session in this thread to ensure all SQL operations happen in the same thread
+        # We create a new engine here instead of using models.engine because the global engine's
+        # connection pool was created in a different thread (module import time)
         thread_id = threading.get_ident()
-        Session = sessionmaker(bind=models.engine)
+        database_uri = paths.get_database_uri()
+        # Configure SQLite with check_same_thread=False to allow connections created in this thread
+        # to be used throughout the thread's lifetime. This is safe because we create and use
+        # the engine entirely within this thread.
+        if database_uri.startswith('sqlite'):
+            self.database_engine = create_engine(
+                database_uri,
+                connect_args={"check_same_thread": False},
+                pool_pre_ping=True  # Verify connections before using
+            )
+        else:
+            self.database_engine = create_engine(database_uri, pool_pre_ping=True)
+        Session = sessionmaker(bind=self.database_engine)
         self.database_session = Session()
-        log.info(f"[GameManager._game_thread] Database session created in thread {thread_id}")
+        log.info(f"[GameManager._game_thread] Database engine and session created in thread {thread_id}")
         
         board.ledsOff()
         log.info("[GameManager._game_thread] Subscribing to events")
@@ -798,20 +813,26 @@ class GameManager:
         except Exception as e:
             log.error(f"[GameManager._game_thread] Error subscribing to events: {e}")
             log.error(f"[GameManager._game_thread] Error: {sys.exc_info()[1]}")
-            # Clean up session before returning
+            # Clean up session and engine before returning
             if self.database_session is not None:
                 try:
                     self.database_session.close()
                     self.database_session = None
                 except Exception:
                     self.database_session = None
+            if self.database_engine is not None:
+                try:
+                    self.database_engine.dispose()
+                    self.database_engine = None
+                except Exception:
+                    self.database_engine = None
             return
         
         try:
             while not self.should_stop:
                 time.sleep(0.1)
         finally:
-            # Clean up database session in the same thread it was created
+            # Clean up database session and engine in the same thread they were created
             if self.database_session is not None:
                 try:
                     log.info(f"[GameManager._game_thread] Closing database session in thread {thread_id}")
@@ -820,6 +841,14 @@ class GameManager:
                 except Exception as e:
                     log.error(f"[GameManager._game_thread] Error closing database session: {e}")
                     self.database_session = None
+            if self.database_engine is not None:
+                try:
+                    log.info(f"[GameManager._game_thread] Disposing database engine in thread {thread_id}")
+                    self.database_engine.dispose()
+                    self.database_engine = None
+                except Exception as e:
+                    log.error(f"[GameManager._game_thread] Error disposing database engine: {e}")
+                    self.database_engine = None
     
     def set_game_info(self, event: str, site: str, round_str: str, white: str, black: str):
         """Set game metadata for PGN files."""
