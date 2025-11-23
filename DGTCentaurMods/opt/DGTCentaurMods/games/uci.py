@@ -519,13 +519,7 @@ class UCIGame:
         if self.game_analysis:
             self.game_analysis.clear_history()
             self.game_analysis.set_score(0.0, "0.0")
-    
-    def _write_text(self, row: int, text: str):
-        """Write text on a given line number."""
-        # Text display is handled by widgets, skip for now
-        # This was only used for "Starting game..." message
-        pass
-    
+        
     def _draw_board(self, fen: str):
         """Draw the chess board from FEN string."""
         try:
@@ -573,10 +567,10 @@ class UCIGame:
                 time.sleep(0.1)
         except KeyboardInterrupt:
             log.info("\n>>> Caught KeyboardInterrupt, cleaning up...")
-            self.cleanup()
+            self.cleanup_and_exit()
         finally:
             log.info(">>> Final cleanup")
-            self.cleanup()
+            self.cleanup_and_exit()
 
 
 def cleanup_and_exit(signum=None, frame=None):
