@@ -584,12 +584,13 @@ class GameManager:
         current_physical_state = board.getChessState()
         
         # Check if board is in starting position (new game detection)
+        # If starting position is detected, abandon current game and start fresh
         if current_physical_state is not None and len(current_physical_state) == BOARD_SIZE:
             if self._is_starting_position(current_physical_state):
-                log.info("[GameManager._handle_field_event_in_correction_mode] Starting position detected - exiting correction and starting new game")
-                board.ledsOff()
-                board.beep(board.SOUND_GENERAL)
+                log.warning("[GameManager._handle_field_event_in_correction_mode] Starting position detected during correction mode - abandoning current game and starting new game")
+                # Exit correction mode first (this will clean up correction state)
                 self._exit_correction_mode()
+                # Then reset game (this will clean up all game state and mark previous game as abandoned)
                 self._reset_game()
                 return
         
@@ -809,6 +810,52 @@ class GameManager:
         # If chess engine push fails, rollback database to maintain consistency
         # This ensures database and chess engine state are always synchronized
         
+        # Step 0: Create new game in database if this is the first move (game_db_id == -1)
+        # This is part of the atomic transaction - if chess engine push fails, game creation is rolled back
+        new_game_created = False
+        if self.database_session is not None and self.game_db_id < 0:
+            try:
+                log.info("[GameManager._execute_move] First move detected - creating new game in database (will commit after chess engine push succeeds)")
+                game = models.Game(
+                    source=self.source_file,
+                    event=self.game_info['event'],
+                    site=self.game_info['site'],
+                    round=self.game_info['round'],
+                    white=self.game_info['white'],
+                    black=self.game_info['black']
+                )
+                self.database_session.add(game)
+                # Flush to get the game ID, but don't commit yet
+                self.database_session.flush()
+                
+                # Get the game ID from the flushed object
+                # The game object should now have an ID assigned
+                if hasattr(game, 'id') and game.id is not None:
+                    self.game_db_id = game.id
+                    new_game_created = True
+                    log.info(f"[GameManager._execute_move] New game created in database (id={self.game_db_id}), will commit after chess engine push succeeds")
+                    
+                    # Create initial game move entry for starting position (before this move)
+                    initial_move = models.GameMove(
+                        gameid=self.game_db_id,
+                        move='',
+                        fen=str(self.chess_board.fen())  # FEN before this move
+                    )
+                    self.database_session.add(initial_move)
+                    # Don't commit yet - wait for chess engine push
+                else:
+                    log.error(f"[GameManager._execute_move] Failed to get game ID after creating new game")
+                    # Rollback the game creation attempt
+                    self.database_session.rollback()
+            except Exception as db_error:
+                log.error(f"[GameManager._execute_move] Error creating new game in database: {db_error}")
+                # Rollback any partial game creation
+                try:
+                    self.database_session.rollback()
+                except Exception:
+                    pass
+                # Continue - game can proceed without database entry
+        
         # Step 1: Add move to database (but don't commit yet)
         # Use a flag to track if we need to rollback
         database_move_added = False
@@ -836,15 +883,18 @@ class GameManager:
             log.warning(f"[GameManager._execute_move] Skipping database write: game not initialized (game_db_id={self.game_db_id}). Move: {move_uci}")
         
         # Step 2: Push to chess engine (this is the critical operation)
-        # If this fails, we'll rollback the database
+        # If this fails, we'll rollback the database (including new game creation if this was first move)
         try:
             self.chess_board.push(move)
         except (ValueError, AssertionError) as e:
-            # Chess engine push failed - rollback database if we added a move
-            if database_move_added:
+            # Chess engine push failed - rollback database (game creation and/or move)
+            if new_game_created or database_move_added:
                 try:
                     self.database_session.rollback()
-                    log.warning(f"[GameManager._execute_move] Chess engine push failed, rolled back database. Move: {move_uci}, Error: {e}")
+                    # Reset game_db_id if we created a new game
+                    if new_game_created:
+                        self.game_db_id = -1
+                    log.warning(f"[GameManager._execute_move] Chess engine push failed, rolled back database (game creation and/or move). Move: {move_uci}, Error: {e}")
                 except Exception as rollback_error:
                     log.error(f"[GameManager._execute_move] Failed to rollback database after chess engine push failure: {rollback_error}")
             
@@ -855,17 +905,27 @@ class GameManager:
             return
         
         # Step 3: Chess engine push succeeded - now commit database with final FEN
-        if database_move_added and game_move is not None:
+        # This commits both the new game (if first move) and the move
+        if new_game_created or (database_move_added and game_move is not None):
             try:
                 # Update FEN now that we know the move succeeded
-                game_move.fen = str(self.chess_board.fen())
+                if game_move is not None:
+                    game_move.fen = str(self.chess_board.fen())
+                
+                # Commit everything: new game (if first move) and move
                 self.database_session.commit()
-                log.debug(f"[GameManager._execute_move] Move {move_uci} committed to database after successful chess engine push")
+                if new_game_created:
+                    log.info(f"[GameManager._execute_move] New game (id={self.game_db_id}) and first move {move_uci} committed to database after successful chess engine push")
+                else:
+                    log.debug(f"[GameManager._execute_move] Move {move_uci} committed to database after successful chess engine push")
             except Exception as commit_error:
                 # Database commit failed - this is bad but chess engine already has the move
                 # Log error but continue - chess engine state is authoritative
                 log.error(f"[GameManager._execute_move] Database commit failed after chess engine push succeeded: {commit_error}")
                 log.error(f"[GameManager._execute_move] WARNING: Database and chess engine are now out of sync for move {move_uci}")
+                # Reset game_db_id if we created a new game but commit failed
+                if new_game_created:
+                    self.game_db_id = -1
                 # Try to rollback to prevent partial state
                 try:
                     self.database_session.rollback()
@@ -946,10 +1006,12 @@ class GameManager:
             return
         
         # Check for starting position when piece is placed
+        # Starting position detection is the mechanism to abandon a game in progress
+        # This allows players to reset and start fresh at any time
         if piece_event == 1:  # PLACE event
             current_state = board.getChessState()
             if self._is_starting_position(current_state):
-                log.info("[GameManager._field_callback] Starting position detected via piece placement")
+                log.warning("[GameManager._field_callback] Starting position detected - abandoning current game")
                 self._reset_game()
                 return
         
@@ -985,62 +1047,99 @@ class GameManager:
                 self.is_in_menu = 0
     
     def _reset_game(self):
-        """Reset the game to starting position."""
+        """Abandon current game and reset to starting position.
+        
+        When a player sets up pieces in the starting position, this indicates
+        they want to abandon the current game. All state from the previous game
+        must be cleaned up. A new game will be created in the database only when
+        the first move is made.
+        """
         try:
-            log.info("[GameManager._reset_game] Resetting game to starting position")
-            self.move_state.reset()
-            self.chess_board.reset()
-            paths.write_fen_log(self.chess_board.fen())
+            log.warning("[GameManager._reset_game] Starting position detected - abandoning current game and cleaning up state")
             
-            # Double beep for game start
-            board.beep(board.SOUND_GENERAL)
-            time.sleep(0.3)
-            board.beep(board.SOUND_GENERAL)
+            # Step 1: Exit correction mode if active (clean up any correction state)
+            if self.correction_mode.is_active:
+                log.info("[GameManager._reset_game] Exiting correction mode before reset")
+                self._exit_correction_mode()
+            
+            # Step 2: Clean up any pending database transactions from previous game
+            if self.database_session is not None:
+                try:
+                    # Rollback any uncommitted transactions from the previous game
+                    # Check if there are any pending changes in the session
+                    if self.database_session.dirty or self.database_session.new or self.database_session.deleted:
+                        self.database_session.rollback()
+                        log.debug("[GameManager._reset_game] Rolled back pending database transactions")
+                except Exception as rollback_error:
+                    log.warning(f"[GameManager._reset_game] Error rolling back database transactions: {rollback_error}")
+            
+            # Step 3: Mark previous game as abandoned if it was in progress
+            if self.database_session is not None and self.game_db_id >= 0:
+                try:
+                    # Check if the previous game has a result (if not, it was abandoned)
+                    previous_game = self.database_session.query(models.Game).filter(
+                        models.Game.id == self.game_db_id
+                    ).first()
+                    if previous_game is not None and previous_game.result is None:
+                        # Mark as abandoned (no result means game was in progress)
+                        previous_game.result = "*"  # "*" indicates game abandoned/unfinished
+                        self.database_session.commit()
+                        log.info(f"[GameManager._reset_game] Marked previous game (id={self.game_db_id}) as abandoned")
+                except Exception as abandon_error:
+                    log.warning(f"[GameManager._reset_game] Error marking previous game as abandoned: {abandon_error}")
+            
+            # Step 4: Reset all game state
+            self.move_state.reset()  # Clear move state (source square, legal moves, forced moves, etc.)
+            self.chess_board.reset()  # Reset logical board to starting position
+            self.board_state_history = []  # Clear board state history
+            self.cached_result = None  # Clear cached game result
+            
+            # Step 5: Reset UI state
+            self.is_showing_promotion = False  # Clear promotion state
+            self.is_in_menu = False  # Exit menu if open
+            
+            # Step 6: Reset clock
+            self.clock_manager.stop()  # Stop clock if running
+            
+            # Step 7: Clear all board LEDs and turn off any indicators
             board.ledsOff()
             
+            # Step 8: Reset game_db_id to -1 to indicate no active game in database
+            # New game will be created when first move is made
+            self.game_db_id = -1
+            log.info("[GameManager._reset_game] Reset game_db_id to -1 - new game will be created on first move")
+            
+            # Step 9: Update FEN log
+            paths.write_fen_log(self.chess_board.fen())
+            
+            # Step 10: Notify callbacks of new game (but don't create DB entry yet)
             if self.event_callback is not None:
                 self.event_callback(EVENT_NEW_GAME)
                 self.event_callback(EVENT_WHITE_TURN)
             
-            # Log new game in database
-            if self.database_session is not None:
-                game = models.Game(
-                    source=self.source_file,
-                    event=self.game_info['event'],
-                    site=self.game_info['site'],
-                    round=self.game_info['round'],
-                    white=self.game_info['white'],
-                    black=self.game_info['black']
-                )
-                self.database_session.add(game)
-                self.database_session.commit()
-                
-                # Get the game ID - only set if query returns a valid result
-                # This prevents setting game_db_id to None if the query fails
-                self.game_db_id = -1
-                game_id = self.database_session.query(func.max(models.Game.id)).scalar()
-                if game_id is not None:
-                    self.game_db_id = game_id
-                    log.info(f"[GameManager._reset_game] Game initialized in database with id={self.game_db_id}, source={self.source_file}, event={self.game_info['event']}, white={self.game_info['white']}, black={self.game_info['black']}")
-                    
-                    # Create initial game move entry
-                    game_move = models.GameMove(
-                        gameid=self.game_db_id,
-                        move='',
-                        fen=str(self.chess_board.fen())
-                    )
-                    self.database_session.add(game_move)
-                    self.database_session.commit()
-                else:
-                    log.error(f"[GameManager._reset_game] Failed to retrieve game ID from database. Game may not have been inserted correctly.")
-                    # Keep game_db_id as -1 to prevent invalid database writes
-            
-            self.board_state_history = []
+            # Step 11: Collect initial board state
             self._collect_board_state()
+            
+            # Step 12: Audio/visual feedback for game abandonment
+            board.beep(board.SOUND_GENERAL)
+            time.sleep(0.3)
+            board.beep(board.SOUND_GENERAL)
+            
+            log.info("[GameManager._reset_game] Game abandoned and reset complete - ready for new game (will be created on first move)")
         except Exception as e:
             log.error(f"[GameManager._reset_game] Error resetting game: {e}")
             import traceback
             traceback.print_exc()
+            # Try to ensure at least basic cleanup happens even on error
+            try:
+                self.move_state.reset()
+                self.chess_board.reset()
+                self.game_db_id = -1
+                board.ledsOff()
+                if self.correction_mode.is_active:
+                    self._exit_correction_mode()
+            except Exception:
+                pass
     
     def _game_thread(self, event_callback, move_callback, key_callback, takeback_callback):
         """Main game thread that handles events."""
