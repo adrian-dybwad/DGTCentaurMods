@@ -270,6 +270,13 @@ class UCIGame:
         # Clean up display widgets (but don't shutdown the global manager)
         try:
             if self.display_manager:
+                # Stop analysis worker thread before removing widget
+                if self.game_analysis_bottom:
+                    try:
+                        self.game_analysis_bottom._stop_analysis_worker()
+                    except Exception as e:
+                        log.warning(f"Error stopping analysis worker: {e}")
+                
                 # Remove only our widgets, not the global status bar
                 from DGTCentaurMods.menu import status_bar_widget
                 if self.chess_board_widget and self.chess_board_widget in self.display_manager._widgets:
@@ -566,6 +573,10 @@ class UCIGame:
         log.info("Takeback detected - clearing computer move setup")
         manager.resetMoveState()
         board.ledsOff()
+        
+        # Remove last score from analysis history to keep it in sync with game state
+        if self.game_analysis_bottom:
+            self.game_analysis_bottom.remove_last_score()
         
         # Switch turn
         if self.current_turn == chess.WHITE:

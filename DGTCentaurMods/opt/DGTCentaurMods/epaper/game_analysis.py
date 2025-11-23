@@ -5,6 +5,9 @@ Game analysis widget displaying evaluation score, history, and turn indicator.
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget
 import os
+import queue
+import threading
+import chess
 
 
 class GameAnalysisWidget(Widget):
@@ -20,6 +23,14 @@ class GameAnalysisWidget(Widget):
         self._font = self._load_font()
         self._max_history_size = 200
         self.analysis_engine = analysis_engine  # chess.engine.SimpleEngine for analysis
+        
+        # Analysis queue and worker thread
+        self._analysis_queue = queue.Queue(maxsize=50)  # Queue for analysis requests
+        self._current_position_fen = None  # Track current position FEN to skip stale requests
+        self._analysis_worker_thread = None
+        self._analysis_worker_stop = threading.Event()
+        self._analysis_lock = threading.Lock()  # Lock for position tracking
+        self._start_analysis_worker()
     
     def _load_font(self):
         """Load font with fallbacks."""
@@ -79,22 +90,113 @@ class GameAnalysisWidget(Widget):
     def clear_history(self) -> None:
         """Clear score history."""
         self.score_history = []
+        with self._analysis_lock:
+            self._current_position_fen = None
         self._last_rendered = None
         # Trigger update if scheduler is available
         self.request_update(full=False)
+    
+    def remove_last_score(self) -> None:
+        """Remove the last score from history (used for takebacks)."""
+        if len(self.score_history) > 0:
+            self.score_history.pop()
+            self._last_rendered = None
+            # Trigger update if scheduler is available
+            self.request_update(full=False)
+    
+    def _stop_analysis_worker(self):
+        """Stop the analysis worker thread."""
+        if self._analysis_worker_thread is not None:
+            self._analysis_worker_stop.set()
+            # Wait for worker to finish current task
+            try:
+                self._analysis_worker_thread.join(timeout=2.0)
+            except Exception:
+                pass
+            self._analysis_worker_thread = None
+    
+    def __del__(self):
+        """Cleanup when widget is destroyed."""
+        self._stop_analysis_worker()
     
     def get_score_history(self) -> list:
         """Get a copy of the score history."""
         return self.score_history.copy()
     
+    def _start_analysis_worker(self):
+        """Start the worker thread for processing analysis requests."""
+        if self.analysis_engine is None:
+            return
+        
+        self._analysis_worker_stop.clear()
+        self._analysis_worker_thread = threading.Thread(
+            target=self._analysis_worker,
+            name="analysis-worker",
+            daemon=True
+        )
+        self._analysis_worker_thread.start()
+    
+    def _analysis_worker(self):
+        """Worker thread that processes analysis requests sequentially."""
+        import logging
+        log = logging.getLogger(__name__)
+        
+        while not self._analysis_worker_stop.is_set():
+            try:
+                # Get next analysis request (with timeout to allow checking stop event)
+                try:
+                    request = self._analysis_queue.get(timeout=0.1)
+                except queue.Empty:
+                    continue
+                
+                # Unpack request
+                board_copy, position_fen, current_turn, is_first_move, time_limit = request
+                
+                # Check if this position is still current (skip stale requests)
+                with self._analysis_lock:
+                    if position_fen != self._current_position_fen:
+                        log.debug(f"Skipping stale analysis request for FEN: {position_fen[:30]}...")
+                        self._analysis_queue.task_done()
+                        continue
+                
+                # Perform analysis
+                try:
+                    import chess.engine
+                    info = self.analysis_engine.analyse(board_copy, chess.engine.Limit(time=time_limit))
+                    
+                    # Double-check position is still current before updating
+                    with self._analysis_lock:
+                        if position_fen != self._current_position_fen:
+                            log.debug(f"Skipping stale analysis result for FEN: {position_fen[:30]}...")
+                            self._analysis_queue.task_done()
+                            continue
+                    
+                    # Update widget with analysis result
+                    self.update_from_analysis(info, current_turn, is_first_move)
+                    
+                except Exception as e:
+                    log.warning(f"Error analyzing position: {e}")
+                
+                self._analysis_queue.task_done()
+                
+            except Exception as e:
+                log.error(f"Error in analysis worker: {e}")
+                import traceback
+                traceback.print_exc()
+    
     def analyze_position(self, board, current_turn: str, is_first_move: bool = False, time_limit: float = 0.5) -> None:
         """
-        Analyze a chess position using the analysis engine and update the widget.
+        Queue a position for analysis using the analysis engine.
+        
+        This method queues the analysis request instead of blocking. The analysis
+        is performed sequentially in a worker thread, ensuring all positions are
+        analyzed and the graph is complete. Stale requests (for positions that
+        have changed) are automatically skipped.
         
         Sequence:
-        1. Update all quick changes (turn indicator) - invalidate cache and trigger update
-        2. Perform slow engine analysis
-        3. Update score and history - invalidate cache and trigger update
+        1. Update turn indicator immediately (fast operation)
+        2. Queue analysis request (non-blocking)
+        3. Worker thread processes request and updates score/history
         
         Args:
             board: chess.Board object to analyze
@@ -109,18 +211,43 @@ class GameAnalysisWidget(Widget):
         # This allows the turn circle to update before the slow analysis completes
         self.set_turn(current_turn)
         
-        # Step 2: Perform slow engine analysis
+        # Get FEN of current position to track it
         try:
-            import chess.engine
-            info = self.analysis_engine.analyse(board, chess.engine.Limit(time=time_limit))
-            
-            # Step 3: Update score and history (will invalidate cache and trigger update)
-            self.update_from_analysis(info, current_turn, is_first_move)
+            if hasattr(board, 'fen'):
+                position_fen = board.fen()
+            else:
+                # If board doesn't have fen() method, try to create a board from it
+                import logging
+                log = logging.getLogger(__name__)
+                log.warning("Board object does not have fen() method, skipping analysis")
+                return
         except Exception as e:
-            # Log error but don't crash - widget will just not update score
             import logging
             log = logging.getLogger(__name__)
-            log.warning(f"Error analyzing position: {e}")
+            log.warning(f"Could not get FEN from board: {e}, skipping analysis")
+            return
+        
+        # Update current position FEN (this marks all previous requests as stale)
+        with self._analysis_lock:
+            self._current_position_fen = position_fen
+        
+        # Step 2: Create a copy of the board for analysis (thread-safe)
+        # This ensures the board state doesn't change during analysis
+        try:
+            board_copy = chess.Board(position_fen)
+        except Exception:
+            import logging
+            log = logging.getLogger(__name__)
+            log.warning("Could not create board copy for analysis")
+            return
+        
+        # Step 3: Queue analysis request (non-blocking)
+        try:
+            self._analysis_queue.put_nowait((board_copy, position_fen, current_turn, is_first_move, time_limit))
+        except queue.Full:
+            import logging
+            log = logging.getLogger(__name__)
+            log.warning("Analysis queue full, dropping request")
     
     def update_from_analysis(self, analysis_info: dict, current_turn: str, is_first_move: bool = False) -> None:
         """
