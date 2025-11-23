@@ -79,8 +79,7 @@ class Manager:
         self._widgets.clear()
         # Create and add status bar widget
         status_bar_widget = StatusBarWidget(0, 0)
-        future = display_manager.add_widget(status_bar_widget)
-        log.warning(f"_get_display_manager() created Manager with id: {id(display_manager)}")
+        future = self.add_widget(status_bar_widget)
         if future:
             try:
                 future.result(timeout=10.0)
