@@ -619,6 +619,16 @@ class GameManager:
     
     def _handle_piece_place(self, field: int, piece_color):
         """Handle piece place event."""
+        # Check for takeback FIRST, before any other processing
+        # This ensures we catch takebacks even during complex capture sequences
+        if len(self.chess_board.move_stack) > 0:
+            is_takeback = self._check_takeback()
+            if is_takeback:
+                # Takeback was successful, reset move state and return
+                self.move_state.reset()
+                board.ledsOff()
+                return
+        
         is_current_player_piece = (self.chess_board.turn == chess.WHITE) == (piece_color == True)
         
         # Handle opponent piece placed back
@@ -694,16 +704,6 @@ class GameManager:
                 return
         
         # Clear exit flag on valid LIFT (handled in lift handler)
-        
-        # Check for takeback: after each PLACE, check if board state matches previous state
-        # This handles all takeback scenarios regardless of piece placement order
-        if len(self.chess_board.move_stack) > 0:
-            is_takeback = self._check_takeback()
-            if is_takeback:
-                # Takeback was successful, reset move state and return
-                self.move_state.reset()
-                board.ledsOff()
-                return
         
         # Check for illegal placement
         if field not in self.move_state.legal_destination_squares:
