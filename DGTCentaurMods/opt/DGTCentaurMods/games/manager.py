@@ -27,7 +27,6 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.board import board
-from DGTCentaurMods.display.epaper_service import service, widgets
 from DGTCentaurMods.db import models
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import func, select, create_engine
@@ -39,7 +38,7 @@ import sys
 import inspect
 import numpy as np
 from DGTCentaurMods.config import paths
-from DGTCentaurMods.board.logging import log, logging
+from DGTCentaurMods.board.logging import log
 
 
 # Event constants
