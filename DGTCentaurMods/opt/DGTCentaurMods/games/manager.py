@@ -800,9 +800,10 @@ class GameManager:
         
         # Clear exit flag on valid LIFT (handled in lift handler)
         
-        # Check for takeback: if piece is placed on source square of last move, check for takeback
-        # This handles the case where user is taking back a capture by moving the capturing piece
-        # back to its source square
+        # Check for takeback: if piece is placed on source or destination square of last move, check for takeback
+        # This handles both cases:
+        # 1. Taking piece moved back to source square
+        # 2. Captured piece restored to destination square (for captures)
         if len(self.chess_board.move_stack) > 0:
             last_move = self.chess_board.move_stack[-1]
             last_move_source = last_move.from_square
@@ -810,9 +811,24 @@ class GameManager:
             
             # Check if piece is being placed on the source square of the last move
             # AND the piece was lifted from the destination square of the last move
-            # This indicates a takeback attempt
+            # This indicates a takeback attempt (taking piece back)
             if field == last_move_source and self.move_state.source_square == last_move_dest:
                 log.info(f"[GameManager._handle_piece_place] Potential takeback detected: piece from {chess.square_name(last_move_dest)} placed on {chess.square_name(last_move_source)} (source of last move)")
+                is_takeback = self._check_takeback()
+                if is_takeback:
+                    # Takeback was successful, reset move state and return
+                    self.move_state.reset()
+                    board.ledsOff()
+                    return
+                # If takeback check failed, continue with normal processing
+            
+            # Also check if piece is being placed on the destination square of the last move
+            # AND it's a capture (for restoring the captured piece)
+            # This handles the case where captured piece is restored first
+            # We check the board state directly, not just move_state, since the piece might
+            # have been lifted from anywhere (including off-board)
+            if field == last_move_dest and self.chess_board.is_capture(last_move):
+                log.info(f"[GameManager._handle_piece_place] Potential takeback detected: piece placed on {chess.square_name(last_move_dest)} (destination of last capture)")
                 is_takeback = self._check_takeback()
                 if is_takeback:
                     # Takeback was successful, reset move state and return
