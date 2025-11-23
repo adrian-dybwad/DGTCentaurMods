@@ -96,6 +96,11 @@ class GameAnalysisWidget(Widget):
         # Trigger update if scheduler is available
         self.request_update(full=False)
     
+    def reset(self) -> None:
+        """Reset widget to initial state (clear history and reset score)."""
+        self.clear_history()
+        self.set_score(0.0, "0.0")
+    
     def remove_last_score(self) -> None:
         """Remove the last score from history (used for takebacks)."""
         if len(self.score_history) > 0:

@@ -76,7 +76,7 @@ class UCIGame:
         # Display manager and widgets
         self.display_manager = None
         self.chess_board_widget = None
-        self.game_analysis_bottom = None
+        self.game_analysis = None
         self.status_bar_widget = None
         
         # Set game info
@@ -117,8 +117,8 @@ class UCIGame:
         # Create game analysis widget at bottom (y=144, which is 16+128)
         # Widget will adjust scores internally based on bottom_color
         # Pass analysis engine so widget can call it directly
-        self.game_analysis_bottom = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color, analysis_engine=self.analysis_engine)
-        self.display_manager.add_widget(self.game_analysis_bottom)
+        self.game_analysis = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color, analysis_engine=self.analysis_engine)
+        self.display_manager.add_widget(self.game_analysis)
         
         # Widgets should trigger their own updates when ready
         # For initial display, have one widget trigger a full refresh
@@ -271,9 +271,9 @@ class UCIGame:
         try:
             if self.display_manager:
                 # Stop analysis worker thread before removing widget
-                if self.game_analysis_bottom:
+                if self.game_analysis:
                     try:
-                        self.game_analysis_bottom._stop_analysis_worker()
+                        self.game_analysis._stop_analysis_worker()
                     except Exception as e:
                         log.warning(f"Error stopping analysis worker: {e}")
                 
@@ -281,8 +281,8 @@ class UCIGame:
                 from DGTCentaurMods.menu import status_bar_widget
                 if self.chess_board_widget and self.chess_board_widget in self.display_manager._widgets:
                     self.display_manager._widgets.remove(self.chess_board_widget)
-                if self.game_analysis_bottom and self.game_analysis_bottom in self.display_manager._widgets:
-                    self.display_manager._widgets.remove(self.game_analysis_bottom)
+                if self.game_analysis and self.game_analysis in self.display_manager._widgets:
+                    self.display_manager._widgets.remove(self.game_analysis)
                 # Don't remove status_bar_widget - it's managed globally
                 # Don't call shutdown() - the global manager should stay alive
         except Exception as e:
@@ -400,9 +400,8 @@ class UCIGame:
         # Widgets will trigger updates automatically via request_update()
         if self.chess_board_widget:
             self.chess_board_widget.set_fen(manager.getFEN())
-        if self.game_analysis_bottom:
-            self.game_analysis_bottom.clear_history()
-            self.game_analysis_bottom.set_score(0.0, "0.0")
+        if self.game_analysis:
+            self.game_analysis.reset()
         # Status bar widget updates itself automatically
         
         self.current_turn = chess.WHITE
@@ -518,9 +517,8 @@ class UCIGame:
         # Widgets will trigger updates automatically via request_update()
         if self.chess_board_widget:
             self.chess_board_widget.set_fen(manager.getFEN())
-        if self.game_analysis_bottom:
-            self.game_analysis_bottom.clear_history()
-            self.game_analysis_bottom.set_score(0.0, "0.0")
+        if self.game_analysis:
+            self.game_analysis.reset()
         
         # Display end screen
         log.info("Displaying end screen")
@@ -547,8 +545,8 @@ class UCIGame:
         game_over_widget = GameOverWidget(0, 0, 128, 296)
         game_over_widget.set_result(result)
         # Get score history from analysis widget
-        if self.game_analysis_bottom:
-            game_over_widget.set_score_history(self.game_analysis_bottom.get_score_history())
+        if self.game_analysis:
+            game_over_widget.set_score_history(self.game_analysis.get_score_history())
         else:
             game_over_widget.set_score_history([])
         self.display_manager.add_widget(game_over_widget)
@@ -575,8 +573,8 @@ class UCIGame:
         board.ledsOff()
         
         # Remove last score from analysis history to keep it in sync with game state
-        if self.game_analysis_bottom:
-            self.game_analysis_bottom.remove_last_score()
+        if self.game_analysis:
+            self.game_analysis.remove_last_score()
         
         # Switch turn
         if self.current_turn == chess.WHITE:
@@ -593,27 +591,26 @@ class UCIGame:
     def _update_analysis_widget(self, board_obj):
         """Trigger analysis widget to analyze position."""
         if not self.graphs_enabled:
-            if self.game_analysis_bottom:
-                self.game_analysis_bottom.clear_history()
-                self.game_analysis_bottom.set_score(0.0, "0.0")
+            if self.game_analysis:
+                self.game_analysis.reset()
             return
         
         # Widget handles engine call, parsing, formatting, and history management
-        if self.game_analysis_bottom and board_obj is not None:
+        if self.game_analysis and board_obj is not None:
             current_turn_str = "white" if self.current_turn == chess.WHITE else "black"
             # Determine time limit: shorter for first move, longer for subsequent moves
             time_limit = 0.1 if self.is_first_move else 0.5
-            self.game_analysis_bottom.analyze_position(board_obj, current_turn_str, self.is_first_move, time_limit)
+            self.game_analysis.analyze_position(board_obj, current_turn_str, self.is_first_move, time_limit)
             # Mark that we've processed at least one move
             if self.is_first_move:
                 self.is_first_move = False
     
     def _clear_evaluation_graphs(self):
         """Clear evaluation graphs from screen."""
-        if self.game_analysis_bottom:
+        if self.game_analysis:
             # Widgets will trigger updates automatically via request_update()
-            self.game_analysis_bottom.clear_history()
-            self.game_analysis_bottom.set_score(0.0, "0.0")
+            self.game_analysis.clear_history()
+            self.game_analysis.set_score(0.0, "0.0")
     
     def _write_text(self, row: int, text: str):
         """Write text on a given line number."""
