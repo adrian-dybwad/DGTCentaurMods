@@ -644,15 +644,8 @@ class GameManager:
     
     def _handle_piece_place(self, field: int, piece_color):
         """Handle piece place event."""
-        # Check for takeback FIRST, before any other processing
-        # This ensures we catch takebacks even during complex capture sequences
-        if len(self.chess_board.move_stack) > 0:
-            is_takeback = self._check_takeback()
-            if is_takeback:
-                # Takeback was successful, reset move state and return
-                self.move_state.reset()
-                board.ledsOff()
-                return
+        # Note: Takeback detection is now done in _field_callback before routing to this function
+        # This ensures takeback works regardless of correction mode state
         
         is_current_player_piece = (self.chess_board.turn == chess.WHITE) == (piece_color == True)
         
@@ -1002,7 +995,22 @@ class GameManager:
         log.info(f"[GameManager._field_callback] piece_event={piece_event} field={field} fieldname={field_name} "
                  f"color_at={'White' if piece_color else 'Black'} time_in_seconds={time_in_seconds}")
         
-        # Handle correction mode
+        # Check for takeback FIRST, before any other processing including correction mode
+        # Takeback detection must work regardless of correction mode state
+        is_place = (piece_event == 1)
+        if is_place and len(self.chess_board.move_stack) > 0:
+            is_takeback = self._check_takeback()
+            if is_takeback:
+                # Takeback was successful, reset move state and return
+                # Exit correction mode if active since takeback resolved the issue
+                if self.correction_mode.is_active:
+                    log.info("[GameManager._field_callback] Takeback detected during correction mode, exiting correction mode")
+                    self._exit_correction_mode()
+                self.move_state.reset()
+                board.ledsOff()
+                return
+        
+        # Handle correction mode (only if takeback was not detected)
         if self.correction_mode.is_active:
             self._handle_field_event_in_correction_mode(piece_event, field, time_in_seconds)
             return
@@ -1010,7 +1018,7 @@ class GameManager:
         # Check for starting position when piece is placed
         # Starting position detection is the mechanism to abandon a game in progress
         # This allows players to reset and start fresh at any time
-        if piece_event == 1:  # PLACE event
+        if is_place:
             current_state = board.getChessState()
             if self._is_starting_position(current_state):
                 log.warning("[GameManager._field_callback] Starting position detected - abandoning current game")
@@ -1018,7 +1026,6 @@ class GameManager:
                 return
         
         is_lift = (piece_event == 0)
-        is_place = (piece_event == 1)
         
         if is_lift:
             self._handle_piece_lift(field, piece_color)
