@@ -378,9 +378,13 @@ class GameManager:
         ensuring consistency with the game state. This is especially important
         for captures where the physical board state might not match exactly.
         
-        For captures, also checks if the capturing piece has been moved back to
-        its source square, even if the captured piece hasn't been restored yet.
-        This allows takeback detection during the process of taking back a capture.
+        For captures, checks if either:
+        1. The capturing piece has been moved back to its source square (even if
+           the captured piece hasn't been restored yet), OR
+        2. The captured piece has been restored to the destination square (even if
+           the capturing piece hasn't been moved back yet).
+        This allows takeback detection during the process of taking back a capture,
+        regardless of the order in which pieces are moved.
         """
         if self.takeback_callback is None:
             return False
@@ -494,6 +498,48 @@ class GameManager:
                 
                 if expected_state is not None and not self._validate_board_state(current, expected_state):
                     log.info("[GameManager._check_takeback] Board state incorrect after takeback (captured piece not restored), entering correction mode")
+                    self._enter_correction_mode()
+                    # Provide correction guidance using logical state
+                    self._provide_correction_guidance(current, expected_state)
+                
+                return True
+            
+            # Also check if captured piece is back on destination square and source square is empty
+            # (indicating the captured piece has been restored, but capturing piece not yet moved back)
+            if (current_state[last_move_dest] == 1 and 
+                current_state[last_move_source] == 0 and
+                previous_state[last_move_source] == 1 and
+                previous_state[last_move_dest] == 1):
+                # Captured piece is back on destination, source is empty (capturing piece not yet moved back)
+                # This is a partial takeback state - proceed with takeback and let correction mode
+                # guide the user to move the capturing piece back
+                log.info(f"[GameManager._check_takeback] Partial takeback detected for capture: captured piece restored on destination {chess.square_name(last_move_dest)}, source {chess.square_name(last_move_source)} is empty - proceeding with takeback")
+                
+                board.ledsOff()
+                
+                # Remove last move from database
+                if self.database_session is not None:
+                    db_last_move = self.database_session.query(models.GameMove).order_by(
+                        models.GameMove.id.desc()
+                    ).first()
+                    if db_last_move is not None:
+                        self.database_session.delete(db_last_move)
+                        self.database_session.commit()
+                
+                self.chess_board.pop()
+                paths.write_fen_log(self.chess_board.fen())
+                board.beep(board.SOUND_GENERAL)
+                
+                if self.takeback_callback is not None:
+                    self.takeback_callback()
+                
+                # Verify board is correct after takeback - capturing piece should be moved back
+                time.sleep(0.2)
+                current = board.getChessState()
+                expected_state = self._chess_board_to_state(self.chess_board)
+                
+                if expected_state is not None and not self._validate_board_state(current, expected_state):
+                    log.info("[GameManager._check_takeback] Board state incorrect after takeback (capturing piece not moved back), entering correction mode")
                     self._enter_correction_mode()
                     # Provide correction guidance using logical state
                     self._provide_correction_guidance(current, expected_state)
