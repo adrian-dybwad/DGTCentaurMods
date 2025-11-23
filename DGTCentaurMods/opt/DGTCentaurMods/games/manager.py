@@ -414,6 +414,9 @@ class GameManager:
             log.info("[GameManager._check_takeback] Takeback detected - board state matches previous state")
             board.ledsOff()
             
+            # Preserve forced move info before callback (which may reset move state)
+            forced_move_uci = self.move_state.computer_move_uci if self.move_state.is_forced_move else None
+            
             # Remove last move from database
             if self.database_session is not None:
                 db_last_move = self.database_session.query(models.GameMove).order_by(
@@ -428,6 +431,20 @@ class GameManager:
             board.beep(board.SOUND_GENERAL)
             
             self.takeback_callback()
+            
+            # If there was a forced move, reapply LEDs after takeback
+            if forced_move_uci is not None:
+                # Check if the forced move is still valid at the new position
+                try:
+                    move = chess.Move.from_uci(forced_move_uci)
+                    if move in self.chess_board.legal_moves:
+                        # Reapply LEDs for the forced move
+                        from_sq, to_sq = self._uci_to_squares(forced_move_uci)
+                        if from_sq is not None and to_sq is not None:
+                            board.ledFromTo(from_sq, to_sq)
+                            log.info(f"[GameManager._check_takeback] Reapplied LEDs for forced move {forced_move_uci} after takeback")
+                except (ValueError, AttributeError) as e:
+                    log.debug(f"[GameManager._check_takeback] Could not reapply forced move LEDs after takeback: {e}")
             
             # Verify board is correct after takeback
             current = board.getChessState()
