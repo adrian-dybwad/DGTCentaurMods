@@ -424,10 +424,14 @@ class UCIGame:
     def _handle_white_turn(self):
         """Handle white's turn."""
         self.current_turn = chess.WHITE
-        log.info(f"WHITE_TURN event: current_turn={self.current_turn}, computer_color={self.computer_color}")
+        
+        # Get the actual turn from the manager's chess board to ensure consistency
+        board_obj = manager.getBoard()
+        actual_turn = board_obj.turn if board_obj is not None else chess.WHITE
+        
+        log.info(f"WHITE_TURN event: current_turn={self.current_turn}, computer_color={self.computer_color}, actual_turn={actual_turn}")
         
         if self.graphs_enabled:
-            board_obj = manager.getBoard()
             if board_obj is not None:
                 info = self.analysis_engine.analyse(
                     board_obj,
@@ -437,38 +441,45 @@ class UCIGame:
         
         self._draw_board(manager.getFEN())
         
-        if self.current_turn == self.computer_color:
+        # Check if it's the computer's turn using actual board turn
+        is_computer_turn = (actual_turn == self.computer_color)
+        log.info(f"WHITE_TURN: is_computer_turn={is_computer_turn} (actual_turn={actual_turn}, computer_color={self.computer_color})")
+        
+        if is_computer_turn:
+            log.info("WHITE_TURN: Computer's turn detected, calling _play_computer_move()")
             self._play_computer_move()
+        else:
+            log.info("WHITE_TURN: Not computer's turn, waiting for player move")
     
     def _handle_black_turn(self):
         """Handle black's turn."""
         self.current_turn = chess.BLACK
-        log.info(f"BLACK_TURN event: current_turn={self.current_turn}, computer_color={self.computer_color}")
-        log.info(f"BLACK_TURN: type(current_turn)={type(self.current_turn)}, type(computer_color)={type(self.computer_color)}")
-        log.info(f"BLACK_TURN: current_turn == computer_color = {self.current_turn == self.computer_color}")
         
-        try:
-            if self.graphs_enabled:
-                board_obj = manager.getBoard()
-                if board_obj is not None:
-                    info = self.analysis_engine.analyse(
-                        board_obj,
-                        chess.engine.Limit(time=0.5)
-                    )
-                    self._draw_evaluation_graphs(info)
-            
-            self._draw_board(manager.getFEN())
-            
-            log.info(f"BLACK_TURN: About to check if computer's turn. current_turn={self.current_turn}, computer_color={self.computer_color}")
-            if self.current_turn == self.computer_color:
-                log.info("BLACK_TURN: Condition is True, calling _play_computer_move()")
-                self._play_computer_move()
-            else:
-                log.warning(f"BLACK_TURN: Condition is False! current_turn={self.current_turn}, computer_color={self.computer_color}")
-        except Exception as e:
-            log.error(f"BLACK_TURN: Exception in _handle_black_turn: {e}")
-            import traceback
-            traceback.print_exc()
+        # Get the actual turn from the manager's chess board to ensure consistency
+        board_obj = manager.getBoard()
+        actual_turn = board_obj.turn if board_obj is not None else chess.BLACK
+        
+        log.info(f"BLACK_TURN event: current_turn={self.current_turn}, computer_color={self.computer_color}, actual_turn={actual_turn}")
+        
+        if self.graphs_enabled:
+            if board_obj is not None:
+                info = self.analysis_engine.analyse(
+                    board_obj,
+                    chess.engine.Limit(time=0.5)
+                )
+                self._draw_evaluation_graphs(info)
+        
+        self._draw_board(manager.getFEN())
+        
+        # Check if it's the computer's turn using actual board turn
+        is_computer_turn = (actual_turn == self.computer_color)
+        log.info(f"BLACK_TURN: is_computer_turn={is_computer_turn} (actual_turn={actual_turn}, computer_color={self.computer_color})")
+        
+        if is_computer_turn:
+            log.info("BLACK_TURN: Computer's turn detected, calling _play_computer_move()")
+            self._play_computer_move()
+        else:
+            log.info("BLACK_TURN: Not computer's turn, waiting for player move")
     
     def _play_computer_move(self):
         """Play the computer's move."""
