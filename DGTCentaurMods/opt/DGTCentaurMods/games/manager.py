@@ -311,7 +311,9 @@ class GameManager:
     
     def _update_game_result(self, result_string: str, termination: str, context: str = ""):
         """Update game result in database and trigger event callback."""
-        if self.database_session is not None:
+        # Only update database if game has been properly initialized
+        # This prevents database operations with invalid game ID (game_db_id = -1) before _reset_game() is called
+        if self.database_session is not None and self.game_db_id >= 0:
             game_record = self.database_session.query(models.Game).filter(
                 models.Game.id == self.game_db_id
             ).first()
@@ -322,12 +324,16 @@ class GameManager:
                 self.cached_result = result_string  # Cache the result for thread-safe access
                 log.info(f"[GameManager.{context}] Updated game result in database: id={self.game_db_id}, result={result_string}, termination={termination}")
             else:
-                if self.game_db_id == -1:
-                    log.warning(f"[GameManager.{context}] Game with id -1 not found in database (game was never initialized in database). Result: {result_string}, termination: {termination}")
-                else:
-                    log.warning(f"[GameManager.{context}] Game with id {self.game_db_id} not found in database. Result: {result_string}, termination: {termination}")
+                log.warning(f"[GameManager.{context}] Game with id {self.game_db_id} not found in database. Result: {result_string}, termination: {termination}")
                 # Cache the result even if not found in database
                 self.cached_result = result_string
+        elif self.database_session is not None and self.game_db_id < 0:
+            log.warning(f"[GameManager.{context}] Skipping database update: game not initialized (game_db_id={self.game_db_id}). Result: {result_string}, termination: {termination}")
+            # Cache the result even if database update is skipped
+            self.cached_result = result_string
+        else:
+            # No database session, just cache the result
+            self.cached_result = result_string
         
         if self.event_callback is not None:
             self.event_callback(termination)
@@ -708,7 +714,9 @@ class GameManager:
         
         paths.write_fen_log(self.chess_board.fen())
         
-        if self.database_session is not None:
+        # Only write to database if game has been properly initialized
+        # This prevents writes with invalid game ID (game_db_id = -1) before _reset_game() is called
+        if self.database_session is not None and self.game_db_id >= 0:
             game_move = models.GameMove(
                 gameid=self.game_db_id,
                 move=move_uci,
@@ -716,6 +724,8 @@ class GameManager:
             )
             self.database_session.add(game_move)
             self.database_session.commit()
+        elif self.database_session is not None and self.game_db_id < 0:
+            log.warning(f"[GameManager._execute_move] Skipping database write: game not initialized (game_db_id={self.game_db_id}). Move: {move_uci}")
         
         self._collect_board_state()
         self.move_state.reset()
@@ -832,18 +842,25 @@ class GameManager:
                 self.database_session.add(game)
                 self.database_session.commit()
                 
-                # Get the game ID
-                self.game_db_id = self.database_session.query(func.max(models.Game.id)).scalar()
-                log.info(f"[GameManager._reset_game] Game initialized in database with id={self.game_db_id}, source={self.source_file}, event={self.game_info['event']}, white={self.game_info['white']}, black={self.game_info['black']}")
-                
-                # Create initial game move entry
-                game_move = models.GameMove(
-                    gameid=self.game_db_id,
-                    move='',
-                    fen=str(self.chess_board.fen())
-                )
-                self.database_session.add(game_move)
-                self.database_session.commit()
+                # Get the game ID - only set if query returns a valid result
+                # This prevents setting game_db_id to None if the query fails
+                self.game_db_id = -1
+                game_id = self.database_session.query(func.max(models.Game.id)).scalar()
+                if game_id is not None:
+                    self.game_db_id = game_id
+                    log.info(f"[GameManager._reset_game] Game initialized in database with id={self.game_db_id}, source={self.source_file}, event={self.game_info['event']}, white={self.game_info['white']}, black={self.game_info['black']}")
+                    
+                    # Create initial game move entry
+                    game_move = models.GameMove(
+                        gameid=self.game_db_id,
+                        move='',
+                        fen=str(self.chess_board.fen())
+                    )
+                    self.database_session.add(game_move)
+                    self.database_session.commit()
+                else:
+                    log.error(f"[GameManager._reset_game] Failed to retrieve game ID from database. Game may not have been inserted correctly.")
+                    # Keep game_db_id as -1 to prevent invalid database writes
             
             self.board_state_history = []
             self._collect_board_state()
