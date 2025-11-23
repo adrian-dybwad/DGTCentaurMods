@@ -64,6 +64,8 @@ MENU_BODY_TOP_NO_TITLE = STATUS_BAR_HEIGHT + TITLE_GAP
 DESCRIPTION_GAP = 8
 
 
+# Global display manager
+display_manager: Optional[Manager] = None
 
 def _get_display_manager() -> Manager:
     """Get or create the global display manager."""
@@ -74,8 +76,7 @@ def _get_display_manager() -> Manager:
         display_manager.init()
     return display_manager
 
-# Global display manager
-display_manager: Optional[Manager] = _get_display_manager()
+_get_display_manager()  # Initialize display
 
 def keyPressed(id):
     # This function receives key presses
@@ -216,13 +217,6 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     global selection
     global quickselect
     global event_key
-    log.info(">>> doMenu: ensuring display manager is initialized")
-    manager = _get_display_manager()
-    log.info(">>> doMenu: display manager initialized")
-    
-    # CRITICAL: Don't clear screen separately - draw menu directly over existing content
-    # Clearing then immediately drawing causes rapid successive full refreshes that interfere
-    log.info(">>> doMenu: proceeding directly to menu drawing (no separate clear)")
     
     selection = ""
     curmenu = actual_menu
@@ -240,7 +234,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     if ordered_menu:
         initial_index = max(0, min(len(ordered_menu) - 1, menuitem - 1))
     
-    manager.clear_widgets()
+    display_manager.clear_widgets()
 
     # Define callbacks for registering/unregistering the menu widget
     def register_menu_widget(widget):
@@ -306,8 +300,6 @@ def changedCallback(piece_event, field, time_in_seconds):
     board.printChessState()
 
 
-# Turn Leds off, beep, clear DGT Centaur Serial
-_get_display_manager()  # Initialize display
 # Create a simple statusbar class
 update = centaur.UpdateSystem()
 log.info("Setting checking for updates in 5 mins.")
@@ -334,12 +326,9 @@ if __name__ == "__main__": #or not hasattr(board, '_events_initialized'):
 def show_welcome():
     global idle
     log.info(">>> show_welcome() ENTERED")
-    log.info(">>> show_welcome() calling display manager init")
-    manager = _get_display_manager()
-    log.info(">>> show_welcome() display manager initialized")
     
     splash_screen = SplashScreen(message="   Press [✓]")
-    manager.add_widget(splash_screen)
+    display_manager.add_widget(splash_screen)
     
     idle = True
     log.info(">>> show_welcome() setting idle=True, about to BLOCK on event_key.wait()")
@@ -408,8 +397,7 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
     original_handler = signal.signal(signal.SIGINT, signal_handler)
     try:
         splash_screen = SplashScreen(message="     Loading")
-        manager = _get_display_manager()
-        manager.add_widget(splash_screen)
+        display_manager.add_widget(splash_screen)
         board.pauseEvents()
         board.cleanup(leds_off=True)
 
@@ -437,7 +425,7 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         log.info(">>> Reinitializing after external script...")
         _get_display_manager()  # Reinitialize display
         log.info(">>> display manager initialized")
-        manager.update(full=True)
+        display_manager.update(full=True)
         log.info(">>> clear_screen() complete")
         board.run_background(start_key_polling=start_key_polling)
         log.info(">>> board.run_background() complete")
@@ -956,25 +944,11 @@ if __name__ == "__main__":
                 if result == "LichessAPI":
                     rc = run_external_script("config/lichesstoken.py", start_key_polling=True)
                 if result == "Shutdown":
-                    # Stop statusbar
-                    statusbar.stop()
-                
-                    # Pause events and cleanup board
-                    board.pauseEvents()
-                    board.cleanup(leds_off=False)  # LEDs handled by shutdown()
-                
                     # Execute shutdown (handles LEDs, e-paper, controller sleep)
                     board.shutdown()
-                
                     # Exit cleanly
                     sys.exit()
                 if result == "Reboot":
-                    board.beep(board.SOUND_POWER_OFF)
-                    manager = _get_display_manager()
-                    clear_screen()
-                    time.sleep(5)
-                    manager.shutdown()
-                    time.sleep(2)
                 
                     # LED cascade pattern h1→h8 (squares 0 to 7) for reboot
                     try:
@@ -984,8 +958,9 @@ if __name__ == "__main__":
                     except Exception:
                         pass
                 
-                    board.pauseEvents()
-                    board.cleanup(leds_off=True)
+                    board.shutdown()
+                    time.sleep(2)
+                    
                     os.system("/sbin/shutdown -r now &")
                     sys.exit()
                 if result == "reverseshell":

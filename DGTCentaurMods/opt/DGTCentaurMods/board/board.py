@@ -148,6 +148,12 @@ def shutdown():
     - Update install: All LEDs solid
     - Normal shutdown: Sequential LED cascade h8→h1
     """
+
+    beep(SOUND_POWER_OFF)
+    # Pause events and cleanup board
+    pauseEvents()
+    cleanup(leds_off=False)  # LEDs handled by shutdown()
+                
     update = centaur.UpdateSystem()
     package = '/tmp/dgtcentaurmods_armhf.deb'
     
