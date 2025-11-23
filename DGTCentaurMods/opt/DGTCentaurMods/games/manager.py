@@ -398,11 +398,7 @@ class GameManager:
             # Use logical chess board state (FEN) as expected state for consistency with correction mode
             time.sleep(0.2)
             current = board.getChessState()
-            try:
-                expected_state = self._chess_board_to_state(self.chess_board)
-            except ValueError as e:
-                log.error(f"[GameManager._check_takeback] Failed to get expected state: {e}, falling back to board_state_history")
-                expected_state = self.board_state_history[-1] if self.board_state_history else None
+            expected_state = self._chess_board_to_state(self.chess_board)
             
             if expected_state is not None and not self._validate_board_state(current, expected_state):
                 log.info("[GameManager._check_takeback] Board state incorrect after takeback, entering correction mode")
@@ -419,12 +415,7 @@ class GameManager:
         Uses logical chess board state (FEN) as expected state for consistency with
         the chess board widget display and correction guidance.
         """
-        try:
-            expected_state = self._chess_board_to_state(self.chess_board)
-        except ValueError as e:
-            log.error(f"[GameManager._enter_correction_mode] Failed to get expected state from chess board: {e}, falling back to board_state_history")
-            # Fall back to physical board state history if logical state unavailable
-            expected_state = self.board_state_history[-1] if self.board_state_history else None
+        expected_state = self._chess_board_to_state(self.chess_board)
         
         self.correction_mode.enter(expected_state)
         log.warning(f"[GameManager._enter_correction_mode] Entered correction mode")
@@ -597,17 +588,7 @@ class GameManager:
             # reflect the current logical game state. The chess_board is updated synchronously in _execute_move()
             # before any subsequent events can occur, so there should be no race condition.
             current_state = board.getChessState()
-            try:
-                expected_state = self._chess_board_to_state(self.chess_board)
-            except ValueError as e:
-                log.error(f"[GameManager._handle_piece_place] Failed to get expected state from chess board: {e}")
-                # Fall back to physical board state history if available
-                if self.board_state_history:
-                    expected_state = self.board_state_history[-1]
-                    log.warning("[GameManager._handle_piece_place] Using fallback expected state from board_state_history")
-                else:
-                    log.debug("[GameManager._handle_piece_place] Cannot check board state: no expected state available")
-                    expected_state = None
+            expected_state = self._chess_board_to_state(self.chess_board)
             
             if current_state is not None and expected_state is not None:
                 # Check if there are extra pieces (pieces on squares that shouldn't have them)
@@ -669,16 +650,7 @@ class GameManager:
             if not is_takeback:
                 self._enter_correction_mode()
                 current_state = board.getChessState()
-                try:
-                    expected_state = self._chess_board_to_state(self.chess_board)
-                except ValueError as e:
-                    log.error(f"[GameManager._handle_piece_place] Failed to get expected state: {e}")
-                    # Fall back to physical board state history if available
-                    if self.board_state_history:
-                        expected_state = self.board_state_history[-1]
-                        log.warning("[GameManager._handle_piece_place] Using fallback expected state from board_state_history")
-                    else:
-                        expected_state = None
+                expected_state = self._chess_board_to_state(self.chess_board)
                 
                 if expected_state is not None:
                     self._provide_correction_guidance(current_state, expected_state)
