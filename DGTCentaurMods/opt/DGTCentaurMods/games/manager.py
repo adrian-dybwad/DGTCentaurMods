@@ -848,7 +848,20 @@ class GameManager:
             
             from_name = chess.square_name(self.move_state.source_square)
             to_name = chess.square_name(target_square)
-            piece_name = str(self.chess_board.piece_at(self.move_state.source_square))
+            piece = self.chess_board.piece_at(self.move_state.source_square)
+            if piece is None:
+                log.error(f"[GameManager._execute_move] No piece at source square {from_name} (index {self.move_state.source_square}) - move state may be corrupted")
+                board.beep(board.SOUND_WRONG_MOVE)
+                # Reset move state and enter correction mode
+                self.move_state.reset()
+                self._enter_correction_mode()
+                current_state = board.getChessState()
+                # If logical board state conversion fails, we cannot reliably continue
+                expected_state = self._chess_board_to_state(self.chess_board)
+                if current_state is not None:
+                    self._provide_correction_guidance(current_state, expected_state)
+                return
+            piece_name = str(piece)
             is_forced = self.move_state.is_forced_move
         
         promotion_suffix = self._handle_promotion(target_square, piece_name, is_forced)
@@ -856,6 +869,20 @@ class GameManager:
         with self._lock:
             if self.move_state.is_forced_move:
                 move_uci = self.move_state.computer_move_uci
+                
+                # For forced moves, the UCI should already include promotion if it's a promotion move
+                # Validate that forced move UCI includes promotion when needed
+                is_white_promotion = (target_square // BOARD_WIDTH) == PROMOTION_ROW_WHITE and piece_name == "P"
+                is_black_promotion = (target_square // BOARD_WIDTH) == PROMOTION_ROW_BLACK and piece_name == "p"
+                is_promotion_move = is_white_promotion or is_black_promotion
+                
+                if is_promotion_move and len(move_uci) < 5:
+                    # Promotion move but UCI doesn't include promotion piece (should be 5 chars: e7e8q)
+                    log.error(f"[GameManager._execute_move] Forced promotion move {move_uci} missing promotion piece")
+                    board.beep(board.SOUND_WRONG_MOVE)
+                    self.move_state.reset()
+                    return
+                
                 # Validate forced move is still legal (board state may have changed)
                 try:
                     move = chess.Move.from_uci(move_uci)
