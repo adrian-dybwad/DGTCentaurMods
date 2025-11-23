@@ -432,19 +432,27 @@ class GameManager:
             
             self.takeback_callback()
             
-            # If there was a forced move, reapply LEDs after takeback
+            # If there was a forced move, restore it and reapply LEDs after takeback
             if forced_move_uci is not None:
                 # Check if the forced move is still valid at the new position
                 try:
                     move = chess.Move.from_uci(forced_move_uci)
                     if move in self.chess_board.legal_moves:
+                        # Restore the forced move state
+                        self.move_state.set_computer_move(forced_move_uci, forced=True)
                         # Reapply LEDs for the forced move
                         from_sq, to_sq = self._uci_to_squares(forced_move_uci)
                         if from_sq is not None and to_sq is not None:
                             board.ledFromTo(from_sq, to_sq)
                             log.info(f"[GameManager._check_takeback] Reapplied LEDs for forced move {forced_move_uci} after takeback")
+                        else:
+                            log.warning(f"[GameManager._check_takeback] Could not convert forced move {forced_move_uci} to squares")
+                    else:
+                        log.info(f"[GameManager._check_takeback] Forced move {forced_move_uci} is no longer legal at position after takeback")
                 except (ValueError, AttributeError) as e:
-                    log.debug(f"[GameManager._check_takeback] Could not reapply forced move LEDs after takeback: {e}")
+                    log.warning(f"[GameManager._check_takeback] Could not reapply forced move LEDs after takeback: {e}")
+            else:
+                log.debug("[GameManager._check_takeback] No forced move to restore after takeback")
             
             # Verify board is correct after takeback
             current = board.getChessState()
