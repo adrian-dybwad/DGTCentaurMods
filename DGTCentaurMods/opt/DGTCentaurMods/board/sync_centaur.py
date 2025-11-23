@@ -165,7 +165,8 @@ class SyncCentaur:
         
         # Request queue for FIFO serialization
         # Limit queue size to prevent unbounded memory growth
-        self._request_queue = queue.Queue(maxsize=100)
+        # Increased size to handle polling commands during high load
+        self._request_queue = queue.Queue(maxsize=200)
         self._request_processor_thread = None
         self._last_command = None
         
@@ -525,6 +526,7 @@ class SyncCentaur:
     
     def _polling_worker(self):
         """Poll for events in a loop"""
+        consecutive_failures = 0
         while self.listener_running:
             try:
                 # Wait for board to be ready before polling
@@ -536,11 +538,22 @@ class SyncCentaur:
                 self.sendCommand(command.DGT_BUS_POLL_KEYS)
                 # Poll for piece events
                 self.sendCommand(command.DGT_BUS_SEND_CHANGES)
+                
+                # Reset failure counter on success
+                consecutive_failures = 0
+                
                 # Small delay to avoid hammering the board
                 time.sleep(0.05)
             except Exception as e:
+                consecutive_failures += 1
                 log.error(f"[SyncCentaur] polling worker error: {e}")
-                time.sleep(0.1)
+                
+                # If queue is consistently full, increase delay to allow queue to drain
+                if consecutive_failures > 10:
+                    log.warning(f"[SyncCentaur] Polling worker has {consecutive_failures} consecutive failures, increasing delay")
+                    time.sleep(1.0)
+                else:
+                    time.sleep(0.1)
     
     def _request_processor(self):
         """Process requests from FIFO queue"""
