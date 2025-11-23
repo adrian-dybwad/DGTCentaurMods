@@ -259,7 +259,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         unregister_callback=unregister_menu_widget
     )
 
-    manager.add_widget(menu_widget)
+    display_manager.add_widget(menu_widget)
     log.info(f">>> doMenu: created MenuWidget with {len(menu_entries)} entries, selected_index={initial_index}")
     
     menuitem = (initial_index + 1) if ordered_menu else 1
@@ -285,14 +285,14 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         else:
             selection = "BACK"
         
-        manager.clear_widgets()
+        display_manager.clear_widgets()
         
         log.info(f">>> doMenu: returning selection='{selection}'")
         return selection
     except KeyboardInterrupt:
         log.info(">>> doMenu: KeyboardInterrupt caught")
-        manager.clear_widgets()
-        manager.add_widget(SplashScreen(message="   Shutdown"))
+        display_manager.clear_widgets()
+        display_manager.add_widget(SplashScreen(message="   Shutdown"))
         return "SHUTDOWN"
 
 def changedCallback(piece_event, field, time_in_seconds):
@@ -960,7 +960,7 @@ if __name__ == "__main__":
                 
                     board.shutdown()
                     time.sleep(2)
-                    
+
                     os.system("/sbin/shutdown -r now &")
                     sys.exit()
                 if result == "reverseshell":
