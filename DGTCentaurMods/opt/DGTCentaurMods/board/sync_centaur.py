@@ -84,6 +84,9 @@ globals().update({f"{name}_DATA": spec.default_data for name, spec in COMMANDS.i
 # Explicit definitions for linter (already exported above, but needed for static analysis)
 DGT_BUS_SEND_CHANGES_RESP = COMMANDS["DGT_BUS_SEND_CHANGES"].expected_resp_type
 DGT_BUS_SEND_STATE_RESP = COMMANDS["DGT_BUS_SEND_STATE"].expected_resp_type
+
+# Export for use in this module
+__all__.extend(['DGT_BUS_SEND_STATE_RESP', 'DGT_BUS_SEND_CHANGES_RESP'])
 DGT_BUS_POLL_KEYS_RESP = COMMANDS["DGT_BUS_POLL_KEYS"].expected_resp_type
 
 # Export name namespace for commands, e.g. command.LED_OFF_CMD -> "LED_OFF_CMD"
@@ -313,7 +316,23 @@ class SyncCentaur:
                             self.packet_count += 1
                             return True
                         else:
-                            log.info(f"checksum mismatch: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                            log.warning(f"checksum mismatch: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                            # Check if there's a waiting request for this packet type
+                            # Deliver failure response to unblock waiting request
+                            packet_type = self.response_buffer[0]
+                            self._deliver_failure_to_waiter(packet_type)
+                            
+                            # If this is a board state response (0x83), notify failure callback
+                            # This allows the piece listener/game manager to reconcile state
+                            if packet_type == DGT_BUS_SEND_STATE_RESP:
+                                if self._failure_callback is not None:
+                                    try:
+                                        self._failure_callback()
+                                    except Exception as e:
+                                        log.error(f"[SyncCentaur] Error in failure callback: {e}")
+                                        import traceback
+                                        traceback.print_exc()
+                            
                             self.response_buffer = bytearray()
                             return False
                 else:
@@ -367,6 +386,32 @@ class SyncCentaur:
         except Exception:
             pass
         return False
+    
+    def _deliver_failure_to_waiter(self, packet_type):
+        """Deliver failure response to waiting request when checksum mismatch occurs.
+        
+        Args:
+            packet_type: The expected packet type that failed (e.g., 0x83 for DGT_BUS_SEND_STATE_RESP)
+        """
+        try:
+            with self._waiter_lock:
+                if self._response_waiter is not None:
+                    expected_type = self._response_waiter.get('expected_type')
+                    if expected_type == packet_type:
+                        # Deliver a special failure marker to indicate checksum mismatch
+                        # Use a sentinel value that can be detected by request_response
+                        q = self._response_waiter.get('queue')
+                        self._response_waiter = None
+                        if q is not None:
+                            try:
+                                # Use a special sentinel to indicate failure
+                                # request_response will detect this and handle accordingly
+                                q.put_nowait(b'__CHECKSUM_FAILURE__')
+                                log.warning(f"[SyncCentaur._deliver_failure_to_waiter] Delivered failure response for packet type 0x{packet_type:02x}")
+                            except Exception as e:
+                                log.error(f"[SyncCentaur._deliver_failure_to_waiter] Failed to deliver failure response: {e}")
+        except Exception as e:
+            log.error(f"[SyncCentaur._deliver_failure_to_waiter] Error delivering failure: {e}")
     
     def _route_packet_to_handler(self, packet):
         """Route packet to appropriate handler based on type"""
@@ -560,6 +605,12 @@ class SyncCentaur:
         # Wait for response
         try:
             payload = result_queue.get(timeout=timeout)
+            # Check for checksum failure marker
+            if payload == b'__CHECKSUM_FAILURE__':
+                log.warning(f"[SyncCentaur._execute_request] Checksum failure detected for {command_name}")
+                # Return None to indicate failure, but also trigger reconciliation callback if available
+                # The caller (getBoardState/getChessState) will handle None appropriately
+                return None
             return payload
         except queue.Empty:
             # Timeout

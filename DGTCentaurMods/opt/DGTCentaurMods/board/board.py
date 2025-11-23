@@ -262,8 +262,22 @@ def getChessState(field=None):
     # 
     # Raw index i: row = i//8, col = i%8
     # Chess index: row = 7 - (i//8), col = i%8
-    board_data = list[int](getBoardState())
+    board_data_raw = getBoardState()
+    if board_data_raw is None:
+        log.warning("[board.getChessState] getBoardState() returned None, likely due to timeout or queue full")
+        return None
+    
+    try:
+        board_data = list[int](board_data_raw)
+    except (TypeError, ValueError) as e:
+        log.error(f"[board.getChessState] Failed to convert board data to list: {e}, data type: {type(board_data_raw)}")
+        return None
+    
     chess_state = [0] * 64
+    
+    if len(board_data) != 64:
+        log.error(f"[board.getChessState] Invalid board data length: {len(board_data)}, expected 64")
+        return None
     
     for i in range(64):
         raw_row = i // 8
