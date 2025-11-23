@@ -365,7 +365,11 @@ class SyncCentaur:
                     self.sendCommand(DGT_NOTIFY_EVENTS)
     
     def _try_deliver_to_waiter(self, packet):
-        """Try to deliver packet to waiting request, returns True if delivered"""
+        """Try to deliver packet to waiting request, returns True if delivered
+        
+        Critical: Only clear the waiter AFTER successfully putting the payload in the queue.
+        If put_nowait fails, the waiter must remain set so the request can timeout properly.
+        """
         try:
             with self._waiter_lock:
                 if self._response_waiter is not None:
@@ -373,15 +377,22 @@ class SyncCentaur:
                     if expected_type == packet[0]:
                         payload = self._extract_payload(packet)
                         q = self._response_waiter.get('queue')
-                        self._response_waiter = None
                         if q is not None:
                             try:
                                 q.put_nowait(payload)
-                            except Exception:
-                                pass
-                            return True
-        except Exception:
-            pass
+                                # Only clear waiter after successful delivery
+                                self._response_waiter = None
+                                return True
+                            except queue.Full:
+                                log.error(f"[SyncCentaur._try_deliver_to_waiter] Queue full, cannot deliver response for packet type 0x{packet[0]:02x}. Waiter remains set.")
+                                # Don't clear waiter - let request timeout properly
+                                return False
+                            except Exception as e:
+                                log.error(f"[SyncCentaur._try_deliver_to_waiter] Error delivering response: {e}")
+                                # Don't clear waiter - let request timeout properly
+                                return False
+        except Exception as e:
+            log.error(f"[SyncCentaur._try_deliver_to_waiter] Error in waiter delivery: {e}")
         return False
     
     def _deliver_failure_to_waiter(self, packet_type):

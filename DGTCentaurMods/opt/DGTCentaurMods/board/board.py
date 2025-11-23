@@ -251,9 +251,31 @@ def sleep():
 #
 # Board response - functions related to get something from the board
 #
-def getBoardState():
-    raw_boarddata = controller.request_response(command.DGT_BUS_SEND_STATE)
-    return raw_boarddata
+def getBoardState(max_retries=2, retry_delay=0.1):
+    """
+    Get the current board state from the DGT Centaur.
+    
+    Args:
+        max_retries: Maximum number of retry attempts on timeout (default: 2)
+        retry_delay: Delay in seconds between retries (default: 0.1)
+    
+    Returns:
+        bytes: Raw board state data (64 bytes) or None if all attempts fail
+        
+    Note:
+        Retries are only performed on timeout. If the board returns an error,
+        it is returned immediately without retry.
+    """
+    for attempt in range(max_retries + 1):
+        raw_boarddata = controller.request_response(command.DGT_BUS_SEND_STATE)
+        if raw_boarddata is not None:
+            return raw_boarddata
+        if attempt < max_retries:
+            log.warning(f"[board.getBoardState] Attempt {attempt + 1} failed, retrying in {retry_delay}s...")
+            time.sleep(retry_delay)
+        else:
+            log.error(f"[board.getBoardState] All {max_retries + 1} attempts failed")
+    return None
 
 def getChessState(field=None):
    # Transform: raw index i maps to chess index
