@@ -36,7 +36,7 @@ import threading
 from random import randint
 import configparser
 import signal
-
+from concurrent.futures import Future
 
 class UCIGame:
     """Manages a UCI chess game against an engine."""

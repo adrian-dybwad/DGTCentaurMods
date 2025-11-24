@@ -31,6 +31,7 @@ from DGTCentaurMods.board.settings import Settings
 from DGTCentaurMods.board import centaur
 import time
 from typing import Optional
+from concurrent.futures import Future
 
 from DGTCentaurMods.board.logging import log, logging
 
