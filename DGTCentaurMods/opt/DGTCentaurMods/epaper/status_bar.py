@@ -63,6 +63,24 @@ class StatusBarWidget(Widget):
         self.invalidate()
         return self.request_update(full=full)
     
+    def stop(self) -> None:
+        """Stop the widget and perform cleanup tasks."""
+        # Stop all child widgets
+        try:
+            self._clock_widget.stop()
+        except Exception as e:
+            log.debug(f"Error stopping clock widget: {e}")
+        
+        try:
+            self._wifi_widget.stop()
+        except Exception as e:
+            log.debug(f"Error stopping WiFi widget: {e}")
+        
+        try:
+            self._battery_widget.stop()
+        except Exception as e:
+            log.debug(f"Error stopping battery widget: {e}")
+    
     def render(self) -> Image.Image:
         """Render status bar with time, WiFi status, and battery icon."""
         img = Image.new("1", (self.width, self.height), 255)
