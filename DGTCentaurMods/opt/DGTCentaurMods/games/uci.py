@@ -576,6 +576,7 @@ except Exception:
 def main():
     """Main entry point for UCI game."""
     # Parse command line arguments
+    board.init_display()
     player_color = sys.argv[1] if len(sys.argv) > 1 else "white"
     engine_name = sys.argv[2] if len(sys.argv) > 2 else "stockfish_pi"
     uci_options_desc = sys.argv[3] if len(sys.argv) > 3 else "Default"

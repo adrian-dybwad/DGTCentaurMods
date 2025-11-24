@@ -34,24 +34,24 @@ from typing import Optional
 
 from DGTCentaurMods.board.logging import log, logging
 
+# Battery related - move to battery widget
+chargerconnected = 0
+batterylevel = -1
+batterylastchecked = 0
+
+#_get_display_manager()  # Initialize display
+
 # Global display manager
 display_manager: Optional[Manager] = None
 
-def _get_display_manager() -> Manager:
+def init_display():
     """Get or create the global display manager."""
     global display_manager
     
     if display_manager is None:
         display_manager = Manager()
-        display_manager.init()
-    return display_manager
+        #display_manager.init(addStatusBar=addStatusBar)
 
-# Battery related
-chargerconnected = 0
-batterylevel = -1
-batterylastchecked = 0
-
-_get_display_manager()  # Initialize display
 
 # Re-export commonly used command names for backward-compatible usage in this module
 SOUND_GENERAL = command.SOUND_GENERAL
@@ -75,6 +75,8 @@ controller.wait_ready()
 
 def cleanup(leds_off: bool = True):
     controller.cleanup(leds_off=True)
+    display_manager.shutdown()
+    display_manager = None
 
 def wait_for_key_up(timeout=None, accept=None):
     """Wait for a key up event from the board"""

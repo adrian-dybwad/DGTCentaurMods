@@ -29,9 +29,10 @@ class Manager:
         self._widgets: List[Widget] = []
         self._initialized = False
         self._shutting_down = False
+        self._initialize()
         log.warning(f"Manager.__init__() completed - Manager id: {id(self)}, EPD id: {id(self._epd)}")
     
-    def init(self) -> None:
+    def _initialize(self) -> None:
         """Initialize the display."""
         if self._initialized:
             return
@@ -45,7 +46,7 @@ class Manager:
             time.sleep(0.1)
             
             # Initial full refresh
-            self._epd.Clear()
+            #self._epd.Clear()
             self._framebuffer.flush_all()
             
             self._initialized = True
@@ -74,7 +75,7 @@ class Manager:
 
         return self.update(full=False)
     
-    def clear_widgets(self) -> None:
+    def clear_widgets(self, addStatusBar: bool = True) -> None:
         """Clear all widgets from the display."""
         log.debug(f"Manager.clear_widgets() called, clearing {len(self._widgets)} widgets")
         # Stop all existing widgets before clearing to prevent background threads from continuing
@@ -86,14 +87,15 @@ class Manager:
         
         self._widgets.clear()
         # Create and add status bar widget
-        status_bar_widget = StatusBarWidget(0, 0)
-        future = self.add_widget(status_bar_widget)
-        if future:
-            try:
-                future.result(timeout=10.0)
-                log.debug(">>> _get_display_manager() status bar widget update completed, display is now in partial mode")
-            except Exception as e:
-                log.error(f">>> _get_display_manager() status bar widget update failed: {e}")
+        if addStatusBar:
+            status_bar_widget = StatusBarWidget(0, 0)
+            future = self.add_widget(status_bar_widget)
+            if future:
+                try:
+                    future.result(timeout=10.0)
+                    log.debug(">>> _get_display_manager() status bar widget update completed, display is now in partial mode")
+                except Exception as e:
+                    log.error(f">>> _get_display_manager() status bar widget update failed: {e}")
 
     
     def update(self, full: bool = False):

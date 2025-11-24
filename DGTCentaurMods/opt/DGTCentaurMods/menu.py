@@ -294,6 +294,7 @@ threading.Timer(300, update.main).start()
 if __name__ == "__main__": #or not hasattr(board, '_events_initialized'):
     # Subscribe to board events. First parameter is the function for key presses. The second is the function for
     # field activity
+    board.init_display()
     board.subscribeEvents(keyPressed, changedCallback, timeout=900)
     board._events_initialized = True  # Mark as initialized to prevent re-initialization
     board.printChessState()
@@ -378,7 +379,13 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
     original_handler = signal.signal(signal.SIGINT, signal_handler)
     try:
         splash_screen = SplashScreen(message="     Loading")
-        display_manager.add_widget(splash_screen)
+        promise = display_manager.add_widget(splash_screen)
+        if promise:
+            try:
+                promise.result(timeout=10.0)
+            except Exception as e:
+                log.warning(f"Error displaying splash screen: {e}")
+        
         board.pauseEvents()
         board.cleanup(leds_off=True)
 
@@ -405,7 +412,7 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         # Restore original signal handler
         signal.signal(signal.SIGINT, original_handler)
         log.info(">>> Reinitializing after external script...")
-        _get_display_manager()  # Reinitialize display
+        board.init_display()
         log.info(">>> display manager initialized")
         display_manager.update(full=True)
         log.info(">>> clear_screen() complete")
