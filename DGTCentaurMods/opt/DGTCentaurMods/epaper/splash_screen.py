@@ -48,7 +48,7 @@ class SplashScreen(Widget):
         
         # Draw splash screen content (status bar is handled by Manager)
         draw.rectangle([0, STATUS_BAR_HEIGHT, 128, 296], fill=255, outline=255)
-        img.paste(self._logo, (0, STATUS_BAR_HEIGHT + 4))
+        img.paste(self._logo, (0, STATUS_BAR_HEIGHT))
         draw.text((0, STATUS_BAR_HEIGHT + 180), self.message, font=self._font_18, fill=0)
         
         return img
