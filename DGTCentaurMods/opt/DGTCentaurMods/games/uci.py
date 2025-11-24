@@ -249,26 +249,6 @@ class UCIGame:
             except Exception as e:
                 log.warning(f"Error stopping analysis worker: {e}")
         
-        display_manager.clear_widgets()
-        display_manager.add_widget(SplashScreen(message="   Exiting UCI"))
-
-        # Shutdown display manager to stop scheduler thread
-        try:
-            display_manager.shutdown()
-        except Exception as e:
-            log.warning(f"Error shutting down display manager: {e}")
-
-        # Clean up board
-        try:
-            board.ledsOff()
-        except:
-            pass
-        
-        try:
-            board.unPauseEvents()
-        except:
-            pass
-        
         try:
             manager.resetMoveState()
         except:
@@ -283,6 +263,16 @@ class UCIGame:
             board.cleanup(leds_off=True)
         except:
             pass
+        
+        display_manager.clear_widgets()
+        display_manager.add_widget(SplashScreen(message="   Exiting UCI"))
+
+        # Shutdown display manager to stop scheduler thread
+        try:
+            display_manager.shutdown()
+        except Exception as e:
+            log.warning(f"Error shutting down display manager: {e}")
+
     
     def _handle_key_press(self, key):
         """Handle key press events."""
