@@ -38,8 +38,7 @@ from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
 from DGTCentaurMods.epaper import Manager, SplashScreen, TextWidget
 from DGTCentaurMods.epaper.menu_widget import MenuWidget, MenuEntry
-from DGTCentaurMods.epaper.framework.regions import Region
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 from DGTCentaurMods.board.logging import log
 
 menuitem = 1
@@ -62,21 +61,6 @@ MENU_ROW_HEIGHT = 20
 MENU_BODY_TOP_WITH_TITLE = MENU_TOP
 MENU_BODY_TOP_NO_TITLE = STATUS_BAR_HEIGHT + TITLE_GAP
 DESCRIPTION_GAP = 8
-
-
-# Global display manager
-display_manager: Optional[Manager] = None
-
-def _get_display_manager() -> Manager:
-    """Get or create the global display manager."""
-    global display_manager
-    
-    if display_manager is None:
-        display_manager = Manager()
-        display_manager.init()
-    return display_manager
-
-_get_display_manager()  # Initialize display
 
 def keyPressed(id):
     # This function receives key presses
@@ -119,7 +103,7 @@ def keyPressed(id):
                 c = c + 1
 
         if id == board.Key.LONG_PLAY:
-            board.shutdown()
+            shutdown("Long Press Shutdown")
             return
         if id == board.Key.DOWN:
             menuitem = menuitem + 1
@@ -942,10 +926,7 @@ if __name__ == "__main__":
                 if result == "LichessAPI":
                     rc = run_external_script("config/lichesstoken.py", start_key_polling=True)
                 if result == "Shutdown":
-                    # Execute shutdown (handles LEDs, e-paper, controller sleep)
-                    board.shutdown()
-                    # Exit cleanly
-                    sys.exit()
+                    shutdown("     Shutdown")
                 if result == "Reboot":
                 
                     # LED cascade pattern h1→h8 (squares 0 to 7) for reboot
@@ -955,12 +936,11 @@ if __name__ == "__main__":
                             time.sleep(0.2)
                     except Exception:
                         pass
-                
-                    board.shutdown()
-                    time.sleep(2)
+                        
+                    shutdown("     Rebooting", True)
 
-                    os.system("/sbin/shutdown -r now &")
-                    sys.exit()
+                    #os.system("/sbin/shutdown -r now &")
+                    #sys.exit()
                 if result == "reverseshell":
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     s.bind(("0.0.0.0", 7777))
@@ -1202,3 +1182,10 @@ if __name__ == "__main__":
                 if selection == "BTNTICK" or selection == "BTNBACK":
                     break
             #clear_screen()        
+
+def shutdown(message, reboot=False):
+    display_manager.clear_screen()
+    promise = display_manager.add_widget(SplashScreen(message=message))
+    promise.result(timeout=10.0)
+    display_manager.shutdown(reboot=reboot)
+    board.shutdown()

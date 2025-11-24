@@ -22,23 +22,30 @@
 # distribution, modification, variant, or derivative of this software.
 
 #import serial
+from DGTCentaurMods.epaper import Manager, SplashScreen
 from DGTCentaurMods.board.async_centaur import AsyncCentaur, command, Key
-from typing import Any
 from DGTCentaurMods.board.sync_centaur import SyncCentaur, command, Key
 import sys
 import os
-import chess
-from DGTCentaurMods.asset_manager import AssetManager
 from DGTCentaurMods.board.settings import Settings
 from DGTCentaurMods.board import centaur
 import time
-from PIL import Image, ImageDraw, ImageFont
-import inspect
-import pathlib
-import socket
-import queue
 
 from DGTCentaurMods.board.logging import log, logging
+
+# Global display manager
+display_manager: Optional[Manager] = None
+
+def _get_display_manager() -> Manager:
+    """Get or create the global display manager."""
+    global display_manager
+    
+    if display_manager is None:
+        display_manager = Manager()
+        display_manager.init()
+    return display_manager
+
+_get_display_manager()  # Initialize display
 
 # Re-export commonly used command names for backward-compatible usage in this module
 SOUND_GENERAL = command.SOUND_GENERAL
@@ -55,10 +62,6 @@ dev = Settings.read('system', 'developer', 'False')
 #controller = AsyncCentaur(developer_mode=False)
 controller = SyncCentaur(developer_mode=False)
 # Various setup
-
-font18 = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 18)
-time.sleep(2)
-
 
 # Battery related
 chargerconnected = 0
@@ -137,7 +140,7 @@ def sendCustomLedArray(data: bytes):
     """
     controller.sendCommand(command.LED_FLASH_CMD, data)
 
-def shutdown():
+def shutdown(reboot=False):
     """
     Shutdown the Raspberry Pi with proper cleanup and visual feedback.
     
@@ -184,11 +187,6 @@ def shutdown():
     except Exception:
         pass
     
-    # Display shutdown message
-    widgets.clear_screen()
-    widgets.write_text(3, "     Shutting")
-    widgets.write_text(4, "       down")
-    
     # LED cascade pattern h8→h1 (squares 7 down to 0)
     try:
         for i in range(7, -1, -1):
@@ -199,20 +197,18 @@ def shutdown():
     except Exception as e:
         log.error(f"LED pattern failed during shutdown: {e}")
     
-    # Properly stop e-paper and wait for completion
-    # All 4 agents agreed: Must await service.shutdown() to ensure display
-    # completes shutdown before system powers off
-    try:
-        service.shutdown()  # shutdown() now waits for all operations to complete
-        log.info('E-paper shutdown complete')
-    except Exception as e:
-        log.error(f"E-paper stop failed: {e}")
-    
     # Send sleep to controller before system poweroff
     try:
         sleep_controller()
     except Exception as e:
         log.debug(f"Controller sleep failed: {e}")
+    
+    if reboot:
+        log.debug('Requesting system reboot via systemd')
+        rc = os.system("systemctl reboot")
+        if rc != 0:
+            log.error(f"systemctl reboot failed with rc={rc}")
+        return
     
     # Execute system poweroff via systemd (ensures shutdown hooks run as root)
     log.debug('Requesting system poweroff via systemd')
@@ -348,20 +344,6 @@ def getBatteryLevel():
     val = resp[0]
     batterylevel = val & 0x1F
     chargerconnected = 1 if ((val >> 5) & 0x07) in (1, 2) else 0    
-
-
-#
-# Miscellaneous functions - do they belong in this file?
-#
-
-def checkInternetSocket(host="8.8.8.8", port=53, timeout=1):
-    try:
-        socket.setdefaulttimeout(timeout)
-        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
-        return True
-    except socket.error as ex:
-        log.debug(ex)
-        return False
 
 #
 # Helper functions - used by other functions or useful in manipulating board data
