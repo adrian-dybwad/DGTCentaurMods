@@ -4,7 +4,7 @@ Splash screen widget displayed on startup.
 
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget
-from .status_bar import StatusBarWidget
+from .status_bar import STATUS_BAR_HEIGHT
 import os
 import sys
 
@@ -29,7 +29,6 @@ class SplashScreen(Widget):
         self.message = message
         self._font_18 = None
         self._logo = None
-        self._status_bar_widget = StatusBarWidget(0, 0)
         self._load_resources()
 
     def _load_resources(self):
@@ -47,13 +46,7 @@ class SplashScreen(Widget):
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
-        STATUS_BAR_HEIGHT = 16
-        
-        # Draw status bar using StatusBarWidget
-        status_bar_image = self._status_bar_widget.render()
-        img.paste(status_bar_image, (0, 0))
-        
-        # Draw splash screen content
+        # Draw splash screen content (status bar is handled by Manager)
         draw.rectangle([0, STATUS_BAR_HEIGHT, 128, 296], fill=255, outline=255)
         img.paste(self._logo, (0, STATUS_BAR_HEIGHT + 4))
         draw.text((0, STATUS_BAR_HEIGHT + 180), self.message, font=self._font_18, fill=0)

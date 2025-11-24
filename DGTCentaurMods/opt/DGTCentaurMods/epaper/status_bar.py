@@ -9,6 +9,9 @@ from .wifi_status import WiFiStatusWidget
 from .battery import BatteryWidget
 import os
 
+# Status bar height constant
+STATUS_BAR_HEIGHT = 16
+
 try:
     from DGTCentaurMods.board.logging import log
 except ImportError:
@@ -20,7 +23,7 @@ class StatusBarWidget(Widget):
     """Status bar widget displaying time, WiFi status, and battery icon."""
     
     def __init__(self, x: int = 0, y: int = 0):
-        super().__init__(x, y, 128, 16)
+        super().__init__(x, y, 128, STATUS_BAR_HEIGHT)
         # Create clock widget with HH:MM:SS format (showing seconds), 14pt font
         font_path = '/opt/DGTCentaurMods/resources/Font.ttc'
         if not os.path.exists(font_path):
