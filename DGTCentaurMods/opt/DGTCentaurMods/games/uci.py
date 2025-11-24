@@ -22,13 +22,9 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.games import manager
-from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget, TextWidget
-from DGTCentaurMods.epaper.game_over import GameOverWidget
-from DGTCentaurMods.asset_manager import AssetManager
-from DGTCentaurMods.menu import display_manager
-from DGTCentaurMods.board import board
+from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget, SplashScreen, GameOverWidget
+from DGTCentaurMods.board import board, display_manager
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.epaper.splash_screen import SplashScreen
 
 import time
 import chess
@@ -39,7 +35,6 @@ import os
 import threading
 from random import randint
 import configparser
-# PIL imports no longer needed - all drawing is done via widgets
 import signal
 
 
@@ -87,8 +82,7 @@ class UCIGame:
         
         # Create chess board widget at y=16 (below status bar)
         # Start with initial position
-        initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-        self.chess_board_widget = ChessBoardWidget(0, 16, initial_fen)
+        self.chess_board_widget = ChessBoardWidget(0, 16, manager.STARTING_FEN)
         display_manager.add_widget(self.chess_board_widget)
         
         # Determine bottom color based on board orientation
@@ -343,9 +337,9 @@ class UCIGame:
             if event == manager.EVENT_NEW_GAME:
                 self._handle_new_game()
             elif event == manager.EVENT_WHITE_TURN:
-                self._handle_white_turn()
+                self._handle_turn(chess.WHITE)
             elif event == manager.EVENT_BLACK_TURN:
-                self._handle_black_turn()
+                self._handle_turn(chess.BLACK)
             elif event == manager.EVENT_RESIGN_GAME:
                 manager.resignGame(self.computer_color + 1)
             elif isinstance(event, str) and event.startswith("Termination."):
@@ -382,24 +376,10 @@ class UCIGame:
             self._update_analysis_widget(board_obj)
         
     
-    def _handle_white_turn(self):
-        """Handle white's turn."""
-        self.current_turn = chess.WHITE
-        log.info(f"WHITE_TURN event: current_turn={self.current_turn}, computer_color={self.computer_color}")
-        
-        if self.graphs_enabled:
-            board_obj = manager.getBoard()
-            self._update_analysis_widget(board_obj)
-        
-        self._draw_board(manager.getFEN())
-        
-        if self.current_turn == self.computer_color:
-            self._play_computer_move()
-    
-    def _handle_black_turn(self):
-        """Handle black's turn."""
-        self.current_turn = chess.BLACK
-        log.info(f"BLACK_TURN event: current_turn={self.current_turn}, computer_color={self.computer_color}")
+    def _handle_turn(self, turn: chess.Color):
+        """Handle turn event."""
+        self.current_turn = turn
+        log.info(f"{turn.name} turn: current_turn={self.current_turn}, computer_color={self.computer_color}")
         
         if self.graphs_enabled:
             board_obj = manager.getBoard()
