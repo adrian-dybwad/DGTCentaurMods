@@ -44,13 +44,14 @@ batterylastchecked = 0
 # Global display manager
 display_manager: Optional[Manager] = None
 
-def init_display():
+def init_display() -> Future:
     """Get or create the global display manager."""
     global display_manager
     
     if display_manager is None:
         display_manager = Manager()
-        #display_manager.init(addStatusBar=addStatusBar)
+        return display_manager.initialize()
+    return None
 
 
 # Re-export commonly used command names for backward-compatible usage in this module

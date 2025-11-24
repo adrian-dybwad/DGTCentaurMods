@@ -596,7 +596,12 @@ def get_lichess_client():
 if __name__ == "__main__":  
     # Subscribe to board events. First parameter is the function for key presses. The second is the function for
     # field activity
-    board.init_display()
+    promise = board.init_display()
+    if promise:
+        try:
+            promise.result(timeout=10.0)
+        except Exception as e:
+            log.warning(f"Error initializing display: {e}")
     board.subscribeEvents(keyPressed, changedCallback, timeout=900)
     board._events_initialized = True  # Mark as initialized to prevent re-initialization
     board.printChessState()
