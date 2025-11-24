@@ -379,7 +379,8 @@ class UCIGame:
     def _handle_turn(self, turn: chess.Color):
         """Handle turn event."""
         self.current_turn = turn
-        log.info(f"{turn.name} turn: current_turn={self.current_turn}, computer_color={self.computer_color}")
+        turn_name = "WHITE" if turn == chess.WHITE else "BLACK"
+        log.info(f"{turn_name} turn: current_turn={self.current_turn}, computer_color={self.computer_color}")
         
         if self.graphs_enabled:
             board_obj = manager.getBoard()
