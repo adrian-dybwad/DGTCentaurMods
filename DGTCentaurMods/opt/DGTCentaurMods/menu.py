@@ -1193,8 +1193,8 @@ if __name__ == "__main__":
             #clear_screen()        
 
 def shutdown(message, reboot=False):
-    display_manager.clear_screen()
-    promise = display_manager.add_widget(SplashScreen(message=message))
+    board.display_manager.clear_widgets(addStatusBar=False)
+    promise = board.display_manager.add_widget(SplashScreen(message=message))
     promise.result(timeout=10.0)
-    display_manager.shutdown(reboot=reboot)
+    board.display_manager.shutdown(reboot=reboot)
     board.shutdown()
