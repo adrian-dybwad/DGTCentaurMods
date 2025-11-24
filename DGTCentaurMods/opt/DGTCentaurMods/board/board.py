@@ -77,8 +77,8 @@ controller.wait_ready()
 
 def cleanup(leds_off: bool = True):
     controller.cleanup(leds_off=True)
-    display_manager.shutdown()
-    display_manager = None
+    #display_manager.shutdown()
+    #display_manager = None
 
 def wait_for_key_up(timeout=None, accept=None):
     """Wait for a key up event from the board"""
