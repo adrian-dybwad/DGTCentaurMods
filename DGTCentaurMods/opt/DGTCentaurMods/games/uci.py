@@ -263,9 +263,14 @@ class UCIGame:
             board.cleanup(leds_off=True)
         except:
             pass
-        
+
         display_manager.clear_widgets()
-        display_manager.add_widget(SplashScreen(message="   Exiting UCI"))
+        future = display_manager.add_widget(SplashScreen(message="   Exiting UCI"))
+        if future:
+            try:
+                future.result(timeout=10.0)
+            except Exception as e:
+                log.warning(f"Error displaying splash screen: {e}")
 
         # Shutdown display manager to stop scheduler thread
         try:
