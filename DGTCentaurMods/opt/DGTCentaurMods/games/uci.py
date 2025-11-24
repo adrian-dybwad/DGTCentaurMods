@@ -252,6 +252,12 @@ class UCIGame:
         display_manager.clear_widgets()
         display_manager.add_widget(SplashScreen(message="   Exiting UCI"))
 
+        # Shutdown display manager to stop scheduler thread
+        try:
+            display_manager.shutdown()
+        except Exception as e:
+            log.warning(f"Error shutting down display manager: {e}")
+
         # Clean up board
         try:
             board.ledsOff()
