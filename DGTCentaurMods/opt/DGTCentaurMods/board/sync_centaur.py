@@ -210,7 +210,6 @@ class SyncCentaur:
             self._polling_thread.start()
         
         # THEN send discovery commands
-        log.info("Starting discovery...")
         self._discover_board_address()
     
     def wait_ready(self, timeout=60):
@@ -245,8 +244,6 @@ class SyncCentaur:
                 self.ser.close()
                 self.ser.open()
         
-        log.info("Serial port opened successfully")
-    
     def _listener_thread(self):
         """Continuously listen for data on the serial port"""
         log.info("Listening for serial data...")
@@ -817,7 +814,7 @@ class SyncCentaur:
         
         # Called from run_background() with no packet
         if packet is None:
-            log.info("Discovery: STARTING")
+            log.info("Discovery starting")
             self.ser.write(0x4d)
             self.ser.write(0x4e)
             self._send_command(command.DGT_BUS_SEND_87)
