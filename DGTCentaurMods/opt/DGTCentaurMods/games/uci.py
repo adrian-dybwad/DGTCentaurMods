@@ -266,13 +266,6 @@ class UCIGame:
         except:
             pass
 
-
-        # Shutdown display manager to stop scheduler thread
-        try:
-            board.display_manager.shutdown()
-        except Exception as e:
-            log.warning(f"Error shutting down display manager: {e}")
-
     
     def _handle_key_press(self, key):
         """Handle key press events."""
