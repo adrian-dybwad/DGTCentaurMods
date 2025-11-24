@@ -208,6 +208,8 @@ def shutdown(reboot=False):
     except Exception as e:
         log.debug(f"Controller sleep failed: {e}")
     
+    display_manager.shutdown()
+
     if reboot:
         log.debug('Requesting system reboot via systemd')
         rc = os.system("systemctl reboot")
