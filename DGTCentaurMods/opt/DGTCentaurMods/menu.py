@@ -314,24 +314,22 @@ if __name__ == "__main__": #or not hasattr(board, '_events_initialized'):
     board._events_initialized = True  # Mark as initialized to prevent re-initialization
     board.printChessState()
     resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
-    log.info(f"Discovery: RESPONSE FROM F0 - {' '.join(f'{b:02x}' for b in resp)}")
+    log.debug(f"Menu: RESPONSE FROM F0 - {' '.join(f'{b:02x}' for b in resp)}")
     resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F4)
-    log.info(f"Discovery: RESPONSE FROM F4 - {' '.join(f'{b:02x}' for b in resp)}")
+    log.debug(f"Menu: RESPONSE FROM F4 - {' '.join(f'{b:02x}' for b in resp)}")
     resp = board.sendCommand(command.DGT_BUS_SEND_96)
-    log.info(f"Discovery: RESPONSE FROM 96 - {' '.join(f'{b:02x}' for b in resp)}")
+    log.debug(f"Menu: RESPONSE FROM 96 - {' '.join(f'{b:02x}' for b in resp)}")
     resp = board.sendCommand(command.DGT_BUS_SEND_STATE)
-    log.info(f"Discovery: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
+    log.debug(f"Menu: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
 
 
 def show_welcome():
     global idle
-    log.info(">>> show_welcome() ENTERED")
     
     splash_screen = SplashScreen(message="   Press [✓]")
     display_manager.add_widget(splash_screen)
     
     idle = True
-    log.info(">>> show_welcome() setting idle=True, about to BLOCK on event_key.wait()")
     try:
         event_key.wait()
         log.info(">>> show_welcome() event_key.wait() RETURNED - key was pressed")
@@ -342,12 +340,6 @@ def show_welcome():
     event_key.clear()
     idle = False
     
-    # Remove all widgets (including welcome widget) before showing menu
-    # Don't update display here - doMenu() will render the menu on a fresh white canvas
-    # This avoids triggering a full flash from the scheduler's transition logic
-    log.info(">>> show_welcome() EXITING, idle=False")
-
-
 def run_external_script(script_rel_path: str, *args: str, start_key_polling: bool = True) -> int:
     process = None
     interrupted = False
