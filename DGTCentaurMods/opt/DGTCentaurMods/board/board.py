@@ -212,16 +212,16 @@ def shutdown(reboot=False):
 
     if reboot:
         log.debug('Requesting system reboot via systemd')
-        rc = os.system("systemctl reboot")
+        rc = os.system("sudo systemctl reboot")
         if rc != 0:
-            log.error(f"systemctl reboot failed with rc={rc}")
+            log.error(f"sudo systemctl reboot failed with rc={rc}")
         return
     
     # Execute system poweroff via systemd (ensures shutdown hooks run as root)
     log.debug('Requesting system poweroff via systemd')
-    rc = os.system("systemctl poweroff")
+    rc = os.system("sudo systemctl poweroff")
     if rc != 0:
-        log.error(f"systemctl poweroff failed with rc={rc}")
+        log.error(f"sudo systemctl poweroff failed with rc={rc}")
 
 
 def sleep_controller():
