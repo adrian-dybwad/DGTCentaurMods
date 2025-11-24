@@ -25,7 +25,7 @@ class SplashScreen(Widget):
     """Splash screen widget with logo and press prompt."""
     
     def __init__(self, message: str = "   Press [✓]"):
-        super().__init__(0, 0, 128, 296)  # Full screen widget
+        super().__init__(0, STATUS_BAR_HEIGHT, 128, 296 - STATUS_BAR_HEIGHT)  # Full screen widget
         self.message = message
         self._font_18 = None
         self._logo = None
@@ -46,9 +46,8 @@ class SplashScreen(Widget):
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
-        # Draw splash screen content (status bar is handled by Manager)
-        draw.rectangle([0, STATUS_BAR_HEIGHT, 128, 296], fill=255, outline=255)
-        img.paste(self._logo, (0, STATUS_BAR_HEIGHT))
-        draw.text((0, STATUS_BAR_HEIGHT + 180), self.message, font=self._font_18, fill=0)
+        draw.rectangle([0, 0, self.width, self.height], fill=255, outline=255)
+        img.paste(self._logo, (0, 0))
+        draw.text((0, 180), self.message, font=self._font_18, fill=0)
         
         return img
