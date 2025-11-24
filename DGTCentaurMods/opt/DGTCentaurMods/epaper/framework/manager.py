@@ -162,16 +162,16 @@ class Manager:
             self._scheduler.stop()
             
             # Clear display to white before sleeping to leave it in a known state
-            try:
-                self._epd.Clear()
-            except Exception:
-                # If Clear() fails, try using display() with white image
-                try:
-                    white_image = Image.new('1', (self._epd.width, self._epd.height), 255)
-                    white_buf = self._epd.getbuffer(white_image)
-                    self._epd.display(white_buf)
-                except Exception:
-                    pass
+            # try:
+            #     self._epd.Clear()
+            # except Exception:
+            #     # If Clear() fails, try using display() with white image
+            #     try:
+            #         white_image = Image.new('1', (self._epd.width, self._epd.height), 255)
+            #         white_buf = self._epd.getbuffer(white_image)
+            #         self._epd.display(white_buf)
+            #     except Exception:
+            #         pass
             
             self._epd.sleep()
         except Exception as e:
