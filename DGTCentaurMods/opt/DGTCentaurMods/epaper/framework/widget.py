@@ -10,6 +10,12 @@ from .regions import Region
 if TYPE_CHECKING:
     from .scheduler import Scheduler
 
+try:
+    from DGTCentaurMods.board.logging import log
+except ImportError:
+    import logging
+    log = logging.getLogger(__name__)
+
 
 class Widget(ABC):
     """Base class for all display widgets."""
@@ -22,10 +28,12 @@ class Widget(ABC):
         self._last_rendered: Optional[Image.Image] = None
         self._scheduler: Optional['Scheduler'] = None
         self._update_callback: Optional[Callable[[bool], object]] = None
+        log.debug(f"Widget.__init__(): Created {self.__class__.__name__} instance id={id(self)} at ({x}, {y}) size {width}x{height}")
     
     def set_scheduler(self, scheduler: 'Scheduler') -> None:
         """Set the scheduler for this widget to trigger updates."""
         self._scheduler = scheduler
+        log.debug(f"Widget.set_scheduler(): {self.__class__.__name__} id={id(self)} scheduler set")
     
     def set_update_callback(self, callback: Callable[[bool], object]) -> None:
         """Set a callback to trigger Manager.update() when widget state changes.
@@ -34,6 +42,7 @@ class Widget(ABC):
         This allows widgets to trigger full update cycles that render all widgets.
         """
         self._update_callback = callback
+        log.debug(f"Widget.set_update_callback(): {self.__class__.__name__} id={id(self)} update callback set")
             
     def get_scheduler(self) -> Optional['Scheduler']:
         """Get the scheduler for this widget."""
@@ -94,4 +103,4 @@ class Widget(ABC):
         This method is called by Manager.shutdown() to ensure proper cleanup
         of all widgets before the display is shut down.
         """
-        pass
+        log.debug(f"Widget.stop(): {self.__class__.__name__} id={id(self)} stop() called")

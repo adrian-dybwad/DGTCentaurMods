@@ -38,17 +38,25 @@ class WiFiStatusWidget(Widget):
     def _start_update_loop(self) -> None:
         """Start the background update loop."""
         if self._running:
+            log.debug(f"WiFiStatusWidget._start_update_loop(): Widget id={id(self)} already running, skipping")
             return
         self._running = True
         self._thread = threading.Thread(target=self._update_loop, name="wifi-status-widget", daemon=True)
         self._thread.start()
+        log.debug(f"WiFiStatusWidget._start_update_loop(): Widget id={id(self)} thread started, thread_id={self._thread.ident}")
     
     def _stop_update_loop(self) -> None:
         """Stop the background update loop."""
+        log.debug(f"WiFiStatusWidget._stop_update_loop(): Widget id={id(self)} stopping, thread_id={self._thread.ident if self._thread else None}")
         self._running = False
         self._stop_event.set()  # Signal the event to wake up any sleeping thread
         if self._thread:
+            thread_id = self._thread.ident
             self._thread.join(timeout=1.0)
+            if self._thread.is_alive():
+                log.warning(f"WiFiStatusWidget._stop_update_loop(): Widget id={id(self)} thread {thread_id} did not stop within timeout")
+            else:
+                log.debug(f"WiFiStatusWidget._stop_update_loop(): Widget id={id(self)} thread {thread_id} stopped successfully")
             self._thread = None
     
     def stop(self) -> None:
@@ -57,6 +65,8 @@ class WiFiStatusWidget(Widget):
     
     def _update_loop(self) -> None:
         """Background loop that checks WiFi state every 10 seconds and on dhcpcd hook notifications."""
+        thread_id = threading.get_ident()
+        log.debug(f"WiFiStatusWidget._update_loop(): Widget id={id(self)} thread {thread_id} started")
         while self._running:
             try:
                 # Check for dhcpcd hook notification
@@ -99,6 +109,7 @@ class WiFiStatusWidget(Widget):
                         break
                     self._stop_event.wait(timeout=1.0)
                     self._stop_event.clear()
+        log.debug(f"WiFiStatusWidget._update_loop(): Widget id={id(self)} thread {thread_id} exiting")
     
     def _is_connected(self) -> bool:
         """Check if WiFi is connected."""
