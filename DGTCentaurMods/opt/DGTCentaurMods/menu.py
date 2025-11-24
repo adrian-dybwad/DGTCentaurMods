@@ -218,8 +218,6 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     if ordered_menu:
         initial_index = max(0, min(len(ordered_menu) - 1, menuitem - 1))
     
-    display_manager.clear_widgets()
-
     # Define callbacks for registering/unregistering the menu widget
     def register_menu_widget(widget):
         global _active_menu_widget
@@ -243,7 +241,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         unregister_callback=unregister_menu_widget
     )
 
-    display_manager.add_widget(menu_widget)
+    board.display_manager.add_widget(menu_widget)
     log.info(f">>> doMenu: created MenuWidget with {len(menu_entries)} entries, selected_index={initial_index}")
     
     menuitem = (initial_index + 1) if ordered_menu else 1
@@ -269,14 +267,14 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
         else:
             selection = "BACK"
         
-        display_manager.clear_widgets()
+        board.display_manager.clear_widgets()
         
         log.info(f">>> doMenu: returning selection='{selection}'")
         return selection
     except KeyboardInterrupt:
         log.info(">>> doMenu: KeyboardInterrupt caught")
-        display_manager.clear_widgets()
-        display_manager.add_widget(SplashScreen(message="   Shutdown"))
+        board.display_manager.clear_widgets()
+        board.display_manager.add_widget(SplashScreen(message="   Shutdown"))
         return "SHUTDOWN"
 
 def changedCallback(piece_event, field, time_in_seconds):
@@ -294,7 +292,7 @@ def show_welcome():
     global idle
     
     splash_screen = SplashScreen(message="   Press [✓]")
-    display_manager.add_widget(splash_screen)
+    board.display_manager.add_widget(splash_screen)
     
     idle = True
     try:
@@ -356,7 +354,7 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
     original_handler = signal.signal(signal.SIGINT, signal_handler)
     try:
         splash_screen = SplashScreen(message="     Loading")
-        promise = display_manager.add_widget(splash_screen)
+        promise = board.display_manager.add_widget(splash_screen)
         if promise:
             try:
                 promise.result(timeout=10.0)
@@ -389,10 +387,13 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         # Restore original signal handler
         signal.signal(signal.SIGINT, original_handler)
         log.info(">>> Reinitializing after external script...")
-        board.init_display()
+        promise = board.init_display()
+        if promise:
+            try:
+                promise.result(timeout=10.0)
+            except Exception as e:
+                log.warning(f"Error initializing display: {e}")
         log.info(">>> display manager initialized")
-        display_manager.update(full=True)
-        log.info(">>> clear_screen() complete")
         board.run_background(start_key_polling=start_key_polling)
         log.info(">>> board.run_background() complete")
         board.unPauseEvents()
