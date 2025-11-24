@@ -175,6 +175,20 @@ echo -e "::: Setting up nginx proxy"
         echo -e "::: Warning: enable-web-proxy.sh not found"
     fi
 
+# Install dhcpcd hook for WiFi status widget
+echo -e "::: Installing dhcpcd hook for WiFi status widget"
+    if [ -f "${DGTCM_PATH}/../etc/dhcpcd/dhcpcd-hooks/50-dgtcm-wifi-notify" ]; then
+        sudo mkdir -p /lib/dhcpcd/dhcpcd-hooks
+        sudo cp "${DGTCM_PATH}/../etc/dhcpcd/dhcpcd-hooks/50-dgtcm-wifi-notify" /lib/dhcpcd/dhcpcd-hooks/
+        sudo chmod +x /lib/dhcpcd/dhcpcd-hooks/50-dgtcm-wifi-notify
+        # Create notification file directory
+        sudo mkdir -p /var/run
+        sudo touch /var/run/dgtcm-wifi-hook-notify
+        sudo chmod 666 /var/run/dgtcm-wifi-hook-notify
+    else
+        echo -e "::: Warning: dhcpcd hook script not found"
+    fi
+
 # Update main.conf in /etc/bluetooth
     cp $BTMAIN $BTMAIN.bak
     sed -i "/DiscoverableTimeout/s/^# *//" $BTMAIN

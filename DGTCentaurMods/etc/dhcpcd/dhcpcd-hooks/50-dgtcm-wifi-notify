@@ -1,0 +1,18 @@
+#!/bin/bash
+# dhcpcd hook to notify DGTCentaurMods WiFi status widget of network state changes
+# This hook is called by dhcpcd when network interface state changes
+
+# Only process wlan0 interface
+if [ "$interface" != "wlan0" ]; then
+    exit 0
+fi
+
+# Notification file that the widget monitors
+NOTIFY_FILE="/var/run/dgtcm-wifi-hook-notify"
+
+# Touch the notification file to signal state change
+# This will update the file's modification time, which the widget checks
+touch "$NOTIFY_FILE" 2>/dev/null || true
+
+exit 0
+
