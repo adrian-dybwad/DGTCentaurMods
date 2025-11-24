@@ -591,6 +591,12 @@ def get_lichess_client():
         raise
     return client
 
+def shutdown(message, reboot=False):
+    board.display_manager.clear_widgets(addStatusBar=False)
+    promise = board.display_manager.add_widget(SplashScreen(message=message))
+    promise.result(timeout=10.0)
+    board.display_manager.shutdown(reboot=reboot)
+    board.shutdown()
 
 # Handle the menu structure
 # Only run menu loop if menu.py is executed directly (not when imported)
@@ -1192,9 +1198,3 @@ if __name__ == "__main__":
                     break
             #clear_screen()        
 
-def shutdown(message, reboot=False):
-    board.display_manager.clear_widgets(addStatusBar=False)
-    promise = board.display_manager.add_widget(SplashScreen(message=message))
-    promise.result(timeout=10.0)
-    board.display_manager.shutdown(reboot=reboot)
-    board.shutdown()
