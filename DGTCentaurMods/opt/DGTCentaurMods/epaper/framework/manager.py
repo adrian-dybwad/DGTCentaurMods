@@ -3,7 +3,8 @@ Main display manager coordinating widgets and refresh scheduling.
 """
 
 import time
-from typing import List, Future
+from typing import List
+from concurrent.futures import Future
 from PIL import Image
 from .waveshare.epd2in9d import EPD
 from .framebuffer import FrameBuffer
@@ -53,7 +54,7 @@ class Manager:
 
         except Exception as e:
             raise RuntimeError(f"Failed to initialize display: {e}") from e
-            
+
         return None
     
     def add_widget(self, widget: Widget) -> None:
