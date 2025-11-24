@@ -44,7 +44,7 @@ def shell_run(rcmd):
         log.error(response_stderr)
         return -1
     else:
-        log.info(response_stdout)
+        log.debug(response_stdout)
         return response_stdout
 
 def check_network():
