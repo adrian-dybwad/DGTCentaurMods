@@ -235,12 +235,20 @@ class UCIGame:
     
     def cleanup(self):
         """Clean up all resources."""
+
         if self.is_cleaned_up:
             return
-        
         self.is_cleaned_up = True
         self.should_stop = True
-        
+
+        display_manager.clear_widgets()
+        future = display_manager.add_widget(SplashScreen(message="   Exiting UCI"))
+        if future:
+            try:
+                future.result(timeout=10.0)
+            except Exception as e:
+                log.warning(f"Error displaying splash screen: {e}")
+
         # Clean up engines
         self._cleanup_engines()
         if self.game_analysis:
@@ -264,13 +272,6 @@ class UCIGame:
         except:
             pass
 
-        display_manager.clear_widgets()
-        future = display_manager.add_widget(SplashScreen(message="   Exiting UCI"))
-        if future:
-            try:
-                future.result(timeout=10.0)
-            except Exception as e:
-                log.warning(f"Error displaying splash screen: {e}")
 
         # Shutdown display manager to stop scheduler thread
         try:
