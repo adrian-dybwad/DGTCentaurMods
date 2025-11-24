@@ -36,7 +36,6 @@ from DGTCentaurMods.asset_manager import AssetManager
 
 from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
-from DGTCentaurMods.board import display_manager
 from DGTCentaurMods.epaper import SplashScreen, TextWidget
 from DGTCentaurMods.epaper.menu_widget import MenuWidget, MenuEntry
 from PIL import Image
