@@ -576,7 +576,7 @@ class UCIGame:
             log.info(">>> Final cleanup")
             self.cleanup()
             log.info(">>> UCI Game: Goodbye!")
-            sys.exit(0)
+            os._exit(0)
 
 
 def cleanup_and_exit(signum=None, frame=None):
@@ -585,7 +585,7 @@ def cleanup_and_exit(signum=None, frame=None):
     if _uci_game_instance is not None:
         _uci_game_instance.cleanup()
     log.info("Goodbye!")
-    sys.exit(0)
+    os._exit(0)
 
 
 # Register signal handlers
