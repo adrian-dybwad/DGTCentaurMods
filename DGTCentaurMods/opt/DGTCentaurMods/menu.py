@@ -320,7 +320,12 @@ if __name__ == "__main__": #or not hasattr(board, '_events_initialized'):
     resp = board.sendCommand(command.DGT_BUS_SEND_96)
     log.debug(f"Menu: RESPONSE FROM 96 - {' '.join(f'{b:02x}' for b in resp)}")
     resp = board.sendCommand(command.DGT_BUS_SEND_STATE)
+    log.debug(f"Menu: RESPONSE FROM 82 - {' '.join(f'{b:02x}' for b in resp)}")
+
+    resp = board.sendCommand(command.DGT_BUS_SEND_CHANGES)
     log.debug(f"Menu: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
+    resp = board.sendCommand(command.DGT_BUS_POLL_KEYS)
+    log.debug(f"Menu: RESPONSE FROM 94 - {' '.join(f'{b:02x}' for b in resp)}")
 
 
 def show_welcome():
