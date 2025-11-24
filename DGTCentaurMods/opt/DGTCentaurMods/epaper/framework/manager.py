@@ -159,6 +159,13 @@ class Manager:
         self._shutting_down = True
         
         try:
+            # Stop all widgets to allow cleanup of background threads and resources
+            for widget in self._widgets:
+                try:
+                    widget.stop()
+                except Exception as e:
+                    log.debug(f"Error stopping widget {widget.__class__.__name__}: {e}")
+            
             self._scheduler.stop()
             
             # Clear display to white before sleeping to leave it in a known state

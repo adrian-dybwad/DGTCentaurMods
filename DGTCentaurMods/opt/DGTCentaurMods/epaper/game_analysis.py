@@ -120,6 +120,10 @@ class GameAnalysisWidget(Widget):
                 pass
             self._analysis_worker_thread = None
     
+    def stop(self) -> None:
+        """Stop the widget and perform cleanup tasks."""
+        self._stop_analysis_worker()
+    
     def __del__(self):
         """Cleanup when widget is destroyed."""
         self._stop_analysis_worker()

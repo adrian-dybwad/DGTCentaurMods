@@ -83,3 +83,15 @@ class Widget(ABC):
     def get_mask(self) -> Optional[Image.Image]:
         """Get a mask for transparent compositing. Returns None if not needed."""
         return None
+    
+    def stop(self) -> None:
+        """Stop the widget and perform cleanup tasks.
+        
+        This method should be overridden by widgets that have background threads,
+        timers, or other resources that need cleanup. The default implementation
+        does nothing.
+        
+        This method is called by Manager.shutdown() to ensure proper cleanup
+        of all widgets before the display is shut down.
+        """
+        pass

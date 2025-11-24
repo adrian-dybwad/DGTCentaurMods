@@ -56,6 +56,10 @@ class ClockWidget(Widget):
             self._thread.join(timeout=0.5)
             self._thread = None
     
+    def stop(self) -> None:
+        """Stop the widget and perform cleanup tasks."""
+        self._stop_update_loop()
+    
     def _update_loop(self) -> None:
         """Background loop that checks time every 0.1 seconds and triggers updates."""
         while self._running:
