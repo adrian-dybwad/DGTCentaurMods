@@ -76,6 +76,14 @@ class Manager:
     
     def clear_widgets(self) -> None:
         """Clear all widgets from the display."""
+        log.debug(f"Manager.clear_widgets() called, clearing {len(self._widgets)} widgets")
+        # Stop all existing widgets before clearing to prevent background threads from continuing
+        for widget in self._widgets:
+            try:
+                widget.stop()
+            except Exception as e:
+                log.debug(f"Error stopping widget {widget.__class__.__name__} during clear: {e}")
+        
         self._widgets.clear()
         # Create and add status bar widget
         status_bar_widget = StatusBarWidget(0, 0)
