@@ -46,6 +46,11 @@ def _get_display_manager() -> Manager:
         display_manager.init()
     return display_manager
 
+# Battery related
+chargerconnected = 0
+batterylevel = -1
+batterylastchecked = 0
+
 _get_display_manager()  # Initialize display
 
 # Re-export commonly used command names for backward-compatible usage in this module
@@ -63,11 +68,6 @@ dev = Settings.read('system', 'developer', 'False')
 #controller = AsyncCentaur(developer_mode=False)
 controller = SyncCentaur(developer_mode=False)
 # Various setup
-
-# Battery related
-chargerconnected = 0
-batterylevel = -1
-batterylastchecked = 0
 
 # But the address might not be that :( Here we send an initial 0x4d to ask the board to provide its address
 
