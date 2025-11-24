@@ -23,7 +23,7 @@
 
 from DGTCentaurMods.games import manager
 from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget, SplashScreen, GameOverWidget
-from DGTCentaurMods.board import board, display_manager
+from DGTCentaurMods.board import *
 from DGTCentaurMods.board.logging import log
 
 import time
@@ -83,7 +83,7 @@ class UCIGame:
         # Create chess board widget at y=16 (below status bar)
         # Start with initial position
         self.chess_board_widget = ChessBoardWidget(0, 16, manager.STARTING_FEN)
-        display_manager.add_widget(self.chess_board_widget)
+        board.display_manager.add_widget(self.chess_board_widget)
         
         # Determine bottom color based on board orientation
         # If board is flipped (flip=True), black is at bottom; if not flipped, white is at bottom
@@ -94,7 +94,7 @@ class UCIGame:
         # Widget will adjust scores internally based on bottom_color
         # Pass analysis engine so widget can call it directly
         self.game_analysis = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color, analysis_engine=self.analysis_engine)
-        display_manager.add_widget(self.game_analysis)
+        board.display_manager.add_widget(self.game_analysis)
         
     def _should_enable_graphs(self) -> bool:
         """Determine if evaluation graphs should be enabled based on hardware."""
@@ -235,8 +235,8 @@ class UCIGame:
         self.is_cleaned_up = True
         self.should_stop = True
 
-        display_manager.clear_widgets()
-        future = display_manager.add_widget(SplashScreen(message="   Exiting UCI"))
+        board.display_manager.clear_widgets()
+        future = board.display_manager.add_widget(SplashScreen(message="   Exiting UCI"))
         if future:
             try:
                 future.result(timeout=10.0)
@@ -269,7 +269,7 @@ class UCIGame:
 
         # Shutdown display manager to stop scheduler thread
         try:
-            display_manager.shutdown()
+            board.display_manager.shutdown()
         except Exception as e:
             log.warning(f"Error shutting down display manager: {e}")
 
@@ -432,7 +432,7 @@ class UCIGame:
         log.info(f"Game termination event: {termination_event}")
         termination_type = termination_event[12:]  # Remove "Termination." prefix
         
-        display_manager.clear_widgets()
+        board.display_manager.clear_widgets()
 
         """Draw the game over screen using GameOverWidget."""
         
@@ -445,7 +445,7 @@ class UCIGame:
             game_over_widget.set_score_history(self.game_analysis.get_score_history())
         else:
             game_over_widget.set_score_history([])
-        self.display_manager.add_widget(game_over_widget)
+        board.display_manager.add_widget(game_over_widget)
         
     def _handle_move(self, move_uci: str):
         """Handle a move made on the board."""
@@ -576,7 +576,12 @@ except Exception:
 def main():
     """Main entry point for UCI game."""
     # Parse command line arguments
-    board.init_display()
+    promise = board.init_display()
+    if promise:
+        try:
+            promise.result(timeout=10.0)
+        except Exception as e:
+            log.warning(f"Error initializing display: {e}")
     player_color = sys.argv[1] if len(sys.argv) > 1 else "white"
     engine_name = sys.argv[2] if len(sys.argv) > 2 else "stockfish_pi"
     uci_options_desc = sys.argv[3] if len(sys.argv) > 3 else "Default"
