@@ -236,7 +236,7 @@ class UCIGame:
         self.should_stop = True
 
         board.display_manager.clear_widgets()
-        future = board.display_manager.add_widget(SplashScreen(message="   Exiting UCI"))
+        future = board.display_manager.add_widget(SplashScreen(message="Goodbye from UCI"))
         if future:
             try:
                 future.result(timeout=10.0)
