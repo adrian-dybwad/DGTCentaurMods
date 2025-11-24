@@ -39,6 +39,7 @@ class ClockWidget(Widget):
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._last_rendered_time: Optional[str] = None
+        self._stop_event = threading.Event()
         self._start_update_loop()
     
     def _start_update_loop(self) -> None:
@@ -52,6 +53,7 @@ class ClockWidget(Widget):
     def _stop_update_loop(self) -> None:
         """Stop the background update loop."""
         self._running = False
+        self._stop_event.set()  # Signal the event to wake up any sleeping thread
         if self._thread:
             self._thread.join(timeout=0.5)
             self._thread = None
@@ -74,11 +76,16 @@ class ClockWidget(Widget):
                     self._last_rendered = None
                     self.request_update(full=False)
                 
-                # Sleep for 0.1 seconds
-                time.sleep(0.1)
+                # Sleep for 0.1 seconds using interruptible wait
+                # This allows the thread to stop quickly when requested
+                if not self._stop_event.wait(timeout=0.1):
+                    # Timeout occurred (normal case), clear the event for next iteration
+                    self._stop_event.clear()
             except Exception as e:
                 log.error(f"Error in clock update loop: {e}")
-                time.sleep(0.1)
+                # On error, also use interruptible sleep
+                if not self._stop_event.wait(timeout=0.1):
+                    self._stop_event.clear()
     
     
     def _load_font(self):

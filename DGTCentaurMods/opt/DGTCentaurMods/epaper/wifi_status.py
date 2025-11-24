@@ -32,6 +32,7 @@ class WiFiStatusWidget(Widget):
         # Path to dhcpcd hook notification file
         self._hook_notification_file = "/var/run/dgtcm-wifi-hook-notify"
         self._last_hook_mtime = 0.0
+        self._stop_event = threading.Event()
         self._start_update_loop()
     
     def _start_update_loop(self) -> None:
@@ -45,6 +46,7 @@ class WiFiStatusWidget(Widget):
     def _stop_update_loop(self) -> None:
         """Stop the background update loop."""
         self._running = False
+        self._stop_event.set()  # Signal the event to wake up any sleeping thread
         if self._thread:
             self._thread.join(timeout=1.0)
             self._thread = None
@@ -82,11 +84,21 @@ class WiFiStatusWidget(Widget):
                     else:
                         log.debug(f"WiFi status did not change: connected={is_connected}")
                 
-                # Sleep for 10 seconds
-                time.sleep(10.0)
+                # Sleep for 10 seconds, but check _running every second
+                # This allows the thread to stop quickly when requested
+                for _ in range(10):
+                    if not self._running:
+                        break
+                    self._stop_event.wait(timeout=1.0)
+                    self._stop_event.clear()  # Clear the event for next iteration
             except Exception as e:
                 log.error(f"Error in WiFi status update loop: {e}")
-                time.sleep(10.0)
+                # On error, also use interruptible sleep
+                for _ in range(10):
+                    if not self._running:
+                        break
+                    self._stop_event.wait(timeout=1.0)
+                    self._stop_event.clear()
     
     def _is_connected(self) -> bool:
         """Check if WiFi is connected."""

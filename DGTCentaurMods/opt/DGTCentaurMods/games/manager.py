@@ -243,6 +243,7 @@ class GameManager:
         # Thread control
         self.should_stop = False
         self.game_thread = None
+        self._stop_event = threading.Event()
     
     def _is_starting_position(self, board_state) -> bool:
         """Check if the board is in the starting position."""
@@ -1199,7 +1200,10 @@ class GameManager:
         
         try:
             while not self.should_stop:
-                time.sleep(0.1)
+                # Use interruptible sleep to allow quick thread termination
+                if not self._stop_event.wait(timeout=0.1):
+                    # Timeout occurred (normal case), clear the event for next iteration
+                    self._stop_event.clear()
         finally:
             # Clean up database session and engine in the same thread they were created
             if self.database_session is not None:
@@ -1358,6 +1362,7 @@ class GameManager:
     def unsubscribe_game(self):
         """Stop the game manager."""
         self.should_stop = True
+        self._stop_event.set()  # Signal the event to wake up any sleeping thread
         board.ledsOff()
         self.clock_manager.stop()
         
