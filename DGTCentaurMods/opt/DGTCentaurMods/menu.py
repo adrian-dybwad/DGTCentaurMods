@@ -289,29 +289,6 @@ update = centaur.UpdateSystem()
 log.info("Setting checking for updates in 5 mins.")
 threading.Timer(300, update.main).start()
 
-# Only initialize board events if menu.py is the main script (not when imported)
-# This prevents conflicts when other scripts (like uci.py) import from menu.py
-if __name__ == "__main__": #or not hasattr(board, '_events_initialized'):
-    # Subscribe to board events. First parameter is the function for key presses. The second is the function for
-    # field activity
-    board.init_display()
-    board.subscribeEvents(keyPressed, changedCallback, timeout=900)
-    board._events_initialized = True  # Mark as initialized to prevent re-initialization
-    board.printChessState()
-    resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
-    log.debug(f"Menu: RESPONSE FROM F0 - {' '.join(f'{b:02x}' for b in resp)}")
-    resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F4)
-    log.debug(f"Menu: RESPONSE FROM F4 - {' '.join(f'{b:02x}' for b in resp)}")
-    resp = board.sendCommand(command.DGT_BUS_SEND_96)
-    log.debug(f"Menu: RESPONSE FROM 96 - {' '.join(f'{b:02x}' for b in resp)}")
-    resp = board.sendCommand(command.DGT_BUS_SEND_STATE)
-    log.debug(f"Menu: RESPONSE FROM 82 - {' '.join(f'{b:02x}' for b in resp)}")
-
-    resp = board.sendCommand(command.DGT_BUS_SEND_CHANGES)
-    log.debug(f"Menu: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
-    resp = board.sendCommand(command.DGT_BUS_POLL_KEYS)
-    log.debug(f"Menu: RESPONSE FROM 94 - {' '.join(f'{b:02x}' for b in resp)}")
-
 
 def show_welcome():
     global idle
@@ -617,6 +594,25 @@ def get_lichess_client():
 # Handle the menu structure
 # Only run menu loop if menu.py is executed directly (not when imported)
 if __name__ == "__main__":  
+    # Subscribe to board events. First parameter is the function for key presses. The second is the function for
+    # field activity
+    board.init_display()
+    board.subscribeEvents(keyPressed, changedCallback, timeout=900)
+    board._events_initialized = True  # Mark as initialized to prevent re-initialization
+    board.printChessState()
+    resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
+    log.debug(f"Menu: RESPONSE FROM F0 - {' '.join(f'{b:02x}' for b in resp)}")
+    resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F4)
+    log.debug(f"Menu: RESPONSE FROM F4 - {' '.join(f'{b:02x}' for b in resp)}")
+    resp = board.sendCommand(command.DGT_BUS_SEND_96)
+    log.debug(f"Menu: RESPONSE FROM 96 - {' '.join(f'{b:02x}' for b in resp)}")
+    resp = board.sendCommand(command.DGT_BUS_SEND_STATE)
+    log.debug(f"Menu: RESPONSE FROM 82 - {' '.join(f'{b:02x}' for b in resp)}")
+
+    resp = board.sendCommand(command.DGT_BUS_SEND_CHANGES)
+    log.debug(f"Menu: RESPONSE FROM 83 - {' '.join(f'{b:02x}' for b in resp)}")
+    resp = board.sendCommand(command.DGT_BUS_POLL_KEYS)
+    log.debug(f"Menu: RESPONSE FROM 94 - {' '.join(f'{b:02x}' for b in resp)}")
     show_welcome()  # Show welcome screen first, wait for tick
     while True:    
         menu = {}
