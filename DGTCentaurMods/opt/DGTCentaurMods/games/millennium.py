@@ -22,8 +22,8 @@
 # distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.game import gamemanager
-from DGTCentaurMods.display.epaper_service import service, widgets
 from DGTCentaurMods.board import board
+from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget, SplashScreen, GameOverWidget, TextWidget
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board.bluetooth_controller import BluetoothController
 
@@ -52,6 +52,11 @@ sendstatewithoutrequest = 1
 curturn = 1
 rx_buffer = bytearray()
 rx_lock = threading.Lock()
+
+#game_analysis = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color, analysis_engine=analysis_engine)
+#board.display_manager.add_widget(game_analysis)
+chess_board_widget = ChessBoardWidget(0, 20, gamemanager.getFEN())
+board.display_manager.add_widget(chess_board_widget)
 
 def keyCallback(key):
 	global kill
@@ -82,10 +87,8 @@ def eventCallback(event):
 	global curturn
 	global sendstatewithoutrequest
 	if event == gamemanager.EVENT_NEW_GAME:
-		widgets.write_text(0,"New Game")
-		widgets.write_text(1,"               ")
 		curturn = 1
-		widgets.draw_fen(gamemanager.getFEN())
+		chess_board_widget.set_fen(gamemanager.getFEN())
 		log.info("sending state")
 		bs = gamemanager.getFEN()
 		bs = bs.replace("/", "")
@@ -106,23 +109,23 @@ def eventCallback(event):
 	if event == gamemanager.EVENT_WHITE_TURN:
 		curturn = 1
 		log.info("white turn event")
-		widgets.write_text(0,"White turn")
+		#widgets.write_text(0,"White turn")
 	if event == gamemanager.EVENT_BLACK_TURN:
 		curturn = 0
 		log.info("black turn event")
-		widgets.write_text(0,"Black turn")
+		#widgets.write_text(0,"Black turn")
 
 	if type(event) == str:
 		if event.startswith("Termination."):
 			board.ledsOff()
-			widgets.write_text(1,event[12:])
+			#widgets.write_text(1,event[12:])
 			time.sleep(10)
 			kill = 1
 
 def moveCallback(move):
 	global sendstatewithoutrequest
-	widgets.draw_fen(gamemanager.getFEN())
-	widgets.write_text(9, move)
+	chess_board_widget.set_fen(gamemanager.getFEN())
+	#widgets.write_text(9, move)
 	bs = gamemanager.getFEN()
 	bs = bs.replace("/", "")
 	bs = bs.replace("1", ".")
@@ -140,10 +143,8 @@ def moveCallback(move):
 	sendMillenniumCommand(resp)
 
 # Activate the epaper
-service.init()
 board.ledsOff()
-widgets.write_text(0,'Connect remote')
-widgets.write_text(1,'Device Now')
+board.display_manager.add_widget(TextWidget(50, 20, 88, 100, "Connect remote Device Now", background=3, font_size=18))
 
 # Create Bluetooth controller instance and start pairing thread
 # Use "MILLENNIUM CHESS" device name for ChessLink app compatibility
@@ -153,11 +154,11 @@ bluetooth_controller.set_device_name("MILLENNIUM CHESS")
 pairThread = bluetooth_controller.start_pairing_thread()
 
 # Small delay to let bt-agent initialize
-time.sleep(2.5)
+#time.sleep(2.5)
 
 # Kill rfcomm if it is started
-os.system('sudo service rfcomm stop')
-time.sleep(2)
+#os.system('sudo service rfcomm stop')
+#time.sleep(2)
 for p in psutil.process_iter(attrs=['pid', 'name']):
 	if str(p.info["name"]) == "rfcomm":
 		p.kill()
@@ -757,8 +758,7 @@ log.info(f"Device MAC address: B8:27:EB:21:D2:51 (should be visible to ChessLink
 
 # Subscribe to game manager
 gamemanager.subscribeGame(eventCallback, moveCallback, keyCallback)
-widgets.write_text(0,"Place pieces in")
-widgets.write_text(1,"Starting Pos")
+board.display_manager.add_widget(TextWidget(50, 20, 88, 100, "Place pieces in Starting Position", background=3, font_size=18))
 
 def cleanup():
 	"""Clean up BLE services, advertisements, and resources before exit."""
