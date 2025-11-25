@@ -21,7 +21,7 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
-from DGTCentaurMods.game import gamemanager
+from DGTCentaurMods.games import manager as gamemanager
 from DGTCentaurMods.board import board
 from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget, SplashScreen, GameOverWidget, TextWidget
 from DGTCentaurMods.board.logging import log
