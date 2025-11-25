@@ -1014,9 +1014,14 @@ def main():
     log.info(f"RX Characteristic UUID: {DEFAULT_RX_CHAR_UUID}")
     log.info("=" * 60)
     
-    # Enable Bluetooth adapter for BLE GATT
+    # Initialize BLE application (peripheral/server) - this sets up D-Bus main loop
+    running = True
+    app = Application()
+    app.add_service(RelayService(0))
+    
+    # Enable Bluetooth adapter for BLE GATT (after main loop is set up)
     try:
-        bus = BleTools.get_bus()
+        bus = app.bus
         adapter = BleTools.find_adapter(bus)
         if adapter:
             adapter_obj = bus.get_object(BLUEZ_SERVICE_NAME, adapter)
@@ -1026,11 +1031,6 @@ def main():
             log.info("Bluetooth enabled and made discoverable")
     except Exception as e:
         log.warning(f"Could not enable Bluetooth: {e}")
-    
-    # Initialize BLE application (peripheral/server)
-    running = True
-    app = Application()
-    app.add_service(RelayService(0))
     
     # Register the application
     try:
@@ -1068,7 +1068,7 @@ def main():
         GObject.timeout_add(100, check_kill_flag)
     
     # Connect to target BLE device (client mode)
-    bus = BleTools.get_bus()
+    bus = app.bus
     adapter = BleTools.find_adapter(bus)
     
     # Start client connection in a separate thread to avoid blocking
