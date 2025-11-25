@@ -144,6 +144,13 @@ def moveCallback(move):
 
 # Activate the epaper
 board.ledsOff()
+promise = board.init_display()
+if promise:
+	try:
+		promise.result(timeout=10.0)
+	except Exception as e:
+		log.warning(f"Error initializing display: {e}")
+
 board.display_manager.add_widget(TextWidget(50, 20, 88, 100, "Connect remote Device Now", background=3, font_size=18))
 
 # Create Bluetooth controller instance and start pairing thread
