@@ -38,6 +38,7 @@ from DGTCentaurMods.thirdparty.advertisement import Advertisement
 from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic
 from DGTCentaurMods.thirdparty.bletools import BleTools
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.board.bluetooth_controller import BluetoothController
 
 GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
 BLUEZ_SERVICE_NAME = "org.bluez"
@@ -324,14 +325,15 @@ def get_device_properties(bus, device_path):
 
 
 def connect_to_device(bus, device_path):
-    """Prepare device for BLE GATT connection: pair, trust, and disconnect any existing connections"""
-    global client_device_path
+    """Connect to a BLE device with retry and pairing support"""
+    global client_device_path, client_connected
     
     try:
         device_obj = bus.get_object(BLUEZ_SERVICE_NAME, device_path)
         device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
         device_props = dbus.Interface(device_obj, DBUS_PROP_IFACE)
         
+        # Check device state
         props = get_device_properties(bus, device_path)
         if props:
             connected = props.get("Connected", False)
@@ -340,9 +342,14 @@ def connect_to_device(bus, device_path):
             address = props.get("Address", "unknown")
             log.info(f"Device state - Connected: {connected}, Paired: {paired}, Trusted: {trusted}, Address: {address}")
             
+            # If already connected, we're good
             if connected:
-                log.info("Device is already connected - gatttool will use existing connection or establish BLE GATT")
+                log.info("Device is already connected")
+                client_device_path = device_path
+                client_connected = True
+                return True
             
+            # Trust the device if not trusted (required for some BLE devices)
             if not trusted:
                 log.info("Device is not trusted, setting Trusted=True...")
                 try:
@@ -352,23 +359,39 @@ def connect_to_device(bus, device_path):
                 except Exception as e:
                     log.warning(f"Could not set Trusted property: {e}")
             
+            # Try to disconnect first if it shows as connected (sometimes state is stale)
+            if connected:
+                log.info("Device shows as connected, attempting disconnect first...")
+                try:
+                    device_iface.Disconnect()
+                    time.sleep(1)
+                    log.info("Disconnected from device")
+                except Exception as e:
+                    log.debug(f"Disconnect attempt: {e}")
+            
+            # Try to pair if not paired
             if not paired:
                 log.info("Device is not paired, attempting to pair...")
                 try:
                     device_iface.Pair()
                     log.info("Pairing initiated, waiting for completion...")
+                    # Wait for pairing to complete (up to 10 seconds)
                     for i in range(20):
                         time.sleep(0.5)
                         props = get_device_properties(bus, device_path)
                         if props and props.get("Paired", False):
                             log.info("Pairing successful")
+                            # Trust after pairing
                             try:
                                 device_props.Set(DEVICE_IFACE, "Trusted", dbus.Boolean(True))
                             except:
                                 pass
                             break
                         if props and props.get("Connected", False):
-                            log.info("Device connected during pairing - will use for BLE GATT")
+                            log.info("Device connected during pairing")
+                            client_device_path = device_path
+                            client_connected = True
+                            return True
                 except dbus.exceptions.DBusException as e:
                     error_name = e.get_dbus_name() if hasattr(e, 'get_dbus_name') else str(e)
                     if "AlreadyExists" in error_name or "Already paired" in str(e):
@@ -376,11 +399,75 @@ def connect_to_device(bus, device_path):
                     else:
                         log.warning(f"Pairing failed or not needed: {e}")
         
-        client_device_path = device_path
-        log.info("Device prepared for BLE GATT connection")
-        return True
+        # Wait a bit after discovery/trusting before attempting connection
+        log.info("Waiting for device to become connectable...")
+        time.sleep(2)
+        
+        # Try to connect with retries
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                # Refresh device properties before each attempt
+                props = get_device_properties(bus, device_path)
+                if props:
+                    connected = props.get("Connected", False)
+                    if connected:
+                        log.info("Device is now connected")
+                        client_device_path = device_path
+                        client_connected = True
+                        return True
+                
+                log.info(f"Connecting to device at {device_path}... (attempt {attempt + 1}/{max_retries})")
+                device_iface.Connect()
+                
+                # Wait a moment and verify connection
+                time.sleep(2)
+                props = get_device_properties(bus, device_path)
+                if props and props.get("Connected", False):
+                    client_device_path = device_path
+                    client_connected = True
+                    log.info("Successfully connected to device")
+                    return True
+                else:
+                    log.warning(f"Connect() returned but device not showing as connected, retrying...")
+            except dbus.exceptions.DBusException as e:
+                error_name = e.get_dbus_name() if hasattr(e, 'get_dbus_name') else str(e)
+                error_msg = str(e)
+                
+                if "NotAvailable" in error_name or "NotAvailable" in error_msg:
+                    if attempt < max_retries - 1:
+                        wait_time = 3 + attempt  # Increasing wait time
+                        log.warning(f"Device not available, waiting {wait_time}s before retry... ({error_msg})")
+                        log.info("This may mean the device needs to be in a connectable state")
+                        log.info("Make sure the device is advertising and ready to accept connections")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        log.error(f"Device not available after {max_retries} attempts: {error_msg}")
+                        log.error("The device may not be in a connectable state")
+                        log.error("Try ensuring the device is actively advertising and ready for connections")
+                elif "AlreadyConnected" in error_name or "Already connected" in error_msg:
+                    log.info("Device is already connected")
+                    client_device_path = device_path
+                    client_connected = True
+                    return True
+                elif "InProgress" in error_name or "In progress" in error_msg:
+                    log.info("Connection in progress, waiting...")
+                    time.sleep(3)
+                    props = get_device_properties(bus, device_path)
+                    if props and props.get("Connected", False):
+                        client_device_path = device_path
+                        client_connected = True
+                        return True
+                else:
+                    log.error(f"Failed to connect: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
+                        continue
+        
+        return False
     except Exception as e:
-        log.error(f"Error preparing device: {e}")
+        log.error(f"Error connecting to device: {e}")
         import traceback
         log.error(traceback.format_exc())
         return False
@@ -395,9 +482,13 @@ def discover_services(bus, device_path, service_uuid):
         device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
         device_props = dbus.Interface(device_obj, DBUS_PROP_IFACE)
         
+        # CRITICAL: BlueZ doesn't automatically discover GATT services like Android does
+        # We need to trigger discovery by accessing the GATT client interface
+        # Try to get the adapter's GATT client manager and trigger discovery
         try:
             adapter = BleTools.find_adapter(bus)
             if adapter:
+                # Try to access GATT client interface - this may trigger service discovery
                 gatt_client = dbus.Interface(
                     bus.get_object(BLUEZ_SERVICE_NAME, adapter),
                     "org.bluez.GattManager1")
@@ -405,75 +496,66 @@ def discover_services(bus, device_path, service_uuid):
         except Exception as e:
             log.debug(f"Could not access GATT manager: {e}")
         
+        # Check if services are already resolved
         props = device_props.GetAll(DEVICE_IFACE)
         services_resolved = props.get("ServicesResolved", False)
         
+        # CRITICAL FINDING: The UUIDs property shows Classic Bluetooth UUIDs (00001101=SPP, 00001200=PnP)
+        # This means BlueZ is connecting via Classic Bluetooth, NOT BLE GATT
+        # nRF Connect uses BLE GATT, which is why it can see the services
+        # We need to force BLE GATT connection using gatttool or bluetoothctl GATT menu
+        try:
+            uuids = props.get("UUIDs", [])
+            log.debug(f"Device UUIDs property: {uuids}")
+            if uuids:
+                uuid_strs = [str(u) for u in uuids]
+                log.info(f"Device UUIDs property shows {len(uuids)} service(s): {uuid_strs}")
+                # Check if these are Classic Bluetooth UUIDs (not BLE GATT)
+                classic_bt_uuids = ['00001101', '00001200', '0000110a', '0000110c', '0000110e']
+                is_classic = any(any(cb_uuid in str(u).lower() for cb_uuid in classic_bt_uuids) for u in uuids)
+                if is_classic:
+                    log.warning("Device UUIDs indicate Classic Bluetooth connection, not BLE GATT!")
+                    log.warning("BlueZ Connect() may be using Classic Bluetooth instead of BLE GATT")
+                    log.warning("Need to force BLE GATT connection using gatttool or bluetoothctl GATT menu")
+        except:
+            pass
+        
+        # Force BLE GATT service discovery using gatttool
+        # gatttool connects via BLE GATT and automatically discovers services
         if not services_resolved:
-            log.info("Services not resolved, using gatttool to establish BLE GATT connection...")
-            device_address = props.get("Address", "")
-            if device_address:
-                log.info(f"Connecting to {device_address} via BLE GATT using gatttool...")
-                try:
-                    import subprocess
-                    result = subprocess.run(
-                        ['gatttool', '-b', device_address, '--primary'],
-                        capture_output=True,
-                        timeout=10,
-                        text=True
-                    )
-                    if result.returncode == 0:
-                        log.info("Discovered primary services via gatttool - BLE GATT connection established")
-                        log.debug(f"gatttool output: {result.stdout[:200]}")
-                        
-                        import re
-                        service_handle = None
-                        for line in result.stdout.split('\n'):
-                            if service_uuid.lower().replace('-', '') in line.lower().replace('-', '').replace(' ', ''):
-                                match = re.search(r'handle\s*=\s*0x([0-9a-f]+)', line, re.IGNORECASE)
-                                if match:
-                                    service_handle = match.group(1)
-                                    break
-                        
-                        if service_handle:
-                            log.info(f"Found target service handle: 0x{service_handle}")
-                            end_handle = None
-                            for line in result.stdout.split('\n'):
-                                if f'0x{service_handle}' in line.lower() or service_handle in line:
-                                    range_match = re.search(r'handles\s+([0-9a-f]+)-([0-9a-f]+)', line, re.IGNORECASE)
-                                    if range_match:
-                                        end_handle = range_match.group(2)
-                                        break
-                            
-                            if end_handle:
-                                handle_range = f'0x{service_handle}-0x{end_handle}'
-                            else:
-                                handle_int = int(service_handle, 16)
-                                end_handle = f'{handle_int + 13:04x}'
-                                handle_range = f'0x{service_handle}-0x{end_handle}'
-                            
-                            char_result = subprocess.run(
-                                ['gatttool', '-b', device_address, '--characteristics', handle_range],
-                                capture_output=True,
-                                timeout=10,
-                                text=True
-                            )
-                            if char_result.returncode == 0:
-                                log.info("Discovered characteristics via gatttool")
-                                log.debug(f"gatttool characteristics output: {char_result.stdout[:300]}")
-                    else:
-                        log.warning(f"gatttool returned code {result.returncode}: {result.stderr[:200]}")
-                except FileNotFoundError:
-                    log.warning("gatttool not found - cannot establish BLE GATT connection")
-                    log.warning("Install bluez package: sudo apt-get install bluez")
-                except subprocess.TimeoutExpired:
-                    log.warning("gatttool connection timed out")
-                except Exception as e:
-                    log.debug(f"gatttool error: {e}")
-                
-                time.sleep(3)
-                
-                props = device_props.GetAll(DEVICE_IFACE)
-                services_resolved = props.get("ServicesResolved", False)
+            log.info("Services not resolved, forcing BLE GATT connection via gatttool...")
+            try:
+                import subprocess
+                device_address = props.get("Address", "")
+                if device_address:
+                    # Use gatttool to connect via BLE GATT and discover services
+                    # This forces BLE GATT connection instead of Classic Bluetooth
+                    log.info(f"Using gatttool to force BLE GATT connection to {device_address}")
+                    try:
+                        # gatttool -b ADDRESS --primary will list primary services (triggers discovery)
+                        result = subprocess.run(
+                            ['gatttool', '-b', device_address, '--primary'],
+                            capture_output=True,
+                            timeout=5,
+                            text=True
+                        )
+                        if result.returncode == 0:
+                            log.info("gatttool successfully connected via BLE GATT")
+                            log.debug(f"gatttool output: {result.stdout[:200]}")
+                        else:
+                            log.warning(f"gatttool returned code {result.returncode}: {result.stderr[:200]}")
+                    except FileNotFoundError:
+                        log.warning("gatttool not found - cannot force BLE GATT connection")
+                        log.warning("Install bluez package: sudo apt-get install bluez")
+                    except subprocess.TimeoutExpired:
+                        log.warning("gatttool timed out")
+                    except Exception as e:
+                        log.debug(f"gatttool error: {e}")
+                    
+                    # Wait for BlueZ to update its D-Bus objects after gatttool connection
+                    time.sleep(2)
+            except Exception as e:
+                log.debug(f"GATT connection attempt: {e}")
         
         if not services_resolved:
             log.info("Services not yet resolved, waiting for service discovery...")
@@ -484,9 +566,18 @@ def discover_services(bus, device_path, service_uuid):
                 services_resolved = props.get("ServicesResolved", False)
                 connected = props.get("Connected", False)
                 
+                if not connected:
+                    log.warning("Device disconnected during service discovery, reconnecting...")
+                    try:
+                        device_iface.Connect()
+                        time.sleep(1)
+                    except:
+                        pass
+                
                 if services_resolved:
                     log.info("Services resolved")
                     break
+                # Also check if services appeared even if ServicesResolved is False
                 remote_om = dbus.Interface(
                     bus.get_object(BLUEZ_SERVICE_NAME, "/"),
                     DBUS_OM_IFACE)
@@ -496,20 +587,24 @@ def discover_services(bus, device_path, service_uuid):
                     if path.startswith(device_path) and "org.bluez.GattService1" in interfaces:
                         service_props = interfaces["org.bluez.GattService1"]
                         device_uuid = service_props.get("UUID", "")
+                        # Compare case-insensitively
                         if device_uuid.upper() == service_uuid_upper:
                             log.info(f"Service found even though ServicesResolved is False (UUID: {device_uuid})")
                             services_resolved = True
                             break
                 if services_resolved:
                     break
+                # Log progress every 5 seconds
                 if (i + 1) % 10 == 0:
                     log.info(f"Still waiting for services... ({i * 0.5:.1f}s)")
+                    # Try accessing UUIDs again to trigger discovery
                     try:
                         props = device_props.GetAll(DEVICE_IFACE)
                         _ = props.get("UUIDs", [])
                     except:
                         pass
         
+        # Give a bit more time for all services to appear
         time.sleep(1)
         
         remote_om = dbus.Interface(
@@ -517,6 +612,7 @@ def discover_services(bus, device_path, service_uuid):
             DBUS_OM_IFACE)
         objects = remote_om.GetManagedObjects()
         
+        # Log ALL objects under the device path for debugging
         device_objects = []
         for path, interfaces in objects.items():
             if path.startswith(device_path):
@@ -526,6 +622,7 @@ def discover_services(bus, device_path, service_uuid):
         for obj_path, ifaces in device_objects:
             log.info(f"  - {obj_path}: {', '.join(ifaces)}")
         
+        # Log all services found for debugging
         found_services = []
         for path, interfaces in objects.items():
             if path.startswith(device_path) and "org.bluez.GattService1" in interfaces:
@@ -540,13 +637,20 @@ def discover_services(bus, device_path, service_uuid):
                 log.info(f"  - {svc}")
         else:
             log.warning("No GATT services found on device")
+            log.warning("This may mean:")
+            log.warning("  1. The device doesn't advertise BLE services")
+            log.warning("  2. The device needs to be in a specific mode to advertise services")
+            log.warning("  3. The device uses a different connection method (e.g., RFCOMM)")
+            log.warning("  4. Services haven't been discovered yet (try waiting longer)")
         
+        # Find the service with matching UUID (case-insensitive comparison)
         service_path = None
         service_uuid_upper = service_uuid.upper()
         for path, interfaces in objects.items():
             if path.startswith(device_path) and "org.bluez.GattService1" in interfaces:
                 props = interfaces["org.bluez.GattService1"]
                 device_uuid = props.get("UUID", "")
+                # Compare case-insensitively
                 if device_uuid.upper() == service_uuid_upper:
                     service_path = path
                     log.info(f"Found target service at path: {path} (UUID: {device_uuid})")
@@ -557,52 +661,28 @@ def discover_services(bus, device_path, service_uuid):
             log.error("Available services listed above")
             return False
         
-        available_chars = []
+        # Find TX and RX characteristics (case-insensitive comparison)
+        tx_uuid_upper = DEFAULT_TX_CHAR_UUID.upper()
+        rx_uuid_upper = DEFAULT_RX_CHAR_UUID.upper()
         for path, interfaces in objects.items():
             if path.startswith(service_path) and "org.bluez.GattCharacteristic1" in interfaces:
                 props = interfaces["org.bluez.GattCharacteristic1"]
                 char_uuid = props.get("UUID", "")
-                available_chars.append((path, char_uuid))
-        
-        if available_chars:
-            log.info(f"Available characteristics: {[f'{uuid} at {path}' for path, uuid in available_chars]}")
-        else:
-            log.warning("No characteristics found - may need to wait longer for D-Bus to update")
-            time.sleep(2)
-            remote_om = dbus.Interface(
-                bus.get_object(BLUEZ_SERVICE_NAME, "/"),
-                DBUS_OM_IFACE)
-            objects = remote_om.GetManagedObjects()
-            for path, interfaces in objects.items():
-                if path.startswith(service_path) and "org.bluez.GattCharacteristic1" in interfaces:
-                    props = interfaces["org.bluez.GattCharacteristic1"]
-                    char_uuid = props.get("UUID", "")
-                    available_chars.append((path, char_uuid))
-            if available_chars:
-                log.info(f"Found characteristics after additional wait: {[f'{uuid} at {path}' for path, uuid in available_chars]}")
-        
-        tx_uuid_upper = DEFAULT_TX_CHAR_UUID.upper()
-        rx_uuid_upper = DEFAULT_RX_CHAR_UUID.upper()
-        for path, char_uuid in available_chars:
-            char_uuid_upper = char_uuid.upper()
-            
-            if char_uuid_upper == tx_uuid_upper:
-                client_tx_char_path = path
-                log.info(f"Found TX characteristic at: {path} (UUID: {char_uuid})")
-            elif char_uuid_upper == rx_uuid_upper:
-                client_rx_char_path = path
-                log.info(f"Found RX characteristic at: {path} (UUID: {char_uuid})")
+                char_uuid_upper = char_uuid.upper()
+                
+                if char_uuid_upper == tx_uuid_upper:
+                    client_tx_char_path = path
+                    log.info(f"Found TX characteristic at: {path} (UUID: {char_uuid})")
+                elif char_uuid_upper == rx_uuid_upper:
+                    client_rx_char_path = path
+                    log.info(f"Found RX characteristic at: {path} (UUID: {char_uuid})")
         
         if not client_tx_char_path or not client_rx_char_path:
             log.error("Could not find both TX and RX characteristics")
             if not client_tx_char_path:
-                log.error(f"TX characteristic {DEFAULT_TX_CHAR_UUID} not found")
+                log.error(f"TX characteristic with UUID {DEFAULT_TX_CHAR_UUID} not found")
             if not client_rx_char_path:
-                log.error(f"RX characteristic {DEFAULT_RX_CHAR_UUID} not found")
-            if available_chars:
-                log.error(f"Available characteristics: {[uuid for _, uuid in available_chars]}")
-            else:
-                log.error("Available characteristics: []")
+                log.error(f"RX characteristic with UUID {DEFAULT_RX_CHAR_UUID} not found")
             return False
         
         log.info("Successfully discovered services and characteristics")
@@ -623,16 +703,20 @@ def setup_notifications(bus, char_path):
         char_props = dbus.Interface(char_obj, DBUS_PROP_IFACE)
         char_iface = dbus.Interface(char_obj, GATT_CHRC_IFACE)
         
+        # Set up signal handler for property changes (notifications) BEFORE enabling
+        # This ensures we catch notifications as soon as they're enabled
         client_tx_char_obj = char_obj
         char_props.connect_to_signal("PropertiesChanged", on_notification_received)
         client_notify_handler = char_props
         
+        # Try to enable notifications using StartNotify method
         try:
             char_iface.StartNotify()
             log.info("Enabled notifications using StartNotify")
         except dbus.exceptions.DBusException as e:
             log.warning(f"StartNotify failed: {e}, trying CCCD method")
             
+            # Fallback: Try to write to CCCD directly
             remote_om = dbus.Interface(
                 bus.get_object(BLUEZ_SERVICE_NAME, "/"),
                 DBUS_OM_IFACE)
@@ -649,6 +733,8 @@ def setup_notifications(bus, char_path):
             if cccd_path:
                 cccd_obj = bus.get_object(BLUEZ_SERVICE_NAME, cccd_path)
                 cccd_iface = dbus.Interface(cccd_obj, "org.bluez.GattDescriptor1")
+                
+                # Enable notifications (value 0x01)
                 cccd_iface.WriteValue([dbus.Byte(0x01), dbus.Byte(0x00)], {})
                 log.info("Enabled notifications via CCCD")
             else:
@@ -791,26 +877,28 @@ def scan_and_connect(bus, adapter_path, target_address=None, target_name=None, s
                 log.error(f"Device '{target_name}' not found after {max_wait} seconds")
             return False
         
+        # Connect to device
         if not connect_to_device(bus, device_path):
             return False
         
-        log.info("Device prepared, gatttool will establish BLE GATT connection...")
-        time.sleep(1)
+        # Wait for connection to stabilize and services to be available
+        log.info("Waiting for connection to stabilize...")
+        time.sleep(3)
         
+        # Discover services
         if not discover_services(bus, device_path, service_uuid):
             log.error("Service discovery failed - device may not be advertising the expected service")
             log.error("Make sure the target device is running and advertising the correct service UUID")
             return False
         
+        # Set up notifications on TX characteristic
         if not setup_notifications(bus, client_tx_char_path):
             return False
         
+        # Get RX characteristic object for writing
         client_rx_char_obj = bus.get_object(BLUEZ_SERVICE_NAME, client_rx_char_path)
         
-        global client_connected
-        client_connected = True
-        
-        log.info("BLE client connection established successfully via gatttool")
+        log.info("BLE client connection established successfully")
         return True
     except Exception as e:
         log.error(f"Error in scan_and_connect: {e}")
@@ -825,7 +913,7 @@ def scan_and_connect(bus, adapter_path, target_address=None, target_name=None, s
 
 def cleanup():
     """Clean up BLE services and connections"""
-    global kill, app, adv, running
+    global kill, app, adv, bluetooth_controller, pairThread, running
     global client_device_path, client_connected
     
     try:
@@ -833,6 +921,7 @@ def cleanup():
         kill = 1
         running = False
         
+        # Disconnect client
         if client_connected and client_device_path:
             try:
                 bus = BleTools.get_bus()
@@ -843,6 +932,7 @@ def cleanup():
             except Exception as e:
                 log.debug(f"Error disconnecting client: {e}")
         
+        # Stop BLE notifications
         if RelayService.tx_obj is not None:
             try:
                 RelayService.tx_obj.StopNotify()
@@ -850,6 +940,7 @@ def cleanup():
             except Exception as e:
                 log.debug(f"Error stopping notify: {e}")
         
+        # Unregister BLE advertisement
         try:
             if 'adv' in globals() and adv is not None:
                 bus = BleTools.get_bus()
@@ -863,6 +954,7 @@ def cleanup():
         except Exception as e:
             log.debug(f"Error unregistering advertisement: {e}")
         
+        # Unregister BLE application
         try:
             if 'app' in globals() and app is not None:
                 bus = BleTools.get_bus()
@@ -875,6 +967,14 @@ def cleanup():
                     log.info("BLE application unregistered")
         except Exception as e:
             log.debug(f"Error unregistering application: {e}")
+        
+        # Stop Bluetooth controller pairing thread
+        try:
+            if 'bluetooth_controller' in globals() and bluetooth_controller is not None:
+                bluetooth_controller.stop_pairing_thread()
+                log.info("Bluetooth pairing thread stopped")
+        except Exception as e:
+            log.debug(f"Error stopping pairing thread: {e}")
         
         log.info("Cleanup completed")
     except Exception as e:
@@ -911,7 +1011,7 @@ def check_kill_flag():
 
 def main():
     """Main entry point"""
-    global app, adv, running, kill
+    global app, adv, bluetooth_controller, pairThread, running, kill
     global DEFAULT_SERVICE_UUID, DEFAULT_TX_CHAR_UUID, DEFAULT_RX_CHAR_UUID
     
     # Store original values for argument parser defaults
@@ -989,23 +1089,19 @@ def main():
     log.info(f"RX Characteristic UUID: {DEFAULT_RX_CHAR_UUID}")
     log.info("=" * 60)
     
-    # Initialize BLE application (peripheral/server) - this sets up D-Bus main loop
+    # Create Bluetooth controller instance and start pairing thread
+    bluetooth_controller = BluetoothController(device_name="BLE Relay Probe")
+    bluetooth_controller.enable_bluetooth()
+    bluetooth_controller.set_device_name("BLE Relay Probe")
+    pairThread = bluetooth_controller.start_pairing_thread()
+    
+    # Small delay to let bt-agent initialize
+    time.sleep(2.5)
+    
+    # Initialize BLE application (peripheral/server)
     running = True
     app = Application()
     app.add_service(RelayService(0))
-    
-    # Enable Bluetooth adapter for BLE GATT (after main loop is set up)
-    try:
-        bus = app.bus
-        adapter = BleTools.find_adapter(bus)
-        if adapter:
-            adapter_obj = bus.get_object(BLUEZ_SERVICE_NAME, adapter)
-            adapter_props = dbus.Interface(adapter_obj, DBUS_PROP_IFACE)
-            adapter_props.Set(ADAPTER_IFACE, "Powered", dbus.Boolean(1))
-            adapter_props.Set(ADAPTER_IFACE, "Discoverable", dbus.Boolean(1))
-            log.info("Bluetooth enabled and made discoverable")
-    except Exception as e:
-        log.warning(f"Could not enable Bluetooth: {e}")
     
     # Register the application
     try:
@@ -1043,7 +1139,7 @@ def main():
         GObject.timeout_add(100, check_kill_flag)
     
     # Connect to target BLE device (client mode)
-    bus = app.bus
+    bus = BleTools.get_bus()
     adapter = BleTools.find_adapter(bus)
     
     # Start client connection in a separate thread to avoid blocking
