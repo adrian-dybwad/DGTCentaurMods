@@ -486,10 +486,18 @@ def discover_services(bus, device_path, service_uuid):
         props = device_props.GetAll(DEVICE_IFACE)
         services_resolved = props.get("ServicesResolved", False)
         
+        # Try to explicitly trigger service discovery by reading a property
+        # This sometimes helps BlueZ discover services faster
+        try:
+            # Accessing GATT services property can trigger discovery
+            _ = props.get("UUIDs", [])
+        except:
+            pass
+        
         if not services_resolved:
             log.info("Services not yet resolved, waiting for service discovery...")
-            # Wait for services to be resolved (up to 10 seconds)
-            for i in range(20):
+            # Wait for services to be resolved (up to 15 seconds)
+            for i in range(30):
                 time.sleep(0.5)
                 props = device_props.GetAll(DEVICE_IFACE)
                 services_resolved = props.get("ServicesResolved", False)
@@ -508,11 +516,14 @@ def discover_services(bus, device_path, service_uuid):
                         device_uuid = service_props.get("UUID", "")
                         # Compare case-insensitively
                         if device_uuid.upper() == service_uuid_upper:
-                            log.info("Service found even though ServicesResolved is False")
+                            log.info(f"Service found even though ServicesResolved is False (UUID: {device_uuid})")
                             services_resolved = True
                             break
                 if services_resolved:
                     break
+                # Log progress every 5 seconds
+                if (i + 1) % 10 == 0:
+                    log.info(f"Still waiting for services... ({i * 0.5:.1f}s)")
         
         # Give a bit more time for all services to appear
         time.sleep(1)
