@@ -168,11 +168,11 @@ bluetooth_controller.set_device_name("MILLENNIUM CHESS")
 pairThread = bluetooth_controller.start_pairing_thread()
 
 # Small delay to let bt-agent initialize
-#time.sleep(2.5)
+time.sleep(2.5)
 
 # Kill rfcomm if it is started
-#os.system('sudo service rfcomm stop')
-#time.sleep(2)
+os.system('sudo service rfcomm stop')
+time.sleep(2)
 for p in psutil.process_iter(attrs=['pid', 'name']):
 	if str(p.info["name"]) == "rfcomm":
 		p.kill()
