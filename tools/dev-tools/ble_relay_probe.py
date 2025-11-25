@@ -500,62 +500,62 @@ def discover_services(bus, device_path, service_uuid):
         props = device_props.GetAll(DEVICE_IFACE)
         services_resolved = props.get("ServicesResolved", False)
         
-        # Try multiple methods to trigger service discovery:
-        # 1. Access UUIDs property (sometimes triggers discovery)
+        # CRITICAL FINDING: The UUIDs property shows Classic Bluetooth UUIDs (00001101=SPP, 00001200=PnP)
+        # This means BlueZ is connecting via Classic Bluetooth, NOT BLE GATT
+        # nRF Connect uses BLE GATT, which is why it can see the services
+        # We need to force BLE GATT connection using gatttool or bluetoothctl GATT menu
         try:
             uuids = props.get("UUIDs", [])
             log.debug(f"Device UUIDs property: {uuids}")
             if uuids:
-                log.info(f"Device advertises {len(uuids)} service UUID(s): {uuids}")
+                uuid_strs = [str(u) for u in uuids]
+                log.info(f"Device UUIDs property shows {len(uuids)} service(s): {uuid_strs}")
+                # Check if these are Classic Bluetooth UUIDs (not BLE GATT)
+                classic_bt_uuids = ['00001101', '00001200', '0000110a', '0000110c', '0000110e']
+                is_classic = any(any(cb_uuid in str(u).lower() for cb_uuid in classic_bt_uuids) for u in uuids)
+                if is_classic:
+                    log.warning("Device UUIDs indicate Classic Bluetooth connection, not BLE GATT!")
+                    log.warning("BlueZ Connect() may be using Classic Bluetooth instead of BLE GATT")
+                    log.warning("Need to force BLE GATT connection using gatttool or bluetoothctl GATT menu")
         except:
             pass
         
-        # 2. Force BlueZ to discover services by using bluetoothctl or direct GATT access
-        # The issue: BlueZ doesn't auto-discover GATT services like Android BLE does
-        # Solution: Try to trigger discovery by using subprocess to call gatttool or bluetoothctl
+        # Force BLE GATT service discovery using gatttool
+        # gatttool connects via BLE GATT and automatically discovers services
         if not services_resolved:
-            log.info("Services not resolved, attempting to trigger discovery via bluetoothctl...")
+            log.info("Services not resolved, forcing BLE GATT connection via gatttool...")
             try:
                 import subprocess
-                # Use bluetoothctl to connect and trigger service discovery
-                # This is a workaround since BlueZ D-Bus doesn't have explicit discoverServices()
-                address = props.get("Address", "").replace(":", "_")
-                if address:
-                    # Try using gatttool to connect, which forces service discovery
-                    log.info(f"Attempting to trigger service discovery using gatttool for {address}")
+                device_address = props.get("Address", "")
+                if device_address:
+                    # Use gatttool to connect via BLE GATT and discover services
+                    # This forces BLE GATT connection instead of Classic Bluetooth
+                    log.info(f"Using gatttool to force BLE GATT connection to {device_address}")
                     try:
-                        # Convert address format: 34:81:F4:ED:78:34 -> 34_81_F4_ED_78_34
+                        # gatttool -b ADDRESS --primary will list primary services (triggers discovery)
                         result = subprocess.run(
-                            ['timeout', '2', 'gatttool', '-b', props.get("Address", ""), '--char-read', '--handle=0x0001'],
+                            ['gatttool', '-b', device_address, '--primary'],
                             capture_output=True,
-                            timeout=3,
-                            stderr=subprocess.DEVNULL
+                            timeout=5,
+                            text=True
                         )
-                        log.debug("gatttool attempt completed")
-                    except (FileNotFoundError, subprocess.TimeoutExpired):
-                        # gatttool not available or timed out, try bluetoothctl instead
-                        log.debug("gatttool not available, trying bluetoothctl")
-                        try:
-                            proc = subprocess.Popen(
-                                ['bluetoothctl'],
-                                stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                text=True
-                            )
-                            # Connect to device to trigger service discovery
-                            proc.stdin.write(f"connect {props.get('Address', '')}\n")
-                            proc.stdin.flush()
-                            time.sleep(1)
-                            proc.terminate()
-                            proc.wait(timeout=2)
-                        except:
-                            pass
+                        if result.returncode == 0:
+                            log.info("gatttool successfully connected via BLE GATT")
+                            log.debug(f"gatttool output: {result.stdout[:200]}")
+                        else:
+                            log.warning(f"gatttool returned code {result.returncode}: {result.stderr[:200]}")
+                    except FileNotFoundError:
+                        log.warning("gatttool not found - cannot force BLE GATT connection")
+                        log.warning("Install bluez package: sudo apt-get install bluez")
+                    except subprocess.TimeoutExpired:
+                        log.warning("gatttool timed out")
+                    except Exception as e:
+                        log.debug(f"gatttool error: {e}")
+                    
+                    # Wait for BlueZ to update its D-Bus objects after gatttool connection
+                    time.sleep(2)
             except Exception as e:
-                log.debug(f"Service discovery trigger attempt: {e}")
-            
-            # Wait a moment for discovery to complete
-            time.sleep(2)
+                log.debug(f"GATT connection attempt: {e}")
         
         if not services_resolved:
             log.info("Services not yet resolved, waiting for service discovery...")
