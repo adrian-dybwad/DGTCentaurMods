@@ -780,8 +780,8 @@ def main():
     try:
       from gi.repository import GLib
       GLib.timeout_add(100, check_kill_flag)
-  except ImportError:
-      GObject.timeout_add(100, check_kill_flag)
+    except ImportError:
+        GObject.timeout_add(100, check_kill_flag)
     
     # Connect to target BLE device (client mode)
     bus = BleTools.get_bus()
