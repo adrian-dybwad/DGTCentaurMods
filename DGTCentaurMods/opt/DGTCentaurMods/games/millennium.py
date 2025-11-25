@@ -53,10 +53,6 @@ curturn = 1
 rx_buffer = bytearray()
 rx_lock = threading.Lock()
 
-#game_analysis = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color, analysis_engine=analysis_engine)
-#board.display_manager.add_widget(game_analysis)
-chess_board_widget = ChessBoardWidget(0, 20, gamemanager.getFEN())
-board.display_manager.add_widget(chess_board_widget)
 
 def keyCallback(key):
 	global kill
@@ -152,6 +148,11 @@ if promise:
 		log.warning(f"Error initializing display: {e}")
 
 board.display_manager.add_widget(TextWidget(50, 20, 88, 100, "Connect remote Device Now", background=3, font_size=18))
+
+#game_analysis = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color, analysis_engine=analysis_engine)
+#board.display_manager.add_widget(game_analysis)
+chess_board_widget = ChessBoardWidget(0, 20, gamemanager.getFEN())
+board.display_manager.add_widget(chess_board_widget)
 
 # Create Bluetooth controller instance and start pairing thread
 # Use "MILLENNIUM CHESS" device name for ChessLink app compatibility
