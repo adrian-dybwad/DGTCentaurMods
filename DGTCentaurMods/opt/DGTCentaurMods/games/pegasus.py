@@ -26,12 +26,12 @@ from DGTCentaurMods.thirdparty.advertisement import Advertisement
 from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic, Descriptor
 from DGTCentaurMods.board import *
 from DGTCentaurMods.asset_manager import AssetManager
+from DGTCentaurMods.epaper import SplashScreen, TextWidget
 import time
 import threading
 import os
 import pathlib
 from DGTCentaurMods.board import *
-from DGTCentaurMods.display.epaper_service import service, widgets
 from PIL import Image, ImageDraw
 from DGTCentaurMods.board.logging import log
 import signal
@@ -44,26 +44,37 @@ events_resubscribed = False
  
 
 
-service.init()
+promise = board.init_display()
+if promise:
+	try:
+		promise.result(timeout=10.0)
+	except Exception as e:
+		log.warning(f"Error initializing display: {e}")
 
 # Initialization handled by async_centaur.py - no manual polling needed
 
-statusbar = widgets.status_bar()
-statusbar.start()
 
 def displayLogo():
     filename = str(AssetManager.get_resource_path("logo_mods_screen.jpg"))
     lg = Image.open(filename).resize((48, 112))
     widgets.draw_image(lg, 0, 20)
 
-statusbar.print_once()
-widgets.write_text(1,"           PEGASUS")
-widgets.write_text(2,"              MODE")
-widgets.write_text(10,"PCS-REVII-081500")
-widgets.write_text(11,"Use back button")
-widgets.write_text(12,"to exit mode")
-widgets.write_text(13,"Await Connect")
-displayLogo()
+board.display_manager.add_widget(TextWidget(0, 20, 128, 100, "PEGASUS MODE", background=3, font_size=18))
+
+board.display_manager.add_widget(TextWidget(0, 40, 128, 100, "PCS-REVII-081500"))
+board.display_manager.add_widget(TextWidget(0, 60, 128, 100, "Use back button"))
+board.display_manager.add_widget(TextWidget(0, 80, 128, 100, "to exit mode"))
+board.display_manager.add_widget(TextWidget(0, 100, 128, 100, "Await Connect"))
+
+#widgets.write_text(1,"           PEGASUS")
+#widgets.write_text(2,"              MODE")
+#widgets.write_text(10,"PCS-REVII-081500")
+#widgets.write_text(11,"Use back button")
+#widgets.write_text(12,"to exit mode")
+#widgets.write_text(13,"Await Connect")
+
+board.display_manager.add_widget(SplashScreen(message="PEGASUS MODE"))
+#displayLogo()
 
 GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
 NOTIFY_TIMEOUT = 5000
