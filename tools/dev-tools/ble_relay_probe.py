@@ -506,6 +506,7 @@ def discover_services(bus, device_path, service_uuid):
         # This means BlueZ is connecting via Classic Bluetooth, NOT BLE GATT
         # nRF Connect uses BLE GATT, which is why it can see the services
         # We need to force BLE GATT connection using gatttool or bluetoothctl GATT menu
+        is_classic_bluetooth = False
         try:
             uuids = props.get("UUIDs", [])
             log.debug(f"Device UUIDs property: {uuids}")
@@ -514,11 +515,11 @@ def discover_services(bus, device_path, service_uuid):
                 log.info(f"Device UUIDs property shows {len(uuids)} service(s): {uuid_strs}")
                 # Check if these are Classic Bluetooth UUIDs (not BLE GATT)
                 classic_bt_uuids = ['00001101', '00001200', '0000110a', '0000110c', '0000110e']
-                is_classic = any(any(cb_uuid in str(u).lower() for cb_uuid in classic_bt_uuids) for u in uuids)
-                if is_classic:
+                is_classic_bluetooth = any(any(cb_uuid in str(u).lower() for cb_uuid in classic_bt_uuids) for u in uuids)
+                if is_classic_bluetooth:
                     log.warning("Device UUIDs indicate Classic Bluetooth connection, not BLE GATT!")
                     log.warning("BlueZ Connect() may be using Classic Bluetooth instead of BLE GATT")
-                    log.warning("Need to force BLE GATT connection using gatttool or bluetoothctl GATT menu")
+                    log.warning("Will disconnect and use gatttool to force BLE GATT connection")
         except:
             pass
         
@@ -527,6 +528,17 @@ def discover_services(bus, device_path, service_uuid):
         # Store service handle information from gatttool output
         gatttool_service_handle_start = None
         gatttool_service_handle_end = None
+        
+        # If connected via Classic Bluetooth, disconnect before using gatttool
+        # This prevents Classic Bluetooth from interfering with BLE GATT connection
+        if is_classic_bluetooth and props.get("Connected", False):
+            log.info("Disconnecting Classic Bluetooth connection before forcing BLE GATT connection...")
+            try:
+                device_iface.Disconnect()
+                time.sleep(1)
+                log.info("Disconnected from Classic Bluetooth connection")
+            except Exception as e:
+                log.debug(f"Error disconnecting: {e}")
         
         if not services_resolved:
             log.info("Services not resolved, forcing BLE GATT connection via gatttool...")
@@ -574,26 +586,60 @@ def discover_services(bus, device_path, service_uuid):
                         log.debug(f"gatttool error: {e}")
                     
                     # Wait for BlueZ to update its D-Bus objects after gatttool connection
-                    time.sleep(2)
+                    # Note: gatttool creates a temporary connection that closes when it exits
+                    # We need to wait for BlueZ to potentially discover services from the gatttool session
+                    # or we'll need to reconnect, but we want to avoid Classic Bluetooth
+                    time.sleep(3)
             except Exception as e:
                 log.debug(f"GATT connection attempt: {e}")
         
         if not services_resolved:
             log.info("Services not yet resolved, waiting for service discovery...")
             # Wait for services to be resolved (up to 15 seconds)
+            # IMPORTANT: After using gatttool, don't reconnect via device_iface.Connect()
+            # as that will reconnect via Classic Bluetooth. Instead, wait for BlueZ to
+            # populate the D-Bus tree from the gatttool BLE GATT connection.
             for i in range(30):
                 time.sleep(0.5)
                 props = device_props.GetAll(DEVICE_IFACE)
                 services_resolved = props.get("ServicesResolved", False)
                 connected = props.get("Connected", False)
                 
+                # Check if we're connected via Classic Bluetooth
+                is_classic = False
+                try:
+                    uuids = props.get("UUIDs", [])
+                    if uuids:
+                        classic_bt_uuids = ['00001101', '00001200', '0000110a', '0000110c', '0000110e']
+                        is_classic = any(any(cb_uuid in str(u).lower() for cb_uuid in classic_bt_uuids) for u in uuids)
+                except:
+                    pass
+                
                 if not connected:
-                    log.warning("Device disconnected during service discovery, reconnecting...")
-                    try:
-                        device_iface.Connect()
-                        time.sleep(1)
-                    except:
-                        pass
+                    # CRITICAL: After gatttool runs, it creates a temporary BLE GATT connection that closes when it exits
+                    # If we reconnect via device_iface.Connect(), BlueZ will reconnect via Classic Bluetooth
+                    # So we should avoid reconnecting if we've used gatttool, or we need a different method
+                    if gatttool_service_handle_start:
+                        log.info("Device disconnected after gatttool BLE GATT connection closed")
+                        log.info("gatttool creates temporary connections - BlueZ may reconnect via Classic Bluetooth")
+                        log.info("Waiting for BlueZ to populate D-Bus tree or for BLE GATT connection to be established...")
+                        # Don't reconnect via device_iface.Connect() as it will use Classic Bluetooth
+                        # Instead, wait and check if services appear in D-Bus
+                    else:
+                        log.warning("Device disconnected during service discovery, reconnecting...")
+                        try:
+                            device_iface.Connect()
+                            time.sleep(1)
+                            # Check if reconnection used Classic Bluetooth
+                            props_check = device_props.GetAll(DEVICE_IFACE)
+                            uuids_check = props_check.get("UUIDs", [])
+                            if uuids_check:
+                                classic_bt_uuids = ['00001101', '00001200', '0000110a', '0000110c', '0000110e']
+                                is_classic_check = any(any(cb_uuid in str(u).lower() for cb_uuid in classic_bt_uuids) for u in uuids_check)
+                                if is_classic_check:
+                                    log.warning("Reconnection used Classic Bluetooth - this will prevent BLE GATT service discovery")
+                        except:
+                            pass
                 
                 if services_resolved:
                     log.info("Services resolved")
