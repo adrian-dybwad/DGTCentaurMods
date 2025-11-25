@@ -478,23 +478,75 @@ def discover_services(bus, device_path, service_uuid):
     global client_tx_char_path, client_rx_char_path
     
     try:
+        device_obj = bus.get_object(BLUEZ_SERVICE_NAME, device_path)
+        device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
+        device_props = dbus.Interface(device_obj, DBUS_PROP_IFACE)
+        
+        # Check if services are already resolved
+        props = device_props.GetAll(DEVICE_IFACE)
+        services_resolved = props.get("ServicesResolved", False)
+        
+        if not services_resolved:
+            log.info("Services not yet resolved, waiting for service discovery...")
+            # Wait for services to be resolved (up to 10 seconds)
+            for i in range(20):
+                time.sleep(0.5)
+                props = device_props.GetAll(DEVICE_IFACE)
+                services_resolved = props.get("ServicesResolved", False)
+                if services_resolved:
+                    log.info("Services resolved")
+                    break
+                # Also check if services appeared even if ServicesResolved is False
+                remote_om = dbus.Interface(
+                    bus.get_object(BLUEZ_SERVICE_NAME, "/"),
+                    DBUS_OM_IFACE)
+                objects = remote_om.GetManagedObjects()
+                for path, interfaces in objects.items():
+                    if path.startswith(device_path) and "org.bluez.GattService1" in interfaces:
+                        service_props = interfaces["org.bluez.GattService1"]
+                        if service_props.get("UUID") == service_uuid:
+                            log.info("Service found even though ServicesResolved is False")
+                            services_resolved = True
+                            break
+                if services_resolved:
+                    break
+        
+        # Give a bit more time for all services to appear
+        time.sleep(1)
+        
         remote_om = dbus.Interface(
             bus.get_object(BLUEZ_SERVICE_NAME, "/"),
             DBUS_OM_IFACE)
         objects = remote_om.GetManagedObjects()
         
+        # Log all services found for debugging
+        found_services = []
+        for path, interfaces in objects.items():
+            if path.startswith(device_path) and "org.bluez.GattService1" in interfaces:
+                service_props = interfaces["org.bluez.GattService1"]
+                uuid = service_props.get("UUID", "unknown")
+                found_services.append(f"{uuid} at {path}")
+        
+        if found_services:
+            log.info(f"Found {len(found_services)} service(s) on device:")
+            for svc in found_services:
+                log.info(f"  - {svc}")
+        else:
+            log.warning("No services found on device")
+        
         # Find the service with matching UUID
         service_path = None
         for path, interfaces in objects.items():
-            if "org.bluez.GattService1" in interfaces:
+            if path.startswith(device_path) and "org.bluez.GattService1" in interfaces:
                 props = interfaces["org.bluez.GattService1"]
                 if props.get("UUID") == service_uuid:
                     service_path = path
-                    log.info(f"Found service at path: {path}")
+                    log.info(f"Found target service at path: {path}")
                     break
         
         if not service_path:
             log.error(f"Service with UUID {service_uuid} not found")
+            log.error("Available services listed above")
             return False
         
         # Find TX and RX characteristics
@@ -512,6 +564,10 @@ def discover_services(bus, device_path, service_uuid):
         
         if not client_tx_char_path or not client_rx_char_path:
             log.error("Could not find both TX and RX characteristics")
+            if not client_tx_char_path:
+                log.error(f"TX characteristic with UUID {DEFAULT_TX_CHAR_UUID} not found")
+            if not client_rx_char_path:
+                log.error(f"RX characteristic with UUID {DEFAULT_RX_CHAR_UUID} not found")
             return False
         
         log.info("Successfully discovered services and characteristics")
@@ -710,11 +766,14 @@ def scan_and_connect(bus, adapter_path, target_address=None, target_name=None, s
         if not connect_to_device(bus, device_path):
             return False
         
-        # Wait a bit for connection to stabilize
-        time.sleep(2)
+        # Wait for connection to stabilize and services to be available
+        log.info("Waiting for connection to stabilize...")
+        time.sleep(3)
         
         # Discover services
         if not discover_services(bus, device_path, service_uuid):
+            log.error("Service discovery failed - device may not be advertising the expected service")
+            log.error("Make sure the target device is running and advertising the correct service UUID")
             return False
         
         # Set up notifications on TX characteristic
