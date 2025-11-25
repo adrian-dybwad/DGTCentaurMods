@@ -338,8 +338,9 @@ def connect_to_device(bus, device_path):
         if props:
             connected = props.get("Connected", False)
             paired = props.get("Paired", False)
+            trusted = props.get("Trusted", False)
             address = props.get("Address", "unknown")
-            log.info(f"Device state - Connected: {connected}, Paired: {paired}, Address: {address}")
+            log.info(f"Device state - Connected: {connected}, Paired: {paired}, Trusted: {trusted}, Address: {address}")
             
             # If already connected, we're good
             if connected:
@@ -347,6 +348,26 @@ def connect_to_device(bus, device_path):
                 client_device_path = device_path
                 client_connected = True
                 return True
+            
+            # Trust the device if not trusted (required for some BLE devices)
+            if not trusted:
+                log.info("Device is not trusted, setting Trusted=True...")
+                try:
+                    device_props.Set(DEVICE_IFACE, "Trusted", dbus.Boolean(True))
+                    log.info("Device trusted successfully")
+                    time.sleep(0.5)
+                except Exception as e:
+                    log.warning(f"Could not set Trusted property: {e}")
+            
+            # Try to disconnect first if it shows as connected (sometimes state is stale)
+            if connected:
+                log.info("Device shows as connected, attempting disconnect first...")
+                try:
+                    device_iface.Disconnect()
+                    time.sleep(1)
+                    log.info("Disconnected from device")
+                except Exception as e:
+                    log.debug(f"Disconnect attempt: {e}")
             
             # Try to pair if not paired
             if not paired:
@@ -360,6 +381,11 @@ def connect_to_device(bus, device_path):
                         props = get_device_properties(bus, device_path)
                         if props and props.get("Paired", False):
                             log.info("Pairing successful")
+                            # Trust after pairing
+                            try:
+                                device_props.Set(DEVICE_IFACE, "Trusted", dbus.Boolean(True))
+                            except:
+                                pass
                             break
                         if props and props.get("Connected", False):
                             log.info("Device connected during pairing")
@@ -373,15 +399,29 @@ def connect_to_device(bus, device_path):
                     else:
                         log.warning(f"Pairing failed or not needed: {e}")
         
+        # Wait a bit after discovery/trusting before attempting connection
+        log.info("Waiting for device to become connectable...")
+        time.sleep(2)
+        
         # Try to connect with retries
-        max_retries = 3
+        max_retries = 5
         for attempt in range(max_retries):
             try:
+                # Refresh device properties before each attempt
+                props = get_device_properties(bus, device_path)
+                if props:
+                    connected = props.get("Connected", False)
+                    if connected:
+                        log.info("Device is now connected")
+                        client_device_path = device_path
+                        client_connected = True
+                        return True
+                
                 log.info(f"Connecting to device at {device_path}... (attempt {attempt + 1}/{max_retries})")
                 device_iface.Connect()
                 
                 # Wait a moment and verify connection
-                time.sleep(1)
+                time.sleep(2)
                 props = get_device_properties(bus, device_path)
                 if props and props.get("Connected", False):
                     client_device_path = device_path
@@ -389,20 +429,23 @@ def connect_to_device(bus, device_path):
                     log.info("Successfully connected to device")
                     return True
                 else:
-                    log.warning(f"Connect() returned but device not showing as connected")
+                    log.warning(f"Connect() returned but device not showing as connected, retrying...")
             except dbus.exceptions.DBusException as e:
                 error_name = e.get_dbus_name() if hasattr(e, 'get_dbus_name') else str(e)
                 error_msg = str(e)
                 
                 if "NotAvailable" in error_name or "NotAvailable" in error_msg:
                     if attempt < max_retries - 1:
-                        log.warning(f"Device not available, waiting before retry... ({error_msg})")
-                        time.sleep(2)
+                        wait_time = 3 + attempt  # Increasing wait time
+                        log.warning(f"Device not available, waiting {wait_time}s before retry... ({error_msg})")
+                        log.info("This may mean the device needs to be in a connectable state")
+                        log.info("Make sure the device is advertising and ready to accept connections")
+                        time.sleep(wait_time)
                         continue
                     else:
                         log.error(f"Device not available after {max_retries} attempts: {error_msg}")
-                        log.error("This may mean the device is already connected to another device")
-                        log.error("Try disconnecting from the device on other devices first")
+                        log.error("The device may not be in a connectable state")
+                        log.error("Try ensuring the device is actively advertising and ready for connections")
                 elif "AlreadyConnected" in error_name or "Already connected" in error_msg:
                     log.info("Device is already connected")
                     client_device_path = device_path
@@ -410,7 +453,7 @@ def connect_to_device(bus, device_path):
                     return True
                 elif "InProgress" in error_name or "In progress" in error_msg:
                     log.info("Connection in progress, waiting...")
-                    time.sleep(2)
+                    time.sleep(3)
                     props = get_device_properties(bus, device_path)
                     if props and props.get("Connected", False):
                         client_device_path = device_path
