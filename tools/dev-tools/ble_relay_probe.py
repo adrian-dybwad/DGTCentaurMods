@@ -524,6 +524,10 @@ def discover_services(bus, device_path, service_uuid):
         
         # Force BLE GATT service discovery using gatttool
         # gatttool connects via BLE GATT and automatically discovers services
+        # Store service handle information from gatttool output
+        gatttool_service_handle_start = None
+        gatttool_service_handle_end = None
+        
         if not services_resolved:
             log.info("Services not resolved, forcing BLE GATT connection via gatttool...")
             try:
@@ -542,7 +546,23 @@ def discover_services(bus, device_path, service_uuid):
                         )
                         if result.returncode == 0:
                             log.info("gatttool successfully connected via BLE GATT")
-                            log.debug(f"gatttool output: {result.stdout[:200]}")
+                            log.debug(f"gatttool output: {result.stdout[:500]}")
+                            
+                            # Parse output to find target service handle range
+                            # Format: attr handle = 0x0030, end grp handle = 0x003d uuid: 49535343-fe7d-4ae5-8fa9-9fafd205e455
+                            service_uuid_normalized = service_uuid.replace('-', '').lower()
+                            for line in result.stdout.split('\n'):
+                                line_normalized = line.replace('-', '').lower()
+                                if service_uuid_normalized in line_normalized:
+                                    # Extract handle range - handle both formats:
+                                    # "attr handle = 0x0030, end grp handle = 0x003d"
+                                    # "attr handle: 0x0030, end grp handle: 0x003d"
+                                    match = re.search(r'attr handle\s*[=:]\s*(0x[0-9a-fA-F]+).*end grp handle\s*[=:]\s*(0x[0-9a-fA-F]+)', line, re.IGNORECASE)
+                                    if match:
+                                        gatttool_service_handle_start = match.group(1)
+                                        gatttool_service_handle_end = match.group(2)
+                                        log.info(f"Found target service via gatttool: handle range {gatttool_service_handle_start} to {gatttool_service_handle_end}")
+                                        break
                         else:
                             log.warning(f"gatttool returned code {result.returncode}: {result.stderr[:200]}")
                     except FileNotFoundError:
@@ -657,85 +677,100 @@ def discover_services(bus, device_path, service_uuid):
                     log.info(f"Found target service at path: {path} (UUID: {device_uuid})")
                     break
         
+        # If service not found in D-Bus tree but we have handle range from gatttool, use that
         if not service_path:
-            log.error(f"Service with UUID {service_uuid} not found")
-            log.error("Available services listed above")
-            return False
+            if gatttool_service_handle_start and gatttool_service_handle_end:
+                log.warning(f"Service with UUID {service_uuid} not found in D-Bus tree")
+                log.info(f"Using gatttool-discovered service handle range: {gatttool_service_handle_start} to {gatttool_service_handle_end}")
+            else:
+                log.error(f"Service with UUID {service_uuid} not found")
+                log.error("Available services listed above")
+                return False
         
-        # Get service handle range from gatttool output to query characteristics
-        # First, try to discover characteristics using gatttool
-        service_handle_start = None
-        service_handle_end = None
+        # Discover characteristics using gatttool if we have service handle range
+        # This works even if the service isn't in the D-Bus tree yet
+        service_handle_start = gatttool_service_handle_start
+        service_handle_end = gatttool_service_handle_end
+        
         try:
             # Get device address from device properties
             device_props_refresh = device_props.GetAll(DEVICE_IFACE)
             device_address = device_props_refresh.get("Address", "")
-            if device_address:
+            if device_address and service_handle_start and service_handle_end:
                 log.info(f"Using gatttool to discover characteristics for service {service_uuid}")
-                # First get the service handle range
-                result = subprocess.run(
-                    ['gatttool', '-b', device_address, '--primary'],
+                log.info(f"Querying characteristics in range {service_handle_start}-{service_handle_end}")
+                char_result = subprocess.run(
+                    ['gatttool', '-b', device_address, '--characteristics', f'{service_handle_start}', f'{service_handle_end}'],
                     capture_output=True,
                     timeout=5,
                     text=True
                 )
-                if result.returncode == 0:
-                    # Parse output to find service handle range
-                    # Format: attr handle: 0x0030, end grp handle: 0x003d uuid: 49535343-fe7d-4ae5-8fa9-9fafd205e455
-                    for line in result.stdout.split('\n'):
-                        if service_uuid.replace('-', '').lower() in line.replace('-', '').lower():
-                            # Extract handle range
-                            match = re.search(r'attr handle:\s*(0x[0-9a-fA-F]+).*end grp handle:\s*(0x[0-9a-fA-F]+)', line)
-                            if match:
-                                service_handle_start = match.group(1)
-                                service_handle_end = match.group(2)
-                                log.info(f"Found service handle range: {service_handle_start} to {service_handle_end}")
-                                break
+                if char_result.returncode == 0:
+                    log.info("Discovered characteristics via gatttool")
+                    log.debug(f"gatttool characteristics output: {char_result.stdout[:500]}")
                     
-                    # Now query characteristics for this service
-                    if service_handle_start and service_handle_end:
-                        log.info(f"Querying characteristics in range {service_handle_start}-{service_handle_end}")
-                        char_result = subprocess.run(
-                            ['gatttool', '-b', device_address, '--characteristics', f'{service_handle_start}', f'{service_handle_end}'],
-                            capture_output=True,
-                            timeout=5,
-                            text=True
-                        )
-                        if char_result.returncode == 0:
-                            log.info("Discovered characteristics via gatttool")
-                            log.debug(f"gatttool characteristics output: {char_result.stdout[:500]}")
-                            
-                            # Parse characteristics from output
-                            # Format: handle: 0x0031, char properties: 0x12, char value handle: 0x0032, uuid: 49535343-1e4d-4bd9-ba61-23c647249616
-                            tx_uuid_upper = DEFAULT_TX_CHAR_UUID.upper().replace('-', '')
-                            rx_uuid_upper = DEFAULT_RX_CHAR_UUID.upper().replace('-', '')
-                            found_chars = []
-                            for line in char_result.stdout.split('\n'):
-                                if 'uuid:' in line.lower():
-                                    # Extract UUID
-                                    uuid_match = re.search(r'uuid:\s*([0-9a-fA-F-]+)', line, re.IGNORECASE)
-                                    if uuid_match:
-                                        char_uuid = uuid_match.group(1)
-                                        char_uuid_normalized = char_uuid.upper().replace('-', '')
-                                        found_chars.append((char_uuid, line))
-                                        
-                                        # Check if this is our TX or RX characteristic
-                                        if char_uuid_normalized == tx_uuid_upper:
-                                            log.info(f"Found TX characteristic via gatttool: {char_uuid}")
-                                        elif char_uuid_normalized == rx_uuid_upper:
-                                            log.info(f"Found RX characteristic via gatttool: {char_uuid}")
-                            
-                            if found_chars:
-                                log.info(f"Found {len(found_chars)} characteristic(s) via gatttool:")
-                                for char_uuid, line in found_chars:
-                                    log.info(f"  - {char_uuid}: {line[:100]}")
-                            
-                            # Wait a bit for BlueZ to update D-Bus objects
-                            time.sleep(2)
-                        else:
-                            log.warning(f"gatttool characteristics query returned code {char_result.returncode}: {char_result.stderr[:200]}")
+                    # Parse characteristics from output
+                    # Format: handle: 0x0031, char properties: 0x12, char value handle: 0x0032, uuid: 49535343-1e4d-4bd9-ba61-23c647249616
+                    tx_uuid_upper = DEFAULT_TX_CHAR_UUID.upper().replace('-', '')
+                    rx_uuid_upper = DEFAULT_RX_CHAR_UUID.upper().replace('-', '')
+                    found_chars = []
+                    for line in char_result.stdout.split('\n'):
+                        if 'uuid:' in line.lower():
+                            # Extract UUID
+                            uuid_match = re.search(r'uuid:\s*([0-9a-fA-F-]+)', line, re.IGNORECASE)
+                            if uuid_match:
+                                char_uuid = uuid_match.group(1)
+                                char_uuid_normalized = char_uuid.upper().replace('-', '')
+                                found_chars.append((char_uuid, line))
+                                
+                                # Check if this is our TX or RX characteristic
+                                if char_uuid_normalized == tx_uuid_upper:
+                                    log.info(f"Found TX characteristic via gatttool: {char_uuid}")
+                                elif char_uuid_normalized == rx_uuid_upper:
+                                    log.info(f"Found RX characteristic via gatttool: {char_uuid}")
+                    
+                    if found_chars:
+                        log.info(f"Found {len(found_chars)} characteristic(s) via gatttool:")
+                        for char_uuid, line in found_chars:
+                            log.info(f"  - {char_uuid}: {line[:100]}")
+                    
+                    # Wait a bit for BlueZ to update D-Bus objects
+                    time.sleep(2)
+                else:
+                    log.warning(f"gatttool characteristics query returned code {char_result.returncode}: {char_result.stderr[:200]}")
+            elif not service_handle_start or not service_handle_end:
+                log.warning("Service handle range not available, cannot query characteristics via gatttool")
         except Exception as e:
             log.debug(f"Error querying characteristics via gatttool: {e}")
+        
+        # If we still don't have service_path, we need to wait longer or retry
+        # Refresh D-Bus objects after characteristic discovery
+        if not service_path:
+            log.info("Service not in D-Bus tree yet, waiting for BlueZ to populate it...")
+            # Wait a bit more and refresh
+            time.sleep(2)
+            remote_om = dbus.Interface(
+                bus.get_object(BLUEZ_SERVICE_NAME, "/"),
+                DBUS_OM_IFACE)
+            objects = remote_om.GetManagedObjects()
+            
+            # Try to find service again
+            for path, interfaces in objects.items():
+                if path.startswith(device_path) and "org.bluez.GattService1" in interfaces:
+                    props = interfaces["org.bluez.GattService1"]
+                    device_uuid = props.get("UUID", "")
+                    if device_uuid.upper() == service_uuid_upper:
+                        service_path = path
+                        log.info(f"Found target service at path: {path} (UUID: {device_uuid})")
+                        break
+        
+        # If we still don't have service_path, we can't proceed with D-Bus-based characteristic access
+        # But we've at least discovered the characteristics via gatttool
+        if not service_path:
+            log.warning("Service still not in D-Bus tree - characteristics discovered via gatttool but cannot access via D-Bus")
+            log.warning("This may indicate a BlueZ issue - services should appear in D-Bus after gatttool discovery")
+            # We'll continue anyway and try to find characteristics in D-Bus
+            # They might appear even if the service doesn't
         
         # Refresh D-Bus objects after gatttool characteristic discovery
         remote_om = dbus.Interface(
@@ -743,39 +778,54 @@ def discover_services(bus, device_path, service_uuid):
             DBUS_OM_IFACE)
         objects = remote_om.GetManagedObjects()
         
-        # Find TX and RX characteristics (case-insensitive comparison)
+        # Find TX and RX characteristics in D-Bus tree (case-insensitive comparison)
         tx_uuid_upper = DEFAULT_TX_CHAR_UUID.upper()
         rx_uuid_upper = DEFAULT_RX_CHAR_UUID.upper()
         found_characteristics = []
-        for path, interfaces in objects.items():
-            if path.startswith(service_path) and "org.bluez.GattCharacteristic1" in interfaces:
-                props = interfaces["org.bluez.GattCharacteristic1"]
-                char_uuid = props.get("UUID", "")
-                char_uuid_upper = char_uuid.upper()
-                found_characteristics.append((path, char_uuid))
-                
-                if char_uuid_upper == tx_uuid_upper:
-                    client_tx_char_path = path
-                    log.info(f"Found TX characteristic at: {path} (UUID: {char_uuid})")
-                elif char_uuid_upper == rx_uuid_upper:
-                    client_rx_char_path = path
-                    log.info(f"Found RX characteristic at: {path} (UUID: {char_uuid})")
+        
+        # Only search for characteristics if we have a service_path
+        # Characteristics are always under a service in BlueZ's D-Bus tree
+        if service_path:
+            for path, interfaces in objects.items():
+                if path.startswith(service_path) and "org.bluez.GattCharacteristic1" in interfaces:
+                    props = interfaces["org.bluez.GattCharacteristic1"]
+                    char_uuid = props.get("UUID", "")
+                    char_uuid_upper = char_uuid.upper()
+                    found_characteristics.append((path, char_uuid))
+                    
+                    if char_uuid_upper == tx_uuid_upper:
+                        client_tx_char_path = path
+                        log.info(f"Found TX characteristic at: {path} (UUID: {char_uuid})")
+                    elif char_uuid_upper == rx_uuid_upper:
+                        client_rx_char_path = path
+                        log.info(f"Found RX characteristic at: {path} (UUID: {char_uuid})")
+        else:
+            log.warning("Service not in D-Bus tree - cannot search for characteristics in D-Bus")
+            log.warning("Characteristics were discovered via gatttool but BlueZ hasn't populated D-Bus tree")
+            log.warning("This may indicate BlueZ is using Classic Bluetooth instead of BLE GATT")
         
         # Log all found characteristics for debugging
         if found_characteristics:
             log.info(f"Available characteristics: {[f'{uuid} at {path}' for path, uuid in found_characteristics]}")
         else:
             log.warning("Available characteristics: []")
-            log.warning("Characteristics not found in D-Bus object tree")
+            if service_path:
+                log.warning("Characteristics not found in D-Bus object tree under service path")
+            else:
+                log.warning("Service not in D-Bus tree, so characteristics cannot be found")
             log.warning("This may mean BlueZ hasn't populated the characteristics yet")
             log.warning("Try waiting longer or check if gatttool successfully discovered characteristics")
         
         if not client_tx_char_path or not client_rx_char_path:
-            log.error("Could not find both TX and RX characteristics")
+            log.error("Could not find both TX and RX characteristics in D-Bus tree")
             if not client_tx_char_path:
                 log.error(f"TX characteristic {DEFAULT_TX_CHAR_UUID} not found")
             if not client_rx_char_path:
                 log.error(f"RX characteristic {DEFAULT_RX_CHAR_UUID} not found")
+            if not service_path:
+                log.error("Service not found in D-Bus tree - this is likely the root cause")
+                log.error("BlueZ may be connecting via Classic Bluetooth instead of BLE GATT")
+                log.error("Try disconnecting and reconnecting, or use bluetoothctl to force BLE GATT connection")
             return False
         
         log.info("Successfully discovered services and characteristics")
