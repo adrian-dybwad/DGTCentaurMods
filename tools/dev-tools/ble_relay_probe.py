@@ -470,8 +470,28 @@ def scan_and_connect(bus, adapter_path, target_address=None, target_name=None, s
         
         # Enable discovery
         adapter_props.Set(ADAPTER_IFACE, "Powered", dbus.Boolean(1))
-        adapter_iface.StartDiscovery()
-        log.info("Started BLE scan")
+        
+        # Check if discovery is already in progress
+        try:
+            discovering = adapter_props.Get(ADAPTER_IFACE, "Discovering")
+            if discovering:
+                log.info("Discovery already in progress, using existing scan")
+            else:
+                adapter_iface.StartDiscovery()
+                log.info("Started BLE scan")
+        except dbus.exceptions.DBusException as e:
+            if "InProgress" in str(e) or "org.bluez.Error.InProgress" in str(e):
+                log.info("Discovery already in progress, using existing scan")
+            else:
+                # Try to start discovery anyway
+                try:
+                    adapter_iface.StartDiscovery()
+                    log.info("Started BLE scan")
+                except dbus.exceptions.DBusException as e2:
+                    if "InProgress" in str(e2) or "org.bluez.Error.InProgress" in str(e2):
+                        log.info("Discovery already in progress, using existing scan")
+                    else:
+                        raise
         
         # Wait for device to be discovered
         max_wait = 30  # seconds
@@ -489,7 +509,14 @@ def scan_and_connect(bus, adapter_path, target_address=None, target_name=None, s
             time.sleep(1)
             wait_time += 1
         
-        adapter_iface.StopDiscovery()
+        # Only stop discovery if we started it
+        try:
+            discovering = adapter_props.Get(ADAPTER_IFACE, "Discovering")
+            if discovering:
+                adapter_iface.StopDiscovery()
+                log.info("Stopped BLE scan")
+        except dbus.exceptions.DBusException as e:
+            log.debug(f"Could not stop discovery (may have been stopped already): {e}")
         
         if not device_path:
             if target_address:
@@ -750,7 +777,11 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
     
     # Start periodic check for kill flag
-    GObject.timeout_add(100, check_kill_flag)
+    try:
+      from gi.repository import GLib
+      GLib.timeout_add(100, check_kill_flag)
+  except ImportError:
+      GObject.timeout_add(100, check_kill_flag)
     
     # Connect to target BLE device (client mode)
     bus = BleTools.get_bus()
