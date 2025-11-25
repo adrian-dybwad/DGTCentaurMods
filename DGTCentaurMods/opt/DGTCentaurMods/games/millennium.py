@@ -82,6 +82,8 @@ def keyCallback(key):
 def eventCallback(event):
 	global curturn
 	global sendstatewithoutrequest
+	global chess_board_widget
+	global kill
 	if event == gamemanager.EVENT_NEW_GAME:
 		curturn = 1
 		if chess_board_widget is None:
@@ -123,6 +125,7 @@ def eventCallback(event):
 
 def moveCallback(move):
 	global sendstatewithoutrequest
+	global chess_board_widget
 
 	if chess_board_widget is None:
 		chess_board_widget = ChessBoardWidget(0, 20, gamemanager.getFEN())
