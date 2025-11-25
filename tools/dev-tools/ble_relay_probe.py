@@ -482,17 +482,80 @@ def discover_services(bus, device_path, service_uuid):
         device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
         device_props = dbus.Interface(device_obj, DBUS_PROP_IFACE)
         
+        # CRITICAL: BlueZ doesn't automatically discover GATT services like Android does
+        # We need to trigger discovery by accessing the GATT client interface
+        # Try to get the adapter's GATT client manager and trigger discovery
+        try:
+            adapter = BleTools.find_adapter(bus)
+            if adapter:
+                # Try to access GATT client interface - this may trigger service discovery
+                gatt_client = dbus.Interface(
+                    bus.get_object(BLUEZ_SERVICE_NAME, adapter),
+                    "org.bluez.GattManager1")
+                log.debug("Accessed GATT manager interface")
+        except Exception as e:
+            log.debug(f"Could not access GATT manager: {e}")
+        
         # Check if services are already resolved
         props = device_props.GetAll(DEVICE_IFACE)
         services_resolved = props.get("ServicesResolved", False)
         
-        # Try to explicitly trigger service discovery by reading a property
-        # This sometimes helps BlueZ discover services faster
+        # Try multiple methods to trigger service discovery:
+        # 1. Access UUIDs property (sometimes triggers discovery)
         try:
-            # Accessing GATT services property can trigger discovery
-            _ = props.get("UUIDs", [])
+            uuids = props.get("UUIDs", [])
+            log.debug(f"Device UUIDs property: {uuids}")
+            if uuids:
+                log.info(f"Device advertises {len(uuids)} service UUID(s): {uuids}")
         except:
             pass
+        
+        # 2. Force BlueZ to discover services by using bluetoothctl or direct GATT access
+        # The issue: BlueZ doesn't auto-discover GATT services like Android BLE does
+        # Solution: Try to trigger discovery by using subprocess to call gatttool or bluetoothctl
+        if not services_resolved:
+            log.info("Services not resolved, attempting to trigger discovery via bluetoothctl...")
+            try:
+                import subprocess
+                # Use bluetoothctl to connect and trigger service discovery
+                # This is a workaround since BlueZ D-Bus doesn't have explicit discoverServices()
+                address = props.get("Address", "").replace(":", "_")
+                if address:
+                    # Try using gatttool to connect, which forces service discovery
+                    log.info(f"Attempting to trigger service discovery using gatttool for {address}")
+                    try:
+                        # Convert address format: 34:81:F4:ED:78:34 -> 34_81_F4_ED_78_34
+                        result = subprocess.run(
+                            ['timeout', '2', 'gatttool', '-b', props.get("Address", ""), '--char-read', '--handle=0x0001'],
+                            capture_output=True,
+                            timeout=3,
+                            stderr=subprocess.DEVNULL
+                        )
+                        log.debug("gatttool attempt completed")
+                    except (FileNotFoundError, subprocess.TimeoutExpired):
+                        # gatttool not available or timed out, try bluetoothctl instead
+                        log.debug("gatttool not available, trying bluetoothctl")
+                        try:
+                            proc = subprocess.Popen(
+                                ['bluetoothctl'],
+                                stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                text=True
+                            )
+                            # Connect to device to trigger service discovery
+                            proc.stdin.write(f"connect {props.get('Address', '')}\n")
+                            proc.stdin.flush()
+                            time.sleep(1)
+                            proc.terminate()
+                            proc.wait(timeout=2)
+                        except:
+                            pass
+            except Exception as e:
+                log.debug(f"Service discovery trigger attempt: {e}")
+            
+            # Wait a moment for discovery to complete
+            time.sleep(2)
         
         if not services_resolved:
             log.info("Services not yet resolved, waiting for service discovery...")
@@ -501,6 +564,16 @@ def discover_services(bus, device_path, service_uuid):
                 time.sleep(0.5)
                 props = device_props.GetAll(DEVICE_IFACE)
                 services_resolved = props.get("ServicesResolved", False)
+                connected = props.get("Connected", False)
+                
+                if not connected:
+                    log.warning("Device disconnected during service discovery, reconnecting...")
+                    try:
+                        device_iface.Connect()
+                        time.sleep(1)
+                    except:
+                        pass
+                
                 if services_resolved:
                     log.info("Services resolved")
                     break
@@ -524,6 +597,12 @@ def discover_services(bus, device_path, service_uuid):
                 # Log progress every 5 seconds
                 if (i + 1) % 10 == 0:
                     log.info(f"Still waiting for services... ({i * 0.5:.1f}s)")
+                    # Try accessing UUIDs again to trigger discovery
+                    try:
+                        props = device_props.GetAll(DEVICE_IFACE)
+                        _ = props.get("UUIDs", [])
+                    except:
+                        pass
         
         # Give a bit more time for all services to appear
         time.sleep(1)
