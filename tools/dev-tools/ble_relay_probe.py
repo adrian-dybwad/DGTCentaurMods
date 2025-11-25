@@ -270,6 +270,10 @@ def find_device_by_name(bus, adapter_path, device_name):
             DBUS_OM_IFACE)
         objects = remote_om.GetManagedObjects()
         
+        # Normalize the target name for comparison (case-insensitive, strip whitespace)
+        target_name_normalized = device_name.strip().upper()
+        found_devices = []
+        
         for path, interfaces in objects.items():
             if DEVICE_IFACE in interfaces:
                 device_props = interfaces[DEVICE_IFACE]
@@ -277,10 +281,27 @@ def find_device_by_name(bus, adapter_path, device_name):
                 alias = device_props.get("Alias", "")
                 name = device_props.get("Name", "")
                 address = device_props.get("Address", "")
+                rssi = device_props.get("RSSI", "N/A")
                 
-                if alias == device_name or name == device_name:
+                # Log all devices for debugging
+                device_info = f"Address: {address}, Alias: '{alias}', Name: '{name}', RSSI: {rssi}"
+                found_devices.append(device_info)
+                
+                # Case-insensitive comparison
+                alias_normalized = str(alias).strip().upper()
+                name_normalized = str(name).strip().upper()
+                
+                if alias_normalized == target_name_normalized or name_normalized == target_name_normalized:
                     log.info(f"Found device '{device_name}' at path: {path} (Address: {address})")
                     return path
+        
+        # Log all discovered devices if target not found
+        if found_devices:
+            log.info(f"Discovered {len(found_devices)} BLE device(s):")
+            for dev_info in found_devices:
+                log.info(f"  - {dev_info}")
+        else:
+            log.warning("No BLE devices found in object tree")
         
         log.warning(f"Device with name '{device_name}' not found")
         return None
@@ -471,13 +492,22 @@ def scan_and_connect(bus, adapter_path, target_address=None, target_name=None, s
         # Enable discovery
         adapter_props.Set(ADAPTER_IFACE, "Powered", dbus.Boolean(1))
         
+        # Make sure adapter is discoverable (helps with BLE scanning)
+        try:
+            adapter_props.Set(ADAPTER_IFACE, "Discoverable", dbus.Boolean(1))
+            log.info("Adapter set to discoverable mode")
+        except Exception as e:
+            log.debug(f"Could not set discoverable: {e}")
+        
         # Check if discovery is already in progress
+        discovery_started_by_us = False
         try:
             discovering = adapter_props.Get(ADAPTER_IFACE, "Discovering")
             if discovering:
                 log.info("Discovery already in progress, using existing scan")
             else:
                 adapter_iface.StartDiscovery()
+                discovery_started_by_us = True
                 log.info("Started BLE scan")
         except dbus.exceptions.DBusException as e:
             if "InProgress" in str(e) or "org.bluez.Error.InProgress" in str(e):
@@ -486,6 +516,7 @@ def scan_and_connect(bus, adapter_path, target_address=None, target_name=None, s
                 # Try to start discovery anyway
                 try:
                     adapter_iface.StartDiscovery()
+                    discovery_started_by_us = True
                     log.info("Started BLE scan")
                 except dbus.exceptions.DBusException as e2:
                     if "InProgress" in str(e2) or "org.bluez.Error.InProgress" in str(e2):
@@ -493,10 +524,16 @@ def scan_and_connect(bus, adapter_path, target_address=None, target_name=None, s
                     else:
                         raise
         
+        # Give discovery a moment to start finding devices
+        time.sleep(2)
+        
         # Wait for device to be discovered
         max_wait = 30  # seconds
         wait_time = 0
         device_path = None
+        last_log_time = 0
+        
+        log.info(f"Waiting up to {max_wait} seconds for device to appear...")
         
         while wait_time < max_wait and device_path is None:
             if target_address:
@@ -506,17 +543,24 @@ def scan_and_connect(bus, adapter_path, target_address=None, target_name=None, s
             
             if device_path:
                 break
+            
+            # Log progress every 5 seconds
+            if wait_time - last_log_time >= 5:
+                log.info(f"Still scanning... ({wait_time}/{max_wait} seconds)")
+                last_log_time = wait_time
+            
             time.sleep(1)
             wait_time += 1
         
         # Only stop discovery if we started it
-        try:
-            discovering = adapter_props.Get(ADAPTER_IFACE, "Discovering")
-            if discovering:
-                adapter_iface.StopDiscovery()
-                log.info("Stopped BLE scan")
-        except dbus.exceptions.DBusException as e:
-            log.debug(f"Could not stop discovery (may have been stopped already): {e}")
+        if discovery_started_by_us:
+            try:
+                discovering = adapter_props.Get(ADAPTER_IFACE, "Discovering")
+                if discovering:
+                    adapter_iface.StopDiscovery()
+                    log.info("Stopped BLE scan")
+            except dbus.exceptions.DBusException as e:
+                log.debug(f"Could not stop discovery (may have been stopped already): {e}")
         
         if not device_path:
             if target_address:
