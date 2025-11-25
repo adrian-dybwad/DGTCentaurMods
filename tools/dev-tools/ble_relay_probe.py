@@ -501,10 +501,13 @@ def discover_services(bus, device_path, service_uuid):
                     bus.get_object(BLUEZ_SERVICE_NAME, "/"),
                     DBUS_OM_IFACE)
                 objects = remote_om.GetManagedObjects()
+                service_uuid_upper = service_uuid.upper()
                 for path, interfaces in objects.items():
                     if path.startswith(device_path) and "org.bluez.GattService1" in interfaces:
                         service_props = interfaces["org.bluez.GattService1"]
-                        if service_props.get("UUID") == service_uuid:
+                        device_uuid = service_props.get("UUID", "")
+                        # Compare case-insensitively
+                        if device_uuid.upper() == service_uuid_upper:
                             log.info("Service found even though ServicesResolved is False")
                             services_resolved = True
                             break
@@ -550,14 +553,17 @@ def discover_services(bus, device_path, service_uuid):
             log.warning("  3. The device uses a different connection method (e.g., RFCOMM)")
             log.warning("  4. Services haven't been discovered yet (try waiting longer)")
         
-        # Find the service with matching UUID
+        # Find the service with matching UUID (case-insensitive comparison)
         service_path = None
+        service_uuid_upper = service_uuid.upper()
         for path, interfaces in objects.items():
             if path.startswith(device_path) and "org.bluez.GattService1" in interfaces:
                 props = interfaces["org.bluez.GattService1"]
-                if props.get("UUID") == service_uuid:
+                device_uuid = props.get("UUID", "")
+                # Compare case-insensitively
+                if device_uuid.upper() == service_uuid_upper:
                     service_path = path
-                    log.info(f"Found target service at path: {path}")
+                    log.info(f"Found target service at path: {path} (UUID: {device_uuid})")
                     break
         
         if not service_path:
@@ -565,18 +571,21 @@ def discover_services(bus, device_path, service_uuid):
             log.error("Available services listed above")
             return False
         
-        # Find TX and RX characteristics
+        # Find TX and RX characteristics (case-insensitive comparison)
+        tx_uuid_upper = DEFAULT_TX_CHAR_UUID.upper()
+        rx_uuid_upper = DEFAULT_RX_CHAR_UUID.upper()
         for path, interfaces in objects.items():
             if path.startswith(service_path) and "org.bluez.GattCharacteristic1" in interfaces:
                 props = interfaces["org.bluez.GattCharacteristic1"]
-                char_uuid = props.get("UUID")
+                char_uuid = props.get("UUID", "")
+                char_uuid_upper = char_uuid.upper()
                 
-                if char_uuid == DEFAULT_TX_CHAR_UUID:
+                if char_uuid_upper == tx_uuid_upper:
                     client_tx_char_path = path
-                    log.info(f"Found TX characteristic at: {path}")
-                elif char_uuid == DEFAULT_RX_CHAR_UUID:
+                    log.info(f"Found TX characteristic at: {path} (UUID: {char_uuid})")
+                elif char_uuid_upper == rx_uuid_upper:
                     client_rx_char_path = path
-                    log.info(f"Found RX characteristic at: {path}")
+                    log.info(f"Found RX characteristic at: {path} (UUID: {char_uuid})")
         
         if not client_tx_char_path or not client_rx_char_path:
             log.error("Could not find both TX and RX characteristics")
