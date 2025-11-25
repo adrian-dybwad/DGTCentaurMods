@@ -15,6 +15,7 @@ Usage:
 
 import argparse
 import sys
+import os
 import time
 import threading
 import signal
@@ -24,6 +25,14 @@ try:
     from gi.repository import GObject
 except ImportError:
     import gobject as GObject
+
+# Ensure we import the repo package first (not a system-installed copy)
+try:
+    REPO_OPT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'DGTCentaurMods', 'opt'))
+    if REPO_OPT not in sys.path:
+        sys.path.insert(0, REPO_OPT)
+except Exception as e:
+    print(f"Warning: Could not add repo path: {e}")
 
 from DGTCentaurMods.thirdparty.advertisement import Advertisement
 from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic
