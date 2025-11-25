@@ -519,20 +519,36 @@ def discover_services(bus, device_path, service_uuid):
             DBUS_OM_IFACE)
         objects = remote_om.GetManagedObjects()
         
+        # Log ALL objects under the device path for debugging
+        device_objects = []
+        for path, interfaces in objects.items():
+            if path.startswith(device_path):
+                device_objects.append((path, list(interfaces.keys())))
+        
+        log.info(f"Found {len(device_objects)} object(s) under device path:")
+        for obj_path, ifaces in device_objects:
+            log.info(f"  - {obj_path}: {', '.join(ifaces)}")
+        
         # Log all services found for debugging
         found_services = []
         for path, interfaces in objects.items():
             if path.startswith(device_path) and "org.bluez.GattService1" in interfaces:
                 service_props = interfaces["org.bluez.GattService1"]
                 uuid = service_props.get("UUID", "unknown")
-                found_services.append(f"{uuid} at {path}")
+                primary = service_props.get("Primary", False)
+                found_services.append(f"{uuid} (Primary: {primary}) at {path}")
         
         if found_services:
-            log.info(f"Found {len(found_services)} service(s) on device:")
+            log.info(f"Found {len(found_services)} GATT service(s) on device:")
             for svc in found_services:
                 log.info(f"  - {svc}")
         else:
-            log.warning("No services found on device")
+            log.warning("No GATT services found on device")
+            log.warning("This may mean:")
+            log.warning("  1. The device doesn't advertise BLE services")
+            log.warning("  2. The device needs to be in a specific mode to advertise services")
+            log.warning("  3. The device uses a different connection method (e.g., RFCOMM)")
+            log.warning("  4. Services haven't been discovered yet (try waiting longer)")
         
         # Find the service with matching UUID
         service_path = None
