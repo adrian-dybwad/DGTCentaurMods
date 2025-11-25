@@ -84,6 +84,9 @@ def eventCallback(event):
 	global sendstatewithoutrequest
 	if event == gamemanager.EVENT_NEW_GAME:
 		curturn = 1
+		if chess_board_widget is None:
+			chess_board_widget = ChessBoardWidget(0, 20, gamemanager.getFEN())
+			board.display_manager.add_widget(chess_board_widget)
 		chess_board_widget.set_fen(gamemanager.getFEN())
 		log.info("sending state")
 		bs = gamemanager.getFEN()
@@ -120,6 +123,10 @@ def eventCallback(event):
 
 def moveCallback(move):
 	global sendstatewithoutrequest
+
+	if chess_board_widget is None:
+		chess_board_widget = ChessBoardWidget(0, 20, gamemanager.getFEN())
+		board.display_manager.add_widget(chess_board_widget)
 	chess_board_widget.set_fen(gamemanager.getFEN())
 	#widgets.write_text(9, move)
 	bs = gamemanager.getFEN()
@@ -151,8 +158,7 @@ board.display_manager.add_widget(TextWidget(50, 20, 88, 100, "Connect remote Dev
 
 #game_analysis = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color, analysis_engine=analysis_engine)
 #board.display_manager.add_widget(game_analysis)
-chess_board_widget = ChessBoardWidget(0, 20, gamemanager.getFEN())
-board.display_manager.add_widget(chess_board_widget)
+chess_board_widget = None
 
 # Create Bluetooth controller instance and start pairing thread
 # Use "MILLENNIUM CHESS" device name for ChessLink app compatibility
