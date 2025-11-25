@@ -330,6 +330,9 @@ def printChessState(state = None, loglevel = logging.INFO):
     # Helper to display board state
     if state is None:
         state = getChessState()  # Use getChessState if available, or update to use transformed state
+    if state is None:
+        log.warning("[board.printChessState] Cannot print board state: getChessState() returned None (likely due to timeout or communication failure)")
+        return
     line = "\n"
     # Display ranks from top (rank 8) to bottom (rank 1)
     # Chess coordinates: row 7 (56-63) = rank 8, row 0 (0-7) = rank 1
