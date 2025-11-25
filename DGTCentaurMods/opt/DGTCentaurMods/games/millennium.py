@@ -524,6 +524,39 @@ def odd_par(b):
 		byte = b & 127
 	return byte
 
+def parse_hex_byte_pair(rx_buffer, idx1, idx2):
+	"""
+	Safely parse two bytes as a hex pair.
+	
+	Args:
+		rx_buffer: The receive buffer
+		idx1: Index of first byte
+		idx2: Index of second byte
+		
+	Returns:
+		tuple: (value, is_valid) where value is the parsed integer if valid, None otherwise
+	"""
+	if idx2 >= len(rx_buffer):
+		return None, False
+	
+	h1 = rx_buffer[idx1] & 127
+	h2 = rx_buffer[idx2] & 127
+	c1 = chr(h1)
+	c2 = chr(h2)
+	
+	# Validate that both characters are valid hex digits
+	if not (c1 in '0123456789ABCDEFabcdef' and c2 in '0123456789ABCDEFabcdef'):
+		log.warning(f"Invalid hex characters: '{c1}' (0x{h1:02x}) and '{c2}' (0x{h2:02x})")
+		return None, False
+	
+	try:
+		hexn = '0x' + c1 + c2
+		value = int(hexn, 16)
+		return value, True
+	except ValueError as e:
+		log.warning(f"Failed to parse hex '{hexn}': {e}")
+		return None, False
+
 def sendMillenniumCommand(txt):
 	"""Send a Millennium protocol command via BLE"""
 	global UARTService
@@ -601,14 +634,20 @@ def processMillenniumCommands():
 			# Write E2ROM - need 4 hex chars (2 addr + 2 value) + 2 checksum
 			if len(rx_buffer) < 7:
 				break
+			address, valid = parse_hex_byte_pair(rx_buffer, 1, 2)
+			if not valid:
+				log.error("Invalid address in W command, skipping")
+				rx_buffer = rx_buffer[1:]  # Skip the W byte and try next command
+				break
+			value, valid = parse_hex_byte_pair(rx_buffer, 3, 4)
+			if not valid:
+				log.error("Invalid value in W command, skipping")
+				rx_buffer = rx_buffer[1:]  # Skip the W byte and try next command
+				break
 			h1 = rx_buffer[1] & 127
 			h2 = rx_buffer[2] & 127
-			hexn = '0x' + chr(h1) + chr(h2)
-			address = int(str(hexn), 16)
 			h3 = rx_buffer[3] & 127
 			h4 = rx_buffer[4] & 127
-			hexn = '0x' + chr(h3) + chr(h4)
-			value = int(str(hexn), 16)
 			log.info(f"Write E2ROM: address={address}, value={value}")
 			rx_buffer = rx_buffer[7:]  # Remove W + 4 hex + 2 checksum
 			E2ROM[address] = value
@@ -630,10 +669,13 @@ def processMillenniumCommands():
 			# Read E2ROM - need 2 hex chars (address) + 2 checksum
 			if len(rx_buffer) < 5:
 				break
+			address, valid = parse_hex_byte_pair(rx_buffer, 1, 2)
+			if not valid:
+				log.error("Invalid address in R command, skipping")
+				rx_buffer = rx_buffer[1:]  # Skip the R byte and try next command
+				break
 			h1 = rx_buffer[1] & 127
 			h2 = rx_buffer[2] & 127
-			hexn = '0x' + chr(h1) + chr(h2)
-			address = int(str(hexn), 16)
 			value = E2ROM[address]
 			h = str(hex(value)).upper()
 			h3 = h[2:3] if len(h) > 2 else '0'
@@ -659,10 +701,11 @@ def processMillenniumCommands():
 					log.warning(f"LED pattern buffer too short: need index {idx2}, have {len(rx_buffer)} bytes")
 					led_processing_complete = False
 					break
-				h1 = rx_buffer[idx1] & 127
-				h2 = rx_buffer[idx2] & 127
-				hexn = '0x' + chr(h1) + chr(h2)
-				v = int(str(hexn), 16)
+				v, valid = parse_hex_byte_pair(rx_buffer, idx1, idx2)
+				if not valid:
+					log.warning(f"Invalid hex at LED position {x}, aborting LED pattern")
+					led_processing_complete = False
+					break
 				mpattern[x] = v
 			# Only process and remove bytes from buffer if we successfully processed all LED values
 			if not led_processing_complete:
