@@ -312,22 +312,116 @@ def find_device_by_name(bus, adapter_path, device_name):
         return None
 
 
+def get_device_properties(bus, device_path):
+    """Get device properties"""
+    try:
+        device_obj = bus.get_object(BLUEZ_SERVICE_NAME, device_path)
+        device_props = dbus.Interface(device_obj, DBUS_PROP_IFACE)
+        props = device_props.GetAll(DEVICE_IFACE)
+        return props
+    except Exception as e:
+        log.debug(f"Error getting device properties: {e}")
+        return None
+
+
 def connect_to_device(bus, device_path):
-    """Connect to a BLE device"""
+    """Connect to a BLE device with retry and pairing support"""
     global client_device_path, client_connected
     
     try:
         device_obj = bus.get_object(BLUEZ_SERVICE_NAME, device_path)
         device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
+        device_props = dbus.Interface(device_obj, DBUS_PROP_IFACE)
         
-        log.info(f"Connecting to device at {device_path}...")
-        device_iface.Connect()
-        client_device_path = device_path
-        client_connected = True
-        log.info("Successfully connected to device")
-        return True
-    except dbus.exceptions.DBusException as e:
-        log.error(f"Failed to connect to device: {e}")
+        # Check device state
+        props = get_device_properties(bus, device_path)
+        if props:
+            connected = props.get("Connected", False)
+            paired = props.get("Paired", False)
+            address = props.get("Address", "unknown")
+            log.info(f"Device state - Connected: {connected}, Paired: {paired}, Address: {address}")
+            
+            # If already connected, we're good
+            if connected:
+                log.info("Device is already connected")
+                client_device_path = device_path
+                client_connected = True
+                return True
+            
+            # Try to pair if not paired
+            if not paired:
+                log.info("Device is not paired, attempting to pair...")
+                try:
+                    device_iface.Pair()
+                    log.info("Pairing initiated, waiting for completion...")
+                    # Wait for pairing to complete (up to 10 seconds)
+                    for i in range(20):
+                        time.sleep(0.5)
+                        props = get_device_properties(bus, device_path)
+                        if props and props.get("Paired", False):
+                            log.info("Pairing successful")
+                            break
+                        if props and props.get("Connected", False):
+                            log.info("Device connected during pairing")
+                            client_device_path = device_path
+                            client_connected = True
+                            return True
+                except dbus.exceptions.DBusException as e:
+                    error_name = e.get_dbus_name() if hasattr(e, 'get_dbus_name') else str(e)
+                    if "AlreadyExists" in error_name or "Already paired" in str(e):
+                        log.info("Device is already paired")
+                    else:
+                        log.warning(f"Pairing failed or not needed: {e}")
+        
+        # Try to connect with retries
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                log.info(f"Connecting to device at {device_path}... (attempt {attempt + 1}/{max_retries})")
+                device_iface.Connect()
+                
+                # Wait a moment and verify connection
+                time.sleep(1)
+                props = get_device_properties(bus, device_path)
+                if props and props.get("Connected", False):
+                    client_device_path = device_path
+                    client_connected = True
+                    log.info("Successfully connected to device")
+                    return True
+                else:
+                    log.warning(f"Connect() returned but device not showing as connected")
+            except dbus.exceptions.DBusException as e:
+                error_name = e.get_dbus_name() if hasattr(e, 'get_dbus_name') else str(e)
+                error_msg = str(e)
+                
+                if "NotAvailable" in error_name or "NotAvailable" in error_msg:
+                    if attempt < max_retries - 1:
+                        log.warning(f"Device not available, waiting before retry... ({error_msg})")
+                        time.sleep(2)
+                        continue
+                    else:
+                        log.error(f"Device not available after {max_retries} attempts: {error_msg}")
+                        log.error("This may mean the device is already connected to another device")
+                        log.error("Try disconnecting from the device on other devices first")
+                elif "AlreadyConnected" in error_name or "Already connected" in error_msg:
+                    log.info("Device is already connected")
+                    client_device_path = device_path
+                    client_connected = True
+                    return True
+                elif "InProgress" in error_name or "In progress" in error_msg:
+                    log.info("Connection in progress, waiting...")
+                    time.sleep(2)
+                    props = get_device_properties(bus, device_path)
+                    if props and props.get("Connected", False):
+                        client_device_path = device_path
+                        client_connected = True
+                        return True
+                else:
+                    log.error(f"Failed to connect: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(2)
+                        continue
+        
         return False
     except Exception as e:
         log.error(f"Error connecting to device: {e}")
