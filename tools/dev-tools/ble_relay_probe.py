@@ -341,13 +341,7 @@ def connect_to_device(bus, device_path):
             log.info(f"Device state - Connected: {connected}, Paired: {paired}, Trusted: {trusted}, Address: {address}")
             
             if connected:
-                log.info("Device is connected, disconnecting to prepare for BLE GATT connection...")
-                try:
-                    device_iface.Disconnect()
-                    time.sleep(1)
-                    log.info("Disconnected from device")
-                except Exception as e:
-                    log.debug(f"Disconnect attempt: {e}")
+                log.info("Device is already connected - gatttool will use existing connection or establish BLE GATT")
             
             if not trusted:
                 log.info("Device is not trusted, setting Trusted=True...")
@@ -374,12 +368,7 @@ def connect_to_device(bus, device_path):
                                 pass
                             break
                         if props and props.get("Connected", False):
-                            log.info("Device connected during pairing, disconnecting...")
-                            try:
-                                device_iface.Disconnect()
-                                time.sleep(1)
-                            except:
-                                pass
+                            log.info("Device connected during pairing - will use for BLE GATT")
                 except dbus.exceptions.DBusException as e:
                     error_name = e.get_dbus_name() if hasattr(e, 'get_dbus_name') else str(e)
                     if "AlreadyExists" in error_name or "Already paired" in str(e):
@@ -387,17 +376,8 @@ def connect_to_device(bus, device_path):
                     else:
                         log.warning(f"Pairing failed or not needed: {e}")
         
-        props = get_device_properties(bus, device_path)
-        if props and props.get("Connected", False):
-            log.info("Ensuring device is disconnected before BLE GATT connection...")
-            try:
-                device_iface.Disconnect()
-                time.sleep(1)
-            except:
-                pass
-        
         client_device_path = device_path
-        log.info("Device prepared for BLE GATT connection via gatttool")
+        log.info("Device prepared for BLE GATT connection")
         return True
     except Exception as e:
         log.error(f"Error preparing device: {e}")
@@ -429,76 +409,71 @@ def discover_services(bus, device_path, service_uuid):
         services_resolved = props.get("ServicesResolved", False)
         
         if not services_resolved:
-            log.info("Services not resolved, forcing BLE GATT connection via gatttool...")
-            try:
-                import subprocess
-                device_address = props.get("Address", "")
-                if device_address:
-                    log.info(f"Connecting to {device_address} via BLE GATT using gatttool...")
-                    try:
-                        result = subprocess.run(
-                            ['gatttool', '-b', device_address, '--primary'],
-                            capture_output=True,
-                            timeout=5,
-                            text=True
-                        )
-                        if result.returncode == 0:
-                            log.info("Discovered primary services via gatttool")
-                            log.debug(f"gatttool output: {result.stdout[:200]}")
-                            
-                            import re
-                            service_handle = None
+            log.info("Services not resolved, using gatttool to establish BLE GATT connection...")
+            device_address = props.get("Address", "")
+            if device_address:
+                log.info(f"Connecting to {device_address} via BLE GATT using gatttool...")
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ['gatttool', '-b', device_address, '--primary'],
+                        capture_output=True,
+                        timeout=10,
+                        text=True
+                    )
+                    if result.returncode == 0:
+                        log.info("Discovered primary services via gatttool - BLE GATT connection established")
+                        log.debug(f"gatttool output: {result.stdout[:200]}")
+                        
+                        import re
+                        service_handle = None
+                        for line in result.stdout.split('\n'):
+                            if service_uuid.lower().replace('-', '') in line.lower().replace('-', '').replace(' ', ''):
+                                match = re.search(r'handle\s*=\s*0x([0-9a-f]+)', line, re.IGNORECASE)
+                                if match:
+                                    service_handle = match.group(1)
+                                    break
+                        
+                        if service_handle:
+                            log.info(f"Found target service handle: 0x{service_handle}")
+                            end_handle = None
                             for line in result.stdout.split('\n'):
-                                if service_uuid.lower().replace('-', '') in line.lower().replace('-', '').replace(' ', ''):
-                                    # Extract handle (e.g., "handle = 0x0030" -> "0030")
-                                    match = re.search(r'handle\s*=\s*0x([0-9a-f]+)', line, re.IGNORECASE)
-                                    if match:
-                                        service_handle = match.group(1)
+                                if f'0x{service_handle}' in line.lower() or service_handle in line:
+                                    range_match = re.search(r'handles\s+([0-9a-f]+)-([0-9a-f]+)', line, re.IGNORECASE)
+                                    if range_match:
+                                        end_handle = range_match.group(2)
                                         break
                             
-                            if service_handle:
-                                log.info(f"Found target service handle: 0x{service_handle}")
-                                end_handle = None
-                                for line in result.stdout.split('\n'):
-                                    if f'0x{service_handle}' in line.lower() or service_handle in line:
-                                        range_match = re.search(r'handles\s+([0-9a-f]+)-([0-9a-f]+)', line, re.IGNORECASE)
-                                        if range_match:
-                                            end_handle = range_match.group(2)
-                                            break
-                                
-                                if end_handle:
-                                    handle_range = f'0x{service_handle}-0x{end_handle}'
-                                else:
-                                    handle_int = int(service_handle, 16)
-                                    end_handle = f'{handle_int + 13:04x}'  # Assume ~14 handles
-                                    handle_range = f'0x{service_handle}-0x{end_handle}'
-                                
-                                char_result = subprocess.run(
-                                    ['gatttool', '-b', device_address, '--characteristics', handle_range],
-                                    capture_output=True,
-                                    timeout=5,
-                                    text=True
-                                )
-                                if char_result.returncode == 0:
-                                    log.info("Discovered characteristics via gatttool")
-                                    log.debug(f"gatttool characteristics output: {char_result.stdout[:300]}")
-                                else:
-                                    log.warning(f"gatttool characteristics returned code {char_result.returncode}: {char_result.stderr[:200]}")
+                            if end_handle:
+                                handle_range = f'0x{service_handle}-0x{end_handle}'
                             else:
-                                log.warning("Could not find service handle in gatttool output")
-                        else:
-                            log.warning(f"gatttool returned code {result.returncode}: {result.stderr[:200]}")
-                    except FileNotFoundError:
-                        log.warning("gatttool not found - cannot force BLE GATT connection")
-                        log.warning("Install bluez package: sudo apt-get install bluez")
-                    except subprocess.TimeoutExpired:
-                        log.warning("gatttool timed out")
-                    except Exception as e:
-                        log.debug(f"gatttool error: {e}")
-                    
-                    time.sleep(3)
-            except Exception as e:
-                log.debug(f"GATT connection attempt: {e}")
+                                handle_int = int(service_handle, 16)
+                                end_handle = f'{handle_int + 13:04x}'
+                                handle_range = f'0x{service_handle}-0x{end_handle}'
+                            
+                            char_result = subprocess.run(
+                                ['gatttool', '-b', device_address, '--characteristics', handle_range],
+                                capture_output=True,
+                                timeout=10,
+                                text=True
+                            )
+                            if char_result.returncode == 0:
+                                log.info("Discovered characteristics via gatttool")
+                                log.debug(f"gatttool characteristics output: {char_result.stdout[:300]}")
+                    else:
+                        log.warning(f"gatttool returned code {result.returncode}: {result.stderr[:200]}")
+                except FileNotFoundError:
+                    log.warning("gatttool not found - cannot establish BLE GATT connection")
+                    log.warning("Install bluez package: sudo apt-get install bluez")
+                except subprocess.TimeoutExpired:
+                    log.warning("gatttool connection timed out")
+                except Exception as e:
+                    log.debug(f"gatttool error: {e}")
+                
+                time.sleep(3)
+                
+                props = device_props.GetAll(DEVICE_IFACE)
+                services_resolved = props.get("ServicesResolved", False)
         
         if not services_resolved:
             log.info("Services not yet resolved, waiting for service discovery...")
