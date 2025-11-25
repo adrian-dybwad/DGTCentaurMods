@@ -623,6 +623,11 @@ def main():
     global app, adv, bluetooth_controller, pairThread, running, kill
     global DEFAULT_SERVICE_UUID, DEFAULT_TX_CHAR_UUID, DEFAULT_RX_CHAR_UUID
     
+    # Store original values for argument parser defaults
+    original_service_uuid = DEFAULT_SERVICE_UUID
+    original_tx_char_uuid = DEFAULT_TX_CHAR_UUID
+    original_rx_char_uuid = DEFAULT_RX_CHAR_UUID
+    
     parser = argparse.ArgumentParser(description="BLE Relay Probe - Relay messages between BLE devices")
     parser.add_argument(
         "--target-address",
@@ -635,18 +640,18 @@ def main():
     )
     parser.add_argument(
         "--service-uuid",
-        default=DEFAULT_SERVICE_UUID,
-        help=f"Service UUID to use (default: {DEFAULT_SERVICE_UUID})"
+        default=original_service_uuid,
+        help=f"Service UUID to use (default: {original_service_uuid})"
     )
     parser.add_argument(
         "--tx-char-uuid",
-        default=DEFAULT_TX_CHAR_UUID,
-        help=f"TX characteristic UUID (default: {DEFAULT_TX_CHAR_UUID})"
+        default=original_tx_char_uuid,
+        help=f"TX characteristic UUID (default: {original_tx_char_uuid})"
     )
     parser.add_argument(
         "--rx-char-uuid",
-        default=DEFAULT_RX_CHAR_UUID,
-        help=f"RX characteristic UUID (default: {DEFAULT_RX_CHAR_UUID})"
+        default=original_rx_char_uuid,
+        help=f"RX characteristic UUID (default: {original_rx_char_uuid})"
     )
     
     args = parser.parse_args()
@@ -658,8 +663,7 @@ def main():
     if args.target_address and args.auto_connect_millennium:
         parser.error("Cannot specify both --target-address and --auto-connect-millennium")
     
-    # Update UUIDs if provided (need global to modify module-level variables)
-    global DEFAULT_SERVICE_UUID, DEFAULT_TX_CHAR_UUID, DEFAULT_RX_CHAR_UUID
+    # Update UUIDs if provided (now we can modify the global variables)
     DEFAULT_SERVICE_UUID = args.service_uuid
     DEFAULT_TX_CHAR_UUID = args.tx_char_uuid
     DEFAULT_RX_CHAR_UUID = args.rx_char_uuid
