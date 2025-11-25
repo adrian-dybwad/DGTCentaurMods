@@ -19,8 +19,6 @@ import os
 import time
 import threading
 import signal
-import re
-import subprocess
 import dbus
 import dbus.mainloop.glib
 try:
@@ -344,8 +342,23 @@ def connect_to_device(bus, device_path):
             address = props.get("Address", "unknown")
             log.info(f"Device state - Connected: {connected}, Paired: {paired}, Trusted: {trusted}, Address: {address}")
             
-            # If already connected, we're good
+            # If already connected, check if it's via Classic BT (blocks GATT)
             if connected:
+                uuids = props.get("UUIDs", [])
+                if uuids:
+                    uuid_strs = [str(u).lower() for u in uuids]
+                    classic_bt_uuids = ['00001101', '00001200', '0000110a', '0000110c', '0000110e']
+                    is_classic = any(any(cb_uuid in uuid_str for cb_uuid in classic_bt_uuids) for uuid_str in uuid_strs)
+                    if is_classic:
+                        log.error("Device already connected via Classic Bluetooth - this blocks GATT connections!")
+                        log.error("Disconnecting to allow BLE GATT connection...")
+                        try:
+                            device_iface.Disconnect()
+                            time.sleep(1)
+                        except:
+                            pass
+                        return False
+                
                 log.info("Device is already connected")
                 client_device_path = device_path
                 client_connected = True
@@ -390,6 +403,22 @@ def connect_to_device(bus, device_path):
                                 pass
                             break
                         if props and props.get("Connected", False):
+                            # Check if connected via Classic BT (blocks GATT)
+                            uuids = props.get("UUIDs", [])
+                            if uuids:
+                                uuid_strs = [str(u).lower() for u in uuids]
+                                classic_bt_uuids = ['00001101', '00001200', '0000110a', '0000110c', '0000110e']
+                                is_classic = any(any(cb_uuid in uuid_str for cb_uuid in classic_bt_uuids) for uuid_str in uuid_strs)
+                                if is_classic:
+                                    log.error("Device connected via Classic Bluetooth during pairing - this blocks GATT!")
+                                    log.error("Disconnecting to allow BLE GATT connection...")
+                                    try:
+                                        device_iface.Disconnect()
+                                        time.sleep(1)
+                                    except:
+                                        pass
+                                    return False
+                            
                             log.info("Device connected during pairing")
                             client_device_path = device_path
                             client_connected = True
@@ -426,6 +455,22 @@ def connect_to_device(bus, device_path):
                 time.sleep(2)
                 props = get_device_properties(bus, device_path)
                 if props and props.get("Connected", False):
+                    # CRITICAL: Check if connected via Classic Bluetooth (blocks GATT)
+                    uuids = props.get("UUIDs", [])
+                    if uuids:
+                        uuid_strs = [str(u).lower() for u in uuids]
+                        classic_bt_uuids = ['00001101', '00001200', '0000110a', '0000110c', '0000110e']
+                        is_classic = any(any(cb_uuid in uuid_str for cb_uuid in classic_bt_uuids) for uuid_str in uuid_strs)
+                        if is_classic:
+                            log.error("Device connected via Classic Bluetooth - this blocks GATT connections!")
+                            log.error("Disconnecting to allow BLE GATT connection...")
+                            try:
+                                device_iface.Disconnect()
+                                time.sleep(1)
+                            except:
+                                pass
+                            return False
+                    
                     client_device_path = device_path
                     client_connected = True
                     log.info("Successfully connected to device")
@@ -506,7 +551,6 @@ def discover_services(bus, device_path, service_uuid):
         # This means BlueZ is connecting via Classic Bluetooth, NOT BLE GATT
         # nRF Connect uses BLE GATT, which is why it can see the services
         # We need to force BLE GATT connection using gatttool or bluetoothctl GATT menu
-        is_classic_bluetooth = False
         try:
             uuids = props.get("UUIDs", [])
             log.debug(f"Device UUIDs property: {uuids}")
@@ -515,39 +559,25 @@ def discover_services(bus, device_path, service_uuid):
                 log.info(f"Device UUIDs property shows {len(uuids)} service(s): {uuid_strs}")
                 # Check if these are Classic Bluetooth UUIDs (not BLE GATT)
                 classic_bt_uuids = ['00001101', '00001200', '0000110a', '0000110c', '0000110e']
-                is_classic_bluetooth = any(any(cb_uuid in str(u).lower() for cb_uuid in classic_bt_uuids) for u in uuids)
-                if is_classic_bluetooth:
+                is_classic = any(any(cb_uuid in str(u).lower() for cb_uuid in classic_bt_uuids) for u in uuids)
+                if is_classic:
                     log.warning("Device UUIDs indicate Classic Bluetooth connection, not BLE GATT!")
                     log.warning("BlueZ Connect() may be using Classic Bluetooth instead of BLE GATT")
-                    log.warning("Will disconnect and use gatttool to force BLE GATT connection")
+                    log.warning("Need to force BLE GATT connection using gatttool or bluetoothctl GATT menu")
         except:
             pass
         
         # Force BLE GATT service discovery using gatttool
         # gatttool connects via BLE GATT and automatically discovers services
-        # Store service handle information from gatttool output
-        gatttool_service_handle_start = None
-        gatttool_service_handle_end = None
-        
-        # If connected via Classic Bluetooth, disconnect before using gatttool
-        # This prevents Classic Bluetooth from interfering with BLE GATT connection
-        if is_classic_bluetooth and props.get("Connected", False):
-            log.info("Disconnecting Classic Bluetooth connection before forcing BLE GATT connection...")
-            try:
-                device_iface.Disconnect()
-                time.sleep(1)
-                log.info("Disconnected from Classic Bluetooth connection")
-            except Exception as e:
-                log.debug(f"Error disconnecting: {e}")
-        
         if not services_resolved:
             log.info("Services not resolved, forcing BLE GATT connection via gatttool...")
             try:
+                import subprocess
                 device_address = props.get("Address", "")
                 if device_address:
-                    # Use gatttool to connect via BLE GATT and discover services
+                    # Use gatttool to connect via BLE GATT and discover services/characteristics
                     # This forces BLE GATT connection instead of Classic Bluetooth
-                    log.info(f"Using gatttool to force BLE GATT connection to {device_address}")
+                    log.info(f"Connecting to {device_address} via BLE GATT using gatttool...")
                     try:
                         # gatttool -b ADDRESS --primary will list primary services (triggers discovery)
                         result = subprocess.run(
@@ -557,24 +587,55 @@ def discover_services(bus, device_path, service_uuid):
                             text=True
                         )
                         if result.returncode == 0:
-                            log.info("gatttool successfully connected via BLE GATT")
-                            log.debug(f"gatttool output: {result.stdout[:500]}")
+                            log.info("Discovered primary services via gatttool")
+                            log.debug(f"gatttool output: {result.stdout[:200]}")
                             
-                            # Parse output to find target service handle range
-                            # Format: attr handle = 0x0030, end grp handle = 0x003d uuid: 49535343-fe7d-4ae5-8fa9-9fafd205e455
-                            service_uuid_normalized = service_uuid.replace('-', '').lower()
+                            # Now discover characteristics for the target service
+                            # Find service handle from output (format: handle = 0x0030, uuid = 49535343-fe7d-4ae5-8fa9-9fafd205e455)
+                            import re
+                            service_handle = None
                             for line in result.stdout.split('\n'):
-                                line_normalized = line.replace('-', '').lower()
-                                if service_uuid_normalized in line_normalized:
-                                    # Extract handle range - handle both formats:
-                                    # "attr handle = 0x0030, end grp handle = 0x003d"
-                                    # "attr handle: 0x0030, end grp handle: 0x003d"
-                                    match = re.search(r'attr handle\s*[=:]\s*(0x[0-9a-fA-F]+).*end grp handle\s*[=:]\s*(0x[0-9a-fA-F]+)', line, re.IGNORECASE)
+                                if service_uuid.lower().replace('-', '') in line.lower().replace('-', '').replace(' ', ''):
+                                    # Extract handle (e.g., "handle = 0x0030" -> "0030")
+                                    match = re.search(r'handle\s*=\s*0x([0-9a-f]+)', line, re.IGNORECASE)
                                     if match:
-                                        gatttool_service_handle_start = match.group(1)
-                                        gatttool_service_handle_end = match.group(2)
-                                        log.info(f"Found target service via gatttool: handle range {gatttool_service_handle_start} to {gatttool_service_handle_end}")
+                                        service_handle = match.group(1)
                                         break
+                            
+                            if service_handle:
+                                log.info(f"Found target service handle: 0x{service_handle}")
+                                # Discover characteristics for this service
+                                # Parse service handle range from output (e.g., "handles 0030-003d")
+                                end_handle = None
+                                for line in result.stdout.split('\n'):
+                                    if f'0x{service_handle}' in line.lower() or service_handle in line:
+                                        # Look for handle range pattern
+                                        range_match = re.search(r'handles\s+([0-9a-f]+)-([0-9a-f]+)', line, re.IGNORECASE)
+                                        if range_match:
+                                            end_handle = range_match.group(2)
+                                            break
+                                
+                                if end_handle:
+                                    handle_range = f'0x{service_handle}-0x{end_handle}'
+                                else:
+                                    # Default to a small range if end handle not found
+                                    handle_int = int(service_handle, 16)
+                                    end_handle = f'{handle_int + 13:04x}'  # Assume ~14 handles
+                                    handle_range = f'0x{service_handle}-0x{end_handle}'
+                                
+                                char_result = subprocess.run(
+                                    ['gatttool', '-b', device_address, '--characteristics', handle_range],
+                                    capture_output=True,
+                                    timeout=5,
+                                    text=True
+                                )
+                                if char_result.returncode == 0:
+                                    log.info("Discovered characteristics via gatttool")
+                                    log.debug(f"gatttool characteristics output: {char_result.stdout[:300]}")
+                                else:
+                                    log.warning(f"gatttool characteristics returned code {char_result.returncode}: {char_result.stderr[:200]}")
+                            else:
+                                log.warning("Could not find service handle in gatttool output")
                         else:
                             log.warning(f"gatttool returned code {result.returncode}: {result.stderr[:200]}")
                     except FileNotFoundError:
@@ -586,9 +647,6 @@ def discover_services(bus, device_path, service_uuid):
                         log.debug(f"gatttool error: {e}")
                     
                     # Wait for BlueZ to update its D-Bus objects after gatttool connection
-                    # Note: gatttool creates a temporary connection that closes when it exits
-                    # We need to wait for BlueZ to potentially discover services from the gatttool session
-                    # or we'll need to reconnect, but we want to avoid Classic Bluetooth
                     time.sleep(3)
             except Exception as e:
                 log.debug(f"GATT connection attempt: {e}")
@@ -596,50 +654,19 @@ def discover_services(bus, device_path, service_uuid):
         if not services_resolved:
             log.info("Services not yet resolved, waiting for service discovery...")
             # Wait for services to be resolved (up to 15 seconds)
-            # IMPORTANT: After using gatttool, don't reconnect via device_iface.Connect()
-            # as that will reconnect via Classic Bluetooth. Instead, wait for BlueZ to
-            # populate the D-Bus tree from the gatttool BLE GATT connection.
             for i in range(30):
                 time.sleep(0.5)
                 props = device_props.GetAll(DEVICE_IFACE)
                 services_resolved = props.get("ServicesResolved", False)
                 connected = props.get("Connected", False)
                 
-                # Check if we're connected via Classic Bluetooth
-                is_classic = False
-                try:
-                    uuids = props.get("UUIDs", [])
-                    if uuids:
-                        classic_bt_uuids = ['00001101', '00001200', '0000110a', '0000110c', '0000110e']
-                        is_classic = any(any(cb_uuid in str(u).lower() for cb_uuid in classic_bt_uuids) for u in uuids)
-                except:
-                    pass
-                
                 if not connected:
-                    # CRITICAL: After gatttool runs, it creates a temporary BLE GATT connection that closes when it exits
-                    # If we reconnect via device_iface.Connect(), BlueZ will reconnect via Classic Bluetooth
-                    # So we should avoid reconnecting if we've used gatttool, or we need a different method
-                    if gatttool_service_handle_start:
-                        log.info("Device disconnected after gatttool BLE GATT connection closed")
-                        log.info("gatttool creates temporary connections - BlueZ may reconnect via Classic Bluetooth")
-                        log.info("Waiting for BlueZ to populate D-Bus tree or for BLE GATT connection to be established...")
-                        # Don't reconnect via device_iface.Connect() as it will use Classic Bluetooth
-                        # Instead, wait and check if services appear in D-Bus
-                    else:
-                        log.warning("Device disconnected during service discovery, reconnecting...")
-                        try:
-                            device_iface.Connect()
-                            time.sleep(1)
-                            # Check if reconnection used Classic Bluetooth
-                            props_check = device_props.GetAll(DEVICE_IFACE)
-                            uuids_check = props_check.get("UUIDs", [])
-                            if uuids_check:
-                                classic_bt_uuids = ['00001101', '00001200', '0000110a', '0000110c', '0000110e']
-                                is_classic_check = any(any(cb_uuid in str(u).lower() for cb_uuid in classic_bt_uuids) for u in uuids_check)
-                                if is_classic_check:
-                                    log.warning("Reconnection used Classic Bluetooth - this will prevent BLE GATT service discovery")
-                        except:
-                            pass
+                    log.warning("Device disconnected during service discovery, reconnecting...")
+                    try:
+                        device_iface.Connect()
+                        time.sleep(1)
+                    except:
+                        pass
                 
                 if services_resolved:
                     log.info("Services resolved")
@@ -723,155 +750,60 @@ def discover_services(bus, device_path, service_uuid):
                     log.info(f"Found target service at path: {path} (UUID: {device_uuid})")
                     break
         
-        # If service not found in D-Bus tree but we have handle range from gatttool, use that
         if not service_path:
-            if gatttool_service_handle_start and gatttool_service_handle_end:
-                log.warning(f"Service with UUID {service_uuid} not found in D-Bus tree")
-                log.info(f"Using gatttool-discovered service handle range: {gatttool_service_handle_start} to {gatttool_service_handle_end}")
-            else:
-                log.error(f"Service with UUID {service_uuid} not found")
-                log.error("Available services listed above")
-                return False
+            log.error(f"Service with UUID {service_uuid} not found")
+            log.error("Available services listed above")
+            return False
         
-        # Discover characteristics using gatttool if we have service handle range
-        # This works even if the service isn't in the D-Bus tree yet
-        service_handle_start = gatttool_service_handle_start
-        service_handle_end = gatttool_service_handle_end
+        # Find TX and RX characteristics (case-insensitive comparison)
+        # First, log all available characteristics for debugging
+        available_chars = []
+        for path, interfaces in objects.items():
+            if path.startswith(service_path) and "org.bluez.GattCharacteristic1" in interfaces:
+                props = interfaces["org.bluez.GattCharacteristic1"]
+                char_uuid = props.get("UUID", "")
+                available_chars.append((path, char_uuid))
         
-        try:
-            # Get device address from device properties
-            device_props_refresh = device_props.GetAll(DEVICE_IFACE)
-            device_address = device_props_refresh.get("Address", "")
-            if device_address and service_handle_start and service_handle_end:
-                log.info(f"Using gatttool to discover characteristics for service {service_uuid}")
-                log.info(f"Querying characteristics in range {service_handle_start}-{service_handle_end}")
-                char_result = subprocess.run(
-                    ['gatttool', '-b', device_address, '--characteristics', f'{service_handle_start}', f'{service_handle_end}'],
-                    capture_output=True,
-                    timeout=5,
-                    text=True
-                )
-                if char_result.returncode == 0:
-                    log.info("Discovered characteristics via gatttool")
-                    log.debug(f"gatttool characteristics output: {char_result.stdout[:500]}")
-                    
-                    # Parse characteristics from output
-                    # Format: handle: 0x0031, char properties: 0x12, char value handle: 0x0032, uuid: 49535343-1e4d-4bd9-ba61-23c647249616
-                    tx_uuid_upper = DEFAULT_TX_CHAR_UUID.upper().replace('-', '')
-                    rx_uuid_upper = DEFAULT_RX_CHAR_UUID.upper().replace('-', '')
-                    found_chars = []
-                    for line in char_result.stdout.split('\n'):
-                        if 'uuid:' in line.lower():
-                            # Extract UUID
-                            uuid_match = re.search(r'uuid:\s*([0-9a-fA-F-]+)', line, re.IGNORECASE)
-                            if uuid_match:
-                                char_uuid = uuid_match.group(1)
-                                char_uuid_normalized = char_uuid.upper().replace('-', '')
-                                found_chars.append((char_uuid, line))
-                                
-                                # Check if this is our TX or RX characteristic
-                                if char_uuid_normalized == tx_uuid_upper:
-                                    log.info(f"Found TX characteristic via gatttool: {char_uuid}")
-                                elif char_uuid_normalized == rx_uuid_upper:
-                                    log.info(f"Found RX characteristic via gatttool: {char_uuid}")
-                    
-                    if found_chars:
-                        log.info(f"Found {len(found_chars)} characteristic(s) via gatttool:")
-                        for char_uuid, line in found_chars:
-                            log.info(f"  - {char_uuid}: {line[:100]}")
-                    
-                    # Wait a bit for BlueZ to update D-Bus objects
-                    time.sleep(2)
-                else:
-                    log.warning(f"gatttool characteristics query returned code {char_result.returncode}: {char_result.stderr[:200]}")
-            elif not service_handle_start or not service_handle_end:
-                log.warning("Service handle range not available, cannot query characteristics via gatttool")
-        except Exception as e:
-            log.debug(f"Error querying characteristics via gatttool: {e}")
-        
-        # If we still don't have service_path, we need to wait longer or retry
-        # Refresh D-Bus objects after characteristic discovery
-        if not service_path:
-            log.info("Service not in D-Bus tree yet, waiting for BlueZ to populate it...")
-            # Wait a bit more and refresh
+        if available_chars:
+            log.info(f"Available characteristics: {[f'{uuid} at {path}' for path, uuid in available_chars]}")
+        else:
+            log.warning("No characteristics found - may need to wait longer for D-Bus to update")
+            # Wait a bit more and retry
             time.sleep(2)
             remote_om = dbus.Interface(
                 bus.get_object(BLUEZ_SERVICE_NAME, "/"),
                 DBUS_OM_IFACE)
             objects = remote_om.GetManagedObjects()
-            
-            # Try to find service again
-            for path, interfaces in objects.items():
-                if path.startswith(device_path) and "org.bluez.GattService1" in interfaces:
-                    props = interfaces["org.bluez.GattService1"]
-                    device_uuid = props.get("UUID", "")
-                    if device_uuid.upper() == service_uuid_upper:
-                        service_path = path
-                        log.info(f"Found target service at path: {path} (UUID: {device_uuid})")
-                        break
-        
-        # If we still don't have service_path, we can't proceed with D-Bus-based characteristic access
-        # But we've at least discovered the characteristics via gatttool
-        if not service_path:
-            log.warning("Service still not in D-Bus tree - characteristics discovered via gatttool but cannot access via D-Bus")
-            log.warning("This may indicate a BlueZ issue - services should appear in D-Bus after gatttool discovery")
-            # We'll continue anyway and try to find characteristics in D-Bus
-            # They might appear even if the service doesn't
-        
-        # Refresh D-Bus objects after gatttool characteristic discovery
-        remote_om = dbus.Interface(
-            bus.get_object(BLUEZ_SERVICE_NAME, "/"),
-            DBUS_OM_IFACE)
-        objects = remote_om.GetManagedObjects()
-        
-        # Find TX and RX characteristics in D-Bus tree (case-insensitive comparison)
-        tx_uuid_upper = DEFAULT_TX_CHAR_UUID.upper()
-        rx_uuid_upper = DEFAULT_RX_CHAR_UUID.upper()
-        found_characteristics = []
-        
-        # Only search for characteristics if we have a service_path
-        # Characteristics are always under a service in BlueZ's D-Bus tree
-        if service_path:
             for path, interfaces in objects.items():
                 if path.startswith(service_path) and "org.bluez.GattCharacteristic1" in interfaces:
                     props = interfaces["org.bluez.GattCharacteristic1"]
                     char_uuid = props.get("UUID", "")
-                    char_uuid_upper = char_uuid.upper()
-                    found_characteristics.append((path, char_uuid))
-                    
-                    if char_uuid_upper == tx_uuid_upper:
-                        client_tx_char_path = path
-                        log.info(f"Found TX characteristic at: {path} (UUID: {char_uuid})")
-                    elif char_uuid_upper == rx_uuid_upper:
-                        client_rx_char_path = path
-                        log.info(f"Found RX characteristic at: {path} (UUID: {char_uuid})")
-        else:
-            log.warning("Service not in D-Bus tree - cannot search for characteristics in D-Bus")
-            log.warning("Characteristics were discovered via gatttool but BlueZ hasn't populated D-Bus tree")
-            log.warning("This may indicate BlueZ is using Classic Bluetooth instead of BLE GATT")
+                    available_chars.append((path, char_uuid))
+            if available_chars:
+                log.info(f"Found characteristics after additional wait: {[f'{uuid} at {path}' for path, uuid in available_chars]}")
         
-        # Log all found characteristics for debugging
-        if found_characteristics:
-            log.info(f"Available characteristics: {[f'{uuid} at {path}' for path, uuid in found_characteristics]}")
-        else:
-            log.warning("Available characteristics: []")
-            if service_path:
-                log.warning("Characteristics not found in D-Bus object tree under service path")
-            else:
-                log.warning("Service not in D-Bus tree, so characteristics cannot be found")
-            log.warning("This may mean BlueZ hasn't populated the characteristics yet")
-            log.warning("Try waiting longer or check if gatttool successfully discovered characteristics")
+        tx_uuid_upper = DEFAULT_TX_CHAR_UUID.upper()
+        rx_uuid_upper = DEFAULT_RX_CHAR_UUID.upper()
+        for path, char_uuid in available_chars:
+            char_uuid_upper = char_uuid.upper()
+            
+            if char_uuid_upper == tx_uuid_upper:
+                client_tx_char_path = path
+                log.info(f"Found TX characteristic at: {path} (UUID: {char_uuid})")
+            elif char_uuid_upper == rx_uuid_upper:
+                client_rx_char_path = path
+                log.info(f"Found RX characteristic at: {path} (UUID: {char_uuid})")
         
         if not client_tx_char_path or not client_rx_char_path:
-            log.error("Could not find both TX and RX characteristics in D-Bus tree")
+            log.error("Could not find both TX and RX characteristics")
             if not client_tx_char_path:
                 log.error(f"TX characteristic {DEFAULT_TX_CHAR_UUID} not found")
             if not client_rx_char_path:
                 log.error(f"RX characteristic {DEFAULT_RX_CHAR_UUID} not found")
-            if not service_path:
-                log.error("Service not found in D-Bus tree - this is likely the root cause")
-                log.error("BlueZ may be connecting via Classic Bluetooth instead of BLE GATT")
-                log.error("Try disconnecting and reconnecting, or use bluetoothctl to force BLE GATT connection")
+            if available_chars:
+                log.error(f"Available characteristics: {[uuid for _, uuid in available_chars]}")
+            else:
+                log.error("Available characteristics: []")
             return False
         
         log.info("Successfully discovered services and characteristics")
@@ -1259,6 +1191,7 @@ def main():
         target_address = args.target_address.upper()
         
         # Validate MAC address format
+        import re
         mac_pattern = re.compile(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$')
         if not mac_pattern.match(target_address):
             log.error(f"Invalid MAC address format: {target_address}")
