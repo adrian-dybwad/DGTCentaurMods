@@ -1008,7 +1008,6 @@ def main():
     
     # Start client connection in a separate thread to avoid blocking
     def connect_client():
-        global kill
         try:
             time.sleep(3)  # Give peripheral time to start advertising
             log.info("Starting BLE GATT client connection to target device...")
@@ -1025,11 +1024,13 @@ def main():
                 log.info("BLE GATT client connection established")
             else:
                 log.error("Failed to establish BLE GATT client connection")
+                global kill
                 kill = 1
         except Exception as e:
             log.error(f"Exception in connect_client thread: {e}")
             import traceback
             log.error(traceback.format_exc())
+            global kill
             kill = 1
     
     client_thread = threading.Thread(target=connect_client, daemon=True)
