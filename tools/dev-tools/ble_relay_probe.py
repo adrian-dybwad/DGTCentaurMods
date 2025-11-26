@@ -551,62 +551,67 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
             log.error(f"Service {service_uuid} not found in output: {result.stdout}")
             return False
         
-        # Discover characteristics using char-desc
-        log.info("Discovering characteristics...")
+        # Discover characteristics using char-desc - scan full range to find all 4953 UUIDs
+        log.info("Discovering characteristics (scanning full range)...")
         char_result = subprocess.run(['gatttool', '-b', device_address, '--char-desc',
-                                     f'0x{service_start:04x}', f'0x{service_end:04x}'],
-                                    capture_output=True, timeout=10, text=True)
+                                     '0x0001', '0xffff'],
+                                    capture_output=True, timeout=15, text=True)
         
         if char_result.returncode != 0:
             log.error(f"gatttool --char-desc failed: {char_result.stderr}")
             return False
         
-        log.debug(f"char-desc output (first 500 chars): {char_result.stdout[:500]}")
+        log.info(f"Full char-desc output:\n{char_result.stdout}")
         
         # Extract 16-bit UUIDs from full UUIDs (nRF format)
         tx_16bit = tx_char_uuid.lower().split('-')[1] if '-' in tx_char_uuid else None
         rx_16bit = rx_char_uuid.lower().split('-')[1] if '-' in rx_char_uuid else None
         
         log.info(f"Looking for TX 16-bit: {tx_16bit}, RX 16-bit: {rx_16bit}")
+        log.info(f"Looking for TX full: {tx_char_uuid.lower()}, RX full: {rx_char_uuid.lower()}")
         
-        # Parse characteristics - find handles by UUID
+        # Parse ALL lines looking for UUIDs starting with 4953 (nRF service prefix)
         lines = char_result.stdout.split('\n')
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            # Look for characteristic declaration (2803)
-            if '00002803' in line:
-                # Next line should be the characteristic value
-                if i + 1 < len(lines):
-                    value_line = lines[i + 1]
-                    # Parse: handle = 0xXXXX, uuid = UUID
-                    uuid_match = re.search(r'uuid = ([0-9a-f-]+)', value_line, re.IGNORECASE)
-                    handle_match = re.search(r'handle = 0x([0-9a-f]+)', value_line, re.IGNORECASE)
-                    if uuid_match and handle_match:
-                        uuid_found = uuid_match.group(1).lower()
-                        handle = int(handle_match.group(1), 16)
-                        
-                        # Match by full UUID or 16-bit part (nRF uses 16-bit UUIDs)
-                        # For nRF: 49535343-1E4D-... means 16-bit is 1E4D
-                        # The actual UUID in char-desc might be just the 16-bit part or full UUID
-                        matched = False
-                        if uuid_found == tx_char_uuid.lower():
-                            client_tx_char_handle = handle
-                            log.info(f"Found TX at handle {handle:04x} (full UUID match)")
-                            matched = True
-                        elif tx_16bit and (uuid_found.endswith(tx_16bit.lower()) or uuid_found == tx_16bit.lower()):
-                            client_tx_char_handle = handle
-                            log.info(f"Found TX at handle {handle:04x} (16-bit match: {tx_16bit})")
-                            matched = True
-                        
-                        if not matched:
-                            if uuid_found == rx_char_uuid.lower():
+        all_4953_uuids = []
+        for line in lines:
+            # Look for ANY UUID starting with 4953
+            if '4953' in line.lower():
+                all_4953_uuids.append(line.strip())
+                log.info(f"Found 4953 UUID line: {line.strip()}")
+                # Parse: handle = 0xXXXX, uuid = UUID
+                uuid_match = re.search(r'uuid = ([0-9a-f-]+)', line, re.IGNORECASE)
+                handle_match = re.search(r'handle = 0x([0-9a-f]+)', line, re.IGNORECASE)
+                if uuid_match and handle_match:
+                    uuid_found = uuid_match.group(1).lower()
+                    handle = int(handle_match.group(1), 16)
+                    log.info(f"  Handle {handle:04x}: UUID {uuid_found}")
+                    
+                    # Match by full UUID
+                    if uuid_found == tx_char_uuid.lower():
+                        client_tx_char_handle = handle
+                        log.info(f"  *** MATCHED TX at handle {handle:04x} ***")
+                    elif uuid_found == rx_char_uuid.lower():
+                        client_rx_char_handle = handle
+                        log.info(f"  *** MATCHED RX at handle {handle:04x} ***")
+                    # Also try matching by 16-bit part if UUID starts with 4953
+                    elif uuid_found.startswith('4953'):
+                        # Extract the second segment (16-bit part)
+                        parts = uuid_found.split('-')
+                        if len(parts) >= 2:
+                            uuid_16bit = parts[1].lower()
+                            if tx_16bit and uuid_16bit == tx_16bit.lower():
+                                client_tx_char_handle = handle
+                                log.info(f"  *** MATCHED TX at handle {handle:04x} (16-bit: {uuid_16bit}) ***")
+                            elif rx_16bit and uuid_16bit == rx_16bit.lower():
                                 client_rx_char_handle = handle
-                                log.info(f"Found RX at handle {handle:04x} (full UUID match)")
-                            elif rx_16bit and (uuid_found.endswith(rx_16bit.lower()) or uuid_found == rx_16bit.lower()):
-                                client_rx_char_handle = handle
-                                log.info(f"Found RX at handle {handle:04x} (16-bit match: {rx_16bit})")
-            i += 1
+                                log.info(f"  *** MATCHED RX at handle {handle:04x} (16-bit: {uuid_16bit}) ***")
+        
+        if all_4953_uuids:
+            log.info(f"Found {len(all_4953_uuids)} lines with 4953 UUIDs:")
+            for uuid_line in all_4953_uuids:
+                log.info(f"  {uuid_line}")
+        else:
+            log.warning("NO 4953 UUIDs found in char-desc output!")
         
         if not client_tx_char_handle or not client_rx_char_handle:
             log.error("Could not find both characteristics")
