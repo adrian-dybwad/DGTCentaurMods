@@ -55,9 +55,11 @@ kill = 0
 peripheral_connected = False
 client_connected = False
 
-# BLE Client state (using DBus objects)
+# BLE Client state (using DBus objects or gatttool)
 client_device_address = None
-client_gatt_process = None  # Dict with 'tx_char_iface', 'rx_char_iface', 'device_obj'
+client_gatt_process = None  # Dict with 'tx_char_iface', 'rx_char_iface', 'device_obj' or gatttool process
+client_tx_char_handle = None  # For gatttool fallback
+client_rx_char_handle = None  # For gatttool fallback
 
 # Default service UUIDs (can be overridden via command line)
 DEFAULT_SERVICE_UUID = "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
@@ -141,15 +143,29 @@ class RelayRXCharacteristic(Characteristic):
             # Relay to client connection if connected
             if client_connected and client_gatt_process is not None:
                 try:
-                    # Write to remote BLE device's RX characteristic using DBus
-                    rx_char_iface = client_gatt_process.get('rx_char_iface')
-                    if rx_char_iface:
-                        # Convert to DBus array
-                        dbus_value = dbus.Array([dbus.Byte(b) for b in bytes_data], signature=dbus.Signature('y'))
-                        rx_char_iface.WriteValue(dbus_value, {})
-                        log.debug("Successfully relayed message to client via DBus")
+                    # Check if using gatttool or DBus
+                    if client_gatt_process.get('use_gatttool'):
+                        # Write using gatttool
+                        proc = client_gatt_process.get('process')
+                        rx_handle = client_gatt_process.get('rx_char_handle')
+                        if proc and rx_handle:
+                            hex_data = ''.join(f'{b:02x}' for b in bytes_data)
+                            cmd = f"char-write-req {rx_handle:04x} {hex_data}\n"
+                            proc.stdin.write(cmd)
+                            proc.stdin.flush()
+                            log.debug("Successfully relayed message to client via gatttool")
+                        else:
+                            log.warning("Gatttool process or RX handle not available")
                     else:
-                        log.warning("RX characteristic interface not available")
+                        # Write using DBus
+                        rx_char_iface = client_gatt_process.get('rx_char_iface')
+                        if rx_char_iface:
+                            # Convert to DBus array
+                            dbus_value = dbus.Array([dbus.Byte(b) for b in bytes_data], signature=dbus.Signature('y'))
+                            rx_char_iface.WriteValue(dbus_value, {})
+                            log.debug("Successfully relayed message to client via DBus")
+                        else:
+                            log.warning("RX characteristic interface not available")
                 except Exception as e:
                     log.error(f"Error relaying to client: {e}")
             else:
@@ -465,6 +481,8 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
     # Store DBus objects for GATT operations
     client_tx_char_path = None
     client_rx_char_path = None
+    client_tx_char_handle = None
+    client_rx_char_handle = None
     
     try:
         log.info(f"Connecting to device at {device_path} via BlueZ DBus API...")
@@ -526,16 +544,23 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
             time.sleep(0.5)
             wait_time += 0.5
             
-            # Check if connected
+            # Check if connected and services resolved
             try:
                 connected = device_props.Get(DEVICE_IFACE, "Connected")
+                services_resolved = device_props.Get(DEVICE_IFACE, "ServicesResolved")
+                
                 if not connected:
                     if int(wait_time * 2) % 4 == 0:  # Log every 2 seconds
                         log.info(f"Waiting for connection... ({wait_time:.1f}s)")
                     continue
-                else:
-                    if wait_time < 1:  # First time we see connected
-                        log.info("Device is now connected")
+                
+                if not services_resolved:
+                    if int(wait_time * 2) % 4 == 0:  # Log every 2 seconds
+                        log.info(f"Waiting for services to resolve... ({wait_time:.1f}s)")
+                    continue
+                
+                if wait_time < 1:  # First time we see connected and resolved
+                    log.info("Device is connected and services are resolved")
             except Exception as e:
                 log.debug(f"Error checking connection status: {e}")
                 continue
@@ -548,13 +573,25 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
             tx_char_uuid_lower = tx_char_uuid.lower()
             rx_char_uuid_lower = rx_char_uuid.lower()
             
+            # Debug: log all GATT services found
+            all_services = []
+            for path, interfaces in objects.items():
+                if "org.bluez.GattService1" in interfaces:
+                    svc_props = interfaces["org.bluez.GattService1"]
+                    svc_uuid = svc_props.get("UUID", "")
+                    all_services.append((path, svc_uuid))
+            
+            if all_services and wait_time % 2 < 0.6:  # Log once per 2 seconds
+                log.info(f"Found {len(all_services)} GATT service(s): {[s[1] for s in all_services]}")
+            
             # Find service and characteristics
             for path, interfaces in objects.items():
                 # Look for GATT service
                 if "org.bluez.GattService1" in interfaces:
                     svc_props = interfaces["org.bluez.GattService1"]
-                    if svc_props.get("UUID", "").lower() == service_uuid_lower:
-                        log.info(f"Found service at {path}")
+                    svc_uuid = svc_props.get("UUID", "").lower()
+                    if svc_uuid == service_uuid_lower:
+                        log.info(f"Found target service at {path}")
                         service_found = True
                         
                         # Find characteristics in this service
@@ -574,8 +611,133 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
                 break
         
         if not service_found:
-            log.error("Service not found after connection")
-            return False
+            log.warning("Service not found via DBus ObjectManager")
+            log.info("This is normal - BlueZ may not expose remote GATT services via ObjectManager")
+            log.info("Falling back to gatttool for service/characteristic discovery...")
+            
+            # Fallback: Use gatttool to discover services and characteristics
+            # We know the device is connected, so gatttool should work
+            result = subprocess.run(
+                ['gatttool', '-b', device_address, '--primary'],
+                capture_output=True,
+                timeout=10,
+                text=True
+            )
+            
+            if result.returncode != 0:
+                log.error(f"gatttool --primary failed: {result.stderr}")
+                return False
+            
+            services = parse_gatttool_primary_output(result.stdout)
+            service_uuid_lower = service_uuid.lower()
+            target_service = None
+            for svc in services:
+                if svc['uuid'] == service_uuid_lower:
+                    target_service = svc
+                    break
+            
+            if not target_service:
+                log.error(f"Service {service_uuid} not found via gatttool")
+                return False
+            
+            # Discover characteristics
+            char_result = subprocess.run(
+                ['gatttool', '-b', device_address, '--characteristics',
+                 f'0x{target_service["start_handle"]:04x}', f'0x{target_service["end_handle"]:04x}'],
+                capture_output=True,
+                timeout=10,
+                text=True
+            )
+            
+            if char_result.returncode != 0:
+                log.error(f"gatttool --characteristics failed: {char_result.stderr}")
+                return False
+            
+            characteristics = parse_gatttool_characteristics_output(char_result.stdout)
+            tx_char_uuid_lower = tx_char_uuid.lower()
+            rx_char_uuid_lower = rx_char_uuid.lower()
+            
+            # Find characteristics by UUID and get their handles
+            for char in characteristics:
+                if char['uuid'] == tx_char_uuid_lower:
+                    # We'll use gatttool for notifications, so store handle
+                    client_tx_char_handle = char['value_handle']
+                    log.info(f"Found TX characteristic (handle: {client_tx_char_handle:04x})")
+                elif char['uuid'] == rx_char_uuid_lower:
+                    client_rx_char_handle = char['value_handle']
+                    log.info(f"Found RX characteristic (handle: {client_rx_char_handle:04x})")
+            
+            if not client_tx_char_handle or not client_rx_char_handle:
+                log.error("Could not find both TX and RX characteristics via gatttool")
+                return False
+            
+            # Use gatttool interactive mode for notifications and writes
+            log.info("Starting gatttool interactive session for notifications...")
+            client_gatt_process = subprocess.Popen(
+                ['gatttool', '-b', device_address, '-I'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1
+            )
+            
+            time.sleep(0.5)
+            
+            # Enable notifications
+            cccd_handle = client_tx_char_handle + 1
+            log.info(f"Enabling notifications (CCCD handle: {cccd_handle:04x})")
+            client_gatt_process.stdin.write(f"char-write-req {cccd_handle:04x} 0100\n")
+            client_gatt_process.stdin.flush()
+            time.sleep(0.5)
+            
+            # Store for writes (we'll use gatttool for writes too)
+            client_gatt_process = {
+                'process': client_gatt_process,
+                'rx_char_handle': client_rx_char_handle,
+                'use_gatttool': True
+            }
+            
+            # Start notification reader thread
+            def read_notifications():
+                global running, kill, peripheral_connected, RelayService
+                log.info("Starting gatttool notification reader")
+                buffer = ""
+                while running and not kill and client_gatt_process.get('process'):
+                    try:
+                        proc = client_gatt_process['process']
+                        if proc.poll() is not None:
+                            break
+                        if select.select([proc.stdout], [], [], 0.1)[0]:
+                            chunk = proc.stdout.read(1024)
+                            if chunk:
+                                buffer += chunk
+                                while '\n' in buffer:
+                                    line, buffer = buffer.split('\n', 1)
+                                    if 'Notification handle =' in line or 'Indication handle =' in line:
+                                        match = re.search(r'value: ([0-9a-f ]+)', line, re.IGNORECASE)
+                                        if match:
+                                            hex_str = match.group(1).replace(' ', '')
+                                            try:
+                                                bytes_data = bytearray.fromhex(hex_str)
+                                                log.info(f"CLIENT RX -> PERIPHERAL: {' '.join(f'{b:02x}' for b in bytes_data)}")
+                                                if peripheral_connected and RelayService.tx_obj is not None:
+                                                    RelayService.tx_obj.sendMessage(bytes_data)
+                                            except ValueError:
+                                                pass
+                    except Exception as e:
+                        if running:
+                            log.error(f"Error reading notifications: {e}")
+                        break
+                log.info("Notification reader stopped")
+            
+            notification_thread = threading.Thread(target=read_notifications, daemon=True)
+            notification_thread.start()
+            
+            client_device_address = device_address
+            client_connected = True
+            log.info("BLE GATT connection established via gatttool fallback")
+            return True
         
         if not client_tx_char_path or not client_rx_char_path:
             log.error("Could not find both TX and RX characteristics")
@@ -782,13 +944,32 @@ def cleanup():
         running = False
         
         # Disconnect from client device
-        if client_gatt_process and isinstance(client_gatt_process, dict):
+        if client_gatt_process:
             try:
-                device_obj = client_gatt_process.get('device_obj')
-                if device_obj:
-                    device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
-                    device_iface.Disconnect()
-                    log.info("Disconnected from client device")
+                if isinstance(client_gatt_process, dict):
+                    if client_gatt_process.get('use_gatttool'):
+                        # Stop gatttool process
+                        proc = client_gatt_process.get('process')
+                        if proc:
+                            try:
+                                proc.stdin.write("exit\n")
+                                proc.stdin.flush()
+                                time.sleep(0.5)
+                                proc.terminate()
+                                proc.wait(timeout=2)
+                                log.info("Stopped gatttool process")
+                            except:
+                                try:
+                                    proc.kill()
+                                except:
+                                    pass
+                    else:
+                        # Disconnect via DBus
+                        device_obj = client_gatt_process.get('device_obj')
+                        if device_obj:
+                            device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
+                            device_iface.Disconnect()
+                            log.info("Disconnected from client device")
             except Exception as e:
                 log.debug(f"Error disconnecting from device: {e}")
         
