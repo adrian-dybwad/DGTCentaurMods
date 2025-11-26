@@ -349,74 +349,32 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
         
         # Step 1: Start interactive gatttool session first (required for characteristics discovery)
         log.info("Starting interactive gatttool session...")
-        import sys
-        sys.stdout.flush()  # Ensure log is written
-        try:
-            log.info(f"About to call subprocess.Popen with gatttool -b {device_address} -I")
-            sys.stdout.flush()
-            client_gatt_process = subprocess.Popen(
-                ['gatttool', '-b', device_address, '-I'],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=0  # Unbuffered for real-time communication
-            )
-            log.info(f"gatttool process started with PID: {client_gatt_process.pid}")
-            sys.stdout.flush()
-        except FileNotFoundError:
-            log.error("gatttool not found - cannot connect via BLE GATT")
-            log.error("Install bluez package: sudo apt-get install bluez")
-            return False
-        except Exception as e:
-            log.error(f"Failed to start gatttool process: {e}")
-            import traceback
-            log.error(traceback.format_exc())
-            return False
+        client_gatt_process = subprocess.Popen(
+            ['gatttool', '-b', device_address, '-I'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=0  # Unbuffered for real-time communication
+        )
         
-        # Check if process started successfully
-        time.sleep(0.2)
-        if client_gatt_process.poll() is not None:
-            stderr_output = client_gatt_process.stderr.read()
-            log.error(f"gatttool process exited immediately after start. stderr: {stderr_output}")
-            return False
-        
-        log.info("Waiting for initial gatttool prompt...")
         # Wait for initial gatttool prompt (usually ">" or "[LE]>")
+        time.sleep(0.5)
         initial_prompt = ""
-        prompt_found = False
-        for i in range(20):  # Wait up to 2 seconds for prompt
-            if client_gatt_process.poll() is not None:
-                stderr_output = client_gatt_process.stderr.read()
-                log.error(f"gatttool process died while waiting for prompt. stderr: {stderr_output}")
-                return False
-            
+        for _ in range(10):  # Wait up to 1 second for prompt
             if select.select([client_gatt_process.stdout], [], [], 0.1)[0]:
                 chunk = client_gatt_process.stdout.read(1024)
                 if chunk:
                     initial_prompt += chunk
-                    log.info(f"Received from gatttool: {chunk[:200]}")
                     if ">" in initial_prompt or "[" in initial_prompt:
-                        log.info(f"Received gatttool prompt: {initial_prompt[:100]}")
-                        prompt_found = True
+                        log.debug(f"Received gatttool prompt: {initial_prompt[:100]}")
                         break
             time.sleep(0.1)
         
-        if not prompt_found:
-            log.warning(f"Did not receive expected gatttool prompt. Got: {initial_prompt[:200]}")
-            log.info("Proceeding anyway...")
-        
         # Connect in interactive mode
         log.info("Sending connect command to gatttool...")
-        try:
-            client_gatt_process.stdin.write("connect\n")
-            client_gatt_process.stdin.flush()
-            log.info("Connect command sent successfully")
-        except Exception as e:
-            log.error(f"Failed to send connect command: {e}")
-            import traceback
-            log.error(traceback.format_exc())
-            return False
+        client_gatt_process.stdin.write("connect\n")
+        client_gatt_process.stdin.flush()
         
         # Wait for connection confirmation and read output
         # Connection can take time, especially if pairing is needed
@@ -440,14 +398,14 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
                 chunk = client_gatt_process.stdout.read(1024)
                 if chunk:
                     connection_buffer += chunk
-                    log.info(f"gatttool stdout: {chunk[:200]}")  # Log first 200 chars for debugging
+                    log.debug(f"gatttool stdout: {chunk[:200]}")  # Log first 200 chars for debugging
             
             # Read from stderr
             if select.select([client_gatt_process.stderr], [], [], 0)[0]:
                 chunk = client_gatt_process.stderr.read(1024)
                 if chunk:
                     stderr_buffer += chunk
-                    log.info(f"gatttool stderr: {chunk[:200]}")  # Log first 200 chars for debugging
+                    log.debug(f"gatttool stderr: {chunk[:200]}")  # Log first 200 chars for debugging
             
             # Check for connection success indicators
             # gatttool shows "[CON]" when connected, or "Connection successful"
@@ -653,20 +611,10 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
     except subprocess.TimeoutExpired:
         log.error("gatttool command timed out")
         return False
-    except KeyboardInterrupt:
-        log.info("Connection interrupted by user")
-        raise
     except Exception as e:
         log.error(f"Error connecting via BLE GATT: {e}")
         import traceback
         log.error(traceback.format_exc())
-        # Make sure to clean up the process if it exists
-        if 'client_gatt_process' in locals() and client_gatt_process is not None:
-            try:
-                client_gatt_process.terminate()
-                client_gatt_process.wait(timeout=2)
-            except:
-                pass
         return False
 
 
@@ -1008,28 +956,19 @@ def main():
     
     # Start client connection in a separate thread to avoid blocking
     def connect_client():
-        try:
-            time.sleep(3)  # Give peripheral time to start advertising
-            log.info("Starting BLE GATT client connection to target device...")
-            import sys
-            sys.stdout.flush()
-            if scan_and_connect_ble_gatt(
-                bus, adapter,
-                target_address=target_address,
-                target_name=target_name,
-                service_uuid=DEFAULT_SERVICE_UUID,
-                tx_char_uuid=DEFAULT_TX_CHAR_UUID,
-                rx_char_uuid=DEFAULT_RX_CHAR_UUID
-            ):
-                log.info("BLE GATT client connection established")
-            else:
-                log.error("Failed to establish BLE GATT client connection")
-                global kill
-                kill = 1
-        except Exception as e:
-            log.error(f"Exception in connect_client thread: {e}")
-            import traceback
-            log.error(traceback.format_exc())
+        time.sleep(3)  # Give peripheral time to start advertising
+        log.info("Starting BLE GATT client connection to target device...")
+        if scan_and_connect_ble_gatt(
+            bus, adapter,
+            target_address=target_address,
+            target_name=target_name,
+            service_uuid=DEFAULT_SERVICE_UUID,
+            tx_char_uuid=DEFAULT_TX_CHAR_UUID,
+            rx_char_uuid=DEFAULT_RX_CHAR_UUID
+        ):
+            log.info("BLE GATT client connection established")
+        else:
+            log.error("Failed to establish BLE GATT client connection")
             global kill
             kill = 1
     
