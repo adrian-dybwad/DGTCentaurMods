@@ -338,12 +338,16 @@ def parse_gatttool_characteristics_output(output):
 def read_gatttool_output(process, timeout=3, max_bytes=8192):
     """Read output from gatttool process until prompt appears or timeout"""
     output = ""
+    stderr_output = ""
     start_time = time.time()
     # Prompt patterns: [CON]>, [LE]>, or just >
     prompt_pattern = re.compile(r'\[?([A-Z]+)\]?>|^>')
     
     while time.time() - start_time < timeout:
-        if select.select([process.stdout], [], [], 0.1)[0]:
+        # Check both stdout and stderr
+        ready, _, _ = select.select([process.stdout, process.stderr], [], [], 0.1)
+        
+        if process.stdout in ready:
             chunk = process.stdout.read(max_bytes - len(output))
             if chunk:
                 output += chunk
@@ -358,11 +362,19 @@ def read_gatttool_output(process, timeout=3, max_bytes=8192):
                         cleaned_lines.append(line)
                     output = '\n'.join(cleaned_lines)
                     break
-            else:
-                break
-        else:
+        
+        if process.stderr in ready:
+            chunk = process.stderr.read(1024)
+            if chunk:
+                stderr_output += chunk
+        
+        if not ready:
             # Small delay to avoid busy waiting
             time.sleep(0.05)
+    
+    # Include stderr in output if there are errors
+    if stderr_output:
+        output += "\n[stderr]\n" + stderr_output
     
     return output.strip()
 
@@ -419,56 +431,23 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
     try:
         log.info(f"Connecting to {device_address} via BLE GATT using gatttool...")
         
-        # Step 1: Start interactive gatttool session
-        log.info("Starting interactive gatttool session...")
-        client_gatt_process = subprocess.Popen(
-            ['gatttool', '-b', device_address, '-I'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=0  # Unbuffered for real-time communication
+        # Step 1: Discover primary services using non-interactive mode (works without connection)
+        log.info("Discovering primary services (non-interactive mode)...")
+        result = subprocess.run(
+            ['gatttool', '-b', device_address, '--primary'],
+            capture_output=True,
+            timeout=10,
+            text=True
         )
         
-        # Wait for gatttool to be ready
-        time.sleep(0.5)
-        
-        # Step 2: Connect to device
-        log.info("Sending connect command to gatttool...")
-        client_gatt_process.stdin.write("connect\n")
-        client_gatt_process.stdin.flush()
-        
-        # Wait for connection confirmation
-        time.sleep(3)
-        
-        # Check if connection was successful
-        if client_gatt_process.poll() is not None:
-            stderr_output = client_gatt_process.stderr.read()
-            log.error(f"gatttool process exited immediately: {stderr_output}")
+        if result.returncode != 0:
+            log.error(f"gatttool --primary failed: {result.stderr}")
+            log.debug(f"stdout: {result.stdout}")
             return False
-        
-        # Read any initial output
-        initial_output = read_gatttool_output(client_gatt_process, timeout=2)
-        if "Error" in initial_output and "Connection successful" not in initial_output:
-            log.error(f"Connection failed: {initial_output}")
-            return False
-        
-        if "Connection successful" in initial_output or "[CON]" in initial_output:
-            log.info("Connected to device via gatttool")
-        else:
-            log.warning(f"Connection status unclear, output: {initial_output[:200]}")
-        
-        # Step 3: Discover primary services
-        log.info("Discovering primary services...")
-        client_gatt_process.stdin.write("primary\n")
-        client_gatt_process.stdin.flush()
-        
-        # Read primary services output
-        primary_output = read_gatttool_output(client_gatt_process, timeout=3)
-        log.debug(f"Primary services output: {primary_output[:500]}")
         
         log.info("Discovered primary services via gatttool")
-        services = parse_gatttool_primary_output(primary_output)
+        services = parse_gatttool_primary_output(result.stdout)
+        log.debug(f"Primary services output: {result.stdout[:500]}")
         
         # Find target service
         service_uuid_lower = service_uuid.lower()
@@ -485,13 +464,54 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
         
         log.info(f"Found target service: {service_uuid} (handles {target_service['start_handle']:04x}-{target_service['end_handle']:04x})")
         
+        # Step 2: Start interactive gatttool session for characteristic discovery and communication
+        log.info("Starting interactive gatttool session...")
+        client_gatt_process = subprocess.Popen(
+            ['gatttool', '-b', device_address, '-I'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=0  # Unbuffered for real-time communication
+        )
+        
+        # Wait for gatttool to be ready
+        time.sleep(0.5)
+        
+        # Step 3: Connect to device in interactive mode
+        log.info("Sending connect command to gatttool...")
+        client_gatt_process.stdin.write("connect\n")
+        client_gatt_process.stdin.flush()
+        
+        # Wait for connection and read response
+        time.sleep(2)
+        
+        # Check if connection was successful
+        if client_gatt_process.poll() is not None:
+            stderr_output = client_gatt_process.stderr.read()
+            log.error(f"gatttool process exited immediately: {stderr_output}")
+            return False
+        
+        # Read connection response
+        connection_output = read_gatttool_output(client_gatt_process, timeout=5)
+        log.debug(f"Connection output: {connection_output[:500]}")
+        
+        if "Connection successful" in connection_output or "[CON]" in connection_output:
+            log.info("Connected to device via gatttool")
+        elif "Error" in connection_output or "Connection failed" in connection_output:
+            log.error(f"Connection failed: {connection_output}")
+            return False
+        else:
+            log.warning(f"Connection status unclear, output: {connection_output[:200]}")
+            # Continue anyway - sometimes the prompt appears without explicit success message
+        
         # Step 4: Discover characteristics in the service using char-desc
         log.info("Discovering characteristics...")
         client_gatt_process.stdin.write(f"char-desc {target_service['start_handle']:04x} {target_service['end_handle']:04x}\n")
         client_gatt_process.stdin.flush()
         
         # Read characteristics output
-        char_output = read_gatttool_output(client_gatt_process, timeout=3)
+        char_output = read_gatttool_output(client_gatt_process, timeout=5)
         log.debug(f"Characteristics output: {char_output[:1000]}")
         
         log.info("Discovered characteristics via gatttool")
