@@ -571,8 +571,13 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
         log.info(f"Looking for TX full: {tx_char_uuid.lower()}, RX full: {rx_char_uuid.lower()}")
         
         # Parse ALL lines looking for UUIDs starting with 4953 (nRF service prefix)
+        # Expected UUIDs from nRF config:
+        # TX: 49535343-1e4d-4bd9-ba61-23c647249616
+        # RX: 49535343-8841-43f4-a8d4-ecbe34729bb3
         lines = char_result.stdout.split('\n')
         all_4953_uuids = []
+        all_characteristics = []
+        
         for line in lines:
             # Look for ANY UUID starting with 4953
             if '4953' in line.lower():
@@ -584,27 +589,31 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
                 if uuid_match and handle_match:
                     uuid_found = uuid_match.group(1).lower()
                     handle = int(handle_match.group(1), 16)
+                    all_characteristics.append((handle, uuid_found))
                     log.info(f"  Handle {handle:04x}: UUID {uuid_found}")
                     
-                    # Match by full UUID
+                    # Match by full UUID (exact match)
                     if uuid_found == tx_char_uuid.lower():
                         client_tx_char_handle = handle
                         log.info(f"  *** MATCHED TX at handle {handle:04x} ***")
                     elif uuid_found == rx_char_uuid.lower():
                         client_rx_char_handle = handle
                         log.info(f"  *** MATCHED RX at handle {handle:04x} ***")
-                    # Also try matching by 16-bit part if UUID starts with 4953
-                    elif uuid_found.startswith('4953'):
-                        # Extract the second segment (16-bit part)
-                        parts = uuid_found.split('-')
-                        if len(parts) >= 2:
-                            uuid_16bit = parts[1].lower()
-                            if tx_16bit and uuid_16bit == tx_16bit.lower():
-                                client_tx_char_handle = handle
-                                log.info(f"  *** MATCHED TX at handle {handle:04x} (16-bit: {uuid_16bit}) ***")
-                            elif rx_16bit and uuid_16bit == rx_16bit.lower():
-                                client_rx_char_handle = handle
-                                log.info(f"  *** MATCHED RX at handle {handle:04x} (16-bit: {uuid_16bit}) ***")
+        
+        # If not found by exact match, try matching by 16-bit part
+        if not client_tx_char_handle or not client_rx_char_handle:
+            log.info("Trying 16-bit UUID matching...")
+            for handle, uuid_found in all_characteristics:
+                if uuid_found.startswith('4953'):
+                    parts = uuid_found.split('-')
+                    if len(parts) >= 2:
+                        uuid_16bit = parts[1].lower()
+                        if not client_tx_char_handle and tx_16bit and uuid_16bit == tx_16bit.lower():
+                            client_tx_char_handle = handle
+                            log.info(f"  *** MATCHED TX at handle {handle:04x} (16-bit: {uuid_16bit}) ***")
+                        if not client_rx_char_handle and rx_16bit and uuid_16bit == rx_16bit.lower():
+                            client_rx_char_handle = handle
+                            log.info(f"  *** MATCHED RX at handle {handle:04x} (16-bit: {uuid_16bit}) ***")
         
         if all_4953_uuids:
             log.info(f"Found {len(all_4953_uuids)} lines with 4953 UUIDs:")
@@ -612,6 +621,8 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
                 log.info(f"  {uuid_line}")
         else:
             log.warning("NO 4953 UUIDs found in char-desc output!")
+        
+        log.info(f"All characteristics with 4953 prefix: {all_characteristics}")
         
         if not client_tx_char_handle or not client_rx_char_handle:
             log.error("Could not find both characteristics")
