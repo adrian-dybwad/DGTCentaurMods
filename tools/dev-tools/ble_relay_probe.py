@@ -335,6 +335,83 @@ def parse_gatttool_characteristics_output(output):
     return characteristics
 
 
+def read_gatttool_output(process, timeout=3, max_bytes=8192):
+    """Read output from gatttool process until prompt appears or timeout"""
+    output = ""
+    start_time = time.time()
+    # Prompt patterns: [CON]>, [LE]>, or just >
+    prompt_pattern = re.compile(r'\[?([A-Z]+)\]?>|^>')
+    
+    while time.time() - start_time < timeout:
+        if select.select([process.stdout], [], [], 0.1)[0]:
+            chunk = process.stdout.read(max_bytes - len(output))
+            if chunk:
+                output += chunk
+                # Check if we got the prompt (command completed)
+                if prompt_pattern.search(output):
+                    # Remove the prompt from output (keep everything before the last prompt)
+                    lines = output.split('\n')
+                    cleaned_lines = []
+                    for line in lines:
+                        if prompt_pattern.match(line.strip()):
+                            break
+                        cleaned_lines.append(line)
+                    output = '\n'.join(cleaned_lines)
+                    break
+            else:
+                break
+        else:
+            # Small delay to avoid busy waiting
+            time.sleep(0.05)
+    
+    return output.strip()
+
+
+def parse_gatttool_char_desc_output(output):
+    """Parse gatttool char-desc output to find characteristic handles and UUIDs"""
+    characteristics = []
+    # Pattern: handle = 0xXXXX, uuid: UUID
+    # Characteristic declaration: handle = 0xXXXX, uuid: 00002803-0000-1000-8000-00805f9b34fb (Characteristic)
+    # Characteristic value: handle = 0xYYYY, uuid: <actual-uuid>
+    # CCCD: handle = 0xZZZZ, uuid: 00002902-0000-1000-8000-00805f9b34fb (Client Characteristic Configuration)
+    lines = output.split('\n')
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if not line:
+            i += 1
+            continue
+        
+        # Look for characteristic declaration (uuid 2803)
+        char_decl_match = re.search(r'handle = 0x([0-9a-f]+), uuid: 00002803-0000-1000-8000-00805f9b34fb', line, re.IGNORECASE)
+        if char_decl_match:
+            decl_handle = int(char_decl_match.group(1), 16)
+            # Next line should be the characteristic value with the actual UUID
+            if i + 1 < len(lines):
+                value_line = lines[i + 1].strip()
+                # Skip if it's another declaration or CCCD
+                if '00002803' not in value_line and '00002902' not in value_line:
+                    value_match = re.search(r'handle = 0x([0-9a-f]+), uuid: ([0-9a-f-]+)', value_line, re.IGNORECASE)
+                    if value_match:
+                        value_handle = int(value_match.group(1), 16)
+                        uuid = value_match.group(2).lower()
+                        # Skip standard Bluetooth UUIDs that aren't characteristics
+                        if uuid not in ['00002800-0000-1000-8000-00805f9b34fb',  # Primary Service
+                                       '00002801-0000-1000-8000-00805f9b34fb',  # Secondary Service
+                                       '00002803-0000-1000-8000-00805f9b34fb',  # Characteristic
+                                       '00002902-0000-1000-8000-00805f9b34fb']:  # CCCD
+                            properties = 0  # We'll determine this from the declaration if needed
+                            characteristics.append({
+                                'decl_handle': decl_handle,
+                                'value_handle': value_handle,
+                                'properties': properties,
+                                'uuid': uuid
+                            })
+        i += 1
+    
+    return characteristics
+
+
 def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
     """Connect to BLE device using gatttool and discover services/characteristics"""
     global client_device_address, client_tx_char_handle, client_rx_char_handle, client_gatt_process, client_connected
@@ -342,20 +419,56 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
     try:
         log.info(f"Connecting to {device_address} via BLE GATT using gatttool...")
         
-        # Step 1: Discover primary services
-        result = subprocess.run(
-            ['gatttool', '-b', device_address, '--primary'],
-            capture_output=True,
-            timeout=10,
-            text=True
+        # Step 1: Start interactive gatttool session
+        log.info("Starting interactive gatttool session...")
+        client_gatt_process = subprocess.Popen(
+            ['gatttool', '-b', device_address, '-I'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=0  # Unbuffered for real-time communication
         )
         
-        if result.returncode != 0:
-            log.error(f"gatttool --primary failed: {result.stderr}")
+        # Wait for gatttool to be ready
+        time.sleep(0.5)
+        
+        # Step 2: Connect to device
+        log.info("Sending connect command to gatttool...")
+        client_gatt_process.stdin.write("connect\n")
+        client_gatt_process.stdin.flush()
+        
+        # Wait for connection confirmation
+        time.sleep(3)
+        
+        # Check if connection was successful
+        if client_gatt_process.poll() is not None:
+            stderr_output = client_gatt_process.stderr.read()
+            log.error(f"gatttool process exited immediately: {stderr_output}")
             return False
         
+        # Read any initial output
+        initial_output = read_gatttool_output(client_gatt_process, timeout=2)
+        if "Error" in initial_output and "Connection successful" not in initial_output:
+            log.error(f"Connection failed: {initial_output}")
+            return False
+        
+        if "Connection successful" in initial_output or "[CON]" in initial_output:
+            log.info("Connected to device via gatttool")
+        else:
+            log.warning(f"Connection status unclear, output: {initial_output[:200]}")
+        
+        # Step 3: Discover primary services
+        log.info("Discovering primary services...")
+        client_gatt_process.stdin.write("primary\n")
+        client_gatt_process.stdin.flush()
+        
+        # Read primary services output
+        primary_output = read_gatttool_output(client_gatt_process, timeout=3)
+        log.debug(f"Primary services output: {primary_output[:500]}")
+        
         log.info("Discovered primary services via gatttool")
-        services = parse_gatttool_primary_output(result.stdout)
+        services = parse_gatttool_primary_output(primary_output)
         
         # Find target service
         service_uuid_lower = service_uuid.lower()
@@ -372,20 +485,17 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
         
         log.info(f"Found target service: {service_uuid} (handles {target_service['start_handle']:04x}-{target_service['end_handle']:04x})")
         
-        # Step 2: Discover characteristics in the service
-        result = subprocess.run(
-            ['gatttool', '-b', device_address, '--characteristics', f'0x{target_service["start_handle"]:04x}', f'0x{target_service["end_handle"]:04x}'],
-            capture_output=True,
-            timeout=10,
-            text=True
-        )
+        # Step 4: Discover characteristics in the service using char-desc
+        log.info("Discovering characteristics...")
+        client_gatt_process.stdin.write(f"char-desc {target_service['start_handle']:04x} {target_service['end_handle']:04x}\n")
+        client_gatt_process.stdin.flush()
         
-        if result.returncode != 0:
-            log.error(f"gatttool --characteristics failed: {result.stderr}")
-            return False
+        # Read characteristics output
+        char_output = read_gatttool_output(client_gatt_process, timeout=3)
+        log.debug(f"Characteristics output: {char_output[:1000]}")
         
         log.info("Discovered characteristics via gatttool")
-        characteristics = parse_gatttool_characteristics_output(result.stdout)
+        characteristics = parse_gatttool_char_desc_output(char_output)
         
         # Find TX and RX characteristics
         tx_char_uuid_lower = tx_char_uuid.lower()
@@ -406,34 +516,12 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
             if not client_rx_char_handle:
                 log.error(f"RX characteristic {rx_char_uuid} not found")
             log.info(f"Available characteristics: {[c['uuid'] for c in characteristics]}")
+            log.info(f"Characteristic discovery output (first 2000 chars): {char_output[:2000]}")
+            if len(char_output) > 2000:
+                log.info(f"... (output truncated, total length: {len(char_output)} chars)")
             return False
         
-        # Step 3: Start interactive gatttool session for notifications and writes
-        log.info("Starting interactive gatttool session...")
-        client_gatt_process = subprocess.Popen(
-            ['gatttool', '-b', device_address, '-I'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=0  # Unbuffered for real-time communication
-        )
-        
-        # Connect in interactive mode
-        log.info("Sending connect command to gatttool...")
-        client_gatt_process.stdin.write("connect\n")
-        client_gatt_process.stdin.flush()
-        
-        # Wait for connection confirmation
-        time.sleep(2)
-        
-        # Check if connection was successful
-        if client_gatt_process.poll() is not None:
-            stderr_output = client_gatt_process.stderr.read()
-            log.error(f"gatttool process exited immediately: {stderr_output}")
-            return False
-        
-        # Enable notifications on TX characteristic (find CCCD handle)
+        # Step 5: Enable notifications on TX characteristic (find CCCD handle)
         # CCCD is typically at value_handle + 1
         cccd_handle = client_tx_char_handle + 1
         log.info(f"Enabling notifications on TX characteristic (CCCD handle: {cccd_handle:04x})")
