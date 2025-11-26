@@ -499,32 +499,22 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
         
         # Step 2: Start interactive gatttool session for characteristic discovery and communication
         log.info("Starting interactive gatttool session...")
-        client_gatt_process = subprocess.Popen(
-            ['gatttool', '-b', device_address, '-I'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=0  # Unbuffered for real-time communication
-        )
-        
-        # Wait for gatttool to be ready - try to read initial prompt (non-blocking)
-        # Gatttool may or may not output a prompt immediately
-        log.debug("Waiting for gatttool to initialize...")
-        time.sleep(0.5)  # Give gatttool time to start
-        
-        # Try to read any initial output (non-blocking, short timeout)
-        initial_prompt = ""
         try:
-            if select.select([client_gatt_process.stdout], [], [], 0.5)[0]:
-                chunk = client_gatt_process.stdout.read(1024)
-                if chunk:
-                    initial_prompt = chunk
-                    log.debug(f"Initial gatttool output: {initial_prompt[:200]}")
+            client_gatt_process = subprocess.Popen(
+                ['gatttool', '-b', device_address, '-I'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1  # Line buffered to prevent blocking
+            )
+            log.info("Gatttool subprocess created successfully")
         except Exception as e:
-            log.debug(f"Could not read initial output: {e}")
+            log.error(f"Failed to start gatttool: {e}")
+            return False
         
-        # Check if process exited
+        # Check if process is running immediately (no wait needed)
+        log.info("Checking gatttool process status...")
         if client_gatt_process.poll() is not None:
             stderr_output = ""
             try:
@@ -534,7 +524,7 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
             log.error(f"gatttool process exited immediately: {stderr_output}")
             return False
         
-        log.debug("Gatttool process is running, proceeding with connect command")
+        log.info("Gatttool process is running, proceeding with connect command immediately")
         
         # Step 3: Connect to device in interactive mode
         log.info("Sending connect command to gatttool...")
