@@ -18,14 +18,6 @@ import signal
 import psutil
 import bluetooth
 
-# Ensure we import the repo package first (not a system-installed copy)
-try:
-    REPO_OPT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'DGTCentaurMods', 'opt'))
-    if REPO_OPT not in sys.path:
-        sys.path.insert(0, REPO_OPT)
-except Exception as e:
-    print(f"Warning: Could not add repo path: {e}")
-
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board.bluetooth_controller import BluetoothController
 from DGTCentaurMods.games.millennium import receive_data
