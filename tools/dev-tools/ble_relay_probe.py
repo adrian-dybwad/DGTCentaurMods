@@ -358,98 +358,31 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
             bufsize=0  # Unbuffered for real-time communication
         )
         
-        # Wait for initial gatttool prompt (usually ">" or "[LE]>")
-        time.sleep(0.5)
-        initial_prompt = ""
-        for _ in range(10):  # Wait up to 1 second for prompt
-            if select.select([client_gatt_process.stdout], [], [], 0.1)[0]:
-                chunk = client_gatt_process.stdout.read(1024)
-                if chunk:
-                    initial_prompt += chunk
-                    if ">" in initial_prompt or "[" in initial_prompt:
-                        log.debug(f"Received gatttool prompt: {initial_prompt[:100]}")
-                        break
-            time.sleep(0.1)
-        
         # Connect in interactive mode
         log.info("Sending connect command to gatttool...")
         client_gatt_process.stdin.write("connect\n")
         client_gatt_process.stdin.flush()
         
         # Wait for connection confirmation and read output
-        # Connection can take time, especially if pairing is needed
+        time.sleep(2)
+        
+        # Check if connection was successful
+        if client_gatt_process.poll() is not None:
+            stderr_output = client_gatt_process.stderr.read()
+            log.error(f"gatttool process exited immediately: {stderr_output}")
+            return False
+        
+        # Read connection status from stdout
         connection_buffer = ""
-        stderr_buffer = ""
-        connection_established = False
-        max_wait_seconds = 30
-        wait_count = 0
-        
-        log.info(f"Waiting up to {max_wait_seconds} seconds for GATT connection...")
-        
-        while wait_count < max_wait_seconds * 10:  # Check every 0.1 seconds
-            # Check if process died
-            if client_gatt_process.poll() is not None:
-                stderr_output = client_gatt_process.stderr.read()
-                log.error(f"gatttool process exited: {stderr_output}")
-                return False
-            
-            # Read from stdout
+        for _ in range(10):  # Wait up to 1 second for connection confirmation
             if select.select([client_gatt_process.stdout], [], [], 0.1)[0]:
                 chunk = client_gatt_process.stdout.read(1024)
                 if chunk:
                     connection_buffer += chunk
-                    log.debug(f"gatttool stdout: {chunk[:200]}")  # Log first 200 chars for debugging
-            
-            # Read from stderr
-            if select.select([client_gatt_process.stderr], [], [], 0)[0]:
-                chunk = client_gatt_process.stderr.read(1024)
-                if chunk:
-                    stderr_buffer += chunk
-                    log.debug(f"gatttool stderr: {chunk[:200]}")  # Log first 200 chars for debugging
-            
-            # Check for connection success indicators
-            # gatttool shows "[CON]" when connected, or "Connection successful"
-            if ("Connection successful" in connection_buffer or 
-                "[CON]" in connection_buffer or
-                "Connection successful" in stderr_buffer or
-                "[CON]" in stderr_buffer):
-                connection_established = True
-                log.info("GATT connection established")
-                break
-            
-            # Check for connection failure indicators
-            if ("Connection failed" in connection_buffer or
-                "Connection failed" in stderr_buffer or
-                "Error:" in stderr_buffer or
-                "Invalid" in stderr_buffer or
-                "Connection refused" in connection_buffer or
-                "Connection refused" in stderr_buffer):
-                log.error(f"GATT connection failed. stdout: {connection_buffer[-500:]}, stderr: {stderr_buffer[-500:]}")
-                return False
-            
-            # If we've waited a reasonable time and process is still alive, 
-            # try to proceed (connection might have succeeded but message format differs)
-            if wait_count >= 20:  # After 2 seconds
-                # Check if we can send a command (process is responsive)
-                # If process is still running, assume connection might be OK
-                if client_gatt_process.poll() is None:
-                    # Try to proceed - we'll know if it failed when we try to discover services
-                    log.info("Process still running, attempting to proceed with service discovery...")
-                    connection_established = True
-                    break
-            
+                    if "Connection successful" in connection_buffer or "[CON]" in connection_buffer:
+                        log.info("GATT connection established")
+                        break
             time.sleep(0.1)
-            wait_count += 1
-            
-            # Log progress every 5 seconds
-            if wait_count % 50 == 0:
-                log.info(f"Still waiting for connection... ({wait_count // 10} seconds)")
-        
-        if not connection_established:
-            log.error(f"GATT connection timeout after {max_wait_seconds} seconds")
-            log.error(f"Last stdout: {connection_buffer[-500:]}")
-            log.error(f"Last stderr: {stderr_buffer[-500:]}")
-            return False
         
         # Step 2: Discover primary services (now that we're connected)
         log.info("Discovering primary services...")
@@ -459,22 +392,17 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
         
         # Read primary services output
         primary_output = ""
-        for _ in range(30):  # Wait up to 3 seconds for primary output
+        for _ in range(20):  # Wait up to 2 seconds for primary output
             if select.select([client_gatt_process.stdout], [], [], 0.1)[0]:
                 chunk = client_gatt_process.stdout.read(1024)
                 if chunk:
                     primary_output += chunk
-                    log.debug(f"Primary output chunk: {chunk[:200]}")
                     # Check if we've received complete output (gatttool prompt or end marker)
-                    if "attr handle" in primary_output and ("[CON]" in primary_output or "\n[" in primary_output[-50:] or ">" in primary_output[-10:]):
+                    if "attr handle" in primary_output and ("[CON]" in primary_output or "\n[" in primary_output[-50:]):
                         break
             time.sleep(0.1)
         
-        log.debug(f"Full primary output: {primary_output[:1000]}")
         services = parse_gatttool_primary_output(primary_output)
-        
-        if not services:
-            log.warning(f"No services found in output. Output was: {primary_output[:500]}")
         
         # Find target service
         service_uuid_lower = service_uuid.lower()
@@ -492,29 +420,24 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
         log.info(f"Found target service: {service_uuid} (handles {target_service['start_handle']:04x}-{target_service['end_handle']:04x})")
         
         # Step 3: Discover characteristics in the service (now that we're connected)
-        log.info(f"Discovering characteristics for handles {target_service['start_handle']:04x}-{target_service['end_handle']:04x}...")
+        log.info("Discovering characteristics...")
         client_gatt_process.stdin.write(f"characteristics {target_service['start_handle']:04x} {target_service['end_handle']:04x}\n")
         client_gatt_process.stdin.flush()
         time.sleep(1)
         
         # Read characteristics output
         char_output = ""
-        for _ in range(30):  # Wait up to 3 seconds for characteristics output
+        for _ in range(20):  # Wait up to 2 seconds for characteristics output
             if select.select([client_gatt_process.stdout], [], [], 0.1)[0]:
                 chunk = client_gatt_process.stdout.read(1024)
                 if chunk:
                     char_output += chunk
-                    log.debug(f"Characteristics output chunk: {chunk[:200]}")
                     # Check if we've received complete output
-                    if "handle = 0x" in char_output and ("[CON]" in char_output or "\n[" in char_output[-50:] or ">" in char_output[-10:]):
+                    if "handle = 0x" in char_output and ("[CON]" in char_output or "\n[" in char_output[-50:]):
                         break
             time.sleep(0.1)
         
-        log.debug(f"Full characteristics output: {char_output[:1000]}")
         characteristics = parse_gatttool_characteristics_output(char_output)
-        
-        if not characteristics:
-            log.warning(f"No characteristics found in output. Output was: {char_output[:500]}")
         
         # Find TX and RX characteristics
         tx_char_uuid_lower = tx_char_uuid.lower()
