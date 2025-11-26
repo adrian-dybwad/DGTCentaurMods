@@ -59,7 +59,7 @@ class RaspberryPi:
         self.GPIO_RST_PIN    = gpiozero.LED(self.RST_PIN)
         self.GPIO_DC_PIN     = gpiozero.LED(self.DC_PIN)
         # self.GPIO_CS_PIN     = gpiozero.LED(self.CS_PIN)
-        self.GPIO_PWR_PIN    = gpiozero.LED(self.PWR_PIN)
+        # self.GPIO_PWR_PIN    = gpiozero.LED(self.PWR_PIN)
         self.GPIO_BUSY_PIN   = gpiozero.Button(self.BUSY_PIN, pull_up = False)
 
         
@@ -80,11 +80,11 @@ class RaspberryPi:
         #         self.GPIO_CS_PIN.on()
         #     else:
         #         self.GPIO_CS_PIN.off()
-        elif pin == self.PWR_PIN:
-            if value:
-                self.GPIO_PWR_PIN.on()
-            else:
-                self.GPIO_PWR_PIN.off()
+        # elif pin == self.PWR_PIN:
+        #     if value:
+        #         self.GPIO_PWR_PIN.on()
+        #     else:
+        #         self.GPIO_PWR_PIN.off()
 
     def digital_read(self, pin):
         if pin == self.BUSY_PIN:
@@ -117,7 +117,7 @@ class RaspberryPi:
         return self.DEV_SPI.DEV_SPI_ReadData()
 
     def module_init(self, cleanup=False):
-        self.GPIO_PWR_PIN.on()
+        # self.GPIO_PWR_PIN.on()
         
         if cleanup:
             find_dirs = [
@@ -154,14 +154,14 @@ class RaspberryPi:
 
         self.GPIO_RST_PIN.off()
         self.GPIO_DC_PIN.off()
-        self.GPIO_PWR_PIN.off()
+        # self.GPIO_PWR_PIN.off()
         logger.debug("close 5V, Module enters 0 power consumption ...")
         
         if cleanup:
             self.GPIO_RST_PIN.close()
             self.GPIO_DC_PIN.close()
             # self.GPIO_CS_PIN.close()
-            self.GPIO_PWR_PIN.close()
+            # self.GPIO_PWR_PIN.close()
             self.GPIO_BUSY_PIN.close()
 
         
