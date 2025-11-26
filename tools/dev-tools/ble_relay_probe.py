@@ -458,72 +458,11 @@ def parse_gatttool_char_desc_output(output):
 
 
 def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
-    """Connect to BLE device using gatttool and discover services/characteristics"""
+    """Connect to BLE device using bluetoothctl to connect, then gatttool for GATT operations"""
     global client_device_address, client_tx_char_handle, client_rx_char_handle, client_gatt_process, client_connected
     
-    # Thread-safe queues for gatttool output
-    stdout_queue = []
-    stderr_queue = []
-    stdout_lock = threading.Lock()
-    stderr_lock = threading.Lock()
-    
-    def drain_stdout():
-        """Continuously drain stdout to prevent pipe deadlock"""
-        while client_gatt_process and client_gatt_process.poll() is None:
-            try:
-                if select.select([client_gatt_process.stdout], [], [], 0.1)[0]:
-                    chunk = client_gatt_process.stdout.read(4096)
-                    if chunk:
-                        with stdout_lock:
-                            stdout_queue.append(chunk)
-            except (OSError, ValueError):
-                break
-            except Exception as e:
-                log.debug(f"Error draining stdout: {e}")
-                break
-    
-    def drain_stderr():
-        """Continuously drain stderr to prevent pipe deadlock"""
-        while client_gatt_process and client_gatt_process.poll() is None:
-            try:
-                if select.select([client_gatt_process.stderr], [], [], 0.1)[0]:
-                    chunk = client_gatt_process.stderr.read(4096)
-                    if chunk:
-                        with stderr_lock:
-                            stderr_queue.append(chunk)
-            except (OSError, ValueError):
-                break
-            except Exception as e:
-                log.debug(f"Error draining stderr: {e}")
-                break
-    
-    def get_output(timeout=3):
-        """Get accumulated output from queues"""
-        start_time = time.time()
-        output = ""
-        while time.time() - start_time < timeout:
-            with stdout_lock:
-                if stdout_queue:
-                    output += ''.join(stdout_queue)
-                    stdout_queue.clear()
-            with stderr_lock:
-                if stderr_queue:
-                    output += "\n[stderr]\n" + ''.join(stderr_queue)
-                    stderr_queue.clear()
-            if output:
-                # Wait a bit more for complete output
-                time.sleep(0.2)
-                # Get any remaining output
-                with stdout_lock:
-                    if stdout_queue:
-                        output += ''.join(stdout_queue)
-                        stdout_queue.clear()
-                break
-            time.sleep(0.1)
-        return output.strip()
-    
     try:
-        log.info(f"Connecting to {device_address} via BLE GATT using gatttool...")
+        log.info(f"Connecting to {device_address} via BLE GATT...")
         
         # Step 1: Discover primary services using non-interactive mode (works without connection)
         log.info("Discovering primary services (non-interactive mode)...")
@@ -556,54 +495,41 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
         
         log.info(f"Found target service: {service_uuid} (handles {target_service['start_handle']:04x}-{target_service['end_handle']:04x})")
         
-        # Step 2: Start interactive gatttool session with pipe-draining threads
-        log.info("Starting interactive gatttool session...")
-        client_gatt_process = subprocess.Popen(
-            ['gatttool', '-b', device_address, '-I'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1
+        # Step 2: Connect using bluetoothctl (more reliable than gatttool interactive mode)
+        log.info("Connecting to device using bluetoothctl...")
+        connect_result = subprocess.run(
+            ['bluetoothctl', 'connect', device_address],
+            capture_output=True,
+            timeout=10,
+            text=True
         )
         
-        # Start threads to drain pipes and prevent deadlock
-        stdout_thread = threading.Thread(target=drain_stdout, daemon=True)
-        stderr_thread = threading.Thread(target=drain_stderr, daemon=True)
-        stdout_thread.start()
-        stderr_thread.start()
-        
-        # Give gatttool time to start
-        time.sleep(0.5)
-        
-        if client_gatt_process.poll() is not None:
-            log.error("gatttool process exited immediately")
+        if connect_result.returncode != 0 or "Failed" in connect_result.stdout or "Failed" in connect_result.stderr:
+            log.error(f"bluetoothctl connect failed: {connect_result.stderr}")
+            log.debug(f"stdout: {connect_result.stdout}")
             return False
         
-        # Step 3: Connect to device
-        log.info("Sending connect command to gatttool...")
-        client_gatt_process.stdin.write("connect\n")
-        client_gatt_process.stdin.flush()
+        log.info("Device connected via bluetoothctl")
+        time.sleep(1)  # Give connection time to stabilize
         
-        # Wait for connection response
-        time.sleep(2)
-        connection_output = get_output(timeout=5)
-        log.info(f"Connection response: {connection_output[:200] if connection_output else 'None'}")
+        # Step 3: Discover characteristics using non-interactive gatttool (now that we're connected)
+        log.info("Discovering characteristics (non-interactive mode)...")
+        char_result = subprocess.run(
+            ['gatttool', '-b', device_address, '--characteristics', 
+             f'0x{target_service["start_handle"]:04x}', f'0x{target_service["end_handle"]:04x}'],
+            capture_output=True,
+            timeout=10,
+            text=True
+        )
         
-        if client_gatt_process.poll() is not None:
-            log.error("gatttool process exited after connect")
+        if char_result.returncode != 0:
+            log.error(f"gatttool --characteristics failed: {char_result.stderr}")
+            log.debug(f"stdout: {char_result.stdout}")
             return False
         
-        # Step 4: Discover characteristics
-        log.info("Discovering characteristics...")
-        client_gatt_process.stdin.write(f"char-desc {target_service['start_handle']:04x} {target_service['end_handle']:04x}\n")
-        client_gatt_process.stdin.flush()
-        
-        time.sleep(2)
-        char_output = get_output(timeout=5)
-        log.debug(f"Characteristics output: {char_output[:1000]}")
-        
-        characteristics = parse_gatttool_char_desc_output(char_output)
+        log.info("Discovered characteristics via gatttool")
+        characteristics = parse_gatttool_characteristics_output(char_result.stdout)
+        log.debug(f"Characteristics output: {char_result.stdout[:1000]}")
         
         # Find TX and RX characteristics
         tx_char_uuid_lower = tx_char_uuid.lower()
@@ -620,63 +546,74 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
         if not client_tx_char_handle or not client_rx_char_handle:
             log.error("Could not find both TX and RX characteristics")
             log.info(f"Available characteristics: {[c['uuid'] for c in characteristics]}")
-            log.info(f"Characteristic discovery output: {char_output[:2000]}")
+            log.info(f"Characteristic discovery output: {char_result.stdout[:2000]}")
             return False
         
-        # Step 5: Enable notifications
+        # Step 4: Start interactive gatttool session for notifications and writes
+        log.info("Starting interactive gatttool session for notifications...")
+        client_gatt_process = subprocess.Popen(
+            ['gatttool', '-b', device_address, '-I'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1
+        )
+        
+        time.sleep(0.5)
+        
+        if client_gatt_process.poll() is not None:
+            log.error("gatttool process exited immediately")
+            return False
+        
+        # Enable notifications on TX characteristic
         cccd_handle = client_tx_char_handle + 1
         log.info(f"Enabling notifications on TX characteristic (CCCD handle: {cccd_handle:04x})")
         client_gatt_process.stdin.write(f"char-write-req {cccd_handle:04x} 0100\n")
         client_gatt_process.stdin.flush()
         time.sleep(0.5)
         
-        # Start thread to process notifications from the queue
-        def process_notifications():
+        # Start thread to read notifications
+        def read_notifications():
             global running, kill, peripheral_connected, RelayService
-            log.info("Starting notification processor thread")
+            log.info("Starting notification reader thread")
             buffer = ""
             while running and not kill and client_gatt_process:
                 try:
                     if client_gatt_process.poll() is not None:
+                        log.warning("gatttool process ended")
                         break
                     
-                    # Get output from queue
-                    with stdout_lock:
-                        if stdout_queue:
-                            chunk = ''.join(stdout_queue)
-                            stdout_queue.clear()
+                    if select.select([client_gatt_process.stdout], [], [], 0.1)[0]:
+                        chunk = client_gatt_process.stdout.read(1024)
+                        if chunk:
                             buffer += chunk
-                    
-                    # Process complete lines
-                    while '\n' in buffer:
-                        line, buffer = buffer.split('\n', 1)
-                        line = line.strip()
-                        if not line:
-                            continue
-                        
-                        # Parse notification
-                        if 'Notification handle =' in line or 'Indication handle =' in line:
-                            match = re.search(r'value: ([0-9a-f ]+)', line, re.IGNORECASE)
-                            if match:
-                                hex_str = match.group(1).replace(' ', '')
-                                try:
-                                    bytes_data = bytearray.fromhex(hex_str)
-                                    log.info(f"CLIENT RX -> PERIPHERAL: {' '.join(f'{b:02x}' for b in bytes_data)}")
-                                    
-                                    if peripheral_connected and RelayService.tx_obj is not None:
-                                        RelayService.tx_obj.sendMessage(bytes_data)
-                                except ValueError:
-                                    pass
-                    
-                    time.sleep(0.1)
+                            while '\n' in buffer:
+                                line, buffer = buffer.split('\n', 1)
+                                line = line.strip()
+                                if not line:
+                                    continue
+                                
+                                if 'Notification handle =' in line or 'Indication handle =' in line:
+                                    match = re.search(r'value: ([0-9a-f ]+)', line, re.IGNORECASE)
+                                    if match:
+                                        hex_str = match.group(1).replace(' ', '')
+                                        try:
+                                            bytes_data = bytearray.fromhex(hex_str)
+                                            log.info(f"CLIENT RX -> PERIPHERAL: {' '.join(f'{b:02x}' for b in bytes_data)}")
+                                            
+                                            if peripheral_connected and RelayService.tx_obj is not None:
+                                                RelayService.tx_obj.sendMessage(bytes_data)
+                                        except ValueError:
+                                            pass
                 except Exception as e:
                     if running:
-                        log.error(f"Error processing notifications: {e}")
+                        log.error(f"Error reading notifications: {e}")
                     break
             
-            log.info("Notification processor thread stopped")
+            log.info("Notification reader thread stopped")
         
-        notification_thread = threading.Thread(target=process_notifications, daemon=True)
+        notification_thread = threading.Thread(target=read_notifications, daemon=True)
         notification_thread.start()
         
         client_device_address = device_address
