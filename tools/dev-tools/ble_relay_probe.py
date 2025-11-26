@@ -538,7 +538,8 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
         max_wait = 15
         wait_time = 0
         service_found = False
-        connected = False
+        connected_seen = False
+        resolved_seen = False
         
         while wait_time < max_wait and not service_found:
             time.sleep(0.5)
@@ -553,14 +554,17 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
                     if int(wait_time * 2) % 4 == 0:  # Log every 2 seconds
                         log.info(f"Waiting for connection... ({wait_time:.1f}s)")
                     continue
+                elif not connected_seen:
+                    log.info("Device is now connected")
+                    connected_seen = True
                 
                 if not services_resolved:
                     if int(wait_time * 2) % 4 == 0:  # Log every 2 seconds
                         log.info(f"Waiting for services to resolve... ({wait_time:.1f}s)")
                     continue
-                
-                if wait_time < 1:  # First time we see connected and resolved
-                    log.info("Device is connected and services are resolved")
+                elif not resolved_seen:
+                    log.info("Services are now resolved")
+                    resolved_seen = True
             except Exception as e:
                 log.debug(f"Error checking connection status: {e}")
                 continue
@@ -640,9 +644,10 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
                 log.error(f"Service {service_uuid} not found via gatttool")
                 return False
             
-            # Discover characteristics
+            # Discover characteristics using char-desc (works better with existing connection)
+            log.info(f"Discovering characteristics using char-desc (handles {target_service['start_handle']:04x}-{target_service['end_handle']:04x})...")
             char_result = subprocess.run(
-                ['gatttool', '-b', device_address, '--characteristics',
+                ['gatttool', '-b', device_address, '--char-desc',
                  f'0x{target_service["start_handle"]:04x}', f'0x{target_service["end_handle"]:04x}'],
                 capture_output=True,
                 timeout=10,
@@ -650,10 +655,30 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
             )
             
             if char_result.returncode != 0:
-                log.error(f"gatttool --characteristics failed: {char_result.stderr}")
-                return False
+                log.warning(f"gatttool --char-desc failed, trying --characteristics: {char_result.stderr}")
+                # Try --characteristics as fallback
+                char_result = subprocess.run(
+                    ['gatttool', '-b', device_address, '--characteristics',
+                     f'0x{target_service["start_handle"]:04x}', f'0x{target_service["end_handle"]:04x}'],
+                    capture_output=True,
+                    timeout=10,
+                    text=True
+                )
+                if char_result.returncode != 0:
+                    log.error(f"gatttool --characteristics also failed: {char_result.stderr}")
+                    log.debug(f"stdout: {char_result.stdout}")
+                    return False
+                else:
+                    log.debug(f"gatttool --characteristics output: {char_result.stdout[:1000]}")
+                    characteristics = parse_gatttool_characteristics_output(char_result.stdout)
+            else:
+                log.debug(f"gatttool --char-desc output: {char_result.stdout[:1000]}")
+                characteristics = parse_gatttool_char_desc_output(char_result.stdout)
+            log.info(f"Parsed {len(characteristics)} characteristics from gatttool")
             
-            characteristics = parse_gatttool_characteristics_output(char_result.stdout)
+            if characteristics:
+                log.info(f"Found characteristics: {[c['uuid'] for c in characteristics]}")
+            
             tx_char_uuid_lower = tx_char_uuid.lower()
             rx_char_uuid_lower = rx_char_uuid.lower()
             
@@ -669,6 +694,9 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
             
             if not client_tx_char_handle or not client_rx_char_handle:
                 log.error("Could not find both TX and RX characteristics via gatttool")
+                log.info(f"Looking for TX: {tx_char_uuid_lower}, RX: {rx_char_uuid_lower}")
+                log.info(f"Available characteristics: {[c['uuid'] for c in characteristics]}")
+                log.info(f"Full gatttool output: {char_result.stdout}")
                 return False
             
             # Use gatttool interactive mode for notifications and writes
