@@ -517,8 +517,6 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
         
         if not services:
             log.warning(f"No services found in output. Output was: {primary_output[:500]}")
-        else:
-            log.info("Discovered primary services via gatttool")
         
         # Find target service
         service_uuid_lower = service_uuid.lower()
@@ -559,8 +557,6 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
         
         if not characteristics:
             log.warning(f"No characteristics found in output. Output was: {char_output[:500]}")
-        else:
-            log.info("Discovered characteristics via gatttool")
         
         # Find TX and RX characteristics
         tx_char_uuid_lower = tx_char_uuid.lower()
