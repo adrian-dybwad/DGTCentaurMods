@@ -21,6 +21,7 @@ import signal
 import subprocess
 import re
 import select
+import queue
 import dbus
 import dbus.mainloop.glib
 try:
@@ -506,7 +507,7 @@ def parse_gatttool_char_desc_output(output):
 
 
 def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid):
-    """Connect to BLE device using gatttool - simple and reliable"""
+    """Connect to BLE device - use non-interactive gatttool for discovery, interactive for notifications"""
     global client_device_address, client_gatt_process, client_connected, client_tx_char_handle, client_rx_char_handle
     
     try:
@@ -518,50 +519,26 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
         
         # Connect via bluetoothctl
         log.info("Connecting via bluetoothctl...")
-        subprocess.run(['bluetoothctl', 'connect', device_address], 
-                      capture_output=True, timeout=10)
+        result = subprocess.run(['bluetoothctl', 'connect', device_address], 
+                               capture_output=True, timeout=10, text=True)
+        log.debug(f"bluetoothctl output: {result.stdout}")
         time.sleep(2)
         
-        # Start gatttool interactive session
-        log.info("Starting gatttool interactive session...")
-        proc = subprocess.Popen(
-            ['gatttool', '-b', device_address, '-I'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=0  # Unbuffered
-        )
+        # Use non-interactive gatttool to discover services
+        log.info("Discovering services with gatttool...")
+        result = subprocess.run(['gatttool', '-b', device_address, '--primary'],
+                               capture_output=True, timeout=10, text=True)
         
-        # Wait for prompt
-        time.sleep(0.5)
+        if result.returncode != 0:
+            log.error(f"gatttool --primary failed: {result.stderr}")
+            return False
         
-        # Discover primary services
-        log.info("Discovering services...")
-        proc.stdin.write("primary\n")
-        proc.stdin.flush()
-        time.sleep(1)
-        
-        # Read output
-        output = ""
-        while True:
-            if select.select([proc.stdout], [], [], 0.1)[0]:
-                chunk = proc.stdout.read(1024)
-                if chunk:
-                    output += chunk
-                    if "attr handle" in output.lower() and ">" in output:
-                        break
-                else:
-                    break
-            else:
-                break
-        
-        # Find service UUID
+        # Find service
         service_uuid_lower = service_uuid.lower()
         service_start = None
         service_end = None
         
-        for line in output.split('\n'):
+        for line in result.stdout.split('\n'):
             if service_uuid_lower in line.lower():
                 match = re.search(r'attr handle = 0x([0-9a-f]+), end grp handle = 0x([0-9a-f]+)', line, re.IGNORECASE)
                 if match:
@@ -571,38 +548,29 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
                     break
         
         if not service_start:
-            log.error(f"Service {service_uuid} not found")
-            proc.terminate()
+            log.error(f"Service {service_uuid} not found in output: {result.stdout}")
             return False
         
-        # Discover characteristics
+        # Discover characteristics using char-desc
         log.info("Discovering characteristics...")
-        proc.stdin.write(f"char-desc {service_start:04x} {service_end:04x}\n")
-        proc.stdin.flush()
-        time.sleep(1)
+        char_result = subprocess.run(['gatttool', '-b', device_address, '--char-desc',
+                                     f'0x{service_start:04x}', f'0x{service_end:04x}'],
+                                    capture_output=True, timeout=10, text=True)
         
-        # Read characteristics
-        char_output = ""
-        while True:
-            if select.select([proc.stdout], [], [], 0.1)[0]:
-                chunk = proc.stdout.read(1024)
-                if chunk:
-                    char_output += chunk
-                    if ">" in char_output:
-                        break
-                else:
-                    break
-            else:
-                break
+        if char_result.returncode != 0:
+            log.error(f"gatttool --char-desc failed: {char_result.stderr}")
+            return False
         
-        # Extract 16-bit UUIDs from full UUIDs
+        log.debug(f"char-desc output (first 500 chars): {char_result.stdout[:500]}")
+        
+        # Extract 16-bit UUIDs from full UUIDs (nRF format)
         tx_16bit = tx_char_uuid.lower().split('-')[1] if '-' in tx_char_uuid else None
         rx_16bit = rx_char_uuid.lower().split('-')[1] if '-' in rx_char_uuid else None
         
         log.info(f"Looking for TX 16-bit: {tx_16bit}, RX 16-bit: {rx_16bit}")
         
-        # Parse characteristics - look for UUIDs matching our targets
-        lines = char_output.split('\n')
+        # Parse characteristics - find handles by UUID
+        lines = char_result.stdout.split('\n')
         i = 0
         while i < len(lines):
             line = lines[i]
@@ -611,30 +579,53 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
                 # Next line should be the characteristic value
                 if i + 1 < len(lines):
                     value_line = lines[i + 1]
-                    # Check if it matches our UUIDs
+                    # Parse: handle = 0xXXXX, uuid = UUID
                     uuid_match = re.search(r'uuid = ([0-9a-f-]+)', value_line, re.IGNORECASE)
-                    if uuid_match:
+                    handle_match = re.search(r'handle = 0x([0-9a-f]+)', value_line, re.IGNORECASE)
+                    if uuid_match and handle_match:
                         uuid_found = uuid_match.group(1).lower()
-                        handle_match = re.search(r'handle = 0x([0-9a-f]+)', value_line, re.IGNORECASE)
-                        if handle_match:
-                            handle = int(handle_match.group(1), 16)
-                            
-                            # Match by full UUID or 16-bit part
-                            if (uuid_found == tx_char_uuid.lower() or 
-                                (tx_16bit and uuid_found.endswith(tx_16bit.lower()))):
-                                client_tx_char_handle = handle
-                                log.info(f"Found TX at handle {handle:04x}")
-                            elif (uuid_found == rx_char_uuid.lower() or 
-                                  (rx_16bit and uuid_found.endswith(rx_16bit.lower()))):
+                        handle = int(handle_match.group(1), 16)
+                        
+                        # Match by full UUID or 16-bit part (nRF uses 16-bit UUIDs)
+                        # For nRF: 49535343-1E4D-... means 16-bit is 1E4D
+                        # The actual UUID in char-desc might be just the 16-bit part or full UUID
+                        matched = False
+                        if uuid_found == tx_char_uuid.lower():
+                            client_tx_char_handle = handle
+                            log.info(f"Found TX at handle {handle:04x} (full UUID match)")
+                            matched = True
+                        elif tx_16bit and (uuid_found.endswith(tx_16bit.lower()) or uuid_found == tx_16bit.lower()):
+                            client_tx_char_handle = handle
+                            log.info(f"Found TX at handle {handle:04x} (16-bit match: {tx_16bit})")
+                            matched = True
+                        
+                        if not matched:
+                            if uuid_found == rx_char_uuid.lower():
                                 client_rx_char_handle = handle
-                                log.info(f"Found RX at handle {handle:04x}")
+                                log.info(f"Found RX at handle {handle:04x} (full UUID match)")
+                            elif rx_16bit and (uuid_found.endswith(rx_16bit.lower()) or uuid_found == rx_16bit.lower()):
+                                client_rx_char_handle = handle
+                                log.info(f"Found RX at handle {handle:04x} (16-bit match: {rx_16bit})")
             i += 1
         
         if not client_tx_char_handle or not client_rx_char_handle:
             log.error("Could not find both characteristics")
-            log.debug(f"Characteristic output: {char_output}")
-            proc.terminate()
+            log.info(f"TX handle: {client_tx_char_handle}, RX handle: {client_rx_char_handle}")
+            log.info(f"Full char-desc output:\n{char_result.stdout}")
             return False
+        
+        # Now start interactive gatttool for notifications
+        log.info("Starting gatttool interactive session for notifications...")
+        proc = subprocess.Popen(
+            ['gatttool', '-b', device_address, '-I'],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=0
+        )
+        
+        time.sleep(0.5)
         
         # Enable notifications
         cccd_handle = client_tx_char_handle + 1
@@ -651,29 +642,62 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
         }
         client_device_address = device_address
         
+        # Start threads to drain stdout and stderr to prevent blocking
+        stdout_queue = queue.Queue()
+        stderr_queue = queue.Queue()
+        
+        def drain_stdout():
+            while running and not kill:
+                try:
+                    if select.select([proc.stdout], [], [], 0.1)[0]:
+                        chunk = proc.stdout.read(1024)
+                        if chunk:
+                            stdout_queue.put(chunk)
+                        else:
+                            break
+                except:
+                    break
+        
+        def drain_stderr():
+            while running and not kill:
+                try:
+                    if select.select([proc.stderr], [], [], 0.1)[0]:
+                        chunk = proc.stderr.read(1024)
+                        if chunk:
+                            stderr_queue.put(chunk)
+                        else:
+                            break
+                except:
+                    break
+        
+        threading.Thread(target=drain_stdout, daemon=True).start()
+        threading.Thread(target=drain_stderr, daemon=True).start()
+        
         # Start notification reader
         def read_notifications():
             global running, kill, peripheral_connected, RelayService
             buffer = ""
             while running and not kill:
                 try:
-                    if select.select([proc.stdout], [], [], 0.1)[0]:
-                        chunk = proc.stdout.read(1024)
-                        if chunk:
-                            buffer += chunk
-                            while '\n' in buffer:
-                                line, buffer = buffer.split('\n', 1)
-                                if 'Notification' in line or 'Indication' in line:
-                                    match = re.search(r'value: ([0-9a-f ]+)', line, re.IGNORECASE)
-                                    if match:
-                                        hex_str = match.group(1).replace(' ', '')
-                                        try:
-                                            data = bytearray.fromhex(hex_str)
-                                            log.info(f"CLIENT RX -> PERIPHERAL: {' '.join(f'{b:02x}' for b in data)}")
-                                            if peripheral_connected and RelayService.tx_obj:
-                                                RelayService.tx_obj.sendMessage(data)
-                                        except ValueError:
-                                            pass
+                    # Get data from queue
+                    try:
+                        chunk = stdout_queue.get(timeout=0.1)
+                        buffer += chunk
+                        while '\n' in buffer:
+                            line, buffer = buffer.split('\n', 1)
+                            if 'Notification' in line or 'Indication' in line:
+                                match = re.search(r'value: ([0-9a-f ]+)', line, re.IGNORECASE)
+                                if match:
+                                    hex_str = match.group(1).replace(' ', '')
+                                    try:
+                                        data = bytearray.fromhex(hex_str)
+                                        log.info(f"CLIENT RX -> PERIPHERAL: {' '.join(f'{b:02x}' for b in data)}")
+                                        if peripheral_connected and RelayService.tx_obj:
+                                            RelayService.tx_obj.sendMessage(data)
+                                    except ValueError:
+                                        pass
+                    except queue.Empty:
+                        pass
                 except Exception as e:
                     if running:
                         log.error(f"Notification read error: {e}")
