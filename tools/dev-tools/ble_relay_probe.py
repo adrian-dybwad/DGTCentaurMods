@@ -638,7 +638,14 @@ def scan_and_connect_ble_gatt(bus, adapter_path, target_address=None, target_nam
         adapter_iface = dbus.Interface(adapter_obj, ADAPTER_IFACE)
         adapter_props = dbus.Interface(adapter_obj, DBUS_PROP_IFACE)
         
-        adapter_props.Set(ADAPTER_IFACE, "Powered", dbus.Boolean(1))
+        # Bluetooth should already be enabled by BluetoothController.enable_bluetooth() in main()
+        # Verify it's powered, but don't try to set it (DBus signature issues with Properties.Set)
+        try:
+            powered = adapter_props.Get(ADAPTER_IFACE, "Powered")
+            if not powered:
+                log.warning("Bluetooth adapter is not powered - discovery may fail")
+        except Exception as e:
+            log.debug(f"Could not check adapter power state: {e}")
         
         discovery_started_by_us = False
         try:
