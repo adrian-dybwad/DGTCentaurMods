@@ -478,22 +478,49 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
         device_address = device_props.Get(DEVICE_IFACE, "Address")
         log.info(f"Device address: {device_address}")
         
-        # Connect to device
-        log.info("Connecting to device...")
+        # Check if already connected
         try:
-            device_iface.Connect()
-        except dbus.exceptions.DBusException as e:
-            if "org.bluez.Error.AlreadyConnected" in str(e):
-                log.info("Device already connected")
+            connected = device_props.Get(DEVICE_IFACE, "Connected")
+            if connected:
+                log.info("Device is already connected")
             else:
-                log.error(f"Failed to connect: {e}")
-                return False
+                # Connect to device using bluetoothctl (handles BLE connection properly)
+                log.info("Connecting to device using bluetoothctl...")
+                connect_result = subprocess.run(
+                    ['bluetoothctl', 'connect', device_address],
+                    capture_output=True,
+                    timeout=10,
+                    text=True
+                )
+                
+                if connect_result.returncode != 0:
+                    log.warning(f"bluetoothctl connect returned non-zero: {connect_result.stderr}")
+                    log.debug(f"stdout: {connect_result.stdout}")
+                    # Check if it actually connected despite the return code
+                    time.sleep(1)
+                    try:
+                        connected = device_props.Get(DEVICE_IFACE, "Connected")
+                        if connected:
+                            log.info("Device connected (despite bluetoothctl return code)")
+                        else:
+                            log.error("Device not connected after bluetoothctl attempt")
+                            return False
+                    except:
+                        log.error("Could not verify connection status")
+                        return False
+                else:
+                    log.info("Device connected via bluetoothctl")
+                    time.sleep(1)  # Give connection time to establish
+        except Exception as e:
+            log.error(f"Error checking/establishing connection: {e}")
+            return False
         
         # Wait for connection to establish and services to be discovered
         log.info("Waiting for GATT services to be discovered...")
-        max_wait = 10
+        max_wait = 15
         wait_time = 0
         service_found = False
+        connected = False
         
         while wait_time < max_wait and not service_found:
             time.sleep(0.5)
@@ -503,9 +530,14 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
             try:
                 connected = device_props.Get(DEVICE_IFACE, "Connected")
                 if not connected:
-                    log.warning("Device not connected yet...")
+                    if int(wait_time * 2) % 4 == 0:  # Log every 2 seconds
+                        log.info(f"Waiting for connection... ({wait_time:.1f}s)")
                     continue
-            except:
+                else:
+                    if wait_time < 1:  # First time we see connected
+                        log.info("Device is now connected")
+            except Exception as e:
+                log.debug(f"Error checking connection status: {e}")
                 continue
             
             # Discover services and characteristics using ObjectManager
