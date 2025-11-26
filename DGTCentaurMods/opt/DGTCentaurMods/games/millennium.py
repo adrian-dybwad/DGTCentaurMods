@@ -186,8 +186,8 @@ class PacketParser:
                 # CRC doesn't match, but don't reset - keep accumulating
                 # The next byte might be part of the actual CRC
                 # Only log if buffer is getting large (to avoid spam)
-                if len(self.buffer) > 10:
-                    log.debug(f"[Millennium.PacketParser] CRC check failed: received=0x{received_crc:02X}, expected=0x{expected_crc:02X}, buffer_len={len(self.buffer)}")
+                #if len(self.buffer) > 10:
+                #    log.debug(f"[Millennium.PacketParser] CRC check failed: received=0x{received_crc:02X}, expected=0x{expected_crc:02X}, buffer_len={len(self.buffer)}")
                 return (None, None, False)
             
             # CRC matches! Packet is valid
