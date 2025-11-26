@@ -344,46 +344,66 @@ def read_gatttool_output(process, timeout=3, max_bytes=8192):
     # Also match prompts that might be on their own line or at end of line
     prompt_pattern = re.compile(r'\[?([A-Z]+)\]?>|^>\s*$')
     
-    last_chunk_time = time.time()
+    last_chunk_time = start_time
+    no_data_count = 0  # Count consecutive iterations with no data
     
     while time.time() - start_time < timeout:
-        # Check both stdout and stderr
-        ready, _, _ = select.select([process.stdout, process.stderr], [], [], 0.1)
+        # Check both stdout and stderr with short timeout
+        try:
+            ready, _, _ = select.select([process.stdout, process.stderr], [], [], 0.2)
+        except (OSError, ValueError):
+            # Process might have closed file descriptors
+            break
         
         if process.stdout in ready:
-            chunk = process.stdout.read(max_bytes - len(output))
-            if chunk:
-                output += chunk
-                last_chunk_time = time.time()
-                # Check if we got the prompt (command completed)
-                # Look for prompt at end of output or on its own line
-                if prompt_pattern.search(output):
-                    # Remove the prompt from output (keep everything before the last prompt)
-                    lines = output.split('\n')
-                    cleaned_lines = []
-                    for line in lines:
-                        line_stripped = line.strip()
-                        if prompt_pattern.match(line_stripped) or line_stripped.endswith('>'):
-                            # Found prompt, stop here
-                            break
-                        cleaned_lines.append(line)
-                    output = '\n'.join(cleaned_lines)
-                    break
+            try:
+                chunk = process.stdout.read(max_bytes - len(output))
+                if chunk:
+                    output += chunk
+                    last_chunk_time = time.time()
+                    no_data_count = 0
+                    # Check if we got the prompt (command completed)
+                    # Look for prompt at end of output or on its own line
+                    if prompt_pattern.search(output):
+                        # Remove the prompt from output (keep everything before the last prompt)
+                        lines = output.split('\n')
+                        cleaned_lines = []
+                        for line in lines:
+                            line_stripped = line.strip()
+                            if prompt_pattern.match(line_stripped) or line_stripped.endswith('>'):
+                                # Found prompt, stop here
+                                break
+                            cleaned_lines.append(line)
+                        output = '\n'.join(cleaned_lines)
+                        break
+            except (OSError, ValueError):
+                # File descriptor closed
+                break
         
         if process.stderr in ready:
-            chunk = process.stderr.read(1024)
-            if chunk:
-                stderr_output += chunk
-                last_chunk_time = time.time()
+            try:
+                chunk = process.stderr.read(1024)
+                if chunk:
+                    stderr_output += chunk
+                    last_chunk_time = time.time()
+                    no_data_count = 0
+            except (OSError, ValueError):
+                break
+        
+        if not ready:
+            no_data_count += 1
+            # If we have output and no data for several iterations, assume done
+            if output and no_data_count > 3:
+                break
+            # Small delay to avoid busy waiting
+            time.sleep(0.05)
+        else:
+            no_data_count = 0
         
         # If we haven't received data for a while and have some output, assume command completed
         if output and (time.time() - last_chunk_time) > 0.5:
             # No more data coming, assume we're done
             break
-        
-        if not ready:
-            # Small delay to avoid busy waiting
-            time.sleep(0.05)
     
     # Include stderr in output if there are errors
     if stderr_output:
@@ -488,44 +508,77 @@ def connect_ble_gatt(device_address, service_uuid, tx_char_uuid, rx_char_uuid):
             bufsize=0  # Unbuffered for real-time communication
         )
         
-        # Wait for gatttool to be ready and read initial prompt
-        log.debug("Waiting for gatttool initial prompt...")
-        initial_prompt = read_gatttool_output(client_gatt_process, timeout=3)
-        log.debug(f"Initial gatttool output: {initial_prompt[:200]}")
+        # Wait for gatttool to be ready - try to read initial prompt (non-blocking)
+        # Gatttool may or may not output a prompt immediately
+        log.debug("Waiting for gatttool to initialize...")
+        time.sleep(0.5)  # Give gatttool time to start
+        
+        # Try to read any initial output (non-blocking, short timeout)
+        initial_prompt = ""
+        try:
+            if select.select([client_gatt_process.stdout], [], [], 0.5)[0]:
+                chunk = client_gatt_process.stdout.read(1024)
+                if chunk:
+                    initial_prompt = chunk
+                    log.debug(f"Initial gatttool output: {initial_prompt[:200]}")
+        except Exception as e:
+            log.debug(f"Could not read initial output: {e}")
         
         # Check if process exited
         if client_gatt_process.poll() is not None:
-            stderr_output = client_gatt_process.stderr.read()
+            stderr_output = ""
+            try:
+                stderr_output = client_gatt_process.stderr.read()
+            except:
+                pass
             log.error(f"gatttool process exited immediately: {stderr_output}")
             return False
+        
+        log.debug("Gatttool process is running, proceeding with connect command")
         
         # Step 3: Connect to device in interactive mode
         log.info("Sending connect command to gatttool...")
         client_gatt_process.stdin.write("connect\n")
         client_gatt_process.stdin.flush()
         
+        # Wait a bit for connection to start
+        time.sleep(1)
+        
         # Read connection response (wait longer for connection to complete)
+        log.debug("Reading connection response...")
         connection_output = read_gatttool_output(client_gatt_process, timeout=10)
-        log.debug(f"Connection output: {connection_output[:500]}")
+        log.info(f"Connection response received (length: {len(connection_output)})")
+        if connection_output:
+            log.debug(f"Connection output: {connection_output[:500]}")
+        else:
+            log.warning("No connection output received")
         
         # Check if process exited
         if client_gatt_process.poll() is not None:
-            stderr_output = client_gatt_process.stderr.read()
+            stderr_output = ""
+            try:
+                stderr_output = client_gatt_process.stderr.read()
+            except:
+                pass
             log.error(f"gatttool process exited after connect: {stderr_output}")
             return False
         
-        if "Connection successful" in connection_output or "[CON]" in connection_output:
+        # Check connection status
+        connection_output_lower = connection_output.lower()
+        if "connection successful" in connection_output_lower or "[con]" in connection_output_lower:
             log.info("Connected to device via gatttool")
-        elif "Error" in connection_output or "Connection failed" in connection_output or "Invalid" in connection_output:
+        elif "error" in connection_output_lower or "connection failed" in connection_output_lower or "invalid" in connection_output_lower:
             log.error(f"Connection failed: {connection_output}")
             return False
         else:
             # Check if we got a prompt indicating we're connected
-            if "[CON]" in connection_output or "[LE]" in connection_output:
+            if "[con]" in connection_output_lower or "[le]" in connection_output_lower:
                 log.info("Connected to device via gatttool (prompt detected)")
+            elif not connection_output:
+                log.warning("No connection output - assuming connection in progress, continuing...")
             else:
                 log.warning(f"Connection status unclear, output: {connection_output[:200]}")
-                # Continue anyway - sometimes the prompt appears without explicit success message
+                log.info("Continuing anyway - will attempt characteristic discovery")
         
         # Step 4: Discover characteristics in the service using char-desc
         log.info("Discovering characteristics...")
