@@ -703,8 +703,9 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
                     log.debug(f"gatttool --characteristics output: {char_result.stdout[:1000]}")
                     characteristics = parse_gatttool_characteristics_output(char_result.stdout)
             else:
-            log.debug(f"gatttool --char-desc output: {char_result.stdout[:1000]}")
-            characteristics = parse_gatttool_char_desc_output(char_result.stdout)
+                log.debug(f"gatttool --char-desc output: {char_result.stdout[:1000]}")
+                characteristics = parse_gatttool_char_desc_output(char_result.stdout)
+            
             log.info(f"Parsed {len(characteristics)} characteristics from gatttool")
             
             if characteristics:
