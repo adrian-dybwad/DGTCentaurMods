@@ -432,10 +432,11 @@ def read_gatttool_output(process, timeout=3, max_bytes=8192):
 def parse_gatttool_char_desc_output(output):
     """Parse gatttool char-desc output to find characteristic handles and UUIDs"""
     characteristics = []
-    # Pattern: handle = 0xXXXX, uuid: UUID
-    # Characteristic declaration: handle = 0xXXXX, uuid: 00002803-0000-1000-8000-00805f9b34fb (Characteristic)
-    # Characteristic value: handle = 0xYYYY, uuid: <actual-uuid>
-    # CCCD: handle = 0xZZZZ, uuid: 00002902-0000-1000-8000-00805f9b34fb (Client Characteristic Configuration)
+    # Pattern: handle = 0xXXXX, uuid = UUID (note: char-desc uses "uuid =", not "uuid:")
+    # Characteristic declaration: handle = 0xXXXX, uuid = 00002803-0000-1000-8000-00805f9b34fb
+    # Characteristic value: handle = 0xYYYY, uuid = <actual-uuid> (may be 16-bit or 128-bit)
+    # CCCD: handle = 0xZZZZ, uuid = 00002902-0000-1000-8000-00805f9b34fb
+    
     lines = output.split('\n')
     i = 0
     while i < len(lines):
@@ -445,7 +446,8 @@ def parse_gatttool_char_desc_output(output):
             continue
         
         # Look for characteristic declaration (uuid 2803)
-        char_decl_match = re.search(r'handle = 0x([0-9a-f]+), uuid: 00002803-0000-1000-8000-00805f9b34fb', line, re.IGNORECASE)
+        # Pattern: handle = 0xXXXX, uuid = 00002803-0000-1000-8000-00805f9b34fb
+        char_decl_match = re.search(r'handle = 0x([0-9a-f]+), uuid = 00002803-0000-1000-8000-00805f9b34fb', line, re.IGNORECASE)
         if char_decl_match:
             decl_handle = int(char_decl_match.group(1), 16)
             # Next line should be the characteristic value with the actual UUID
@@ -453,22 +455,51 @@ def parse_gatttool_char_desc_output(output):
                 value_line = lines[i + 1].strip()
                 # Skip if it's another declaration or CCCD
                 if '00002803' not in value_line and '00002902' not in value_line:
-                    value_match = re.search(r'handle = 0x([0-9a-f]+), uuid: ([0-9a-f-]+)', value_line, re.IGNORECASE)
+                    # Pattern: handle = 0xXXXX, uuid = UUID
+                    value_match = re.search(r'handle = 0x([0-9a-f]+), uuid = ([0-9a-f-]+)', value_line, re.IGNORECASE)
                     if value_match:
                         value_handle = int(value_match.group(1), 16)
-                        uuid = value_match.group(2).lower()
+                        uuid_raw = value_match.group(2).lower()
+                        
                         # Skip standard Bluetooth UUIDs that aren't characteristics
-                        if uuid not in ['00002800-0000-1000-8000-00805f9b34fb',  # Primary Service
+                        if uuid_raw in ['00002800-0000-1000-8000-00805f9b34fb',  # Primary Service
                                        '00002801-0000-1000-8000-00805f9b34fb',  # Secondary Service
                                        '00002803-0000-1000-8000-00805f9b34fb',  # Characteristic
                                        '00002902-0000-1000-8000-00805f9b34fb']:  # CCCD
-                            properties = 0  # We'll determine this from the declaration if needed
-                            characteristics.append({
-                                'decl_handle': decl_handle,
-                                'value_handle': value_handle,
-                                'properties': properties,
-                                'uuid': uuid
-                            })
+                            i += 1
+                            continue
+                        
+                        # Handle 16-bit UUIDs (nRF format)
+                        # nRF devices use 16-bit UUIDs that are part of the 4953... service base
+                        # If UUID is 16-bit (8 hex digits with leading zeros, or 4 hex digits), extract the 16-bit part
+                        uuid_16bit = None
+                        if len(uuid_raw) == 8 and uuid_raw.startswith('0000'):
+                            # Format: 0000XXXX (8 hex digits, first 4 are zeros)
+                            uuid_16bit = uuid_raw[4:8].lower()
+                            uuid = None  # We'll match by 16-bit only
+                        elif len(uuid_raw) == 4 and '-' not in uuid_raw:
+                            # Format: XXXX (4 hex digits)
+                            uuid_16bit = uuid_raw.lower()
+                            uuid = None  # We'll match by 16-bit only
+                        elif len(uuid_raw) > 8 and '-' in uuid_raw:
+                            # Full 128-bit UUID
+                            uuid = uuid_raw.lower()
+                            # Extract 16-bit part if it's a 4953... UUID
+                            if uuid.startswith('49535343-'):
+                                parts = uuid.split('-')
+                                if len(parts) >= 2:
+                                    uuid_16bit = parts[1].lower()
+                        else:
+                            uuid = uuid_raw.lower()
+                        
+                        properties = 0  # We'll determine this from the declaration if needed
+                        characteristics.append({
+                            'decl_handle': decl_handle,
+                            'value_handle': value_handle,
+                            'properties': properties,
+                            'uuid': uuid,
+                            'uuid_16bit': uuid_raw if len(uuid_raw) == 4 and '-' not in uuid_raw else None
+                        })
         i += 1
     
     return characteristics
@@ -672,25 +703,77 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
                     log.debug(f"gatttool --characteristics output: {char_result.stdout[:1000]}")
                     characteristics = parse_gatttool_characteristics_output(char_result.stdout)
             else:
-                log.debug(f"gatttool --char-desc output: {char_result.stdout[:1000]}")
-                characteristics = parse_gatttool_char_desc_output(char_result.stdout)
+            log.debug(f"gatttool --char-desc output: {char_result.stdout[:1000]}")
+            characteristics = parse_gatttool_char_desc_output(char_result.stdout)
             log.info(f"Parsed {len(characteristics)} characteristics from gatttool")
             
             if characteristics:
-                log.info(f"Found characteristics: {[c['uuid'] for c in characteristics]}")
+                log.info(f"Found characteristics:")
+                for char in characteristics:
+                    uuid_display = char.get('uuid_16bit') or char.get('uuid', 'unknown')
+                    log.info(f"  Handle {char['value_handle']:04x}: UUID={uuid_display} (16-bit: {char.get('uuid_16bit', 'N/A')})")
+            else:
+                log.warning("No characteristics parsed - checking if we need to scan wider range")
+                # Try scanning the full range to see all characteristics
+                log.info("Attempting to scan full characteristic range...")
+                full_char_result = subprocess.run(
+                    ['gatttool', '-b', device_address, '--char-desc', '0x0001', '0xffff'],
+                    capture_output=True,
+                    timeout=10,
+                    text=True
+                )
+                if full_char_result.returncode == 0:
+                    log.info(f"Full scan found {len(full_char_result.stdout.split(chr(10)))} lines")
+                    # Look for any UUIDs starting with 4953
+                    for line in full_char_result.stdout.split('\n'):
+                        if '4953' in line.lower():
+                            log.info(f"Found 4953 UUID: {line.strip()}")
             
             tx_char_uuid_lower = tx_char_uuid.lower()
             rx_char_uuid_lower = rx_char_uuid.lower()
             
+            # Extract 16-bit UUIDs from full UUIDs for nRF devices
+            # TX: 49535343-1E4D-4BD9-BA61-23C647249616 -> 16-bit is 1E4D
+            # RX: 49535343-8841-43F4-A8D4-ECBE34729BB3 -> 16-bit is 8841
+            tx_16bit = tx_char_uuid_lower.split('-')[1] if '-' in tx_char_uuid_lower else None
+            rx_16bit = rx_char_uuid_lower.split('-')[1] if '-' in rx_char_uuid_lower else None
+            
+            log.info(f"Looking for TX 16-bit UUID: {tx_16bit}, RX 16-bit UUID: {rx_16bit}")
+            log.info(f"Full TX UUID: {tx_char_uuid_lower}, Full RX UUID: {rx_char_uuid_lower}")
+            
+            # Also search raw output for 4953... UUIDs if parser didn't find them
+            if not characteristics or len([c for c in characteristics if '4953' in str(c.get('uuid', '')).lower()]) == 0:
+                log.info("No 4953 UUIDs found in parsed characteristics, searching raw output...")
+                for line in char_result.stdout.split('\n'):
+                    if '4953' in line.lower():
+                        log.info(f"Found line with 4953: {line.strip()}")
+                        # Try to parse it - might be a characteristic value
+                        match = re.search(r'handle = 0x([0-9a-f]+), uuid = ([0-9a-f-]+)', line, re.IGNORECASE)
+                        if match:
+                            handle = int(match.group(1), 16)
+                            uuid_found = match.group(2).lower()
+                            log.info(f"  Found 4953 UUID at handle {handle:04x}: {uuid_found}")
+                            # Check if this matches our target UUIDs
+                            if uuid_found == tx_char_uuid_lower or (tx_16bit and uuid_found.endswith(f'-{tx_16bit}-')):
+                                client_tx_char_handle = handle
+                                log.info(f"Matched TX characteristic at handle {handle:04x}")
+                            elif uuid_found == rx_char_uuid_lower or (rx_16bit and uuid_found.endswith(f'-{rx_16bit}-')):
+                                client_rx_char_handle = handle
+                                log.info(f"Matched RX characteristic at handle {handle:04x}")
+            
             # Find characteristics by UUID and get their handles
             for char in characteristics:
-                if char['uuid'] == tx_char_uuid_lower:
+                char_uuid = char.get('uuid', '').lower()
+                char_16bit = char.get('uuid_16bit', '').lower() if char.get('uuid_16bit') else None
+                
+                # Match by full UUID or by 16-bit UUID
+                if char_uuid == tx_char_uuid_lower or (tx_16bit and char_16bit and char_16bit == tx_16bit.lower()):
                     # We'll use gatttool for notifications, so store handle
                     client_tx_char_handle = char['value_handle']
-                    log.info(f"Found TX characteristic (handle: {client_tx_char_handle:04x})")
-                elif char['uuid'] == rx_char_uuid_lower:
+                    log.info(f"Found TX characteristic (handle: {client_tx_char_handle:04x}, UUID: {char_uuid or char_16bit})")
+                elif char_uuid == rx_char_uuid_lower or (rx_16bit and char_16bit and char_16bit == rx_16bit.lower()):
                     client_rx_char_handle = char['value_handle']
-                    log.info(f"Found RX characteristic (handle: {client_rx_char_handle:04x})")
+                    log.info(f"Found RX characteristic (handle: {client_rx_char_handle:04x}, UUID: {char_uuid or char_16bit})")
             
             if not client_tx_char_handle or not client_rx_char_handle:
                 log.error("Could not find both TX and RX characteristics via gatttool")
