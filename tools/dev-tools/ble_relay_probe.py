@@ -533,28 +533,38 @@ def connect_ble_gatt(bus, device_path, service_uuid, tx_char_uuid, rx_char_uuid)
             log.error(f"gatttool --primary failed: {result.stderr}")
             return False
         
-        # Find service
+        log.info(f"All services found:\n{result.stdout}")
+        
+        # Find the CORRECT service (49535343-fe7d-4ae5-8fa9-9fafd205e455), NOT the standard BT one
         service_uuid_lower = service_uuid.lower()
         service_start = None
         service_end = None
         
         for line in result.stdout.split('\n'):
+            # Make sure we match the FULL service UUID, not just part of it
+            # The service UUID should be: 49535343-fe7d-4ae5-8fa9-9fafd205e455
             if service_uuid_lower in line.lower():
-                match = re.search(r'attr handle = 0x([0-9a-f]+), end grp handle = 0x([0-9a-f]+)', line, re.IGNORECASE)
+                match = re.search(r'attr handle = 0x([0-9a-f]+), end grp handle = 0x([0-9a-f]+).*uuid: ([0-9a-f-]+)', line, re.IGNORECASE)
                 if match:
-                    service_start = int(match.group(1), 16)
-                    service_end = int(match.group(2), 16)
-                    log.info(f"Found service at handles {service_start:04x}-{service_end:04x}")
-                    break
+                    found_uuid = match.group(3).lower()
+                    if found_uuid == service_uuid_lower:
+                        service_start = int(match.group(1), 16)
+                        service_end = int(match.group(2), 16)
+                        log.info(f"Found CORRECT service {service_uuid_lower} at handles {service_start:04x}-{service_end:04x}")
+                        break
+                    else:
+                        log.warning(f"Found service with partial match but wrong UUID: {found_uuid}")
         
         if not service_start:
-            log.error(f"Service {service_uuid} not found in output: {result.stdout}")
+            log.error(f"Service {service_uuid} not found in output!")
+            log.error(f"Looking for: {service_uuid_lower}")
+            log.error(f"Full output: {result.stdout}")
             return False
         
-        # Discover characteristics using char-desc - scan full range to find all 4953 UUIDs
-        log.info("Discovering characteristics (scanning full range)...")
+        # Discover characteristics using char-desc - use the CORRECT service range
+        log.info(f"Discovering characteristics in service range {service_start:04x}-{service_end:04x}...")
         char_result = subprocess.run(['gatttool', '-b', device_address, '--char-desc',
-                                     '0x0001', '0xffff'],
+                                     f'0x{service_start:04x}', f'0x{service_end:04x}'],
                                     capture_output=True, timeout=15, text=True)
         
         if char_result.returncode != 0:
