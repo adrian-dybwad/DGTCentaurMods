@@ -215,6 +215,77 @@ class PacketParser:
         self.state = "WAITING_FOR_START"
 
 
+def _odd_parity(byte_value):
+    """Calculate odd parity for a byte and set MSB if needed.
+    
+    Args:
+        byte_value: Byte value (0-127, ASCII character)
+        
+    Returns:
+        Byte value with odd parity bit set in MSB if needed
+    """
+    # Ensure we only work with 7-bit values
+    byte = byte_value & 127
+    # Count set bits
+    bit_count = 0
+    temp = byte
+    while temp:
+        bit_count += temp & 1
+        temp >>= 1
+    # If even number of bits, set parity bit (MSB) to make it odd
+    if bit_count % 2 == 0:
+        return byte | 128
+    else:
+        return byte
+
+
+def encode_millennium_command(command_text):
+    """Encode a Millennium protocol command with odd parity and CRC.
+    
+    This function encodes a command string into the Millennium protocol format:
+    - Each ASCII character gets odd parity added (MSB set if needed)
+    - CRC is calculated as XOR of all ASCII characters
+    - CRC is appended as two ASCII hex digits (also with odd parity)
+    
+    Args:
+        command_text: ASCII string command to encode
+        
+    Returns:
+        bytearray: Encoded bytes with odd parity and CRC
+        
+    Example:
+        encoded = encode_millennium_command("V")
+        log.info(f"Encoded command: {encoded.hex()}")
+    """
+    log.info(f"[Millennium] Encoding command: {command_text}")
+    
+    # Calculate XOR CRC of all ASCII characters
+    crc = 0
+    for char in command_text:
+        crc ^= ord(char)
+    
+    # Convert CRC to hex string (e.g., "4D")
+    crc_hex = f"{crc:02X}"
+    crc_hi_char = crc_hex[0]  # First hex digit
+    crc_lo_char = crc_hex[1]  # Second hex digit
+    
+    # Build the encoded bytearray
+    encoded = bytearray()
+    
+    # Add command bytes with odd parity
+    for char in command_text:
+        encoded.append(_odd_parity(ord(char)))
+    
+    # Add CRC hex digits with odd parity
+    encoded.append(_odd_parity(ord(crc_hi_char)))
+    encoded.append(_odd_parity(ord(crc_lo_char)))
+    
+    log.info(f"[Millennium] Encoded command (hex): {encoded.hex()}")
+    log.info(f"[Millennium] Encoded command (bytes): {' '.join(f'{b:02x}' for b in encoded)}")
+    
+    return encoded
+
+
 def _key_callback(key):
     """Handle key press events from the board.
     
@@ -247,6 +318,37 @@ def _field_callback(piece_event, field, time_in_seconds):
         traceback.print_exc()
 
 
+def handle_x(payload):
+    """Handle packet type 'X'.
+    
+    Args:
+        payload: List of ASCII character values in the payload
+    """
+    log.info(f"[Millennium] Handling X packet: payload={payload}")
+    encode_millennium_command("x")
+
+
+def _packet_handler(packet_type, payload):
+    """Handle a valid packet based on its type.
+    
+    Args:
+        packet_type: Packet type byte (first byte of payload)
+        payload: List of ASCII character values in the payload
+    """
+    try:
+        # Convert packet_type to character for comparison
+        packet_char = chr(packet_type) if packet_type is not None else None
+        
+        if packet_char == 'X':
+            handle_x(payload)
+        else:
+            log.debug(f"[Millennium] Unhandled packet type: {packet_char} (0x{packet_type:02X})")
+    except Exception as e:
+        log.error(f"[Millennium] Error in packet handler: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 # Global packet parser instance
 _packet_parser = PacketParser()
 
@@ -258,6 +360,8 @@ def receive_data(byte_value):
     - Odd parity stripping (MSB parity bit)
     - ASCII payload accumulation
     - XOR CRC verification (last 2 ASCII hex digits)
+    
+    When a valid packet is received, it automatically calls the packet handler.
     
     Args:
         byte_value: Raw byte value from wire (with possible odd parity bit)
@@ -273,10 +377,16 @@ def receive_data(byte_value):
         for byte in byte_stream:
             packet_type, payload, is_complete = receive_data(byte)
             if is_complete:
-                # Process complete packet
+                # Packet handler is automatically called
                 log.info(f"Received packet type {packet_type}, payload: {payload}")
     """
-    return _packet_parser.receive_byte(byte_value)
+    packet_type, payload, is_complete = _packet_parser.receive_byte(byte_value)
+    
+    # Call packet handler when a valid packet is received
+    if is_complete:
+        _packet_handler(packet_type, payload)
+    
+    return (packet_type, payload, is_complete)
 
 
 def reset_parser():
