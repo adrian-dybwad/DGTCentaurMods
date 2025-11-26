@@ -149,6 +149,13 @@ class PacketParser:
             if len(self.buffer) < 3:
                 return (None, None, False)
             
+            # Check if buffer is too large (likely lost/invalid packet)
+            # Reset if buffer exceeds reasonable maximum (e.g., 1000 bytes)
+            if len(self.buffer) > 1000:
+                log.warning(f"[Millennium.PacketParser] Buffer too large ({len(self.buffer)} bytes), resetting")
+                self.buffer = []
+                return (None, None, False)
+            
             # Last two bytes should be CRC hex digits
             crc_hi_char = self.buffer[-2]
             crc_lo_char = self.buffer[-1]
@@ -158,33 +165,42 @@ class PacketParser:
             crc_lo = self._hex_char_to_value(crc_lo_char)
             
             if crc_hi is None or crc_lo is None:
-                # Not valid hex, keep accumulating
+                # Not valid hex, keep accumulating (don't reset)
                 return (None, None, False)
             
-            # Calculate received CRC
+            # Calculate received CRC from the hex digits
             received_crc = (crc_hi << 4) | crc_lo
             
             # Extract payload (everything except last 2 CRC bytes)
             payload = self.buffer[:-2]
             
-            # Calculate expected CRC
+            # Need at least 1 byte in payload (the packet type)
+            if len(payload) < 1:
+                return (None, None, False)
+            
+            # Calculate expected CRC by XORing all payload bytes
             expected_crc = self._calculate_crc(payload)
             
             # Verify CRC
             if received_crc != expected_crc:
-                log.warning(f"[Millennium.PacketParser] CRC mismatch: received=0x{received_crc:02X}, expected=0x{expected_crc:02X}, payload={payload}")
-                # Reset buffer on CRC error
-                self.buffer = []
+                # CRC doesn't match, but don't reset - keep accumulating
+                # The next byte might be part of the actual CRC
+                # Only log if buffer is getting large (to avoid spam)
+                if len(self.buffer) > 10:
+                    log.debug(f"[Millennium.PacketParser] CRC check failed: received=0x{received_crc:02X}, expected=0x{expected_crc:02X}, buffer_len={len(self.buffer)}")
                 return (None, None, False)
             
-            # Packet is valid
+            # CRC matches! Packet is valid
             packet_type = payload[0] if payload else None
-            log.debug(f"[Millennium.PacketParser] Valid packet: type=0x{packet_type:02X} ({chr(packet_type) if packet_type and 32 <= packet_type < 127 else '?'}), payload_len={len(payload)}, crc=0x{received_crc:02X}")
+            log.info(f"[Millennium.PacketParser] Valid packet: type=0x{packet_type:02X} ({chr(packet_type) if packet_type and 32 <= packet_type < 127 else '?'}), payload_len={len(payload)}, crc=0x{received_crc:02X}")
+            
+            # Create a copy of payload before resetting buffer
+            result_payload = payload.copy()
             
             # Reset buffer for next packet
             self.buffer = []
             
-            return (packet_type, payload, True)
+            return (packet_type, result_payload, True)
             
         except Exception as e:
             log.error(f"[Millennium.PacketParser] Error parsing byte 0x{byte_value:02X}: {e}")
