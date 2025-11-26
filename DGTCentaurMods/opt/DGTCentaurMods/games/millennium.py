@@ -218,6 +218,8 @@ class PacketParser:
 def _odd_parity(byte_value):
     """Calculate odd parity for a byte and set MSB if needed.
     
+    This matches the original odd_par function from game/millennium.py.
+    
     Args:
         byte_value: Byte value (0-127, ASCII character)
         
@@ -226,17 +228,18 @@ def _odd_parity(byte_value):
     """
     # Ensure we only work with 7-bit values
     byte = byte_value & 127
-    # Count set bits
-    bit_count = 0
+    # Start with par = 1, then XOR each bit
+    par = 1
     temp = byte
-    while temp:
-        bit_count += temp & 1
-        temp >>= 1
-    # If even number of bits, set parity bit (MSB) to make it odd
-    if bit_count % 2 == 0:
-        return byte | 128
+    for _ in range(7):
+        bit = temp & 1
+        temp = temp >> 1
+        par = par ^ bit
+    # If par == 1, set MSB; if par == 0, clear MSB
+    if par == 1:
+        return byte_value | 128
     else:
-        return byte
+        return byte_value & 127
 
 
 def encode_millennium_command(command_text):
