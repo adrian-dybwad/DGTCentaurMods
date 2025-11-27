@@ -188,7 +188,7 @@ class PacketParser:
             
             # CRC matches! Packet is valid
             packet_type = payload[0] if payload else None
-            log.info(f"[Millennium.PacketParser] Valid packet: type=0x{packet_type:02X} ({chr(packet_type) if packet_type and 32 <= packet_type < 127 else '?'}), payload_len={len(payload)}, crc=0x{received_crc:02X}")
+            #log.info(f"[Millennium.PacketParser] Valid packet: type=0x{packet_type:02X} ({chr(packet_type) if packet_type and 32 <= packet_type < 127 else '?'}), payload_len={len(payload)}, crc=0x{received_crc:02X}")
             
             # Create a copy of payload before resetting buffer
             result_payload = payload.copy()
