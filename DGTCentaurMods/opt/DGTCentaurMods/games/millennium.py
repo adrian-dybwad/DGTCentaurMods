@@ -383,11 +383,11 @@ def debug_print_led_grid(led_values):
             row_idx.append(f"{idx:02d}")
 
         # Add rank label on left (8-1 for rows 0-7, blank for row 8)
-        rank_label = "   " if row == 0 else f" {8-row} "
+        rank_label = "     " if row == 0 else f"    {9-row}"
         
         # Example line:
         # R0:  .  .  .  .  .  . ## ##  .   # 00 01 02 03 04 05 06 07 08
-        print(f"{rank_label}: " + " ".join(row_vals) + "   # " + " ".join(row_idx))
+        print(f"{rank_label}" + " ".join(row_vals) + "   # " + " ".join(row_idx))
 
     # Print file labels at bottom
     print(file_header)
