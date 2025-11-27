@@ -544,9 +544,12 @@ def handle_w(payload):
     Args:
         payload: List of ASCII character values in the payload
     """
-    log.info(f"[Millennium] Handling W packet: payload={payload.hex()}")
     log.info(f"[Millennium] Handling W packet: payload={payload}")
-    
+    log.info(f"[Millennium] Handling W packet: payload={payload.join(' ')}")
+    payload_str = ''.join(chr(b) if 32 <= b < 127 else f'\\x{b:02x}' for b in payload) if payload else "None"
+    log.info(f"[Millennium] Handling W packet: payload_str={payload_str}")
+
+
     if len(payload) < 2:
         log.warning(f"[Millennium] W packet: payload too short ({len(payload)} bytes), expected at least 2")
         return
