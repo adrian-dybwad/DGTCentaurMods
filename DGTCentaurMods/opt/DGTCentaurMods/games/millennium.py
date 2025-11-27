@@ -322,14 +322,101 @@ def _field_callback(piece_event, field, time_in_seconds):
         traceback.print_exc()
 
 
+def handle_s(payload):
+    """Handle packet type 'S' - full board status.
+    
+    S / s – full board status (64 chars)
+    
+    Args:
+        payload: List of ASCII character values in the payload
+    """
+    log.info(f"[Millennium] Handling S packet: payload={payload}")
+    encode_millennium_command("s")
+
+
+def handle_l(payload):
+    """Handle packet type 'L' - LED control.
+    
+    L / l – LED control (slot time + 81 LED codes)
+    
+    Args:
+        payload: List of ASCII character values in the payload
+    """
+    log.info(f"[Millennium] Handling L packet: payload={payload}")
+    encode_millennium_command("l")
+
+
 def handle_x(payload):
-    """Handle packet type 'X'.
+    """Handle packet type 'X' - all LEDs off.
+    
+    X / x – all LEDs off
     
     Args:
         payload: List of ASCII character values in the payload
     """
     log.info(f"[Millennium] Handling X packet: payload={payload}")
     encode_millennium_command("x")
+
+
+def handle_t(payload):
+    """Handle packet type 'T' - reset.
+    
+    T – reset (no reply)
+    
+    Args:
+        payload: List of ASCII character values in the payload
+    """
+    log.info(f"[Millennium] Handling T packet: payload={payload}")
+    # T command has no reply, so we don't encode a response
+    #encode_millennium_command("t")
+
+
+def handle_v(payload):
+    """Handle packet type 'V' - firmware version.
+    
+    V / v – firmware version
+    
+    Args:
+        payload: List of ASCII character values in the payload
+    """
+    log.info(f"[Millennium] Handling V packet: payload={payload}")
+    encode_millennium_command("v")
+
+
+def handle_w(payload):
+    """Handle packet type 'W' - E²ROM config write.
+    
+    W / w – E²ROM config
+    
+    Args:
+        payload: List of ASCII character values in the payload
+    """
+    log.info(f"[Millennium] Handling W packet: payload={payload}")
+    encode_millennium_command("w")
+
+
+def handle_r(payload):
+    """Handle packet type 'R' - E²ROM config read.
+    
+    R / r – E²ROM config
+    
+    Args:
+        payload: List of ASCII character values in the payload
+    """
+    log.info(f"[Millennium] Handling R packet: payload={payload}")
+    encode_millennium_command("r")
+
+
+def handle_i(payload):
+    """Handle packet type 'I' - identity.
+    
+    I / i – identity
+    
+    Args:
+        payload: List of ASCII character values in the payload
+    """
+    log.info(f"[Millennium] Handling I packet: payload={payload}")
+    encode_millennium_command("i")
 
 
 def _packet_handler(packet_type, payload):
@@ -345,6 +432,20 @@ def _packet_handler(packet_type, payload):
         
         if packet_char == 'X':
             handle_x(payload)
+        elif packet_char == 'L':
+            handle_l(payload)
+        elif packet_char == 'R':
+            handle_r(payload)
+        elif packet_char == 'W':
+            handle_w(payload)
+        elif packet_char == 'T':
+            handle_t(payload)
+        elif packet_char == 'V':
+            handle_v(payload)
+        elif packet_char == 'I':
+            handle_i(payload)
+        elif packet_char == 'S':
+            handle_s(payload)
         else:
             log.debug(f"[Millennium] Unhandled packet type: {packet_char} (0x{packet_type:02X})")
     except Exception as e:
