@@ -265,9 +265,9 @@ def encode_millennium_command(command_text):
     # Calculate XOR CRC of all ASCII characters
     crc = 0
     for char in command_text:
-        crc ^= ord(char)
+        crc ^= _odd_parity(ord(char))
         # Add command bytes
-        #encoded.append(ord(char))
+        encoded.append(ord(char))
     
     # Convert CRC to hex string (e.g., "4D")
     crc_hex = f"{crc:02X}"
@@ -275,8 +275,8 @@ def encode_millennium_command(command_text):
     crc_lo_char = crc_hex[1]  # Second hex digit
     
     
-    for char in command_text:
-        encoded.append(_odd_parity(ord(char)))
+    # for char in command_text:
+    #     encoded.append(_odd_parity(ord(char)))
     
     # Add CRC hex digits with odd parity
     encoded.append(_odd_parity(ord(crc_hi_char)))
