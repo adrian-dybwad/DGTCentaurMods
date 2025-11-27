@@ -51,11 +51,7 @@ class PacketParser:
         Returns:
             ASCII character value (0-127) without parity bit
         """
-        # Check if MSB is set (parity bit)
-        if byte_value & 0x80:
-            # Remove parity bit
-            return byte_value & 0x7F
-        return byte_value
+        return byte_value & 0x7F
     
     def _count_ones(self, byte_value):
         """Count the number of set bits in a byte.
@@ -265,19 +261,22 @@ def encode_millennium_command(command_text):
     
     # Build the encoded bytearray
     encoded = bytearray()
-
+    
     # Calculate XOR CRC of all ASCII characters
     crc = 0
     for char in command_text:
         crc ^= ord(char)
         # Add command bytes
-        encoded.append(ord(char))
+        #encoded.append(ord(char))
     
     # Convert CRC to hex string (e.g., "4D")
     crc_hex = f"{crc:02X}"
     crc_hi_char = crc_hex[0]  # First hex digit
     crc_lo_char = crc_hex[1]  # Second hex digit
     
+    
+    for char in command_text:
+        encoded.append(_odd_parity(ord(char)))
     
     # Add CRC hex digits with odd parity
     encoded.append(_odd_parity(ord(crc_hi_char)))
