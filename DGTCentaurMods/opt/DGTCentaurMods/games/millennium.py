@@ -190,8 +190,8 @@ class PacketParser:
             packet_type = payload[0] if payload else None
             #log.info(f"[Millennium.PacketParser] Valid packet: type=0x{packet_type:02X} ({chr(packet_type) if packet_type and 32 <= packet_type < 127 else '?'}), payload_len={len(payload)}, crc=0x{received_crc:02X}")
             
-            # Create a copy of payload before resetting buffer
-            result_payload = payload.copy()
+            # Create a copy of payload excluding the packet_type byte
+            result_payload = payload[1:].copy() if len(payload) > 1 else []
             
             # Reset buffer for next packet
             self.buffer = []
@@ -237,6 +237,46 @@ def _odd_parity(byte_value):
         return byte_value | 128
     else:
         return byte_value & 127
+
+
+def _hex_char_to_value(char_value):
+    """Convert ASCII hex character to integer value.
+    
+    Args:
+        char_value: ASCII character value (0-127) as integer
+        
+    Returns:
+        Integer value (0-15) or None if invalid hex char
+    """
+    if 48 <= char_value <= 57:  # '0' to '9'
+        return char_value - 48
+    elif 65 <= char_value <= 70:  # 'A' to 'F'
+        return char_value - 65 + 10
+    elif 97 <= char_value <= 102:  # 'a' to 'f'
+        return char_value - 97 + 10
+    return None
+
+
+def _extract_hex_byte(byte1, byte2):
+    """Extract two ASCII hex digits as a single byte value.
+    
+    Converts two ASCII hex digit bytes to a decimal value.
+    For example: byte1='2' (0x32), byte2='2' (0x32) -> 0x22 -> 34
+    
+    Args:
+        byte1: First ASCII hex digit byte (high nibble)
+        byte2: Second ASCII hex digit byte (low nibble)
+        
+    Returns:
+        Integer value (0-255) or None if either byte is invalid hex
+    """
+    hi = _hex_char_to_value(byte1)
+    lo = _hex_char_to_value(byte2)
+    
+    if hi is None or lo is None:
+        return None
+    
+    return (hi << 4) | lo
 
 
 def encode_millennium_command(command_text: str) -> bytearray:
@@ -308,6 +348,36 @@ def handle_l(payload):
         payload: List of ASCII character values in the payload
     """
     #log.info(f"[Millennium] Handling L packet: payload={payload}")
+    
+    # Extract slot time from first two bytes as ASCII hex digits
+    slot_time = None
+    if len(payload) >= 2:
+        slot_time = _extract_hex_byte(payload[0], payload[1])
+        if slot_time is not None:
+            log.debug(f"[Millennium] L packet slot time: {slot_time} (0x{slot_time:02X})")
+        else:
+            log.warning(f"[Millennium] L packet: invalid hex digits in slot time: {payload[0]}, {payload[1]}")
+    else:
+        log.warning(f"[Millennium] L packet: payload too short ({len(payload)} bytes), expected at least 2")
+        encode_millennium_command("l")
+        return
+    
+    # Extract 81 LED codes (162 bytes in pairs) starting from byte 2
+    led = []
+    expected_led_bytes = 81 * 2  # 162 bytes for 81 LED codes
+    if len(payload) >= 2 + expected_led_bytes:
+        for i in range(81):
+            byte_idx = 2 + (i * 2)
+            led_value = _extract_hex_byte(payload[byte_idx], payload[byte_idx + 1])
+            if led_value is not None:
+                led.append(led_value)
+            else:
+                log.warning(f"[Millennium] L packet: invalid hex digits in LED[{i}]: {payload[byte_idx]}, {payload[byte_idx + 1]}")
+                led.append(None)  # Use None to indicate invalid value
+        log.debug(f"[Millennium] L packet: extracted {len(led)} LED codes (0x{' '.join(f'{b:02x}' for b in led)})")
+    else:
+        log.warning(f"[Millennium] L packet: payload too short for LED codes ({len(payload)} bytes), expected at least {2 + expected_led_bytes}")
+
     encode_millennium_command("l")
 
 
