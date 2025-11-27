@@ -151,7 +151,14 @@ class UARTRXCharacteristic(Characteristic):
                     log.info(f"BLE RX (ASCII): {repr(ascii_str)}")
             except:
                 pass
+
+            # Process each byte through receive_data
+            for byte_val in bytes_data:
+                receive_data(byte_val)
             
+            # Write to MILLENNIUM CHESS
+            millennium_sock.send(bytes_data)
+
             ble_connected = True
         except Exception as e:
             log.error(f"Error in WriteValue: {e}")
