@@ -208,12 +208,7 @@ def client_to_millennium():
                     
                     # Process each byte through receive_data
                     for byte_val in data_bytes:
-                        packet_type, payload, is_complete = receive_data(byte_val)
-                        if is_complete:
-                            # Log complete packet results
-                            packet_type_str = chr(packet_type) if packet_type and 32 <= packet_type < 127 else f"0x{packet_type:02X}"
-                            payload_str = ''.join(chr(b) if 32 <= b < 127 else f'\\x{b:02x}' for b in payload) if payload else "None"
-                            log.info(f"[Millennium.receive_data] Complete packet: type={packet_type_str} (0x{packet_type:02X}), payload_len={len(payload) if payload else 0}, payload={payload_str}")
+                        receive_data(byte_val)
                     
                     # Write to MILLENNIUM CHESS
                     millennium_sock.send(data)
