@@ -45,7 +45,7 @@ def shell_run(rcmd):
         log.error(response_stderr)
         return -1
     else:
-        log.debug(response_stdout)
+        # log.debug(response_stdout)
         return response_stdout
 
 def checkInternetSocket(host="8.8.8.8", port=53, timeout=1):
