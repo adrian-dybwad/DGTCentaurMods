@@ -477,7 +477,13 @@ def handle_l(payload):
                 log.warning(f"[Millennium] L packet: invalid hex digits in LED[{i}]: {payload[byte_idx]}, {payload[byte_idx + 1]}")
                 led.append(None)  # Use None to indicate invalid value
         debug_print_led_grid(led)
-        print(fully_lit_squares_from_led_array(led))
+
+        lit_squares = fully_lit_squares_from_led_array(led)
+        print(lit_squares)
+        if len(lit_squares) == 2:
+            board.ledFromTo(lit_squares[0], lit_squares[1], 5)
+        else:
+            board.ledArray(lit_squares)
 
         log.debug(f"[Millennium] L packet: extracted {len(led)} LED codes (0x{' '.join(f'{b:02x}' for b in led)})")
     else:
@@ -494,6 +500,7 @@ def handle_x(payload):
         payload: List of ASCII character values in the payload
     """
     #log.info(f"[Millennium] Handling X packet: payload={payload}")
+    board.ledsOff()
     encode_millennium_command("x")
 
 
