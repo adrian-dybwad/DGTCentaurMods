@@ -338,6 +338,39 @@ def handle_s(payload):
     #log.info(f"[Millennium] Handling S packet: payload={payload}")
     encode_millennium_command("s")
 
+def debug_print_led_grid(led_values):
+    """
+    Print a 9x9 Millennium LED grid for debugging.
+
+    - led_values: iterable of 81 ints (0..255)
+      index 0 = top-left, 8 = top-right, 72 = bottom-left, 80 = bottom-right
+    """
+    if len(led_values) != 81:
+        raise ValueError(f"Expected 81 LED values, got {len(led_values)}")
+
+    print("Millennium LED grid (9x9, indices in comments):")
+    print("Legend: '.' = 00 (off), '##' = FF (fully on), hex = other pattern\n")
+
+    for row in range(9):
+        row_vals = []
+        row_idx = []
+        for col in range(9):
+            idx = row * 9 + col
+            val = led_values[idx]
+
+            if val == 0x00:
+                cell = " ."
+            elif val == 0xFF:
+                cell = "##"
+            else:
+                cell = f"{val:02X}"
+
+            row_vals.append(cell)
+            row_idx.append(f"{idx:02d}")
+
+        # Example line:
+        # R0:  .  .  .  .  .  . ## ##  .   # 00 01 02 03 04 05 06 07 08
+        print(f"R{row}: " + " ".join(row_vals) + "   # " + " ".join(row_idx))
 
 def handle_l(payload):
     """Handle packet type 'L' - LED control.
@@ -374,12 +407,12 @@ def handle_l(payload):
             else:
                 log.warning(f"[Millennium] L packet: invalid hex digits in LED[{i}]: {payload[byte_idx]}, {payload[byte_idx + 1]}")
                 led.append(None)  # Use None to indicate invalid value
+        debug_print_led_grid(led)
         log.debug(f"[Millennium] L packet: extracted {len(led)} LED codes (0x{' '.join(f'{b:02x}' for b in led)})")
     else:
         log.warning(f"[Millennium] L packet: payload too short for LED codes ({len(payload)} bytes), expected at least {2 + expected_led_bytes}")
 
     encode_millennium_command("l")
-
 
 def handle_x(payload):
     """Handle packet type 'X' - all LEDs off.
