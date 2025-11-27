@@ -373,8 +373,13 @@ def millennium_to_client():
                     log.info(f"MILLENNIUM -> Client: {' '.join(f'{b:02x}' for b in data_bytes)}")
                     log.debug(f"MILLENNIUM -> Client (ASCII): {data_bytes.decode('utf-8', errors='replace')}")
                     
-                    # Write to client
-                    client_sock.send(data)
+                    # Write to RFCOMM client
+                    if client_connected and client_sock is not None:
+                        client_sock.send(data)
+                    
+                    # Write to BLE client via TX characteristic
+                    if UARTService.tx_obj is not None:
+                        UARTService.tx_obj.sendMessage(data_bytes)
             except bluetooth.BluetoothError as e:
                 if running:
                     log.error(f"Bluetooth error in MILLENNIUM -> Client relay: {e}")
