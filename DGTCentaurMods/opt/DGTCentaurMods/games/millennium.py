@@ -338,6 +338,8 @@ def handle_s(payload):
     #log.info(f"[Millennium] Handling S packet: payload={payload}")
     encode_millennium_command("s")
 
+FILES = "abcdefgh"
+
 def debug_print_led_grid(led_values):
     """
     Print a 9x9 Millennium LED grid for debugging.
@@ -350,6 +352,15 @@ def debug_print_led_grid(led_values):
 
     print("Millennium LED grid (9x9, indices in comments):")
     print("Legend: '.' = 00 (off), '##' = FF (fully on), hex = other pattern\n")
+
+    # Print file labels at top (a-h for cols 0-7, blank for col 8)
+    file_header = "     "
+    for col in range(9):
+        if col < 8:
+            file_header += f" {FILES[col]} "
+        else:
+            file_header += "   "
+    print(file_header)
 
     for row in range(9):
         row_vals = []
@@ -371,51 +382,15 @@ def debug_print_led_grid(led_values):
             row_vals.append(cell)
             row_idx.append(f"{idx:02d}")
 
+        # Add rank label on left (8-1 for rows 0-7, blank for row 8)
+        rank_label = "   " if row == 8 else f" {8-row} "
+        
         # Example line:
         # R0:  .  .  .  .  .  . ## ##  .   # 00 01 02 03 04 05 06 07 08
-        print(f"R{row}: " + " ".join(row_vals) + "   # " + " ".join(row_idx))
+        print(f"{rank_label}R{row}: " + " ".join(row_vals) + "   # " + " ".join(row_idx))
 
-FILES = "abcdefgh"
-
-def square_led_indices(square: str) -> list[int]:
-    """Return the 4 LED indices (0..80) that surround a given square."""
-    file_char = square[0].lower()     # 'a'..'h'
-    rank_num  = int(square[1])        # '1'..'8' → 1..8
-
-    f = FILES.index(file_char)        # 0..7
-    r = rank_num - 1                  # 0..7  (rank 1 = 0, rank 8 = 7)
-
-    # Board orientation inferred from your captures:
-    # - 9x9 LED grid indexed row-major 0..80
-    # - row 0 = top, row 8 = bottom
-    # - row = 7 - file_index
-    # - col = rank_index
-    row = 7 - f
-    col = r
-    p = row * 9 + col
-
-    return [p, p + 1, p + 9, p + 10]
-
-def debug_print_led_squares(led_values: list[int]) -> None:
-    """
-    Print an 8x8 chessboard showing which squares are lit,
-    based on the 81-element LED array from the Millennium board.
-    """
-    if len(led_values) != 81:
-        raise ValueError(f"Expected 81 LED values, got {len(led_values)}")
-
-    def square_is_lit(square: str) -> bool:
-        return any(led_values[idx] != 0 for idx in square_led_indices(square))
-
-    print("Lit squares (## = lit, .. = off):\n")
-    # Ranks 8 → 1 (top to bottom)
-    for rank in range(8, 1 - 1, -1):
-        row_cells = []
-        for file_char in FILES:  # a → h
-            sq = f"{file_char}{rank}"
-            row_cells.append("##" if square_is_lit(sq) else "..")
-        print(f"{rank} | " + " ".join(row_cells))
-    print("    " + "  ".join(FILES))
+    # Print file labels at bottom
+    print(file_header)
 
 def handle_l(payload):
     """Handle packet type 'L' - LED control.
@@ -453,7 +428,6 @@ def handle_l(payload):
                 log.warning(f"[Millennium] L packet: invalid hex digits in LED[{i}]: {payload[byte_idx]}, {payload[byte_idx + 1]}")
                 led.append(None)  # Use None to indicate invalid value
         debug_print_led_grid(led)
-        debug_print_led_squares(led)
         log.debug(f"[Millennium] L packet: extracted {len(led)} LED codes (0x{' '.join(f'{b:02x}' for b in led)})")
     else:
         log.warning(f"[Millennium] L packet: payload too short for LED codes ({len(payload)} bytes), expected at least {2 + expected_led_bytes}")
