@@ -354,7 +354,7 @@ def debug_print_led_grid(led_values):
     print("Legend: '.' = 00 (off), '##' = FF (fully on), hex = other pattern\n")
 
     # Print file labels at top (a-h for cols 0-7, blank for col 8)
-    file_header = "     "
+    file_header = "      "
     for col in range(9):
         if col < 8:
             file_header += f" {FILES[col]} "
@@ -383,11 +383,11 @@ def debug_print_led_grid(led_values):
             row_idx.append(f"{idx:02d}")
 
         # Add rank label on left (8-1 for rows 0-7, blank for row 8)
-        rank_label = "   " if row == 8 else f" {8-row} "
+        rank_label = "   " if row == 0 else f" {8-row} "
         
         # Example line:
         # R0:  .  .  .  .  .  . ## ##  .   # 00 01 02 03 04 05 06 07 08
-        print(f"{rank_label}R{row}: " + " ".join(row_vals) + "   # " + " ".join(row_idx))
+        print(f"{rank_label}: " + " ".join(row_vals) + "   # " + " ".join(row_idx))
 
     # Print file labels at bottom
     print(file_header)
