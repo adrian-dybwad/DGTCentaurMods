@@ -340,6 +340,54 @@ def handle_s(payload):
 
 FILES = "abcdefgh"
 
+def square_led_indices(square: str) -> list[int]:
+    """
+    Return the 4 LED indices (0..80) that surround a given chess square.
+
+    Assumes:
+    - LED array is 9x9, indexed row-major: idx = row*9 + col
+    - row 0 = top, row 8 = bottom
+    - col 0 = left, col 8 = right
+    - Mapping derived from your real captures (E4–F6, D7–D5, etc.)
+    """
+    file_char = square[0].lower()       # 'a'..'h'
+    rank_num  = int(square[1])          # '1'..'8' → 1..8
+
+    f = FILES.index(file_char)          # file index 0..7 (a=0, b=1, ..., h=7)
+    r = rank_num - 1                    # rank index 0..7 (1→0, 8→7)
+
+    # Top-left corner of this square in the 9x9 LED grid:
+    # (row, col) chosen to match your actual board orientation
+    row = 7 - f                         # 0..7
+    col = r                             # 0..7
+
+    top_left     = row * 9 + col
+    top_right    = row * 9 + (col + 1)
+    bottom_left  = (row + 1) * 9 + col
+    bottom_right = (row + 1) * 9 + (col + 1)
+
+    return [top_left, top_right, bottom_left, bottom_right]
+
+def squares_lit_from_led_array(led_values: list[int]) -> list[str]:
+    """
+    Given 81 LED values (0..255), return a sorted list of chess squares
+    that are lit (at least one of their 4 corner LEDs is non-zero).
+    """
+    if len(led_values) != 81:
+        raise ValueError(f"Expected 81 LED values, got {len(led_values)}")
+
+    lit_squares = []
+
+    for file_char in FILES:        # 'a'..'h'
+        for rank in range(1, 9):   # 1..8
+            sq = f"{file_char}{rank}"
+            indices = square_led_indices(sq)
+            if any(led_values[i] != 0 for i in indices):
+                lit_squares.append(sq)
+
+    return lit_squares
+
+
 def debug_print_led_grid(led_values):
     """
     Print a 9x9 Millennium LED grid for debugging.
@@ -428,6 +476,8 @@ def handle_l(payload):
                 log.warning(f"[Millennium] L packet: invalid hex digits in LED[{i}]: {payload[byte_idx]}, {payload[byte_idx + 1]}")
                 led.append(None)  # Use None to indicate invalid value
         debug_print_led_grid(led)
+        print(squares_lit_from_led_array(led))
+
         log.debug(f"[Millennium] L packet: extracted {len(led)} LED codes (0x{' '.join(f'{b:02x}' for b in led)})")
     else:
         log.warning(f"[Millennium] L packet: payload too short for LED codes ({len(payload)} bytes), expected at least {2 + expected_led_bytes}")
