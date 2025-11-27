@@ -548,10 +548,11 @@ def handle_w(payload):
     if len(payload) < 2:
         log.warning(f"[Millennium] W packet: payload too short ({len(payload)} bytes), expected at least 2")
         return
-    address = payload[0:1]
-    value = payload[1:2]
+    address = chr(payload[0])
+    value = chr(payload[1])
     log.info(f"[Millennium] W packet: address={address}, value={value}")
 
+    
     encode_millennium_command("w" + address + value)
 
 
