@@ -140,13 +140,13 @@ class Scheduler:
             
             full_refresh = full or self._partial_refresh_count >= self._max_partial_refreshes
             if full_refresh:
-                if full:
-                    log.debug(f"Scheduler._process_batch(): Executing FULL refresh due to explicit request. _in_partial_mode={self._in_partial_mode}")
-                else:
-                    log.debug(f"Scheduler._process_batch(): Executing FULL refresh due to partial refresh count ({self._partial_refresh_count}) exceeding max ({self._max_partial_refreshes}). _in_partial_mode={self._in_partial_mode}")
+                # if full:
+                #     log.debug(f"Scheduler._process_batch(): Executing FULL refresh due to explicit request. _in_partial_mode={self._in_partial_mode}")
+                # else:
+                #     log.debug(f"Scheduler._process_batch(): Executing FULL refresh due to partial refresh count ({self._partial_refresh_count}) exceeding max ({self._max_partial_refreshes}). _in_partial_mode={self._in_partial_mode}")
                 self._execute_full_refresh_single(full, future, image)
             else:
-                log.debug(f"Scheduler._process_batch(): Executing PARTIAL refresh. _in_partial_mode={self._in_partial_mode}, partial_refresh_count={self._partial_refresh_count}")
+                # log.debug(f"Scheduler._process_batch(): Executing PARTIAL refresh. _in_partial_mode={self._in_partial_mode}, partial_refresh_count={self._partial_refresh_count}")
                 self._execute_partial_refresh_single(full, future, image)
     
     def _execute_full_refresh_single(self, full: bool, future: Future, image: Optional[Image.Image]) -> None:
