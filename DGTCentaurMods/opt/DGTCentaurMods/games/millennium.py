@@ -265,7 +265,7 @@ def encode_millennium_command(command_text):
     # Calculate XOR CRC of all ASCII characters
     crc = 0
     for char in command_text:
-        crc ^= _odd_parity(ord(char))
+        crc ^= ord(char)
         # Add command bytes
         encoded.append(ord(char))
     
