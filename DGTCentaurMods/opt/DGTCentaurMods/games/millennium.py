@@ -368,10 +368,10 @@ def square_led_indices(square: str) -> list[int]:
 
     return [top_left, top_right, bottom_left, bottom_right]
 
-def squares_lit_from_led_array(led_values: list[int]) -> list[str]:
+def fully_lit_squares_from_led_array(led_values: list[int]) -> list[str]:
     """
     Given 81 LED values (0..255), return a sorted list of chess squares
-    that are lit (at least one of their 4 corner LEDs is non-zero).
+    whose 4 surrounding LEDs are all non-zero.
     """
     if len(led_values) != 81:
         raise ValueError(f"Expected 81 LED values, got {len(led_values)}")
@@ -382,7 +382,8 @@ def squares_lit_from_led_array(led_values: list[int]) -> list[str]:
         for rank in range(1, 9):   # 1..8
             sq = f"{file_char}{rank}"
             indices = square_led_indices(sq)
-            if any(led_values[i] != 0 for i in indices):
+            # ✔ All 4 corners must be lit:
+            if all(led_values[i] != 0 for i in indices):
                 lit_squares.append(sq)
 
     return lit_squares
@@ -476,7 +477,7 @@ def handle_l(payload):
                 log.warning(f"[Millennium] L packet: invalid hex digits in LED[{i}]: {payload[byte_idx]}, {payload[byte_idx + 1]}")
                 led.append(None)  # Use None to indicate invalid value
         debug_print_led_grid(led)
-        print(squares_lit_from_led_array(led))
+        print(fully_lit_squares_from_led_array(led))
 
         log.debug(f"[Millennium] L packet: extracted {len(led)} LED codes (0x{' '.join(f'{b:02x}' for b in led)})")
     else:
