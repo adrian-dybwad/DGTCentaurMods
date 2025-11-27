@@ -585,9 +585,8 @@ def handle_w(payload):
     address_bytes = _encode_hex_byte(address)
     value_bytes = _encode_hex_byte(value)
     log.info(f"[Millennium] W packet: address_bytes={address_bytes}, value_bytes={value_bytes}")
-    command = "w" + address_bytes[0] + address_bytes[1] + value_bytes[0] + value_bytes[1]
+    command = "w" + chr(address_bytes[0]) + chr(address_bytes[1]) + chr(value_bytes[0]) + chr(value_bytes[1])
     log.info(f"[Millennium] W packet: command={command}")
-
 
     encode_millennium_command(command)
 
