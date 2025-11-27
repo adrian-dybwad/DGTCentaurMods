@@ -340,6 +340,12 @@ def handle_s(payload):
 
 FILES = "abcdefgh"
 
+def square_to_index(sq: str) -> int:
+    sq = sq.strip().lower()
+    f = FILES.index(sq[0])
+    r = int(sq[1]) - 1
+    return r * 8 + f  # chess order index (a1..h8)
+
 def square_led_indices(square: str) -> list[int]:
     """
     Return the 4 LED indices (0..80) that surround a given chess square.
@@ -479,12 +485,12 @@ def handle_l(payload):
         debug_print_led_grid(led)
 
         lit_squares = fully_lit_squares_from_led_array(led)
-        dgt_led_indexes = [board.chess_to_dgt(square) for square in lit_squares]
-        print(dgt_led_indexes)
-        if len(dgt_led_indexes) == 2:
-            board.ledFromTo(dgt_led_indexes[0], dgt_led_indexes[1], 5)
+        chess_indexes = [square_to_index(square) for square in lit_squares]
+        print(chess_indexes)
+        if len(chess_indexes) == 2:
+            board.ledFromTo(chess_indexes[0], chess_indexes[1], 5)
         else:
-            board.ledArray(dgt_led_indexes)
+            board.ledArray(chess_indexes)
 
         log.debug(f"[Millennium] L packet: extracted {len(led)} LED codes (0x{' '.join(f'{b:02x}' for b in led)})")
     else:
