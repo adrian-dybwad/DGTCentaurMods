@@ -552,7 +552,7 @@ def handle_w(payload):
     value = payload[1:2]
     log.info(f"[Millennium] W packet: address={address}, value={value}")
 
-    encode_millennium_command("w" + payload)
+    encode_millennium_command("w" + address + value)
 
 
 def handle_r(payload):
