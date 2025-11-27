@@ -286,6 +286,7 @@ def encode_millennium_command(command_text):
     
     #log.info(f"[Millennium] Encoded command (hex): {encoded.hex()}")
     log.info(f"[Millennium] Encoded command (bytes): {' '.join(f'{b:02x}' for b in encoded)}")
+    log.debug(f"[Millennium] Encoded command (ASCII): {encoded.decode('utf-8', errors='replace')}")
     
     return encoded
 
