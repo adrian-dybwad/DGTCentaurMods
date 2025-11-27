@@ -284,7 +284,7 @@ def encode_millennium_command(command_text):
     encoded.append(_odd_parity(ord(crc_hi_char)))
     encoded.append(_odd_parity(ord(crc_lo_char)))
     
-    log.info(f"[Millennium] Encoded command (hex): {encoded.hex()}")
+    #log.info(f"[Millennium] Encoded command (hex): {encoded.hex()}")
     log.info(f"[Millennium] Encoded command (bytes): {' '.join(f'{b:02x}' for b in encoded)}")
     
     return encoded
