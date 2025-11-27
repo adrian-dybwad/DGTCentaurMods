@@ -545,7 +545,14 @@ def handle_w(payload):
         payload: List of ASCII character values in the payload
     """
     #log.info(f"[Millennium] Handling W packet: payload={payload}")
-    encode_millennium_command("w")
+    if len(payload) < 2:
+        log.warning(f"[Millennium] W packet: payload too short ({len(payload)} bytes), expected at least 2")
+        return
+    address = payload[0:1]
+    value = payload[1:2]
+    log.info(f"[Millennium] W packet: address={address}, value={value}")
+
+    encode_millennium_command("w" + payload)
 
 
 def handle_r(payload):
