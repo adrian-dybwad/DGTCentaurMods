@@ -545,20 +545,18 @@ def handle_w(payload):
         payload: List of ASCII character values in the payload
     """
     log.info(f"[Millennium] Handling W packet: payload={payload}")
-    log.info(f"[Millennium] Handling W packet: payload={payload.join(' ')}")
-    payload_str = ''.join(chr(b) if 32 <= b < 127 else f'\\x{b:02x}' for b in payload) if payload else "None"
-    log.info(f"[Millennium] Handling W packet: payload_str={payload_str}")
 
-
-    if len(payload) < 2:
+    if len(payload) < 4:
         log.warning(f"[Millennium] W packet: payload too short ({len(payload)} bytes), expected at least 2")
         return
-    address = chr(payload[0])
-    value = chr(payload[1])
+    address = _extract_hex_byte(payload[0], payload[1])
+    value = _extract_hex_byte(payload[2], payload[3])
+    if address is None or value is None:
+        log.warning(f"[Millennium] W packet: invalid hex digits in address or value: {payload[0]}, {payload[1]}, {payload[2]}, {payload[3]}")
+        return
     log.info(f"[Millennium] W packet: address={address}, value={value}")
 
-    
-    encode_millennium_command("w" + address + value)
+    encode_millennium_command("w" + chr(address) + chr(value))
 
 
 def handle_r(payload):
