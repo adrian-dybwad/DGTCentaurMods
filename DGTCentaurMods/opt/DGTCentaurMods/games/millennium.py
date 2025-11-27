@@ -239,55 +239,21 @@ def _odd_parity(byte_value):
         return byte_value & 127
 
 
-def encode_millennium_command(command_text):
-    """Encode a Millennium protocol command with odd parity and CRC.
-    
-    This function encodes a command string into the Millennium protocol format:
-    - Each ASCII character gets odd parity added (MSB set if needed)
-    - CRC is calculated as XOR of all ASCII characters
-    - CRC is appended as two ASCII hex digits (also with odd parity)
-    
-    Args:
-        command_text: ASCII string command to encode
-        
-    Returns:
-        bytearray: Encoded bytes with odd parity and CRC
-        
-    Example:
-        encoded = encode_millennium_command("V")
-        log.info(f"Encoded command: {encoded.hex()}")
-    """
+def encode_millennium_command(command_text: str) -> bytearray:
+    """Encode a Millennium protocol command with XOR CRC (ASCII only)."""
     log.info(f"[Millennium] Encoding command: {command_text}")
-    
-    # Build the encoded bytearray
-    encoded = bytearray()
-    
-    # Calculate XOR CRC of all ASCII characters
-    crc = 0
-    for char in command_text:
-        crc ^= ord(char)
-        # Add command bytes
-        encoded.append(ord(char))
-    
-    # Convert CRC to hex string (e.g., "4D")
-    crc_hex = f"{crc:02X}"
-    crc_hi_char = crc_hex[0]  # First hex digit
-    crc_lo_char = crc_hex[1]  # Second hex digit
-    
-    
-    # for char in command_text:
-    #     encoded.append(_odd_parity(ord(char)))
-    
-    # Add CRC hex digits with odd parity
-    encoded.append(_odd_parity(ord(crc_hi_char)))
-    encoded.append(_odd_parity(ord(crc_lo_char)))
-    
-    #log.info(f"[Millennium] Encoded command (hex): {encoded.hex()}")
-    log.info(f"[Millennium] Encoded command (bytes): {' '.join(f'{b:02x}' for b in encoded)}")
-    log.debug(f"[Millennium] Encoded command (ASCII): {encoded.decode('utf-8', errors='replace')}")
-    
-    return encoded
 
+    crc = 0
+    for ch in command_text:
+        crc ^= ord(ch)
+
+    crc_hex = f"{crc:02X}"          # e.g. "6C"
+    packet_str = command_text + crc_hex
+    encoded = bytearray(packet_str.encode("ascii"))
+
+    log.info(f"[Millennium] Encoded command (bytes): {' '.join(f'{b:02x}' for b in encoded)}")
+    log.debug(f"[Millennium] Encoded command (ASCII): {packet_str}")
+    return encoded
 
 def _key_callback(key):
     """Handle key press events from the board.
