@@ -479,11 +479,12 @@ def handle_l(payload):
         debug_print_led_grid(led)
 
         lit_squares = fully_lit_squares_from_led_array(led)
-        print(lit_squares)
-        if len(lit_squares) == 2:
-            board.ledFromTo(lit_squares[0], lit_squares[1], 5)
+        dgt_led_indexes = [board.chess_to_dgt(square) for square in lit_squares]
+        print(dgt_led_indexes)
+        if len(dgt_led_indexes) == 2:
+            board.ledFromTo(dgt_led_indexes[0], dgt_led_indexes[1], 5)
         else:
-            board.ledArray(lit_squares)
+            board.ledArray(dgt_led_indexes)
 
         log.debug(f"[Millennium] L packet: extracted {len(led)} LED codes (0x{' '.join(f'{b:02x}' for b in led)})")
     else:
