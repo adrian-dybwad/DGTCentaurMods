@@ -582,8 +582,163 @@ def handle_w(payload):
         return
     log.info(f"[Millennium] W packet: address={address}, value={value}")
 
+    if address == 0:
+        # Address 0x00 – Serial port / block CRC behaviour
+        # “Address 00 = Serial port setup … b0 = Block parity disable (0=Enabled, 1=Disabled). b7–b1 unused.”
+        # Practical effects
+        # 0x00 (all bits 0):
+        # Normal mode, CRC required on every command and reply.
+        # This is the recommended / default state.
+        # 0x01 (b0 = 1):
+        # CRC disabled – the board ignores the X-parity “block checksum”.
+        # Intended for easier manual testing with a terminal.
+        # In this mode you just send e.g. S instead of Sxx.
+        # Any other value:
+        # Only b0 is defined; other bits are “unused”, so best practice is to keep them 0 (i.e. only ever write 0x00 or 0x01).
+        if value == 0:
+            log.info(f"[Millennium] W packet: IGNORING address is 0, value is 0, setting CRC mode")
+        elif value == 1:
+            log.info(f"[Millennium] W packet: IGNORING address is 0, value is 1, setting CRC disabled mode")
+        else:
+            log.warning(f"[Millennium] W packet: IGNORING address is 0, value is {value}, invalid value")
+    elif address == 1:
+        # Address 0x01 – Scan time (board polling rate)
+        # “Address 01 = Scan time … time in units of 2.048 mS to do a complete scan of the board … defaults to 20 … minimum allowed 15, values <15 become 20, maximum 255.”
+        # This sets how often the board reads the reed sensors for all 64 squares.
+        # Raw value → real time
+        # Each unit = 2.048 ms
+        # Time per full scan = value * 2.048 ms
+        # Scan frequency = 1 / (value * 2.048e-3) Hz
+        # Defined range
+        # Minimum effective value: 15
+        # If you write < 15, firmware clamps it to 20.
+        # So 15 is the fastest actual scan time.
+        # Maximum value: 255
+        # Gives ~1.9 scans per second.
+        # Examples
+        # 0x14 (20 decimal, default):
+        # Time = 20 × 2.048 ms ≈ 40.96 ms
+        # Rate ≈ 24.4 scans/second (doc value).
+        # 0x0F (15 decimal, minimum):
+        # Time = 15 × 2.048 ms ≈ 30.72 ms
+        # Rate ≈ 32.5 scans/second.
+        # 0xFF (255 decimal, slowest):
+        # Time ≈ 522.24 ms
+        # Rate ≈ 1.9 scans/second (doc).
+        # Practical guidance
+        # Speed chess / real-time GUI:
+        # Use 15–20 to minimise latency.
+        # Debounce in the host if needed.
+        # Lower traffic / fewer transient “swept piece” statuses:
+        # Increase towards e.g. 40–60 (or more) to reduce noise, at the cost of responsiveness.
+        log.info(f"[Millennium] W packet: address is 1, Scan time (board polling rate), NOT setting value to {value}")
+    elif address == 2:
+        # Address 0x02 – Automatic status report mode
+        # **“Address 02 = Automatic reports… b2–b0 = Automatic status reports … values 000–111 as below; b7–b3 unused.”
+
+        # This controls when the board spontaneously sends s status messages, independent of your explicit S requests.
+
+        # ``Bit layout
+        # Bits (b2–b0)	Meaning
+        # 000 (0)	Send status on every scan (default)
+        # 001 (1)	Disabled – only send status when host sends S
+        # 010 (2)	Send status at periodic interval set by address 0x03
+        # 011 (3)	Send status on any change
+        # 100 (4)	On change with 2-scan debounce
+        # 101 (5)	On change with 3-scan debounce
+        # 110 (6)	On change with 4-scan debounce
+        # 111 (7)	On change with 5-scan debounce
+
+        # Bits b7–b3: unused, keep them 0.
+
+        # Detailed behaviour
+
+        # 0 (every scan):
+        # After each scan cycle, the board sends a full 64-byte status string back.
+        # Very chatty but simplest to handle.
+
+        # 1 (disabled):
+        # Board only replies to explicit S commands.
+        # Best when you want full pull-based control from the host.
+
+        # 2 (periodic)
+        # Board sends status at a period set by EEPROM 0x03, regardless of whether anything changed.
+        # Good for recording / logging at fixed intervals.
+
+        # 3–7 (on change with optional debounce)
+        # “On change” means: send a status when the piece layout changes in any way.
+        # Debounce = require the changed pattern to persist for N scans before sending:
+
+        # 3 → 0 scans of extra debounce (strict change)
+        # 4 → 2 scans stable
+        # 5 → 3 scans stable
+        # 6 → 4 scans stable
+        # 7 → 5 scans stable
+
+        # This filters out noisy contact transitions as someone is sweeping a piece across a rank/file.
+
+        # Important side effect
+
+        # “If enabled automatic reports may be inserted between any command and its acknowledgement… so you must match replies by type.”
+
+        # When auto reports are on (anything except mode 1), you must be prepared for unsolicited s messages interleaved around your command replies on the serial stream.
+
+        log.info(f"[Millennium] W packet: address is 2, Automatic status report mode, NOT setting value to {value}")
+        value = 2
+    elif address == 3:
+        # Address 0x03 – Automatic status report period
+        # “Address 03 = Automatic status report time. This is the time between automatic status reports if enabled, in units of 4.096mS.”
+        # This only matters when Address 0x02 mode = 010 (value 2) (“send status with time set at address 03”).
+
+        # Raw value → real time
+        # Unit size = 4.096 ms
+        # Period = value * 4.096 ms
+
+        # Examples
+
+        # 0x00 → effectively no interval (but behaviour here is not explicitly documented; safest to avoid 0)
+        # 0x0F (15): 15 × 4.096 ms ≈ 61.44 ms
+        # 0x3C (60): 60 × 4.096 ms ≈ 245.76 ms
+        # 0xFF (255): 255 × 4.096 ms ≈ 1.044 s
+
+        # Practical usage
+
+        # If you don’t want flood and don’t care about sub-100 ms latency, values around 30–100 give a nice 0.1–0.4 s cadence.
+
+        log.info(f"[Millennium] W packet: address is 3, Automatic status report period, NOT setting value to {value}")
+        value = 3
+    elif address == 4:
+        # Address 0x04 – LED brightness
+
+        # “Address 04 = LED brightness – 0 = Dim, >14 = Full brightness.”
+
+        # Controls global LED intensity for all 81 LEDs.
+
+        # Documented behaviour:
+
+        # 0 → “Dim”
+        # 1–14 → intermediate, not precisely defined but presumably stepped brightness
+        # ≥15 → “Full brightness”
+
+        # The doc doesn’t specify gamma or exact mapping; just that anything above 14 is treated as full.
+
+        # Safe pattern
+
+        # Use 0 for “night mode / dim”.
+        # Use 15 (or any >= 0x0F) for full brightness.
+
+        # If you want to experiment with levels, sweep 1–14 and visually pick what you like; behaviour is purely visual, not protocol-critical.
+
+        log.info(f"[Millennium] W packet: address is 4, LED brightness, NOT setting value to {value}")
+
     address_bytes = _encode_hex_byte(address)
     value_bytes = _encode_hex_byte(value)
+
+    if len(address_bytes) != 2 or len(value_bytes) != 2:
+        log.warning(f"[Millennium] W packet: invalid address or value bytes: {address_bytes}, {value_bytes}")
+        return
+    
+
     log.info(f"[Millennium] W packet: address_bytes={address_bytes}, value_bytes={value_bytes}")
     command = "w" + chr(address_bytes[0]) + chr(address_bytes[1]) + chr(value_bytes[0]) + chr(value_bytes[1])
     log.info(f"[Millennium] W packet: command={command}")
