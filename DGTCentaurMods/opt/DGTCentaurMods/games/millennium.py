@@ -279,6 +279,32 @@ def _extract_hex_byte(byte1, byte2):
     return (hi << 4) | lo
 
 
+def _encode_hex_byte(byte_value):
+    """Encode a byte value as two ASCII hex digit bytes.
+    
+    Converts a single byte value to two ASCII hex digit bytes.
+    For example: 34 (0x22) -> [0x32, 0x32] (['2', '2'])
+    
+    Args:
+        byte_value: Integer byte value (0-255)
+        
+    Returns:
+        Array of two bytes representing ASCII hex digits [high_nibble, low_nibble]
+    """
+    if not 0 <= byte_value <= 255:
+        raise ValueError(f"Byte value must be 0-255, got {byte_value}")
+    
+    hi_nibble = (byte_value >> 4) & 0x0F
+    lo_nibble = byte_value & 0x0F
+    
+    # Convert nibbles to ASCII hex characters
+    # 0-9 -> '0'-'9' (48-57), 10-15 -> 'A'-'F' (65-70)
+    hi_char = 48 + hi_nibble if hi_nibble < 10 else 65 + (hi_nibble - 10)
+    lo_char = 48 + lo_nibble if lo_nibble < 10 else 65 + (lo_nibble - 10)
+    
+    return [hi_char, lo_char]
+
+
 def encode_millennium_command(command_text: str) -> bytearray:
     """Encode a Millennium protocol command with XOR CRC (ASCII only)."""
     log.info(f"[Millennium] Encoding command: {command_text}")
@@ -556,7 +582,14 @@ def handle_w(payload):
         return
     log.info(f"[Millennium] W packet: address={address}, value={value}")
 
-    encode_millennium_command("w" + chr(address) + chr(value))
+    address_bytes = _encode_hex_byte(address)
+    value_bytes = _encode_hex_byte(value)
+    log.info(f"[Millennium] W packet: address_bytes={address_bytes}, value_bytes={value_bytes}")
+    command = "w" + address_bytes[0] + address_bytes[1] + value_bytes[0] + value_bytes[1]
+    log.info(f"[Millennium] W packet: command={command}")
+
+
+    encode_millennium_command(command)
 
 
 def handle_r(payload):
