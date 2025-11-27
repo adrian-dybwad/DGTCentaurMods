@@ -361,7 +361,7 @@ def debug_print_led_grid(led_values):
             if val == 0x00:
                 cell = " ."
             elif val == 0xFF:
-                cell = "##"
+                cell = " #"
             else:
                 cell = f"{val:02X}"
 
