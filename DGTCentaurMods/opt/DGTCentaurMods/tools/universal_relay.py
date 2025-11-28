@@ -156,8 +156,9 @@ class UARTRXCharacteristic(Characteristic):
             for byte_val in bytes_data:
                 receive_data(byte_val)
             
-            # Write to MILLENNIUM CHESS
-            millennium_sock.send(bytes(bytes_data))
+            # Write to MILLENNIUM CHESS (if connected)
+            if millennium_connected and millennium_sock is not None:
+                millennium_sock.send(bytes_data)
 
             ble_connected = True
         except Exception as e:
