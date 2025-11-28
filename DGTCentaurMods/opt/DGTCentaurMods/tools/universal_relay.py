@@ -464,8 +464,14 @@ def client_to_millennium():
                     for byte_val in data_bytes:
                         receive_data(byte_val)
                     
-                    # Write to MILLENNIUM CHESS
-                    millennium_sock.send(data)
+                    if millennium_sock is not None: 
+                        try:
+                            sent = millennium_sock.send(data)
+                            log.info(f"Sent {sent} bytes to MILLENNIUM CHESS")
+                        except Exception as e:
+                            log.error(f"Error sending to MILLENNIUM CHESS: {e}")
+                            millennium_connected = False
+                            break
                     
             except bluetooth.BluetoothError as e:
                 if running:
