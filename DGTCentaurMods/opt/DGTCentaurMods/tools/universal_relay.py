@@ -157,7 +157,7 @@ class UARTRXCharacteristic(Characteristic):
                 receive_data(byte_val)
             
             # Write to MILLENNIUM CHESS
-            millennium_sock.send(bytes_data)
+            millennium_sock.send(bytes(bytes_data))
 
             ble_connected = True
         except Exception as e:
