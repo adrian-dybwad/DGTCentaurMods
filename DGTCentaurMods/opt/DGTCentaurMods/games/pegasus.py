@@ -62,7 +62,7 @@ class Pegasus:
         """
         log.info(f"[Pegasus] Received packet: type=0x{packet_type:02X}, payload_len={len(payload)}, payload={' '.join(f'{b:02x}' for b in payload)}")
     
-    def parse_bytes(self, byte_value):
+    def parse_byte(self, byte_value):
         """Receive one byte and parse packet.
         
         Args:
