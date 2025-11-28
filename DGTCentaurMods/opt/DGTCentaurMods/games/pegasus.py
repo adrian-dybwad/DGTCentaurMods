@@ -88,16 +88,14 @@ class Pegasus:
                         log.info("[Pegasus board] ledsOff()")
                     elif len(fields_board) == 1:
                         board.led(fields_board[0], intensity=intensity)
-                        log.info(f"[Pegasus board] led({fields_board[0]}")
+                        log.info(f"[Pegasus board] led({fields_board[0]})")
                     else:
-                        # Use first two as from/to; extras are ignored for now
-                        tb, fb = fields_board[0], fields_board[1]
-                        board.ledFromTo(fb, tb, intensity=intensity)
-                        log.info(f"[Pegasus board] ledFromTo({fb},{tb}, intensity={intensity}) mode={mode}")
-                        if mode == 1:
-                            time.sleep(0.5)
-                            log.info("[Pegasus board] ledsOff() because mode==1")
-                            board.ledsOff()
+                        board.ledArray(fields_board, intensity=intensity)
+                        log.info(f"[Pegasus board] ledArray({fields_board}, intensity={intensity}) mode={mode}")
+                        # if mode == 1:
+                        #     time.sleep(0.5)
+                        #     log.info("[Pegasus board] ledsOff() because mode==1")
+                        #     board.ledsOff()
                 except Exception as e:
                     log.info(f"[Pegasus LED packet] error driving LEDs: {e}")
 
