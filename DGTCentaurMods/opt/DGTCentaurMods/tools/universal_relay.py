@@ -131,6 +131,7 @@ class UARTRXCharacteristic(Characteristic):
     def WriteValue(self, value, options):
         """When the remote device writes data via BLE, log the incoming bytes"""
         global kill, ble_connected
+        global millennium_connected
         if kill:
             return
         
@@ -167,7 +168,6 @@ class UARTRXCharacteristic(Characteristic):
                         log.debug(f"Sent {bytes_sent} bytes to MILLENNIUM CHESS")
                 except (bluetooth.BluetoothError, OSError) as e:
                     log.error(f"Error sending to MILLENNIUM CHESS: {e}")
-                    global millennium_connected
                     millennium_connected = False
                     raise
 
