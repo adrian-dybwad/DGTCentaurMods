@@ -21,6 +21,7 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
+from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
 
 
@@ -52,6 +53,7 @@ class Pegasus:
         """Called when the initial packet sequence is received."""
         log.info("[Pegasus] Initial packet received, beginning protocol")
         self.state = "WAITING_FOR_PACKET"
+        board.ledsOff()
     
     def handle_packet(self, packet_type, payload):
         """Handle a parsed packet.
@@ -61,7 +63,45 @@ class Pegasus:
             payload: List of payload bytes
         """
         log.info(f"[Pegasus] Received packet: type=0x{packet_type:02X}, payload_len={len(payload)}, payload={' '.join(f'{b:02x}' for b in payload)}")
-    
+        if packet_type == 96:
+            # LEDS control from mobile app
+            # Format: 96, [len-2], 5, speed, mode, intensity, fields..., 0
+            log.info(f"[Pegasus LED packet] raw: {' '.join(f'{b:02x}' for b in payload)}")
+            if payload[0] == 5:
+                ledspeed = int(payload[1])
+                mode = int(payload[2])
+                intensity_in = int(payload[3])
+                fields_hw = []
+                for x in range(4, len(payload)-1):
+                    fields_hw.append(int(payload[x]))
+                # Map Pegasus/firmware index to board API index
+                def hw_to_board(i):
+                    return (7 - (i // 8)) * 8 + (i % 8)
+                fields_board = [hw_to_board(f) for f in fields_hw]
+                log.info(f"[Pegasus LED packet] speed={ledspeed} mode={mode} intensity={intensity_in} hw={fields_hw} -> board={fields_board}")
+                # Normalize intensity to 1..10 for board.* helpers
+                intensity = max(1, min(10, intensity_in))
+                try:
+                    if len(fields_board) == 0:
+                        board.ledsOff()
+                        log.info("[Pegasus LED packet] ledsOff()")
+                    elif len(fields_board) == 1:
+                        board.led(fields_board[0], intensity=intensity)
+                        log.info(f"[Pegasus LED packet] led({fields_board[0]}, intensity={intensity})")
+                    elif len(fields_board) == 2:
+                        # Use first two as from/to; extras are ignored for now
+                        tb, fb = fields_board[0], fields_board[1]
+                        board.ledFromTo(fb, tb, intensity=intensity)
+                        log.info(f"[Pegasus LED packet] ledFromTo({fb},{tb}, intensity={intensity})")
+                        if mode == 1:
+                            time.sleep(0.5)
+                            board.ledsOff()
+                    else:
+                        board.ledArray(fields_board, ledspeed, intensity)
+                        log.info(f"[Pegasus LED packet] ledArray({fields_board}, {ledspeed}, {intensity})")
+                except Exception as e:
+                    log.info(f"[Pegasus LED packet] error driving LEDs: {e}")
+
     def parse_byte(self, byte_value):
         """Receive one byte and parse packet.
         
