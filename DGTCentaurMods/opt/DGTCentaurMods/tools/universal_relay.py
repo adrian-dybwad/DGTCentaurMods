@@ -48,6 +48,10 @@ client_sock = None
 ble_app = None
 ble_adv = None
 
+# Thread references
+millennium_to_client_thread = None
+millennium_to_client_thread_started = False
+
 GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
 
 
@@ -326,6 +330,7 @@ def find_millennium_service(device_addr):
 def connect_to_millennium():
     """Connect to the MILLENNIUM CHESS device"""
     global millennium_sock, millennium_connected
+    global millennium_to_client_thread, millennium_to_client_thread_started
     
     try:
         # Find device
@@ -347,10 +352,12 @@ def connect_to_millennium():
                     millennium_sock = sock
                     millennium_connected = True
                     log.info(f"Connected to MILLENNIUM CHESS on port {common_port}")
-                    
-                    millennium_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
-                    millennium_to_client_thread.start()
-
+                    # Start the relay thread when connection is established
+                    if not millennium_to_client_thread_started:
+                        millennium_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
+                        millennium_to_client_thread.start()
+                        millennium_to_client_thread_started = True
+                        log.info("Started millennium_to_client thread")
                     return True
                 except Exception as e:
                     log.debug(f"Failed to connect on port {common_port}: {e}")
@@ -367,6 +374,12 @@ def connect_to_millennium():
         millennium_sock.connect((device_addr, port))
         millennium_connected = True
         log.info("Connected to MILLENNIUM CHESS successfully")
+        # Start the relay thread when connection is established
+        if not millennium_to_client_thread_started:
+            millennium_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
+            millennium_to_client_thread.start()
+            millennium_to_client_thread_started = True
+            log.info("Started millennium_to_client thread")
         return True
         
     except Exception as e:
@@ -735,6 +748,14 @@ def main():
     log.info("Both connections established - starting relay")
     
     # Start relay threads
+    # Note: millennium_to_client_thread is started automatically when millennium_connected becomes True
+    global millennium_to_client_thread, millennium_to_client_thread_started
+    if not millennium_to_client_thread_started:
+        millennium_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
+        millennium_to_client_thread.start()
+        millennium_to_client_thread_started = True
+        log.info("Started millennium_to_client thread")
+    
     client_to_millennium_thread = threading.Thread(target=client_to_millennium, daemon=True)
     client_to_millennium_thread.start()
     
@@ -745,7 +766,7 @@ def main():
         while running and not kill:
             time.sleep(1)
             # Check if threads are still alive
-            if not millennium_to_client_thread.is_alive() or not client_to_millennium_thread.is_alive():
+            if (millennium_to_client_thread is not None and not millennium_to_client_thread.is_alive()) or not client_to_millennium_thread.is_alive():
                 log.warning("One of the relay threads has stopped")
                 running = False
                 break
