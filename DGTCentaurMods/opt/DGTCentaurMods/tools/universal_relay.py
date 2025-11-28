@@ -598,7 +598,7 @@ def main():
     """Main entry point"""
     global server_sock, client_sock, millennium_sock
     global millennium_connected, client_connected, running, kill
-    global ble_app, ble_adv
+    global ble_app, ble_adv, millennium_to_client_thread, millennium_to_client_thread_started
     
     parser = argparse.ArgumentParser(description="Bluetooth Classic SPP Relay with BLE - Connect to MILLENNIUM CHESS and relay data")
     parser.add_argument(
@@ -796,7 +796,6 @@ def main():
                 if not client_connected:
                     log.info("Client disconnected, waiting for new client connection...")
                     # Close old socket if it exists
-                    global client_sock
                     if client_sock is not None:
                         try:
                             client_sock.close()
