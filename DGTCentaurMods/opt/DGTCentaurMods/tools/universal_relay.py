@@ -146,14 +146,15 @@ class UARTRXCharacteristic(Characteristic):
             
             # Log incoming bytes
             log.info(f"BLE RX (incoming bytes): {' '.join(f'{b:02x}' for b in bytes_data)}")
-            log.info(f"BLE RX (hex string): {bytes_data.hex()}")
+            log.info(f"BLE RX (integers): {' '.join(f'{b}' for b in bytes_data)}")
+            log.info(f"BLE RX (ASCII): {bytes_data.decode('utf-8', errors='replace')}")
             log.info(f"BLE RX (length): {len(bytes_data)} bytes")
             
             # Try to decode as ASCII for readability (non-printable chars will be shown as hex)
             try:
                 ascii_str = bytes_data.decode('utf-8', errors='replace')
                 if all(c.isprintable() or c in '\n\r\t' for c in ascii_str):
-                    log.info(f"BLE RX (ASCII): {repr(ascii_str)}")
+                    log.info(f"BLE RX (ASCII 2): {repr(ascii_str)}")
             except:
                 pass
 
