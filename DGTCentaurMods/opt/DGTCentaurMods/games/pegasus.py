@@ -36,11 +36,12 @@ class Pegasus:
     """
     
     # Initial packet sequence
-    INITIAL_PACKET = bytes([# Android Chess includes these: 0x40, 0x60, 0x02, 0x00, 0x00, 
-                            0x63, 0x07, 0x8e, 
-                            0x87, 0xb0, 0x18, 0xb6, 0xf4, 0x00, 0x5a, 0x47, 
-                            0x42, 0x44])
-    
+    # INITIAL_PACKET = bytes([# Android Chess includes these: 0x40, 0x60, 0x02, 0x00, 0x00, 
+    #                         0x63, 0x07, 0x8e, 
+    #                         0x87, 0xb0, 0x18, 0xb6, 0xf4, 0x00, 0x5a, 0x47, 
+    #                         0x42, 0x44])
+    INITIAL_PACKET = bytes([0x40])
+
     def __init__(self):
         """Initialize the Pegasus handler."""
         self.buffer = []
@@ -65,7 +66,11 @@ class Pegasus:
             payload: List of payload bytes
         """
         log.info(f"[Pegasus] Received packet: type=0x{packet_type:02X}, payload_len={len(payload)}, payload={' '.join(f'{b:02x}' for b in payload)}")
-        if packet_type == 96:
+        if packet_type == 99:
+            # Developer key registration
+            log.info(f"[Pegasus Developer key] raw: {' '.join(f'{b:02x}' for b in payload)}")
+            return True
+        elif packet_type == 96:
             # LEDS control from mobile app
             # Format: 96, [len-2], 5, speed, mode, intensity, fields..., 0
             log.info(f"[Pegasus LED packet] raw: {' '.join(f'{b:02x}' for b in payload)}")
