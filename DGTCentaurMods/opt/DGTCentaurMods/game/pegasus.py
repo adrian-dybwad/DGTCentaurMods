@@ -240,8 +240,13 @@ class UARTRXCharacteristic(Characteristic):
     def WriteValue(self, value, options):
         # When the remote device writes data, it comes here
         log.info(f"[Pegasus RX] len={len(value)} bytes: {' '.join(f'{b:02x}' for b in value)}")
-        log.info(f"[Pegasus RX] (integers): {' '.join(f'{b}' for b in value)}")
-        log.info(f"[Pegasus RX] (ASCII): {value.decode('utf-8', errors='replace')}")
+        log.info(f"[Pegasus RX] (integers): {' '.join(f'{int(b)}' for b in value)}")
+        # Convert dbus.Array to bytearray for decoding
+        bytes_array = bytearray(int(b) for b in value)
+        try:
+            log.info(f"[Pegasus RX] (ASCII): {bytes_array.decode('utf-8', errors='replace')}")
+        except Exception as e:
+            log.debug(f"[Pegasus RX] Could not decode as UTF-8: {e}")
 
         # Process bytes through the parser
         for byte_val in value:
