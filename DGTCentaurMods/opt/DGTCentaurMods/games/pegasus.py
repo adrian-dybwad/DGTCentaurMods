@@ -30,6 +30,7 @@ class Pegasus:
     Packet format:
     - Initial packet: 40 60 02 00 00 63 07 8e 87 b0 18 b6 f4 00 5a 47 42 44
     - Subsequent packets: <type> <length> <payload> <00 terminator>
+    - Note: length byte includes payload + terminator (not including the length byte itself)
     """
     
     # Initial packet sequence
@@ -97,8 +98,14 @@ class Pegasus:
                 
                 elif self.packet_length is None:
                     # Waiting for packet length
+                    # Length includes payload + terminator (not including the length byte itself)
                     self.packet_length = byte_value
-                    self.expected_payload_length = self.packet_length
+                    # Expected payload length is length - 1 (to account for the 00 terminator)
+                    if self.packet_length > 0:
+                        self.expected_payload_length = self.packet_length - 1
+                    else:
+                        # Length is 0, so no payload, just terminator
+                        self.expected_payload_length = 0
                     self.payload = []
                     return False
                 
