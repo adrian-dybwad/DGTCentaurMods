@@ -515,8 +515,10 @@ def handle_l(payload):
         print(chess_indexes)
         if len(chess_indexes) == 2:
             board.ledFromTo(chess_indexes[0], chess_indexes[1], 5)
-        else:
+        elif len(chess_indexes) > 2:
             board.ledArray(chess_indexes)
+        else:
+            board.ledsOff()
 
         log.debug(f"[Millennium] L packet: extracted {len(led)} LED codes (0x{' '.join(f'{b:02x}' for b in led)})")
     else:
