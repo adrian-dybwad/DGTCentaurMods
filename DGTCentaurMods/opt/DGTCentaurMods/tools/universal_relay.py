@@ -27,7 +27,7 @@ except ImportError:
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board.bluetooth_controller import BluetoothController
-from DGTCentaurMods.games.universal import receive_data
+from DGTCentaurMods.games.universal import receive_data, reset_parser
 from DGTCentaurMods.thirdparty.advertisement import Advertisement
 from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic
 from DGTCentaurMods.thirdparty.bletools import BleTools
@@ -222,6 +222,14 @@ class UARTTXCharacteristic(Characteristic):
             log.info("TX Characteristic StartNotify called - BLE client subscribing to notifications")
             UARTService.tx_obj = self
             self.notifying = True
+
+            # Reset parser on BLE connection
+            try:
+                reset_parser()
+                log.info("[Pegasus] Parser reset on BLE connection")
+            except Exception as e:
+                log.info(f"[Pegasus] Error resetting parser: {e}")
+
             global ble_connected
             ble_connected = True
             log.info("BLE notifications enabled successfully")
