@@ -397,7 +397,6 @@ def millennium_to_client():
     try:
         while running and not kill:
             try:
-                print(f"millennium_to_client running: {running} kill: {kill} millennium_connected: {millennium_connected} millennium_sock: {millennium_sock}")
                 if not millennium_connected or millennium_sock is None:
                     time.sleep(0.1)
                     continue
