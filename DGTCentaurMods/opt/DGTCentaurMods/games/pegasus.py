@@ -47,10 +47,6 @@ class Pegasus:
         self.buffer = []
         self.state = "WAITING_FOR_INITIAL"
         self.initial_packet_index = 0
-        self.packet_type = None
-        self.packet_length = None
-        self.payload = []
-        self.expected_payload_length = 0
     
     def begin(self):
         """Called when the initial packet sequence is received."""
@@ -148,54 +144,68 @@ class Pegasus:
                 return False
             
             elif self.state == "WAITING_FOR_PACKET":
-                # We're waiting for a new packet: <type> <length> <payload> <00>
-                if self.packet_type is None:
-                    # Waiting for packet type
-                    self.packet_type = byte_value
+                # Add byte to buffer
+                self.buffer.append(byte_value)
+                
+                # Limit buffer size to prevent unbounded growth (max reasonable packet size)
+                max_buffer_size = 1000
+                if len(self.buffer) > max_buffer_size:
+                    log.warning(f"[Pegasus] Buffer too large ({len(self.buffer)} bytes), clearing")
+                    self.buffer = []
                     return False
                 
-                elif self.packet_length is None:
-                    # Waiting for packet length
-                    # Length includes payload + terminator (not including the length byte itself)
-                    self.packet_length = byte_value
-                    # Expected payload length is length - 1 (to account for the 00 terminator)
-                    if self.packet_length > 0:
-                        self.expected_payload_length = self.packet_length - 1
-                    else:
-                        # Length is 0, so no payload, just terminator
-                        self.expected_payload_length = 0
-                    self.payload = []
-                    return False
-                
-                elif len(self.payload) < self.expected_payload_length:
-                    # Collecting payload bytes
-                    self.payload.append(byte_value)
-                    return False
-                
-                else:
-                    # We've collected all payload bytes, now waiting for 00 terminator
-                    if byte_value == 0x00:
-                        # Complete packet received
-                        packet_type = self.packet_type
-                        payload = self.payload.copy()
+                # Check if we just received a 00 terminator
+                if byte_value == 0x00:
+                    # Look backwards from the 00 to find length and type
+                    # Packet format: <type> <length> <payload> <00>
+                    # Length includes payload + terminator
+                    # So if 00 is at position N, length should be at position N - length
+                    terminator_pos = len(self.buffer) - 1
+                    
+                    # Try to find a valid length byte by looking backwards
+                    found_packet = False
+                    for i in range(terminator_pos - 1, -1, -1):  # Start from position before 00, go backwards
+                        candidate_length = self.buffer[i]
                         
-                        # Reset state for next packet
-                        self.packet_type = None
-                        self.packet_length = None
-                        self.payload = []
-                        self.expected_payload_length = 0
-                        
-                        # Handle the packet
-                        self.handle_packet(packet_type, payload)
-                        return True
-                    else:
-                        # Invalid terminator, reset parser
-                        log.warning(f"[Pegasus] Invalid packet terminator: expected 0x00, got 0x{byte_value:02X}, resetting parser")
-                        self.packet_type = None
-                        self.packet_length = None
-                        self.payload = []
-                        self.expected_payload_length = 0
-                        return False
+                        # Check if this could be a length byte
+                        # Length should equal: distance from length to terminator (including terminator)
+                        # So: candidate_length == (terminator_pos - i)
+                        if candidate_length == (terminator_pos - i):
+                            # Found a potential length byte
+                            # Type should be at position i - 1
+                            if i > 0:
+                                packet_type = int(self.buffer[i - 1])
+                                packet_length = int(candidate_length)
+                                
+                                # Payload is everything between length and terminator
+                                payload_start = i + 1
+                                payload_end = terminator_pos
+                                payload = [int(b) for b in self.buffer[payload_start:payload_end]]
+                                
+                                # Orphaned bytes are everything before the type
+                                orphaned_bytes = [int(b) for b in self.buffer[0:i-1]]
+                                
+                                # Log orphaned bytes if any
+                                if orphaned_bytes:
+                                    log.info(f"[Pegasus] ORPHANED bytes before packet: {' '.join(f'{b:02x}' for b in orphaned_bytes)}")
+                                
+                                # Clear buffer
+                                self.buffer = []
+                                
+                                # Handle the packet
+                                self.handle_packet(packet_type, payload)
+                                found_packet = True
+                                return True
+                    
+                    # If we didn't find a valid packet, keep the 00 in buffer and continue
+                    # (might be part of a larger packet or noise)
+                    if not found_packet:
+                        # Could be a false 00, or packet not complete yet
+                        # Keep accumulating but log if buffer gets large
+                        if len(self.buffer) > 100:
+                            log.debug(f"[Pegasus] No valid packet found after 00, buffer size: {len(self.buffer)}")
+                
+                return False
             
             return False
             
@@ -204,12 +214,10 @@ class Pegasus:
             import traceback
             traceback.print_exc()
             # Reset parser state on error
-            self.packet_type = None
-            self.packet_length = None
-            self.payload = []
-            self.expected_payload_length = 0
             if self.state == "WAITING_FOR_INITIAL":
                 self.initial_packet_index = 0
+            elif self.state == "WAITING_FOR_PACKET":
+                self.buffer = []
             return False
     
     def reset(self):
@@ -217,8 +225,4 @@ class Pegasus:
         self.buffer = []
         self.state = "WAITING_FOR_INITIAL"
         self.initial_packet_index = 0
-        self.packet_type = None
-        self.packet_length = None
-        self.payload = []
-        self.expected_payload_length = 0
 
