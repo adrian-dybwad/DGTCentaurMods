@@ -24,6 +24,7 @@
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.games.millennium import Millennium
+from DGTCentaurMods.games.pegasus import Pegasus
 import chess
 
 
@@ -62,7 +63,7 @@ def _field_callback(piece_event, field, time_in_seconds):
 
 # Global Millennium handler instance
 _millennium = Millennium()
-
+_pegasus = Pegasus()
 
 def receive_data(byte_value):
     """Receive one byte of data and parse packet.
@@ -93,8 +94,11 @@ def receive_data(byte_value):
     """
     if _millennium.parse_byte(byte_value):
         is_millennium = True
+    elif _pegasus.parse_byte(byte_value):
+        is_pegasus = True
     else:
         is_millennium = False
+        is_pegasus = False
 
 
 def reset_parser():
@@ -104,6 +108,7 @@ def reset_parser():
     Useful when starting a new communication session or recovering from errors.
     """
     _millennium.reset_parser()
+    _pegasus.reset()
 
 
 def subscribe():
