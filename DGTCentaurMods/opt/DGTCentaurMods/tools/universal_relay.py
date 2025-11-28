@@ -384,9 +384,9 @@ def millennium_to_client():
                     time.sleep(0.1)
                     continue
                 
-                if not client_connected or client_sock is None:
-                    time.sleep(0.1)
-                    continue
+                # if not client_connected or client_sock is None:
+                #     time.sleep(0.1)
+                #     continue
                 
                 # Read from MILLENNIUM CHESS
                 data = millennium_sock.recv(1024)
