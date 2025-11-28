@@ -57,7 +57,7 @@ if promise:
 def displayLogo():
     filename = str(AssetManager.get_resource_path("logo_mods_screen.jpg"))
     lg = Image.open(filename).resize((48, 112))
-    widgets.draw_image(lg, 0, 20)
+    # widgets.draw_image(lg, 0, 20)
 
 board.display_manager.add_widget(TextWidget(0, 20, 128, 100, "PEGASUS MODE", background=3, font_size=18))
 
@@ -242,8 +242,8 @@ class UARTRXCharacteristic(Characteristic):
         # Consider any write as an active connection from the client
         if not bt_connected:
             bt_connected = True
-            widgets.write_text(13, "              ")
-            widgets.write_text(13, "Connected")
+            # widgets.write_text(13, "              ")
+            # widgets.write_text(13, "Connected")
             try:
                 board.beep(board.SOUND_GENERAL)
             except Exception:
@@ -396,8 +396,8 @@ class UARTTXCharacteristic(Characteristic):
         
         # Now do operations that might fail
         try:
-            widgets.write_text(13, "              ")
-            widgets.write_text(13, "Connected")
+            # widgets.write_text(13, "              ")
+            # widgets.write_text(13, "Connected")
             #board.clearBoardData()
             board.beep(board.SOUND_GENERAL)
             board.ledsOff()
