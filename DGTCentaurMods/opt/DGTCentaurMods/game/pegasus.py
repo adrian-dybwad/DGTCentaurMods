@@ -37,6 +37,7 @@ from DGTCentaurMods.board.logging import log
 import signal
 import sys
 from DGTCentaurMods.thirdparty.bletools import BleTools
+from DGTCentaurMods.games.pegasus import Pegasus as PegasusParser
 
 kill = 0
 bt_connected = False
@@ -216,6 +217,7 @@ class UARTRXCharacteristic(Characteristic):
         Characteristic.__init__(
                 self, self.UARTRX_CHARACTERISTIC_UUID,
                 ["write", "write-without-response"], service)
+        self.parser = PegasusParser()
 
     def sendMessage(self, msgtype, data):
         # Send a message of the given type
@@ -238,6 +240,11 @@ class UARTRXCharacteristic(Characteristic):
     def WriteValue(self, value, options):
         # When the remote device writes data, it comes here
         log.info(f"[Pegasus RX] len={len(value)} bytes: {' '.join(f'{b:02x}' for b in value)}")
+
+        # Process bytes through the parser
+        for byte_val in value:
+            self.parser.parse_bytes(byte_val)
+        
         global bt_connected
         # Consider any write as an active connection from the client
         if not bt_connected:

@@ -1,0 +1,159 @@
+# Pegasus Game
+#
+# This file is part of the DGTCentaur Mods open source software
+# ( https://github.com/EdNekebno/DGTCentaur )
+#
+# DGTCentaur Mods is free software: you can redistribute
+# it and/or modify it under the terms of the GNU General Public
+# License as published by the Free Software Foundation, either
+# version 3 of the License, or (at your option) any later version.
+#
+# DGTCentaur Mods is distributed in the hope that it will
+# be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this file.  If not, see
+#
+# https://github.com/EdNekebno/DGTCentaur/blob/master/LICENSE.md
+#
+# This and any other notices must remain intact and unaltered in any
+# distribution, modification, variant, or derivative of this software.
+
+from DGTCentaurMods.board.logging import log
+
+
+class Pegasus:
+    """Handles Pegasus protocol packets and commands.
+    
+    Packet format:
+    - Initial packet: 40 60 02 00 00 63 07 8e 87 b0 18 b6 f4 00 5a 47 42 44
+    - Subsequent packets: <type> <length> <payload> <00 terminator>
+    """
+    
+    # Initial packet sequence
+    INITIAL_PACKET = bytes([0x40, 0x60, 0x02, 0x00, 0x00, 0x63, 0x07, 0x8e, 
+                            0x87, 0xb0, 0x18, 0xb6, 0xf4, 0x00, 0x5a, 0x47, 
+                            0x42, 0x44])
+    
+    def __init__(self):
+        """Initialize the Pegasus handler."""
+        self.buffer = []
+        self.state = "WAITING_FOR_INITIAL"
+        self.initial_packet_index = 0
+        self.packet_type = None
+        self.packet_length = None
+        self.payload = []
+        self.expected_payload_length = 0
+    
+    def begin(self):
+        """Called when the initial packet sequence is received."""
+        log.info("[Pegasus] Initial packet received, beginning protocol")
+        self.state = "WAITING_FOR_PACKET"
+    
+    def handle_packet(self, packet_type, payload):
+        """Handle a parsed packet.
+        
+        Args:
+            packet_type: Packet type byte as integer
+            payload: List of payload bytes
+        """
+        log.info(f"[Pegasus] Received packet: type=0x{packet_type:02X}, payload_len={len(payload)}, payload={' '.join(f'{b:02x}' for b in payload)}")
+    
+    def parse_bytes(self, byte_value):
+        """Receive one byte and parse packet.
+        
+        Args:
+            byte_value: Single byte value (0-255)
+            
+        Returns:
+            True if a complete packet was received, False otherwise
+        """
+        try:
+            if self.state == "WAITING_FOR_INITIAL":
+                # Check if this byte matches the expected byte in the initial packet
+                if byte_value == self.INITIAL_PACKET[self.initial_packet_index]:
+                    self.initial_packet_index += 1
+                    # Check if we've received the complete initial packet
+                    if self.initial_packet_index == len(self.INITIAL_PACKET):
+                        # Initial packet complete
+                        self.begin()
+                        return True
+                else:
+                    # Byte doesn't match, reset to start of initial packet
+                    self.initial_packet_index = 0
+                    # Check if this byte could be the start of the initial packet
+                    if byte_value == self.INITIAL_PACKET[0]:
+                        self.initial_packet_index = 1
+                return False
+            
+            elif self.state == "WAITING_FOR_PACKET":
+                # We're waiting for a new packet: <type> <length> <payload> <00>
+                if self.packet_type is None:
+                    # Waiting for packet type
+                    self.packet_type = byte_value
+                    return False
+                
+                elif self.packet_length is None:
+                    # Waiting for packet length
+                    self.packet_length = byte_value
+                    self.expected_payload_length = self.packet_length
+                    self.payload = []
+                    return False
+                
+                elif len(self.payload) < self.expected_payload_length:
+                    # Collecting payload bytes
+                    self.payload.append(byte_value)
+                    return False
+                
+                else:
+                    # We've collected all payload bytes, now waiting for 00 terminator
+                    if byte_value == 0x00:
+                        # Complete packet received
+                        packet_type = self.packet_type
+                        payload = self.payload.copy()
+                        
+                        # Reset state for next packet
+                        self.packet_type = None
+                        self.packet_length = None
+                        self.payload = []
+                        self.expected_payload_length = 0
+                        
+                        # Handle the packet
+                        self.handle_packet(packet_type, payload)
+                        return True
+                    else:
+                        # Invalid terminator, reset parser
+                        log.warning(f"[Pegasus] Invalid packet terminator: expected 0x00, got 0x{byte_value:02X}, resetting parser")
+                        self.packet_type = None
+                        self.packet_length = None
+                        self.payload = []
+                        self.expected_payload_length = 0
+                        return False
+            
+            return False
+            
+        except Exception as e:
+            log.error(f"[Pegasus] Error parsing byte 0x{byte_value:02X}: {e}")
+            import traceback
+            traceback.print_exc()
+            # Reset parser state on error
+            self.packet_type = None
+            self.packet_length = None
+            self.payload = []
+            self.expected_payload_length = 0
+            if self.state == "WAITING_FOR_INITIAL":
+                self.initial_packet_index = 0
+            return False
+    
+    def reset(self):
+        """Reset parser state."""
+        self.buffer = []
+        self.state = "WAITING_FOR_INITIAL"
+        self.initial_packet_index = 0
+        self.packet_type = None
+        self.packet_length = None
+        self.payload = []
+        self.expected_payload_length = 0
+
