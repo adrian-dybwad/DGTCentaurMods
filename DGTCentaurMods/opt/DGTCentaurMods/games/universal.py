@@ -846,8 +846,11 @@ def receive_data(byte_value):
     if is_milennium:
         log.info(f"[Universal] Handling Millennium packet: packet_type={packet_type}, payload={payload}")
         handle_millennium(packet_type, payload)
-    else:
-        log.warning(f"[Universal] Unhandled packet type: packet_type={packet_type} (0x{packet_type:02X}), payload={payload}")
+    elif packet_type is not None:
+        # Only log warning for complete non-Millennium packets (not for incomplete packets)
+        packet_type_str = f"{packet_type} (0x{packet_type:02X})"
+        payload_str = f"{payload}" if payload is not None else "None"
+        log.warning(f"[Universal] Unhandled packet type: packet_type={packet_type_str}, payload={payload_str}")
     
 
 def reset_parser():
