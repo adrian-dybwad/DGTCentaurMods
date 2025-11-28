@@ -347,6 +347,10 @@ def connect_to_millennium():
                     millennium_sock = sock
                     millennium_connected = True
                     log.info(f"Connected to MILLENNIUM CHESS on port {common_port}")
+                    
+                    millennium_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
+                    millennium_to_client_thread.start()
+
                     return True
                 except Exception as e:
                     log.debug(f"Failed to connect on port {common_port}: {e}")
@@ -731,10 +735,7 @@ def main():
     log.info("Both connections established - starting relay")
     
     # Start relay threads
-    millennium_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
     client_to_millennium_thread = threading.Thread(target=client_to_millennium, daemon=True)
-    
-    millennium_to_client_thread.start()
     client_to_millennium_thread.start()
     
     log.info("Relay threads started")
