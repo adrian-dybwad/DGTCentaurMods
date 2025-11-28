@@ -27,7 +27,7 @@ except ImportError:
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board.bluetooth_controller import BluetoothController
-from DGTCentaurMods.games.millennium import receive_data
+from DGTCentaurMods.games.universal import receive_data
 from DGTCentaurMods.thirdparty.advertisement import Advertisement
 from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic
 from DGTCentaurMods.thirdparty.bletools import BleTools
