@@ -454,23 +454,28 @@ def client_to_millennium():
                 
                 # Read from client
                 data = client_sock.recv(1024)
-                if len(data) > 0:
-                    data_bytes = bytearray(data)
-                    log.info(f"Client -> MILLENNIUM: {' '.join(f'{b:02x}' for b in data_bytes)}")
-                    log.debug(f"Client -> MILLENNIUM (ASCII): {data_bytes.decode('utf-8', errors='replace')}")
-                    
-                    # Process each byte through receive_data
-                    for byte_val in data_bytes:
-                        receive_data(byte_val)
-                    
-                    if millennium_sock is not None: 
-                        try:
-                            sent = millennium_sock.send(data)
-                            log.info(f"Sent {sent} bytes to MILLENNIUM CHESS")
-                        except Exception as e:
-                            log.error(f"Error sending to MILLENNIUM CHESS: {e}")
-                            millennium_connected = False
-                            break
+                if len(data) == 0:
+                    # Empty data indicates client disconnected
+                    log.info("Client disconnected (received empty data)")
+                    client_connected = False
+                    break
+                
+                data_bytes = bytearray(data)
+                log.info(f"Client -> MILLENNIUM: {' '.join(f'{b:02x}' for b in data_bytes)}")
+                log.debug(f"Client -> MILLENNIUM (ASCII): {data_bytes.decode('utf-8', errors='replace')}")
+                
+                # Process each byte through receive_data
+                for byte_val in data_bytes:
+                    receive_data(byte_val)
+                
+                if millennium_sock is not None: 
+                    try:
+                        sent = millennium_sock.send(data)
+                        log.info(f"Sent {sent} bytes to MILLENNIUM CHESS")
+                    except Exception as e:
+                        log.error(f"Error sending to MILLENNIUM CHESS: {e}")
+                        millennium_connected = False
+                        break
                     
             except bluetooth.BluetoothError as e:
                 if running:
@@ -766,20 +771,68 @@ def main():
     
     log.info("Relay threads started")
     
-    # Main loop - monitor for exit conditions
+    # Main loop - monitor for exit conditions and handle client reconnections
     try:
         while running and not kill:
             time.sleep(1)
-            # Check if threads are still alive
-            if (millennium_to_client_thread is not None and not millennium_to_client_thread.is_alive()) or not client_to_millennium_thread.is_alive():
-                log.warning("One of the relay threads has stopped")
-                running = False
-                break
-            # Check connection status
-            if not millennium_connected or not client_connected:
-                log.warning("One of the connections has been lost")
-                running = False
-                break
+            
+            # Check if millennium thread is still alive
+            if millennium_to_client_thread is not None and not millennium_to_client_thread.is_alive():
+                log.warning("millennium_to_client thread has stopped")
+                # Restart the thread if millennium is still connected
+                if millennium_connected and millennium_sock is not None:
+                    millennium_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
+                    millennium_to_client_thread.start()
+                    log.info("Restarted millennium_to_client thread")
+                else:
+                    log.error("MILLENNIUM connection lost and cannot restart thread")
+                    running = False
+                    break
+            
+            # Check if client_to_millennium thread is still alive
+            if not client_to_millennium_thread.is_alive():
+                log.warning("client_to_millennium thread has stopped")
+                # If client disconnected, wait for a new client
+                if not client_connected:
+                    log.info("Client disconnected, waiting for new client connection...")
+                    # Close old socket if it exists
+                    global client_sock
+                    if client_sock is not None:
+                        try:
+                            client_sock.close()
+                        except:
+                            pass
+                        client_sock = None
+                    
+                    # Wait for new client connection
+                    while not client_connected and not kill and running:
+                        try:
+                            client_sock, client_info = server_sock.accept()
+                            client_connected = True
+                            log.info(f"New client connected from {client_info}")
+                            # Restart the client_to_millennium thread
+                            client_to_millennium_thread = threading.Thread(target=client_to_millennium, daemon=True)
+                            client_to_millennium_thread.start()
+                            log.info("Restarted client_to_millennium thread")
+                            break
+                        except bluetooth.BluetoothError:
+                            # Timeout, check kill flag
+                            time.sleep(0.1)
+                        except Exception as e:
+                            if running:
+                                log.error(f"Error accepting client connection: {e}")
+                            time.sleep(0.1)
+                else:
+                    # Thread died but client still connected - error condition
+                    log.error("client_to_millennium thread died but client still connected")
+                    running = False
+                    break
+            
+            # Check millennium connection status (but don't exit, just log)
+            if not millennium_connected:
+                log.warning("MILLENNIUM CHESS connection lost")
+                # Don't exit, just wait - the connection might be re-established
+            
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")
         running = False
