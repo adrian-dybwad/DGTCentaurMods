@@ -183,10 +183,21 @@ class UARTTXCharacteristic(Characteristic):
         if not self.notifying:
             return
         log.debug(f"BLE TX -> Client: {' '.join(f'{b:02x}' for b in data)}")
-        tosend = bytearray()
-        for x in range(0, len(data)):
-            tosend.append(data[x])
-        UARTService.tx_obj.updateValue(tosend)
+
+
+        try:
+            ascii_str = data.decode('utf-8', errors='replace')
+            if all(c.isprintable() or c in '\n\r\t' for c in ascii_str):
+                log.info(f"BLE TX (ASCII): {repr(ascii_str)}")
+        except:
+            pass
+
+        UARTService.tx_obj.updateValue(ascii_str)
+
+        # tosend = bytearray()
+        # for x in range(0, len(data)):
+        #     tosend.append(data[x])
+        # UARTService.tx_obj.updateValue(tosend)
     
     def StartNotify(self):
         """Called when BLE client subscribes to notifications"""
