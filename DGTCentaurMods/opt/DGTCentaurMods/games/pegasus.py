@@ -83,7 +83,7 @@ class Pegasus:
                 mode = int(payload[2])
                 intensity_in = int(payload[3])
                 fields_hw = []
-                for x in range(4, len(payload)-1):
+                for x in range(4, len(payload)):
                     fields_hw.append(int(payload[x]))
                 # Map Pegasus/firmware index to board API index
                 def hw_to_board(i):
