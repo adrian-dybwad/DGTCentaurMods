@@ -771,7 +771,43 @@ def handle_i(payload):
     #log.info(f"[Millennium] Handling I packet: payload={payload}")
     encode_millennium_command("i")
 
-
+def handle_millennium(packet_type, payload):
+    """Handle packet type 'M' - Millennium.
+    
+    M / m – Millennium
+    
+    Args:
+        payload: List of ASCII character values in the payload
+    """
+    packet_type_str = chr(packet_type) if packet_type and 32 <= packet_type < 127 else f"0x{packet_type:02X}"
+    payload_str = ''.join(chr(b) if 32 <= b < 127 else f'\\x{b:02x}' for b in payload) if payload else "None"
+    log.info(f"[Millennium.receive_data] Complete packet: type={packet_type_str} (0x{packet_type:02X}), payload_len={len(payload) if payload else 0}, payload={payload_str}")
+    try:
+        # Convert packet_type to character for comparison
+        packet_char = chr(packet_type) if packet_type is not None else None
+        
+        if packet_char == 'X':
+            handle_x(payload)
+        elif packet_char == 'L':
+            handle_l(payload)
+        elif packet_char == 'R':
+            handle_r(payload)
+        elif packet_char == 'W':
+            handle_w(payload)
+        elif packet_char == 'T':
+            handle_t(payload)
+        elif packet_char == 'V':
+            handle_v(payload)
+        elif packet_char == 'I':
+            handle_i(payload)
+        elif packet_char == 'S':
+            handle_s(payload)
+        else:
+            log.debug(f"[Millennium] Unhandled packet type: {packet_char} (0x{packet_type:02X})")
+    except Exception as e:
+        log.error(f"[Millennium] Error in packet handler: {e}")
+        import traceback
+        traceback.print_exc()
 
 # Global packet parser instance
 _packet_parser = PacketParser()
@@ -804,39 +840,14 @@ def receive_data(byte_value):
                 # Packet handler is automatically called
                 log.info(f"Received packet type {packet_type}, payload: {payload}")
     """
-    packet_type, payload, is_complete = _packet_parser.receive_byte(byte_value)
+    packet_type, payload, is_milennium = _packet_parser.receive_byte(byte_value)
     
     # Call packet handler when a valid packet is received
-    if is_complete:
-        packet_type_str = chr(packet_type) if packet_type and 32 <= packet_type < 127 else f"0x{packet_type:02X}"
-        payload_str = ''.join(chr(b) if 32 <= b < 127 else f'\\x{b:02x}' for b in payload) if payload else "None"
-        log.info(f"[Millennium.receive_data] Complete packet: type={packet_type_str} (0x{packet_type:02X}), payload_len={len(payload) if payload else 0}, payload={payload_str}")
-        try:
-            # Convert packet_type to character for comparison
-            packet_char = chr(packet_type) if packet_type is not None else None
-            
-            if packet_char == 'X':
-                handle_x(payload)
-            elif packet_char == 'L':
-                handle_l(payload)
-            elif packet_char == 'R':
-                handle_r(payload)
-            elif packet_char == 'W':
-                handle_w(payload)
-            elif packet_char == 'T':
-                handle_t(payload)
-            elif packet_char == 'V':
-                handle_v(payload)
-            elif packet_char == 'I':
-                handle_i(payload)
-            elif packet_char == 'S':
-                handle_s(payload)
-            else:
-                log.debug(f"[Millennium] Unhandled packet type: {packet_char} (0x{packet_type:02X})")
-        except Exception as e:
-            log.error(f"[Millennium] Error in packet handler: {e}")
-            import traceback
-            traceback.print_exc()
+    if is_milennium:
+        log.info(f"[Universal] Handling Millennium packet: packet_type={packet_type}, payload={payload}")
+        handle_millennium(packet_type, payload)
+    else:
+        log.warning(f"[Universal] Unhandled packet type: packet_type={packet_type} (0x{packet_type:02X}), payload={payload}")
     
 
 def reset_parser():
