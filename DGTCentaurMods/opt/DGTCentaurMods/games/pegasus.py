@@ -68,7 +68,15 @@ class Pegasus:
             # LEDS control from mobile app
             # Format: 96, [len-2], 5, speed, mode, intensity, fields..., 0
             log.info(f"[Pegasus LED packet] raw: {' '.join(f'{b:02x}' for b in payload)}")
-            if payload[0] == 5:
+            if payload[0] == 2:
+                if payload[1] == 0 and payload[2] == 0:
+                    board.ledsOff()
+                    log.info("[Pegasus board] ledsOff() because mode==2")
+                    return True
+                else:
+                    log.info("[Pegasus board] unsupported mode==2 but payload 1, 2 is not 00 00")
+                    return False
+            elif payload[0] == 5:
                 ledspeed = int(payload[1])
                 mode = int(payload[2])
                 intensity_in = int(payload[3])
@@ -96,9 +104,16 @@ class Pegasus:
                         #     time.sleep(0.5)
                         #     log.info("[Pegasus board] ledsOff() because mode==1")
                         #     board.ledsOff()
+                    return True
                 except Exception as e:
                     log.info(f"[Pegasus LED packet] error driving LEDs: {e}")
-
+                    return False
+            else:
+                log.info(f"[Pegasus LED packet] unsupported mode={payload[0]}")
+                return False
+        else:
+            log.info(f"[Pegasus] unsupported packet type={packet_type}")
+            return False
     def parse_byte(self, byte_value):
         """Receive one byte and parse packet.
         
