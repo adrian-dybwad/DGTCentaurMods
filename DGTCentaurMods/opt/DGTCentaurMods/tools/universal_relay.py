@@ -158,7 +158,18 @@ class UARTRXCharacteristic(Characteristic):
             
             # Write to MILLENNIUM CHESS (if connected)
             if millennium_connected and millennium_sock is not None:
-                millennium_sock.send(bytes_data)
+                try:
+                    data_to_send = bytes(bytes_data)
+                    bytes_sent = millennium_sock.send(data_to_send)
+                    if bytes_sent != len(data_to_send):
+                        log.warning(f"Partial send to MILLENNIUM: {bytes_sent}/{len(data_to_send)} bytes sent")
+                    else:
+                        log.debug(f"Sent {bytes_sent} bytes to MILLENNIUM CHESS")
+                except (bluetooth.BluetoothError, OSError) as e:
+                    log.error(f"Error sending to MILLENNIUM CHESS: {e}")
+                    global millennium_connected
+                    millennium_connected = False
+                    raise
 
             ble_connected = True
         except Exception as e:
