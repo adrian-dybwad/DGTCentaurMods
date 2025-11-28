@@ -250,7 +250,7 @@ class UARTRXCharacteristic(Characteristic):
 
         # Process bytes through the parser
         for byte_val in value:
-            self.parser.parse_bytes(byte_val)
+            self.parser.parse_byte(byte_val)
         
         global bt_connected
         # Consider any write as an active connection from the client
