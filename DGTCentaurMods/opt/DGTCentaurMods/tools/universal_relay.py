@@ -156,8 +156,8 @@ class UARTRXCharacteristic(Characteristic):
             for byte_val in bytes_data:
                 receive_data(byte_val)
             
-            if UARTService.tx_obj is not None:
-                UARTService.tx_obj.sendMessage(bytes(bytes_data))
+            # Write to MILLENNIUM CHESS
+            millennium_sock.send(bytes_data)
 
             ble_connected = True
         except Exception as e:
@@ -192,12 +192,12 @@ class UARTTXCharacteristic(Characteristic):
         except:
             pass
 
-        UARTService.tx_obj.updateValue(ascii_str)
 
-        # tosend = bytearray()
-        # for x in range(0, len(data)):
-        #     tosend.append(data[x])
-        # UARTService.tx_obj.updateValue(tosend)
+        tosend = bytearray()
+        for x in range(0, len(data)):
+            tosend.append(data[x])
+
+        UARTService.tx_obj.updateValue(tosend)
     
     def StartNotify(self):
         """Called when BLE client subscribes to notifications"""
@@ -390,6 +390,7 @@ def millennium_to_client():
                     # Write to BLE client via TX characteristic
                     if UARTService.tx_obj is not None:
                         UARTService.tx_obj.sendMessage(data_bytes)
+
             except bluetooth.BluetoothError as e:
                 if running:
                     log.error(f"Bluetooth error in MILLENNIUM -> Client relay: {e}")
@@ -435,6 +436,7 @@ def client_to_millennium():
                     
                     # Write to MILLENNIUM CHESS
                     millennium_sock.send(data)
+                    
             except bluetooth.BluetoothError as e:
                 if running:
                     log.error(f"Bluetooth error in Client -> MILLENNIUM relay: {e}")
