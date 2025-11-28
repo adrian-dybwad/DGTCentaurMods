@@ -343,36 +343,36 @@ class UARTRXCharacteristic(Characteristic):
             # Format: 96, [len-2], 5, speed, mode, intensity, fields..., 0
             log.info(f"[Pegasus RX LED] raw: {' '.join(f'{b:02x}' for b in bytes)}")
             if bytes[2] == 5:
-                ledspeed = int(bytes[3])
-                mode = int(bytes[4])
-                intensity_in = int(bytes[5])
-                fields_hw = []
-                for x in range(6, len(bytes)-1):
-                    fields_hw.append(int(bytes[x]))
-                # Map Pegasus/firmware index to board API index
-                def hw_to_board(i):
-                    return (7 - (i // 8)) * 8 + (i % 8)
-                fields_board = [hw_to_board(f) for f in fields_hw]
-                log.info(f"[Pegasus RX LED] speed={ledspeed} mode={mode} intensity={intensity_in} hw={fields_hw} -> board={fields_board}")
-                # Normalize intensity to 1..10 for board.* helpers
-                intensity = max(1, min(10, intensity_in))
-                try:
-                    if len(fields_board) == 0:
-                        board.ledsOff()
-                        log.info("[Pegasus RX LED] ledsOff()")
-                    elif len(fields_board) == 1:
-                        board.led(fields_board[0], intensity=intensity)
-                        log.info(f"[Pegasus RX LED] led({fields_board[0]}, intensity={intensity})")
-                    else:
-                        # Use first two as from/to; extras are ignored for now
-                        tb, fb = fields_board[0], fields_board[1]
-                        board.ledFromTo(fb, tb, intensity=intensity)
-                        log.info(f"[Pegasus RX LED] ledFromTo({fb},{tb}, intensity={intensity})")
-                        if mode == 1:
-                            time.sleep(0.5)
-                            board.ledsOff()
-                except Exception as e:
-                    log.info(f"[Pegasus RX LED] error driving LEDs: {e}")
+                # ledspeed = int(bytes[3])
+                # mode = int(bytes[4])
+                # intensity_in = int(bytes[5])
+                # fields_hw = []
+                # for x in range(6, len(bytes)-1):
+                #     fields_hw.append(int(bytes[x]))
+                # # Map Pegasus/firmware index to board API index
+                # def hw_to_board(i):
+                #     return (7 - (i // 8)) * 8 + (i % 8)
+                # fields_board = [hw_to_board(f) for f in fields_hw]
+                # log.info(f"[Pegasus RX LED] speed={ledspeed} mode={mode} intensity={intensity_in} hw={fields_hw} -> board={fields_board}")
+                # # Normalize intensity to 1..10 for board.* helpers
+                # intensity = max(1, min(10, intensity_in))
+                # try:
+                #     if len(fields_board) == 0:
+                #         board.ledsOff()
+                #         log.info("[Pegasus RX LED] ledsOff()")
+                #     elif len(fields_board) == 1:
+                #         board.led(fields_board[0], intensity=intensity)
+                #         log.info(f"[Pegasus RX LED] led({fields_board[0]}, intensity={intensity})")
+                #     else:
+                #         # Use first two as from/to; extras are ignored for now
+                #         tb, fb = fields_board[0], fields_board[1]
+                #         board.ledFromTo(fb, tb, intensity=intensity)
+                #         log.info(f"[Pegasus RX LED] ledFromTo({fb},{tb}, intensity={intensity})")
+                #         if mode == 1:
+                #             time.sleep(0.5)
+                #             board.ledsOff()
+                # except Exception as e:
+                #     log.info(f"[Pegasus RX LED] error driving LEDs: {e}")
                 processed = 1
         if processed==0:
             log.info("Un-coded command")
