@@ -23,6 +23,7 @@
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
+import time
 
 
 class Pegasus:
@@ -84,21 +85,19 @@ class Pegasus:
                 try:
                     if len(fields_board) == 0:
                         board.ledsOff()
-                        log.info("[Pegasus LED packet] ledsOff()")
+                        log.info("[Pegasus board] ledsOff()")
                     elif len(fields_board) == 1:
                         board.led(fields_board[0], intensity=intensity)
-                        log.info(f"[Pegasus LED packet] led({fields_board[0]}, intensity={intensity})")
-                    elif len(fields_board) == 2:
+                        log.info(f"[Pegasus board] led({fields_board[0]}")
+                    else:
                         # Use first two as from/to; extras are ignored for now
                         tb, fb = fields_board[0], fields_board[1]
                         board.ledFromTo(fb, tb, intensity=intensity)
-                        log.info(f"[Pegasus LED packet] ledFromTo({fb},{tb}, intensity={intensity})")
+                        log.info(f"[Pegasus board] ledFromTo({fb},{tb}, intensity={intensity}) mode={mode}")
                         if mode == 1:
                             time.sleep(0.5)
+                            log.info("[Pegasus board] ledsOff() because mode==1")
                             board.ledsOff()
-                    else:
-                        board.ledArray(fields_board, ledspeed, intensity)
-                        log.info(f"[Pegasus LED packet] ledArray({fields_board}, {ledspeed}, {intensity})")
                 except Exception as e:
                     log.info(f"[Pegasus LED packet] error driving LEDs: {e}")
 
