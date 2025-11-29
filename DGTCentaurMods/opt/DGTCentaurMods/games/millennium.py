@@ -520,7 +520,8 @@ class Millennium:
             payload: List of ASCII character values in the payload
         """
         #log.info(f"[Millennium] Handling V packet: payload={payload}")
-        self.encode_millennium_command("v")
+        version = "1234"
+        self.encode_millennium_command("v" + version)
     
     def handle_w(self, payload):
         """Handle packet type 'W' - E²ROM config write.
