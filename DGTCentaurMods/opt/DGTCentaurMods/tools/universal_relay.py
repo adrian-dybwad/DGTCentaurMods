@@ -110,6 +110,42 @@ class UARTAdvertisement(Advertisement):
             log.error(traceback.format_exc())
 
 
+def sendMessage(messageType, data):
+    """Send a message via BLE or BT classic.
+    
+    Args:
+        messageType: Message type byte
+        data: Message data bytes
+    """
+    log.info(f"[sendMessage] messageType=0x{messageType:02X}, data={' '.join(f'{b:02x}' for b in data)}")
+    
+    # Format: messageType, length_hi, length_lo, data...
+    tosend = bytearray()
+    tosend.append(messageType)
+    total_len = len(data) + 3
+    lo = total_len & 127
+    hi = (total_len >> 7) & 127
+    tosend.append(hi)
+    tosend.append(lo)
+    for x in range(0, len(data)):
+        tosend.append(data[x])
+    
+    # Send via BLE if connected
+    if UARTService.tx_obj is not None and UARTService.tx_obj.notifying:
+        try:
+            UARTService.tx_obj.updateValue(tosend)
+        except Exception as e:
+            log.error(f"[sendMessage] Error sending via BLE: {e}")
+    
+    # Send via BT classic if connected
+    global client_connected, client_sock
+    if client_connected and client_sock is not None:
+        try:
+            client_sock.send(bytes(tosend))
+        except Exception as e:
+            log.error(f"[sendMessage] Error sending via BT classic: {e}")
+
+
 class UARTService(Service):
     """BLE UART service for Millennium ChessLink protocol - Transparent UART service"""
     tx_obj = None
@@ -229,7 +265,7 @@ class UARTTXCharacteristic(Characteristic):
             # Instantiate Universal and reset parser on BLE connection
             global universal, ble_connected
             try:
-                universal = Universal()
+                universal = Universal(sendMessage_callback=sendMessage)
                 universal.reset_parser()
                 log.info("[Universal] Instantiated and parser reset on BLE connection")
             except Exception as e:
@@ -745,7 +781,7 @@ def main():
             # Instantiate Universal on BT classic connection
             global universal
             try:
-                universal = Universal()
+                universal = Universal(sendMessage_callback=sendMessage)
                 universal.reset_parser()
                 log.info("[Universal] Instantiated and parser reset on BT classic connection")
             except Exception as e:
