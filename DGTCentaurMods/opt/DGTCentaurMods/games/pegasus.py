@@ -83,10 +83,8 @@ class Pegasus:
             if payload[1] == 0 and payload[2] == 0:
                 board.ledsOff()
                 log.info("[Pegasus board] ledsOff() because mode==2")
-                return True
             else:
                 log.info("[Pegasus board] unsupported mode==2 but payload 1, 2 is not 00 00")
-                return False
         elif payload[0] == 5:
             ledspeed_in = int(payload[1])
             mode = int(payload[2])
@@ -125,13 +123,13 @@ class Pegasus:
                     #     time.sleep(0.5)
                     #     log.info("[Pegasus board] ledsOff() because mode==1")
                     #     board.ledsOff()
-                return True
             except Exception as e:
                 log.info(f"[Pegasus LED packet] error driving LEDs: {e}")
-                return False
         else:
             log.info(f"[Pegasus LED packet] unsupported mode={payload[0]}")
-            return False
+
+        # Only return True is we sent anything back. Otherwise, let the caller handle it.
+        return False
     
     def serial_number(self, payload):
         """Handle serial number packet.
@@ -143,7 +141,7 @@ class Pegasus:
             True if handled successfully, False otherwise
         """
         log.info(f"[Pegasus Serial number] raw: {' '.join(f'{b:02x}' for b in payload)}")
-        return True
+        return False
     
     def handle_packet(self, packet_type, payload):
         """Handle a parsed packet.
@@ -156,7 +154,7 @@ class Pegasus:
         if packet_type == self.command.DEVELOPER_KEY:
             # Developer key registration
             log.info(f"[Pegasus Developer key] raw: {' '.join(f'{b:02x}' for b in payload)}")
-            return True
+            return False
         elif packet_type == self.command.LED_CONTROL:
             return self.led_control(payload)
         elif packet_type == self.command.SERIAL_NUMBER:
@@ -179,7 +177,6 @@ class Pegasus:
                 if byte_value == self.command.INITIAL_COMMAND:
                     # Initial command received
                     self.begin()
-                    return True
                 return False
             
             elif self.state == "WAITING_FOR_PACKET":
@@ -241,10 +238,10 @@ class Pegasus:
                                 # Clear buffer
                                 self.buffer = []
                                 
-                                # Handle the packet
-                                self.handle_packet(packet_type, payload)
                                 found_packet = True
-                                return True
+
+                                # Handle the packet
+                                return self.handle_packet(packet_type, payload)
                     
                     # If we didn't find a valid packet, keep the 00 in buffer and continue
                     # (might be part of a larger packet or noise)
@@ -254,8 +251,6 @@ class Pegasus:
                         if len(self.buffer) > 100:
                             log.debug(f"[Pegasus] No valid packet found after 00, buffer size: {len(self.buffer)}")
                 
-                return False
-            
             return False
             
         except Exception as e:

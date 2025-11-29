@@ -40,6 +40,8 @@ class Universal:
         self._millennium = Millennium(sendMessage_callback=sendMessage_callback)
         self._pegasus = Pegasus(sendMessage_callback=sendMessage_callback)
         self.sendMessage = sendMessage_callback
+        self.is_pegasus = False
+        self.is_millennium = False
     
     def _key_callback(self, key):
         """Handle key press events from the board.
@@ -98,13 +100,16 @@ class Universal:
                     # Packet handler is automatically called
                     log.info(f"Received packet type {packet_type}, payload: {payload}")
         """
-        if self._millennium.parse_byte(byte_value):
-            is_millennium = True
-        elif self._pegasus.parse_byte(byte_value):
-            is_pegasus = True
+        if not self.is_pegasus and self._millennium.parse_byte(byte_value):
+            self.is_millennium = True
+            return True
+        elif not self.is_millennium and self._pegasus.parse_byte(byte_value):
+            self.is_pegasus = True
+            return True
         else:
-            is_millennium = False
-            is_pegasus = False
+            #is_millennium = False
+            #is_pegasus = False
+            return False
 
     def reset_parser(self):
         """Reset the packet parser state.

@@ -39,6 +39,7 @@ millennium_connected = False
 client_connected = False
 ble_connected = False
 universal = None  # Universal instance
+_last_message = None  # Last message sent via sendMessage
 
 # Socket references
 millennium_sock = None
@@ -116,11 +117,15 @@ def sendMessage(data):
     Args:
         data: Message data bytes (already formatted with messageType, length, payload)
     """
-    log.warning(f"[sendMessage CALLBACK] data={' '.join(f'{b:02x}' for b in data)}")
-    
-    return
+    global _last_message
+
     # Data is already formatted, use it directly
     tosend = bytearray(data)
+
+    _last_message = tosend
+    log.warning(f"[sendMessage CALLBACK] tosend={' '.join(f'{b:02x}' for b in tosend)}")
+    
+    return
     
     # Send via BLE if connected
     if UARTService.tx_obj is not None and UARTService.tx_obj.notifying:
@@ -189,12 +194,14 @@ class UARTRXCharacteristic(Characteristic):
 
             # Process each byte through universal parser
             global universal
+            handled = False
             if universal is not None:
                 for byte_val in bytes_data:
-                    universal.receive_data(byte_val)
+                    handled = universal.receive_data(byte_val)
             
+            log.warning(f"handled by universal: {handled}")
             # Write to MILLENNIUM CHESS (if connected)
-            if millennium_connected and millennium_sock is not None:
+            if millennium_connected and millennium_sock is not None and not handled:
                 try:
                     data_to_send = bytes(bytes_data)
                     bytes_sent = millennium_sock.send(data_to_send)
@@ -258,7 +265,6 @@ class UARTTXCharacteristic(Characteristic):
             global universal, ble_connected
             try:
                 universal = Universal(sendMessage_callback=sendMessage)
-                universal.reset_parser()
                 log.info("[Universal] Instantiated and parser reset on BLE connection")
             except Exception as e:
                 log.error(f"[Universal] Error instantiating or resetting parser: {e}")
@@ -455,6 +461,13 @@ def millennium_to_client():
                     log.info(f"MILLENNIUM -> Client: {' '.join(f'{b:02x}' for b in data_bytes)}")
                     log.debug(f"MILLENNIUM -> Client (ASCII): {data_bytes.decode('utf-8', errors='replace')}")
                     
+                    if _last_message is not None:
+                        if _last_message == data_bytes:
+                            log.warning(f"[millennium_to_client] _last_message is the same as data_bytes")
+                        else:
+                            log.warning(f"[millennium_to_client] _last_message is different from data_bytes")
+                        _last_message = None
+
                     # Write to RFCOMM client
                     if client_connected and client_sock is not None:
                         client_sock.send(data)
@@ -774,7 +787,6 @@ def main():
             global universal
             try:
                 universal = Universal(sendMessage_callback=sendMessage)
-                universal.reset_parser()
                 log.info("[Universal] Instantiated and parser reset on BT classic connection")
             except Exception as e:
                 log.error(f"[Universal] Error instantiating or resetting parser: {e}")

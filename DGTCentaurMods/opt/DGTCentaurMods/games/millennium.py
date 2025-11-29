@@ -304,9 +304,10 @@ class Millennium:
         log.debug(f"[Millennium] Encoded command (ASCII): {packet_str}")
         if self.sendMessage is not None:
             self.sendMessage(encoded)
+            return True
         else:
             log.error(f"[Millennium] No sendMessage callback provided")
-        return encoded
+            return False
     
     def square_to_index(self, sq: str) -> int:
         """Convert chess square string to index.
@@ -714,6 +715,7 @@ class Millennium:
         """
         #log.info(f"[Millennium] Handling R packet: payload={payload}")
         self.encode_millennium_command("r")
+        return False
     
     def handle_i(self, payload):
         """Handle packet type 'I' - identity.
@@ -725,6 +727,7 @@ class Millennium:
         """
         #log.info(f"[Millennium] Handling I packet: payload={payload}")
         self.encode_millennium_command("i")
+        return False
     
     def handle_millennium(self, packet_type, payload):
         """Handle packet type 'M' - Millennium.
@@ -743,27 +746,29 @@ class Millennium:
             packet_char = chr(packet_type) if packet_type is not None else None
             
             if packet_char == 'X':
-                self.handle_x(payload)
+                return self.handle_x(payload)
             elif packet_char == 'L':
-                self.handle_l(payload)
+                return self.handle_l(payload)
             elif packet_char == 'R':
-                self.handle_r(payload)
+                return self.handle_r(payload)
             elif packet_char == 'W':
-                self.handle_w(payload)
+                return self.handle_w(payload)
             elif packet_char == 'T':
-                self.handle_t(payload)
+                return self.handle_t(payload)
             elif packet_char == 'V':
-                self.handle_v(payload)
+                return self.handle_v(payload)
             elif packet_char == 'I':
-                self.handle_i(payload)
+                return self.handle_i(payload)
             elif packet_char == 'S':
-                self.handle_s(payload)
+                return self.handle_s(payload)
             else:
                 log.debug(f"[Millennium] Unhandled packet type: {packet_char} (0x{packet_type:02X})")
         except Exception as e:
             log.error(f"[Millennium] Error in packet handler: {e}")
             import traceback
             traceback.print_exc()
+
+        return False
     
     def parse_byte(self, byte_value):
         """Receive one byte of data and parse packet.
@@ -797,8 +802,7 @@ class Millennium:
         # Call packet handler when a valid packet is received
         if is_packet:
             log.info(f"[Universal] Handling Millennium packet: packet_type={packet_type}, payload={payload}")
-            self.handle_millennium(packet_type, payload)
-            return True
+            return self.handle_millennium(packet_type, payload)
         elif packet_type is not None:
             # Only log error for complete non-Millennium packets (not for incomplete packets) - this should never happen
             packet_type_str = f"{packet_type} (0x{packet_type:02X})"
