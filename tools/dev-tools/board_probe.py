@@ -79,7 +79,7 @@ def test_led_array(squares, speed=3, intensity=5):
     """Test LED array function."""
     try:
         print(f"\n=== Testing LED array: squares={squares}, speed={speed}, intensity={intensity} ===")
-        board.ledArray(squares, speed, intensity)
+        board.ledArray(squares, speed, intensity, repeat=0)
         print(f"LED array lit")
     except Exception as e:
         print(f"Error testing LED array: {e}")
@@ -89,7 +89,7 @@ def test_led_from_to(frm, to, intensity=5):
     """Test LED from-to function."""
     try:
         print(f"\n=== Testing LED from-to: {frm} -> {to}, intensity={intensity} ===")
-        board.ledFromTo(frm, to, intensity)
+        board.ledFromTo(frm, to, intensity=intensity, repeat=0)
         print(f"LED from {frm} to {to}")
     except Exception as e:
         print(f"Error testing LED from-to: {e}")

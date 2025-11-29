@@ -443,7 +443,7 @@ class GameManager:
                         # Reapply LEDs for the forced move
                         from_sq, to_sq = self._uci_to_squares(forced_move_uci)
                         if from_sq is not None and to_sq is not None:
-                            board.ledFromTo(from_sq, to_sq)
+                            board.ledFromTo(from_sq, to_sq, repeat=0)
                             log.info(f"[GameManager._check_takeback] Reapplied LEDs for forced move {forced_move_uci} after takeback")
                         else:
                             log.warning(f"[GameManager._check_takeback] Could not convert forced move {forced_move_uci} to squares")
@@ -501,7 +501,7 @@ class GameManager:
             if len(self.move_state.computer_move_uci) >= MIN_UCI_MOVE_LENGTH:
                 from_sq, to_sq = self._uci_to_squares(self.move_state.computer_move_uci)
                 if from_sq is not None and to_sq is not None:
-                    board.ledFromTo(from_sq, to_sq)
+                    board.ledFromTo(from_sq, to_sq, repeat=0)
                     log.info(f"[GameManager._exit_correction_mode] Restored forced move LEDs: {self.move_state.computer_move_uci}")
     
     def _provide_correction_guidance(self, current_state, expected_state):
@@ -556,19 +556,19 @@ class GameManager:
                 to_idx = missing_squares[col_ind[0]]
             
             board.ledsOff()
-            board.ledFromTo(from_idx, to_idx, intensity=5)
+            board.ledFromTo(from_idx, to_idx, repeat=0)
             log.warning(f"[GameManager._provide_correction_guidance] Guiding piece from {chess.square_name(from_idx)} to {chess.square_name(to_idx)}")
         else:
             # Only pieces missing or only extra pieces
             if len(missing_squares) > 0:
                 board.ledsOff()
                 for idx in missing_squares:
-                    board.led(idx, intensity=5)
+                    board.led(idx, repeat=0)
                 log.warning(f"[GameManager._provide_correction_guidance] Pieces missing at: {[chess.square_name(sq) for sq in missing_squares]}")
             elif len(extra_squares) > 0:
                 board.ledsOff()
                 # Use ledArray for continuous flashing
-                board.ledArray(extra_squares, speed=10, intensity=5)
+                board.ledArray(extra_squares, speed=10, intensity=5, repeat=0)
                 log.warning(f"[GameManager._provide_correction_guidance] Extra pieces at: {[chess.square_name(sq) for sq in extra_squares]}")
     
     def _handle_field_event_in_correction_mode(self, piece_event: int, field: int, time_in_seconds: float):
@@ -1283,7 +1283,7 @@ class GameManager:
         # Light up LEDs to indicate the move
         from_sq, to_sq = self._uci_to_squares(uci_move)
         if from_sq is not None and to_sq is not None:
-            board.ledFromTo(from_sq, to_sq)
+            board.ledFromTo(from_sq, to_sq, repeat=0)
     
     def resign_game(self, side_resigning: int):
         """Handle game resignation."""

@@ -463,11 +463,11 @@ class Millennium:
 
             lit_squares = self.fully_lit_squares_from_led_array(led)
             chess_indexes = [self.square_to_index(square) for square in lit_squares]
-            print(chess_indexes)
+            log.info(f"[Millennium] L packet: chess_indexes={chess_indexes}")
             if len(chess_indexes) == 2:
-                board.ledFromTo(chess_indexes[0], chess_indexes[1], 5)
+                board.ledFromTo(chess_indexes[0], chess_indexes[1], repeat=0)
             elif len(chess_indexes) > 2:
-                board.ledArray(chess_indexes)
+                board.ledArray(chess_indexes, repeat=0)
             else:
                 board.ledsOff()
 

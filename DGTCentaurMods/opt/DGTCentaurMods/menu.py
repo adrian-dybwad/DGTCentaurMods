@@ -946,7 +946,7 @@ if __name__ == "__main__":
                     # LED cascade pattern h1→h8 (squares 0 to 7) for reboot
                     try:
                         for i in range(0, 8):
-                            board.led(i, intensity=5)
+                            board.led(i, repeat=0)
                             time.sleep(0.2)
                     except Exception:
                         pass

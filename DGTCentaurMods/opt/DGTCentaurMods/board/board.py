@@ -103,29 +103,29 @@ def ledsOff():
     # Switch the LEDs off on the centaur
     controller.ledsOff()
 
-def ledArray(inarray, speed = 3, intensity=5):
+def ledArray(inarray, speed = 3, intensity=5, repeat=1):
     # Lights all the leds in the given inarray with the given speed and intensity
     inarray = list[int](inarray.copy())
     inarray.reverse()
     for i in range(0, len(inarray)):
         inarray[i] = rotateField(inarray[i])
-    controller.ledArray(inarray, speed, intensity)
+    controller.ledArray(inarray, speed, intensity, repeat)
 
-def ledFromTo(lfrom, lto, intensity=5):
+def ledFromTo(lfrom, lto, intensity=5, speed=3, repeat=1):
     # Light up a from and to LED for move indication
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    controller.ledFromTo(rotateField(lfrom), rotateField(lto), intensity)
+    controller.ledFromTo(rotateField(lfrom), rotateField(lto), intensity, speed, repeat)
 
-def led(num, intensity=5):
+def led(num, intensity=5, speed=3, repeat=1):
     # Flashes a specific led
     # Note the call to this function is 0 for a1 and runs to 63 for h8
     # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
-    controller.led(rotateField(num), intensity)
+    controller.led(rotateField(num), intensity, speed, repeat)
 
-def ledFlash():
+def ledFlash(speed=3, repeat=1, intensity=5):
     # Flashes the last led lit by led(num) above
-    controller.ledFlash()
+    controller.ledFlash(speed, repeat, intensity)
 
 def sendCustomBeep(data: bytes):
     """
@@ -175,7 +175,7 @@ def shutdown(reboot=False):
         
         # All LEDs for update install
         try:
-            ledArray([0,1,2,3,4,5,6,7], intensity=6)
+            ledArray([0,1,2,3,4,5,6,7], intensity=6, repeat=0)
         except Exception:
             pass
         
@@ -195,7 +195,7 @@ def shutdown(reboot=False):
     # LED cascade pattern h8→h1 (squares 7 down to 0)
     try:
         for i in range(7, -1, -1):
-            led(i, intensity=5)
+            led(i, repeat=0)
             time.sleep(0.2)
         # All LEDs off at end
         ledsOff()
@@ -238,7 +238,7 @@ def sleep_controller():
     
     # Visual feedback - single LED at h8
     try:
-        ledFromTo(7, 7)
+        ledFromTo(7, 7, repeat=0)
     except Exception as e:
         log.debug(f"LED failed during controller sleep: {e}")
     

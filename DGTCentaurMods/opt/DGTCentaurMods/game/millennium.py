@@ -761,7 +761,7 @@ def processMillenniumCommands():
 				if centaurpattern[x] > 0:
 					ledfields.append(x)
 			if len(ledfields) > 0:
-				board.ledArray(ledfields, speed=5, intensity=5)
+				board.ledArray(ledfields, speed=5, intensity=5, repeat=0)
 			sendMillenniumCommand("l")
 			handled = True
 		
