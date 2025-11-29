@@ -440,7 +440,7 @@ def connect_to_millennium():
 
 def millennium_to_client():
     """Relay data from MILLENNIUM CHESS to client"""
-    global running, millennium_sock, client_sock, millennium_connected, client_connected
+    global running, millennium_sock, client_sock, millennium_connected, client_connected, _last_message
     
     log.info("Starting MILLENNIUM -> Client relay thread")
     try:
@@ -484,9 +484,13 @@ def millennium_to_client():
             except Exception as e:
                 if running:
                     log.error(f"Error in MILLENNIUM -> Client relay: {e}")
+                    import traceback
+                    log.error(traceback.format_exc())
                 break
     except Exception as e:
         log.error(f"MILLENNIUM -> Client thread error: {e}")
+        import traceback
+        log.error(traceback.format_exc())
     finally:
         log.info("MILLENNIUM -> Client relay thread stopped")
         millennium_connected = False
