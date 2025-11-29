@@ -1231,6 +1231,15 @@ class AsyncCentaur:
 
         self._last_key = None
 
+    def getBoardMeta(self):
+        """
+        Get the board metadata (trademark/serial number) from the DGT Centaur.
+        
+        Returns:
+            bytes: Board metadata/trademark data or None if request fails
+        """
+        return self.request_response(command.DGT_SEND_TRADEMARK)
+
     def beep(self, sound_name: str):
         self.sendPacket(sound_name)
 
