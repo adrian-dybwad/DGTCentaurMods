@@ -923,8 +923,8 @@ class SyncCentaur:
     def ledsOff(self):
         self.sendCommand(command.LED_OFF_CMD)
     
-    def ledArray(self, inarray, speed=3, intensity=5, repeat=0):
-        data = bytearray([0x07])
+    def ledArray(self, inarray, speed=3, intensity=5, repeat=10):
+        data = bytearray([0x05])
         data.append(speed)
         data.append(repeat)
         data.append(intensity)
