@@ -138,12 +138,12 @@ def sendCustomBeep(data: bytes):
 
 def sendCustomLedArray(data: bytes):
     """
-    Send a custom LED array command using LED_FLASH_CMD.
+    Send a custom LED array command using LED_CMD.
     
     Args:
         data: Custom LED array data bytes (e.g., b'\x05\x12\x00\x05' followed by square indices)
     """
-    controller.sendCommand(command.LED_FLASH_CMD, data)
+    controller.sendCommand(command.LED_CMD, data)
 
 def shutdown(reboot=False):
     """

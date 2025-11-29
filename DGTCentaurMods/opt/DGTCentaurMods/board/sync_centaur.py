@@ -64,10 +64,9 @@ COMMANDS: Dict[str, CommandSpec] = {
     "SOUND_WRONG":            CommandSpec(0xb1, None, b'\x4e\x0c\x48\x10'),
     "SOUND_WRONG_MOVE":       CommandSpec(0xb1, None, b'\x48\x08'),
     "DGT_SLEEP":              CommandSpec(0xb2, 0xB1, b'\x0a'),
-    "LED_OFF_CMD":            CommandSpec(0xb0, None, b'\x00'),
-    "LED_FLASH_CMD":          CommandSpec(0xb0, None, b'\x05\x0a\x00\x01'),
-    "DGT_NOTIFY_EVENTS_58":      CommandSpec(0x58),
-    "DGT_NOTIFY_EVENTS_43":      CommandSpec(0x43),
+    "LED_CMD":          CommandSpec(0xb0),
+    "DGT_NOTIFY_EVENTS_58":   CommandSpec(0x58),
+    "DGT_NOTIFY_EVENTS_43":   CommandSpec(0x43),
     "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90),
     "DGT_SEND_TRADEMARK":     CommandSpec(0x97, 0xb4),
 }
@@ -86,7 +85,7 @@ DGT_BUS_SEND_CHANGES_RESP = COMMANDS["DGT_BUS_SEND_CHANGES"].expected_resp_type
 DGT_BUS_SEND_STATE_RESP = COMMANDS["DGT_BUS_SEND_STATE"].expected_resp_type
 DGT_BUS_POLL_KEYS_RESP = COMMANDS["DGT_BUS_POLL_KEYS"].expected_resp_type
 
-# Export name namespace for commands, e.g. command.LED_OFF_CMD -> "LED_OFF_CMD"
+# Export name namespace for commands, e.g. command.LED_CMD -> "LED_CMD"
 command = SimpleNamespace(**{name: name for name in COMMANDS.keys()})
 
 DGT_NOTIFY_EVENTS = None # command.DGT_NOTIFY_EVENTS_43
@@ -731,11 +730,11 @@ class SyncCentaur:
         Send a packet to the board using a command name.
         
         Args:
-            command_name: command name in COMMANDS (e.g., "LED_OFF_CMD")
+            command_name: command name in COMMANDS (e.g., "LED_CMD")
             data: bytes for data payload; if None, use default_data from the named command if available
         """
         if not isinstance(command_name, str):
-            raise TypeError("sendPacket requires a command name (str), e.g. command.LED_OFF_CMD")
+            raise TypeError("sendPacket requires a command name (str), e.g. command.LED_CMD")
         spec = CMD_BY_NAME.get(command_name)
         if not spec:
             raise KeyError(f"Unknown command name: {command_name}")
@@ -752,12 +751,12 @@ class SyncCentaur:
         Queue a command to be sent asynchronously without waiting for a response.
         
         Args:
-            command_name: command name in COMMANDS (e.g., "LED_OFF_CMD")
+            command_name: command name in COMMANDS (e.g., "LED_CMD")
             data: bytes for data payload; if None, use default_data from the named command if available
             timeout: timeout for the command execution (used internally, not returned to caller)
         """
         if not isinstance(command_name, str):
-            raise TypeError("sendCommand2 requires a command name (str), e.g. command.LED_OFF_CMD")
+            raise TypeError("sendCommand2 requires a command name (str), e.g. command.LED_CMD")
         spec = CMD_BY_NAME.get(command_name)
         if not spec:
             raise KeyError(f"Unknown command name: {command_name}")
@@ -921,18 +920,17 @@ class SyncCentaur:
         self.sendCommand(sound_name)
     
     def ledsOff(self):
-        self.sendCommand(command.LED_OFF_CMD)
+        data = bytearray([0x00])
+        self.sendCommand(command.LED_CMD, data)
     
     def ledArray(self, inarray, speed=3, intensity=5, repeat=0):
-        data = bytearray([0x04])
-        # data.append(speed)
-        data.append(0x7F)
+        data = bytearray([0x05])
+        data.append(speed)
         data.append(repeat)
-        # data.append(intensity)
-        data.append(0x66)
+        data.append(intensity)
         for i in range(0, len(inarray)):
             data.append(inarray[i])
-        self.sendCommand(command.LED_FLASH_CMD, data)
+        self.sendCommand(command.LED_CMD, data)
     
     def ledFromTo(self, lfrom, lto, intensity=5, speed=3, repeat=0):
         data = bytearray([0x05])
@@ -941,16 +939,17 @@ class SyncCentaur:
         data.append(intensity)
         data.append(lfrom)
         data.append(lto)
-        self.sendCommand(command.LED_FLASH_CMD, data)
+        self.sendCommand(command.LED_CMD, data)
     
     def led(self, num, intensity=5):
         data = bytearray([0x05, 0x00, 0x00])
         data.append(intensity)
         data.append(num)
-        self.sendCommand(command.LED_FLASH_CMD, data)
+        self.sendCommand(command.LED_CMD, data)
     
     def ledFlash(self):
-        self.sendCommand(command.LED_FLASH_CMD)
+        data = bytearray([0x05, 0x0a, 0x00, 0x01])
+        self.sendCommand(command.LED_CMD, data)
     
     def sleep(self):
         """Sleep the controller"""
