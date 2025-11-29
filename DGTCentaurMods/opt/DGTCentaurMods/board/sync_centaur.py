@@ -926,7 +926,7 @@ class SyncCentaur:
     def ledArray(self, inarray, speed=3, intensity=5):
         data = bytearray([0x05])
         data.append(speed)
-        data.append(0)
+        data.append(1)
         data.append(intensity)
         for i in range(0, len(inarray)):
             data.append(inarray[i])
@@ -943,8 +943,6 @@ class SyncCentaur:
         data = bytearray([0x05, 0x0a, 0x01])
         data.append(intensity)
         data.append(num)
-        data.append(num + 1)
-        data.append(num + 2)
         self.sendCommand(command.LED_FLASH_CMD, data)
     
     def ledFlash(self):
