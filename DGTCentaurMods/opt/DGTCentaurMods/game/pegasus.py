@@ -332,11 +332,11 @@ class UARTRXCharacteristic(Characteristic):
         if len(bytes) == 4:
             if bytes[0] == 96 and bytes[1] == 2 and bytes[2] == 0 and bytes[3] == 0:
                 # ledsOff
-                log.info("leds off")
-                board.ledsOff()
+                # log.info("leds off")
+                # board.ledsOff()
                 # Let's report the battery status here - 0x58 (or presumably higher as there is rounding) = 100%
                 # As I can't read centaur battery percentage here - fake it
-                self.sendMessage(DGT_MSG_BATTERY_STATUS, [0x58,0,0,0,0,0,0,0,2])
+                # self.sendMessage(DGT_MSG_BATTERY_STATUS, [0x58,0,0,0,0,0,0,0,2])
                 processed=1
         if processed == 0 and bytes[0] == 96:
             # LEDS control from mobile app
