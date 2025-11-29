@@ -195,10 +195,9 @@ def shutdown(reboot=False):
     # LED cascade pattern h8→h1 (squares 7 down to 0)
     try:
         for i in range(7, -1, -1):
-            led(i, repeat=0)
+            led(i, repeat=1)
             time.sleep(0.2)
-        # All LEDs off at end
-        ledsOff()
+
     except Exception as e:
         log.error(f"LED pattern failed during shutdown: {e}")
     
@@ -286,6 +285,16 @@ def getBoardState(max_retries=2, retry_delay=0.1):
         else:
             log.error(f"[board.getBoardState] All {max_retries + 1} attempts failed (timeout or checksum failure)")
     return None
+
+def getSerialNumber():
+    """
+    Get the serial number from the DGT Centaur.
+    
+    Returns:
+        bytes: Serial number data or None if request fails
+    """
+    _serial_number = controller.getBoardMeta()
+    return _serial_number
 
 def getChessState(field=None):
    # Transform: raw index i maps to chess index
