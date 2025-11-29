@@ -458,15 +458,18 @@ def millennium_to_client():
                 data = millennium_sock.recv(1024)
                 if len(data) > 0:
                     data_bytes = bytearray(data)
-                    log.info(f"MILLENNIUM -> Client: {' '.join(f'{b:02x}' for b in data_bytes)}")
+                    log.warning(f"MILLENNIUM -> Client: {' '.join(f'{b:02x}' for b in data_bytes)} <------------------------------------")
                     log.debug(f"MILLENNIUM -> Client (ASCII): {data_bytes.decode('utf-8', errors='replace')}")
                     
                     if _last_message is not None:
                         if _last_message == data_bytes:
-                            log.warning(f"[millennium_to_client] _last_message is the same as data_bytes")
+                            log.warning(f"[millennium_to_client] _last_message is the same as data_bytes <------------------------------------")
                         else:
-                            log.warning(f"[millennium_to_client] _last_message is different from data_bytes")
+                            log.error(f"[millennium_to_client] _last_message is different from data_bytes <------------------------------------")
+                        log.warning(f"[millennium_to_client] _last_message={' '.join(f'{b:02x}' for b in _last_message)} <------------------------------------")
                         _last_message = None
+                    else:
+                        log.error(f"[millennium_to_client] _last_message is None <------------------------------------")
 
                     # Write to RFCOMM client
                     if client_connected and client_sock is not None:
