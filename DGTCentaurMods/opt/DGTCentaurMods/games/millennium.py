@@ -467,8 +467,7 @@ class Millennium:
             if len(chess_indexes) == 2:
                 board.ledFromTo(chess_indexes[0], chess_indexes[1], 5)
             elif len(chess_indexes) > 2:
-                # board.ledArray(chess_indexes)
-                board.led(chess_indexes[0], 5)
+                board.ledArray(chess_indexes)
             else:
                 board.ledsOff()
 
