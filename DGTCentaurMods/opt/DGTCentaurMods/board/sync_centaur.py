@@ -928,7 +928,7 @@ class SyncCentaur:
         data.append(speed)
         data.append(repeat)
         # data.append(intensity)
-        data.append(0x33)
+        data.append(0xFF)
         for i in range(0, len(inarray)):
             data.append(inarray[i])
         self.sendCommand(command.LED_FLASH_CMD, data)
