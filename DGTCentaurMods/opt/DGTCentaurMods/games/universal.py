@@ -28,108 +28,96 @@ from DGTCentaurMods.games.pegasus import Pegasus
 import chess
 
 
-def _key_callback(key):
-    """Handle key press events from the board.
+class Universal:
+    """Universal game handler that supports multiple protocols (Millennium, Pegasus)."""
     
-    Args:
-        key: The key that was pressed (board.Key enum value)
-    """
-    try:
-        log.info(f"[Millennium] Key event: {key}")
-    except Exception as e:
-        log.error(f"[Millennium] Error in key callback: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-def _field_callback(piece_event, field, time_in_seconds):
-    """Handle field events (piece lift/place) from the board.
+    def __init__(self):
+        """Initialize the Universal handler with Millennium and Pegasus parsers."""
+        self._millennium = Millennium()
+        self._pegasus = Pegasus()
     
-    Args:
-        piece_event: 0 for LIFT, 1 for PLACE
-        field: Chess square index (0=a1, 63=h8)
-        time_in_seconds: Time from packet
-    """
-    try:
-        event_type = "LIFT" if piece_event == 0 else "PLACE"
-        field_name = chess.square_name(field)
-        log.info(f"[Millennium] Field event: {event_type} on field {field} ({field_name}), time={time_in_seconds}")
-    except Exception as e:
-        log.error(f"[Millennium] Error in field callback: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-
-# Global Millennium handler instance
-_millennium = Millennium()
-_pegasus = Pegasus()
-
-def receive_data(byte_value):
-    """Receive one byte of data and parse packet.
-    
-    This function implements a packet parser that handles:
-    - Odd parity stripping (MSB parity bit)
-    - ASCII payload accumulation
-    - XOR CRC verification (last 2 ASCII hex digits)
-    
-    When a valid packet is received, it automatically calls the packet handler.
-    
-    Args:
-        byte_value: Raw byte value from wire (with possible odd parity bit)
+    def _key_callback(self, key):
+        """Handle key press events from the board.
         
-    Returns:
-        Tuple (packet_type, payload, is_complete) where:
-        - packet_type: First byte of payload (message type) as integer, or None
-        - payload: List of ASCII character values (0-127), or None
-        - is_complete: True if packet is complete and CRC valid, False otherwise
+        Args:
+            key: The key that was pressed (board.Key enum value)
+        """
+        try:
+            log.info(f"[Millennium] Key event: {key}")
+        except Exception as e:
+            log.error(f"[Millennium] Error in key callback: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _field_callback(self, piece_event, field, time_in_seconds):
+        """Handle field events (piece lift/place) from the board.
         
-    Example:
-        # Receive bytes one at a time
-        for byte in byte_stream:
-            packet_type, payload, is_complete = receive_data(byte)
-            if is_complete:
-                # Packet handler is automatically called
-                log.info(f"Received packet type {packet_type}, payload: {payload}")
-    """
-    if _millennium.parse_byte(byte_value):
-        is_millennium = True
-    elif _pegasus.parse_byte(byte_value):
-        is_pegasus = True
-    else:
-        is_millennium = False
-        is_pegasus = False
+        Args:
+            piece_event: 0 for LIFT, 1 for PLACE
+            field: Chess square index (0=a1, 63=h8)
+            time_in_seconds: Time from packet
+        """
+        try:
+            event_type = "LIFT" if piece_event == 0 else "PLACE"
+            field_name = chess.square_name(field)
+            log.info(f"[Millennium] Field event: {event_type} on field {field} ({field_name}), time={time_in_seconds}")
+        except Exception as e:
+            log.error(f"[Millennium] Error in field callback: {e}")
+            import traceback
+            traceback.print_exc()
 
+    def receive_data(self, byte_value):
+        """Receive one byte of data and parse packet.
+        
+        This function implements a packet parser that handles:
+        - Odd parity stripping (MSB parity bit)
+        - ASCII payload accumulation
+        - XOR CRC verification (last 2 ASCII hex digits)
+        
+        When a valid packet is received, it automatically calls the packet handler.
+        
+        Args:
+            byte_value: Raw byte value from wire (with possible odd parity bit)
+            
+        Returns:
+            Tuple (packet_type, payload, is_complete) where:
+            - packet_type: First byte of payload (message type) as integer, or None
+            - payload: List of ASCII character values (0-127), or None
+            - is_complete: True if packet is complete and CRC valid, False otherwise
+            
+        Example:
+            # Receive bytes one at a time
+            for byte in byte_stream:
+                packet_type, payload, is_complete = receive_data(byte)
+                if is_complete:
+                    # Packet handler is automatically called
+                    log.info(f"Received packet type {packet_type}, payload: {payload}")
+        """
+        if self._millennium.parse_byte(byte_value):
+            is_millennium = True
+        elif self._pegasus.parse_byte(byte_value):
+            is_pegasus = True
+        else:
+            is_millennium = False
+            is_pegasus = False
 
-def reset_parser():
-    """Reset the packet parser state.
-    
-    Clears any accumulated buffer and resets parser to initial state.
-    Useful when starting a new communication session or recovering from errors.
-    """
-    _millennium.reset_parser()
-    _pegasus.reset()
+    def reset_parser(self):
+        """Reset the packet parser state.
+        
+        Clears any accumulated buffer and resets parser to initial state.
+        Useful when starting a new communication session or recovering from errors.
+        """
+        self._millennium.reset_parser()
+        self._pegasus.reset()
 
-
-def subscribe():
-    """Subscribe to board events and start logging."""
-    try:
-        log.info("[Millennium] Subscribing to board events")
-        board.subscribeEvents(_key_callback, _field_callback, timeout=100000)
-        log.info("[Millennium] Successfully subscribed to board events")
-    except Exception as e:
-        log.error(f"[Millennium] Failed to subscribe to board events: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-if __name__ == "__main__":
-    subscribe()
-    # Keep the script running
-    import time
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        log.info("[Millennium] Exiting...")
+    def subscribe(self):
+        """Subscribe to board events and start logging."""
+        try:
+            log.info("[Millennium] Subscribing to board events")
+            board.subscribeEvents(self._key_callback, self._field_callback, timeout=100000)
+            log.info("[Millennium] Successfully subscribed to board events")
+        except Exception as e:
+            log.error(f"[Millennium] Failed to subscribe to board events: {e}")
+            import traceback
+            traceback.print_exc()
 
