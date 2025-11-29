@@ -216,9 +216,14 @@ class Millennium:
     
     FILES = "abcdefgh"
     
-    def __init__(self):
-        """Initialize the Millennium handler."""
+    def __init__(self, sendMessage_callback=None):
+        """Initialize the Millennium handler.
+        
+        Args:
+            sendMessage_callback: Optional callback function(data) for sending messages
+        """
         self.packet_parser = PacketParser()
+        self.sendMessage = sendMessage_callback
     
     def _hex_char_to_value(self, char_value):
         """Convert ASCII hex character to integer value.
@@ -297,6 +302,10 @@ class Millennium:
 
         log.info(f"[Millennium] Encoded command (bytes): {' '.join(f'{b:02x}' for b in encoded)}")
         log.debug(f"[Millennium] Encoded command (ASCII): {packet_str}")
+        if self.sendMessage is not None:
+            self.sendMessage(encoded)
+        else:
+            log.error(f"[Millennium] No sendMessage callback provided")
         return encoded
     
     def square_to_index(self, sq: str) -> int:

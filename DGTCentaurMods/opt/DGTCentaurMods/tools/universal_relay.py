@@ -110,25 +110,17 @@ class UARTAdvertisement(Advertisement):
             log.error(traceback.format_exc())
 
 
-def sendMessage(messageType, data):
+def sendMessage(data):
     """Send a message via BLE or BT classic.
     
     Args:
-        messageType: Message type byte
-        data: Message data bytes
+        data: Message data bytes (already formatted with messageType, length, payload)
     """
-    log.info(f"[sendMessage] messageType=0x{messageType:02X}, data={' '.join(f'{b:02x}' for b in data)}")
+    log.warning(f"[sendMessage CALLBACK] data={' '.join(f'{b:02x}' for b in data)}")
     
-    # Format: messageType, length_hi, length_lo, data...
-    tosend = bytearray()
-    tosend.append(messageType)
-    total_len = len(data) + 3
-    lo = total_len & 127
-    hi = (total_len >> 7) & 127
-    tosend.append(hi)
-    tosend.append(lo)
-    for x in range(0, len(data)):
-        tosend.append(data[x])
+    return
+    # Data is already formatted, use it directly
+    tosend = bytearray(data)
     
     # Send via BLE if connected
     if UARTService.tx_obj is not None and UARTService.tx_obj.notifying:

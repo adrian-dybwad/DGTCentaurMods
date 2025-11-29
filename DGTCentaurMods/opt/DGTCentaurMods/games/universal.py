@@ -35,10 +35,10 @@ class Universal:
         """Initialize the Universal handler with Millennium and Pegasus parsers.
         
         Args:
-            sendMessage_callback: Optional callback function(messageType, data) for sending messages
+            sendMessage_callback: Optional callback function(data) for sending messages
         """
-        self._millennium = Millennium()
-        self._pegasus = Pegasus()
+        self._millennium = Millennium(sendMessage_callback=sendMessage_callback)
+        self._pegasus = Pegasus(sendMessage_callback=sendMessage_callback)
         self.sendMessage = sendMessage_callback
     
     def _key_callback(self, key):

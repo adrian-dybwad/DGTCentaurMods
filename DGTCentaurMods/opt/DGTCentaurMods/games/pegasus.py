@@ -51,10 +51,15 @@ class Pegasus:
     # Create namespace for accessing commands by name (e.g., command.LED_CONTROL -> 0x60)
     command = SimpleNamespace(**{name: hex_val for hex_val, name in COMMANDS.items()})
     
-    def __init__(self):
-        """Initialize the Pegasus handler."""
+    def __init__(self, sendMessage_callback=None):
+        """Initialize the Pegasus handler.
+        
+        Args:
+            sendMessage_callback: Optional callback function(data) for sending messages
+        """
         self.buffer = []
         self.state = "WAITING_FOR_INITIAL"
+        self.sendMessage = sendMessage_callback
     
     def begin(self):
         """Called when the initial packet sequence is received."""
