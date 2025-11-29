@@ -23,6 +23,7 @@
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
+from types import SimpleNamespace
 import time
 
 
@@ -36,23 +37,23 @@ class Pegasus:
     """
     
     # Valid command types mapped to their names
-    VALID_COMMANDS = {
+    COMMANDS = {
         0x60: "LED_CONTROL",
         0x63: "DEVELOPER_KEY",
+        0x40: "INITIAL_COMMAND",
     }
     
-    # Initial packet sequence
-    # INITIAL_PACKET = bytes([# Android Chess includes these: 0x40, 0x60, 0x02, 0x00, 0x00, 
-    #                         0x63, 0x07, 0x8e, 
-    #                         0x87, 0xb0, 0x18, 0xb6, 0xf4, 0x00, 0x5a, 0x47, 
-    #                         0x42, 0x44])
-    INITIAL_PACKET = bytes([0x40])
-
+    # Reverse mapping: name -> hex value
+    COMMAND_BY_NAME = {name: hex_val for hex_val, name in COMMANDS.items()}
+    
+    # Export command hex values as constants (e.g., LED_CONTROL = 0x60)
+    # Create namespace for accessing commands by name (e.g., command.LED_CONTROL -> 0x60)
+    command = SimpleNamespace(**{name: hex_val for hex_val, name in COMMANDS.items()})
+    
     def __init__(self):
         """Initialize the Pegasus handler."""
         self.buffer = []
         self.state = "WAITING_FOR_INITIAL"
-        self.initial_packet_index = 0
     
     def begin(self):
         """Called when the initial packet sequence is received."""
@@ -143,20 +144,11 @@ class Pegasus:
         """
         try:
             if self.state == "WAITING_FOR_INITIAL":
-                # Check if this byte matches the expected byte in the initial packet
-                if byte_value == self.INITIAL_PACKET[self.initial_packet_index]:
-                    self.initial_packet_index += 1
-                    # Check if we've received the complete initial packet
-                    if self.initial_packet_index == len(self.INITIAL_PACKET):
-                        # Initial packet complete
-                        self.begin()
-                        return True
-                else:
-                    # Byte doesn't match, reset to start of initial packet
-                    self.initial_packet_index = 0
-                    # Check if this byte could be the start of the initial packet
-                    if byte_value == self.INITIAL_PACKET[0]:
-                        self.initial_packet_index = 1
+                # Check if this byte matches the initial command
+                if byte_value == self.command.INITIAL_COMMAND:
+                    # Initial command received
+                    self.begin()
+                    return True
                 return False
             
             elif self.state == "WAITING_FOR_PACKET":
@@ -193,7 +185,7 @@ class Pegasus:
                                 packet_type = int(self.buffer[i - 1])
                                 
                                 # Only accept packets with valid command types
-                                if packet_type not in self.VALID_COMMANDS:
+                                if packet_type not in self.COMMANDS:
                                     # Not a valid command, continue looking backwards
                                     continue
                                 
@@ -212,7 +204,7 @@ class Pegasus:
                                     log.info(f"[Pegasus] ORPHANED bytes before packet: {' '.join(f'{b:02x}' for b in orphaned_bytes)}")
                                 
                                 # Log the command name
-                                command_name = self.VALID_COMMANDS[packet_type]
+                                command_name = self.COMMANDS[packet_type]
                                 log.debug(f"[Pegasus] Valid command detected: 0x{packet_type:02X} ({command_name})")
                                 
                                 # Clear buffer
@@ -240,9 +232,7 @@ class Pegasus:
             import traceback
             traceback.print_exc()
             # Reset parser state on error
-            if self.state == "WAITING_FOR_INITIAL":
-                self.initial_packet_index = 0
-            elif self.state == "WAITING_FOR_PACKET":
+            if self.state == "WAITING_FOR_PACKET":
                 self.buffer = []
             return False
     
@@ -250,5 +240,4 @@ class Pegasus:
         """Reset parser state."""
         self.buffer = []
         self.state = "WAITING_FOR_INITIAL"
-        self.initial_packet_index = 0
 
