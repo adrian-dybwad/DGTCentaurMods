@@ -923,19 +923,19 @@ class SyncCentaur:
     def ledsOff(self):
         self.sendCommand(command.LED_OFF_CMD)
     
-    def ledArray(self, inarray, speed=3, intensity=5):
-        data = bytearray([0x05, 0x0a, 0x01])
-        # data.append(speed)
-        # data.append(0)
+    def ledArray(self, inarray, speed=3, intensity=5, repeat=0):
+        data = bytearray([0x05])
+        data.append(speed)
+        data.append(repeat)
         data.append(intensity)
         for i in range(0, len(inarray)):
             data.append(inarray[i])
         self.sendCommand(command.LED_FLASH_CMD, data)
     
-    def ledFromTo(self, lfrom, lto, intensity=5, speed=3):
+    def ledFromTo(self, lfrom, lto, intensity=5, speed=3, repeat=0):
         data = bytearray([0x05])
         data.append(speed)
-        data.append(0)
+        data.append(repeat)
         data.append(intensity)
         data.append(lfrom)
         data.append(lto)
