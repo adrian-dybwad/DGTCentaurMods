@@ -932,7 +932,7 @@ class SyncCentaur:
             data.append(inarray[i])
         self.sendCommand(command.LED_CMD, data)
     
-    def ledFromTo(self, lfrom, lto, intensity=5, speed=3, repeat=0):
+    def ledFromTo(self, lfrom, lto, intensity=5, speed=3, repeat=1):
         data = bytearray([0x05])
         data.append(speed)
         data.append(repeat)
@@ -941,14 +941,19 @@ class SyncCentaur:
         data.append(lto)
         self.sendCommand(command.LED_CMD, data)
     
-    def led(self, num, intensity=5):
-        data = bytearray([0x05, 0x00, 0x00])
+    def led(self, num, intensity=5, speed=3, repeat=1):
+        data = bytearray([0x05])
+        data.append(speed)
+        data.append(repeat)
         data.append(intensity)
         data.append(num)
         self.sendCommand(command.LED_CMD, data)
     
-    def ledFlash(self):
-        data = bytearray([0x05, 0x0a, 0x00, 0x01])
+    def ledFlash(self, speed=3, repeat=1, intensity=5):
+        data = bytearray([0x05]) # , 0x0a, 0x00, 0x01
+        data.append(speed)
+        data.append(repeat)
+        data.append(intensity)
         self.sendCommand(command.LED_CMD, data)
     
     def sleep(self):
