@@ -41,6 +41,7 @@ class Pegasus:
         0x60: "LED_CONTROL",
         0x63: "DEVELOPER_KEY",
         0x40: "INITIAL_COMMAND",
+        0x45: "SERIAL_NUMBER",
     }
     
     # Reverse mapping: name -> hex value
@@ -61,6 +62,84 @@ class Pegasus:
         self.state = "WAITING_FOR_PACKET"
         board.ledsOff()
     
+    def led_control(self, payload):
+        """Handle LED control packet.
+        
+        Args:
+            payload: List of payload bytes
+            
+        Returns:
+            True if handled successfully, False otherwise
+        """
+        # LEDS control from mobile app
+        # Format: 96, [len-2], 5, speed, mode, intensity, fields..., 0
+        log.info(f"[Pegasus LED packet] raw: {' '.join(f'{b:02x}' for b in payload)}")
+        if payload[0] == 2:
+            if payload[1] == 0 and payload[2] == 0:
+                board.ledsOff()
+                log.info("[Pegasus board] ledsOff() because mode==2")
+                return True
+            else:
+                log.info("[Pegasus board] unsupported mode==2 but payload 1, 2 is not 00 00")
+                return False
+        elif payload[0] == 5:
+            ledspeed_in = int(payload[1])
+            mode = int(payload[2])
+            intensity_in = int(payload[3])
+            fields_hw = []
+            for x in range(4, len(payload)):
+                fields_hw.append(int(payload[x]))
+            # Map Pegasus/firmware index to board API index
+            def hw_to_board(i):
+                return (7 - (i // 8)) * 8 + (i % 8)
+            fields_board = [hw_to_board(f) for f in fields_hw]
+            log.info(f"[Pegasus LED packet] speed_in={ledspeed_in} intensity_in={intensity_in}")
+            # Scale intensity: intensity_in 10-0 maps to intensity 1,2,3,4,5,6,7,8,9,0
+            # Formula: intensity = 11 - intensity_in, with special cases for 0 and 1
+            if intensity_in == 0:
+                intensity = 0
+            elif intensity_in == 1:
+                intensity = 0
+            else:
+                intensity = 11 - intensity_in
+            # Clamp intensity to valid range 0-10
+            intensity = max(0, min(10, intensity))
+            ledspeed = max(1, min(100, ledspeed_in))
+            log.info(f"[Pegasus LED packet] speed={ledspeed} mode={mode} intensity={intensity} hw={fields_hw} -> board={fields_board}")
+            try:
+                if len(fields_board) == 0:
+                    board.ledsOff()
+                    log.info("[Pegasus board] ledsOff()")
+                elif len(fields_board) == 1:
+                    board.led(fields_board[0], intensity=intensity, speed=ledspeed, repeat=0)
+                    log.info(f"[Pegasus board] led({fields_board[0]})")
+                else:
+                    board.ledArray(fields_board, intensity=intensity, speed=ledspeed, repeat=0)
+                    log.info(f"[Pegasus board] ledArray({fields_board}, intensity={intensity}) mode={mode}")
+                    # if mode == 1:
+                    #     time.sleep(0.5)
+                    #     log.info("[Pegasus board] ledsOff() because mode==1")
+                    #     board.ledsOff()
+                return True
+            except Exception as e:
+                log.info(f"[Pegasus LED packet] error driving LEDs: {e}")
+                return False
+        else:
+            log.info(f"[Pegasus LED packet] unsupported mode={payload[0]}")
+            return False
+    
+    def serial_number(self, payload):
+        """Handle serial number packet.
+        
+        Args:
+            payload: List of payload bytes
+            
+        Returns:
+            True if handled successfully, False otherwise
+        """
+        log.info(f"[Pegasus Serial number] raw: {' '.join(f'{b:02x}' for b in payload)}")
+        return True
+    
     def handle_packet(self, packet_type, payload):
         """Handle a parsed packet.
         
@@ -69,67 +148,14 @@ class Pegasus:
             payload: List of payload bytes
         """
         log.info(f"[Pegasus] Received packet: type=0x{packet_type:02X}, payload_len={len(payload)}, payload={' '.join(f'{b:02x}' for b in payload)}")
-        if packet_type == 99:
+        if packet_type == self.command.DEVELOPER_KEY:
             # Developer key registration
             log.info(f"[Pegasus Developer key] raw: {' '.join(f'{b:02x}' for b in payload)}")
             return True
-        elif packet_type == 96:
-            # LEDS control from mobile app
-            # Format: 96, [len-2], 5, speed, mode, intensity, fields..., 0
-            log.info(f"[Pegasus LED packet] raw: {' '.join(f'{b:02x}' for b in payload)}")
-            if payload[0] == 2:
-                if payload[1] == 0 and payload[2] == 0:
-                    board.ledsOff()
-                    log.info("[Pegasus board] ledsOff() because mode==2")
-                    return True
-                else:
-                    log.info("[Pegasus board] unsupported mode==2 but payload 1, 2 is not 00 00")
-                    return False
-            elif payload[0] == 5:
-                ledspeed_in = int(payload[1])
-                mode = int(payload[2])
-                intensity_in = int(payload[3])
-                fields_hw = []
-                for x in range(4, len(payload)):
-                    fields_hw.append(int(payload[x]))
-                # Map Pegasus/firmware index to board API index
-                def hw_to_board(i):
-                    return (7 - (i // 8)) * 8 + (i % 8)
-                fields_board = [hw_to_board(f) for f in fields_hw]
-                log.info(f"[Pegasus LED packet] speed_in={ledspeed_in} intensity_in={intensity_in}")
-                # Scale intensity: intensity_in 10-0 maps to intensity 1,2,3,4,5,6,7,8,9,0
-                # Formula: intensity = 11 - intensity_in, with special cases for 0 and 1
-                if intensity_in == 0:
-                    intensity = 0
-                elif intensity_in == 1:
-                    intensity = 0
-                else:
-                    intensity = 11 - intensity_in
-                # Clamp intensity to valid range 0-10
-                intensity = max(0, min(10, intensity))
-                ledspeed = max(1, min(100, ledspeed_in))
-                log.info(f"[Pegasus LED packet] speed={ledspeed} mode={mode} intensity={intensity} hw={fields_hw} -> board={fields_board}")
-                try:
-                    if len(fields_board) == 0:
-                        board.ledsOff()
-                        log.info("[Pegasus board] ledsOff()")
-                    elif len(fields_board) == 1:
-                        board.led(fields_board[0], intensity=intensity, speed=ledspeed, repeat=0)
-                        log.info(f"[Pegasus board] led({fields_board[0]})")
-                    else:
-                        board.ledArray(fields_board, intensity=intensity, speed=ledspeed, repeat=0)
-                        log.info(f"[Pegasus board] ledArray({fields_board}, intensity={intensity}) mode={mode}")
-                        # if mode == 1:
-                        #     time.sleep(0.5)
-                        #     log.info("[Pegasus board] ledsOff() because mode==1")
-                        #     board.ledsOff()
-                    return True
-                except Exception as e:
-                    log.info(f"[Pegasus LED packet] error driving LEDs: {e}")
-                    return False
-            else:
-                log.info(f"[Pegasus LED packet] unsupported mode={payload[0]}")
-                return False
+        elif packet_type == self.command.LED_CONTROL:
+            return self.led_control(payload)
+        elif packet_type == self.command.SERIAL_NUMBER:
+            return self.serial_number(payload)
         else:
             log.info(f"[Pegasus] unsupported packet type={packet_type}")
             return False
