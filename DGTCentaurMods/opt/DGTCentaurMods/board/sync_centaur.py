@@ -926,7 +926,7 @@ class SyncCentaur:
     def ledArray(self, inarray, speed=3, intensity=5, repeat=0):
         data = bytearray([0x04])
         # data.append(speed)
-        data.append(0x66)
+        data.append(0xFF)
         data.append(repeat)
         # data.append(intensity)
         data.append(0x66)
