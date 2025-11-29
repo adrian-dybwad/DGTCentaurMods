@@ -23,6 +23,7 @@
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.games.state import State
 import chess
 
 
@@ -224,6 +225,7 @@ class Millennium:
         """
         self.packet_parser = PacketParser()
         self.sendMessage = sendMessage_callback
+        self.state = State()
     
     def _hex_char_to_value(self, char_value):
         """Convert ASCII hex character to integer value.
@@ -432,7 +434,7 @@ class Millennium:
             payload: List of ASCII character values in the payload
         """
         #log.info(f"[Millennium] Handling S packet: payload={payload}")
-        self.encode_millennium_command("s")
+        self.encode_millennium_command("s" + self.state.getFEN(format=True))
     
     def handle_l(self, payload):
         """Handle packet type 'L' - LED control.
