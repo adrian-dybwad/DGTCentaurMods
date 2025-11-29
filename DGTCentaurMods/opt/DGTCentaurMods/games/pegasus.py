@@ -35,6 +35,12 @@ class Pegasus:
     - Note: length byte includes payload + terminator (not including the length byte itself)
     """
     
+    # Valid command types mapped to their names
+    VALID_COMMANDS = {
+        0x60: "LED_CONTROL",
+        0x63: "DEVELOPER_KEY",
+    }
+    
     # Initial packet sequence
     # INITIAL_PACKET = bytes([# Android Chess includes these: 0x40, 0x60, 0x02, 0x00, 0x00, 
     #                         0x63, 0x07, 0x8e, 
@@ -175,6 +181,12 @@ class Pegasus:
                             # Type should be at position i - 1
                             if i > 0:
                                 packet_type = int(self.buffer[i - 1])
+                                
+                                # Only accept packets with valid command types
+                                if packet_type not in self.VALID_COMMANDS:
+                                    # Not a valid command, continue looking backwards
+                                    continue
+                                
                                 packet_length = int(candidate_length)
                                 
                                 # Payload is everything between length and terminator
@@ -188,6 +200,10 @@ class Pegasus:
                                 # Log orphaned bytes if any
                                 if orphaned_bytes:
                                     log.info(f"[Pegasus] ORPHANED bytes before packet: {' '.join(f'{b:02x}' for b in orphaned_bytes)}")
+                                
+                                # Log the command name
+                                command_name = self.VALID_COMMANDS[packet_type]
+                                log.debug(f"[Pegasus] Valid command detected: 0x{packet_type:02X} ({command_name})")
                                 
                                 # Clear buffer
                                 self.buffer = []
