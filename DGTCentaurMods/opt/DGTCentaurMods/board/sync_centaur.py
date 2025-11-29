@@ -942,7 +942,7 @@ class SyncCentaur:
         self.sendCommand(command.LED_FLASH_CMD, data)
     
     def led(self, num, intensity=5):
-        data = bytearray([0x05, 0x0a, 0x01])
+        data = bytearray([0x05, 0x0a, 0x00])
         data.append(intensity)
         data.append(num)
         self.sendCommand(command.LED_FLASH_CMD, data)
