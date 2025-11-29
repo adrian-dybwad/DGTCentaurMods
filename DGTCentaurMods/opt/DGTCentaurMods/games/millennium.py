@@ -483,15 +483,14 @@ class Millennium:
             else:
                 board.ledsOff()
 
-            log.debug(f"[Millennium] L packet: extracted {len(led)} LED codes (0x{' '.join(f'{b:02x}' for b in led)})")
+            if len(chess_indexes) > 0:
+                self.encode_millennium_command("s" + self.state.getFEN(format=True))
+            else:
+                self.encode_millennium_command("l")
         else:
             log.warning(f"[Millennium] L packet: payload too short for LED codes ({len(payload)} bytes), expected at least {2 + expected_led_bytes}")
-
-        log.warning(f"[Millennium] L packet: led={led}")
-        if len(led) > 0:
-            self.encode_millennium_command("s" + self.state.getFEN(format=True))
-        else:
             self.encode_millennium_command("l")
+
     
     def handle_x(self, payload):
         """Handle packet type 'X' - all LEDs off.
