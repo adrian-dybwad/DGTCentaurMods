@@ -27,7 +27,7 @@ except ImportError:
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board.bluetooth_controller import BluetoothController
-from DGTCentaurMods.games.universal import receive_data, reset_parser
+from DGTCentaurMods.games.universal import Universal
 from DGTCentaurMods.thirdparty.advertisement import Advertisement
 from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic
 from DGTCentaurMods.thirdparty.bletools import BleTools
@@ -38,6 +38,7 @@ kill = 0
 millennium_connected = False
 client_connected = False
 ble_connected = False
+universal = None  # Universal instance
 
 # Socket references
 millennium_sock = None
@@ -158,9 +159,11 @@ class UARTRXCharacteristic(Characteristic):
             except:
                 pass
 
-            # Process each byte through receive_data
-            for byte_val in bytes_data:
-                receive_data(byte_val)
+            # Process each byte through universal parser
+            global universal
+            if universal is not None:
+                for byte_val in bytes_data:
+                    universal.receive_data(byte_val)
             
             # Write to MILLENNIUM CHESS (if connected)
             if millennium_connected and millennium_sock is not None:
@@ -223,14 +226,17 @@ class UARTTXCharacteristic(Characteristic):
             UARTService.tx_obj = self
             self.notifying = True
 
-            # Reset parser on BLE connection
+            # Instantiate Universal and reset parser on BLE connection
+            global universal, ble_connected
             try:
-                reset_parser()
-                log.info("[Pegasus] Parser reset on BLE connection")
+                universal = Universal()
+                universal.reset_parser()
+                log.info("[Universal] Instantiated and parser reset on BLE connection")
             except Exception as e:
-                log.info(f"[Pegasus] Error resetting parser: {e}")
+                log.error(f"[Universal] Error instantiating or resetting parser: {e}")
+                import traceback
+                traceback.print_exc()
 
-            global ble_connected
             ble_connected = True
             log.info("BLE notifications enabled successfully")
             return self.notifying
@@ -473,9 +479,11 @@ def client_to_millennium():
                 log.info(f"Client -> MILLENNIUM: {' '.join(f'{b:02x}' for b in data_bytes)}")
                 log.debug(f"Client -> MILLENNIUM (ASCII): {data_bytes.decode('utf-8', errors='replace')}")
                 
-                # Process each byte through receive_data
-                for byte_val in data_bytes:
-                    receive_data(byte_val)
+                # Process each byte through universal parser
+                global universal
+                if universal is not None:
+                    for byte_val in data_bytes:
+                        universal.receive_data(byte_val)
                 
                 if millennium_sock is not None: 
                     try:
@@ -733,6 +741,17 @@ def main():
             connected = True
             client_connected = True
             log.info(f"Client connected from {client_info}")
+            
+            # Instantiate Universal on BT classic connection
+            global universal
+            try:
+                universal = Universal()
+                universal.reset_parser()
+                log.info("[Universal] Instantiated and parser reset on BT classic connection")
+            except Exception as e:
+                log.error(f"[Universal] Error instantiating or resetting parser: {e}")
+                import traceback
+                traceback.print_exc()
         except bluetooth.BluetoothError:
             # Timeout, check kill flag
             time.sleep(0.1)
