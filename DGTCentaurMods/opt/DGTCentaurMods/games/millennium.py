@@ -487,7 +487,10 @@ class Millennium:
         else:
             log.warning(f"[Millennium] L packet: payload too short for LED codes ({len(payload)} bytes), expected at least {2 + expected_led_bytes}")
 
-        self.encode_millennium_command("l")
+        if len(led) > 0:
+            self.encode_millennium_command("s" + self.state.getFEN(format=True))
+        else:
+            self.encode_millennium_command("l")
     
     def handle_x(self, payload):
         """Handle packet type 'X' - all LEDs off.
