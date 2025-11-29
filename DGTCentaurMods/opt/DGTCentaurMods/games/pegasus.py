@@ -97,16 +97,16 @@ class Pegasus:
                 fields_board = [hw_to_board(f) for f in fields_hw]
                 log.info(f"[Pegasus LED packet] speed={ledspeed} mode={mode} intensity={intensity_in} hw={fields_hw} -> board={fields_board}")
                 # Normalize intensity to 1..10 for board.* helpers
-                intensity = max(1, min(10, intensity_in))
+                intensity = max(1, min(20, intensity_in))
                 try:
                     if len(fields_board) == 0:
                         board.ledsOff()
                         log.info("[Pegasus board] ledsOff()")
                     elif len(fields_board) == 1:
-                        board.led(fields_board[0], intensity=intensity)
+                        board.led(fields_board[0], intensity=intensity, speed=ledspeed)
                         log.info(f"[Pegasus board] led({fields_board[0]})")
                     else:
-                        board.ledArray(fields_board, intensity=intensity)
+                        board.ledArray(fields_board, intensity=intensity, speed=ledspeed)
                         log.info(f"[Pegasus board] ledArray({fields_board}, intensity={intensity}) mode={mode}")
                         # if mode == 1:
                         #     time.sleep(0.5)
