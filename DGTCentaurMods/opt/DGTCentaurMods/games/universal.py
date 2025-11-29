@@ -31,10 +31,15 @@ import chess
 class Universal:
     """Universal game handler that supports multiple protocols (Millennium, Pegasus)."""
     
-    def __init__(self):
-        """Initialize the Universal handler with Millennium and Pegasus parsers."""
+    def __init__(self, sendMessage_callback=None):
+        """Initialize the Universal handler with Millennium and Pegasus parsers.
+        
+        Args:
+            sendMessage_callback: Optional callback function(messageType, data) for sending messages
+        """
         self._millennium = Millennium()
         self._pegasus = Pegasus()
+        self.sendMessage = sendMessage_callback
     
     def _key_callback(self, key):
         """Handle key press events from the board.
