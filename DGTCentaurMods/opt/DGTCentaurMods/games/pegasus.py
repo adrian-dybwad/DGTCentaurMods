@@ -85,9 +85,9 @@ class Pegasus:
                     log.info("[Pegasus board] unsupported mode==2 but payload 1, 2 is not 00 00")
                     return False
             elif payload[0] == 5:
-                ledspeed_in = int(payload[1]) * 4
+                ledspeed_in = int(payload[1]) * 5
                 mode = int(payload[2])
-                intensity_in = int(payload[3]) * 4
+                intensity_in = int(payload[3]) * 5
                 fields_hw = []
                 for x in range(4, len(payload)):
                     fields_hw.append(int(payload[x]))
@@ -97,8 +97,8 @@ class Pegasus:
                 fields_board = [hw_to_board(f) for f in fields_hw]
                 log.info(f"[Pegasus LED packet] speed_in={ledspeed_in} intensity_in={intensity_in}")
                 # Normalize intensity to 1..10 for board.* helpers
-                intensity = max(0, min(30, intensity_in))
-                ledspeed = max(0, min(30, ledspeed_in))
+                intensity = max(0, min(100, intensity_in))
+                ledspeed = max(1, min(100, ledspeed_in))
                 log.info(f"[Pegasus LED packet] speed={ledspeed} mode={mode} intensity={intensity} hw={fields_hw} -> board={fields_board}")
                 try:
                     if len(fields_board) == 0:
