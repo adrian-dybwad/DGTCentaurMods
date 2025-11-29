@@ -116,9 +116,7 @@ class Pegasus:
                         board.led(fields_board[0], intensity=intensity, speed=ledspeed)
                         log.info(f"[Pegasus board] led({fields_board[0]})")
                     else:
-                        for i in range(0, len(fields_board)):
-                            board.led(fields_board[i], intensity=intensity)
-                        # board.ledArray(fields_board, intensity=intensity, speed=ledspeed)
+                        board.ledArray(fields_board, intensity=intensity, speed=ledspeed)
                         log.info(f"[Pegasus board] ledArray({fields_board}, intensity={intensity}) mode={mode}")
                         # if mode == 1:
                         #     time.sleep(0.5)
