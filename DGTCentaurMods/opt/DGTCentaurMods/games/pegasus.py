@@ -207,8 +207,8 @@ class Pegasus:
                 if byte_value == self.command.INITIAL_COMMAND:
                     # Initial command received
                     self.begin()
-                return True
-            
+                    return True
+                return False
             elif self.state == "WAITING_FOR_PACKET":
                 # Add byte to buffer
                 self.buffer.append(byte_value)
