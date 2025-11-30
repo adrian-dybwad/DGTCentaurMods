@@ -644,9 +644,6 @@ class GameManager:
                 # Store piece color for forced moves too
                 self.move_state.source_piece_color = piece_color
 
-        if self.event_callback is not None:
-            self.event_callback(EVENT_LIFT_PIECE)
-
     def _handle_piece_place(self, field: int, piece_color):
         """Handle piece place event."""
         
@@ -986,6 +983,8 @@ class GameManager:
         # For PLACE events, use stored source piece color (important for captures)
         # where the destination square may have the opponent's piece
         if piece_event == 0:  # LIFT event
+            if self.event_callback is not None:
+                self.event_callback(EVENT_LIFT_PIECE)
             piece_color = self.chess_board.color_at(field)
         else:  # PLACE event
             if self.move_state.source_piece_color is not None:
