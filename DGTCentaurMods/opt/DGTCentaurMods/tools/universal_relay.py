@@ -1338,6 +1338,7 @@ def main():
     
     # Only start client_to_millennium thread for RFCOMM connections
     # BLE connections are handled via UARTRXCharacteristic.WriteValue
+    client_to_millennium_thread = None
     if connected and client_sock is not None:
         client_to_millennium_thread = threading.Thread(target=client_to_millennium, daemon=True)
         client_to_millennium_thread.start()
@@ -1365,8 +1366,8 @@ def main():
                     running = False
                     break
             
-            # Check if client_to_millennium thread is still alive
-            if not client_to_millennium_thread.is_alive():
+            # Check if client_to_millennium thread is still alive (only for RFCOMM connections)
+            if client_to_millennium_thread is not None and not client_to_millennium_thread.is_alive():
                 log.warning("client_to_millennium thread has stopped")
                 # If client disconnected, wait for a new client
                 if not client_connected:
