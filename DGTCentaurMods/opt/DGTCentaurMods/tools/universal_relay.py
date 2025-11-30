@@ -479,14 +479,24 @@ class UARTRXCharacteristic(Characteristic):
     
     def WriteValue(self, value, options):
         """When the remote device writes data via BLE, log the incoming bytes"""
+        log.info("=" * 60)
+        log.info("UARTRXCharacteristic.WriteValue CALLED - BLE client is writing data")
+        log.info(f"WriteValue: value type={type(value)}, length={len(value) if hasattr(value, '__len__') else 'unknown'}")
+        log.info(f"WriteValue: options={options}")
+        
         global kill, ble_connected
         global shadow_target_connected
+        log.info(f"WriteValue: kill={kill}, ble_connected={ble_connected}, shadow_target_connected={shadow_target_connected}")
+        
         if kill:
+            log.warning("WriteValue: kill flag is True, returning early without processing")
             return
         
         try:
             # Convert dbus.Array of dbus.Byte to bytearray (must convert dbus.Byte to int)
+            log.debug("WriteValue: Converting dbus.Array to bytearray...")
             bytes_data = bytearray(int(b) for b in value)
+            log.info(f"WriteValue: Converted to bytearray, length={len(bytes_data)}")
             
             # Log incoming bytes
             log.info(f"BLE RX (incoming bytes): {' '.join(f'{b:02x}' for b in bytes_data)}")
@@ -502,16 +512,22 @@ class UARTRXCharacteristic(Characteristic):
 
             # Process each byte through universal parser
             global universal
+            log.info(f"WriteValue: universal={universal is not None}")
             handled = False
             if universal is not None:
+                log.debug("WriteValue: Processing bytes through universal parser...")
                 for byte_val in bytes_data:
                     # byte_val is already an int from the bytearray conversion above
                     handled = universal.receive_data(byte_val)
+                log.info(f"WriteValue: Processed {len(bytes_data)} bytes through universal parser")
+            else:
+                log.warning("WriteValue: universal is None - data not processed through parser")
             
             log.warning(f"handled by universal: {handled}")
             
             # Write to MILLENNIUM CHESS (if connected)
             # Note: Don't raise exceptions for send failures - Android BLE interprets this as write failure
+            log.info(f"WriteValue: Checking MILLENNIUM connection - shadow_target_connected={shadow_target_connected}, shadow_target_sock={shadow_target_sock is not None}")
             if shadow_target_connected and shadow_target_sock is not None:
                 try:
                     data_to_send = bytes(bytes_data)
@@ -530,15 +546,24 @@ class UARTRXCharacteristic(Characteristic):
                 log.warning(f"MILLENNIUM CHESS not connected (shadow_target_connected={shadow_target_connected}, shadow_target_sock={shadow_target_sock is not None}), data processed through universal parser only")
 
             ble_connected = True
+            log.info("WriteValue: Processing complete successfully")
+            log.info("=" * 60)
         except Exception as e:
-            log.error(f"Error in WriteValue: {e}")
+            log.error("=" * 60)
+            log.error(f"WriteValue: EXCEPTION occurred: {e}")
+            log.error(f"WriteValue: Exception type: {type(e).__name__}")
             import traceback
+            log.error("WriteValue: Traceback:")
             log.error(traceback.format_exc())
+            log.error("=" * 60)
             # Only raise for critical errors that prevent data processing
             # Android BLE is sensitive to exceptions - they indicate write failure
             # If we can process the data through universal, don't raise
             if universal is None:
+                log.error("WriteValue: universal is None, raising exception (critical error)")
                 raise
+            else:
+                log.warning("WriteValue: universal exists, not raising exception (non-critical)")
 
 
 class UARTTXCharacteristic(Characteristic):
