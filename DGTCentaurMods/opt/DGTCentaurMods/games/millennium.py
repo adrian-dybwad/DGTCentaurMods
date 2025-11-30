@@ -225,6 +225,39 @@ class Millennium:
         self.sendMessage = sendMessage_callback
         self.manager = manager
     
+    def getOccupancy(self, eone_fen: str, state: list[int]) -> str:
+        """Get the occupancy of the board from the FEN string and state list.
+        
+        Also modifies eone_fen to set '.' at indexes where state[i] == 0.
+        
+        Args:
+            eone_fen: 64-character eONE format FEN string
+            state: List of 64 integers representing board state (0 = empty, non-zero = occupied)
+            
+        Returns:
+            int: Number of occupied squares
+        """
+        # Log before modification
+        log.info(f"[Millennium.getOccupancy] BEFORE - eone_fen: {eone_fen}")
+        log.info(f"[Millennium.getOccupancy] BEFORE - state: {state}")
+        
+        # Convert eone_fen to list for modification
+        eone_fen_list = list(eone_fen)
+        
+        # Set '.' at indexes where state[i] == 0
+        for i in range(64):
+            if state[i] == 0:
+                eone_fen_list[i] = '.'
+        
+        # Convert back to string
+        eone_fen = ''.join(eone_fen_list)
+        
+        # Log after modification
+        log.info(f"[Millennium.getOccupancy] AFTER - eone_fen: {eone_fen}")
+        log.info(f"[Millennium.getOccupancy] AFTER - state: {state}")
+        
+        return eone_fen
+    
     def handle_manager_event(self, event):
         """Handle game events from the manager.
         
@@ -232,6 +265,8 @@ class Millennium:
             event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
         """
         log.info(f"[Millennium] handle_manager_event called: event={event}")
+        if event == self.manager.EVENT_LIFT_PIECE:
+            self.encode_millennium_command("s", self.getOccupancy(self.fen_to_eone(self.manager.get_fen()), self.manager.get_state()))
     
     def handle_manager_move(self, move):
         """Handle moves from the manager.
