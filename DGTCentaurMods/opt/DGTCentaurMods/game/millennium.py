@@ -524,10 +524,12 @@ class UARTTXCharacteristic(Characteristic):
 	UARTTX_CHARACTERISTIC_UUID = "49535343-1E4D-4BD9-BA61-23C647249616"
 	
 	def __init__(self, service):
-		# Flags: Only capability flags, NO security flags (allows unbonded connections)
-		# Security flags like "encrypt-read", "secure-read" would require bonding
-		flags = ["read", "notify"]
+		# Flags: Only "notify" flag - real Millennium Chess board does NOT have "read" flag
+		# This prevents ReadValue from being called and showing a value in nRF Connect
+		# Real board has no value for TX characteristic (notification-only)
+		flags = ["notify"]  # Removed "read" to match real board (no value shown in nRF Connect)
 		log.info(f"UARTTXCharacteristic: Initializing with flags: {flags}")
+		log.info(f"UARTTXCharacteristic: 'read' flag removed to match real board (no value property)")
 		log.info(f"UARTTXCharacteristic: No security flags set (allows unbonded/unencrypted access)")
 		Characteristic.__init__(
 			self, self.UARTTX_CHARACTERISTIC_UUID,
@@ -560,8 +562,10 @@ class UARTTXCharacteristic(Characteristic):
 			for key in options.keys() if hasattr(options, 'keys') else []:
 				log.info(f"UARTTXCharacteristic.ReadValue: option['{key}'] = {options[key]}")
 		
-		# Return empty value (not used for notifications)
+		# Real Millennium Chess board has NO value for TX characteristic (notification-only)
+		# Return empty array to match real board behavior
 		value = dbus.Array([], signature=dbus.Signature('y'))
+		log.info("UARTTXCharacteristic.ReadValue: Returning empty value (matches real Millennium Chess board - no value)")
 		return value
 	
 	def StartNotify(self):
@@ -595,19 +599,6 @@ class UARTTXCharacteristic(Characteristic):
 		for i in range(0, len(value)):
 			send.append(dbus.Byte(value[i]))
 		self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': send}, [])
-	
-	def ReadValue(self, options):
-		"""Read the current characteristic value"""
-		try:
-			log.info("TX Characteristic ReadValue called by BLE client")
-			value = bytearray()
-			value.append(0)
-			return value
-		except Exception as e:
-			log.error(f"Error in ReadValue: {e}")
-			import traceback
-			log.error(traceback.format_exc())
-			raise
 
 def odd_par(b):
 	"""Calculate odd parity for a byte"""
