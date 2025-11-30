@@ -1253,20 +1253,20 @@ def main():
     millennium_thread = threading.Thread(target=connect_millennium, daemon=True)
     millennium_thread.start()
     
-    # Wait for client connection
+    # Wait for client connection (either RFCOMM or BLE)
     log.info("Waiting for client connection...")
     log.info(f"Server socket is ready and listening on RFCOMM channel {port}")
     log.info(f"Device '{args.device_name}' is paired and service is advertised")
-    log.info("ChessLink app should now be able to connect to this device")
+    log.info("ChessLink app should now be able to connect to this device (via RFCOMM or BLE)")
     connected = False
     connection_attempts = 0
-    while not connected and not kill:
+    while not connected and not ble_connected and not kill:
         try:
             log.debug(f"Waiting for connection attempt (attempt #{connection_attempts + 1})...")
             client_sock, client_info = server_sock.accept()
             connected = True
             client_connected = True
-            log.info(f"✓ Client connected from {client_info}")
+            log.info(f"✓ Client connected from {client_info} (RFCOMM)")
             log.info(f"✓ Connection established on RFCOMM channel {port}")
             
             # Instantiate Universal on BT classic connection
@@ -1282,7 +1282,7 @@ def main():
             # Timeout or other Bluetooth error - this is normal while waiting
             connection_attempts += 1
             if connection_attempts % 50 == 0:  # Log every 5 seconds (50 * 0.1s)
-                log.debug(f"Still waiting for connection... (checked {connection_attempts} times)")
+                log.debug(f"Still waiting for connection... (checked {connection_attempts} times, BLE connected: {ble_connected})")
             time.sleep(0.1)
         except Exception as e:
             connection_attempts += 1
@@ -1290,6 +1290,12 @@ def main():
                 log.error(f"Error accepting client connection: {e}")
                 log.error(f"This may indicate a problem with the RFCOMM service or socket")
             time.sleep(0.1)
+    
+    # Check which connection type was established
+    if ble_connected:
+        log.info("✓ BLE client connected - skipping RFCOMM-specific setup")
+    elif connected:
+        log.info("✓ RFCOMM client connected")
     
     if kill:
         log.info("Exiting...")
@@ -1314,7 +1320,12 @@ def main():
         cleanup()
         sys.exit(0)
     
-    log.info("Both connections established - starting relay")
+    # Determine connection type and start appropriate relay threads
+    if ble_connected:
+        log.info("BLE client connected - BLE relay handled via UARTRXCharacteristic.WriteValue")
+        log.info("Starting MILLENNIUM -> Client relay thread for BLE notifications")
+    elif connected:
+        log.info("RFCOMM client connected - starting bidirectional relay threads")
     
     # Start relay threads
     # Note: millennium_to_client_thread is started automatically when millennium_connected becomes True
@@ -1325,8 +1336,14 @@ def main():
         shadow_target_to_client_thread_started = True
         log.info("Started millennium_to_client thread")
     
-    client_to_millennium_thread = threading.Thread(target=client_to_millennium, daemon=True)
-    client_to_millennium_thread.start()
+    # Only start client_to_millennium thread for RFCOMM connections
+    # BLE connections are handled via UARTRXCharacteristic.WriteValue
+    if connected and client_sock is not None:
+        client_to_millennium_thread = threading.Thread(target=client_to_millennium, daemon=True)
+        client_to_millennium_thread.start()
+        log.info("Started client_to_millennium thread (RFCOMM)")
+    else:
+        log.info("Skipping client_to_millennium thread (BLE connection or no RFCOMM client)")
     
     log.info("Relay threads started")
     
