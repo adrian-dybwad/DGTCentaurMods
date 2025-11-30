@@ -279,8 +279,9 @@ class Millennium:
                         # For each rank, reverse the file order
                         state = []
                         for rank in range(8):
-                            for file in range(7, -1, -1):  # Reverse file order: h-a (7-0)
-                                chess_index = rank * 8 + (7 - file)  # Convert h-a back to a-h for chess_state
+                            for file_eone in range(8):  # eone_fen file order: 0=h, 1=g, ..., 7=a
+                                file_chess = 7 - file_eone  # Convert to chess file order: 7=a, 6=b, ..., 0=h
+                                chess_index = rank * 8 + file_chess
                                 state.append(int(chess_state[chess_index]))
                         modified_eone_fen = self.getOccupancy(eone_fen, state)
                         self.encode_millennium_command("s" + modified_eone_fen)
