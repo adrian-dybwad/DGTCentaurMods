@@ -165,6 +165,46 @@ class UARTAdvertisement(Advertisement):
                 bus.get_object("org.bluez", adapter),
                 "org.freedesktop.DBus.Properties")
             
+            # Configure adapter to allow pairing
+            # Note: Bondable is a D-Bus property, not a config file option
+            try:
+                # For BLE connections that allow pairing:
+                # 1. Set Pairable=True (allows pairing)
+                # 2. Optionally set PairableTimeout (0 = infinite, or seconds)
+                pairable_set = False
+                
+                try:
+                    adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
+                    log.info("Adapter Pairable set to True (allows pairing)")
+                    pairable_set = True
+                except dbus.exceptions.DBusException as e:
+                    log.warning(f"Could not set Pairable property: {e}")
+                    log.warning("This may prevent pairing - clients may not be able to pair")
+                
+                # Try to set PairableTimeout to 0 (infinite) to keep adapter pairable
+                try:
+                    adapter_props.Set("org.bluez.Adapter1", "PairableTimeout", dbus.UInt32(0))
+                    log.info("Adapter PairableTimeout set to 0 (infinite - stays pairable)")
+                except dbus.exceptions.DBusException as e:
+                    log.debug(f"Could not set PairableTimeout property: {e}")
+                
+                # Verify the settings were applied
+                try:
+                    current_pairable = adapter_props.Get("org.bluez.Adapter1", "Pairable")
+                    log.info(f"Current adapter settings - Pairable: {current_pairable}")
+                    
+                    if current_pairable:
+                        log.info("Adapter configured to allow pairing (clients can pair if needed)")
+                    else:
+                        log.warning("Adapter Pairable is False - pairing may not be possible")
+                except dbus.exceptions.DBusException as e:
+                    log.debug(f"Could not read adapter properties: {e}")
+                    
+            except Exception as e:
+                log.warning(f"Error configuring adapter for pairing: {e}")
+                import traceback
+                log.warning(traceback.format_exc())
+            
             # Get adapter MAC address and store it
             mac_address = None
             try:
