@@ -273,7 +273,15 @@ class Millennium:
                 try:
                     chess_state = board.getChessState()
                     if chess_state is not None and len(chess_state) == 64:
-                        state = [int(x) for x in chess_state]
+                        # Convert chess_state (a-h order) to eone_fen order (h-a order)
+                        # chess_state: a1, b1, c1, ..., h1, a2, b2, ..., h8
+                        # eone_fen: h1, g1, f1, ..., a1, h2, g2, ..., a8
+                        # For each rank, reverse the file order
+                        state = []
+                        for rank in range(8):
+                            for file in range(7, -1, -1):  # Reverse file order: h-a (7-0)
+                                chess_index = rank * 8 + (7 - file)  # Convert h-a back to a-h for chess_state
+                                state.append(int(chess_state[chess_index]))
                         modified_eone_fen = self.getOccupancy(eone_fen, state)
                         self.encode_millennium_command("s" + modified_eone_fen)
                     else:
