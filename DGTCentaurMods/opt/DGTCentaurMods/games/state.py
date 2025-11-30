@@ -60,7 +60,7 @@ class State:
         
         return fen
 
-    def fen_to_eone(fen: str) -> str:
+    def fen_to_eone(self, fen: str) -> str:
         """
         Convert a FEN string to Millennium eONE / ChessLink 64-char board status.
 
