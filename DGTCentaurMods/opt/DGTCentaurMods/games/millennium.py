@@ -23,6 +23,7 @@
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.games.manager import EVENT_LIFT_PIECE
 
 class PacketParser:
     """Parses packets with odd parity framing and XOR CRC checksum.
@@ -265,8 +266,24 @@ class Millennium:
             event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
         """
         log.info(f"[Millennium] handle_manager_event called: event={event}")
-        if event == self.manager.EVENT_LIFT_PIECE:
-            self.encode_millennium_command("s", self.getOccupancy(self.fen_to_eone(self.manager.get_fen()), self.manager.get_state()))
+        if event == EVENT_LIFT_PIECE:
+            if self.manager is not None:
+                eone_fen = self.fen_to_eone(self.manager.get_fen())
+                # Get physical board state from board module
+                try:
+                    chess_state = board.getChessState()
+                    if chess_state is not None and len(chess_state) == 64:
+                        state = [int(x) for x in chess_state]
+                        modified_eone_fen = self.getOccupancy(eone_fen, state)
+                        self.encode_millennium_command("s" + modified_eone_fen)
+                    else:
+                        log.warning(f"[Millennium] Invalid chess state, using unmodified eone_fen")
+                        self.encode_millennium_command("s" + eone_fen)
+                except Exception as e:
+                    log.error(f"[Millennium] Error getting board state: {e}")
+                    self.encode_millennium_command("s" + eone_fen)
+            else:
+                log.error("[Millennium] No manager available for EVENT_LIFT_PIECE")
     
     def handle_manager_move(self, move):
         """Handle moves from the manager.
