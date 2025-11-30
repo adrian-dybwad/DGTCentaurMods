@@ -47,6 +47,8 @@ EVENT_BLACK_TURN = 2
 EVENT_WHITE_TURN = 3
 EVENT_REQUEST_DRAW = 4
 EVENT_RESIGN_GAME = 5
+EVENT_LIFT_PIECE = 6
+EVENT_PLACE_PIECE = 7
 
 # Board constants
 BOARD_SIZE = 64
@@ -641,7 +643,10 @@ class GameManager:
                 self.move_state.legal_destination_squares = [target_square]
                 # Store piece color for forced moves too
                 self.move_state.source_piece_color = piece_color
-    
+
+        if self.event_callback is not None:
+            self.event_callback(EVENT_LIFT_PIECE)
+
     def _handle_piece_place(self, field: int, piece_color):
         """Handle piece place event."""
         
