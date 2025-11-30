@@ -116,6 +116,13 @@ class UARTAdvertisement(Advertisement):
         self._registration_successful = True
         log.info("BLE advertisement registered successfully")
         log.info(f"Device should now be discoverable as '{self.local_name}'")
+        if self._advertise_millennium and not self._advertise_nordic:
+            log.info("Millennium ChessLink advertisement active - iPhone ChessLink app should be able to discover this device")
+            log.info("If ChessLink cannot find the device, try:")
+            log.info("  1. Ensure Bluetooth is enabled on iPhone")
+            log.info("  2. Ensure location services are enabled (required for BLE on iOS)")
+            log.info("  3. Do NOT pair via iPhone Settings - let ChessLink app handle connection")
+            log.info("  4. Try closing and reopening the ChessLink app")
     
     def register_ad_error_callback(self, error):
         """Callback when advertisement registration fails"""
@@ -213,15 +220,17 @@ class UARTAdvertisement(Advertisement):
             # iOS/macOS compatibility options
             # Try to ensure we're using public address type
             # Note: The address type is typically controlled by the adapter's privacy settings
-            # Use shorter intervals for primary (Millennium) advertisement for better discoverability
+            # Use iOS-compatible intervals for primary (Millennium) advertisement
+            # iOS requires minimum 20ms interval, and shorter intervals may cause issues
             is_primary = self._advertise_millennium and not self._advertise_nordic
             if is_primary:
-                # Primary advertisement: more frequent (better discoverability)
+                # Primary advertisement: iOS-compatible intervals (matching millennium.py)
+                # Using standard iOS intervals ensures better compatibility with ChessLink app
                 options = {
-                    "MinInterval": dbus.UInt16(0x0010),  # 16ms (more frequent)
-                    "MaxInterval": dbus.UInt16(0x0020),  # 32ms (more frequent)
+                    "MinInterval": dbus.UInt16(0x0014),  # 20ms (iOS minimum)
+                    "MaxInterval": dbus.UInt16(0x0098),  # 152.5ms (iOS compatible)
                 }
-                log.info("Using primary advertisement intervals (16-32ms) for better discoverability")
+                log.info("Using primary advertisement intervals (20-152.5ms) - iOS compatible")
             else:
                 # Secondary advertisement: less frequent
                 options = {
@@ -433,7 +442,9 @@ class UARTRXCharacteristic(Characteristic):
                     handled = universal.receive_data(byte_val)
             
             log.warning(f"handled by universal: {handled}")
+            
             # Write to MILLENNIUM CHESS (if connected)
+            # Note: Don't raise exceptions for send failures - Android BLE interprets this as write failure
             if shadow_traget_connected and shadow_target_sock is not None:
                 try:
                     data_to_send = bytes(bytes_data)
@@ -445,14 +456,21 @@ class UARTRXCharacteristic(Characteristic):
                 except (bluetooth.BluetoothError, OSError) as e:
                     log.error(f"Error sending to MILLENNIUM CHESS: {e}")
                     shadow_traget_connected = False
-                    raise
+                    # Don't raise - Android BLE will think write failed if we raise here
+                    # The data was successfully received via BLE, which is what matters
+            else:
+                log.debug("MILLENNIUM CHESS not connected, data processed through universal parser only")
 
             ble_connected = True
         except Exception as e:
             log.error(f"Error in WriteValue: {e}")
             import traceback
             log.error(traceback.format_exc())
-            raise
+            # Only raise for critical errors that prevent data processing
+            # Android BLE is sensitive to exceptions - they indicate write failure
+            # If we can process the data through universal, don't raise
+            if universal is None:
+                raise
 
 
 class UARTTXCharacteristic(Characteristic):
