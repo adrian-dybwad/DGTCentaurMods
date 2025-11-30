@@ -137,10 +137,14 @@ class Universal:
                     log.info(f"Received packet type {packet_type}, payload: {payload}")
         """
         if not self.is_pegasus and self._millennium.parse_byte(byte_value):
-            self.is_millennium = True
+            if not self.is_millennium:
+                log.info("[Universal] Millennium protocol detected")
+                self.is_millennium = True
             return True
         elif not self.is_millennium and self._pegasus.parse_byte(byte_value):
-            self.is_pegasus = True
+            if not self.is_pegasus:
+                log.info("[Universal] Pegasus protocol detected")
+                self.is_pegasus = True
             return True
         else:
             #is_millennium = False
