@@ -927,8 +927,8 @@ def main():
                        help="Local name for BLE advertisement (default: 'MILLENNIUM CHESS'). Example: 'MILLENNIUM CHESS'")
     parser.add_argument("--shadow-target", type=str, default="MILLENNIUM CHESS",
                        help="Name of the target device to connect to (default: 'MILLENNIUM CHESS'). Example: 'MILLENNIUM CHESS'")
-    
-    args = parser.parse_args()
+    parser.add_argument("--disable-nordic", action="store_true",
+                       help="Disable Nordic UART BLE advertisement (only advertise Millennium ChessLink). Useful for ChessLink app compatibility.")
     parser.add_argument(
         "--port",
         type=int,
@@ -956,7 +956,7 @@ def main():
         MILLENNIUM_UUIDS["tx_characteristic"]
     ))
     
-    # Add Nordic UART service
+    # Add Nordic UART service (service is always registered, but advertisement can be disabled)
     log.info(f"Adding Nordic UART service: {NORDIC_UUIDS['service']}")
     ble_app.add_service(UARTService(
         1,
@@ -964,6 +964,8 @@ def main():
         NORDIC_UUIDS["rx_characteristic"],
         NORDIC_UUIDS["tx_characteristic"]
     ))
+    if args.disable_nordic:
+        log.info("Nordic UART service registered but will not be advertised (--disable-nordic flag set)")
     
     # Register the BLE application
     try:
@@ -1000,16 +1002,22 @@ def main():
         
         # Register Nordic UART advertisement (SECONDARY)
         # This is registered after Millennium with less frequent intervals
-        try:
-            log.info("Registering SECONDARY Nordic UART BLE advertisement...")
-            ble_adv_nordic = UARTAdvertisement(1, local_name=args.local_name, advertise_millennium=False, advertise_nordic=True)
-            ble_adv_nordic.register()
-            log.info("Nordic UART BLE advertisement registered successfully (SECONDARY)")
-        except Exception as e:
-            log.error(f"Failed to register Nordic BLE advertisement: {e}")
-            import traceback
-            log.error(traceback.format_exc())
-            log.warning("Continuing without Nordic BLE advertisement...")
+        # Can be disabled with --disable-nordic flag
+        if not args.disable_nordic:
+            try:
+                log.info("Registering SECONDARY Nordic UART BLE advertisement...")
+                ble_adv_nordic = UARTAdvertisement(1, local_name=args.local_name, advertise_millennium=False, advertise_nordic=True)
+                ble_adv_nordic.register()
+                log.info("Nordic UART BLE advertisement registered successfully (SECONDARY)")
+            except Exception as e:
+                log.error(f"Failed to register Nordic BLE advertisement: {e}")
+                import traceback
+                log.error(traceback.format_exc())
+                log.warning("Continuing without Nordic BLE advertisement...")
+                ble_adv_nordic = None
+        else:
+            log.info("Nordic UART BLE advertisement disabled (--disable-nordic flag set)")
+            log.info("Only Millennium ChessLink service will be advertised")
             ble_adv_nordic = None
         
         if ble_adv_millennium is not None or ble_adv_nordic is not None:
