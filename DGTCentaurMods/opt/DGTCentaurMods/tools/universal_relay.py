@@ -641,7 +641,7 @@ def client_to_millennium():
 def cleanup():
     """Clean up connections and resources"""
     global kill, running, shadow_target_sock, client_sock, server_sock
-    global shadow_traget_connected, client_connected, ble_app, ble_adv
+    global shadow_traget_connected, client_connected, ble_app, ble_adv_millennium, ble_adv_nordic
     
     try:
         log.info("Cleaning up relay...")
@@ -660,19 +660,29 @@ def cleanup():
                 except Exception as e:
                     log.debug(f"Error stopping BLE notify: {e}")
             
-            # Unregister BLE advertisement
-            if ble_adv is not None:
-                try:
-                    bus = BleTools.get_bus()
-                    adapter = BleTools.find_adapter(bus)
-                    if adapter:
-                        ad_manager = dbus.Interface(
-                            bus.get_object("org.bluez", adapter),
-                            "org.bluez.LEAdvertisingManager1")
-                        ad_manager.UnregisterAdvertisement(ble_adv.get_path())
-                        log.info("BLE advertisement unregistered")
-                except Exception as e:
-                    log.debug(f"Error unregistering BLE advertisement: {e}")
+            # Unregister BLE advertisements
+            bus = BleTools.get_bus()
+            adapter = BleTools.find_adapter(bus)
+            if adapter:
+                ad_manager = dbus.Interface(
+                    bus.get_object("org.bluez", adapter),
+                    "org.bluez.LEAdvertisingManager1")
+                
+                # Unregister Millennium advertisement
+                if 'ble_adv_millennium' in globals() and ble_adv_millennium is not None:
+                    try:
+                        ad_manager.UnregisterAdvertisement(ble_adv_millennium.get_path())
+                        log.info("Millennium BLE advertisement unregistered")
+                    except Exception as e:
+                        log.debug(f"Error unregistering Millennium BLE advertisement: {e}")
+                
+                # Unregister Nordic advertisement
+                if 'ble_adv_nordic' in globals() and ble_adv_nordic is not None:
+                    try:
+                        ad_manager.UnregisterAdvertisement(ble_adv_nordic.get_path())
+                        log.info("Nordic BLE advertisement unregistered")
+                    except Exception as e:
+                        log.debug(f"Error unregistering Nordic BLE advertisement: {e}")
             
             # Unregister BLE application
             if ble_app is not None:
@@ -743,7 +753,7 @@ def main():
     """Main entry point"""
     global server_sock, client_sock, shadow_target_sock
     global shadow_traget_connected, client_connected, running, kill
-    global ble_app, ble_adv, shadow_traget_to_client_thread, shadow_target_to_client_thread_started
+    global ble_app, ble_adv_millennium, ble_adv_nordic, shadow_traget_to_client_thread, shadow_target_to_client_thread_started
     
     parser = argparse.ArgumentParser(description="Bluetooth Classic SPP Relay with BLE - Connect to MILLENNIUM CHESS and relay data")
     parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
@@ -799,20 +809,41 @@ def main():
         log.warning("Continuing without BLE support...")
         ble_app = None
     
-    # Register BLE advertisement (advertises both service UUIDs)
+    # Register BLE advertisements (separate advertisements for each service due to 31-byte limit)
+    # BLE advertisements have a 31-byte limit, so we need separate advertisements for each service UUID
+    ble_adv_millennium = None
+    ble_adv_nordic = None
+    
     if ble_app is not None:
-        ble_adv = UARTAdvertisement(0, local_name=args.local_name, advertise_millennium=True, advertise_nordic=True)
+        # Register Millennium ChessLink advertisement
         try:
-            ble_adv.register()
-            log.info("BLE advertisement registered successfully")
-            log.info(f"BLE service registered and advertising as '{args.local_name}'")
-            log.info("Waiting for BLE connection...")
+            ble_adv_millennium = UARTAdvertisement(0, local_name=args.local_name, advertise_millennium=True, advertise_nordic=False)
+            ble_adv_millennium.register()
+            log.info("Millennium ChessLink BLE advertisement registered successfully")
         except Exception as e:
-            log.error(f"Failed to register BLE advertisement: {e}")
+            log.error(f"Failed to register Millennium BLE advertisement: {e}")
             import traceback
             log.error(traceback.format_exc())
-            log.warning("Continuing without BLE advertisement...")
-            ble_adv = None
+            log.warning("Continuing without Millennium BLE advertisement...")
+            ble_adv_millennium = None
+        
+        # Register Nordic UART advertisement
+        try:
+            ble_adv_nordic = UARTAdvertisement(1, local_name=args.local_name, advertise_millennium=False, advertise_nordic=True)
+            ble_adv_nordic.register()
+            log.info("Nordic UART BLE advertisement registered successfully")
+        except Exception as e:
+            log.error(f"Failed to register Nordic BLE advertisement: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+            log.warning("Continuing without Nordic BLE advertisement...")
+            ble_adv_nordic = None
+        
+        if ble_adv_millennium is not None or ble_adv_nordic is not None:
+            log.info(f"BLE services registered and advertising as '{args.local_name}'")
+            log.info("Waiting for BLE connection...")
+        else:
+            log.warning("No BLE advertisements were successfully registered")
     
     # Start BLE mainloop in a separate thread
     def ble_mainloop():
