@@ -98,4 +98,6 @@ class State:
         if len(board_chars) != 64:
             raise ValueError("Expanded board is not 64 squares")
 
-        return ''.join(board_chars)
+        # Reverse capitalization: lowercase becomes uppercase, uppercase becomes lowercase
+        result = ''.join(board_chars)
+        return result.swapcase()
