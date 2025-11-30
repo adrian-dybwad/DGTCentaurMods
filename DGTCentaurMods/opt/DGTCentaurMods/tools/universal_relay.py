@@ -201,7 +201,7 @@ class UARTRXCharacteristic(Characteristic):
             
             log.warning(f"handled by universal: {handled}")
             # Write to MILLENNIUM CHESS (if connected)
-            if millennium_connected and millennium_sock is not None and not handled:
+            if millennium_connected and millennium_sock is not None:
                 try:
                     data_to_send = bytes(bytes_data)
                     bytes_sent = millennium_sock.send(data_to_send)
