@@ -237,48 +237,38 @@ class UARTAdvertisement(Advertisement):
 				bus.get_object("org.bluez", adapter),
 				"org.freedesktop.DBus.Properties")
 			
-			# Configure adapter to allow unbonded connections (no pairing required)
-			# Real Millennium Chess board allows unbonded connections
+			# Configure adapter to allow pairing
 			# Note: Bondable is a D-Bus property, not a config file option
 			try:
-				# For unbonded BLE connections, we need to:
-				# 1. Set Bondable=False (prevents bonding requirement)
-				# 2. Set Pairable=False (prevents pairing requirement)
-				# This allows clients to connect without pairing/bonding
-				bondable_set = False
+				# For BLE connections that allow pairing:
+				# 1. Set Pairable=True (allows pairing)
+				# 2. Optionally set PairableTimeout (0 = infinite, or seconds)
 				pairable_set = False
 				
 				try:
-					adapter_props.Set("org.bluez.Adapter1", "Bondable", dbus.Boolean(False))
-					log.info("Adapter Bondable set to False (allows unbonded connections)")
-					bondable_set = True
-				except dbus.exceptions.DBusException as e:
-					log.warning(f"Could not set Bondable property: {e}")
-					log.warning("This may prevent unbonded connections - bonding may be required")
-				
-				try:
-					adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(False))
-					log.info("Adapter Pairable set to False (allows unbonded connections)")
+					adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
+					log.info("Adapter Pairable set to True (allows pairing)")
 					pairable_set = True
 				except dbus.exceptions.DBusException as e:
 					log.warning(f"Could not set Pairable property: {e}")
-					log.warning("This may prevent unbonded connections - pairing may be required")
+					log.warning("This may prevent pairing - clients may not be able to pair")
+				
+				# Try to set PairableTimeout to 0 (infinite) to keep adapter pairable
+				try:
+					adapter_props.Set("org.bluez.Adapter1", "PairableTimeout", dbus.UInt32(0))
+					log.info("Adapter PairableTimeout set to 0 (infinite - stays pairable)")
+				except dbus.exceptions.DBusException as e:
+					log.debug(f"Could not set PairableTimeout property: {e}")
 				
 				# Verify the settings were applied
 				try:
-					current_bondable = adapter_props.Get("org.bluez.Adapter1", "Bondable")
 					current_pairable = adapter_props.Get("org.bluez.Adapter1", "Pairable")
-					log.info(f"Current adapter settings - Bondable: {current_bondable}, Pairable: {current_pairable}")
+					log.info(f"Current adapter settings - Pairable: {current_pairable}")
 					
-					if current_bondable or current_pairable:
-						log.warning("=" * 60)
-						log.warning("Adapter may still require bonding/pairing for connections")
-						log.warning("If nRF Connect requires pairing, this is likely a BlueZ policy limitation")
-						log.warning("Some BlueZ versions require bonding for BLE connections by default")
-						log.warning("=" * 60)
+					if current_pairable:
+						log.info("Adapter configured to allow pairing (clients can pair if needed)")
 					else:
-						log.info("Adapter configured to allow unbonded connections (matches real Millennium Chess board)")
-						log.info("Clients should be able to connect without pairing/bonding")
+						log.warning("Adapter Pairable is False - pairing may not be possible")
 				except dbus.exceptions.DBusException as e:
 					log.debug(f"Could not read adapter properties: {e}")
 					
