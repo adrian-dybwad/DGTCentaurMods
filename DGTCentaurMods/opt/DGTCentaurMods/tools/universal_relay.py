@@ -63,19 +63,27 @@ GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
 
 class UARTAdvertisement(Advertisement):
     """BLE advertisement for Millennium ChessLink service"""
-    def __init__(self, index):
+    def __init__(self, index, local_name="MILLENNIUM CHESS"):
+        """Initialize BLE advertisement.
+        
+        Args:
+            index: Advertisement index
+            local_name: Local name for BLE advertisement (default: "MILLENNIUM CHESS")
+                       Example: "MILLENNIUM CHESS"
+        """
         Advertisement.__init__(self, index, "peripheral")
-        self.add_local_name("MILLENNIUM CHESS")
+        self.local_name = local_name
+        self.add_local_name(local_name)
         self.include_tx_power = True
         # Millennium ChessLink Transparent UART service UUID
         self.add_service_uuid("49535343-FE7D-4AE5-8FA9-9FAFD205E455")
-        log.info("BLE Advertisement initialized with name: MILLENNIUM CHESS")
+        log.info(f"BLE Advertisement initialized with name: {local_name}")
         log.info("BLE Advertisement service UUID: 49535343-FE7D-4AE5-8FA9-9FAFD205E455")
     
     def register_ad_callback(self):
         """Callback when advertisement is successfully registered"""
         log.info("BLE advertisement registered successfully")
-        log.info("Device should now be discoverable as 'MILLENNIUM CHESS'")
+        log.info(f"Device should now be discoverable as '{self.local_name}'")
     
     def register_ad_error_callback(self, error):
         """Callback when advertisement registration fails"""
@@ -315,9 +323,14 @@ class UARTTXCharacteristic(Characteristic):
 # Bluetooth Classic SPP Functions
 # ============================================================================
 
-def find_millennium_device():
-    """Find the MILLENNIUM CHESS device by name"""
-    log.info("Looking for MILLENNIUM CHESS device...")
+def find_millennium_device(shadow_target="MILLENNIUM CHESS"):
+    """Find the device by name.
+    
+    Args:
+        shadow_target: Name of the device to find (default: "MILLENNIUM CHESS")
+                      Example: "MILLENNIUM CHESS"
+    """
+    log.info(f"Looking for {shadow_target} device...")
     
     # First, try to find in paired devices using bluetoothctl
     try:
@@ -332,23 +345,23 @@ def find_millennium_device():
                         addr = parts[1]
                         name = parts[2]
                         log.info(f"Paired device: {name} ({addr})")
-                        if name and "MILLENNIUM CHESS" in name.upper():
-                            log.info(f"Found MILLENNIUM CHESS in paired devices: {addr}")
+                        if name and shadow_target.upper() in name.upper():
+                            log.info(f"Found {shadow_target} in paired devices: {addr}")
                             return addr
     except Exception as e:
         log.debug(f"Could not check paired devices: {e}")
     
     # If not found in paired devices, do a discovery scan
-    log.info("Scanning for MILLENNIUM CHESS device...")
+    log.info(f"Scanning for {shadow_target} device...")
     devices = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True)
     
     for addr, name in devices:
         log.info(f"Found device: {name} ({addr})")
-        if name and "MILLENNIUM CHESS" in name.upper():
-            log.info(f"Found MILLENNIUM CHESS at address: {addr}")
+        if name and shadow_target.upper() in name.upper():
+            log.info(f"Found {shadow_target} at address: {addr}")
             return addr
     
-    log.warning("MILLENNIUM CHESS device not found in scan")
+    log.warning(f"{shadow_target} device not found in scan")
     return None
 
 
