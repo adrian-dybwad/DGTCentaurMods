@@ -21,10 +21,10 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
-from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.games.millennium import Millennium
 from DGTCentaurMods.games.pegasus import Pegasus
+from DGTCentaurMods.games.manager import GameManager
 import chess
 
 
@@ -37,39 +37,74 @@ class Universal:
         Args:
             sendMessage_callback: Optional callback function(data) for sending messages
         """
-        self._millennium = Millennium(sendMessage_callback=sendMessage_callback)
-        self._pegasus = Pegasus(sendMessage_callback=sendMessage_callback)
         self.sendMessage = sendMessage_callback
         self.is_pegasus = False
         self.is_millennium = False
+        self.manager = GameManager()
+        self._millennium = Millennium(sendMessage_callback=sendMessage_callback, manager=self.manager)
+        self._pegasus = Pegasus(sendMessage_callback=sendMessage_callback, manager=self.manager)
     
-    def _key_callback(self, key):
-        """Handle key press events from the board.
+    def _manager_event_callback(self, event):
+        """Handle game events from the manager.
         
         Args:
-            key: The key that was pressed (board.Key enum value)
+            event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
         """
         try:
-            log.info(f"[Millennium] Key event: {key}")
+            log.info(f"[Universal] Manager event: {event}")
+            if self.is_millennium and hasattr(self._millennium, 'handle_manager_event'):
+                self._millennium.handle_manager_event(event)
+            elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_event'):
+                self._pegasus.handle_manager_event(event)
         except Exception as e:
-            log.error(f"[Millennium] Error in key callback: {e}")
+            log.error(f"[Universal] Error in manager event callback: {e}")
             import traceback
             traceback.print_exc()
-
-    def _field_callback(self, piece_event, field, time_in_seconds):
-        """Handle field events (piece lift/place) from the board.
+    
+    def _manager_move_callback(self, move):
+        """Handle moves from the manager.
         
         Args:
-            piece_event: 0 for LIFT, 1 for PLACE
-            field: Chess square index (0=a1, 63=h8)
-            time_in_seconds: Time from packet
+            move: Chess move object
         """
         try:
-            event_type = "LIFT" if piece_event == 0 else "PLACE"
-            field_name = chess.square_name(field)
-            log.info(f"[Millennium] Field event: {event_type} on field {field} ({field_name}), time={time_in_seconds}")
+            log.info(f"[Universal] Manager move: {move}")
+            if self.is_millennium and hasattr(self._millennium, 'handle_manager_move'):
+                self._millennium.handle_manager_move(move)
+            elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_move'):
+                self._pegasus.handle_manager_move(move)
         except Exception as e:
-            log.error(f"[Millennium] Error in field callback: {e}")
+            log.error(f"[Universal] Error in manager move callback: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _manager_key_callback(self, key):
+        """Handle key presses from the manager.
+        
+        Args:
+            key: Key that was pressed (board.Key enum value)
+        """
+        try:
+            log.info(f"[Universal] Manager key: {key}")
+            if self.is_millennium and hasattr(self._millennium, 'handle_manager_key'):
+                self._millennium.handle_manager_key(key)
+            elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_key'):
+                self._pegasus.handle_manager_key(key)
+        except Exception as e:
+            log.error(f"[Universal] Error in manager key callback: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _manager_takeback_callback(self):
+        """Handle takeback requests from the manager."""
+        try:
+            log.info(f"[Universal] Manager takeback requested")
+            if self.is_millennium and hasattr(self._millennium, 'handle_manager_takeback'):
+                self._millennium.handle_manager_takeback()
+            elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_takeback'):
+                self._pegasus.handle_manager_takeback()
+        except Exception as e:
+            log.error(f"[Universal] Error in manager takeback callback: {e}")
             import traceback
             traceback.print_exc()
 
@@ -120,14 +155,20 @@ class Universal:
         self._millennium.reset_parser()
         self._pegasus.reset()
 
-    def subscribe(self):
-        """Subscribe to board events and start logging."""
+
+    def subscribe_manager(self):
+        """Subscribe to the game manager with callbacks."""
         try:
-            log.info("[Millennium] Subscribing to board events")
-            board.subscribeEvents(self._key_callback, self._field_callback, timeout=100000)
-            log.info("[Millennium] Successfully subscribed to board events")
+            log.info("[Universal] Subscribing to game manager")
+            self.manager.subscribe_game(
+                self._manager_event_callback,
+                self._manager_move_callback,
+                self._manager_key_callback,
+                self._manager_takeback_callback
+            )
+            log.info("[Universal] Successfully subscribed to game manager")
         except Exception as e:
-            log.error(f"[Millennium] Failed to subscribe to board events: {e}")
+            log.error(f"[Universal] Failed to subscribe to game manager: {e}")
             import traceback
             traceback.print_exc()
 

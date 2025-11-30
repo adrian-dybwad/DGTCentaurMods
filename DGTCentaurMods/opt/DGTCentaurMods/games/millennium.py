@@ -23,9 +23,6 @@
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.games.state import State
-import chess
-
 
 class PacketParser:
     """Parses packets with odd parity framing and XOR CRC checksum.
@@ -217,15 +214,58 @@ class Millennium:
     
     FILES = "abcdefgh"
     
-    def __init__(self, sendMessage_callback=None):
+    def __init__(self, sendMessage_callback=None, manager=None):
         """Initialize the Millennium handler.
         
         Args:
             sendMessage_callback: Optional callback function(data) for sending messages
+            manager: Optional GameManager instance
         """
         self.packet_parser = PacketParser()
         self.sendMessage = sendMessage_callback
-        self.state = State()
+        self.manager = manager
+    
+    def fen_to_eone(self, fen: str) -> str:
+        """
+        Convert a FEN string to Millennium eONE / ChessLink 64-char board status.
+
+        Returns a 64-character string of piece codes in A1..H1, A2..H2, ..., A8..H8
+        order, with '.' for empty squares.
+
+        Example:
+            fen_to_eone("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+            -> "RNBQKBNRPPPPPPPP................................pppppppprnbqkbnr"
+        """
+        piece_field = fen.split()[0]  # take only the piece placement part
+        ranks = piece_field.split('/')
+        if len(ranks) != 8:
+            raise ValueError("Invalid FEN: expected 8 ranks in piece field")
+
+        board_chars = []
+
+        for rank in reversed(ranks):  # from rank 1 up to 8 (reversed from FEN)
+            expanded_rank = []
+            for ch in rank:
+                if ch.isdigit():
+                    expanded_rank.extend('.' * int(ch))
+                elif ch in "prnbqkPRNBQK":
+                    expanded_rank.append(ch)
+                else:
+                    raise ValueError(f"Invalid FEN character in piece field: {ch!r}")
+
+            if len(expanded_rank) != 8:
+                raise ValueError(
+                    f"Invalid FEN: rank {rank!r} does not expand to 8 squares"
+                )
+
+            # Reverse the file order (a-h becomes h-a) for eONE format
+            expanded_rank.reverse()
+            board_chars.extend(expanded_rank)
+
+        if len(board_chars) != 64:
+            raise ValueError("Expanded board is not 64 squares")
+
+        return ''.join(board_chars)
     
     def _hex_char_to_value(self, char_value):
         """Convert ASCII hex character to integer value.
@@ -434,7 +474,12 @@ class Millennium:
             payload: List of ASCII character values in the payload
         """
         #log.info(f"[Millennium] Handling S packet: payload={payload}")
-        self.encode_millennium_command("s" + self.state.getFEN(format=True))
+        if self.manager is not None:
+            fen = self.manager.get_fen()
+            self.encode_millennium_command("s" + self.fen_to_eone(fen))
+        else:
+            log.warning("[Millennium] No manager available for getFEN")
+            self.encode_millennium_command("s")
     
     def handle_l(self, payload):
         """Handle packet type 'L' - LED control.
@@ -483,13 +528,10 @@ class Millennium:
             else:
                 board.ledsOff()
 
-            if len(chess_indexes) > 0:
-                self.encode_millennium_command("s" + self.state.getFEN(format=True))
-            else:
-                self.encode_millennium_command("l")
         else:
             log.warning(f"[Millennium] L packet: payload too short for LED codes ({len(payload)} bytes), expected at least {2 + expected_led_bytes}")
-            self.encode_millennium_command("l")
+
+        self.encode_millennium_command("l")
 
     
     def handle_x(self, payload):
