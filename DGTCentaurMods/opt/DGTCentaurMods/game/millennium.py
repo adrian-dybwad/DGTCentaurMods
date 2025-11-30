@@ -199,15 +199,18 @@ class UARTAdvertisement(Advertisement):
 		# Also try shorter "Chess Link" if the full name doesn't work
 		self.add_local_name("MILLENNIUM CHESS")
 		self.include_tx_power = True
-		# Millennium ChessLink Transparent UART service UUID (correct BLE service)
-		# This is the actual service UUID used by Millennium ChessLink BLE
-		self.add_service_uuid("49535343-FE7D-4AE5-8FA9-9FAFD205E455")
+		# NOTE: Do NOT advertise service UUID in advertisement packet
+		# Real Millennium Chess board does not include service UUIDs in advertisement
+		# This prevents showing complete UUID list in scanner (nRF Connect)
+		# Clients will discover services after connecting via GATT service discovery
+		# self.add_service_uuid("49535343-FE7D-4AE5-8FA9-9FAFD205E455")  # REMOVED to match real board
 		
 		# Store MAC address for later use in advertisement
 		self.mac_address = None
 		
 		log.info("BLE Advertisement initialized with name: MILLENNIUM CHESS")
-		log.info("BLE Advertisement service UUID: 49535343-FE7D-4AE5-8FA9-9FAFD205E455 (Transparent UART)")
+		log.info("BLE Advertisement: Service UUID NOT included in advertisement (matches real Millennium Chess board)")
+		log.info("BLE Advertisement: Service UUID will be discovered after connection via GATT")
 	
 	def register_ad_callback(self):
 		"""Callback when advertisement is successfully registered"""
@@ -233,6 +236,20 @@ class UARTAdvertisement(Advertisement):
 			adapter_props = dbus.Interface(
 				bus.get_object("org.bluez", adapter),
 				"org.freedesktop.DBus.Properties")
+			
+			# Configure adapter to allow unbonded connections (no pairing required)
+			# Real Millennium Chess board allows unbonded connections
+			try:
+				# Set Pairable to False to allow unbonded connections
+				# When Pairable=False, devices can connect without pairing/bonding
+				adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(False))
+				log.info("Adapter configured to allow unbonded connections (Pairable=False)")
+				log.info("Clients can connect without pairing/bonding (matches real Millennium Chess board)")
+			except dbus.exceptions.DBusException as e:
+				log.warning(f"Could not set Pairable property: {e}")
+				log.warning("Adapter may still require bonding - this may prevent unbonded connections")
+			except Exception as e:
+				log.warning(f"Error configuring adapter for unbonded connections: {e}")
 			
 			# Get adapter MAC address and store it
 			try:
