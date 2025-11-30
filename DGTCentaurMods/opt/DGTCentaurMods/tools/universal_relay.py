@@ -56,29 +56,56 @@ shadow_target_to_client_thread_started = False
 
 GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
 
+# ============================================================================
+# BLE UUID Definitions
+# ============================================================================
+
+# Millennium ChessLink BLE UUIDs
+MILLENNIUM_UUIDS = {
+    "service": "49535343-FE7D-4AE5-8FA9-9FAFD205E455",
+    "rx_characteristic": "49535343-8841-43F4-A8D4-ECBE34729BB3",
+    "tx_characteristic": "49535343-1E4D-4BD9-BA61-23C647249616"
+}
+
+# Nordic UART Service BLE UUIDs (used by Pegasus)
+NORDIC_UUIDS = {
+    "service": "6E400001-B5A3-F393-E0A9-E50E24DCCA9E",
+    "rx_characteristic": "6E400002-B5A3-F393-E0A9-E50E24DCCA9E",
+    "tx_characteristic": "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+}
 
 # ============================================================================
 # BLE Service Implementation (matching millennium.py)
 # ============================================================================
 
 class UARTAdvertisement(Advertisement):
-    """BLE advertisement for Millennium ChessLink service"""
-    def __init__(self, index, local_name="MILLENNIUM CHESS"):
+    """BLE advertisement supporting both Millennium ChessLink and Nordic UART services"""
+    def __init__(self, index, local_name="MILLENNIUM CHESS", advertise_millennium=True, advertise_nordic=True):
         """Initialize BLE advertisement.
         
         Args:
             index: Advertisement index
             local_name: Local name for BLE advertisement (default: "MILLENNIUM CHESS")
                        Example: "MILLENNIUM CHESS"
+            advertise_millennium: If True, advertise Millennium ChessLink service UUID (default: True)
+            advertise_nordic: If True, advertise Nordic UART service UUID (default: True)
         """
         Advertisement.__init__(self, index, "peripheral")
         self.local_name = local_name
         self.add_local_name(local_name)
         self.include_tx_power = True
-        # Millennium ChessLink Transparent UART service UUID
-        self.add_service_uuid("49535343-FE7D-4AE5-8FA9-9FAFD205E455")
+        
+        # Advertise Millennium ChessLink service UUID
+        if advertise_millennium:
+            self.add_service_uuid(MILLENNIUM_UUIDS["service"])
+            log.info(f"BLE Advertisement: Millennium ChessLink service UUID: {MILLENNIUM_UUIDS['service']}")
+        
+        # Advertise Nordic UART service UUID
+        if advertise_nordic:
+            self.add_service_uuid(NORDIC_UUIDS["service"])
+            log.info(f"BLE Advertisement: Nordic UART service UUID: {NORDIC_UUIDS['service']}")
+        
         log.info(f"BLE Advertisement initialized with name: {local_name}")
-        log.info("BLE Advertisement service UUID: 49535343-FE7D-4AE5-8FA9-9FAFD205E455")
     
     def register_ad_callback(self):
         """Callback when advertisement is successfully registered"""
@@ -135,7 +162,7 @@ def sendMessage(data):
     
     return
     
-    # Send via BLE if connected
+    # Send via BLE if connected (both services share the same tx_obj)
     if UARTService.tx_obj is not None and UARTService.tx_obj.notifying:
         try:
             UARTService.tx_obj.updateValue(tosend)
@@ -152,26 +179,36 @@ def sendMessage(data):
 
 
 class UARTService(Service):
-    """BLE UART service for Millennium ChessLink protocol - Transparent UART service"""
+    """BLE UART service supporting both Millennium ChessLink and Nordic UART protocols"""
     tx_obj = None
     
-    # Millennium ChessLink Transparent UART service UUID
-    UART_SVC_UUID = "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
-    
-    def __init__(self, index):
-        Service.__init__(self, index, self.UART_SVC_UUID, True)
-        self.add_characteristic(UARTTXCharacteristic(self))
-        self.add_characteristic(UARTRXCharacteristic(self))
+    def __init__(self, index, service_uuid, rx_characteristic_uuid, tx_characteristic_uuid):
+        """Initialize BLE UART service.
+        
+        Args:
+            index: Service index
+            service_uuid: Service UUID (from MILLENNIUM_UUIDS or NORDIC_UUIDS)
+            rx_characteristic_uuid: RX characteristic UUID
+            tx_characteristic_uuid: TX characteristic UUID
+        """
+        Service.__init__(self, index, service_uuid, True)
+        self.service_uuid = service_uuid
+        self.add_characteristic(UARTTXCharacteristic(self, tx_characteristic_uuid))
+        self.add_characteristic(UARTRXCharacteristic(self, rx_characteristic_uuid))
 
 
 class UARTRXCharacteristic(Characteristic):
-    """BLE RX characteristic - receives Millennium protocol commands from app and logs them"""
-    # Millennium ChessLink App TX → Peripheral RX characteristic UUID
-    UARTRX_CHARACTERISTIC_UUID = "49535343-8841-43F4-A8D4-ECBE34729BB3"
+    """BLE RX characteristic - receives protocol commands from app and logs them"""
     
-    def __init__(self, service):
+    def __init__(self, service, rx_characteristic_uuid):
+        """Initialize BLE RX characteristic.
+        
+        Args:
+            service: UARTService instance
+            rx_characteristic_uuid: RX characteristic UUID (from MILLENNIUM_UUIDS or NORDIC_UUIDS)
+        """
         Characteristic.__init__(
-            self, self.UARTRX_CHARACTERISTIC_UUID,
+            self, rx_characteristic_uuid,
             ["write", "write-without-response"], service)
     
     def WriteValue(self, value, options):
@@ -229,13 +266,17 @@ class UARTRXCharacteristic(Characteristic):
 
 
 class UARTTXCharacteristic(Characteristic):
-    """BLE TX characteristic - sends Millennium protocol responses via notifications"""
-    # Millennium ChessLink Peripheral TX → App RX characteristic UUID
-    UARTTX_CHARACTERISTIC_UUID = "49535343-1E4D-4BD9-BA61-23C647249616"
+    """BLE TX characteristic - sends protocol responses via notifications"""
     
-    def __init__(self, service):
+    def __init__(self, service, tx_characteristic_uuid):
+        """Initialize BLE TX characteristic.
+        
+        Args:
+            service: UARTService instance
+            tx_characteristic_uuid: TX characteristic UUID (from MILLENNIUM_UUIDS or NORDIC_UUIDS)
+        """
         Characteristic.__init__(
-            self, self.UARTTX_CHARACTERISTIC_UUID,
+            self, tx_characteristic_uuid,
             ["read", "notify"], service)
         self.notifying = False
     
@@ -702,15 +743,32 @@ def main():
     log.info("=" * 60)
     
     # Initialize BLE application
-    log.info("Initializing BLE service...")
+    log.info("Initializing BLE services...")
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     ble_app = Application()
-    ble_app.add_service(UARTService(0))
+    
+    # Add Millennium ChessLink service
+    log.info(f"Adding Millennium ChessLink service: {MILLENNIUM_UUIDS['service']}")
+    ble_app.add_service(UARTService(
+        0,
+        MILLENNIUM_UUIDS["service"],
+        MILLENNIUM_UUIDS["rx_characteristic"],
+        MILLENNIUM_UUIDS["tx_characteristic"]
+    ))
+    
+    # Add Nordic UART service
+    log.info(f"Adding Nordic UART service: {NORDIC_UUIDS['service']}")
+    ble_app.add_service(UARTService(
+        1,
+        NORDIC_UUIDS["service"],
+        NORDIC_UUIDS["rx_characteristic"],
+        NORDIC_UUIDS["tx_characteristic"]
+    ))
     
     # Register the BLE application
     try:
         ble_app.register()
-        log.info("BLE application registered successfully")
+        log.info("BLE application registered successfully with both services")
     except Exception as e:
         log.error(f"Failed to register BLE application: {e}")
         import traceback
@@ -718,9 +776,9 @@ def main():
         log.warning("Continuing without BLE support...")
         ble_app = None
     
-    # Register BLE advertisement
+    # Register BLE advertisement (advertises both service UUIDs)
     if ble_app is not None:
-        ble_adv = UARTAdvertisement(0, local_name=args.local_name)
+        ble_adv = UARTAdvertisement(0, local_name=args.local_name, advertise_millennium=True, advertise_nordic=True)
         try:
             ble_adv.register()
             log.info("BLE advertisement registered successfully")
