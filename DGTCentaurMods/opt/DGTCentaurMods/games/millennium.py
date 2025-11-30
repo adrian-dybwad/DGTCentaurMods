@@ -225,6 +225,38 @@ class Millennium:
         self.sendMessage = sendMessage_callback
         self.manager = manager
     
+    def handle_manager_event(self, event):
+        """Handle game events from the manager.
+        
+        Args:
+            event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
+        """
+        log.info(f"[Millennium] handle_manager_event called: event={event}")
+    
+    def handle_manager_move(self, move):
+        """Handle moves from the manager.
+        
+        Args:
+            move: Chess move object
+        """
+        log.info(f"[Millennium] handle_manager_move called: move={move}")
+        if self.manager is not None:
+            self.encode_millennium_command("s" + self.fen_to_eone(self.manager.get_fen()))
+        else:
+            log.error("[Millennium] No manager available for getFEN")
+    
+    def handle_manager_key(self, key):
+        """Handle key presses from the manager.
+        
+        Args:
+            key: Key that was pressed (board.Key enum value)
+        """
+        log.info(f"[Millennium] handle_manager_key called: key={key}")
+    
+    def handle_manager_takeback(self):
+        """Handle takeback requests from the manager."""
+        log.info(f"[Millennium] handle_manager_takeback called")
+    
     def fen_to_eone(self, fen: str) -> str:
         """
         Convert a FEN string to Millennium eONE / ChessLink 64-char board status.
