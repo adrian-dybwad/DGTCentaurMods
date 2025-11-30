@@ -132,6 +132,63 @@ class UARTAdvertisement(Advertisement):
             adapter = BleTools.find_adapter(bus)
             log.info(f"Found Bluetooth adapter: {adapter}")
             
+            # Get adapter properties interface
+            adapter_props = dbus.Interface(
+                bus.get_object("org.bluez", adapter),
+                "org.freedesktop.DBus.Properties")
+            
+            # Get adapter MAC address and store it
+            mac_address = None
+            try:
+                mac_address = adapter_props.Get("org.bluez.Adapter1", "Address")
+                log.info(f"Bluetooth adapter MAC address: {mac_address}")
+                # Store MAC address in advertisement object
+                self.mac_address = mac_address
+                
+                # Note: BLE advertisement has 31-byte limit
+                # Adding MAC to manufacturer/service data may exceed this limit
+                # The MAC address should be visible in the BLE scan results automatically
+                # when AddressType is 'public'
+                log.info(f"MAC address will be included in BLE advertisement automatically (AddressType: public)")
+            except Exception as e:
+                log.warning(f"Could not get MAC address: {e}")
+            
+            # Configure adapter to use public MAC address instead of random
+            # This is required for iOS devices to connect (iOS requires public MAC address)
+            # BlueZ privacy mode must be disabled in /etc/bluetooth/main.conf
+            try:
+                # Check if /etc/bluetooth/main.conf has privacy disabled
+                import pathlib
+                main_conf = pathlib.Path("/etc/bluetooth/main.conf")
+                privacy_disabled = False
+                if main_conf.exists():
+                    with open(main_conf, 'r') as f:
+                        content = f.read()
+                        if "Privacy = off" in content or "Privacy=off" in content:
+                            privacy_disabled = True
+                            log.info("Privacy mode is disabled in /etc/bluetooth/main.conf")
+                        else:
+                            log.warning("Privacy mode may be enabled in /etc/bluetooth/main.conf")
+                            log.warning("Add 'Privacy = off' under [General] section to use public MAC address")
+                            log.warning("This is required for iOS devices to connect")
+                else:
+                    log.warning("/etc/bluetooth/main.conf not found - privacy mode status unknown")
+                
+                # Try to disable privacy mode via D-Bus (may not work on all systems)
+                try:
+                    adapter_props.Set("org.bluez.Adapter1", "Privacy", dbus.Boolean(False))
+                    log.info("Disabled adapter Privacy mode via D-Bus (using public MAC address)")
+                    privacy_disabled = True
+                except dbus.exceptions.DBusException as e:
+                    log.info(f"Privacy property not available via D-Bus: {e}")
+                    if not privacy_disabled:
+                        log.warning("Cannot disable privacy mode - iOS devices may not be able to connect")
+                        log.warning("To fix: Add 'Privacy = off' to /etc/bluetooth/main.conf under [General] section")
+                        log.warning("Then restart bluetooth service: sudo systemctl restart bluetooth")
+            except Exception as e:
+                log.warning(f"Could not configure adapter for public MAC address: {e}")
+                log.warning("iOS devices may not be able to connect without public MAC address")
+            
             ad_manager = dbus.Interface(
                 bus.get_object("org.bluez", adapter),
                 "org.bluez.LEAdvertisingManager1")
@@ -151,13 +208,108 @@ class UARTAdvertisement(Advertisement):
                 log.debug(f"Error checking for existing advertisement: {e}")
             
             # iOS/macOS compatibility options
+            # Try to ensure we're using public address type
+            # Note: The address type is typically controlled by the adapter's privacy settings
             options = {
                 "MinInterval": dbus.UInt16(0x0014),  # 20ms
                 "MaxInterval": dbus.UInt16(0x0098),  # 152.5ms
             }
             
+            # Check the actual AddressType value and try to set LE address to public MAC
+            try:
+                adapter_info = adapter_props.GetAll("org.bluez.Adapter1")
+                address_type = adapter_info.get("AddressType", "unknown")
+                mac_address = adapter_info.get("Address", mac_address)
+                log.info(f"Adapter AddressType: {address_type}")
+                log.info(f"Adapter MAC address: {mac_address}")
+                
+                if address_type != "public":
+                    log.warning(f"Adapter AddressType is '{address_type}', not 'public'")
+                    log.warning("Attempting to set LE address to public MAC address...")
+                    log.warning("This is required for iOS devices to connect")
+                    
+                    # Try to set the LE address to the public MAC using hciconfig
+                    import subprocess
+                    try:
+                        # First, check current LE address
+                        result_check = subprocess.run(
+                            ['hciconfig', 'hci0'],
+                            capture_output=True,
+                            text=True,
+                            timeout=5
+                        )
+                        if result_check.returncode == 0:
+                            log.info(f"Current hci0 config: {result_check.stdout[:200]}")
+                        
+                        # Set LE address to public MAC address
+                        # Note: This may require the adapter to be down first
+                        # Format: hciconfig hci0 leaddr B8:27:EB:21:D2:51
+                        if mac_address:
+                            log.info(f"Setting LE address to: {mac_address}")
+                            result = subprocess.run(
+                                ['sudo', 'hciconfig', 'hci0', 'leaddr', mac_address],
+                                capture_output=True,
+                                text=True,
+                                timeout=5
+                            )
+                            if result.returncode == 0:
+                                log.info(f"Successfully set LE address to public MAC: {mac_address}")
+                                # Small delay to let it take effect
+                                time.sleep(0.5)
+                                # Verify it was set
+                                result2 = subprocess.run(
+                                    ['hciconfig', 'hci0'],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=5
+                                )
+                                if result2.returncode == 0:
+                                    log.info(f"LE address verification output: {result2.stdout[:300]}")
+                            else:
+                                log.warning(f"Failed to set LE address (return code {result.returncode})")
+                                log.warning(f"Error output: {result.stderr}")
+                                log.warning("iOS devices may not be able to connect")
+                                log.warning("You may need to manually run: sudo hciconfig hci0 leaddr " + mac_address)
+                    except FileNotFoundError:
+                        log.warning("hciconfig not found - cannot set LE address")
+                        log.warning("Install bluez-hcidump or ensure hciconfig is available")
+                        log.warning("iOS devices may not be able to connect without public LE address")
+                    except subprocess.TimeoutExpired:
+                        log.warning("hciconfig command timed out")
+                    except Exception as e:
+                        log.warning(f"Error setting LE address: {e}")
+                        import traceback
+                        log.warning(traceback.format_exc())
+                else:
+                    log.info("Adapter AddressType is 'public' - MAC address should be visible")
+                    log.info("iOS devices should be able to connect")
+            except Exception as e:
+                log.debug(f"Could not check/set adapter AddressType: {e}")
+            
+            # Verify LE address is set correctly before advertising
+            # This ensures the MAC address is used in BLE advertisements
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ['hciconfig', 'hci0'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    output = result.stdout
+                    if 'LE Address' in output or 'BD Address' in output:
+                        log.info(f"LE/BD Address from hciconfig: {output[output.find('Address'):output.find('Address')+50]}")
+                    # Check if we need to set the LE address
+                    if mac_address and mac_address.replace(':', '') not in output.replace(' ', '').replace(':', ''):
+                        log.warning("MAC address not found in hciconfig output - LE address may not be set correctly")
+                        log.warning("iOS devices may not be able to connect")
+            except Exception as e:
+                log.debug(f"Could not verify LE address via hciconfig: {e}")
+            
             log.info(f"Registering BLE advertisement at path: {self.get_path()}")
             log.info("Registering BLE advertisement with iOS/macOS compatible intervals")
+            log.info(f"Expected MAC address in advertisement: {mac_address if mac_address else 'unknown'}")
             ad_manager.RegisterAdvertisement(
                 self.get_path(),
                 options,
