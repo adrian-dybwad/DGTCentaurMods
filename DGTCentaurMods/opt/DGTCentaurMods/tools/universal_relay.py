@@ -94,6 +94,7 @@ class UARTAdvertisement(Advertisement):
         self.local_name = local_name
         self.add_local_name(local_name)
         self.include_tx_power = True
+        self._registration_successful = False  # Track registration status
         
         # Advertise Millennium ChessLink service UUID
         if advertise_millennium:
@@ -109,13 +110,20 @@ class UARTAdvertisement(Advertisement):
     
     def register_ad_callback(self):
         """Callback when advertisement is successfully registered"""
+        self._registration_successful = True
         log.info("BLE advertisement registered successfully")
         log.info(f"Device should now be discoverable as '{self.local_name}'")
     
     def register_ad_error_callback(self, error):
         """Callback when advertisement registration fails"""
-        log.error(f"Failed to register BLE advertisement: {error}")
-        log.error("Check that BlueZ is running and BLE is enabled")
+        # Only log as error if registration wasn't already successful
+        # (Sometimes BlueZ calls both callbacks, but if success was called first, we're good)
+        if not self._registration_successful:
+            log.error(f"Failed to register BLE advertisement: {error}")
+            log.error("Check that BlueZ is running and BLE is enabled")
+        else:
+            # Success was already called, this might be a spurious error callback
+            log.debug(f"Advertisement registration error callback received after success: {error}")
     
     def register(self):
         """Register advertisement with iOS/macOS compatible options"""
@@ -128,12 +136,27 @@ class UARTAdvertisement(Advertisement):
                 bus.get_object("org.bluez", adapter),
                 "org.bluez.LEAdvertisingManager1")
             
+            # Try to unregister any existing advertisement with the same path first
+            # This prevents conflicts if the advertisement was already registered
+            try:
+                ad_manager.UnregisterAdvertisement(self.get_path())
+                log.info(f"Unregistered existing advertisement at {self.get_path()}")
+                # Give BlueZ a moment to process the unregistration
+                time.sleep(0.1)
+            except dbus.exceptions.DBusException as e:
+                # It's okay if the advertisement doesn't exist yet
+                if "org.bluez.Error.DoesNotExist" not in str(e):
+                    log.debug(f"Could not unregister existing advertisement (may not exist): {e}")
+            except Exception as e:
+                log.debug(f"Error checking for existing advertisement: {e}")
+            
             # iOS/macOS compatibility options
             options = {
                 "MinInterval": dbus.UInt16(0x0014),  # 20ms
                 "MaxInterval": dbus.UInt16(0x0098),  # 152.5ms
             }
             
+            log.info(f"Registering BLE advertisement at path: {self.get_path()}")
             log.info("Registering BLE advertisement with iOS/macOS compatible intervals")
             ad_manager.RegisterAdvertisement(
                 self.get_path(),
