@@ -541,6 +541,16 @@ class UARTTXCharacteristic(Characteristic):
 		log.info(f"UARTTXCharacteristic: Properties to be registered: {props}")
 		log.info(f"UARTTXCharacteristic: Path: {self.get_path()}")
 	
+	def get_properties(self):
+		"""Override to ensure no Value property is exposed (matches real Millennium Chess board)"""
+		props = Characteristic.get_properties(self)
+		# Ensure no 'Value' property is in the properties dict
+		# Real board doesn't expose a Value property for TX characteristic
+		if 'Value' in props.get(GATT_CHRC_IFACE, {}):
+			del props[GATT_CHRC_IFACE]['Value']
+			log.debug("UARTTXCharacteristic: Removed 'Value' property to match real board")
+		return props
+	
 	def sendMessage(self, data):
 		"""Send a message via BLE notification"""
 		if not self.notifying:
@@ -552,21 +562,13 @@ class UARTTXCharacteristic(Characteristic):
 		UARTService.tx_obj.updateValue(tosend)
 	
 	def ReadValue(self, options):
-		"""Read the characteristic value"""
-		# Log security options passed by BlueZ
-		log.info(f"UARTTXCharacteristic.ReadValue: options={options}")
-		if options:
-			option_keys = list(options.keys()) if hasattr(options, 'keys') else str(options)
-			log.info(f"UARTTXCharacteristic.ReadValue: option keys: {option_keys}")
-			# Check for security-related options
-			for key in options.keys() if hasattr(options, 'keys') else []:
-				log.info(f"UARTTXCharacteristic.ReadValue: option['{key}'] = {options[key]}")
-		
-		# Real Millennium Chess board has NO value for TX characteristic (notification-only)
-		# Return empty array to match real board behavior
-		value = dbus.Array([], signature=dbus.Signature('y'))
-		log.info("UARTTXCharacteristic.ReadValue: Returning empty value (matches real Millennium Chess board - no value)")
-		return value
+		"""Read the characteristic value - should not be callable (no 'read' flag)"""
+		# Real Millennium Chess board does NOT support ReadValue for TX characteristic
+		# If this is called, it means BlueZ is allowing reads despite no 'read' flag
+		# Raise NotSupportedException to match real board behavior
+		log.warning("UARTTXCharacteristic.ReadValue: Called despite no 'read' flag - raising NotSupportedException")
+		from DGTCentaurMods.thirdparty.service import NotSupportedException
+		raise NotSupportedException()
 	
 	def StartNotify(self):
 		"""Called when BLE client subscribes to notifications"""
@@ -914,6 +916,17 @@ try:
 					log.info(f"Found characteristic: {char_uuid}")
 					log.info(f"  Path: {char_path}")
 					log.info(f"  Flags reported by BlueZ: {char_flags}")
+					
+					# Check for Value property (should not exist for TX characteristic)
+					char_value = char_props.get("Value", None)
+					if char_value is not None:
+						log.warning(f"  ⚠ Value property found: {char_value}")
+						log.warning(f"  ⚠ This may cause nRF Connect to show a value (real board has no Value)")
+						if isinstance(char_value, dbus.Array):
+							value_bytes = [int(b) for b in char_value]
+							log.warning(f"  ⚠ Value bytes: {value_bytes} (hex: {' '.join(f'{b:02x}' for b in value_bytes)})")
+					else:
+						log.info(f"  ✓ No Value property found (matches real board - no value shown)")
 					
 					# Check for security flags
 					security_flags = [f for f in char_flags if any(sec in f.lower() for sec in ['encrypt', 'secure', 'authenticated', 'bond'])]
