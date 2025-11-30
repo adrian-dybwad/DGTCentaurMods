@@ -954,6 +954,8 @@ def main():
         default=None,
         help="RFCOMM port for server (default: auto-assign)"
     )
+    parser.add_argument("--device-name", type=str, default="SPP Relay",
+                       help="Bluetooth device name for RFCOMM service (default: 'SPP Relay'). Example: 'MILLENNIUM CHESS'")
     
     args = parser.parse_args()
     
@@ -1064,10 +1066,11 @@ def main():
         log.info("BLE mainloop thread started")
     
     # Create Bluetooth controller instance and start pairing thread
-    bluetooth_controller = BluetoothController(device_name="SPP Relay")
+    bluetooth_controller = BluetoothController(device_name=args.device_name)
     bluetooth_controller.enable_bluetooth()
-    bluetooth_controller.set_device_name("SPP Relay")
+    bluetooth_controller.set_device_name(args.device_name)
     pair_thread = bluetooth_controller.start_pairing_thread()
+    log.info(f"Bluetooth device name set to: {args.device_name}")
     
     time.sleep(2)
     
@@ -1099,11 +1102,24 @@ def main():
     server_sock.listen(1)
     port = server_sock.getsockname()[1]
     uuid = "94f39d29-7d6d-437d-973b-fba39e49d4ee"
-    bluetooth.advertise_service(server_sock, "SPPRelayServer", service_id=uuid,
-                              service_classes=[uuid, bluetooth.SERIAL_PORT_CLASS],
-                              profiles=[bluetooth.SERIAL_PORT_PROFILE])
+    
+    # Advertise RFCOMM service - this registers the service in SDP so clients can discover it
+    try:
+        bluetooth.advertise_service(server_sock, args.device_name, service_id=uuid,
+                                  service_classes=[uuid, bluetooth.SERIAL_PORT_CLASS],
+                                  profiles=[bluetooth.SERIAL_PORT_PROFILE])
+        log.info(f"RFCOMM service '{args.device_name}' advertised successfully on channel {port}")
+        log.info(f"Service UUID: {uuid}")
+        log.info(f"Service is now discoverable by paired devices")
+    except Exception as e:
+        log.error(f"Failed to advertise RFCOMM service: {e}")
+        log.error("Service may not be discoverable - clients may not be able to connect")
+        import traceback
+        log.error(traceback.format_exc())
+        # Continue anyway - the socket is still listening, but service discovery may not work
     
     log.info(f"Server listening on RFCOMM channel: {port}")
+    log.info(f"Waiting for client connection on device '{args.device_name}'...")
     
     # Connect to target device in a separate thread
     def connect_millennium():
@@ -1120,13 +1136,19 @@ def main():
     
     # Wait for client connection
     log.info("Waiting for client connection...")
+    log.info(f"Server socket is ready and listening on RFCOMM channel {port}")
+    log.info(f"Device '{args.device_name}' is paired and service is advertised")
+    log.info("ChessLink app should now be able to connect to this device")
     connected = False
+    connection_attempts = 0
     while not connected and not kill:
         try:
+            log.debug(f"Waiting for connection attempt (attempt #{connection_attempts + 1})...")
             client_sock, client_info = server_sock.accept()
             connected = True
             client_connected = True
-            log.info(f"Client connected from {client_info}")
+            log.info(f"✓ Client connected from {client_info}")
+            log.info(f"✓ Connection established on RFCOMM channel {port}")
             
             # Instantiate Universal on BT classic connection
             global universal
@@ -1137,12 +1159,17 @@ def main():
                 log.error(f"[Universal] Error instantiating or resetting parser: {e}")
                 import traceback
                 traceback.print_exc()
-        except bluetooth.BluetoothError:
-            # Timeout, check kill flag
+        except bluetooth.BluetoothError as e:
+            # Timeout or other Bluetooth error - this is normal while waiting
+            connection_attempts += 1
+            if connection_attempts % 50 == 0:  # Log every 5 seconds (50 * 0.1s)
+                log.debug(f"Still waiting for connection... (checked {connection_attempts} times)")
             time.sleep(0.1)
         except Exception as e:
+            connection_attempts += 1
             if running:
                 log.error(f"Error accepting client connection: {e}")
+                log.error(f"This may indicate a problem with the RFCOMM service or socket")
             time.sleep(0.1)
     
     if kill:
