@@ -35,7 +35,7 @@ from DGTCentaurMods.thirdparty.bletools import BleTools
 # Global state
 running = True
 kill = 0
-shadow_traget_connected = False
+shadow_target_connected = False
 client_connected = False
 ble_connected = False
 universal = None  # Universal instance
@@ -51,7 +51,7 @@ ble_app = None
 ble_adv = None
 
 # Thread references
-shadow_traget_to_client_thread = None
+shadow_target_to_client_thread = None
 shadow_target_to_client_thread_started = False
 
 GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
@@ -480,7 +480,7 @@ class UARTRXCharacteristic(Characteristic):
     def WriteValue(self, value, options):
         """When the remote device writes data via BLE, log the incoming bytes"""
         global kill, ble_connected
-        global shadow_traget_connected
+        global shadow_target_connected
         if kill:
             return
         
@@ -512,7 +512,7 @@ class UARTRXCharacteristic(Characteristic):
             
             # Write to MILLENNIUM CHESS (if connected)
             # Note: Don't raise exceptions for send failures - Android BLE interprets this as write failure
-            if shadow_traget_connected and shadow_target_sock is not None:
+            if shadow_target_connected and shadow_target_sock is not None:
                 try:
                     data_to_send = bytes(bytes_data)
                     log.info(f"BLE -> MILLENNIUM: Sending {len(data_to_send)} bytes: {' '.join(f'{b:02x}' for b in data_to_send)}")
@@ -523,11 +523,11 @@ class UARTRXCharacteristic(Characteristic):
                         log.info(f"Successfully sent {bytes_sent} bytes to MILLENNIUM CHESS via BT Classic")
                 except (bluetooth.BluetoothError, OSError) as e:
                     log.error(f"Error sending to MILLENNIUM CHESS: {e}")
-                    shadow_traget_connected = False
+                    shadow_target_connected = False
                     # Don't raise - Android BLE will think write failed if we raise here
                     # The data was successfully received via BLE, which is what matters
             else:
-                log.warning(f"MILLENNIUM CHESS not connected (shadow_traget_connected={shadow_traget_connected}, shadow_target_sock={shadow_target_sock is not None}), data processed through universal parser only")
+                log.warning(f"MILLENNIUM CHESS not connected (shadow_target_connected={shadow_target_connected}, shadow_target_sock={shadow_target_sock is not None}), data processed through universal parser only")
 
             ble_connected = True
         except Exception as e:
@@ -711,8 +711,8 @@ def connect_to_millennium(shadow_target="MILLENNIUM CHESS"):
         shadow_target: Name of the target device to connect to (default: "MILLENNIUM CHESS")
                       Example: "MILLENNIUM CHESS"
     """
-    global shadow_target_sock, shadow_traget_connected
-    global shadow_traget_to_client_thread, shadow_target_to_client_thread_started
+    global shadow_target_sock, shadow_target_connected
+    global shadow_target_to_client_thread, shadow_target_to_client_thread_started
     
     try:
         # Find device
@@ -732,12 +732,12 @@ def connect_to_millennium(shadow_target="MILLENNIUM CHESS"):
                     sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
                     sock.connect((device_addr, common_port))
                     shadow_target_sock = sock
-                    shadow_traget_connected = True
+                    shadow_target_connected = True
                     log.info(f"Connected to MILLENNIUM CHESS on port {common_port}")
                     # Start the relay thread when connection is established
                     if not shadow_target_to_client_thread_started:
-                        shadow_traget_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
-                        shadow_traget_to_client_thread.start()
+                        shadow_target_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
+                        shadow_target_to_client_thread.start()
                         shadow_target_to_client_thread_started = True
                         log.info("Started millennium_to_client thread")
                     return True
@@ -754,12 +754,12 @@ def connect_to_millennium(shadow_target="MILLENNIUM CHESS"):
         log.info(f"Connecting to MILLENNIUM CHESS at {device_addr}:{port}...")
         shadow_target_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
         shadow_target_sock.connect((device_addr, port))
-        shadow_traget_connected = True
+        shadow_target_connected = True
         log.info("Connected to MILLENNIUM CHESS successfully")
         # Start the relay thread when connection is established
         if not shadow_target_to_client_thread_started:
-            shadow_traget_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
-            shadow_traget_to_client_thread.start()
+            shadow_target_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
+            shadow_target_to_client_thread.start()
             shadow_target_to_client_thread_started = True
             log.info("Started millennium_to_client thread")
         return True
@@ -773,13 +773,13 @@ def connect_to_millennium(shadow_target="MILLENNIUM CHESS"):
 
 def millennium_to_client():
     """Relay data from MILLENNIUM CHESS to client"""
-    global running, shadow_target_sock, client_sock, shadow_traget_connected, client_connected, _last_message
+    global running, shadow_target_sock, client_sock, shadow_target_connected, client_connected, _last_message
     
     log.info("Starting MILLENNIUM -> Client relay thread")
     try:
         while running and not kill:
             try:
-                if not shadow_traget_connected or shadow_target_sock is None:
+                if not shadow_target_connected or shadow_target_sock is None:
                     time.sleep(0.1)
                     continue
                 
@@ -815,7 +815,7 @@ def millennium_to_client():
             except bluetooth.BluetoothError as e:
                 if running:
                     log.error(f"Bluetooth error in MILLENNIUM -> Client relay: {e}")
-                shadow_traget_connected = False
+                shadow_target_connected = False
                 break
             except Exception as e:
                 if running:
@@ -829,12 +829,12 @@ def millennium_to_client():
         log.error(traceback.format_exc())
     finally:
         log.info("MILLENNIUM -> Client relay thread stopped")
-        shadow_traget_connected = False
+        shadow_target_connected = False
 
 
 def client_to_millennium():
     """Relay data from client to MILLENNIUM CHESS"""
-    global running, shadow_target_sock, client_sock, shadow_traget_connected, client_connected
+    global running, shadow_target_sock, client_sock, shadow_target_connected, client_connected
     
     log.info("Starting Client -> MILLENNIUM relay thread")
     try:
@@ -844,7 +844,7 @@ def client_to_millennium():
                     time.sleep(0.1)
                     continue
                 
-                if not shadow_traget_connected or shadow_target_sock is None:
+                if not shadow_target_connected or shadow_target_sock is None:
                     time.sleep(0.1)
                     continue
                 
@@ -872,7 +872,7 @@ def client_to_millennium():
                         log.info(f"Sent {sent} bytes to MILLENNIUM CHESS")
                     except Exception as e:
                         log.error(f"Error sending to MILLENNIUM CHESS: {e}")
-                        shadow_traget_connected = False
+                        shadow_target_connected = False
                         break
                     
             except bluetooth.BluetoothError as e:
@@ -894,7 +894,7 @@ def client_to_millennium():
 def cleanup():
     """Clean up connections and resources"""
     global kill, running, shadow_target_sock, client_sock, server_sock
-    global shadow_traget_connected, client_connected, ble_app, ble_adv_millennium, ble_adv_nordic
+    global shadow_target_connected, client_connected, ble_app, ble_adv_millennium, ble_adv_nordic
     
     try:
         log.info("Cleaning up relay...")
@@ -985,7 +985,7 @@ def cleanup():
             except Exception as e:
                 log.debug(f"Error closing server socket: {e}")
         
-        shadow_traget_connected = False
+        shadow_target_connected = False
         client_connected = False
         
         log.info("Cleanup completed")
@@ -1005,8 +1005,8 @@ def signal_handler(signum, frame):
 def main():
     """Main entry point"""
     global server_sock, client_sock, shadow_target_sock
-    global shadow_traget_connected, client_connected, running, kill
-    global ble_app, ble_adv_millennium, ble_adv_nordic, shadow_traget_to_client_thread, shadow_target_to_client_thread_started
+    global shadow_target_connected, client_connected, running, kill
+    global ble_app, ble_adv_millennium, ble_adv_nordic, shadow_target_to_client_thread, shadow_target_to_client_thread_started
     
     parser = argparse.ArgumentParser(description="Bluetooth Classic SPP Relay with BLE - Connect to MILLENNIUM CHESS and relay data")
     parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
@@ -1299,13 +1299,13 @@ def main():
     # Wait for MILLENNIUM connection if not already connected
     max_wait = 30
     wait_time = 0
-    while not shadow_traget_connected and wait_time < max_wait and not kill:
+    while not shadow_target_connected and wait_time < max_wait and not kill:
         time.sleep(0.5)
         wait_time += 0.5
         if wait_time % 5 == 0:
             log.info(f"Waiting for MILLENNIUM CHESS connection... ({wait_time}/{max_wait} seconds)")
     
-    if not shadow_traget_connected:
+    if not shadow_target_connected:
         log.error("MILLENNIUM CHESS connection timeout")
         cleanup()
         sys.exit(1)
@@ -1318,10 +1318,10 @@ def main():
     
     # Start relay threads
     # Note: millennium_to_client_thread is started automatically when millennium_connected becomes True
-    global shadow_traget_to_client_thread, shadow_target_to_client_thread_started
+    global shadow_target_to_client_thread, shadow_target_to_client_thread_started
     if not shadow_target_to_client_thread_started:
-        shadow_traget_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
-        shadow_traget_to_client_thread.start()
+        shadow_target_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
+        shadow_target_to_client_thread.start()
         shadow_target_to_client_thread_started = True
         log.info("Started millennium_to_client thread")
     
@@ -1336,12 +1336,12 @@ def main():
             time.sleep(1)
             
             # Check if millennium thread is still alive
-            if shadow_traget_to_client_thread is not None and not shadow_traget_to_client_thread.is_alive():
+            if shadow_target_to_client_thread is not None and not shadow_target_to_client_thread.is_alive():
                 log.warning("millennium_to_client thread has stopped")
                 # Restart the thread if millennium is still connected
-                if shadow_traget_connected and shadow_target_sock is not None:
-                    shadow_traget_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
-                    shadow_traget_to_client_thread.start()
+                if shadow_target_connected and shadow_target_sock is not None:
+                    shadow_target_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
+                    shadow_target_to_client_thread.start()
                     log.info("Restarted millennium_to_client thread")
                 else:
                     log.error("MILLENNIUM connection lost and cannot restart thread")
@@ -1387,7 +1387,7 @@ def main():
                     break
             
             # Check millennium connection status (but don't exit, just log)
-            if not shadow_traget_connected:
+            if not shadow_target_connected:
                 log.warning("MILLENNIUM CHESS connection lost")
                 # Don't exit, just wait - the connection might be re-established
             
