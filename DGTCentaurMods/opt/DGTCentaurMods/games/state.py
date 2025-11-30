@@ -51,11 +51,51 @@ class State:
         fen = self.board.fen()
         
         if format:
-            # Replace numbers with periods
-            import re
-            fen = re.sub(r'\d', lambda m: '.' * int(m.group()), fen)
-            # Replace / with nothing
-            fen = fen.replace('/', '')
+            fen = self.fen_to_eone(fen)
+            # # Replace numbers with periods
+            # import re
+            # fen = re.sub(r'\d', lambda m: '.' * int(m.group()), fen)
+            # # Replace / with nothing
+            # fen = fen.replace('/', '')
         
         return fen
 
+    def fen_to_eone(fen: str) -> str:
+        """
+        Convert a FEN string to Millennium eONE / ChessLink 64-char board status.
+
+        Returns a 64-character string of piece codes in A8..H8, A7..H7, ..., A1..H1
+        order, with '.' for empty squares.
+
+        Example:
+            fen_to_eone("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+            -> "rnbqkbnrpppppppp................................PPPPPPPPRNBQKBNR"
+        """
+        piece_field = fen.split()[0]  # take only the piece placement part
+        ranks = piece_field.split('/')
+        if len(ranks) != 8:
+            raise ValueError("Invalid FEN: expected 8 ranks in piece field")
+
+        board_chars = []
+
+        for rank in ranks:  # from rank 8 down to 1 (same as FEN)
+            expanded_rank = []
+            for ch in rank:
+                if ch.isdigit():
+                    expanded_rank.extend('.' * int(ch))
+                elif ch in "prnbqkPRNBQK":
+                    expanded_rank.append(ch)
+                else:
+                    raise ValueError(f"Invalid FEN character in piece field: {ch!r}")
+
+            if len(expanded_rank) != 8:
+                raise ValueError(
+                    f"Invalid FEN: rank {rank!r} does not expand to 8 squares"
+                )
+
+            board_chars.extend(expanded_rank)
+
+        if len(board_chars) != 64:
+            raise ValueError("Expanded board is not 64 squares")
+
+        return ''.join(board_chars)
