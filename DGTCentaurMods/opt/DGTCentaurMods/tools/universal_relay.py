@@ -956,21 +956,25 @@ def main():
         MILLENNIUM_UUIDS["tx_characteristic"]
     ))
     
-    # Add Nordic UART service (service is always registered, but advertisement can be disabled)
-    log.info(f"Adding Nordic UART service: {NORDIC_UUIDS['service']}")
-    ble_app.add_service(UARTService(
-        1,
-        NORDIC_UUIDS["service"],
-        NORDIC_UUIDS["rx_characteristic"],
-        NORDIC_UUIDS["tx_characteristic"]
-    ))
-    if args.disable_nordic:
-        log.info("Nordic UART service registered but will not be advertised (--disable-nordic flag set)")
+    # Add Nordic UART service (only if not disabled)
+    if not args.disable_nordic:
+        log.info(f"Adding Nordic UART service: {NORDIC_UUIDS['service']}")
+        ble_app.add_service(UARTService(
+            1,
+            NORDIC_UUIDS["service"],
+            NORDIC_UUIDS["rx_characteristic"],
+            NORDIC_UUIDS["tx_characteristic"]
+        ))
+    else:
+        log.info("Nordic UART service disabled (--disable-nordic flag set)")
     
     # Register the BLE application
     try:
         ble_app.register()
-        log.info("BLE application registered successfully with both services")
+        if args.disable_nordic:
+            log.info("BLE application registered successfully with Millennium ChessLink service only")
+        else:
+            log.info("BLE application registered successfully with both services")
     except Exception as e:
         log.error(f"Failed to register BLE application: {e}")
         import traceback
