@@ -1214,7 +1214,6 @@ def main():
     bluetooth_controller.enable_bluetooth()
     bluetooth_controller.set_device_name(args.device_name)
     pair_thread = bluetooth_controller.start_pairing_thread()
-    log.info(f"Bluetooth device name set to: {args.device_name}")
     
     time.sleep(2)
     
