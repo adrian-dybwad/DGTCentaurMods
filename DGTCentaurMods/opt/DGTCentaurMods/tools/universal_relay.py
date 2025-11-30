@@ -40,6 +40,7 @@ client_connected = False
 ble_connected = False
 universal = None  # Universal instance
 _last_message = None  # Last message sent via sendMessage
+relay_mode = False  # Whether relay mode is enabled (connects to MILLENNIUM CHESS)
 
 # Socket references
 shadow_target_sock = None
@@ -426,7 +427,12 @@ def sendMessage(data):
     _last_message = tosend
     log.warning(f"[sendMessage CALLBACK] tosend={' '.join(f'{b:02x}' for b in tosend)}")
     
-    return
+    # In relay mode, messages are forwarded to MILLENNIUM CHESS, so don't send back to client
+    # In non-relay mode (--relay not set), send messages back to client via BLE/BT Classic
+    global relay_mode
+    if relay_mode:
+        log.debug("[sendMessage] Relay mode enabled - not sending to client (data forwarded to MILLENNIUM CHESS)")
+        return
     
     # Send via BLE if connected (both services share the same tx_obj)
     if UARTService.tx_obj is not None and UARTService.tx_obj.notifying:
@@ -525,10 +531,11 @@ class UARTRXCharacteristic(Characteristic):
             
             log.warning(f"handled by universal: {handled}")
             
-            # Write to MILLENNIUM CHESS (if connected)
+            # Write to MILLENNIUM CHESS (if connected and relay mode is enabled)
             # Note: Don't raise exceptions for send failures - Android BLE interprets this as write failure
-            log.info(f"WriteValue: Checking MILLENNIUM connection - shadow_target_connected={shadow_target_connected}, shadow_target_sock={shadow_target_sock is not None}")
-            if shadow_target_connected and shadow_target_sock is not None:
+            global relay_mode
+            log.info(f"WriteValue: Checking MILLENNIUM connection - relay_mode={relay_mode}, shadow_target_connected={shadow_target_connected}, shadow_target_sock={shadow_target_sock is not None}")
+            if relay_mode and shadow_target_connected and shadow_target_sock is not None:
                 try:
                     data_to_send = bytes(bytes_data)
                     log.info(f"BLE -> MILLENNIUM: Sending {len(data_to_send)} bytes: {' '.join(f'{b:02x}' for b in data_to_send)}")
@@ -1048,6 +1055,8 @@ def main():
     )
     parser.add_argument("--device-name", type=str, default="SPP Relay",
                        help="Bluetooth device name for RFCOMM service (default: 'SPP Relay'). Example: 'MILLENNIUM CHESS'")
+    parser.add_argument("--relay", action="store_true",
+                       help="Enable relay mode - connect to MILLENNIUM CHESS/shadow_target and relay data. Without this flag, only BLE/RFCOMM server mode is enabled (no relay connection).")
     
     args = parser.parse_args()
     
@@ -1264,18 +1273,31 @@ def main():
     log.info(f"Server listening on RFCOMM channel: {port}")
     log.info(f"Waiting for client connection on device '{args.device_name}'...")
     
-    # Connect to target device in a separate thread
-    def connect_millennium():
-        time.sleep(1)  # Give server time to start
-        if connect_to_millennium(shadow_target=args.shadow_target):
-            log.info(f"{args.shadow_target} connection established")
-        else:
-            log.error(f"Failed to connect to {args.shadow_target}")
-            global kill
-            kill = 1
+    # Set relay mode flag
+    global relay_mode
+    relay_mode = args.relay
     
-    millennium_thread = threading.Thread(target=connect_millennium, daemon=True)
-    millennium_thread.start()
+    if relay_mode:
+        log.info("=" * 60)
+        log.info("RELAY MODE ENABLED - Will connect to MILLENNIUM CHESS/shadow_target")
+        log.info("=" * 60)
+        # Connect to target device in a separate thread
+        def connect_millennium():
+            time.sleep(1)  # Give server time to start
+            if connect_to_millennium(shadow_target=args.shadow_target):
+                log.info(f"{args.shadow_target} connection established")
+            else:
+                log.error(f"Failed to connect to {args.shadow_target}")
+                global kill
+                kill = 1
+        
+        millennium_thread = threading.Thread(target=connect_millennium, daemon=True)
+        millennium_thread.start()
+    else:
+        log.info("=" * 60)
+        log.info("RELAY MODE DISABLED - Running in server-only mode (no connection to MILLENNIUM CHESS)")
+        log.info("Messages will be sent back to clients via BLE/BT Classic")
+        log.info("=" * 60)
     
     # Wait for client connection (either RFCOMM or BLE)
     log.info("Waiting for client connection...")
@@ -1326,59 +1348,66 @@ def main():
         cleanup()
         sys.exit(0)
     
-    # Wait for MILLENNIUM connection if not already connected
-    max_wait = 30
-    wait_time = 0
-    while not shadow_target_connected and wait_time < max_wait and not kill:
-        time.sleep(0.5)
-        wait_time += 0.5
-        if wait_time % 5 == 0:
-            log.info(f"Waiting for MILLENNIUM CHESS connection... ({wait_time}/{max_wait} seconds)")
-    
-    if not shadow_target_connected:
-        log.error("MILLENNIUM CHESS connection timeout")
-        cleanup()
-        sys.exit(1)
+    # Wait for MILLENNIUM connection if relay mode is enabled
+    if relay_mode:
+        max_wait = 30
+        wait_time = 0
+        while not shadow_target_connected and wait_time < max_wait and not kill:
+            time.sleep(0.5)
+            wait_time += 0.5
+            if wait_time % 5 == 0:
+                log.info(f"Waiting for MILLENNIUM CHESS connection... ({wait_time}/{max_wait} seconds)")
+        
+        if not shadow_target_connected:
+            log.error("MILLENNIUM CHESS connection timeout")
+            cleanup()
+            sys.exit(1)
+    else:
+        log.info("Relay mode disabled - skipping MILLENNIUM CHESS connection")
     
     if kill:
         cleanup()
         sys.exit(0)
     
     # Determine connection type and start appropriate relay threads
-    if ble_connected:
-        log.info("BLE client connected - BLE relay handled via UARTRXCharacteristic.WriteValue")
-        log.info("Starting MILLENNIUM -> Client relay thread for BLE notifications")
-    elif connected:
-        log.info("RFCOMM client connected - starting bidirectional relay threads")
-    
-    # Start relay threads
-    # Note: millennium_to_client_thread is started automatically when millennium_connected becomes True
-    global shadow_target_to_client_thread, shadow_target_to_client_thread_started
-    if not shadow_target_to_client_thread_started:
-        shadow_target_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
-        shadow_target_to_client_thread.start()
-        shadow_target_to_client_thread_started = True
-        log.info("Started millennium_to_client thread")
-    
-    # Only start client_to_millennium thread for RFCOMM connections
-    # BLE connections are handled via UARTRXCharacteristic.WriteValue
-    client_to_millennium_thread = None
-    if connected and client_sock is not None:
-        client_to_millennium_thread = threading.Thread(target=client_to_millennium, daemon=True)
-        client_to_millennium_thread.start()
-        log.info("Started client_to_millennium thread (RFCOMM)")
+    if relay_mode:
+        if ble_connected:
+            log.info("BLE client connected - BLE relay handled via UARTRXCharacteristic.WriteValue")
+            log.info("Starting MILLENNIUM -> Client relay thread for BLE notifications")
+        elif connected:
+            log.info("RFCOMM client connected - starting bidirectional relay threads")
+        
+        # Start relay threads (only in relay mode)
+        # Note: millennium_to_client_thread is started automatically when millennium_connected becomes True
+        global shadow_target_to_client_thread, shadow_target_to_client_thread_started
+        if not shadow_target_to_client_thread_started:
+            shadow_target_to_client_thread = threading.Thread(target=millennium_to_client, daemon=True)
+            shadow_target_to_client_thread.start()
+            shadow_target_to_client_thread_started = True
+            log.info("Started millennium_to_client thread")
+        
+        # Only start client_to_millennium thread for RFCOMM connections
+        # BLE connections are handled via UARTRXCharacteristic.WriteValue
+        client_to_millennium_thread = None
+        if connected and client_sock is not None:
+            client_to_millennium_thread = threading.Thread(target=client_to_millennium, daemon=True)
+            client_to_millennium_thread.start()
+            log.info("Started client_to_millennium thread (RFCOMM)")
+        else:
+            log.info("Skipping client_to_millennium thread (BLE connection or no RFCOMM client)")
+        
+        log.info("Relay threads started")
     else:
-        log.info("Skipping client_to_millennium thread (BLE connection or no RFCOMM client)")
-    
-    log.info("Relay threads started")
+        log.info("Relay mode disabled - no relay threads started (server-only mode)")
+        client_to_millennium_thread = None
     
     # Main loop - monitor for exit conditions and handle client reconnections
     try:
         while running and not kill:
             time.sleep(1)
             
-            # Check if millennium thread is still alive
-            if shadow_target_to_client_thread is not None and not shadow_target_to_client_thread.is_alive():
+            # Check if millennium thread is still alive (only in relay mode)
+            if relay_mode and shadow_target_to_client_thread is not None and not shadow_target_to_client_thread.is_alive():
                 log.warning("millennium_to_client thread has stopped")
                 # Restart the thread if millennium is still connected
                 if shadow_target_connected and shadow_target_sock is not None:
