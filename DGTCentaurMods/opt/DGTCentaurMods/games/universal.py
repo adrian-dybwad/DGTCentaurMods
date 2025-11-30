@@ -69,7 +69,7 @@ class Universal:
             move: Chess move object
         """
         try:
-            log.info(f"[Universal] Manager move: {move}")
+            log.info(f"[Universal] Manager move: {move} is_millennium={self.is_millennium} is_pegasus={self.is_pegasus}")
             if self.is_millennium and hasattr(self._millennium, 'handle_manager_move'):
                 self._millennium.handle_manager_move(move)
             elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_move'):
