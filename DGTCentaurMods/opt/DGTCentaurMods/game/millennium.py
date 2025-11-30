@@ -551,6 +551,22 @@ class UARTTXCharacteristic(Characteristic):
 			log.debug("UARTTXCharacteristic: Removed 'Value' property to match real board")
 		return props
 	
+	@dbus.service.method("org.freedesktop.DBus.Properties",
+	                     in_signature='s',
+	                     out_signature='a{sv}')
+	def GetAll(self, interface):
+		"""Override GetAll to ensure Value property is never returned (matches real Millennium Chess board)"""
+		if interface != GATT_CHRC_IFACE:
+			from DGTCentaurMods.thirdparty.service import InvalidArgsException
+			raise InvalidArgsException()
+		
+		props = self.get_properties()[GATT_CHRC_IFACE]
+		# Explicitly remove Value property if it exists (BlueZ might add it from PropertiesChanged)
+		if 'Value' in props:
+			del props['Value']
+			log.debug("UARTTXCharacteristic.GetAll: Removed 'Value' property from response")
+		return props
+	
 	def sendMessage(self, data):
 		"""Send a message via BLE notification"""
 		if not self.notifying:
@@ -600,7 +616,13 @@ class UARTTXCharacteristic(Characteristic):
 		send = dbus.Array(signature=dbus.Signature('y'))
 		for i in range(0, len(value)):
 			send.append(dbus.Byte(value[i]))
+		# Send PropertiesChanged signal for notifications
+		# Note: This sets a Value property that BlueZ may cache and expose
+		# Real board might handle this differently - it may not expose Value as readable
+		# even though it sends it in PropertiesChanged for notifications
+		log.debug(f"UARTTXCharacteristic.updateValue: Sending PropertiesChanged with Value (len={len(send)})")
 		self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': send}, [])
+		log.debug("UARTTXCharacteristic.updateValue: PropertiesChanged sent - BlueZ may cache this Value")
 
 def odd_par(b):
 	"""Calculate odd parity for a byte"""
@@ -889,6 +911,8 @@ try:
 	
 	# Query BlueZ to verify what properties are actually registered
 	# This helps diagnose if BlueZ is adding security requirements
+	# Wait a moment for BlueZ to register the characteristics
+	time.sleep(0.5)
 	try:
 		from DGTCentaurMods.thirdparty.bletools import BleTools
 		bus = BleTools.get_bus()
@@ -901,42 +925,59 @@ try:
 		
 		log.info("=" * 60)
 		log.info("Querying BlueZ for registered characteristic properties...")
+		log.info(f"Total objects in BlueZ: {len(objects)}")
 		log.info("=" * 60)
 		
 		# Find our characteristics in the registered objects
+		found_chars = []
 		for path, interfaces in objects.items():
 			if "org.bluez.GattCharacteristic1" in interfaces:
 				char_props = interfaces["org.bluez.GattCharacteristic1"]
 				char_uuid = char_props.get("UUID", "unknown")
-				char_flags = char_props.get("Flags", [])
 				char_path = str(path)
 				
 				# Check if this is one of our characteristics
 				if "49535343" in char_uuid:
-					log.info(f"Found characteristic: {char_uuid}")
-					log.info(f"  Path: {char_path}")
-					log.info(f"  Flags reported by BlueZ: {char_flags}")
-					
-					# Check for Value property (should not exist for TX characteristic)
-					char_value = char_props.get("Value", None)
-					if char_value is not None:
-						log.warning(f"  ⚠ Value property found: {char_value}")
-						log.warning(f"  ⚠ This may cause nRF Connect to show a value (real board has no Value)")
+					found_chars.append((char_uuid, char_path, char_props))
+		
+		if not found_chars:
+			log.warning("  ⚠ No characteristics found in BlueZ ObjectManager")
+			log.warning("  ⚠ This might be a timing issue - characteristics may not be registered yet")
+			log.warning("  ⚠ Try connecting with nRF Connect and check if Value property appears")
+		else:
+			for char_uuid, char_path, char_props in found_chars:
+				char_flags = char_props.get("Flags", [])
+				log.info(f"Found characteristic: {char_uuid}")
+				log.info(f"  Path: {char_path}")
+				log.info(f"  Flags reported by BlueZ: {char_flags}")
+				
+				# Check for Value property (should not exist for TX characteristic)
+				char_value = char_props.get("Value", None)
+				if char_value is not None:
+					log.warning(f"  ⚠ Value property found: {char_value}")
+					log.warning(f"  ⚠ This may cause nRF Connect to show a value (real board has no Value)")
+					try:
 						if isinstance(char_value, dbus.Array):
 							value_bytes = [int(b) for b in char_value]
 							log.warning(f"  ⚠ Value bytes: {value_bytes} (hex: {' '.join(f'{b:02x}' for b in value_bytes)})")
-					else:
-						log.info(f"  ✓ No Value property found (matches real board - no value shown)")
-					
-					# Check for security flags
-					security_flags = [f for f in char_flags if any(sec in f.lower() for sec in ['encrypt', 'secure', 'authenticated', 'bond'])]
-					if security_flags:
-						log.warning(f"  ⚠ Security flags found: {security_flags}")
-						log.warning(f"  ⚠ These flags may require bonding/encryption")
-					else:
-						log.info(f"  ✓ No security flags found (allows unbonded connections)")
-					
-					log.info("")
+							if all(b == 0 for b in value_bytes):
+								log.warning(f"  ⚠ Value is all zeros - this matches what nRF Connect shows!")
+								log.warning(f"  ⚠ BlueZ may be initializing Value to zeros or caching it from PropertiesChanged")
+								log.warning(f"  ⚠ Real board does NOT expose Value property - this is the issue!")
+					except Exception as e:
+						log.warning(f"  ⚠ Could not parse Value: {e}")
+				else:
+					log.info(f"  ✓ No Value property found (matches real board - no value shown)")
+				
+				# Check for security flags
+				security_flags = [f for f in char_flags if any(sec in f.lower() for sec in ['encrypt', 'secure', 'authenticated', 'bond'])]
+				if security_flags:
+					log.warning(f"  ⚠ Security flags found: {security_flags}")
+					log.warning(f"  ⚠ These flags may require bonding/encryption")
+				else:
+					log.info(f"  ✓ No security flags found (allows unbonded connections)")
+				
+				log.info("")
 		
 		log.info("=" * 60)
 	except Exception as e:
