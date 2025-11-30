@@ -882,7 +882,8 @@ class Millennium:
         # Call packet handler when a valid packet is received
         if is_packet:
             log.info(f"[Universal] Handling Millennium packet: packet_type={packet_type}, payload={payload}")
-            return self.handle_millennium(packet_type, payload)
+            self.handle_millennium(packet_type, payload)
+            return True
         elif packet_type is not None:
             # Only log error for complete non-Millennium packets (not for incomplete packets) - this should never happen
             packet_type_str = f"{packet_type} (0x{packet_type:02X})"
