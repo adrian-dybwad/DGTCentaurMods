@@ -418,9 +418,8 @@ class UARTRXCharacteristic(Characteristic):
             return
         
         try:
-            bytes_data = bytearray()
-            for i in range(0, len(value)):
-                bytes_data.append(value[i])
+            # Convert dbus.Array of dbus.Byte to bytearray (must convert dbus.Byte to int)
+            bytes_data = bytearray(int(b) for b in value)
             
             # Log incoming bytes
             log.info(f"BLE RX (incoming bytes): {' '.join(f'{b:02x}' for b in bytes_data)}")
@@ -439,6 +438,7 @@ class UARTRXCharacteristic(Characteristic):
             handled = False
             if universal is not None:
                 for byte_val in bytes_data:
+                    # byte_val is already an int from the bytearray conversion above
                     handled = universal.receive_data(byte_val)
             
             log.warning(f"handled by universal: {handled}")
@@ -448,18 +448,19 @@ class UARTRXCharacteristic(Characteristic):
             if shadow_traget_connected and shadow_target_sock is not None:
                 try:
                     data_to_send = bytes(bytes_data)
+                    log.info(f"BLE -> MILLENNIUM: Sending {len(data_to_send)} bytes: {' '.join(f'{b:02x}' for b in data_to_send)}")
                     bytes_sent = shadow_target_sock.send(data_to_send)
                     if bytes_sent != len(data_to_send):
                         log.warning(f"Partial send to MILLENNIUM: {bytes_sent}/{len(data_to_send)} bytes sent")
                     else:
-                        log.debug(f"Sent {bytes_sent} bytes to MILLENNIUM CHESS")
+                        log.info(f"Successfully sent {bytes_sent} bytes to MILLENNIUM CHESS via BT Classic")
                 except (bluetooth.BluetoothError, OSError) as e:
                     log.error(f"Error sending to MILLENNIUM CHESS: {e}")
                     shadow_traget_connected = False
                     # Don't raise - Android BLE will think write failed if we raise here
                     # The data was successfully received via BLE, which is what matters
             else:
-                log.debug("MILLENNIUM CHESS not connected, data processed through universal parser only")
+                log.warning(f"MILLENNIUM CHESS not connected (shadow_traget_connected={shadow_traget_connected}, shadow_target_sock={shadow_target_sock is not None}), data processed through universal parser only")
 
             ble_connected = True
         except Exception as e:
