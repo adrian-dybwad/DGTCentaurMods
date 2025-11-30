@@ -43,6 +43,7 @@ class Universal:
         self.manager = GameManager()
         self._millennium = Millennium(sendMessage_callback=sendMessage_callback, manager=self.manager)
         self._pegasus = Pegasus(sendMessage_callback=sendMessage_callback, manager=self.manager)
+        self.subscribe_manager()
     
     def _manager_event_callback(self, event):
         """Handle game events from the manager.
