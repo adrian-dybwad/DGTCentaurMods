@@ -90,6 +90,9 @@ class UARTAdvertisement(Advertisement):
             advertise_millennium: If True, advertise Millennium ChessLink service UUID (default: True)
             advertise_nordic: If True, advertise Nordic UART service UUID (default: True)
         """
+        # Store flags for use in register() method to determine primary/secondary
+        self._advertise_millennium = advertise_millennium
+        self._advertise_nordic = advertise_nordic
         Advertisement.__init__(self, index, "peripheral")
         self.local_name = local_name
         self.add_local_name(local_name)
@@ -210,10 +213,22 @@ class UARTAdvertisement(Advertisement):
             # iOS/macOS compatibility options
             # Try to ensure we're using public address type
             # Note: The address type is typically controlled by the adapter's privacy settings
-            options = {
-                "MinInterval": dbus.UInt16(0x0014),  # 20ms
-                "MaxInterval": dbus.UInt16(0x0098),  # 152.5ms
-            }
+            # Use shorter intervals for primary (Millennium) advertisement for better discoverability
+            is_primary = self._advertise_millennium and not self._advertise_nordic
+            if is_primary:
+                # Primary advertisement: more frequent (better discoverability)
+                options = {
+                    "MinInterval": dbus.UInt16(0x0010),  # 16ms (more frequent)
+                    "MaxInterval": dbus.UInt16(0x0020),  # 32ms (more frequent)
+                }
+                log.info("Using primary advertisement intervals (16-32ms) for better discoverability")
+            else:
+                # Secondary advertisement: less frequent
+                options = {
+                    "MinInterval": dbus.UInt16(0x0014),  # 20ms
+                    "MaxInterval": dbus.UInt16(0x0098),  # 152.5ms
+                }
+                log.info("Using secondary advertisement intervals (20-152.5ms)")
             
             # Check the actual AddressType value and try to set LE address to public MAC
             try:
@@ -967,11 +982,15 @@ def main():
     ble_adv_nordic = None
     
     if ble_app is not None:
-        # Register Millennium ChessLink advertisement
+        # Register Millennium ChessLink advertisement (PRIMARY)
+        # This is registered first with more frequent intervals for better discoverability
         try:
+            log.info("Registering PRIMARY Millennium ChessLink BLE advertisement...")
             ble_adv_millennium = UARTAdvertisement(0, local_name=args.local_name, advertise_millennium=True, advertise_nordic=False)
             ble_adv_millennium.register()
-            log.info("Millennium ChessLink BLE advertisement registered successfully")
+            log.info("Millennium ChessLink BLE advertisement registered successfully (PRIMARY)")
+            # Give Millennium advertisement time to establish before registering secondary
+            time.sleep(0.5)
         except Exception as e:
             log.error(f"Failed to register Millennium BLE advertisement: {e}")
             import traceback
@@ -979,11 +998,13 @@ def main():
             log.warning("Continuing without Millennium BLE advertisement...")
             ble_adv_millennium = None
         
-        # Register Nordic UART advertisement
+        # Register Nordic UART advertisement (SECONDARY)
+        # This is registered after Millennium with less frequent intervals
         try:
+            log.info("Registering SECONDARY Nordic UART BLE advertisement...")
             ble_adv_nordic = UARTAdvertisement(1, local_name=args.local_name, advertise_millennium=False, advertise_nordic=True)
             ble_adv_nordic.register()
-            log.info("Nordic UART BLE advertisement registered successfully")
+            log.info("Nordic UART BLE advertisement registered successfully (SECONDARY)")
         except Exception as e:
             log.error(f"Failed to register Nordic BLE advertisement: {e}")
             import traceback
