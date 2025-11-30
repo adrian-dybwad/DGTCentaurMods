@@ -23,7 +23,7 @@
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.games.manager import EVENT_LIFT_PIECE
+from DGTCentaurMods.games.manager import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
 
 class PacketParser:
     """Parses packets with odd parity framing and XOR CRC checksum.
@@ -266,7 +266,7 @@ class Millennium:
             event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
         """
         log.info(f"[Millennium] handle_manager_event called: event={event}")
-        if event == EVENT_LIFT_PIECE:
+        if event == EVENT_LIFT_PIECE or event == EVENT_PLACE_PIECE:
             if self.manager is not None:
                 eone_fen = self.fen_to_eone(self.manager.get_fen())
                 # Get physical board state from board module
