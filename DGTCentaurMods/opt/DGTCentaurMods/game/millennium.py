@@ -240,16 +240,61 @@ class UARTAdvertisement(Advertisement):
 			# Configure adapter to allow unbonded connections (no pairing required)
 			# Real Millennium Chess board allows unbonded connections
 			try:
-				# Set Pairable to False to allow unbonded connections
-				# When Pairable=False, devices can connect without pairing/bonding
-				adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(False))
-				log.info("Adapter configured to allow unbonded connections (Pairable=False)")
-				log.info("Clients can connect without pairing/bonding (matches real Millennium Chess board)")
-			except dbus.exceptions.DBusException as e:
-				log.warning(f"Could not set Pairable property: {e}")
-				log.warning("Adapter may still require bonding - this may prevent unbonded connections")
+				# For unbonded BLE connections, we need to:
+				# 1. Set Bondable=False (prevents bonding requirement)
+				# 2. Set Pairable=False (prevents pairing requirement)
+				# This allows clients to connect without pairing/bonding
+				try:
+					adapter_props.Set("org.bluez.Adapter1", "Bondable", dbus.Boolean(False))
+					log.info("Adapter Bondable set to False (allows unbonded connections)")
+				except dbus.exceptions.DBusException as e:
+					log.debug(f"Bondable property not available or cannot be set: {e}")
+				
+				try:
+					adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(False))
+					log.info("Adapter Pairable set to False (allows unbonded connections)")
+				except dbus.exceptions.DBusException as e:
+					log.debug(f"Pairable property not available or cannot be set: {e}")
+				
+				log.info("Adapter configured to allow unbonded connections (matches real Millennium Chess board)")
+				log.info("Clients can connect without pairing/bonding")
+				
+				# Also check BlueZ configuration file for bonding settings
+				import pathlib
+				main_conf = pathlib.Path("/etc/bluetooth/main.conf")
+				bondable_configured = False
+				if main_conf.exists():
+					with open(main_conf, 'r') as f:
+						content = f.read()
+						if "Bondable = false" in content or "Bondable=false" in content:
+							log.info("BlueZ main.conf has Bondable=false (good for unbonded connections)")
+							bondable_configured = True
+						else:
+							log.warning("=" * 60)
+							log.warning("BlueZ main.conf does not have Bondable=false")
+							log.warning("To allow unbonded BLE connections, add to /etc/bluetooth/main.conf:")
+							log.warning("")
+							log.warning("[Policy]")
+							log.warning("Bondable = false")
+							log.warning("")
+							log.warning("Then restart BlueZ: sudo systemctl restart bluetooth")
+							log.warning("=" * 60)
+				
+				# Try to set adapter Bondable via D-Bus (may require root or specific permissions)
+				if not bondable_configured:
+					try:
+						# Get current Bondable value
+						current_bondable = adapter_props.Get("org.bluez.Adapter1", "Bondable")
+						log.info(f"Current adapter Bondable value: {current_bondable}")
+						if current_bondable:
+							log.warning("Adapter Bondable is True - this may require bonding for connections")
+							log.warning("Try setting Bondable=False in /etc/bluetooth/main.conf and restarting bluetooth service")
+					except dbus.exceptions.DBusException as e:
+						log.debug(f"Could not read Bondable property: {e}")
 			except Exception as e:
 				log.warning(f"Error configuring adapter for unbonded connections: {e}")
+				import traceback
+				log.warning(traceback.format_exc())
 			
 			# Get adapter MAC address and store it
 			try:
