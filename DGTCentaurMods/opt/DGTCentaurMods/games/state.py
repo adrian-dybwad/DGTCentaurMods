@@ -93,6 +93,8 @@ class State:
                     f"Invalid FEN: rank {rank!r} does not expand to 8 squares"
                 )
 
+            # Reverse the file order (a-h becomes h-a) for eONE format
+            expanded_rank.reverse()
             board_chars.extend(expanded_rank)
 
         if len(board_chars) != 64:
