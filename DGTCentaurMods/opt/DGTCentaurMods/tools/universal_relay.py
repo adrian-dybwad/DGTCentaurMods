@@ -114,26 +114,44 @@ class UARTAdvertisement(Advertisement):
     def register_ad_callback(self):
         """Callback when advertisement is successfully registered"""
         self._registration_successful = True
-        log.info("BLE advertisement registered successfully")
-        log.info(f"Device should now be discoverable as '{self.local_name}'")
+        log.info("=" * 60)
+        log.info("✓ BLE advertisement registered successfully")
+        log.info(f"✓ Device should now be discoverable as '{self.local_name}'")
+        log.info(f"✓ Service UUID: {MILLENNIUM_UUIDS['service'] if self._advertise_millennium else NORDIC_UUIDS['service']}")
         if self._advertise_millennium and not self._advertise_nordic:
-            log.info("Millennium ChessLink advertisement active - iPhone ChessLink app should be able to discover this device")
-            log.info("If ChessLink cannot find the device, try:")
-            log.info("  1. Ensure Bluetooth is enabled on iPhone")
+            log.info("=" * 60)
+            log.info("Millennium ChessLink advertisement ACTIVE")
+            log.info("ChessLink app should now be able to discover this device")
+            log.info("")
+            log.info("Troubleshooting if ChessLink cannot find the device:")
+            log.info("  1. Ensure Bluetooth is enabled on iPhone/Android")
             log.info("  2. Ensure location services are enabled (required for BLE on iOS)")
             log.info("  3. Do NOT pair via iPhone Settings - let ChessLink app handle connection")
             log.info("  4. Try closing and reopening the ChessLink app")
+            log.info("  5. Check that the device name matches: " + self.local_name)
+            log.info("  6. Verify the service UUID matches: " + MILLENNIUM_UUIDS['service'])
+            log.info("=" * 60)
     
     def register_ad_error_callback(self, error):
         """Callback when advertisement registration fails"""
         # Only log as error if registration wasn't already successful
         # (Sometimes BlueZ calls both callbacks, but if success was called first, we're good)
         if not self._registration_successful:
-            log.error(f"Failed to register BLE advertisement: {error}")
-            log.error("Check that BlueZ is running and BLE is enabled")
+            log.error("=" * 60)
+            log.error(f"✗ FAILED to register BLE advertisement: {error}")
+            log.error(f"   Advertisement name: {self.local_name}")
+            log.error(f"   Service UUID: {MILLENNIUM_UUIDS['service'] if self._advertise_millennium else NORDIC_UUIDS['service']}")
+            log.error("")
+            log.error("Troubleshooting steps:")
+            log.error("  1. Check BlueZ is running: sudo systemctl status bluetooth")
+            log.error("  2. Check BlueZ logs: sudo journalctl -u bluetooth -n 50")
+            log.error("  3. Verify BLE is enabled: hciconfig hci0")
+            log.error("  4. Check if another advertisement is already registered")
+            log.error("  5. Try restarting BlueZ: sudo systemctl restart bluetooth")
+            log.error("=" * 60)
         else:
             # Success was already called, this might be a spurious error callback
-            log.debug(f"Advertisement registration error callback received after success: {error}")
+            log.debug(f"Advertisement registration error callback received after success (likely spurious): {error}")
     
     def register(self):
         """Register advertisement with iOS/macOS compatible options"""
@@ -334,11 +352,20 @@ class UARTAdvertisement(Advertisement):
             log.info(f"Registering BLE advertisement at path: {self.get_path()}")
             log.info("Registering BLE advertisement with iOS/macOS compatible intervals")
             log.info(f"Expected MAC address in advertisement: {mac_address if mac_address else 'unknown'}")
+            log.info(f"Advertisement name: {self.local_name}")
+            log.info(f"Service UUIDs: {[MILLENNIUM_UUIDS['service'] if self._advertise_millennium else None, NORDIC_UUIDS['service'] if self._advertise_nordic else None]}")
+            
+            # Register the advertisement
+            # Note: This is asynchronous - callbacks will indicate success/failure
             ad_manager.RegisterAdvertisement(
                 self.get_path(),
                 options,
                 reply_handler=self.register_ad_callback,
                 error_handler=self.register_ad_error_callback)
+            
+            # Give the registration a moment to complete
+            # The callback will be called asynchronously, but we wait a bit to see if it succeeds
+            time.sleep(0.2)
         except Exception as e:
             log.error(f"Exception during BLE advertisement registration: {e}")
             import traceback
@@ -1046,10 +1073,62 @@ def main():
             ble_adv_nordic = None
         
         if ble_adv_millennium is not None or ble_adv_nordic is not None:
-            log.info(f"BLE services registered and advertising as '{args.local_name}'")
-            log.info("Waiting for BLE connection...")
+            log.info("=" * 60)
+            log.info(f"✓ BLE services registered and advertising as '{args.local_name}'")
+            log.info("")
+            # Wait a moment for advertisement to become active and callbacks to fire
+            log.info("Waiting for BLE advertisement to become active...")
+            time.sleep(2)  # Give more time for async callbacks
+            
+            # Verify advertisement was actually registered
+            millennium_active = False
+            nordic_active = False
+            
+            if ble_adv_millennium is not None:
+                if hasattr(ble_adv_millennium, '_registration_successful') and ble_adv_millennium._registration_successful:
+                    log.info("✓ Millennium ChessLink BLE advertisement is ACTIVE and discoverable")
+                    millennium_active = True
+                else:
+                    log.warning("⚠ Millennium ChessLink BLE advertisement registration status unknown")
+                    log.warning("   The registration callback may not have been called")
+                    log.warning("   The advertisement may not be discoverable")
+                    log.warning("   Check BlueZ logs: sudo journalctl -u bluetooth -f")
+            
+            if ble_adv_nordic is not None:
+                if hasattr(ble_adv_nordic, '_registration_successful') and ble_adv_nordic._registration_successful:
+                    log.info("✓ Nordic UART BLE advertisement is ACTIVE and discoverable")
+                    nordic_active = True
+                else:
+                    log.warning("⚠ Nordic UART BLE advertisement registration status unknown")
+            
+            log.info("")
+            if millennium_active or nordic_active:
+                log.info("✓ BLE advertisement is active - ChessLink app should be able to discover this device")
+                log.info("")
+                log.info("To verify the advertisement is being broadcast, run:")
+                log.info("  sudo hcitool lescan")
+                log.info("  or")
+                log.info("  bluetoothctl scan on")
+                log.info("")
+                log.info("You should see the device listed with name: " + args.local_name)
+            else:
+                log.error("✗ BLE advertisement may not be active")
+                log.error("ChessLink app will likely NOT be able to discover this device")
+                log.error("")
+                log.error("Troubleshooting steps:")
+                log.error("  1. Check BlueZ is running: sudo systemctl status bluetooth")
+                log.error("  2. Check BlueZ logs: sudo journalctl -u bluetooth -n 50")
+                log.error("  3. Verify BLE is enabled: hciconfig hci0")
+                log.error("  4. Try restarting BlueZ: sudo systemctl restart bluetooth")
+            
+            log.info("Waiting for BLE connection from ChessLink app...")
+            log.info("=" * 60)
         else:
-            log.warning("No BLE advertisements were successfully registered")
+            log.error("=" * 60)
+            log.error("✗ No BLE advertisements were successfully registered")
+            log.error("ChessLink app will NOT be able to discover this device")
+            log.error("Check the error messages above for details")
+            log.error("=" * 60)
     
     # Start BLE mainloop in a separate thread
     def ble_mainloop():
