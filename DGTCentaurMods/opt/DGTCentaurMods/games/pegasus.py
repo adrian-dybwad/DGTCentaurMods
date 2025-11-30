@@ -207,7 +207,7 @@ class Pegasus:
                 if byte_value == self.command.INITIAL_COMMAND:
                     # Initial command received
                     self.begin()
-                return False
+                return True
             
             elif self.state == "WAITING_FOR_PACKET":
                 # Add byte to buffer
@@ -271,7 +271,8 @@ class Pegasus:
                                 found_packet = True
 
                                 # Handle the packet
-                                return self.handle_packet(packet_type, payload)
+                                self.handle_packet(packet_type, payload)
+                                return True
                     
                     # If we didn't find a valid packet, keep the 00 in buffer and continue
                     # (might be part of a larger packet or noise)
