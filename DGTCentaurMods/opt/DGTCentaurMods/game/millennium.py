@@ -239,58 +239,49 @@ class UARTAdvertisement(Advertisement):
 			
 			# Configure adapter to allow unbonded connections (no pairing required)
 			# Real Millennium Chess board allows unbonded connections
+			# Note: Bondable is a D-Bus property, not a config file option
 			try:
 				# For unbonded BLE connections, we need to:
 				# 1. Set Bondable=False (prevents bonding requirement)
 				# 2. Set Pairable=False (prevents pairing requirement)
 				# This allows clients to connect without pairing/bonding
+				bondable_set = False
+				pairable_set = False
+				
 				try:
 					adapter_props.Set("org.bluez.Adapter1", "Bondable", dbus.Boolean(False))
 					log.info("Adapter Bondable set to False (allows unbonded connections)")
+					bondable_set = True
 				except dbus.exceptions.DBusException as e:
-					log.debug(f"Bondable property not available or cannot be set: {e}")
+					log.warning(f"Could not set Bondable property: {e}")
+					log.warning("This may prevent unbonded connections - bonding may be required")
 				
 				try:
 					adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(False))
 					log.info("Adapter Pairable set to False (allows unbonded connections)")
+					pairable_set = True
 				except dbus.exceptions.DBusException as e:
-					log.debug(f"Pairable property not available or cannot be set: {e}")
+					log.warning(f"Could not set Pairable property: {e}")
+					log.warning("This may prevent unbonded connections - pairing may be required")
 				
-				log.info("Adapter configured to allow unbonded connections (matches real Millennium Chess board)")
-				log.info("Clients can connect without pairing/bonding")
-				
-				# Also check BlueZ configuration file for bonding settings
-				import pathlib
-				main_conf = pathlib.Path("/etc/bluetooth/main.conf")
-				bondable_configured = False
-				if main_conf.exists():
-					with open(main_conf, 'r') as f:
-						content = f.read()
-						if "Bondable = false" in content or "Bondable=false" in content:
-							log.info("BlueZ main.conf has Bondable=false (good for unbonded connections)")
-							bondable_configured = True
-						else:
-							log.warning("=" * 60)
-							log.warning("BlueZ main.conf does not have Bondable=false")
-							log.warning("To allow unbonded BLE connections, add to /etc/bluetooth/main.conf:")
-							log.warning("")
-							log.warning("[Policy]")
-							log.warning("Bondable = false")
-							log.warning("")
-							log.warning("Then restart BlueZ: sudo systemctl restart bluetooth")
-							log.warning("=" * 60)
-				
-				# Try to set adapter Bondable via D-Bus (may require root or specific permissions)
-				if not bondable_configured:
-					try:
-						# Get current Bondable value
-						current_bondable = adapter_props.Get("org.bluez.Adapter1", "Bondable")
-						log.info(f"Current adapter Bondable value: {current_bondable}")
-						if current_bondable:
-							log.warning("Adapter Bondable is True - this may require bonding for connections")
-							log.warning("Try setting Bondable=False in /etc/bluetooth/main.conf and restarting bluetooth service")
-					except dbus.exceptions.DBusException as e:
-						log.debug(f"Could not read Bondable property: {e}")
+				# Verify the settings were applied
+				try:
+					current_bondable = adapter_props.Get("org.bluez.Adapter1", "Bondable")
+					current_pairable = adapter_props.Get("org.bluez.Adapter1", "Pairable")
+					log.info(f"Current adapter settings - Bondable: {current_bondable}, Pairable: {current_pairable}")
+					
+					if current_bondable or current_pairable:
+						log.warning("=" * 60)
+						log.warning("Adapter may still require bonding/pairing for connections")
+						log.warning("If nRF Connect requires pairing, this is likely a BlueZ policy limitation")
+						log.warning("Some BlueZ versions require bonding for BLE connections by default")
+						log.warning("=" * 60)
+					else:
+						log.info("Adapter configured to allow unbonded connections (matches real Millennium Chess board)")
+						log.info("Clients should be able to connect without pairing/bonding")
+				except dbus.exceptions.DBusException as e:
+					log.debug(f"Could not read adapter properties: {e}")
+					
 			except Exception as e:
 				log.warning(f"Error configuring adapter for unbonded connections: {e}")
 				import traceback
@@ -479,15 +470,35 @@ class UARTRXCharacteristic(Characteristic):
 	UARTRX_CHARACTERISTIC_UUID = "49535343-8841-43F4-A8D4-ECBE34729BB3"
 	
 	def __init__(self, service):
+		# Flags: Only capability flags, NO security flags (allows unbonded connections)
+		# Security flags like "encrypt-read", "encrypt-write" would require bonding
+		flags = ["write", "write-without-response"]
+		log.info(f"UARTRXCharacteristic: Initializing with flags: {flags}")
+		log.info(f"UARTRXCharacteristic: No security flags set (allows unbonded/unencrypted access)")
 		Characteristic.__init__(
 			self, self.UARTRX_CHARACTERISTIC_UUID,
-			["write", "write-without-response"], service)
+			flags, service)
+		
+		# Log the properties that will be exposed to BlueZ
+		props = self.get_properties()
+		log.info(f"UARTRXCharacteristic: Properties to be registered: {props}")
+		log.info(f"UARTRXCharacteristic: Path: {self.get_path()}")
 	
 	def WriteValue(self, value, options):
 		"""When the remote device writes data via BLE, process Millennium commands"""
 		global running, rx_buffer, rx_lock, kill
 		if kill:
 			return
+		
+		# Log security options passed by BlueZ
+		# The 'options' dict may contain security-related flags that BlueZ is enforcing
+		log.info(f"UARTRXCharacteristic.WriteValue: options={options}")
+		if options:
+			option_keys = list(options.keys()) if hasattr(options, 'keys') else str(options)
+			log.info(f"UARTRXCharacteristic.WriteValue: option keys: {option_keys}")
+			# Check for security-related options
+			for key in options.keys() if hasattr(options, 'keys') else []:
+				log.info(f"UARTRXCharacteristic.WriteValue: option['{key}'] = {options[key]}")
 		
 		try:
 			bytes_data = bytearray()
@@ -513,10 +524,20 @@ class UARTTXCharacteristic(Characteristic):
 	UARTTX_CHARACTERISTIC_UUID = "49535343-1E4D-4BD9-BA61-23C647249616"
 	
 	def __init__(self, service):
+		# Flags: Only capability flags, NO security flags (allows unbonded connections)
+		# Security flags like "encrypt-read", "secure-read" would require bonding
+		flags = ["read", "notify"]
+		log.info(f"UARTTXCharacteristic: Initializing with flags: {flags}")
+		log.info(f"UARTTXCharacteristic: No security flags set (allows unbonded/unencrypted access)")
 		Characteristic.__init__(
 			self, self.UARTTX_CHARACTERISTIC_UUID,
-			["read", "notify"], service)
+			flags, service)
 		self.notifying = False
+		
+		# Log the properties that will be exposed to BlueZ
+		props = self.get_properties()
+		log.info(f"UARTTXCharacteristic: Properties to be registered: {props}")
+		log.info(f"UARTTXCharacteristic: Path: {self.get_path()}")
 	
 	def sendMessage(self, data):
 		"""Send a message via BLE notification"""
@@ -528,13 +549,29 @@ class UARTTXCharacteristic(Characteristic):
 			tosend.append(data[x])
 		UARTService.tx_obj.updateValue(tosend)
 	
+	def ReadValue(self, options):
+		"""Read the characteristic value"""
+		# Log security options passed by BlueZ
+		log.info(f"UARTTXCharacteristic.ReadValue: options={options}")
+		if options:
+			option_keys = list(options.keys()) if hasattr(options, 'keys') else str(options)
+			log.info(f"UARTTXCharacteristic.ReadValue: option keys: {option_keys}")
+			# Check for security-related options
+			for key in options.keys() if hasattr(options, 'keys') else []:
+				log.info(f"UARTTXCharacteristic.ReadValue: option['{key}'] = {options[key]}")
+		
+		# Return empty value (not used for notifications)
+		value = dbus.Array([], signature=dbus.Signature('y'))
+		return value
+	
 	def StartNotify(self):
 		"""Called when BLE client subscribes to notifications"""
 		try:
-			log.info("TX Characteristic StartNotify called - BLE client subscribing to notifications")
+			log.info("UARTTXCharacteristic.StartNotify: BLE client subscribing to notifications")
+			log.info("UARTTXCharacteristic.StartNotify: No security options required (unbonded connection allowed)")
 			UARTService.tx_obj = self
 			self.notifying = True
-			log.info("Notifications enabled successfully")
+			log.info("UARTTXCharacteristic.StartNotify: Notifications enabled successfully")
 			return self.notifying
 		except Exception as e:
 			log.error(f"Error in StartNotify: {e}")
@@ -856,6 +893,54 @@ app.add_service(UARTService(0))
 try:
 	app.register()
 	log.info("BLE application registered successfully")
+	
+	# Query BlueZ to verify what properties are actually registered
+	# This helps diagnose if BlueZ is adding security requirements
+	try:
+		from DGTCentaurMods.thirdparty.bletools import BleTools
+		bus = BleTools.get_bus()
+		
+		# Get the ObjectManager to query registered objects
+		om = dbus.Interface(
+			bus.get_object("org.bluez", "/"),
+			"org.freedesktop.DBus.ObjectManager")
+		objects = om.GetManagedObjects()
+		
+		log.info("=" * 60)
+		log.info("Querying BlueZ for registered characteristic properties...")
+		log.info("=" * 60)
+		
+		# Find our characteristics in the registered objects
+		for path, interfaces in objects.items():
+			if "org.bluez.GattCharacteristic1" in interfaces:
+				char_props = interfaces["org.bluez.GattCharacteristic1"]
+				char_uuid = char_props.get("UUID", "unknown")
+				char_flags = char_props.get("Flags", [])
+				char_path = str(path)
+				
+				# Check if this is one of our characteristics
+				if "49535343" in char_uuid:
+					log.info(f"Found characteristic: {char_uuid}")
+					log.info(f"  Path: {char_path}")
+					log.info(f"  Flags reported by BlueZ: {char_flags}")
+					
+					# Check for security flags
+					security_flags = [f for f in char_flags if any(sec in f.lower() for sec in ['encrypt', 'secure', 'authenticated', 'bond'])]
+					if security_flags:
+						log.warning(f"  ⚠ Security flags found: {security_flags}")
+						log.warning(f"  ⚠ These flags may require bonding/encryption")
+					else:
+						log.info(f"  ✓ No security flags found (allows unbonded connections)")
+					
+					log.info("")
+		
+		log.info("=" * 60)
+	except Exception as e:
+		log.warning(f"Could not query BlueZ for characteristic properties: {e}")
+		log.warning("This is not critical - characteristics should still work")
+		import traceback
+		log.debug(traceback.format_exc())
+	
 except Exception as e:
 	log.error(f"Failed to register BLE application: {e}")
 	import traceback
