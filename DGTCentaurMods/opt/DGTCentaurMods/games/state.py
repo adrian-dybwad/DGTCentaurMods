@@ -64,12 +64,12 @@ class State:
         """
         Convert a FEN string to Millennium eONE / ChessLink 64-char board status.
 
-        Returns a 64-character string of piece codes in A8..H8, A7..H7, ..., A1..H1
+        Returns a 64-character string of piece codes in A1..H1, A2..H2, ..., A8..H8
         order, with '.' for empty squares.
 
         Example:
             fen_to_eone("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-            -> "rnbqkbnrpppppppp................................PPPPPPPPRNBQKBNR"
+            -> "RNBQKBNRPPPPPPPP................................pppppppprnbqkbnr"
         """
         piece_field = fen.split()[0]  # take only the piece placement part
         ranks = piece_field.split('/')
@@ -78,7 +78,7 @@ class State:
 
         board_chars = []
 
-        for rank in ranks:  # from rank 8 down to 1 (same as FEN)
+        for rank in reversed(ranks):  # from rank 1 up to 8 (reversed from FEN)
             expanded_rank = []
             for ch in rank:
                 if ch.isdigit():
@@ -98,6 +98,4 @@ class State:
         if len(board_chars) != 64:
             raise ValueError("Expanded board is not 64 squares")
 
-        # Reverse capitalization: lowercase becomes uppercase, uppercase becomes lowercase
-        result = ''.join(board_chars)
-        return result.swapcase()
+        return ''.join(board_chars)
