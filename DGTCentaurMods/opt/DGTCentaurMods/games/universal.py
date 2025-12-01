@@ -45,7 +45,7 @@ class Universal:
         self._pegasus = Pegasus(sendMessage_callback=sendMessage_callback, manager=self.manager)
         self.subscribe_manager()
     
-    def _manager_event_callback(self, event, piece_event, field, time_in_seconds):
+    def _manager_event_callback(self, event, piece_event = None, field = None, time_in_seconds = None):
         """Handle game events from the manager.
         
         Args:
