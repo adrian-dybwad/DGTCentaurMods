@@ -181,6 +181,9 @@ class SyncCentaur:
         # Piece event listener (marker 0x40/0x41 0..63, time_in_seconds)
         self._piece_listener = None
         
+        # Failure callback for checksum mismatch reconciliation
+        self._failure_callback = None
+        
         # Dedicated worker for piece event callbacks
         try:
             self._callback_queue = queue.Queue(maxsize=256)
@@ -316,7 +319,7 @@ class SyncCentaur:
                             self.packet_count += 1
                             return True
                         else:
-                            log.warning(f"checksum mismatch: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                            log.error(f"[SyncCentaur] checksum mismatch: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                             # Check if there's a waiting request for this packet type
                             # Deliver failure response to unblock waiting request
                             packet_type = self.response_buffer[0]
@@ -332,7 +335,8 @@ class SyncCentaur:
                                         log.error(f"[SyncCentaur] Error in failure callback: {e}")
                                         import traceback
                                         traceback.print_exc()
-                            
+                                else:
+                                    log.warning(f"[SyncCentaur] No failure callback set, checksum mismatch for packet type 0x{packet_type:02x}")
                             self.response_buffer = bytearray()
                             return False
                 else:
