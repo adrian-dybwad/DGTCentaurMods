@@ -171,6 +171,8 @@ class Pegasus:
             True if handled successfully, False otherwise
         """
         log.info(f"[Pegasus Serial number] raw: {' '.join(f'{b:02x}' for b in payload)}")
+        serial_number = board.getMetaProperty('serial no')
+        self.sendMessage(self.command.SERIAL_NUMBER, [ord(s) for s in serial_number])
         return False
     
     def handle_packet(self, packet_type, payload):

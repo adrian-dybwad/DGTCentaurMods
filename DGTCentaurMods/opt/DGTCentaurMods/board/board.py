@@ -40,6 +40,9 @@ chargerconnected = 0
 batterylevel = -1
 batterylastchecked = 0
 
+# Board meta properties (extracted from DGT_SEND_TRADEMARK response)
+board_meta_properties: Optional[dict] = None
+
 #_get_display_manager()  # Initialize display
 
 # Global display manager
@@ -72,6 +75,54 @@ controller = SyncCentaur(developer_mode=False)
 # Various setup
 
 # But the address might not be that :( Here we send an initial 0x4d to ask the board to provide its address
+
+def _extract_and_store_board_meta():
+    """
+    Extract and store board meta properties when board becomes ready.
+    Sets global board_meta_properties dictionary.
+    """
+    global board_meta_properties
+    
+    if board_meta_properties is not None:
+        # Already extracted
+        return
+    
+    _board_meta = controller.getBoardMeta()
+    if _board_meta is None:
+        log.warning("[board._extract_and_store_board_meta] Failed to get board metadata")
+        return
+    
+    # Decode bytes to string
+    try:
+        meta_text = _board_meta.decode('utf-8', errors='ignore')
+    except (AttributeError, UnicodeDecodeError):
+        log.error("[board._extract_and_store_board_meta] Failed to decode board metadata")
+        return
+    
+    # Split into lines
+    lines = [line.strip() for line in meta_text.strip().split('\n') if line.strip()]
+    
+    # First two lines are trademark (tm)
+    if len(lines) < 2:
+        log.warning("[board._extract_and_store_board_meta] Board metadata has fewer than 2 lines")
+        return
+    
+    # Initialize properties dictionary
+    board_meta_properties = {}
+    
+    # Add first two lines as 'tm' property (join with newline)
+    board_meta_properties['tm'] = '\n'.join(lines[:2])
+    
+    # Parse remaining lines as colon-separated key:value pairs
+    for line in lines[2:]:
+        if ':' in line:
+            key, value = line.split(':', 1)  # Split on first colon only
+            board_meta_properties[key.strip()] = value.strip()
+        else:
+            # Line without colon - store as key with empty value
+            board_meta_properties[line] = ""
+    
+    log.debug(f"[board._extract_and_store_board_meta] Extracted {len(board_meta_properties)} properties")
 
 controller.wait_ready()
 
@@ -286,15 +337,27 @@ def getBoardState(max_retries=2, retry_delay=0.1):
             log.error(f"[board.getBoardState] All {max_retries + 1} attempts failed (timeout or checksum failure)")
     return None
 
-def getSerialNumber():
+def getMetaProperty(key: str):
     """
-    Get the serial number from the DGT Centaur.
+    Get a meta property value by key from the board metadata.
+    
+    Args:
+        key: Property key to retrieve (e.g., 'serial no', 'software version', 'tm')
     
     Returns:
-        bytes: Serial number data or None if request fails
+        str: Property value or None if key not found or properties not yet extracted
     """
-    _serial_number = controller.getBoardMeta()
-    return _serial_number
+    global board_meta_properties
+    
+    # Ensure properties are extracted if not already
+    if board_meta_properties is None:
+        _extract_and_store_board_meta()
+    
+    if board_meta_properties is None:
+        log.warning(f"[board.getMetaProperty] Board meta properties not available for key: {key}")
+        return None
+    
+    return board_meta_properties.get(key)
 
 def getChessState(field=None):
    # Transform: raw index i maps to chess index
