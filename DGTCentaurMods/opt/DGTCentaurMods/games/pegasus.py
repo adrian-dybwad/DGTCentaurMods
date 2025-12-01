@@ -34,11 +34,12 @@ import time
 class CommandSpec:
     cmd: int
     resp: Optional[int] = None
+    short: Optional[bool] = True
 
 
 COMMANDS: Dict[str, CommandSpec] = {
-    "LED_CONTROL":      CommandSpec(0x60),
-    "DEVELOPER_KEY":    CommandSpec(0x63),
+    "LED_CONTROL":      CommandSpec(0x60, short=False),
+    "DEVELOPER_KEY":    CommandSpec(0x63, short=False),
     "INITIAL_COMMAND":  CommandSpec(0x40),
     "SERIAL_NUMBER":    CommandSpec(0x55, 0xa2),
 }
@@ -47,6 +48,9 @@ COMMANDS: Dict[str, CommandSpec] = {
 CMD_BY_NAME = {name: spec for name, spec in COMMANDS.items()}
 # Array of all valid command hex values for quick lookup
 VALID_COMMAND_VALUES = [spec.cmd for spec in COMMANDS.values()]
+
+# Array of all short command hex values (short=True)
+short_commands = [spec.cmd for name, spec in COMMANDS.items() if spec.short]
 
 # Fast lookups
 CMD_BY_VALUE = {spec.cmd: name for name, spec in COMMANDS.items()}
@@ -183,7 +187,7 @@ class Pegasus:
         # Only return True is we sent anything back. Otherwise, let the caller handle it.
         return False
     
-    def serial_number(self, payload):
+    def serial_number(self):
         """Handle serial number packet.
         
         Args:
@@ -192,7 +196,6 @@ class Pegasus:
         Returns:
             True if handled successfully, False otherwise
         """
-        log.info(f"[Pegasus Serial number] raw: {' '.join(f'{b:02x}' for b in payload)}")
         serial_number = board.getMetaProperty('serial no')
         log.info(f"[Pegasus Serial number] serial_number={serial_number}")
         if serial_number is None:
@@ -208,7 +211,7 @@ class Pegasus:
             return False
         return False
     
-    def handle_packet(self, packet_type, payload):
+    def handle_packet(self, packet_type, payload=None):
         """Handle a parsed packet.
         
         Args:
@@ -223,7 +226,7 @@ class Pegasus:
         elif packet_type == command.LED_CONTROL:
             return self.led_control(payload)
         elif packet_type == command.SERIAL_NUMBER:
-            return self.serial_number(payload)
+            return self.serial_number()
         else:
             log.info(f"[Pegasus] unsupported packet type={packet_type}")
             return False
@@ -245,6 +248,12 @@ class Pegasus:
                     return True
                 return False
             elif self.state == "WAITING_FOR_PACKET":
+
+                if byte_value in short_commands:
+                    # Short command received
+                    self.handle_packet(byte_value)
+                    return True
+
                 # Add byte to buffer
                 self.buffer.append(byte_value)
                 
