@@ -87,8 +87,9 @@ def _extract_and_store_board_meta():
         # Already extracted
         return
     
-    _board_meta = controller.getBoardMeta()
-    log.info(f"[board._extract_and_store_board_meta] Board metadata: {_board_meta}")
+    _board_meta = controller.request_response(command.DGT_SEND_TRADEMARK)
+
+    log.info(f"[board._extract_and_store_board_meta] Board metadata: {' '.join(f'{b:02x}' for b in _board_meta)}")
     if _board_meta is None:
         log.warning("[board._extract_and_store_board_meta] Failed to get board metadata")
         return
@@ -99,7 +100,7 @@ def _extract_and_store_board_meta():
     except (AttributeError, UnicodeDecodeError):
         log.error("[board._extract_and_store_board_meta] Failed to decode board metadata")
         return
-    
+    log.info(f"[board._extract_and_store_board_meta] Board metadata: {meta_text}")
     # Split into lines
     lines = [line.strip() for line in meta_text.strip().split('\n') if line.strip()]
     
