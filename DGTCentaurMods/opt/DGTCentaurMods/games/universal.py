@@ -52,13 +52,13 @@ class Universal:
             event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
         """
         try:
-            log.info(f"[Universal] Manager event: {event}")
+            log.info(f"[Universal] _manager_event_callback: {event} piece_event={piece_event}, field={field}, time_in_seconds={time_in_seconds}")
             if self.is_millennium and hasattr(self._millennium, 'handle_manager_event'):
                 self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_event'):
                 self._pegasus.handle_manager_event(event, piece_event, field, time_in_seconds)
         except Exception as e:
-            log.error(f"[Universal] Error in manager event callback: {e}")
+            log.error(f"[Universal] Error in _manager_event_callback: {e}")
             import traceback
             traceback.print_exc()
     
@@ -69,13 +69,13 @@ class Universal:
             move: Chess move object
         """
         try:
-            log.info(f"[Universal] Manager move: {move} is_millennium={self.is_millennium} is_pegasus={self.is_pegasus}")
+            log.info(f"[Universal] _manager_move_callback: {move} is_millennium={self.is_millennium} is_pegasus={self.is_pegasus}")
             if self.is_millennium and hasattr(self._millennium, 'handle_manager_move'):
                 self._millennium.handle_manager_move(move)
             elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_move'):
                 self._pegasus.handle_manager_move(move)
         except Exception as e:
-            log.error(f"[Universal] Error in manager move callback: {e}")
+            log.error(f"[Universal] Error in _manager_move_callback: {e}")
             import traceback
             traceback.print_exc()
     
@@ -86,26 +86,26 @@ class Universal:
             key: Key that was pressed (board.Key enum value)
         """
         try:
-            log.info(f"[Universal] Manager key: {key}")
+            log.info(f"[Universal] _manager_key_callback: {key}")
             if self.is_millennium and hasattr(self._millennium, 'handle_manager_key'):
                 self._millennium.handle_manager_key(key)
             elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_key'):
                 self._pegasus.handle_manager_key(key)
         except Exception as e:
-            log.error(f"[Universal] Error in manager key callback: {e}")
+            log.error(f"[Universal] Error in _manager_key_callback: {e}")
             import traceback
             traceback.print_exc()
     
     def _manager_takeback_callback(self):
         """Handle takeback requests from the manager."""
         try:
-            log.info(f"[Universal] Manager takeback requested")
+            log.info(f"[Universal] _manager_takeback_callback")
             if self.is_millennium and hasattr(self._millennium, 'handle_manager_takeback'):
                 self._millennium.handle_manager_takeback()
             elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_takeback'):
                 self._pegasus.handle_manager_takeback()
         except Exception as e:
-            log.error(f"[Universal] Error in manager takeback callback: {e}")
+            log.error(f"[Universal] Error in _manager_takeback_callback: {e}")
             import traceback
             traceback.print_exc()
 
