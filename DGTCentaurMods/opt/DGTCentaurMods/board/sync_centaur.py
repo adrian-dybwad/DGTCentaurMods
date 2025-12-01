@@ -32,6 +32,7 @@ import queue
 import sys
 import os
 import threading
+from collections import deque
 from dataclasses import dataclass
 from typing import Dict, Optional
 from types import SimpleNamespace
@@ -168,6 +169,11 @@ class SyncCentaur:
         self._request_queue = queue.Queue(maxsize=200)
         self._request_processor_thread = None
         self._last_command = None
+        
+        # Track last n commands for special command deduplication
+        # n = number of special commands (DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS)
+        self._special_commands = {"DGT_BUS_SEND_CHANGES", "DGT_BUS_POLL_KEYS"}
+        self._last_n_commands = deque(maxlen=len(self._special_commands))  # Track last 2 commands
         
         # polling thread
         self._polling_thread = None
@@ -561,6 +567,15 @@ class SyncCentaur:
                 
                 command_name, data, timeout, result_queue = request
                 
+                # Remove from tracking when command is actually processed
+                # (This ensures tracking reflects what's actually in the queue)
+                if command_name in self._special_commands and command_name in self._last_n_commands:
+                    # Remove the oldest occurrence if it exists
+                    try:
+                        self._last_n_commands.remove(command_name)
+                    except ValueError:
+                        pass  # Not in deque (shouldn't happen, but safe)
+                
                 try:
                     # For blocking requests (request_response), create internal queue for waiter mechanism
                     # For non-blocking requests (sendCommand), pass None to skip waiter
@@ -655,9 +670,20 @@ class SyncCentaur:
         if not isinstance(command_name, str):
             raise TypeError("request_response requires a command name (str)")
         
+        # For special commands, check if they already exist in the last n places in the queue
+        # where n is the number of special commands (2)
+        if command_name in self._special_commands:
+            if command_name in self._last_n_commands:
+                log.debug(f"[SyncCentaur.request_response] Skipping {command_name} - already in last {len(self._special_commands)} queue positions")
+                # Return None to indicate the command was skipped (caller should handle this)
+                return None
+        
         # Queue the request
         result_queue = queue.Queue(maxsize=1)
         self._request_queue.put((command_name, data, timeout, result_queue))
+        
+        # Update tracking of last n commands
+        self._last_n_commands.append(command_name)
         
         # Wait for result
         try:
