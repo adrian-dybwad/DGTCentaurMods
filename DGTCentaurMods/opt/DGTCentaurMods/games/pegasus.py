@@ -218,7 +218,12 @@ class Pegasus:
             packet_type: Packet type byte as integer
             payload: List of payload bytes
         """
-        log.info(f"[Pegasus] Received packet: type=0x{packet_type:02X}, payload_len={len(payload)}, payload={' '.join(f'{b:02x}' for b in payload)}")
+        command_name = CMD_BY_VALUE.get(packet_type)
+
+        if payload is not None:
+            log.info(f"[Pegasus] Received packet: {command_name} type=0x{packet_type:02X}, payload_len={len(payload)}, payload={' '.join(f'{b:02x}' for b in payload)}")
+        else:
+            log.info(f"[Pegasus] Received packet: {command_name} type=0x{packet_type:02X}")
         if packet_type == command.DEVELOPER_KEY:
             # Developer key registration
             log.info(f"[Pegasus Developer key] raw: {' '.join(f'{b:02x}' for b in payload)}")
@@ -304,11 +309,6 @@ class Pegasus:
                                 # Log orphaned bytes if any
                                 if orphaned_bytes:
                                     log.info(f"[Pegasus] ORPHANED bytes before packet: {' '.join(f'{b:02x}' for b in orphaned_bytes)}")
-                                
-                                # Get command name using CMD_BY_VALUE lookup
-                                command_name = CMD_BY_VALUE.get(packet_type)
-                                
-                                log.debug(f"[Pegasus] Valid command detected: 0x{packet_type:02X} ({command_name})")
                                 
                                 # Clear buffer
                                 self.buffer = []
