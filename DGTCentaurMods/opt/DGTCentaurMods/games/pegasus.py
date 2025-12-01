@@ -47,6 +47,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     "TRADEMARK":          CommandSpec(0x47, 0x92),
     "BOARD_DUMP":         CommandSpec(0x42, 0x86),
     "BATTERY_STATUS":     CommandSpec(0x32, 0xa0),
+    "UNKNOWN_44":         CommandSpec(0x44),
 }
 
 FIELD_UPDATE_RESP = 0x8e
