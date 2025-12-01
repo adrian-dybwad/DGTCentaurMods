@@ -203,13 +203,33 @@ class Pegasus:
             return False
         try:
             # Use command.SERIAL_NUMBER_RESP (response type) instead of command type
-            self.sendMessage(command.SERIAL_NUMBER_RESP, [ord(s) for s in serial_number])
+            self.send_packet(command.SERIAL_NUMBER_RESP, serial_number)
         except Exception as e:
             log.error(f"[Pegasus Serial number] error sending message: {e}")
             import traceback
             traceback.print_exc()
             return False
         return False
+    
+    def send_packet(self, packet_type, payload=[]):
+        """Send a packet.
+        
+        Args:
+            packet_type: Packet type byte as integer
+            payload: List of payload bytes
+        """
+        # Send a message of the given type
+        tosend = bytearray([packet_type])
+
+        lo = (len(payload)+3) & 127
+        hi = ((len(payload)+3) >> 7) & 127
+        tosend.append(hi)
+        tosend.append(lo)
+        if payload is not None:
+            tosend.extend(payload)
+        tosend.append(0x00)
+        log.info(f"[Pegasus] Sending packet: {' '.join(f'{b:02x}' for b in tosend)}")
+        self.sendMessage(tosend)
     
     def handle_packet(self, packet_type, payload=None):
         """Handle a parsed packet.
