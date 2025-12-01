@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 import time
 
+from DGTCentaurMods.games.manager import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
 
 # Unified command registry
 @dataclass(frozen=True)
@@ -47,6 +48,8 @@ COMMANDS: Dict[str, CommandSpec] = {
     "BOARD_DUMP":         CommandSpec(0x42, 0x86),
     "BATTERY_STATUS":     CommandSpec(0x32, 0xa0),
 }
+
+FIELD_UPDATE_RESP = 0x8e
 
 # Fast lookups
 CMD_BY_NAME = {name: spec for name, spec in COMMANDS.items()}
@@ -93,13 +96,18 @@ class Pegasus:
         self.sendMessage = sendMessage_callback
         self.manager = manager
     
-    def handle_manager_event(self, event):
+    def handle_manager_event(self, event, piece_event, field, time_in_seconds):
         """Handle game events from the manager.
         
         Args:
             event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
+            piece_event: Piece event constant (EVENT_LIFT_PIECE, EVENT_PLACE_PIECE)
+            field: Chess field index (0-63)
+            time_in_seconds: Time in seconds since the start of the game
         """
-        log.info(f"[Pegasus] handle_manager_event called: event={event}")
+        log.info(f"[Pegasus] handle_manager_event called: event={event} piece_event={piece_event}, field={field}, time_in_seconds={time_in_seconds}")
+        if event == EVENT_LIFT_PIECE or event == EVENT_PLACE_PIECE:
+            self.send_packet(FIELD_UPDATE_RESP, [field, piece_event])
     
     def handle_manager_move(self, move):
         """Handle moves from the manager.

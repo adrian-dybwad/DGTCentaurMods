@@ -45,7 +45,7 @@ class Universal:
         self._pegasus = Pegasus(sendMessage_callback=sendMessage_callback, manager=self.manager)
         self.subscribe_manager()
     
-    def _manager_event_callback(self, event):
+    def _manager_event_callback(self, event, piece_event, field, time_in_seconds):
         """Handle game events from the manager.
         
         Args:
@@ -54,9 +54,9 @@ class Universal:
         try:
             log.info(f"[Universal] Manager event: {event}")
             if self.is_millennium and hasattr(self._millennium, 'handle_manager_event'):
-                self._millennium.handle_manager_event(event)
+                self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_event'):
-                self._pegasus.handle_manager_event(event)
+                self._pegasus.handle_manager_event(event, piece_event, field, time_in_seconds)
         except Exception as e:
             log.error(f"[Universal] Error in manager event callback: {e}")
             import traceback

@@ -265,14 +265,17 @@ class Millennium:
         
         return eone_fen
     
-    def handle_manager_event(self, event):
+    def handle_manager_event(self, event, piece_event, field, time_in_seconds):
         """Handle game events from the manager.
         
         Args:
             event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
+            piece_event: Piece event constant (EVENT_LIFT_PIECE, EVENT_PLACE_PIECE)
+            field: Chess field index (0-63)
+            time_in_seconds: Time in seconds since the start of the game
         """
-        log.info(f"[Millennium] handle_manager_event called: event={event}")
-        if event == EVENT_LIFT_PIECE or event == EVENT_PLACE_PIECE:
+        log.info(f"[Millennium] handle_manager_event called: event={event}, piece_event={piece_event}, field={field}, time_in_seconds={time_in_seconds}")
+        if piece_event == EVENT_LIFT_PIECE or piece_event == EVENT_PLACE_PIECE:
             if self.manager is not None:
                 eone_fen = self.fen_to_eone(self.manager.get_fen())
                 # Get physical board state from board module

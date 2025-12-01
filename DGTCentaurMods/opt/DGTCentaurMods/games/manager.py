@@ -984,11 +984,11 @@ class GameManager:
         # where the destination square may have the opponent's piece
         if piece_event == 0:  # LIFT event
             if self.event_callback is not None:
-                self.event_callback(EVENT_LIFT_PIECE)
+                self.event_callback(EVENT_LIFT_PIECE, piece_event, field, time_in_seconds)
             piece_color = self.chess_board.color_at(field)
         else:  # PLACE event
             if self.event_callback is not None:
-                self.event_callback(EVENT_PLACE_PIECE)
+                self.event_callback(EVENT_PLACE_PIECE, piece_event, field, time_in_seconds)
             if self.move_state.source_piece_color is not None:
                 # Use stored piece color from when the piece was lifted
                 piece_color = self.move_state.source_piece_color
