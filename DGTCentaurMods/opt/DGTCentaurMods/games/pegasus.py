@@ -42,6 +42,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     "DEVELOPER_KEY":    CommandSpec(0x63, short=False),
     "INITIAL_COMMAND":  CommandSpec(0x40),
     "SERIAL_NUMBER":    CommandSpec(0x55, 0xa2),
+    "TRADEMARK":        CommandSpec(0x47, 0x92),
 }
 
 # Fast lookups
@@ -186,31 +187,7 @@ class Pegasus:
 
         # Only return True is we sent anything back. Otherwise, let the caller handle it.
         return False
-    
-    def serial_number(self):
-        """Handle serial number packet.
-        
-        Args:
-            payload: List of payload bytes
-            
-        Returns:
-            True if handled successfully, False otherwise
-        """
-        serial_number = board.getMetaProperty('serial no')
-        log.info(f"[Pegasus Serial number] serial_number={serial_number}")
-        if serial_number is None:
-            log.warning("[Pegasus Serial number] Serial number not available")
-            return False
-        try:
-            # Use command.SERIAL_NUMBER_RESP (response type) instead of command type
-            self.send_packet(command.SERIAL_NUMBER_RESP, serial_number)
-        except Exception as e:
-            log.error(f"[Pegasus Serial number] error sending message: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-        return False
-    
+       
     def send_packet(self, packet_type, payload: str = ""):
         """Send a packet.
         
@@ -250,7 +227,11 @@ class Pegasus:
         elif packet_type == command.LED_CONTROL:
             return self.led_control(payload)
         elif packet_type == command.SERIAL_NUMBER:
-            return self.serial_number()
+            self.send_packet(command.SERIAL_NUMBER_RESP, board.getMetaProperty('serial no'))
+            return True
+        elif packet_type == command.TRADEMARK:
+            self.send_packet(command.TRADEMARK_RESP, board.getMetaProperty('tm'))
+            return True
         else:
             log.info(f"[Pegasus] unsupported packet type={packet_type}")
             return False
