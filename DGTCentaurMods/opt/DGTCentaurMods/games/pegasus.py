@@ -172,7 +172,14 @@ class Pegasus:
         """
         log.info(f"[Pegasus Serial number] raw: {' '.join(f'{b:02x}' for b in payload)}")
         serial_number = board.getMetaProperty('serial no')
-        self.sendMessage(self.command.SERIAL_NUMBER, [ord(s) for s in serial_number])
+        log.info(f"[Pegasus Serial number] serial_number={serial_number}")
+        try:
+            self.sendMessage(self.command.SERIAL_NUMBER, [ord(s) for s in serial_number])
+        except Exception as e:
+            log.error(f"[Pegasus Serial number] error sending message: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
         return False
     
     def handle_packet(self, packet_type, payload):

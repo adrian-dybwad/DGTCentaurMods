@@ -88,6 +88,7 @@ def _extract_and_store_board_meta():
         return
     
     _board_meta = controller.getBoardMeta()
+    log.info(f"[board._extract_and_store_board_meta] Board metadata: {_board_meta}")
     if _board_meta is None:
         log.warning("[board._extract_and_store_board_meta] Failed to get board metadata")
         return
