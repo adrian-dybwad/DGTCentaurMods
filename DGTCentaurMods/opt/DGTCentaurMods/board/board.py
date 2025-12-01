@@ -432,6 +432,7 @@ def getBatteryLevel():
     val = resp[0]
     batterylevel = val & 0x1F
     chargerconnected = 1 if ((val >> 5) & 0x07) in (1, 2) else 0    
+    return batterylevel, chargerconnected
 
 #
 # Helper functions - used by other functions or useful in manipulating board data
