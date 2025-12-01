@@ -116,13 +116,17 @@ def _extract_and_store_board_meta():
     board_meta_properties['tm'] = '\n'.join(lines[:2])
     
     # Parse remaining lines as colon-separated key:value pairs
+    # Lines can contain multiple key:value pairs separated by commas
     for line in lines[2:]:
-        if ':' in line:
-            key, value = line.split(':', 1)  # Split on first colon only
-            board_meta_properties[key.strip()] = value.strip()
-        else:
-            # Line without colon - store as key with empty value
-            board_meta_properties[line] = ""
+        # Split by comma first to handle multiple key:value pairs per line
+        parts = [part.strip() for part in line.split(',')]
+        for part in parts:
+            if ':' in part:
+                key, value = part.split(':', 1)  # Split on first colon only
+                board_meta_properties[key.strip()] = value.strip()
+            else:
+                # Part without colon - store as key with empty value
+                board_meta_properties[part] = ""
     
     log.debug(f"[board._extract_and_store_board_meta] Extracted {len(board_meta_properties)} properties")
 
