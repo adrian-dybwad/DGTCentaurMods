@@ -216,13 +216,13 @@ class Pegasus:
             payload: List of payload bytes
         """
         log.info(f"[Pegasus] Received packet: type=0x{packet_type:02X}, payload_len={len(payload)}, payload={' '.join(f'{b:02x}' for b in payload)}")
-        if packet_type == self.command.DEVELOPER_KEY:
+        if packet_type == command.DEVELOPER_KEY:
             # Developer key registration
             log.info(f"[Pegasus Developer key] raw: {' '.join(f'{b:02x}' for b in payload)}")
             return False
-        elif packet_type == self.command.LED_CONTROL:
+        elif packet_type == command.LED_CONTROL:
             return self.led_control(payload)
-        elif packet_type == self.command.SERIAL_NUMBER:
+        elif packet_type == command.SERIAL_NUMBER:
             return self.serial_number(payload)
         else:
             log.info(f"[Pegasus] unsupported packet type={packet_type}")
@@ -239,7 +239,7 @@ class Pegasus:
         try:
             if self.state == "WAITING_FOR_INITIAL":
                 # Check if this byte matches the initial command
-                if byte_value == self.command.INITIAL_COMMAND:
+                if byte_value == command.INITIAL_COMMAND:
                     # Initial command received
                     self.begin()
                     return True
