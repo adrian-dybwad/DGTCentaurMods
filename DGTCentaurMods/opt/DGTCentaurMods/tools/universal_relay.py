@@ -123,13 +123,13 @@ class UARTAdvertisement(Advertisement):
         if self._advertise_millennium and not self._advertise_nordic:
             log.info("=" * 60)
             log.info("Millennium ChessLink advertisement ACTIVE")
-            log.info("ChessLink app should now be able to discover this device")
+            log.info("Apps should now be able to discover this device")
             log.info("")
-            log.info("Troubleshooting if ChessLink cannot find the device:")
+            log.info("Troubleshooting if apps cannot find the device:")
             log.info("  1. Ensure Bluetooth is enabled on iPhone/Android")
             log.info("  2. Ensure location services are enabled (required for BLE on iOS)")
-            log.info("  3. Do NOT pair via iPhone Settings - let ChessLink app handle connection")
-            log.info("  4. Try closing and reopening the ChessLink app")
+            log.info("  3. Do NOT pair via iPhone Settings - let apps handle connection")
+            log.info("  4. Try closing and reopening the app")
             log.info("  5. Check that the device name matches: " + self.local_name)
             log.info("  6. Verify the service UUID matches: " + MILLENNIUM_UUIDS['service'])
             log.info("=" * 60)
@@ -285,7 +285,7 @@ class UARTAdvertisement(Advertisement):
             is_primary = self._advertise_millennium and not self._advertise_nordic
             if is_primary:
                 # Primary advertisement: iOS-compatible intervals (matching millennium.py)
-                # Using standard iOS intervals ensures better compatibility with ChessLink app
+                # Using standard iOS intervals ensures better compatibility with apps
                 options = {
                     "MinInterval": dbus.UInt16(0x0014),  # 20ms (iOS minimum)
                     "MaxInterval": dbus.UInt16(0x0098),  # 152.5ms (iOS compatible)
@@ -1047,7 +1047,7 @@ def main():
     parser.add_argument("--shadow-target", type=str, default="MILLENNIUM CHESS",
                        help="Name of the target device to connect to (default: 'MILLENNIUM CHESS'). Example: 'MILLENNIUM CHESS'")
     parser.add_argument("--disable-nordic", action="store_true",
-                       help="Disable Nordic UART BLE advertisement (only advertise Millennium ChessLink). Useful for ChessLink app compatibility.")
+                       help="Disable Nordic UART BLE advertisement (only advertise Millennium ChessLink).")
     parser.add_argument(
         "--port",
         type=int,
@@ -1178,7 +1178,7 @@ def main():
             
             log.info("")
             if millennium_active or nordic_active:
-                log.info("✓ BLE advertisement is active - ChessLink app should be able to discover this device")
+                log.info("✓ BLE advertisement is active - apps should be able to discover this device")
                 log.info("")
                 log.info("To verify the advertisement is being broadcast, run:")
                 log.info("  sudo hcitool lescan")
@@ -1188,7 +1188,7 @@ def main():
                 log.info("You should see the device listed with name: " + args.local_name)
             else:
                 log.error("✗ BLE advertisement may not be active")
-                log.error("ChessLink app will likely NOT be able to discover this device")
+                log.error("App will likely NOT be able to discover this device")
                 log.error("")
                 log.error("Troubleshooting steps:")
                 log.error("  1. Check BlueZ is running: sudo systemctl status bluetooth")
@@ -1196,12 +1196,12 @@ def main():
                 log.error("  3. Verify BLE is enabled: hciconfig hci0")
                 log.error("  4. Try restarting BlueZ: sudo systemctl restart bluetooth")
             
-            log.info("Waiting for BLE connection from ChessLink app...")
+            log.info("Waiting for BLE connection from apps...")
             log.info("=" * 60)
         else:
             log.error("=" * 60)
             log.error("✗ No BLE advertisements were successfully registered")
-            log.error("ChessLink app will NOT be able to discover this device")
+            log.error("Apps will NOT be able to discover this device")
             log.error("Check the error messages above for details")
             log.error("=" * 60)
     
@@ -1307,7 +1307,7 @@ def main():
     log.info("Waiting for client connection...")
     log.info(f"Server socket is ready and listening on RFCOMM channel {port}")
     log.info(f"Device '{args.device_name}' is paired and service is advertised")
-    log.info("ChessLink app should now be able to connect to this device (via RFCOMM or BLE)")
+    log.info("Apps should now be able to connect to this device (via RFCOMM or BLE)")
     connected = False
     connection_attempts = 0
     while not connected and not ble_connected and not kill:
