@@ -550,8 +550,8 @@ class UARTRXCharacteristic(Characteristic):
                         shadow_target_connected = False
                         # Don't raise - Android BLE will think write failed if we raise here
                         # The data was successfully received via BLE, which is what matters
-            else:
-                log.warning(f"SHADOW TARGET '{shadow_target}' not connected (shadow_target_connected={shadow_target_connected}, shadow_target_sock={shadow_target_sock is not None}), data processed through universal parser only")
+                else:
+                    log.warning(f"SHADOW TARGET '{shadow_target}' not connected (shadow_target_connected={shadow_target_connected}, shadow_target_sock={shadow_target_sock is not None}), data processed through universal parser only")
 
             ble_connected = True
             log.info("WriteValue: Processing complete successfully")
