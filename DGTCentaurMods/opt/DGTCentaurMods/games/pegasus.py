@@ -24,7 +24,44 @@
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
 from types import SimpleNamespace
+from dataclasses import dataclass
+from typing import Dict, Optional
 import time
+
+
+# Unified command registry
+@dataclass(frozen=True)
+class CommandSpec:
+    cmd: int
+    resp: Optional[int] = None
+
+
+COMMANDS: Dict[str, CommandSpec] = {
+    "LED_CONTROL":      CommandSpec(0x60),
+    "DEVELOPER_KEY":    CommandSpec(0x63),
+    "INITIAL_COMMAND":  CommandSpec(0x40),
+    "SERIAL_NUMBER":    CommandSpec(0x55, 0xa2),
+}
+
+# Fast lookups
+CMD_BY_NAME = {name: spec for name, spec in COMMANDS.items()}
+# Array of all valid command hex values for quick lookup
+VALID_COMMAND_VALUES = [spec.cmd for spec in COMMANDS.values()]
+
+# Fast lookups
+CMD_BY_VALUE = {spec.cmd: name for name, spec in COMMANDS.items()}
+
+# Export response-type constants (e.g., LED_CONTROL_RESP)
+globals().update({f"{name}_RESP": spec.resp for name, spec in COMMANDS.items()})
+
+# Export command hex values to globals (e.g., LED_CONTROL = 0x60)
+globals().update({name: spec.cmd for name, spec in COMMANDS.items()})
+
+# Export name namespace for commands, e.g. command.LED_CONTROL -> 0x60 (hex value)
+# Also export response values, e.g. command.LED_CONTROL_RESP -> resp value
+command_dict = {name: spec.cmd for name, spec in COMMANDS.items()}
+command_dict.update({f"{name}_RESP": spec.resp for name, spec in COMMANDS.items()})
+command = SimpleNamespace(**command_dict)
 
 
 class Pegasus:
@@ -35,21 +72,6 @@ class Pegasus:
     - Subsequent packets: <type> <length> <payload> <00 terminator>
     - Note: length byte includes payload + terminator (not including the length byte itself)
     """
-    
-    # Valid command types mapped to their names
-    COMMANDS = {
-        0x60: "LED_CONTROL",
-        0x63: "DEVELOPER_KEY",
-        0x40: "INITIAL_COMMAND",
-        0x45: "SERIAL_NUMBER",
-    }
-    
-    # Reverse mapping: name -> hex value
-    COMMAND_BY_NAME = {name: hex_val for hex_val, name in COMMANDS.items()}
-    
-    # Export command hex values as constants (e.g., LED_CONTROL = 0x60)
-    # Create namespace for accessing commands by name (e.g., command.LED_CONTROL -> 0x60)
-    command = SimpleNamespace(**{name: hex_val for hex_val, name in COMMANDS.items()})
     
     def __init__(self, sendMessage_callback=None, manager=None):
         """Initialize the Pegasus handler.
@@ -173,8 +195,12 @@ class Pegasus:
         log.info(f"[Pegasus Serial number] raw: {' '.join(f'{b:02x}' for b in payload)}")
         serial_number = board.getMetaProperty('serial no')
         log.info(f"[Pegasus Serial number] serial_number={serial_number}")
+        if serial_number is None:
+            log.warning("[Pegasus Serial number] Serial number not available")
+            return False
         try:
-            self.sendMessage(self.command.SERIAL_NUMBER, [ord(s) for s in serial_number])
+            # Use command.SERIAL_NUMBER_RESP (response type) instead of command type
+            self.sendMessage(command.SERIAL_NUMBER_RESP, [ord(s) for s in serial_number])
         except Exception as e:
             log.error(f"[Pegasus Serial number] error sending message: {e}")
             import traceback
@@ -252,7 +278,7 @@ class Pegasus:
                                 packet_type = int(self.buffer[i - 1])
                                 
                                 # Only accept packets with valid command types
-                                if packet_type not in self.COMMANDS:
+                                if packet_type not in VALID_COMMAND_VALUES:
                                     # Not a valid command, continue looking backwards
                                     continue
                                 
@@ -270,8 +296,9 @@ class Pegasus:
                                 if orphaned_bytes:
                                     log.info(f"[Pegasus] ORPHANED bytes before packet: {' '.join(f'{b:02x}' for b in orphaned_bytes)}")
                                 
-                                # Log the command name
-                                command_name = self.COMMANDS[packet_type]
+                                # Get command name using CMD_BY_VALUE lookup
+                                command_name = CMD_BY_VALUE.get(packet_type)
+                                
                                 log.debug(f"[Pegasus] Valid command detected: 0x{packet_type:02X} ({command_name})")
                                 
                                 # Clear buffer
