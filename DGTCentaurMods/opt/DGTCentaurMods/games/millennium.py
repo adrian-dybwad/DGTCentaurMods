@@ -25,6 +25,12 @@ from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.games.manager import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
 
+# LED commands -> Patterns seen from Android chess with an original millennium:
+# AA = slow flash - used to indicate the start of a game on two bottom corner LEDS.
+# Forced moves: FF and AA - indicating FROM and TO squares. Shared sides use AA.
+# Regular moves: AA and FF - indicating FROM and TO squares. TO includes all legal moves. Shared sides use FF.
+
+# CC and 33 - indicating moves on completely separated squares. Shared sides use FF.
 class PacketParser:
     """Parses packets with odd parity framing and XOR CRC checksum.
     
