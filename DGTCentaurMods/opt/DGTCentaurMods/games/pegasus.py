@@ -43,6 +43,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     "INITIAL_COMMAND":  CommandSpec(0x40),
     "SERIAL_NUMBER":    CommandSpec(0x55, 0xa2),
     "TRADEMARK":        CommandSpec(0x47, 0x92),
+    "BOARD_DUMP":       CommandSpec(0x42, 0x86),
 }
 
 # Fast lookups
@@ -186,9 +187,22 @@ class Pegasus:
             log.info(f"[Pegasus LED packet] unsupported mode={payload[0]}")
 
         # Only return True is we sent anything back. Otherwise, let the caller handle it.
-        return False
+        return
        
-    def send_packet(self, packet_type, payload: str = ""):
+    def board_dump(self):
+        """Handle board dump packet.
+        """
+        log.info(f"[Pegasus Board dump] getting board state")
+        bs = board.getBoardState()
+        self.send_packet(command.BOARD_DUMP_RESP, bs)
+        return True
+
+    def send_packet_string(self, packet_type, payload: str = ""):
+        """Send a packet with a string payload.
+        """
+        self.send_packet(packet_type, [ord(s) for s in payload])
+        
+    def send_packet(self, packet_type, payload: bytes = b""):
         """Send a packet.
         
         Args:
@@ -202,7 +216,7 @@ class Pegasus:
         hi = ((len(payload)+3) >> 7) & 127
         tosend.append(hi)
         tosend.append(lo)
-        tosend.extend([ord(s) for s in payload])
+        tosend.extend(payload)
         tosend.append(0x00)
         log.info(f"[Pegasus] Sending packet: {' '.join(f'{b:02x}' for b in tosend)}")
         self.sendMessage(tosend)
@@ -227,11 +241,13 @@ class Pegasus:
         elif packet_type == command.LED_CONTROL:
             return self.led_control(payload)
         elif packet_type == command.SERIAL_NUMBER:
-            self.send_packet(command.SERIAL_NUMBER_RESP, board.getMetaProperty('serial no'))
+            self.send_packet_string(command.SERIAL_NUMBER_RESP, board.getMetaProperty('serial no'))
             return True
         elif packet_type == command.TRADEMARK:
-            self.send_packet(command.TRADEMARK_RESP, board.getMetaProperty('tm'))
+            self.send_packet_string(command.TRADEMARK_RESP, board.getMetaProperty('tm'))
             return True
+        elif packet_type == command.BOARD_DUMP:
+            return self.board_dump()
         else:
             log.info(f"[Pegasus] unsupported packet type={packet_type}")
             return False
