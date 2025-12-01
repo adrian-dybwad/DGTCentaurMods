@@ -211,7 +211,7 @@ class Pegasus:
             return False
         return False
     
-    def send_packet(self, packet_type, payload=[]):
+    def send_packet(self, packet_type, payload: str = ""):
         """Send a packet.
         
         Args:
@@ -225,8 +225,7 @@ class Pegasus:
         hi = ((len(payload)+3) >> 7) & 127
         tosend.append(hi)
         tosend.append(lo)
-        if payload is not None:
-            tosend.extend(payload)
+        tosend.extend([ord(s) for s in payload])
         tosend.append(0x00)
         log.info(f"[Pegasus] Sending packet: {' '.join(f'{b:02x}' for b in tosend)}")
         self.sendMessage(tosend)
