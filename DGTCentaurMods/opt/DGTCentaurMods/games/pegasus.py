@@ -236,7 +236,9 @@ class Pegasus:
             log.info(f"[Pegasus] Received packet: {command_name} type=0x{packet_type:02X}, payload_len={len(payload)}, payload={' '.join(f'{b:02x}' for b in payload)}")
         else:
             log.info(f"[Pegasus] Received packet: {command_name} type=0x{packet_type:02X}")
-        if packet_type == command.DEVELOPER_KEY:
+        if packet_type == command.INITIAL_COMMAND:
+            return self.battery_status()
+        elif packet_type == command.DEVELOPER_KEY:
             # Developer key registration
             log.info(f"[Pegasus Developer key] raw: {' '.join(f'{b:02x}' for b in payload)}")
             return False
@@ -284,14 +286,13 @@ class Pegasus:
                 if byte_value == command.INITIAL_COMMAND:
                     # Initial command received
                     self.begin()
-                    return True
+                    return self.handle_packet(byte_value)
                 return False
             elif self.state == "WAITING_FOR_PACKET":
 
                 if byte_value in short_commands:
                     # Short command received
-                    self.handle_packet(byte_value)
-                    return True
+                    return self.handle_packet(byte_value)
 
                 # Add byte to buffer
                 self.buffer.append(byte_value)
@@ -350,8 +351,7 @@ class Pegasus:
                                 found_packet = True
 
                                 # Handle the packet
-                                self.handle_packet(packet_type, payload)
-                                return True
+                                return self.handle_packet(packet_type, payload)
                     
                     # If we didn't find a valid packet, keep the 00 in buffer and continue
                     # (might be part of a larger packet or noise)
