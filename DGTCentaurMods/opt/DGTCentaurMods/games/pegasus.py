@@ -268,7 +268,7 @@ class Pegasus:
         bs = board.getBatteryLevel()
         log.info(f"[Pegasus Battery status] battery status={bs}")
 
-        self.send_packet(command.BATTERY_STATUS_RESP, [bs,0,0,0,0,0,0,0,2])
+        self.send_packet(command.BATTERY_STATUS_RESP, [0x58,0,0,0,0,0,0,0,2])
         return True
 
     def parse_byte(self, byte_value):
