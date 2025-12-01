@@ -673,12 +673,12 @@ class UARTTXCharacteristic(Characteristic):
 # Bluetooth Classic SPP Functions
 # ============================================================================
 
-def find_shadow_target_device(shadow_target="CENTAUR MODS"):
+def find_shadow_target_device(shadow_target="MILLENNIUM CHESS"):
     """Find the device by name.
     
     Args:
-        shadow_target: Name of the device to find (default: "CENTAUR MODS")
-                      Example: "CENTAUR MODS"
+        shadow_target: Name of the device to find (default: "MILLENNIUM CHESS")
+                      Example: "MILLENNIUM CHESS"
     """
     log.info(f"Looking for {shadow_target} device...")
     
@@ -1042,8 +1042,8 @@ def main():
     global ble_app, ble_adv_millennium, ble_adv_nordic, shadow_target_to_client_thread, shadow_target_to_client_thread_started
     
     parser = argparse.ArgumentParser(description="Bluetooth Classic SPP Relay with BLE - Connect to target device and relay data")
-    parser.add_argument("--local-name", type=str, default="CENTAUR MODS",
-                       help="Local name for BLE advertisement (default: 'CENTAUR MODS'). Example: 'CENTAUR MODS'")
+    parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
+                       help="Local name for BLE advertisement (default: 'MILLENNIUM CHESS'). Example: 'MILLENNIUM CHESS'")
     parser.add_argument("--shadow-target", type=str, default="MILLENNIUM CHESS",
                        help="Name of the target device to connect to (default: 'MILLENNIUM CHESS'). Example: 'MILLENNIUM CHESS'")
     parser.add_argument("--disable-nordic", action="store_true",
@@ -1055,7 +1055,7 @@ def main():
         help="RFCOMM port for server (default: auto-assign)"
     )
     parser.add_argument("--device-name", type=str, default="SPP Relay",
-                       help="Bluetooth device name for RFCOMM service (default: 'SPP Relay'). Example: 'CENTAUR MODS'")
+                       help="Bluetooth device name for RFCOMM service (default: 'SPP Relay'). Example: 'MILLENNIUM CHESS'")
     parser.add_argument("--relay", action="store_true",
                        help="Enable relay mode - connect to shadow_target and relay data. Without this flag, only BLE/RFCOMM server mode is enabled (no relay connection).")
     
