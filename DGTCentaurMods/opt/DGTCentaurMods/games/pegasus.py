@@ -265,8 +265,8 @@ class Pegasus:
         """Handle battery status packet.
         """
         log.info(f"[Pegasus Battery status] getting battery status")
-        bs = board.getBatteryLevel()
-        log.info(f"[Pegasus Battery status] battery status={bs}")
+        batterylevel, chargerconnected = board.getBatteryLevel()
+        log.warning(f"[Pegasus Battery status] battery status={batterylevel} chargerconnected={chargerconnected}")
 
         self.send_packet(command.BATTERY_STATUS_RESP, [0x58,0,0,0,0,0,0,0,2])
         return True
