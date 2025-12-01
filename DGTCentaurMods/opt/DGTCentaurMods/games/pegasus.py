@@ -106,10 +106,12 @@ class Pegasus:
             field: Chess field index (0-63)
             time_in_seconds: Time in seconds since the start of the game
         """
-        field_hex = board.rotateFieldHex(field)
-        log.info(f"[Pegasus] handle_manager_event called: event={event} piece_event={piece_event}, field={field}, field_hex={field_hex}, time_in_seconds={time_in_seconds}")
         if event == EVENT_LIFT_PIECE or event == EVENT_PLACE_PIECE:
+            field_hex = board.rotateFieldHex(field)
+            log.info(f"[Pegasus] handle_manager_event called: event={event} piece_event={piece_event}, field={field}, field_hex={field_hex}, time_in_seconds={time_in_seconds}")
             self.send_packet(FIELD_UPDATE_RESP, [field_hex, piece_event])
+        else:
+            log.info(f"[Pegasus] handle_manager_event called: event={event} piece_event={piece_event}, field={field}, time_in_seconds={time_in_seconds} - not a field event")
     
     def handle_manager_move(self, move):
         """Handle moves from the manager.
