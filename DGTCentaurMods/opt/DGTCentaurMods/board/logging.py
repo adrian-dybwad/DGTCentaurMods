@@ -70,7 +70,7 @@ def setup_logging(log_file_path="/home/pi/debug.log", log_level=logging.DEBUG):
     log.handlers = []
     
     # File handler with plain formatter
-    _fmt = logging.Formatter("%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s", "%Y-%m-%d %H:%M:%S")
+    _fmt = logging.Formatter("%(asctime)s.%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s", "%Y-%m-%d %H:%M:%S")
     
     if log_file_path:
         try:
@@ -84,7 +84,7 @@ def setup_logging(log_file_path="/home/pi/debug.log", log_level=logging.DEBUG):
     # Console handler with colored formatter
     _ch = logging.StreamHandler(sys.stdout)
     _ch.setLevel(log_level)
-    _ch.setFormatter(ColoredFormatter("%(asctime)s.%(msecs)03d %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S"))
+    _ch.setFormatter(ColoredFormatter("%(asctime)s.%(msecs)03d %(levelname)s [%(filename)s:%(lineno)d] %(message)s", "%Y-%m-%d %H:%M:%S"))
     log.addHandler(_ch)
     
     return log
