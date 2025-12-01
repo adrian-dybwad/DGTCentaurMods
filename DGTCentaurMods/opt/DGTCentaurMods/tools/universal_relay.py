@@ -1151,30 +1151,53 @@ def main():
             log.info("=" * 60)
             log.info(f"✓ BLE services registered and advertising as '{args.local_name}'")
             log.info("")
-            # Wait a moment for advertisement to become active and callbacks to fire
-            log.info("Waiting for BLE advertisement to become active...")
-            time.sleep(2)  # Give more time for async callbacks
+            # Wait for advertisement registration callbacks to complete
+            log.info("Waiting for BLE advertisement registration to complete...")
+            
+            # Poll for registration status with timeout (callbacks are async)
+            max_wait_time = 5.0  # Maximum time to wait for registration
+            poll_interval = 0.1  # Check every 100ms
+            elapsed = 0.0
+            
+            millennium_registered = False
+            nordic_registered = False
+            
+            while elapsed < max_wait_time:
+                if ble_adv_millennium is not None:
+                    if hasattr(ble_adv_millennium, '_registration_successful') and ble_adv_millennium._registration_successful:
+                        millennium_registered = True
+                
+                if ble_adv_nordic is not None:
+                    if hasattr(ble_adv_nordic, '_registration_successful') and ble_adv_nordic._registration_successful:
+                        nordic_registered = True
+                
+                # If both (or the only one) are registered, we're done
+                if (ble_adv_millennium is None or millennium_registered) and (ble_adv_nordic is None or nordic_registered):
+                    break
+                
+                time.sleep(poll_interval)
+                elapsed += poll_interval
             
             # Verify advertisement was actually registered
-            millennium_active = False
-            nordic_active = False
+            millennium_active = millennium_registered
+            nordic_active = nordic_registered
             
             if ble_adv_millennium is not None:
-                if hasattr(ble_adv_millennium, '_registration_successful') and ble_adv_millennium._registration_successful:
+                if millennium_registered:
                     log.info("✓ Millennium ChessLink BLE advertisement is ACTIVE and discoverable")
-                    millennium_active = True
                 else:
                     log.warning("⚠ Millennium ChessLink BLE advertisement registration status unknown")
                     log.warning("   The registration callback may not have been called")
-                    log.warning("   The advertisement may not be discoverable")
+                    log.warning("   The advertisement may still work (callbacks are async)")
                     log.warning("   Check BlueZ logs: sudo journalctl -u bluetooth -f")
             
             if ble_adv_nordic is not None:
-                if hasattr(ble_adv_nordic, '_registration_successful') and ble_adv_nordic._registration_successful:
+                if nordic_registered:
                     log.info("✓ Nordic UART BLE advertisement is ACTIVE and discoverable")
-                    nordic_active = True
                 else:
                     log.warning("⚠ Nordic UART BLE advertisement registration status unknown")
+                    log.warning("   The registration callback may not have been called")
+                    log.warning("   The advertisement may still work (callbacks are async)")
             
             log.info("")
             if millennium_active or nordic_active:
@@ -1187,14 +1210,15 @@ def main():
                 log.info("")
                 log.info("You should see the device listed with name: " + args.local_name)
             else:
-                log.error("✗ BLE advertisement may not be active")
-                log.error("App will likely NOT be able to discover this device")
-                log.error("")
-                log.error("Troubleshooting steps:")
-                log.error("  1. Check BlueZ is running: sudo systemctl status bluetooth")
-                log.error("  2. Check BlueZ logs: sudo journalctl -u bluetooth -n 50")
-                log.error("  3. Verify BLE is enabled: hciconfig hci0")
-                log.error("  4. Try restarting BlueZ: sudo systemctl restart bluetooth")
+                log.warning("⚠ BLE advertisement registration status unknown")
+                log.warning("Advertisement may still be active (callbacks are async)")
+                log.warning("Check BlueZ logs: sudo journalctl -u bluetooth -f")
+                log.warning("")
+                log.warning("Troubleshooting steps:")
+                log.warning("  1. Check BlueZ is running: sudo systemctl status bluetooth")
+                log.warning("  2. Check BlueZ logs: sudo journalctl -u bluetooth -n 50")
+                log.warning("  3. Verify BLE is enabled: hciconfig hci0")
+                log.warning("  4. Try restarting BlueZ: sudo systemctl restart bluetooth")
             
             log.info("Waiting for BLE connection from apps...")
             log.info("=" * 60)
