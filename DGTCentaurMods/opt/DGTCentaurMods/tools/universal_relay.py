@@ -535,22 +535,23 @@ class UARTRXCharacteristic(Characteristic):
             # Note: Don't raise exceptions for send failures - Android BLE interprets this as write failure
             global relay_mode, shadow_target
             log.info(f"WriteValue: Checking {shadow_target} connection - relay_mode={relay_mode}, shadow_target_connected={shadow_target_connected}, shadow_target_sock={shadow_target_sock is not None}")
-            if relay_mode and shadow_target_connected and shadow_target_sock is not None:
-                try:
-                    data_to_send = bytes(bytes_data)
-                    log.info(f"BLE -> SHADOW TARGET: Sending {len(data_to_send)} bytes: {' '.join(f'{b:02x}' for b in data_to_send)}")
-                    bytes_sent = shadow_target_sock.send(data_to_send)
-                    if bytes_sent != len(data_to_send):
-                        log.warning(f"Partial send to SHADOW TARGET: {bytes_sent}/{len(data_to_send)} bytes sent")
-                    else:
-                        log.info(f"Successfully sent {bytes_sent} bytes to SHADOW TARGET via BT Classic")
-                except (bluetooth.BluetoothError, OSError) as e:
-                    log.error(f"Error sending to {shadow_target}: {e}")
-                    shadow_target_connected = False
-                    # Don't raise - Android BLE will think write failed if we raise here
-                    # The data was successfully received via BLE, which is what matters
+            if relay_mode:
+                if shadow_target_connected and shadow_target_sock is not None:
+                    try:
+                        data_to_send = bytes(bytes_data)
+                        log.info(f"BLE -> SHADOW TARGET: Sending {len(data_to_send)} bytes: {' '.join(f'{b:02x}' for b in data_to_send)}")
+                        bytes_sent = shadow_target_sock.send(data_to_send)
+                        if bytes_sent != len(data_to_send):
+                            log.warning(f"Partial send to SHADOW TARGET: {bytes_sent}/{len(data_to_send)} bytes sent")
+                        else:
+                            log.info(f"Successfully sent {bytes_sent} bytes to SHADOW TARGET via BT Classic")
+                    except (bluetooth.BluetoothError, OSError) as e:
+                        log.error(f"Error sending to {shadow_target}: {e}")
+                        shadow_target_connected = False
+                        # Don't raise - Android BLE will think write failed if we raise here
+                        # The data was successfully received via BLE, which is what matters
             else:
-                log.warning(f"SHADOW TARGET {shadow_target} not connected (shadow_target_connected={shadow_target_connected}, shadow_target_sock={shadow_target_sock is not None}), data processed through universal parser only")
+                log.warning(f"SHADOW TARGET '{shadow_target}' not connected (shadow_target_connected={shadow_target_connected}, shadow_target_sock={shadow_target_sock is not None}), data processed through universal parser only")
 
             ble_connected = True
             log.info("WriteValue: Processing complete successfully")
@@ -750,7 +751,7 @@ def connect_to_shadow_target(shadow_target="MILLENNIUM CHESS"):
         # Find device
         device_addr = find_shadow_target_device(shadow_target=shadow_target)
         if not device_addr:
-            log.error(f"Could not find SHADOW TARGET {shadow_target}")
+            log.error(f"Could not find SHADOW TARGET '{shadow_target}'")
             return False
         
         # Find service
@@ -760,7 +761,7 @@ def connect_to_shadow_target(shadow_target="MILLENNIUM CHESS"):
             log.info("Trying common RFCOMM ports...")
             for common_port in [1, 2, 3, 4, 5]:
                 try:
-                    log.info(f"Attempting connection to SHADOW TARGET {shadow_target} at {device_addr} on port {common_port}...")
+                    log.info(f"Attempting connection to SHADOW TARGET '{shadow_target}' at {device_addr} on port {common_port}...")
                     sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
                     sock.connect((device_addr, common_port))
                     shadow_target_sock = sock
@@ -779,15 +780,15 @@ def connect_to_shadow_target(shadow_target="MILLENNIUM CHESS"):
                         sock.close()
                     except:
                         pass
-            log.error(f"Could not connect to SHADOW TARGET {shadow_target} at {device_addr} on any common port")
+            log.error(f"Could not connect to SHADOW TARGET '{shadow_target}' at {device_addr} on any common port")
             return False
         
         # Connect to the service
-        log.info(f"Connecting to SHADOW TARGET {shadow_target} at {device_addr}:{port}...")
+        log.info(f"Connecting to SHADOW TARGET '{shadow_target}' at {device_addr}:{port}...")
         shadow_target_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
         shadow_target_sock.connect((device_addr, port))
         shadow_target_connected = True
-        log.info(f"Connected to SHADOW TARGET {shadow_target} at {device_addr} successfully")
+        log.info(f"Connected to SHADOW TARGET '{shadow_target}' at {device_addr} successfully")
         # Start the relay thread when connection is established
         if not shadow_target_to_client_thread_started:
             shadow_target_to_client_thread = threading.Thread(target=shadow_target_to_client, daemon=True)
@@ -797,7 +798,7 @@ def connect_to_shadow_target(shadow_target="MILLENNIUM CHESS"):
         return True
         
     except Exception as e:
-        log.error(f"Error connecting to SHADOW TARGET {shadow_target} at {device_addr}: {e}")
+        log.error(f"Error connecting to SHADOW TARGET '{shadow_target}' at {device_addr}: {e}")
         import traceback
         log.error(traceback.format_exc())
         return False
@@ -807,7 +808,7 @@ def shadow_target_to_client():
     """Relay data from SHADOW TARGET to client"""
     global running, shadow_target_sock, client_sock, shadow_target_connected, client_connected, _last_message, shadow_target
     
-    log.info(f"Starting SHADOW TARGET {shadow_target} -> Client relay thread")
+    log.info(f"Starting SHADOW TARGET '{shadow_target}' -> Client relay thread")
     try:
         while running and not kill:
             try:
