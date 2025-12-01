@@ -38,12 +38,14 @@ class CommandSpec:
 
 
 COMMANDS: Dict[str, CommandSpec] = {
-    "LED_CONTROL":      CommandSpec(0x60, short=False),
-    "DEVELOPER_KEY":    CommandSpec(0x63, short=False),
-    "INITIAL_COMMAND":  CommandSpec(0x40),
-    "SERIAL_NUMBER":    CommandSpec(0x55, 0xa2),
-    "TRADEMARK":        CommandSpec(0x47, 0x92),
-    "BOARD_DUMP":       CommandSpec(0x42, 0x86),
+    "LED_CONTROL":        CommandSpec(0x60, short=False),
+    "DEVELOPER_KEY":      CommandSpec(0x63, short=False),
+    "INITIAL_COMMAND":    CommandSpec(0x40),
+    "SERIAL_NUMBER":      CommandSpec(0x55, 0xa2),
+    "LONG_SERIAL_NUMBER": CommandSpec(0x45, 0x91),
+    "TRADEMARK":          CommandSpec(0x47, 0x92),
+    "BOARD_DUMP":         CommandSpec(0x42, 0x86),
+    "BATTERY_STATUS":     CommandSpec(0x32, 0xa0),
 }
 
 # Fast lookups
@@ -243,14 +245,30 @@ class Pegasus:
         elif packet_type == command.SERIAL_NUMBER:
             self.send_packet_string(command.SERIAL_NUMBER_RESP, board.getMetaProperty('serial no'))
             return True
+        elif packet_type == command.LONG_SERIAL_NUMBER:
+            self.send_packet_string(command.LONG_SERIAL_NUMBER_RESP, board.getMetaProperty('serial no'))
+            return True
         elif packet_type == command.TRADEMARK:
             self.send_packet_string(command.TRADEMARK_RESP, board.getMetaProperty('tm'))
             return True
         elif packet_type == command.BOARD_DUMP:
             return self.board_dump()
+        elif packet_type == command.BATTERY_STATUS:
+            return self.battery_status()
         else:
             log.info(f"[Pegasus] unsupported packet type={packet_type}")
             return False
+
+    def battery_status(self):
+        """Handle battery status packet.
+        """
+        log.info(f"[Pegasus Battery status] getting battery status")
+        bs = board.getBatteryStatus()
+        log.info(f"[Pegasus Battery status] battery status={bs}")
+
+        self.send_packet(command.BATTERY_STATUS_RESP, [0x58,0,0,0,0,0,0,0,2])
+        return True
+
     def parse_byte(self, byte_value):
         """Receive one byte and parse packet.
         
