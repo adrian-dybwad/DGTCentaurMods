@@ -1312,7 +1312,6 @@ def main():
     connection_attempts = 0
     while not connected and not ble_connected and not kill:
         try:
-            log.debug(f"Waiting for connection attempt (attempt #{connection_attempts + 1})...")
             client_sock, client_info = server_sock.accept()
             connected = True
             client_connected = True
