@@ -873,7 +873,8 @@ class Millennium:
             payload: List of ASCII character values in the payload
         """
         #log.info(f"[Millennium] Handling I packet: payload={payload}")
-        self.encode_millennium_command("i")
+        identity = "0055mm"
+        self.encode_millennium_command("i" + identity)
         return False
     
     def handle_millennium(self, packet_type, payload):
