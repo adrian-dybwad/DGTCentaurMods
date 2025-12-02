@@ -564,41 +564,37 @@ def connect_and_scan_ble_device(device_address):
         threading.Thread(target=drain_stdout, daemon=True).start()
         threading.Thread(target=drain_stderr, daemon=True).start()
         
-        # Store write handles - prioritize Millennium RX characteristic
+        # Store write handles - use characteristics in the Millennium service
+        # The real Millennium board uses different UUIDs than what we expose as a peripheral
         write_handles = []
-        millennium_rx_handle = None
+        millennium_service_handles = []
         if all_characteristics:
             for char in all_characteristics:
                 char_uuid = normalize_uuid(char.get('uuid', ''))
                 service_uuid = normalize_uuid(char.get('service_uuid', ''))
                 
-                # Log all characteristics in Millennium service for debugging
+                # Collect all characteristics in the Millennium service
                 if service_uuid == MILLENNIUM_SERVICE_UUID_NORM:
-                    log.debug(f"Found characteristic in Millennium service: UUID {char.get('uuid')}, handle {char['value_handle']:04x}")
-                
-                # Check if this is the Millennium RX characteristic (for writing commands)
-                if (char_uuid == MILLENNIUM_RX_CHAR_UUID_NORM and 
-                    service_uuid == MILLENNIUM_SERVICE_UUID_NORM):
-                    millennium_rx_handle = {
+                    millennium_service_handles.append({
                         'value_handle': char['value_handle'],
                         'uuid': char.get('uuid', 'unknown'),
                         'service_uuid': char.get('service_uuid', 'unknown')
-                    }
-                    log.info(f"Found Millennium RX characteristic: handle {char['value_handle']:04x}, UUID {char_uuid}")
+                    })
+                    log.info(f"Found characteristic in Millennium service: UUID {char.get('uuid')}, handle {char['value_handle']:04x}")
                 
-                # Also add all characteristics for fallback (we'll use Millennium RX if found)
+                # Also add all characteristics for fallback
                 write_handles.append({
                     'value_handle': char['value_handle'],
                     'uuid': char.get('uuid', 'unknown'),
                     'service_uuid': char.get('service_uuid', 'unknown')
                 })
         
-        # If we found the Millennium RX characteristic, use only that for writing
-        if millennium_rx_handle:
-            write_handles = [millennium_rx_handle]
-            log.info(f"Using Millennium RX characteristic (handle {millennium_rx_handle['value_handle']:04x}) for writing commands")
+        # If we found characteristics in the Millennium service, use only those for writing
+        if millennium_service_handles:
+            write_handles = millennium_service_handles
+            log.info(f"Using {len(millennium_service_handles)} characteristics from Millennium service for writing commands")
         else:
-            log.warning(f"Millennium RX characteristic not found! Will try all writeable characteristics as fallback")
+            log.warning(f"No characteristics found in Millennium service! Will try all characteristics as fallback")
         
         # Start notification reader
         def read_notifications():
