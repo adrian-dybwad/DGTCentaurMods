@@ -935,8 +935,18 @@ def scan_and_connect_ble_device(bus, adapter_path, target_name):
                     trusted = device_props.Get(DEVICE_IFACE, "Trusted")
                     log.info(f"Device pairing status: Paired={paired}, Trusted={trusted}")
                     
+                    # Log accurate status
+                    if not paired and not trusted:
+                        log.info("Device is not paired and not trusted")
+                    elif not paired:
+                        log.info("Device is not paired but is trusted")
+                    elif not trusted:
+                        log.info("Device is paired but not trusted")
+                    else:
+                        log.info("Device is paired and trusted")
+                    
+                    # Many BLE devices work without pairing for GATT access
                     if not paired or not trusted:
-                        log.info("Device is not paired/trusted")
                         log.info("Note: Many BLE devices work without pairing for GATT access")
                         log.info("Attempting to trust device (pairing may require user interaction)...")
                         try:
