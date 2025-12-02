@@ -38,27 +38,65 @@ from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board.bluetooth_controller import BluetoothController
 
 
-def encode_millennium_command(command_text: str) -> bytearray:
-    """Encode a Millennium protocol command with XOR CRC (ASCII only).
+def odd_par(b):
+    """Calculate odd parity for a byte and set MSB if needed.
     
-    Copied from games/millennium.py encode_millennium_command method.
+    Copied from game/millennium.py odd_par function.
+    
+    Args:
+        b: Byte value (0-127)
+    
+    Returns:
+        Byte with odd parity (MSB set if needed)
+    """
+    byte = b & 127
+    par = 1
+    for _ in range(7):
+        bit = byte & 1
+        byte = byte >> 1
+        par = par ^ bit
+    if par == 1:
+        byte = b | 128
+    else:
+        byte = b & 127
+    return byte
+
+
+def encode_millennium_command(command_text: str) -> bytearray:
+    """Encode a Millennium protocol command with odd parity and XOR CRC.
+    
+    Uses the old Millennium protocol format with odd parity encoding.
+    Copied from game/millennium.py sendMillenniumCommand function.
     
     Args:
         command_text: The command string to encode (e.g., "S")
     
     Returns:
-        bytearray: Encoded command with CRC appended
+        bytearray: Encoded command with odd parity and CRC appended
     """
-    crc = 0
-    for ch in command_text:
-        crc ^= ord(ch)
+    log.info(f"Encoding Millennium command with odd parity: '{command_text}'")
     
-    crc_hex = f"{crc:02X}"          # e.g. "6C"
-    packet_str = command_text + crc_hex
-    encoded = bytearray(packet_str.encode("ascii"))
+    # Calculate CRC (XOR of all ASCII characters)
+    cs = 0
+    for el in range(0, len(command_text)):
+        cs = cs ^ ord(command_text[el])
     
-    log.info(f"Encoded Millennium command '{command_text}': {' '.join(f'{b:02x}' for b in encoded)}")
-    return encoded
+    # Convert CRC to hex string
+    h = "0x{:02x}".format(cs)
+    h1 = h[2:3]  # First hex digit
+    h2 = h[3:4]  # Second hex digit
+    
+    # Build encoded packet with odd parity
+    tosend = bytearray()
+    # Encode each character in command with odd parity
+    for el in range(0, len(command_text)):
+        tosend.append(odd_par(ord(command_text[el])))
+    # Encode CRC hex digits with odd parity
+    tosend.append(odd_par(ord(h1)))
+    tosend.append(odd_par(ord(h2)))
+    
+    log.info(f"Encoded Millennium command '{command_text}': {' '.join(f'{b:02x}' for b in tosend)}")
+    return tosend
 
 BLUEZ_SERVICE_NAME = "org.bluez"
 DBUS_OM_IFACE = "org.freedesktop.DBus.ObjectManager"
