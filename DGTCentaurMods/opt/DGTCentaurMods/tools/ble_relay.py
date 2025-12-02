@@ -37,6 +37,29 @@ from DGTCentaurMods.thirdparty.bletools import BleTools
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board.bluetooth_controller import BluetoothController
 
+
+def encode_millennium_command(command_text: str) -> bytearray:
+    """Encode a Millennium protocol command with XOR CRC (ASCII only).
+    
+    Copied from games/millennium.py encode_millennium_command method.
+    
+    Args:
+        command_text: The command string to encode (e.g., "S")
+    
+    Returns:
+        bytearray: Encoded command with CRC appended
+    """
+    crc = 0
+    for ch in command_text:
+        crc ^= ord(ch)
+    
+    crc_hex = f"{crc:02X}"          # e.g. "6C"
+    packet_str = command_text + crc_hex
+    encoded = bytearray(packet_str.encode("ascii"))
+    
+    log.info(f"Encoded Millennium command '{command_text}': {' '.join(f'{b:02x}' for b in encoded)}")
+    return encoded
+
 BLUEZ_SERVICE_NAME = "org.bluez"
 DBUS_OM_IFACE = "org.freedesktop.DBus.ObjectManager"
 DBUS_PROP_IFACE = "org.freedesktop.DBus.Properties"
@@ -52,6 +75,8 @@ gatttool_process = None
 notification_threads = []
 active_write_handle = None  # The characteristic handle that received a reply
 active_write_lock = threading.Lock()  # Lock for thread-safe access to active_write_handle
+initial_probe_sent = False  # Track if we've sent the initial probe [0x21, 0x01, 0x00]
+initial_probe_replied = False  # Track if the initial probe got a reply
 
 
 def signal_handler(signum, frame):
@@ -442,7 +467,7 @@ def connect_and_scan_ble_device(device_address):
         
         # Start notification reader
         def read_notifications():
-            global running, kill, active_write_handle, active_write_lock
+            global running, kill, active_write_handle, active_write_lock, initial_probe_replied
             buffer = ""
             while running and not kill:
                 try:
@@ -478,6 +503,7 @@ def connect_and_scan_ble_device(device_address):
                                                     for wh in write_handles:
                                                         if wh['value_handle'] == handle:
                                                             active_write_handle = wh
+                                                            initial_probe_replied = True
                                                             log.info(f"*** REPLY RECEIVED: Setting active write handle to {handle:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}) ***")
                                                             log.info(f"*** Will now only send to this characteristic ***")
                                                             break
@@ -491,6 +517,7 @@ def connect_and_scan_ble_device(device_address):
                                                     for wh in write_handles:
                                                         if wh['value_handle'] == handle:
                                                             active_write_handle = wh
+                                                            initial_probe_replied = True
                                                             log.info(f"*** REPLY RECEIVED: Setting active write handle to {handle:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}) ***")
                                                             log.info(f"*** Will now only send to this characteristic ***")
                                                             break
@@ -512,8 +539,9 @@ def connect_and_scan_ble_device(device_address):
                 log.info(f"  - Handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']})")
             
             def periodic_send():
-                """Send 'S' byte to all characteristics every 10 seconds, then only to the one that replies"""
+                """Send probe bytes first, then 'S' encoded with Millennium protocol if no reply"""
                 global running, kill, gatttool_process, device_connected, active_write_handle, active_write_lock
+                global initial_probe_sent, initial_probe_replied
                 log.info("Periodic send thread started, waiting for connection...")
                 # Wait for device_connected to be True
                 wait_count = 0
@@ -527,42 +555,83 @@ def connect_and_scan_ble_device(device_address):
                 
                 log.info("Periodic send thread: device connected, starting periodic sends")
                 
+                # First, send the initial probe [0x21, 0x01, 0x00] to all characteristics
+                if not initial_probe_sent:
+                    log.info("Sending initial probe [0x21, 0x01, 0x00] to all characteristics...")
+                    probe_bytes = [0x21, 0x01, 0x00]
+                    probe_hex = ' '.join(f'{b:02x}' for b in probe_bytes)
+                    for wh in write_handles:
+                        try:
+                            handle = wh['value_handle']
+                            uuid = wh['uuid']
+                            service_uuid = wh['service_uuid']
+                            
+                            log.info(f"  -> Sending probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                            gatttool_process.stdin.write(f"char-write-req {handle:04x} {probe_hex}\n")
+                            gatttool_process.stdin.flush()
+                            log.info(f"  <- Sent probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                            time.sleep(0.1)  # Small delay between writes
+                        except Exception as e:
+                            log.error(f"  Error sending probe to handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}): {e}")
+                            import traceback
+                            log.error(traceback.format_exc())
+                    log.info(f"Completed sending probe to all {len(write_handles)} characteristics")
+                    initial_probe_sent = True
+                    # Wait a bit for replies
+                    time.sleep(2)
+                
                 while running and not kill and device_connected:
                     try:
                         if gatttool_process and gatttool_process.poll() is None:
                             with active_write_lock:
                                 current_active = active_write_handle
+                                probe_replied = initial_probe_replied
                             
                             if current_active is None:
-                                # No reply yet, send to all characteristics
-                                log.info(f"Sending 'S' (0x53) to {len(write_handles)} characteristics (waiting for reply)...")
-                                for wh in write_handles:
-                                    try:
-                                        handle = wh['value_handle']
-                                        uuid = wh['uuid']
-                                        service_uuid = wh['service_uuid']
-                                        
-                                        log.info(f"  -> Sending to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                        gatttool_process.stdin.write(f"char-write-req {handle:04x} 53\n")
-                                        gatttool_process.stdin.flush()
-                                        log.info(f"  <- Sent 'S' (0x53) to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                        time.sleep(0.1)  # Small delay between writes
-                                    except Exception as e:
-                                        log.error(f"  Error sending to handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}): {e}")
-                                        import traceback
-                                        log.error(traceback.format_exc())
-                                log.info(f"Completed sending 'S' to all {len(write_handles)} characteristics")
+                                # No reply yet
+                                if not probe_replied:
+                                    # Initial probe didn't get a reply, try sending encoded "S"
+                                    log.info(f"Initial probe got no reply, sending Millennium-encoded 'S' to {len(write_handles)} characteristics...")
+                                    encoded_s = encode_millennium_command("S")
+                                    encoded_hex = ' '.join(f'{b:02x}' for b in encoded_s)
+                                    
+                                    for wh in write_handles:
+                                        try:
+                                            handle = wh['value_handle']
+                                            uuid = wh['uuid']
+                                            service_uuid = wh['service_uuid']
+                                            
+                                            log.info(f"  -> Sending encoded 'S' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                            log.info(f"     Encoded bytes: {encoded_hex}")
+                                            gatttool_process.stdin.write(f"char-write-req {handle:04x} {encoded_hex}\n")
+                                            gatttool_process.stdin.flush()
+                                            log.info(f"  <- Sent encoded 'S' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                            time.sleep(0.1)  # Small delay between writes
+                                        except Exception as e:
+                                            log.error(f"  Error sending encoded 'S' to handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}): {e}")
+                                            import traceback
+                                            log.error(traceback.format_exc())
+                                    log.info(f"Completed sending encoded 'S' to all {len(write_handles)} characteristics")
+                                    initial_probe_replied = True  # Mark as tried, don't repeat
+                                else:
+                                    # Already tried both, just wait
+                                    log.debug("Waiting for reply from characteristics...")
                             else:
                                 # Reply received, only send to the active characteristic
                                 handle = current_active['value_handle']
                                 uuid = current_active['uuid']
                                 service_uuid = current_active['service_uuid']
                                 
-                                log.info(f"Sending 'S' (0x53) to active characteristic handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                # Use Millennium encoding for "S"
+                                encoded_s = encode_millennium_command("S")
+                                encoded_hex = ' '.join(f'{b:02x}' for b in encoded_s)
+                                
+                                log.info(f"Sending Millennium-encoded 'S' to active characteristic handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                log.info(f"Encoded bytes: {encoded_hex}")
                                 try:
-                                    gatttool_process.stdin.write(f"char-write-req {handle:04x} 53\n")
+                                    gatttool_process.stdin.write(f"char-write-req {handle:04x} {encoded_hex}\n")
                                     gatttool_process.stdin.flush()
-                                    log.info(f"Sent 'S' (0x53) to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                    log.info(f"Sent encoded 'S' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
                                 except Exception as e:
                                     log.error(f"Error sending to active handle {handle:04x}: {e}")
                                     import traceback
