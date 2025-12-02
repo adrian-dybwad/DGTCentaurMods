@@ -614,10 +614,9 @@ def connect_and_scan_ble_device(device_address):
                 
                 # First, send both initial commands to all characteristics
                 if not initial_commands_sent:
-                    # Send Millennium initial command "W0203" to all characteristics
-                    log.info("Sending Millennium initial command 'W0203' to all characteristics...")
-                    millennium_init = encode_millennium_command("W0203")
-                    millennium_hex = ' '.join(f'{b:02x}' for b in millennium_init)
+                    # Send Millennium initial commands sequence: W0203, W0407, X, S to all characteristics
+                    millennium_commands = ["W0203", "W0407", "X", "S"]
+                    log.info(f"Sending Millennium initial command sequence {millennium_commands} to all characteristics...")
                     with last_sent_protocol_lock:
                         for wh in write_handles:
                             try:
@@ -625,16 +624,21 @@ def connect_and_scan_ble_device(device_address):
                                 uuid = wh['uuid']
                                 service_uuid = wh['service_uuid']
                                 
-                                log.info(f"  -> Sending Millennium 'W0203' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                log.info(f"     Encoded bytes: {millennium_hex}")
-                                gatttool_process.stdin.write(f"char-write-req {handle:04x} {millennium_hex}\n")
-                                gatttool_process.stdin.flush()
-                                log.info(f"  <- Sent Millennium 'W0203' to handle {handle:04x}")
-                                # Track that we sent Millennium protocol to this handle
-                                last_sent_protocol[handle] = "millennium"
-                                time.sleep(0.1)  # Small delay between writes
+                                # Send each command in sequence
+                                for cmd in millennium_commands:
+                                    millennium_encoded = encode_millennium_command(cmd)
+                                    millennium_hex = ' '.join(f'{b:02x}' for b in millennium_encoded)
+                                    
+                                    log.info(f"  -> Sending Millennium '{cmd}' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                    log.info(f"     Encoded bytes: {millennium_hex}")
+                                    gatttool_process.stdin.write(f"char-write-req {handle:04x} {millennium_hex}\n")
+                                    gatttool_process.stdin.flush()
+                                    log.info(f"  <- Sent Millennium '{cmd}' to handle {handle:04x}")
+                                    # Track that we sent Millennium protocol to this handle
+                                    last_sent_protocol[handle] = "millennium"
+                                    time.sleep(0.1)  # Small delay between commands
                             except Exception as e:
-                                log.error(f"  Error sending Millennium command to handle {wh['value_handle']:04x}: {e}")
+                                log.error(f"  Error sending Millennium commands to handle {wh['value_handle']:04x}: {e}")
                                 import traceback
                                 log.error(traceback.format_exc())
                     
