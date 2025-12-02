@@ -433,18 +433,29 @@ def connect_and_scan_ble_device(device_address):
         stderr_queue = queue.Queue()
         
         def drain_stdout():
+            chunks_received = 0
             while running and not kill:
                 try:
                     if select.select([proc.stdout], [], [], 0.1)[0]:
                         chunk = proc.stdout.read(1024)
                         if chunk:
+                            chunks_received += 1
                             stdout_queue.put(chunk)
+                            # Log first few chunks to verify it's working
+                            if chunks_received <= 5:
+                                log.info(f"drain_stdout received chunk #{chunks_received}: {repr(chunk[:100])}")
                         else:
+                            if running:
+                                log.warning("drain_stdout: read() returned empty, stream may be closed")
                             break
                 except Exception as e:
                     if running:
                         log.error(f"drain_stdout error: {e}")
+                        import traceback
+                        log.error(traceback.format_exc())
                     break
+            if running:
+                log.info(f"drain_stdout thread exiting (received {chunks_received} chunks total)")
         
         def drain_stderr():
             while running and not kill:
@@ -465,21 +476,36 @@ def connect_and_scan_ble_device(device_address):
         threading.Thread(target=drain_stdout, daemon=True).start()
         threading.Thread(target=drain_stderr, daemon=True).start()
         
+        # Wait a moment for drain threads to start
+        time.sleep(0.5)
+        
         # Enable notifications on FEN RX characteristic
         if fen_rx_char.get('cccd_handle'):
             log.info(f"Enabling notifications on FEN RX characteristic (CCCD handle {fen_rx_char['cccd_handle']:04x})")
             try:
                 proc.stdin.write(f"char-write-req {fen_rx_char['cccd_handle']:04x} 0100\n")
                 proc.stdin.flush()
-                time.sleep(0.5)  # Wait for confirmation
+                log.info("Sent char-write-req command, waiting for response...")
+                time.sleep(1)  # Wait longer for confirmation
                 # Check for confirmation in output
+                response_found = False
                 try:
                     # Drain any immediate response
-                    while not stdout_queue.empty():
-                        chunk = stdout_queue.get_nowait()
-                        log.info(f"gatttool stdout after FEN notification enable: {chunk}")
-                except queue.Empty:
-                    pass
+                    timeout = time.time() + 2
+                    while time.time() < timeout:
+                        try:
+                            chunk = stdout_queue.get(timeout=0.1)
+                            chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
+                            log.info(f"gatttool stdout after FEN notification enable: {repr(chunk_str)}")
+                            if 'success' in chunk_str.lower() or 'written' in chunk_str.lower() or 'error' in chunk_str.lower():
+                                response_found = True
+                        except queue.Empty:
+                            if response_found:
+                                break
+                except Exception as e:
+                    log.warning(f"Error checking for FEN notification response: {e}")
+                if not response_found:
+                    log.warning("No confirmation received for FEN notification enable - may have failed silently")
             except Exception as e:
                 log.error(f"Error enabling notifications on FEN RX: {e}")
         
@@ -489,15 +515,27 @@ def connect_and_scan_ble_device(device_address):
             try:
                 proc.stdin.write(f"char-write-req {op_rx_char['cccd_handle']:04x} 0100\n")
                 proc.stdin.flush()
-                time.sleep(0.5)  # Wait for confirmation
+                log.info("Sent char-write-req command, waiting for response...")
+                time.sleep(1)  # Wait longer for confirmation
                 # Check for confirmation in output
+                response_found = False
                 try:
                     # Drain any immediate response
-                    while not stdout_queue.empty():
-                        chunk = stdout_queue.get_nowait()
-                        log.info(f"gatttool stdout after Operation notification enable: {chunk}")
-                except queue.Empty:
-                    pass
+                    timeout = time.time() + 2
+                    while time.time() < timeout:
+                        try:
+                            chunk = stdout_queue.get(timeout=0.1)
+                            chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
+                            log.info(f"gatttool stdout after Operation notification enable: {repr(chunk_str)}")
+                            if 'success' in chunk_str.lower() or 'written' in chunk_str.lower() or 'error' in chunk_str.lower():
+                                response_found = True
+                        except queue.Empty:
+                            if response_found:
+                                break
+                except Exception as e:
+                    log.warning(f"Error checking for Operation notification response: {e}")
+                if not response_found:
+                    log.warning("No confirmation received for Operation notification enable - may have failed silently")
             except Exception as e:
                 log.error(f"Error enabling notifications on Operation RX: {e}")
         
