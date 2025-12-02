@@ -354,9 +354,31 @@ def connect_and_scan_ble_device(device_address):
                 time.sleep(1)
                 
                 if proc.poll() is None:
-                    log.info("gatttool interactive session started and connected successfully")
-                    # Don't read stdout here - let the drain thread handle it
-                    # Reading here can block and cause signal handler issues
+                    log.info("gatttool interactive session started")
+                    # Wait a moment for connection
+                    time.sleep(2)
+                    # Verify connection by checking if we can read a characteristic
+                    log.info("Verifying connection by reading a characteristic...")
+                    try:
+                        proc.stdin.write("char-read-hnd 0x0001\n")
+                        proc.stdin.flush()
+                        time.sleep(1)
+                        # Check if we got any response
+                        try:
+                            if not stdout_queue.empty():
+                                chunk = stdout_queue.get_nowait()
+                                chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
+                                log.info(f"Connection verification response: {repr(chunk_str[:200])}")
+                                if 'Connection successful' in chunk_str or 'Characteristic' in chunk_str:
+                                    log.info("Connection verified - gatttool is responding")
+                                else:
+                                    log.warning(f"Unexpected response format: {chunk_str[:200]}")
+                            else:
+                                log.warning("No response to connection verification - connection may not be working")
+                        except queue.Empty:
+                            log.warning("No response received for connection verification")
+                    except Exception as e:
+                        log.warning(f"Error verifying connection: {e}")
                     break
                 else:
                     exit_code = proc.returncode
@@ -479,65 +501,93 @@ def connect_and_scan_ble_device(device_address):
         # Wait a moment for drain threads to start
         time.sleep(0.5)
         
-        # Enable notifications on FEN RX characteristic
+        # Enable notifications/indications on FEN RX characteristic
+        # Note: 0x0100 enables notifications, 0x0200 enables indications
+        # Since these are INDICATE (0x10), we should use 0x0200, but 0x0100 might work too
         if fen_rx_char.get('cccd_handle'):
-            log.info(f"Enabling notifications on FEN RX characteristic (CCCD handle {fen_rx_char['cccd_handle']:04x})")
+            log.info(f"Enabling indications on FEN RX characteristic (CCCD handle {fen_rx_char['cccd_handle']:04x})")
+            log.info("NOTE: This characteristic uses INDICATE (0x10) which requires acknowledgment")
             try:
-                proc.stdin.write(f"char-write-req {fen_rx_char['cccd_handle']:04x} 0100\n")
+                # Try 0x0200 for indications first, fallback to 0x0100
+                proc.stdin.write(f"char-write-req {fen_rx_char['cccd_handle']:04x} 0200\n")
                 proc.stdin.flush()
-                log.info("Sent char-write-req command, waiting for response...")
-                time.sleep(1)  # Wait longer for confirmation
+                log.info("Sent char-write-req 0200 (indications), waiting for response...")
+                time.sleep(2)  # Wait longer for confirmation
                 # Check for confirmation in output
                 response_found = False
+                response_text = ""
                 try:
                     # Drain any immediate response
-                    timeout = time.time() + 2
+                    timeout = time.time() + 3
                     while time.time() < timeout:
                         try:
-                            chunk = stdout_queue.get(timeout=0.1)
+                            chunk = stdout_queue.get(timeout=0.2)
                             chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
-                            log.info(f"gatttool stdout after FEN notification enable: {repr(chunk_str)}")
-                            if 'success' in chunk_str.lower() or 'written' in chunk_str.lower() or 'error' in chunk_str.lower():
+                            response_text += chunk_str
+                            log.info(f"gatttool stdout after FEN indication enable: {repr(chunk_str)}")
+                            if any(word in chunk_str.lower() for word in ['success', 'written', 'characteristic', 'error', 'fail']):
                                 response_found = True
                         except queue.Empty:
                             if response_found:
                                 break
                 except Exception as e:
-                    log.warning(f"Error checking for FEN notification response: {e}")
+                    log.warning(f"Error checking for FEN indication response: {e}")
+                
                 if not response_found:
-                    log.warning("No confirmation received for FEN notification enable - may have failed silently")
+                    log.warning("No confirmation received for FEN indication enable - trying 0x0100 (notifications)")
+                    # Fallback to 0x0100
+                    proc.stdin.write(f"char-write-req {fen_rx_char['cccd_handle']:04x} 0100\n")
+                    proc.stdin.flush()
+                    time.sleep(1)
+                else:
+                    log.info(f"FEN indication enable confirmed: {response_text[:200]}")
             except Exception as e:
-                log.error(f"Error enabling notifications on FEN RX: {e}")
+                log.error(f"Error enabling indications on FEN RX: {e}")
+                import traceback
+                log.error(traceback.format_exc())
         
-        # Enable notifications on Operation RX characteristic
+        # Enable notifications/indications on Operation RX characteristic
         if op_rx_char.get('cccd_handle'):
-            log.info(f"Enabling notifications on Operation RX characteristic (CCCD handle {op_rx_char['cccd_handle']:04x})")
+            log.info(f"Enabling indications on Operation RX characteristic (CCCD handle {op_rx_char['cccd_handle']:04x})")
+            log.info("NOTE: This characteristic uses INDICATE (0x10) which requires acknowledgment")
             try:
-                proc.stdin.write(f"char-write-req {op_rx_char['cccd_handle']:04x} 0100\n")
+                # Try 0x0200 for indications first, fallback to 0x0100
+                proc.stdin.write(f"char-write-req {op_rx_char['cccd_handle']:04x} 0200\n")
                 proc.stdin.flush()
-                log.info("Sent char-write-req command, waiting for response...")
-                time.sleep(1)  # Wait longer for confirmation
+                log.info("Sent char-write-req 0200 (indications), waiting for response...")
+                time.sleep(2)  # Wait longer for confirmation
                 # Check for confirmation in output
                 response_found = False
+                response_text = ""
                 try:
                     # Drain any immediate response
-                    timeout = time.time() + 2
+                    timeout = time.time() + 3
                     while time.time() < timeout:
                         try:
-                            chunk = stdout_queue.get(timeout=0.1)
+                            chunk = stdout_queue.get(timeout=0.2)
                             chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
-                            log.info(f"gatttool stdout after Operation notification enable: {repr(chunk_str)}")
-                            if 'success' in chunk_str.lower() or 'written' in chunk_str.lower() or 'error' in chunk_str.lower():
+                            response_text += chunk_str
+                            log.info(f"gatttool stdout after Operation indication enable: {repr(chunk_str)}")
+                            if any(word in chunk_str.lower() for word in ['success', 'written', 'characteristic', 'error', 'fail']):
                                 response_found = True
                         except queue.Empty:
                             if response_found:
                                 break
                 except Exception as e:
-                    log.warning(f"Error checking for Operation notification response: {e}")
+                    log.warning(f"Error checking for Operation indication response: {e}")
+                
                 if not response_found:
-                    log.warning("No confirmation received for Operation notification enable - may have failed silently")
+                    log.warning("No confirmation received for Operation indication enable - trying 0x0100 (notifications)")
+                    # Fallback to 0x0100
+                    proc.stdin.write(f"char-write-req {op_rx_char['cccd_handle']:04x} 0100\n")
+                    proc.stdin.flush()
+                    time.sleep(1)
+                else:
+                    log.info(f"Operation indication enable confirmed: {response_text[:200]}")
             except Exception as e:
-                log.error(f"Error enabling notifications on Operation RX: {e}")
+                log.error(f"Error enabling indications on Operation RX: {e}")
+                import traceback
+                log.error(traceback.format_exc())
         
         # Remove duplicate thread creation
         
@@ -628,14 +678,27 @@ def connect_and_scan_ble_device(device_address):
         log.info("Waiting for notifications to be fully enabled...")
         
         # Send initial enable reporting command
-        # Use char-write-cmd (write without response) as per Chessnut documentation examples
+        # Try char-write-req (with response) first to ensure command is processed
         log.info("Sending initial enable reporting command [0x21, 0x01, 0x00]...")
         chessnut_hex = ' '.join(f'{b:02x}' for b in CHESSNUT_ENABLE_REPORTING_CMD)
         try:
-            proc.stdin.write(f"char-write-cmd {op_tx_char['value_handle']:04x} {chessnut_hex}\n")
+            # Use char-write-req to get confirmation
+            proc.stdin.write(f"char-write-req {op_tx_char['value_handle']:04x} {chessnut_hex}\n")
             proc.stdin.flush()
-            log.info(f"Sent enable reporting command to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
-            time.sleep(0.5)
+            log.info(f"Sent enable reporting command (with response) to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
+            time.sleep(1)
+            # Check for response
+            try:
+                timeout = time.time() + 2
+                while time.time() < timeout:
+                    try:
+                        chunk = stdout_queue.get(timeout=0.2)
+                        chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
+                        log.info(f"Enable reporting command response: {repr(chunk_str)}")
+                    except queue.Empty:
+                        break
+            except Exception as e:
+                log.debug(f"Error checking enable reporting response: {e}")
         except Exception as e:
             log.error(f"Error sending enable reporting command: {e}")
         
@@ -643,10 +706,23 @@ def connect_and_scan_ble_device(device_address):
         log.info("Sending battery level command [0x29, 0x01, 0x00]...")
         battery_hex = ' '.join(f'{b:02x}' for b in CHESSNUT_BATTERY_LEVEL_CMD)
         try:
-            proc.stdin.write(f"char-write-cmd {op_tx_char['value_handle']:04x} {battery_hex}\n")
+            # Use char-write-req to get confirmation
+            proc.stdin.write(f"char-write-req {op_tx_char['value_handle']:04x} {battery_hex}\n")
             proc.stdin.flush()
-            log.info(f"Sent battery level command to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
-            time.sleep(0.5)
+            log.info(f"Sent battery level command (with response) to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
+            time.sleep(1)
+            # Check for response
+            try:
+                timeout = time.time() + 2
+                while time.time() < timeout:
+                    try:
+                        chunk = stdout_queue.get(timeout=0.2)
+                        chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
+                        log.info(f"Battery level command response: {repr(chunk_str)}")
+                    except queue.Empty:
+                        break
+            except Exception as e:
+                log.debug(f"Error checking battery level response: {e}")
         except Exception as e:
             log.error(f"Error sending battery level command: {e}")
         
