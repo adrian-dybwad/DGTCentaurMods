@@ -66,9 +66,10 @@ gatttool_process = None
 
 
 def signal_handler(signum, frame):
-    """Handle SIGINT and SIGTERM signals"""
+    """Handle SIGINT and SIGTERM signals - must be async-safe"""
     global kill, running
-    log.info("Signal received, shutting down...")
+    # Don't use logging in signal handler - it can cause reentrant calls
+    # Just set flags and let cleanup handle logging
     kill = 1
     running = False
 
@@ -354,14 +355,8 @@ def connect_and_scan_ble_device(device_address):
                 
                 if proc.poll() is None:
                     log.info("gatttool interactive session started and connected successfully")
-                    # Try to read any initial output
-                    try:
-                        if select.select([proc.stdout], [], [], 0.5)[0]:
-                            initial_output = proc.stdout.read(4096)
-                            if initial_output:
-                                log.info(f"Initial gatttool output: {initial_output.decode('utf-8', errors='replace') if isinstance(initial_output, bytes) else initial_output}")
-                    except:
-                        pass
+                    # Don't read stdout here - let the drain thread handle it
+                    # Reading here can block and cause signal handler issues
                     break
                 else:
                     exit_code = proc.returncode
@@ -590,38 +585,19 @@ def connect_and_scan_ble_device(device_address):
         
         threading.Thread(target=read_notifications, daemon=True).start()
         
-        # Test connection by trying to read a characteristic
-        log.info("Testing connection by reading a characteristic...")
-        try:
-            proc.stdin.write(f"char-read-hnd {fen_rx_char['value_handle']:04x}\n")
-            proc.stdin.flush()
-            time.sleep(1)
-            # Check for response
-            try:
-                while not stdout_queue.empty():
-                    chunk = stdout_queue.get_nowait()
-                    log.info(f"Test read response: {chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk}")
-            except queue.Empty:
-                pass
-        except Exception as e:
-            log.warning(f"Test read failed: {e}")
+        # Wait a bit for notifications to be fully enabled
+        time.sleep(1)
+        log.info("Waiting for notifications to be fully enabled...")
         
         # Send initial enable reporting command
+        # Use char-write-cmd (write without response) as per Chessnut documentation examples
         log.info("Sending initial enable reporting command [0x21, 0x01, 0x00]...")
         chessnut_hex = ' '.join(f'{b:02x}' for b in CHESSNUT_ENABLE_REPORTING_CMD)
         try:
-            # Use char-write-req (with response) instead of char-write-cmd to ensure command is received
-            proc.stdin.write(f"char-write-req {op_tx_char['value_handle']:04x} {chessnut_hex}\n")
+            proc.stdin.write(f"char-write-cmd {op_tx_char['value_handle']:04x} {chessnut_hex}\n")
             proc.stdin.flush()
             log.info(f"Sent enable reporting command to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
-            time.sleep(1)  # Wait for response
-            # Check for response
-            try:
-                while not stdout_queue.empty():
-                    chunk = stdout_queue.get_nowait()
-                    log.info(f"Enable reporting response: {chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk}")
-            except queue.Empty:
-                pass
+            time.sleep(0.5)
         except Exception as e:
             log.error(f"Error sending enable reporting command: {e}")
         
@@ -629,20 +605,17 @@ def connect_and_scan_ble_device(device_address):
         log.info("Sending battery level command [0x29, 0x01, 0x00]...")
         battery_hex = ' '.join(f'{b:02x}' for b in CHESSNUT_BATTERY_LEVEL_CMD)
         try:
-            # Use char-write-req (with response) instead of char-write-cmd to ensure command is received
-            proc.stdin.write(f"char-write-req {op_tx_char['value_handle']:04x} {battery_hex}\n")
+            proc.stdin.write(f"char-write-cmd {op_tx_char['value_handle']:04x} {battery_hex}\n")
             proc.stdin.flush()
             log.info(f"Sent battery level command to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
-            time.sleep(1)  # Wait for response
-            # Check for response
-            try:
-                while not stdout_queue.empty():
-                    chunk = stdout_queue.get_nowait()
-                    log.info(f"Battery level response: {chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk}")
-            except queue.Empty:
-                pass
+            time.sleep(0.5)
         except Exception as e:
             log.error(f"Error sending battery level command: {e}")
+        
+        # Log that we're now waiting for data
+        log.info("Commands sent. Waiting for notifications...")
+        log.info("Note: FEN data will only be sent when pieces are moved on the board")
+        log.info("Battery level response should arrive shortly if the device supports it")
         
         device_connected = True
         log.info("BLE connection established and notifications enabled")
