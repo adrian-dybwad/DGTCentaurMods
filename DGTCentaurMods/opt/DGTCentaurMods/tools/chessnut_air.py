@@ -48,6 +48,8 @@ CHESSNUT_OP_RX_CHAR_UUID = "1b7e8273-2877-41c3-b46e-cf057c562023"  # Notify from
 
 # Initial command to enable reporting
 CHESSNUT_ENABLE_REPORTING_CMD = [0x21, 0x01, 0x00]
+# Battery level command
+CHESSNUT_BATTERY_LEVEL_CMD = [0x29, 0x01, 0x00]
 
 BLUEZ_SERVICE_NAME = "org.bluez"
 DBUS_OM_IFACE = "org.freedesktop.DBus.ObjectManager"
@@ -456,6 +458,15 @@ def connect_and_scan_ble_device(device_address):
                                             char_name = "Operation RX"
                                         
                                         log.info(f"RX [{char_name}] (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)}")
+                                        
+                                        # Parse battery level response if this is Operation RX
+                                        if handle == op_rx_char['value_handle'] and len(data) >= 4:
+                                            if data[0] == 0x2a and data[1] == 0x02:
+                                                battery_level_byte = data[2]
+                                                charging = (battery_level_byte & 0x80) != 0
+                                                battery_percent = battery_level_byte & 0x7F
+                                                log.info(f"RX [Operation RX] Battery Level: {battery_percent}% ({'Charging' if charging else 'Not charging'})")
+                                        
                                         # Try to decode as text if possible
                                         try:
                                             text = data.decode('utf-8', errors='replace')
@@ -483,8 +494,19 @@ def connect_and_scan_ble_device(device_address):
             proc.stdin.write(f"char-write-cmd {op_tx_char['value_handle']:04x} {chessnut_hex}\n")
             proc.stdin.flush()
             log.info(f"Sent enable reporting command to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
+            time.sleep(0.2)  # Small delay before next command
         except Exception as e:
             log.error(f"Error sending enable reporting command: {e}")
+        
+        # Send battery level command
+        log.info("Sending battery level command [0x29, 0x01, 0x00]...")
+        battery_hex = ' '.join(f'{b:02x}' for b in CHESSNUT_BATTERY_LEVEL_CMD)
+        try:
+            proc.stdin.write(f"char-write-cmd {op_tx_char['value_handle']:04x} {battery_hex}\n")
+            proc.stdin.flush()
+            log.info(f"Sent battery level command to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
+        except Exception as e:
+            log.error(f"Error sending battery level command: {e}")
         
         device_connected = True
         log.info("BLE connection established and notifications enabled")
