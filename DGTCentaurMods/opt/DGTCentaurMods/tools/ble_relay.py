@@ -567,13 +567,12 @@ def connect_and_scan_ble_device(device_address):
                     }
                     log.info(f"Found Millennium RX characteristic: handle {char['value_handle']:04x}, UUID {char_uuid}")
                 
-                # Also add all characteristics with write properties for fallback
-                if 'write' in char.get('properties', []).lower() or 'write-without-response' in char.get('properties', []).lower():
-                    write_handles.append({
-                        'value_handle': char['value_handle'],
-                        'uuid': char.get('uuid', 'unknown'),
-                        'service_uuid': char.get('service_uuid', 'unknown')
-                    })
+                # Also add all characteristics for fallback (we'll use Millennium RX if found)
+                write_handles.append({
+                    'value_handle': char['value_handle'],
+                    'uuid': char.get('uuid', 'unknown'),
+                    'service_uuid': char.get('service_uuid', 'unknown')
+                })
         
         # If we found the Millennium RX characteristic, use only that for writing
         if millennium_rx_handle:
