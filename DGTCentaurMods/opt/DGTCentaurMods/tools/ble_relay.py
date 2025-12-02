@@ -735,31 +735,39 @@ def connect_and_scan_ble_device(device_address):
                     else:
                         log.info("No responses to S probe, skipping full Millennium sequence")
                     
-                    # Wait a bit before sending the next protocol
-                    time.sleep(2)
+                    # Check if we got any Millennium responses
+                    with millennium_w_probe_lock:
+                        got_millennium_response = len(millennium_w_probe_responded) > 0
                     
-                    # Send Chessnut Air initial command [0x21, 0x01, 0x00] to all characteristics
-                    log.info("Sending Chessnut Air initial command [0x21, 0x01, 0x00] to all characteristics...")
-                    chessnut_bytes = [0x21, 0x01, 0x00]
-                    chessnut_hex = ' '.join(f'{b:02x}' for b in chessnut_bytes)
-                    with last_sent_protocol_lock:
-                        for wh in write_handles:
-                            try:
-                                handle = wh['value_handle']
-                                uuid = wh['uuid']
-                                service_uuid = wh['service_uuid']
-                                
-                                log.info(f"  -> Sending Chessnut Air probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                gatttool_process.stdin.write(f"char-write-req {handle:04x} {chessnut_hex}\n")
-                                gatttool_process.stdin.flush()
-                                log.info(f"  <- Sent Chessnut Air probe to handle {handle:04x}")
-                                # Track that we sent Chessnut Air protocol to this handle
-                                last_sent_protocol[handle] = "chessnut_air"
-                                time.sleep(0.3)  # Delay between writes to allow device to process
-                            except Exception as e:
-                                log.error(f"  Error sending Chessnut Air probe to handle {wh['value_handle']:04x}: {e}")
-                                import traceback
-                                log.error(traceback.format_exc())
+                    # Only send Chessnut Air if we didn't get a Millennium response
+                    if not got_millennium_response:
+                        # Wait a bit before sending the next protocol
+                        time.sleep(2)
+                        
+                        # Send Chessnut Air initial command [0x21, 0x01, 0x00] to all characteristics
+                        log.info("No Millennium responses received, sending Chessnut Air initial command [0x21, 0x01, 0x00] to all characteristics...")
+                        chessnut_bytes = [0x21, 0x01, 0x00]
+                        chessnut_hex = ' '.join(f'{b:02x}' for b in chessnut_bytes)
+                        with last_sent_protocol_lock:
+                            for wh in write_handles:
+                                try:
+                                    handle = wh['value_handle']
+                                    uuid = wh['uuid']
+                                    service_uuid = wh['service_uuid']
+                                    
+                                    log.info(f"  -> Sending Chessnut Air probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                    gatttool_process.stdin.write(f"char-write-req {handle:04x} {chessnut_hex}\n")
+                                    gatttool_process.stdin.flush()
+                                    log.info(f"  <- Sent Chessnut Air probe to handle {handle:04x}")
+                                    # Track that we sent Chessnut Air protocol to this handle
+                                    last_sent_protocol[handle] = "chessnut_air"
+                                    time.sleep(0.3)  # Delay between writes to allow device to process
+                                except Exception as e:
+                                    log.error(f"  Error sending Chessnut Air probe to handle {wh['value_handle']:04x}: {e}")
+                                    import traceback
+                                    log.error(traceback.format_exc())
+                    else:
+                        log.info(f"Millennium responses received on {len(millennium_w_probe_responded)} characteristics, skipping Chessnut Air probe")
                     
                     log.info(f"Completed sending initial commands to all {len(write_handles)} characteristics")
                     initial_commands_sent = True
