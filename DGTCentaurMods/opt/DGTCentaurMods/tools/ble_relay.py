@@ -490,6 +490,19 @@ def connect_and_scan_ble_device(device_address):
             def periodic_send():
                 """Send 'S' byte to all characteristics every 10 seconds"""
                 global running, kill, gatttool_process, device_connected
+                log.info("Periodic send thread started, waiting for connection...")
+                # Wait for device_connected to be True
+                wait_count = 0
+                while not device_connected and running and not kill and wait_count < 50:
+                    time.sleep(0.1)
+                    wait_count += 1
+                
+                if not device_connected:
+                    log.error("Periodic send thread: device_connected never became True, exiting")
+                    return
+                
+                log.info("Periodic send thread: device connected, starting periodic sends")
+                
                 while running and not kill and device_connected:
                     try:
                         if gatttool_process and gatttool_process.poll() is None:
@@ -507,22 +520,34 @@ def connect_and_scan_ble_device(device_address):
                                     time.sleep(0.1)  # Small delay between writes
                                 except Exception as e:
                                     log.error(f"  Error sending to handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}): {e}")
+                                    import traceback
+                                    log.error(traceback.format_exc())
                             log.info(f"Completed sending 'S' to all {len(write_handles)} characteristics")
                         else:
                             log.warning("gatttool process not available, skipping send")
+                            if gatttool_process:
+                                log.warning(f"gatttool process poll() returned: {gatttool_process.poll()}")
+                            else:
+                                log.warning("gatttool_process is None")
                         time.sleep(10)
                     except Exception as e:
                         if running:
                             log.error(f"Error in periodic send: {e}")
+                            import traceback
+                            log.error(traceback.format_exc())
                         break
+                
+                log.info("Periodic send thread exiting")
             
-            threading.Thread(target=periodic_send, daemon=True).start()
+            send_thread = threading.Thread(target=periodic_send, daemon=True)
+            send_thread.start()
             log.info("Periodic send thread started (sending 'S' to all characteristics every 10 seconds)")
         else:
             log.warning("No characteristics found, cannot send periodic data")
         
         device_connected = True
         log.info("BLE connection established and notifications enabled")
+        log.info(f"device_connected set to True, periodic send thread should start sending")
         return True
         
     except Exception as e:
