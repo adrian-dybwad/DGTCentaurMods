@@ -475,9 +475,15 @@ def connect_and_scan_ble_device(device_address):
                         chunk = proc.stdout.read(1024)
                         if chunk:
                             stdout_queue.put(chunk)
+                            log.debug(f"drain_stdout: Read {len(chunk)} bytes from gatttool stdout")
                         else:
+                            log.debug("drain_stdout: EOF reached on stdout")
                             break
-                except:
+                except Exception as e:
+                    if running:
+                        log.error(f"drain_stdout error: {e}")
+                        import traceback
+                        log.error(traceback.format_exc())
                     break
         
         def drain_stderr():
@@ -553,13 +559,14 @@ def connect_and_scan_ble_device(device_address):
                         chunk = stdout_queue.get(timeout=0.1)
                         # chunk is bytes from stdout
                         buffer += chunk
+                        log.debug(f"read_notifications: Received {len(chunk)} bytes, buffer now {len(buffer)} bytes")
                         while b'\n' in buffer:
                             line_bytes, buffer = buffer.split(b'\n', 1)
                             line = line_bytes.decode('utf-8', errors='replace').strip()
                             
-                            # Log all non-empty lines for debugging
+                            # Log all non-empty lines at INFO level so we can see what's happening
                             if line:
-                                log.debug(f"gatttool stdout: {line}")
+                                log.info(f"gatttool stdout: {line}")
                             
                             # Try to parse notification/indication in standard format
                             if 'Notification' in line or 'Indication' in line:
