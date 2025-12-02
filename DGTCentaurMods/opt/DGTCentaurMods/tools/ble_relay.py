@@ -117,7 +117,7 @@ initial_commands_sent = False  # Track if we've sent the initial commands
 active_protocol = None  # Track which protocol got a response: "millennium" or "chessnut_air"
 last_sent_protocol = {}  # Track which protocol was last sent to each handle: {handle: "millennium" or "chessnut_air"}
 last_sent_protocol_lock = threading.Lock()  # Lock for thread-safe access to last_sent_protocol
-millennium_w_probe_responded = set()  # Track which handles responded to the W0203 probe
+millennium_w_probe_responded = set()  # Track which handles responded to the S probe
 millennium_w_probe_lock = threading.Lock()  # Lock for thread-safe access to millennium_w_probe_responded
 
 
@@ -536,11 +536,11 @@ def connect_and_scan_ble_device(device_address):
                 
                 # Check if this is the first reply - if so, set it as the active write handle
                 with active_write_lock, last_sent_protocol_lock, millennium_w_probe_lock:
-                    # Track if this is a response to a Millennium W probe
+                    # Track if this is a response to a Millennium S probe
                     protocol = last_sent_protocol.get(handle)
                     if protocol == "millennium" and handle not in millennium_w_probe_responded:
                         millennium_w_probe_responded.add(handle)
-                        log.info(f"*** Millennium W probe response received on handle {handle:04x} - will send full sequence ***")
+                        log.info(f"*** Millennium S probe response received on handle {handle:04x} - will send full sequence ***")
                     
                     if active_write_handle is None:
                         # Find the corresponding write handle (same value handle)
@@ -645,8 +645,8 @@ def connect_and_scan_ble_device(device_address):
                 
                 # First, send both initial commands to all characteristics
                 if not initial_commands_sent:
-                    # Step 1: Send only W0203 probe to all characteristics
-                    log.info("Step 1: Sending Millennium W0203 probe to all characteristics...")
+                    # Step 1: Send only S probe to all characteristics
+                    log.info("Step 1: Sending Millennium S probe to all characteristics...")
                     with last_sent_protocol_lock:
                         for wh in write_handles:
                             try:
@@ -654,25 +654,25 @@ def connect_and_scan_ble_device(device_address):
                                 uuid = wh['uuid']
                                 service_uuid = wh['service_uuid']
                                 
-                                # Send only W0203 as probe
-                                w_probe_encoded = encode_millennium_command("W0203")
-                                w_probe_hex = ' '.join(f'{b:02x}' for b in w_probe_encoded)
+                                # Send only S as probe
+                                s_probe_encoded = encode_millennium_command("S")
+                                s_probe_hex = ' '.join(f'{b:02x}' for b in s_probe_encoded)
                                 
-                                log.info(f"  -> Sending Millennium W0203 probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                log.info(f"     Encoded bytes: {w_probe_hex}")
-                                gatttool_process.stdin.write(f"char-write-req {handle:04x} {w_probe_hex}\n")
+                                log.info(f"  -> Sending Millennium S probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                log.info(f"     Encoded bytes: {s_probe_hex}")
+                                gatttool_process.stdin.write(f"char-write-req {handle:04x} {s_probe_hex}\n")
                                 gatttool_process.stdin.flush()
-                                log.info(f"  <- Sent Millennium W0203 probe to handle {handle:04x}")
+                                log.info(f"  <- Sent Millennium S probe to handle {handle:04x}")
                                 # Track that we sent Millennium protocol to this handle
                                 last_sent_protocol[handle] = "millennium"
                                 time.sleep(0.2)  # Small delay between probes
                             except Exception as e:
-                                log.error(f"  Error sending Millennium W probe to handle {wh['value_handle']:04x}: {e}")
+                                log.error(f"  Error sending Millennium S probe to handle {wh['value_handle']:04x}: {e}")
                                 import traceback
                                 log.error(traceback.format_exc())
                     
-                    # Wait for responses to the W probe
-                    log.info("Waiting 3 seconds for responses to W0203 probe...")
+                    # Wait for responses to the S probe
+                    log.info("Waiting 3 seconds for responses to S probe...")
                     time.sleep(3)
                     
                     # Step 2: Send full sequence only to characteristics that responded
@@ -719,7 +719,7 @@ def connect_and_scan_ble_device(device_address):
                                     import traceback
                                     log.error(traceback.format_exc())
                     else:
-                        log.info("No responses to W0203 probe, skipping full Millennium sequence")
+                        log.info("No responses to S probe, skipping full Millennium sequence")
                     
                     # Wait a bit before sending the next protocol
                     time.sleep(2)
