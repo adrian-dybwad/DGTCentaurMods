@@ -590,14 +590,38 @@ def connect_and_scan_ble_device(device_address):
         
         threading.Thread(target=read_notifications, daemon=True).start()
         
+        # Test connection by trying to read a characteristic
+        log.info("Testing connection by reading a characteristic...")
+        try:
+            proc.stdin.write(f"char-read-hnd {fen_rx_char['value_handle']:04x}\n")
+            proc.stdin.flush()
+            time.sleep(1)
+            # Check for response
+            try:
+                while not stdout_queue.empty():
+                    chunk = stdout_queue.get_nowait()
+                    log.info(f"Test read response: {chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk}")
+            except queue.Empty:
+                pass
+        except Exception as e:
+            log.warning(f"Test read failed: {e}")
+        
         # Send initial enable reporting command
         log.info("Sending initial enable reporting command [0x21, 0x01, 0x00]...")
         chessnut_hex = ' '.join(f'{b:02x}' for b in CHESSNUT_ENABLE_REPORTING_CMD)
         try:
-            proc.stdin.write(f"char-write-cmd {op_tx_char['value_handle']:04x} {chessnut_hex}\n")
+            # Use char-write-req (with response) instead of char-write-cmd to ensure command is received
+            proc.stdin.write(f"char-write-req {op_tx_char['value_handle']:04x} {chessnut_hex}\n")
             proc.stdin.flush()
             log.info(f"Sent enable reporting command to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
-            time.sleep(0.2)  # Small delay before next command
+            time.sleep(1)  # Wait for response
+            # Check for response
+            try:
+                while not stdout_queue.empty():
+                    chunk = stdout_queue.get_nowait()
+                    log.info(f"Enable reporting response: {chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk}")
+            except queue.Empty:
+                pass
         except Exception as e:
             log.error(f"Error sending enable reporting command: {e}")
         
@@ -605,9 +629,18 @@ def connect_and_scan_ble_device(device_address):
         log.info("Sending battery level command [0x29, 0x01, 0x00]...")
         battery_hex = ' '.join(f'{b:02x}' for b in CHESSNUT_BATTERY_LEVEL_CMD)
         try:
-            proc.stdin.write(f"char-write-cmd {op_tx_char['value_handle']:04x} {battery_hex}\n")
+            # Use char-write-req (with response) instead of char-write-cmd to ensure command is received
+            proc.stdin.write(f"char-write-req {op_tx_char['value_handle']:04x} {battery_hex}\n")
             proc.stdin.flush()
             log.info(f"Sent battery level command to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
+            time.sleep(1)  # Wait for response
+            # Check for response
+            try:
+                while not stdout_queue.empty():
+                    chunk = stdout_queue.get_nowait()
+                    log.info(f"Battery level response: {chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk}")
+            except queue.Empty:
+                pass
         except Exception as e:
             log.error(f"Error sending battery level command: {e}")
         
