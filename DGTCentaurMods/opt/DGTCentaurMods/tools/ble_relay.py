@@ -651,9 +651,25 @@ def connect_and_scan_ble_device(device_address):
                         log.info(f"Found NOTIFY characteristic in Millennium service: UUID {char.get('uuid')}, handle {value_handle:04x}, properties: {', '.join(properties_list)}")
         
         # Use writable characteristics (RX) for writing commands
+        # Prioritize the known RX UUID (49535343-8841-43F4-A8D4-ECBE34729BB3)
         if millennium_rx_handles:
-            write_handles = millennium_rx_handles
-            log.info(f"Using {len(millennium_rx_handles)} WRITABLE characteristics from Millennium service for writing commands")
+            # Check if we found the known RX UUID
+            rx_uuid_handle = None
+            for char in millennium_rx_handles:
+                char_uuid = normalize_uuid(char.get('uuid', ''))
+                if char_uuid == MILLENNIUM_RX_CHAR_UUID_NORM:
+                    rx_uuid_handle = char
+                    log.info(f"Found Millennium RX UUID characteristic: handle {char['value_handle']:04x}, UUID {char.get('uuid')}")
+                    break
+            
+            # If we found the RX UUID, use only that. Otherwise use all writable characteristics.
+            if rx_uuid_handle:
+                write_handles = [rx_uuid_handle]
+                log.info(f"Using Millennium RX UUID characteristic (handle {rx_uuid_handle['value_handle']:04x}) for writing commands")
+            else:
+                write_handles = millennium_rx_handles
+                log.info(f"RX UUID not found, using {len(millennium_rx_handles)} WRITABLE characteristics from Millennium service for writing commands")
+            
             if millennium_tx_handles:
                 log.info(f"Found {len(millennium_tx_handles)} NOTIFY characteristics for receiving responses")
         else:
