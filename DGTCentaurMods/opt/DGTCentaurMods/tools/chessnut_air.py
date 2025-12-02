@@ -347,8 +347,21 @@ def connect_and_scan_ble_device(device_address):
                 proc.stdin.flush()
                 time.sleep(3)
                 
+                # Check connection status
+                proc.stdin.write("char-read-hnd 0x0001\n")
+                proc.stdin.flush()
+                time.sleep(1)
+                
                 if proc.poll() is None:
                     log.info("gatttool interactive session started and connected successfully")
+                    # Try to read any initial output
+                    try:
+                        if select.select([proc.stdout], [], [], 0.5)[0]:
+                            initial_output = proc.stdout.read(4096)
+                            if initial_output:
+                                log.info(f"Initial gatttool output: {initial_output.decode('utf-8', errors='replace') if isinstance(initial_output, bytes) else initial_output}")
+                    except:
+                        pass
                     break
                 else:
                     exit_code = proc.returncode
@@ -445,9 +458,13 @@ def connect_and_scan_ble_device(device_address):
                         chunk = proc.stderr.read(1024)
                         if chunk:
                             stderr_queue.put(chunk)
+                            # Log stderr output for debugging
+                            log.info(f"gatttool stderr: {chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk}")
                         else:
                             break
-                except:
+                except Exception as e:
+                    if running:
+                        log.debug(f"drain_stderr error: {e}")
                     break
         
         threading.Thread(target=drain_stdout, daemon=True).start()
@@ -465,7 +482,7 @@ def connect_and_scan_ble_device(device_address):
                     # Drain any immediate response
                     while not stdout_queue.empty():
                         chunk = stdout_queue.get_nowait()
-                        log.debug(f"gatttool stdout after FEN notification enable: {chunk}")
+                        log.info(f"gatttool stdout after FEN notification enable: {chunk}")
                 except queue.Empty:
                     pass
             except Exception as e:
@@ -483,7 +500,7 @@ def connect_and_scan_ble_device(device_address):
                     # Drain any immediate response
                     while not stdout_queue.empty():
                         chunk = stdout_queue.get_nowait()
-                        log.debug(f"gatttool stdout after Operation notification enable: {chunk}")
+                        log.info(f"gatttool stdout after Operation notification enable: {chunk}")
                 except queue.Empty:
                     pass
             except Exception as e:
@@ -495,21 +512,38 @@ def connect_and_scan_ble_device(device_address):
         def read_notifications():
             global running, kill
             buffer = ""
+            last_activity_log = time.time()
+            lines_processed = 0
+            
+            log.info("Notification reader thread started")
             
             while running and not kill:
                 try:
+                    # Log periodic status to confirm thread is running
+                    if time.time() - last_activity_log > 5:
+                        log.info(f"Notification reader active (processed {lines_processed} lines so far)")
+                        last_activity_log = time.time()
+                    
+                    # Also check stderr queue
+                    try:
+                        stderr_chunk = stderr_queue.get_nowait()
+                        log.info(f"gatttool stderr: {stderr_chunk.decode('utf-8', errors='replace') if isinstance(stderr_chunk, bytes) else stderr_chunk}")
+                    except queue.Empty:
+                        pass
+                    
                     try:
                         chunk = stdout_queue.get(timeout=0.1)
                         buffer += chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
                         # Log all gatttool output for debugging
                         if chunk:
-                            log.debug(f"gatttool output chunk: {repr(chunk)}")
+                            log.info(f"gatttool stdout chunk: {repr(chunk)}")
                         while '\n' in buffer:
                             line, buffer = buffer.split('\n', 1)
                             line_stripped = line.strip()
+                            lines_processed += 1
                             # Log all lines for debugging
                             if line_stripped:
-                                log.debug(f"gatttool line: {line_stripped}")
+                                log.info(f"gatttool line: {line_stripped}")
                             if 'Notification' in line or 'Indication' in line:
                                 match = re.search(r'handle = 0x([0-9a-f]+).*value: ([0-9a-f ]+)', line, re.IGNORECASE)
                                 if match:
