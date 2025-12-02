@@ -95,11 +95,13 @@ def check_ble_connections():
     run_command("bluetoothctl devices", "Paired/Trusted Devices")
 
 
-def check_dbus_ble_state(bus, device_address=None):
-    """Check BLE state via D-Bus"""
+def check_dbus_ble_state(bus):
+    """Check BLE state via D-Bus and return discovered devices"""
     log.info(f"\n{'='*60}")
     log.info("D-Bus BLE State")
     log.info(f"{'='*60}")
+    
+    discovered_devices = []
     
     try:
         remote_om = dbus.Interface(
@@ -130,30 +132,40 @@ def check_dbus_ble_state(bus, device_address=None):
         for path, interfaces in objects.items():
             if DEVICE_IFACE in interfaces:
                 dev_props = interfaces[DEVICE_IFACE]
-                if device_address:
-                    if dev_props.get('Address', '').upper() == device_address.upper():
-                        devices.append((path, dev_props))
-                else:
-                    devices.append((path, dev_props))
+                devices.append((path, dev_props))
         
         log.info(f"\nFound {len(devices)} BLE device(s):")
         for path, props in devices:
+            address = props.get('Address', 'N/A')
+            name = props.get('Name', 'N/A')
+            alias = props.get('Alias', 'N/A')
+            connected = props.get('Connected', False)
+            
             log.info(f"  Device: {path}")
-            log.info(f"    Address: {props.get('Address', 'N/A')}")
-            log.info(f"    Name: {props.get('Name', 'N/A')}")
-            log.info(f"    Alias: {props.get('Alias', 'N/A')}")
-            log.info(f"    Connected: {props.get('Connected', 'N/A')}")
+            log.info(f"    Address: {address}")
+            log.info(f"    Name: {name}")
+            log.info(f"    Alias: {alias}")
+            log.info(f"    Connected: {connected}")
             log.info(f"    Paired: {props.get('Paired', 'N/A')}")
             log.info(f"    Trusted: {props.get('Trusted', 'N/A')}")
             log.info(f"    RSSI: {props.get('RSSI', 'N/A')}")
             log.info(f"    ServicesResolved: {props.get('ServicesResolved', 'N/A')}")
             log.info(f"    UUIDs: {props.get('UUIDs', [])}")
             
+            # Store device info for later testing
+            if address != 'N/A':
+                discovered_devices.append({
+                    'address': address,
+                    'name': name,
+                    'alias': alias,
+                    'connected': connected,
+                    'path': path
+                })
+            
             # Check GATT services if connected
-            if props.get('Connected', False):
+            if connected:
                 log.info(f"    Device is connected - checking GATT services...")
                 try:
-                    # Try to get GATT services
                     device_obj = bus.get_object(BLUEZ_SERVICE_NAME, path)
                     device_props = dbus.Interface(device_obj, DBUS_PROP_IFACE)
                     gatt_services = device_props.Get(DEVICE_IFACE, "GattServices")
@@ -165,6 +177,8 @@ def check_dbus_ble_state(bus, device_address=None):
         log.error(f"Error checking D-Bus BLE state: {e}")
         import traceback
         log.error(traceback.format_exc())
+    
+    return discovered_devices
 
 
 def check_system_logs():
@@ -206,39 +220,86 @@ def check_mtu_settings():
                 "Bluetooth Debug FS")
 
 
-def test_gatt_connection(device_address):
+def test_gatt_connection(device_address, device_name=None):
     """Test GATT connection with gatttool"""
     if not device_address:
-        log.info("No device address provided, skipping GATT test")
         return
     
+    name_str = f" ({device_name})" if device_name else ""
     log.info(f"\n{'='*60}")
-    log.info(f"Testing GATT Connection to {device_address}")
+    log.info(f"Testing GATT Connection to {device_address}{name_str}")
     log.info(f"{'='*60}")
     
     # Try to discover services
-    run_command(f"gatttool -b {device_address} --primary 2>&1 | head -20", 
+    run_command(f"gatttool -b {device_address} --primary 2>&1", 
                 f"GATT Primary Services Discovery")
     
-    # Try to connect
-    run_command(f"timeout 5 gatttool -b {device_address} -I <<< 'connect' 2>&1 || echo 'Connection test completed'", 
-                f"GATT Connection Test")
+    # Try to discover characteristics for Chessnut services
+    if 'chessnut' in (device_name or '').lower():
+        log.info(f"\n{'='*60}")
+        log.info("Testing Chessnut-specific GATT characteristics")
+        log.info(f"{'='*60}")
+        
+        # FEN Notification Service
+        run_command(f"gatttool -b {device_address} --char-desc 0x0100 0x0103 2>&1", 
+                    "FEN Notification Service Characteristics")
+        
+        # Operation Commands Service
+        run_command(f"gatttool -b {device_address} --char-desc 0x0200 0x0205 2>&1", 
+                    "Operation Commands Service Characteristics")
+    
+    # Try to get characteristics with properties
+    run_command(f"gatttool -b {device_address} --characteristics 0x0001 0xffff 2>&1 | head -50", 
+                f"All Characteristics (first 50)")
+    
+    # Check MTU (if available)
+    run_command(f"timeout 3 gatttool -b {device_address} -I <<< $'connect\nmtu\n' 2>&1 | head -20 || echo 'MTU check not available'", 
+                f"MTU Check")
+
+
+def check_permissions():
+    """Check user permissions for Bluetooth"""
+    log.info(f"\n{'='*60}")
+    log.info("User Permissions")
+    log.info(f"{'='*60}")
+    run_command("whoami", "Current User")
+    run_command("groups", "User Groups")
+    run_command("id", "User ID and Groups")
+    run_command("ls -la /var/lib/bluetooth/ 2>/dev/null | head -10 || echo 'Cannot access bluetooth directory'", 
+                "Bluetooth Directory Permissions")
+
+
+def check_kernel_modules():
+    """Check loaded Bluetooth kernel modules"""
+    run_command("lsmod | grep -i bluetooth", "Loaded Bluetooth Kernel Modules")
+    run_command("modinfo bluetooth 2>/dev/null | head -10 || echo 'bluetooth module info not available'", 
+                "Bluetooth Module Info")
 
 
 def main():
-    """Main diagnostic function"""
-    parser = argparse.ArgumentParser(description='BLE System Diagnostics')
+    """Main diagnostic function - runs all diagnostics automatically"""
+    parser = argparse.ArgumentParser(description='BLE System Diagnostics (Auto-run)')
     parser.add_argument('--device-address', 
-                       help='BLE device address to check (optional)')
+                       help='Specific BLE device address to test (optional, auto-discovers if not provided)')
     args = parser.parse_args()
     
-    log.info("="*60)
-    log.info("BLE System Diagnostics")
-    log.info("="*60)
+    log.info("="*80)
+    log.info("BLE SYSTEM DIAGNOSTICS - AUTO-RUN")
+    log.info("="*80)
+    log.info("This script will automatically check all BLE system components")
+    log.info("="*80)
     
     # Basic system info
     run_command("uname -a", "System Information")
     run_command("cat /proc/version", "Kernel Version")
+    run_command("cat /etc/os-release 2>/dev/null | head -10 || echo 'OS release not available'", 
+                "OS Release Info")
+    
+    # Permissions
+    check_permissions()
+    
+    # Kernel modules
+    check_kernel_modules()
     
     # BlueZ and Bluetooth service
     check_bluez_version()
@@ -254,12 +315,15 @@ def main():
     # Connections
     check_ble_connections()
     
-    # D-Bus state
+    # D-Bus state and device discovery
+    discovered_devices = []
     try:
         bus = BleTools.get_bus()
-        check_dbus_ble_state(bus, args.device_address)
+        discovered_devices = check_dbus_ble_state(bus)
     except Exception as e:
         log.error(f"Error accessing D-Bus: {e}")
+        import traceback
+        log.error(traceback.format_exc())
     
     # System logs
     check_system_logs()
@@ -270,20 +334,50 @@ def main():
     # MTU settings
     check_mtu_settings()
     
-    # Test GATT connection if device address provided
+    # Test GATT connections
+    devices_to_test = []
     if args.device_address:
-        test_gatt_connection(args.device_address)
+        # Test specific device
+        devices_to_test.append({
+            'address': args.device_address,
+            'name': 'User specified'
+        })
+    else:
+        # Auto-discover and test all devices, prioritizing Chessnut Air
+        chessnut_devices = [d for d in discovered_devices if 'chessnut' in (d.get('name', '') + d.get('alias', '')).lower()]
+        other_devices = [d for d in discovered_devices if 'chessnut' not in (d.get('name', '') + d.get('alias', '')).lower()]
+        
+        # Test Chessnut devices first
+        devices_to_test.extend(chessnut_devices)
+        devices_to_test.extend(other_devices)
     
-    log.info(f"\n{'='*60}")
-    log.info("Diagnostics Complete")
-    log.info(f"{'='*60}")
-    log.info("\nKey things to check:")
+    if devices_to_test:
+        log.info(f"\n{'='*80}")
+        log.info(f"Testing GATT connections for {len(devices_to_test)} device(s)")
+        log.info(f"{'='*80}")
+        for device in devices_to_test:
+            test_gatt_connection(device['address'], device.get('name') or device.get('alias'))
+    else:
+        log.info("\nNo devices found to test. Try connecting to a device first.")
+    
+    # Summary
+    log.info(f"\n{'='*80}")
+    log.info("DIAGNOSTICS COMPLETE")
+    log.info(f"{'='*80}")
+    log.info("\nSUMMARY - Key things to check:")
     log.info("1. Is Bluetooth service running and enabled?")
     log.info("2. Is the adapter powered and discoverable?")
     log.info("3. Are there any errors in system logs?")
-    log.info("4. Is BlueZ version compatible?")
+    log.info("4. Is BlueZ version compatible? (5.50+ recommended)")
     log.info("5. Are GATT connections being established?")
-    log.info("6. Is MTU negotiation working? (may need debugfs)")
+    log.info("6. Is MTU negotiation working? (default 23 bytes, Chessnut needs 500)")
+    log.info("7. Are notifications being enabled successfully?")
+    log.info("8. Check if user has bluetooth group membership")
+    log.info("\nKNOWN ISSUES:")
+    log.info("- gatttool does not support explicit MTU exchange")
+    log.info("- Default MTU (23 bytes) may be too small for 36-byte FEN packets")
+    log.info("- May need Python BLE library (bleak/bluepy) for proper MTU handling")
+    log.info(f"{'='*80}")
 
 
 if __name__ == "__main__":
