@@ -96,12 +96,17 @@ def find_device_by_name(bus, adapter_path, device_name):
                 name = device_props.get("Name", "")
                 address = device_props.get("Address", "")
                 
-                alias_normalized = str(alias).strip().upper()
-                name_normalized = str(name).strip().upper()
+                # Convert dbus types to strings
+                alias = str(alias) if alias else ""
+                name = str(name) if name else ""
+                address = str(address) if address else ""
+                
+                alias_normalized = alias.strip().upper()
+                name_normalized = name.strip().upper()
                 
                 if alias_normalized == target_name_normalized or name_normalized == target_name_normalized:
                     log.info(f"Found device '{device_name}' at path: {path} (Address: {address})")
-                    return address
+                    return address  # Return as plain string
         
         log.warning(f"Device with name '{device_name}' not found")
         return None
@@ -834,6 +839,10 @@ def scan_and_connect_ble_device(bus, adapter_path, target_name):
             log.error(f"Device '{target_name}' not found after {max_wait} seconds")
             return False
         
+        # Ensure device_address is a plain string (not dbus.String)
+        device_address = str(device_address)
+        log.info(f"Using device address: {device_address}")
+        
         # Find device path and check pairing status
         device_path = None
         try:
@@ -845,7 +854,8 @@ def scan_and_connect_ble_device(bus, adapter_path, target_name):
             for path, interfaces in objects.items():
                 if DEVICE_IFACE in interfaces:
                     dev_props = interfaces[DEVICE_IFACE]
-                    if dev_props.get('Address', '').upper() == device_address.upper():
+                    dev_address = str(dev_props.get('Address', ''))
+                    if dev_address.upper() == device_address.upper():
                         device_path = path
                         break
             
@@ -859,20 +869,44 @@ def scan_and_connect_ble_device(bus, adapter_path, target_name):
                     log.info(f"Device pairing status: Paired={paired}, Trusted={trusted}")
                     
                     if not paired or not trusted:
-                        log.warning("Device is not paired/trusted - this may prevent data reception")
-                        log.info("Attempting to pair and trust device...")
+                        log.info("Device is not paired/trusted")
+                        log.info("Note: Many BLE devices work without pairing for GATT access")
+                        log.info("Attempting to trust device (pairing may require user interaction)...")
                         try:
-                            device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
-                            if not paired:
-                                device_iface.Pair()
-                                log.info("Pairing initiated, waiting...")
-                                time.sleep(3)
+                            # Try to trust the device (doesn't require authentication)
                             if not trusted:
-                                device_props.Set(DEVICE_IFACE, "Trusted", dbus.Boolean(True))
-                                log.info("Device set as trusted")
+                                try:
+                                    device_props.Set(DEVICE_IFACE, "Trusted", dbus.Boolean(True))
+                                    log.info("Device set as trusted")
+                                except Exception as e:
+                                    log.debug(f"Could not set device as trusted: {e}")
+                            
+                            # Try pairing (may fail if device requires PIN/user interaction)
+                            if not paired:
+                                try:
+                                    device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
+                                    device_iface.Pair()
+                                    log.info("Pairing initiated, waiting...")
+                                    time.sleep(3)
+                                    # Check if pairing succeeded
+                                    try:
+                                        paired_after = device_props.Get(DEVICE_IFACE, "Paired")
+                                        if paired_after:
+                                            log.info("Pairing succeeded")
+                                        else:
+                                            log.info("Pairing may require PIN or user interaction - continuing without pairing")
+                                    except:
+                                        pass
+                                except dbus.exceptions.DBusException as e:
+                                    if "AuthenticationFailed" in str(e) or "Authentication" in str(e):
+                                        log.info("Pairing requires authentication (PIN/user interaction) - continuing without pairing")
+                                        log.info("Many BLE devices work without pairing for GATT operations")
+                                    else:
+                                        log.warning(f"Pairing attempt failed: {e}")
+                                        log.info("Continuing without pairing - GATT may still work")
                         except Exception as e:
-                            log.warning(f"Could not pair/trust device automatically: {e}")
-                            log.info("You may need to pair the device manually with: bluetoothctl pair <address>")
+                            log.info(f"Could not pair/trust device automatically: {e}")
+                            log.info("Continuing without pairing - many BLE devices work without pairing")
                 except Exception as e:
                     log.debug(f"Could not check pairing status: {e}")
         except Exception as e:
