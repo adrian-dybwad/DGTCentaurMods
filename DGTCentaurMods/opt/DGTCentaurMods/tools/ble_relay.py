@@ -117,6 +117,8 @@ initial_commands_sent = False  # Track if we've sent the initial commands
 active_protocol = None  # Track which protocol got a response: "millennium" or "chessnut_air"
 last_sent_protocol = {}  # Track which protocol was last sent to each handle: {handle: "millennium" or "chessnut_air"}
 last_sent_protocol_lock = threading.Lock()  # Lock for thread-safe access to last_sent_protocol
+millennium_w_probe_responded = set()  # Track which handles responded to the W0203 probe
+millennium_w_probe_lock = threading.Lock()  # Lock for thread-safe access to millennium_w_probe_responded
 
 
 def signal_handler(signum, frame):
@@ -513,7 +515,7 @@ def connect_and_scan_ble_device(device_address):
         
         # Start notification reader
         def read_notifications():
-            global running, kill, active_write_handle, active_write_lock, active_protocol
+            global running, kill, active_write_handle, active_write_lock, active_protocol, millennium_w_probe_responded, millennium_w_probe_lock
             buffer = b""  # Use bytes buffer since stdout_queue contains bytes
             
             def process_notification_data(handle, data):
@@ -533,7 +535,13 @@ def connect_and_scan_ble_device(device_address):
                     log.info(f"RX (handle {handle:04x}) ASCII: {data.decode('utf-8', errors='replace')}")
                 
                 # Check if this is the first reply - if so, set it as the active write handle
-                with active_write_lock, last_sent_protocol_lock:
+                with active_write_lock, last_sent_protocol_lock, millennium_w_probe_lock:
+                    # Track if this is a response to a Millennium W probe
+                    protocol = last_sent_protocol.get(handle)
+                    if protocol == "millennium" and handle not in millennium_w_probe_responded:
+                        millennium_w_probe_responded.add(handle)
+                        log.info(f"*** Millennium W probe response received on handle {handle:04x} - will send full sequence ***")
+                    
                     if active_write_handle is None:
                         # Find the corresponding write handle (same value handle)
                         for wh in write_handles:
@@ -541,7 +549,6 @@ def connect_and_scan_ble_device(device_address):
                                 active_write_handle = wh
                                 # Determine which protocol triggered this response
                                 # Check which protocol was last sent to this handle
-                                protocol = last_sent_protocol.get(handle)
                                 if protocol:
                                     active_protocol = protocol
                                     log.info(f"*** REPLY RECEIVED: Detected {active_protocol} protocol (response to last sent command) ***")
@@ -638,9 +645,8 @@ def connect_and_scan_ble_device(device_address):
                 
                 # First, send both initial commands to all characteristics
                 if not initial_commands_sent:
-                    # Send Millennium initial commands sequence: W0203, W0407, X, S to all characteristics
-                    millennium_commands = ["W0203", "W0407", "X", "S"]
-                    log.info(f"Sending Millennium initial command sequence {millennium_commands} to all characteristics...")
+                    # Step 1: Send only W0203 probe to all characteristics
+                    log.info("Step 1: Sending Millennium W0203 probe to all characteristics...")
                     with last_sent_protocol_lock:
                         for wh in write_handles:
                             try:
@@ -648,26 +654,72 @@ def connect_and_scan_ble_device(device_address):
                                 uuid = wh['uuid']
                                 service_uuid = wh['service_uuid']
                                 
-                                # Send each command in sequence
-                                for cmd in millennium_commands:
-                                    millennium_encoded = encode_millennium_command(cmd)
-                                    millennium_hex = ' '.join(f'{b:02x}' for b in millennium_encoded)
-                                    
-                                    log.info(f"  -> Sending Millennium '{cmd}' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                    log.info(f"     Encoded bytes: {millennium_hex}")
-                                    gatttool_process.stdin.write(f"char-write-req {handle:04x} {millennium_hex}\n")
-                                    gatttool_process.stdin.flush()
-                                    log.info(f"  <- Sent Millennium '{cmd}' to handle {handle:04x}")
-                                    # Track that we sent Millennium protocol to this handle
-                                    last_sent_protocol[handle] = "millennium"
-                                    time.sleep(0.5)  # Delay between commands to allow device to process
+                                # Send only W0203 as probe
+                                w_probe_encoded = encode_millennium_command("W0203")
+                                w_probe_hex = ' '.join(f'{b:02x}' for b in w_probe_encoded)
                                 
-                                # Wait after completing sequence for this characteristic
-                                time.sleep(0.3)
+                                log.info(f"  -> Sending Millennium W0203 probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                log.info(f"     Encoded bytes: {w_probe_hex}")
+                                gatttool_process.stdin.write(f"char-write-req {handle:04x} {w_probe_hex}\n")
+                                gatttool_process.stdin.flush()
+                                log.info(f"  <- Sent Millennium W0203 probe to handle {handle:04x}")
+                                # Track that we sent Millennium protocol to this handle
+                                last_sent_protocol[handle] = "millennium"
+                                time.sleep(0.2)  # Small delay between probes
                             except Exception as e:
-                                log.error(f"  Error sending Millennium commands to handle {wh['value_handle']:04x}: {e}")
+                                log.error(f"  Error sending Millennium W probe to handle {wh['value_handle']:04x}: {e}")
                                 import traceback
                                 log.error(traceback.format_exc())
+                    
+                    # Wait for responses to the W probe
+                    log.info("Waiting 3 seconds for responses to W0203 probe...")
+                    time.sleep(3)
+                    
+                    # Step 2: Send full sequence only to characteristics that responded
+                    with millennium_w_probe_lock, last_sent_protocol_lock:
+                        responding_handles = list(millennium_w_probe_responded)
+                    
+                    if responding_handles:
+                        log.info(f"Step 2: Sending full Millennium sequence to {len(responding_handles)} responding characteristics...")
+                        millennium_commands = ["W0203", "W0407", "X", "S"]
+                        with last_sent_protocol_lock:
+                            for handle in responding_handles:
+                                # Find the write handle info
+                                wh = None
+                                for w in write_handles:
+                                    if w['value_handle'] == handle:
+                                        wh = w
+                                        break
+                                
+                                if wh is None:
+                                    continue
+                                
+                                try:
+                                    uuid = wh['uuid']
+                                    service_uuid = wh['service_uuid']
+                                    
+                                    # Send each command in sequence
+                                    for cmd in millennium_commands:
+                                        millennium_encoded = encode_millennium_command(cmd)
+                                        millennium_hex = ' '.join(f'{b:02x}' for b in millennium_encoded)
+                                        
+                                        log.info(f"  -> Sending Millennium '{cmd}' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                        log.info(f"     Encoded bytes: {millennium_hex}")
+                                        gatttool_process.stdin.write(f"char-write-req {handle:04x} {millennium_hex}\n")
+                                        gatttool_process.stdin.flush()
+                                        log.info(f"  <- Sent Millennium '{cmd}' to handle {handle:04x}")
+                                        # Track that we sent Millennium protocol to this handle
+                                        last_sent_protocol[handle] = "millennium"
+                                        time.sleep(0.5)  # Delay between commands to allow device to process
+                                    
+                                    # Wait after completing sequence for this characteristic
+                                    time.sleep(0.3)
+                                except Exception as e:
+                                    log.error(f"  Error sending Millennium full sequence to handle {handle:04x}: {e}")
+                                    import traceback
+                                    log.error(traceback.format_exc())
+                    else:
+                        log.info("No responses to W0203 probe, skipping full Millennium sequence")
                     
                     # Wait a bit before sending the next protocol
                     time.sleep(2)
