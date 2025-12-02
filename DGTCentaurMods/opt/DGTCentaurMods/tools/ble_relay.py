@@ -243,12 +243,36 @@ def connect_and_scan_ble_device(device_address):
         result = subprocess.run(['bluetoothctl', 'connect', device_address], 
                                capture_output=True, timeout=10, text=True)
         log.debug(f"bluetoothctl output: {result.stdout}")
-        time.sleep(2)
         
-        # Discover all services
+        # Wait longer for connection to stabilize
+        log.info("Waiting for connection to stabilize...")
+        time.sleep(5)
+        
+        # Retry gatttool commands with exponential backoff
+        max_retries = 5
+        retry_delay = 2
+        
+        # Discover all services with retry
         log.info("Discovering services with gatttool...")
-        result = subprocess.run(['gatttool', '-b', device_address, '--primary'],
-                               capture_output=True, timeout=10, text=True)
+        result = None
+        for attempt in range(max_retries):
+            result = subprocess.run(['gatttool', '-b', device_address, '--primary'],
+                                   capture_output=True, timeout=10, text=True)
+            
+            if result.returncode == 0:
+                break
+            
+            if "Device or resource busy" in result.stderr or "busy" in result.stderr.lower():
+                if attempt < max_retries - 1:
+                    log.warning(f"Device busy, retrying in {retry_delay} seconds (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    log.error(f"gatttool --primary failed after {max_retries} attempts: {result.stderr}")
+                    return False
+            else:
+                log.error(f"gatttool --primary failed: {result.stderr}")
+                return False
         
         if result.returncode != 0:
             log.error(f"gatttool --primary failed: {result.stderr}")
@@ -257,35 +281,83 @@ def connect_and_scan_ble_device(device_address):
         log.info(f"Services found:\n{result.stdout}")
         services = parse_gatttool_primary_output(result.stdout)
         
-        # For each service, discover characteristics
+        # For each service, discover characteristics with retry
         all_characteristics = []
         for service in services:
             log.info(f"Discovering characteristics for service {service['uuid']} (handles {service['start_handle']:04x}-{service['end_handle']:04x})")
-            result = subprocess.run(['gatttool', '-b', device_address, '--char-desc', 
-                                   f"{service['start_handle']:04x}", f"{service['end_handle']:04x}"],
-                                   capture_output=True, timeout=10, text=True)
             
-            if result.returncode == 0:
-                chars = parse_gatttool_char_desc_output(result.stdout)
+            char_result = None
+            char_retry_delay = 2  # Reset retry delay for each service
+            for attempt in range(max_retries):
+                char_result = subprocess.run(['gatttool', '-b', device_address, '--char-desc', 
+                                           f"{service['start_handle']:04x}", f"{service['end_handle']:04x}"],
+                                           capture_output=True, timeout=10, text=True)
+                
+                if char_result.returncode == 0:
+                    break
+                
+                if "Device or resource busy" in char_result.stderr or "busy" in char_result.stderr.lower():
+                    if attempt < max_retries - 1:
+                        log.debug(f"Device busy, retrying characteristics discovery (attempt {attempt + 1}/{max_retries})...")
+                        time.sleep(char_retry_delay)
+                        char_retry_delay *= 2  # Exponential backoff
+                    else:
+                        log.warning(f"Failed to discover characteristics for service {service['uuid']} after {max_retries} attempts: {char_result.stderr}")
+                        break
+                else:
+                    log.warning(f"Failed to discover characteristics for service {service['uuid']}: {char_result.stderr}")
+                    break
+            
+            if char_result and char_result.returncode == 0:
+                chars = parse_gatttool_char_desc_output(char_result.stdout)
                 for char in chars:
                     char['service_uuid'] = service['uuid']
                 all_characteristics.extend(chars)
                 log.info(f"Found {len(chars)} characteristics in service {service['uuid']}")
-            else:
-                log.warning(f"Failed to discover characteristics for service {service['uuid']}: {result.stderr}")
         
         log.info(f"Total characteristics found: {len(all_characteristics)}")
         
-        # Start interactive gatttool for notifications
+        # Start interactive gatttool for notifications with retry
         log.info("Starting gatttool interactive session for notifications...")
-        proc = subprocess.Popen(
-            ['gatttool', '-b', device_address, '-I'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=0
-        )
+        proc = None
+        interactive_retry_delay = 2  # Reset retry delay for interactive session
+        for attempt in range(max_retries):
+            try:
+                proc = subprocess.Popen(
+                    ['gatttool', '-b', device_address, '-I'],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=0
+                )
+                time.sleep(1)
+                # Check if process is still alive
+                if proc.poll() is None:
+                    log.debug("gatttool interactive session started successfully")
+                    break
+                else:
+                    exit_code = proc.returncode
+                    proc = None
+                    if attempt < max_retries - 1:
+                        log.warning(f"gatttool process exited with code {exit_code}, retrying in {interactive_retry_delay} seconds (attempt {attempt + 1}/{max_retries})...")
+                        time.sleep(interactive_retry_delay)
+                        interactive_retry_delay *= 2  # Exponential backoff
+            except Exception as e:
+                log.warning(f"Failed to start gatttool (attempt {attempt + 1}/{max_retries}): {e}")
+                if proc:
+                    try:
+                        proc.terminate()
+                    except:
+                        pass
+                proc = None
+                if attempt < max_retries - 1:
+                    time.sleep(interactive_retry_delay)
+                    interactive_retry_delay *= 2  # Exponential backoff
+        
+        if proc is None:
+            log.error(f"Failed to start gatttool interactive session after {max_retries} attempts")
+            return False
         
         time.sleep(0.5)
         
