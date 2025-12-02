@@ -472,22 +472,44 @@ def connect_and_scan_ble_device(device_address):
         
         threading.Thread(target=read_notifications, daemon=True).start()
         
-        # Start periodic send thread (send "S" every 10 seconds)
+        # Start periodic send thread (send "S" to all characteristics every 10 seconds)
         if all_characteristics:
-            # Use the first characteristic's value handle for writing
-            write_handle = all_characteristics[0]['value_handle']
-            log.info(f"Will send periodic 'S' to characteristic handle {write_handle:04x}")
+            # Store all write handles for periodic sending
+            write_handles = []
+            for char in all_characteristics:
+                write_handles.append({
+                    'value_handle': char['value_handle'],
+                    'uuid': char.get('uuid', 'unknown'),
+                    'service_uuid': char.get('service_uuid', 'unknown')
+                })
+            
+            log.info(f"Will send periodic 'S' to {len(write_handles)} characteristics:")
+            for wh in write_handles:
+                log.info(f"  - Handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']})")
             
             def periodic_send():
-                """Send 'S' byte every 10 seconds"""
-                global running, kill, gatttool_process
+                """Send 'S' byte to all characteristics every 10 seconds"""
+                global running, kill, gatttool_process, device_connected
                 while running and not kill and device_connected:
                     try:
                         if gatttool_process and gatttool_process.poll() is None:
-                            # Send "S" (0x53 in hex) to the write characteristic
-                            gatttool_process.stdin.write(f"char-write-req {write_handle:04x} 53\n")
-                            gatttool_process.stdin.flush()
-                            log.info(f"Sent 'S' (0x53) to handle {write_handle:04x}")
+                            log.info(f"Sending 'S' (0x53) to {len(write_handles)} characteristics...")
+                            for wh in write_handles:
+                                try:
+                                    handle = wh['value_handle']
+                                    uuid = wh['uuid']
+                                    service_uuid = wh['service_uuid']
+                                    
+                                    log.info(f"  -> Sending to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                    gatttool_process.stdin.write(f"char-write-req {handle:04x} 53\n")
+                                    gatttool_process.stdin.flush()
+                                    log.info(f"  <- Sent 'S' (0x53) to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                    time.sleep(0.1)  # Small delay between writes
+                                except Exception as e:
+                                    log.error(f"  Error sending to handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}): {e}")
+                            log.info(f"Completed sending 'S' to all {len(write_handles)} characteristics")
+                        else:
+                            log.warning("gatttool process not available, skipping send")
                         time.sleep(10)
                     except Exception as e:
                         if running:
@@ -495,7 +517,7 @@ def connect_and_scan_ble_device(device_address):
                         break
             
             threading.Thread(target=periodic_send, daemon=True).start()
-            log.info("Periodic send thread started (sending 'S' every 10 seconds)")
+            log.info("Periodic send thread started (sending 'S' to all characteristics every 10 seconds)")
         else:
             log.warning("No characteristics found, cannot send periodic data")
         
