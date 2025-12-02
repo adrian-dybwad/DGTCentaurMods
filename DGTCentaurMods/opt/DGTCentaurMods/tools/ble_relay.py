@@ -513,6 +513,56 @@ def connect_and_scan_ble_device(device_address):
         def read_notifications():
             global running, kill, active_write_handle, active_write_lock, active_protocol, millennium_w_probe_responded, millennium_w_probe_lock
             buffer = ""
+            # Accumulate responses per handle (for multi-packet responses)
+            response_buffers = {}  # {handle: bytearray}
+            
+            def decode_odd_parity(byte_with_parity):
+                """Decode a byte with odd parity (strip MSB)"""
+                return byte_with_parity & 0x7F
+            
+            def process_millennium_response(handle, data):
+                """Process Millennium protocol response, handling 01 prefix and odd parity"""
+                # Strip 01 prefix if present (status/ack byte)
+                if len(data) > 0 and data[0] == 0x01:
+                    data = data[1:]
+                
+                if len(data) == 0:
+                    return
+                
+                # Accumulate response for this handle
+                if handle not in response_buffers:
+                    response_buffers[handle] = bytearray()
+                response_buffers[handle].extend(data)
+                
+                # Decode odd parity
+                decoded = bytearray()
+                for b in response_buffers[handle]:
+                    decoded.append(decode_odd_parity(b))
+                
+                # Check if we have a complete response
+                # Responses start with lowercase letter (w, x, s, etc.)
+                if len(decoded) > 0:
+                    first_char = chr(decoded[0]) if decoded[0] < 128 else '?'
+                    # If it starts with lowercase, it's likely a complete response
+                    # For 's' command, response is 's' + 64 chars + 2 CRC = 67 bytes
+                    # For 'w' command, response is 'w' + 4 hex + 2 CRC = 7 bytes
+                    # For 'x' command, response is 'x' + 2 CRC = 3 bytes
+                    if first_char.islower():
+                        # Log the full decoded response
+                        log.info(f"RX [DECODED] handle {handle:04x}: {' '.join(f'{b:02x}' for b in decoded)}")
+                        log.info(f"RX [DECODED] handle {handle:04x} ASCII: {decoded.decode('ascii', errors='replace')}")
+                        # Clear buffer for this handle
+                        del response_buffers[handle]
+                        return decoded
+                    # If we have enough bytes for a complete response, process it
+                    elif len(decoded) >= 67:  # 's' response is longest
+                        log.info(f"RX [DECODED] handle {handle:04x} (long): {' '.join(f'{b:02x}' for b in decoded)}")
+                        log.info(f"RX [DECODED] handle {handle:04x} ASCII: {decoded.decode('ascii', errors='replace')}")
+                        del response_buffers[handle]
+                        return decoded
+                
+                return None
+            
             while running and not kill:
                 try:
                     try:
@@ -542,6 +592,9 @@ def connect_and_scan_ble_device(device_address):
                                         else:
                                             log.info(f"RX (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)}")
                                             log.info(f"RX (handle {handle:04x}) ASCII: {data.decode('utf-8', errors='replace')}")
+                                        
+                                        # Process Millennium response (decode odd parity, strip 01 prefix, accumulate)
+                                        decoded_response = process_millennium_response(handle, data)
                                         
                                         # Check if this is the first reply - if so, set it as the active write handle
                                         with active_write_lock, last_sent_protocol_lock, millennium_w_probe_lock:
