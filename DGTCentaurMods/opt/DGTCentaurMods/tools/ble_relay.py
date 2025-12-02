@@ -452,6 +452,19 @@ def connect_and_scan_ble_device(device_address):
         MILLENNIUM_RX_CHAR_UUID = "49535343-8841-43F4-A8D4-ECBE34729BB3"  # Write commands TO device
         MILLENNIUM_TX_CHAR_UUID = "49535343-1E4D-4BD9-BA61-23C647249616"  # Read responses FROM device
         
+        # Normalize UUIDs for comparison (remove dashes, uppercase)
+        def normalize_uuid(uuid_str):
+            """Normalize UUID string for comparison"""
+            return uuid_str.replace('-', '').upper()
+        
+        MILLENNIUM_SERVICE_UUID_NORM = normalize_uuid(MILLENNIUM_SERVICE_UUID)
+        MILLENNIUM_RX_CHAR_UUID_NORM = normalize_uuid(MILLENNIUM_RX_CHAR_UUID)
+        MILLENNIUM_TX_CHAR_UUID_NORM = normalize_uuid(MILLENNIUM_TX_CHAR_UUID)
+        
+        log.info(f"Looking for Millennium RX: {MILLENNIUM_RX_CHAR_UUID} (normalized: {MILLENNIUM_RX_CHAR_UUID_NORM})")
+        log.info(f"Looking for Millennium TX: {MILLENNIUM_TX_CHAR_UUID} (normalized: {MILLENNIUM_TX_CHAR_UUID_NORM})")
+        log.info(f"Looking for Millennium Service: {MILLENNIUM_SERVICE_UUID} (normalized: {MILLENNIUM_SERVICE_UUID_NORM})")
+        
         # Enable notifications - prioritize Millennium TX characteristic for receiving responses
         notification_handles = []
         millennium_tx_handle = None
@@ -459,11 +472,11 @@ def connect_and_scan_ble_device(device_address):
         if all_characteristics:
             # First, find and enable Millennium TX characteristic
             for char in all_characteristics:
-                char_uuid = char.get('uuid', '').upper()
-                service_uuid = char.get('service_uuid', '').upper()
+                char_uuid = normalize_uuid(char.get('uuid', ''))
+                service_uuid = normalize_uuid(char.get('service_uuid', ''))
                 
-                if (char_uuid == MILLENNIUM_TX_CHAR_UUID.upper() and 
-                    service_uuid == MILLENNIUM_SERVICE_UUID.upper() and
+                if (char_uuid == MILLENNIUM_TX_CHAR_UUID_NORM and 
+                    service_uuid == MILLENNIUM_SERVICE_UUID_NORM and
                     char.get('cccd_handle')):
                     millennium_tx_handle = {
                         'value_handle': char['value_handle'],
@@ -491,8 +504,10 @@ def connect_and_scan_ble_device(device_address):
                 service_uuid = char.get('service_uuid', '').upper()
                 
                 # Skip if this is the Millennium TX (already enabled above)
-                if (char_uuid == MILLENNIUM_TX_CHAR_UUID.upper() and 
-                    service_uuid == MILLENNIUM_SERVICE_UUID.upper()):
+                char_uuid = normalize_uuid(char.get('uuid', ''))
+                service_uuid = normalize_uuid(char.get('service_uuid', ''))
+                if (char_uuid == MILLENNIUM_TX_CHAR_UUID_NORM and 
+                    service_uuid == MILLENNIUM_SERVICE_UUID_NORM):
                     continue
                 
                 if char.get('cccd_handle'):
@@ -554,12 +569,16 @@ def connect_and_scan_ble_device(device_address):
         millennium_rx_handle = None
         if all_characteristics:
             for char in all_characteristics:
-                char_uuid = char.get('uuid', '').upper()
-                service_uuid = char.get('service_uuid', '').upper()
+                char_uuid = normalize_uuid(char.get('uuid', ''))
+                service_uuid = normalize_uuid(char.get('service_uuid', ''))
+                
+                # Log all characteristics in Millennium service for debugging
+                if service_uuid == MILLENNIUM_SERVICE_UUID_NORM:
+                    log.debug(f"Found characteristic in Millennium service: UUID {char.get('uuid')}, handle {char['value_handle']:04x}")
                 
                 # Check if this is the Millennium RX characteristic (for writing commands)
-                if (char_uuid == MILLENNIUM_RX_CHAR_UUID.upper() and 
-                    service_uuid == MILLENNIUM_SERVICE_UUID.upper()):
+                if (char_uuid == MILLENNIUM_RX_CHAR_UUID_NORM and 
+                    service_uuid == MILLENNIUM_SERVICE_UUID_NORM):
                     millennium_rx_handle = {
                         'value_handle': char['value_handle'],
                         'uuid': char.get('uuid', 'unknown'),
