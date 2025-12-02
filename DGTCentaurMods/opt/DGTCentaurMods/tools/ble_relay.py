@@ -564,7 +564,7 @@ def connect_and_scan_ble_device(device_address):
         threading.Thread(target=drain_stdout, daemon=True).start()
         threading.Thread(target=drain_stderr, daemon=True).start()
         
-        # Store write handles - use characteristics in the Millennium service
+        # Store write handles - use characteristics in the Millennium service (handles 0030-003d)
         # The real Millennium board uses different UUIDs than what we expose as a peripheral
         write_handles = []
         millennium_service_handles = []
@@ -572,29 +572,31 @@ def connect_and_scan_ble_device(device_address):
             for char in all_characteristics:
                 char_uuid = normalize_uuid(char.get('uuid', ''))
                 service_uuid = normalize_uuid(char.get('service_uuid', ''))
+                value_handle = char['value_handle']
                 
-                # Collect all characteristics in the Millennium service
-                if service_uuid == MILLENNIUM_SERVICE_UUID_NORM:
+                # Collect characteristics in the Millennium service (service range is 0030-003d)
+                # Only use characteristics whose value handle is in the Millennium service range
+                if service_uuid == MILLENNIUM_SERVICE_UUID_NORM and 0x0030 <= value_handle <= 0x003d:
                     millennium_service_handles.append({
-                        'value_handle': char['value_handle'],
+                        'value_handle': value_handle,
                         'uuid': char.get('uuid', 'unknown'),
                         'service_uuid': char.get('service_uuid', 'unknown')
                     })
-                    log.info(f"Found characteristic in Millennium service: UUID {char.get('uuid')}, handle {char['value_handle']:04x}")
-                
-                # Also add all characteristics for fallback
+                    log.info(f"Found characteristic in Millennium service: UUID {char.get('uuid')}, handle {value_handle:04x}")
+        
+        # If we found characteristics in the Millennium service, use only those for writing
+        if millennium_service_handles:
+            write_handles = millennium_service_handles
+            log.info(f"Using {len(millennium_service_handles)} characteristics from Millennium service (handles 0030-003d) for writing commands")
+        else:
+            log.warning(f"No characteristics found in Millennium service range (0030-003d)! Will try all characteristics as fallback")
+            # Fallback: add all characteristics
+            for char in all_characteristics:
                 write_handles.append({
                     'value_handle': char['value_handle'],
                     'uuid': char.get('uuid', 'unknown'),
                     'service_uuid': char.get('service_uuid', 'unknown')
                 })
-        
-        # If we found characteristics in the Millennium service, use only those for writing
-        if millennium_service_handles:
-            write_handles = millennium_service_handles
-            log.info(f"Using {len(millennium_service_handles)} characteristics from Millennium service for writing commands")
-        else:
-            log.warning(f"No characteristics found in Millennium service! Will try all characteristics as fallback")
         
         # Start notification reader
         def read_notifications():
@@ -609,8 +611,15 @@ def connect_and_scan_ble_device(device_address):
             
             def process_millennium_response(handle, data):
                 """Process Millennium protocol response, handling 01 prefix and odd parity"""
-                # The 01 byte is a status/prefix byte from the Millennium device
-                # Strip it if present, but keep the actual data
+                # The device is echoing commands back with a 01 prefix
+                # This is NOT a valid response - it's just an echo
+                # Real responses should be longer and start with lowercase letters (s, w, x)
+                if len(data) == 2 and data[0] == 0x01:
+                    # This is just an echo-back, ignore it
+                    log.debug(f"Ignoring echo-back on handle {handle:04x}: 01 {data[1]:02x}")
+                    return None
+                
+                # For longer responses, strip 01 prefix if present
                 if len(data) > 0 and data[0] == 0x01:
                     data = data[1:]
                 
