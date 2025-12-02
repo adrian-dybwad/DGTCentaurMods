@@ -238,26 +238,24 @@ def connect_and_scan_ble_device(device_address):
     try:
         log.info(f"Connecting to device {device_address}")
         
-        # Connect via bluetoothctl
-        log.info("Connecting via bluetoothctl...")
-        result = subprocess.run(['bluetoothctl', 'connect', device_address], 
-                               capture_output=True, timeout=10, text=True)
-        log.debug(f"bluetoothctl output: {result.stdout}")
-        
-        # Wait longer for connection to stabilize
-        log.info("Waiting for connection to stabilize...")
-        time.sleep(5)
+        # First, disconnect any existing connection to avoid conflicts
+        # bluetoothctl and gatttool conflict - bluetoothctl holds the connection
+        log.info("Disconnecting any existing connection...")
+        subprocess.run(['bluetoothctl', 'disconnect', device_address], 
+                      capture_output=True, timeout=5, text=True)
+        time.sleep(3)  # Wait for disconnection to complete
         
         # Retry gatttool commands with exponential backoff
         max_retries = 5
         retry_delay = 2
         
-        # Discover all services with retry
-        log.info("Discovering services with gatttool...")
+        # Use gatttool non-interactive commands directly (they connect automatically)
+        # This avoids the bluetoothctl conflict
+        log.info("Discovering services with gatttool (will connect automatically)...")
         result = None
         for attempt in range(max_retries):
             result = subprocess.run(['gatttool', '-b', device_address, '--primary'],
-                                   capture_output=True, timeout=10, text=True)
+                                   capture_output=True, timeout=15, text=True)
             
             if result.returncode == 0:
                 break
@@ -265,6 +263,9 @@ def connect_and_scan_ble_device(device_address):
             if "Device or resource busy" in result.stderr or "busy" in result.stderr.lower():
                 if attempt < max_retries - 1:
                     log.warning(f"Device busy, retrying in {retry_delay} seconds (attempt {attempt + 1}/{max_retries})...")
+                    # Try disconnecting again
+                    subprocess.run(['bluetoothctl', 'disconnect', device_address], 
+                                  capture_output=True, timeout=5, text=True)
                     time.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
                 else:
@@ -317,12 +318,20 @@ def connect_and_scan_ble_device(device_address):
         
         log.info(f"Total characteristics found: {len(all_characteristics)}")
         
-        # Start interactive gatttool for notifications with retry
+        # Start interactive gatttool for notifications
+        # Note: The device may already be connected from the --primary command above
+        # If so, we need to disconnect first, or use a new gatttool session
         log.info("Starting gatttool interactive session for notifications...")
         proc = None
         interactive_retry_delay = 2  # Reset retry delay for interactive session
         for attempt in range(max_retries):
             try:
+                # Disconnect first to ensure clean state
+                if attempt > 0:
+                    subprocess.run(['bluetoothctl', 'disconnect', device_address], 
+                                  capture_output=True, timeout=5, text=True)
+                    time.sleep(2)
+                
                 proc = subprocess.Popen(
                     ['gatttool', '-b', device_address, '-I'],
                     stdin=subprocess.PIPE,
@@ -332,9 +341,15 @@ def connect_and_scan_ble_device(device_address):
                     bufsize=0
                 )
                 time.sleep(1)
-                # Check if process is still alive
+                
+                # Connect in interactive mode
+                proc.stdin.write("connect\n")
+                proc.stdin.flush()
+                time.sleep(3)  # Wait for connection
+                
+                # Check if process is still alive (connection successful)
                 if proc.poll() is None:
-                    log.debug("gatttool interactive session started successfully")
+                    log.debug("gatttool interactive session started and connected successfully")
                     break
                 else:
                     exit_code = proc.returncode
