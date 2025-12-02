@@ -355,30 +355,6 @@ def connect_and_scan_ble_device(device_address):
                 
                 if proc.poll() is None:
                     log.info("gatttool interactive session started")
-                    # Wait a moment for connection
-                    time.sleep(2)
-                    # Verify connection by checking if we can read a characteristic
-                    log.info("Verifying connection by reading a characteristic...")
-                    try:
-                        proc.stdin.write("char-read-hnd 0x0001\n")
-                        proc.stdin.flush()
-                        time.sleep(1)
-                        # Check if we got any response
-                        try:
-                            if not stdout_queue.empty():
-                                chunk = stdout_queue.get_nowait()
-                                chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
-                                log.info(f"Connection verification response: {repr(chunk_str[:200])}")
-                                if 'Connection successful' in chunk_str or 'Characteristic' in chunk_str:
-                                    log.info("Connection verified - gatttool is responding")
-                                else:
-                                    log.warning(f"Unexpected response format: {chunk_str[:200]}")
-                            else:
-                                log.warning("No response to connection verification - connection may not be working")
-                        except queue.Empty:
-                            log.warning("No response received for connection verification")
-                    except Exception as e:
-                        log.warning(f"Error verifying connection: {e}")
                     break
                 else:
                     exit_code = proc.returncode
@@ -406,51 +382,7 @@ def connect_and_scan_ble_device(device_address):
         time.sleep(0.5)
         gatttool_process = proc
         
-        # Set BLE MTU to 500 (required for receiving full FEN data)
-        # According to Chessnut documentation: "If you cannot receive the full FEN data, 
-        # please set the BLE MTU to 500 after the BLE connection is established."
-        log.info("Setting BLE MTU to 500...")
-        try:
-            # Use D-Bus to access BlueZ GATT interface and request MTU exchange
-            bus = BleTools.get_bus()
-            device_path = None
-            
-            # Find the device path
-            remote_om = dbus.Interface(
-                bus.get_object(BLUEZ_SERVICE_NAME, "/"),
-                DBUS_OM_IFACE)
-            objects = remote_om.GetManagedObjects()
-            
-            for path, interfaces in objects.items():
-                if DEVICE_IFACE in interfaces:
-                    device_props = interfaces[DEVICE_IFACE]
-                    if device_props.get("Address", "").upper() == device_address.upper():
-                        device_path = path
-                        break
-            
-            if device_path:
-                # Try to get GATT interface (if available)
-                try:
-                    device_obj = bus.get_object(BLUEZ_SERVICE_NAME, device_path)
-                    # Check if device has GATT interface
-                    if 'org.bluez.Device1' in objects.get(device_path, {}):
-                        # MTU exchange is typically handled automatically, but we can try to request it
-                        # Note: BlueZ doesn't expose MTU exchange directly via D-Bus in older versions
-                        # The MTU is negotiated automatically during connection
-                        log.info("MTU exchange is typically handled automatically by BlueZ during connection")
-                        log.info("If MTU is still too small, you may need to use a BLE library that supports explicit MTU exchange")
-                except Exception as e:
-                    log.debug(f"Could not access device GATT interface: {e}")
-            else:
-                log.warning("Could not find device path for MTU exchange")
-        except Exception as e:
-            log.warning(f"Could not set MTU via D-Bus: {e}")
-            log.warning("MTU exchange may need to be handled by the BLE stack automatically")
-            log.warning("If you're not receiving data, the MTU might be too small (default is 23 bytes)")
-            log.warning("Consider using a BLE library like 'bleak' or 'bluepy' that supports explicit MTU exchange")
-        
-        # Start threads to drain stdout and stderr BEFORE enabling notifications
-        # This ensures we can see confirmation messages
+        # Start threads to drain stdout and stderr FIRST (before any operations)
         stdout_queue = queue.Queue()
         stderr_queue = queue.Queue()
         
@@ -498,8 +430,74 @@ def connect_and_scan_ble_device(device_address):
         threading.Thread(target=drain_stdout, daemon=True).start()
         threading.Thread(target=drain_stderr, daemon=True).start()
         
-        # Wait a moment for drain threads to start
-        time.sleep(0.5)
+        # Wait for drain threads to start and verify connection
+        time.sleep(1)
+        log.info("Verifying connection by reading a characteristic...")
+        try:
+            proc.stdin.write("char-read-hnd 0x0001\n")
+            proc.stdin.flush()
+            time.sleep(1)
+            # Check if we got any response
+            try:
+                if not stdout_queue.empty():
+                    chunk = stdout_queue.get_nowait()
+                    chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
+                    log.info(f"Connection verification response: {repr(chunk_str[:200])}")
+                    if 'Connection successful' in chunk_str or 'Characteristic' in chunk_str:
+                        log.info("Connection verified - gatttool is responding")
+                    else:
+                        log.warning(f"Unexpected response format: {chunk_str[:200]}")
+                else:
+                    log.warning("No response to connection verification - connection may not be working")
+            except queue.Empty:
+                log.warning("No response received for connection verification")
+        except Exception as e:
+            log.warning(f"Error verifying connection: {e}")
+        
+        # Set BLE MTU to 500 (required for receiving full FEN data)
+        # According to Chessnut documentation: "If you cannot receive the full FEN data, 
+        # please set the BLE MTU to 500 after the BLE connection is established."
+        log.info("Setting BLE MTU to 500...")
+        try:
+            # Use D-Bus to access BlueZ GATT interface and request MTU exchange
+            bus = BleTools.get_bus()
+            device_path = None
+            
+            # Find the device path
+            remote_om = dbus.Interface(
+                bus.get_object(BLUEZ_SERVICE_NAME, "/"),
+                DBUS_OM_IFACE)
+            objects = remote_om.GetManagedObjects()
+            
+            for path, interfaces in objects.items():
+                if DEVICE_IFACE in interfaces:
+                    device_props = interfaces[DEVICE_IFACE]
+                    if device_props.get("Address", "").upper() == device_address.upper():
+                        device_path = path
+                        break
+            
+            if device_path:
+                # Try to get GATT interface (if available)
+                try:
+                    device_obj = bus.get_object(BLUEZ_SERVICE_NAME, device_path)
+                    # Check if device has GATT interface
+                    if 'org.bluez.Device1' in objects.get(device_path, {}):
+                        # MTU exchange is typically handled automatically, but we can try to request it
+                        # Note: BlueZ doesn't expose MTU exchange directly via D-Bus in older versions
+                        # The MTU is negotiated automatically during connection
+                        log.info("MTU exchange is typically handled automatically by BlueZ during connection")
+                        log.info("If MTU is still too small, you may need to use a BLE library that supports explicit MTU exchange")
+                except Exception as e:
+                    log.debug(f"Could not access device GATT interface: {e}")
+            else:
+                log.warning("Could not find device path for MTU exchange")
+        except Exception as e:
+            log.warning(f"Could not set MTU via D-Bus: {e}")
+            log.warning("MTU exchange may need to be handled by the BLE stack automatically")
+            log.warning("If you're not receiving data, the MTU might be too small (default is 23 bytes)")
+            log.warning("Consider using a BLE library like 'bleak' or 'bluepy' that supports explicit MTU exchange")
+        
+        # Drain threads already started above
         
         # Enable notifications/indications on FEN RX characteristic
         # Note: 0x0100 enables notifications, 0x0200 enables indications
@@ -627,7 +625,12 @@ def connect_and_scan_ble_device(device_address):
                             # Log all lines for debugging
                             if line_stripped:
                                 log.info(f"gatttool line: {line_stripped}")
+                            # Check for command write responses
+                            if 'Characteristic value was written successfully' in line:
+                                log.info(f"Command write confirmed: {line_stripped}")
+                            
                             if 'Notification' in line or 'Indication' in line:
+                                log.info(f"*** RECEIVED NOTIFICATION/INDICATION: {line_stripped} ***")
                                 match = re.search(r'handle = 0x([0-9a-f]+).*value: ([0-9a-f ]+)', line, re.IGNORECASE)
                                 if match:
                                     handle_str = match.group(1)
@@ -643,7 +646,7 @@ def connect_and_scan_ble_device(device_address):
                                         elif handle == op_rx_char['value_handle']:
                                             char_name = "Operation RX"
                                         
-                                        log.info(f"RX [{char_name}] (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)}")
+                                        log.info(f"*** RX [{char_name}] (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)} ***")
                                         
                                         # Parse battery level response if this is Operation RX
                                         if handle == op_rx_char['value_handle'] and len(data) >= 4:
@@ -651,7 +654,7 @@ def connect_and_scan_ble_device(device_address):
                                                 battery_level_byte = data[2]
                                                 charging = (battery_level_byte & 0x80) != 0
                                                 battery_percent = battery_level_byte & 0x7F
-                                                log.info(f"RX [Operation RX] Battery Level: {battery_percent}% ({'Charging' if charging else 'Not charging'})")
+                                                log.info(f"*** RX [Operation RX] Battery Level: {battery_percent}% ({'Charging' if charging else 'Not charging'}) ***")
                                         
                                         # Try to decode as text if possible
                                         try:
@@ -660,8 +663,10 @@ def connect_and_scan_ble_device(device_address):
                                                 log.info(f"RX [{char_name}] (handle {handle:04x}) text: {repr(text)}")
                                         except:
                                             pass
-                                    except ValueError:
-                                        pass
+                                    except ValueError as e:
+                                        log.warning(f"Error parsing notification data: {e}, hex_str: {hex_str}")
+                                else:
+                                    log.warning(f"Could not parse notification line: {line_stripped}")
                     except queue.Empty:
                         pass
                 except Exception as e:
@@ -677,8 +682,10 @@ def connect_and_scan_ble_device(device_address):
         time.sleep(1)
         log.info("Waiting for notifications to be fully enabled...")
         
+        # Wait a bit more for any pending output to be processed
+        time.sleep(1)
+        
         # Send initial enable reporting command
-        # Try char-write-req (with response) first to ensure command is processed
         log.info("Sending initial enable reporting command [0x21, 0x01, 0x00]...")
         chessnut_hex = ' '.join(f'{b:02x}' for b in CHESSNUT_ENABLE_REPORTING_CMD)
         try:
@@ -686,19 +693,27 @@ def connect_and_scan_ble_device(device_address):
             proc.stdin.write(f"char-write-req {op_tx_char['value_handle']:04x} {chessnut_hex}\n")
             proc.stdin.flush()
             log.info(f"Sent enable reporting command (with response) to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
-            time.sleep(1)
-            # Check for response
+            log.info("Waiting for write confirmation...")
+            time.sleep(2)  # Wait longer for response
+            # Check for response - drain all available output
+            responses_found = 0
             try:
-                timeout = time.time() + 2
+                timeout = time.time() + 3
                 while time.time() < timeout:
                     try:
-                        chunk = stdout_queue.get(timeout=0.2)
+                        chunk = stdout_queue.get(timeout=0.3)
                         chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
-                        log.info(f"Enable reporting command response: {repr(chunk_str)}")
+                        log.info(f"Enable reporting command response chunk: {repr(chunk_str)}")
+                        if 'written successfully' in chunk_str.lower() or 'error' in chunk_str.lower():
+                            responses_found += 1
+                            log.info(f"*** Enable reporting command write {'SUCCEEDED' if 'success' in chunk_str.lower() else 'FAILED'} ***")
                     except queue.Empty:
-                        break
+                        if responses_found > 0:
+                            break
             except Exception as e:
                 log.debug(f"Error checking enable reporting response: {e}")
+            if responses_found == 0:
+                log.warning("No write confirmation received for enable reporting command")
         except Exception as e:
             log.error(f"Error sending enable reporting command: {e}")
         
@@ -710,19 +725,30 @@ def connect_and_scan_ble_device(device_address):
             proc.stdin.write(f"char-write-req {op_tx_char['value_handle']:04x} {battery_hex}\n")
             proc.stdin.flush()
             log.info(f"Sent battery level command (with response) to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
-            time.sleep(1)
-            # Check for response
+            log.info("Waiting for write confirmation and battery response...")
+            time.sleep(3)  # Wait longer for both write confirmation and battery response
+            # Check for response - drain all available output
+            responses_found = 0
             try:
-                timeout = time.time() + 2
+                timeout = time.time() + 4
                 while time.time() < timeout:
                     try:
-                        chunk = stdout_queue.get(timeout=0.2)
+                        chunk = stdout_queue.get(timeout=0.3)
                         chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
-                        log.info(f"Battery level command response: {repr(chunk_str)}")
+                        log.info(f"Battery level command response chunk: {repr(chunk_str)}")
+                        if 'written successfully' in chunk_str.lower() or 'error' in chunk_str.lower() or 'indication' in chunk_str.lower() or 'notification' in chunk_str.lower():
+                            responses_found += 1
+                            if 'written successfully' in chunk_str.lower():
+                                log.info("*** Battery level command write SUCCEEDED ***")
+                            if 'indication' in chunk_str.lower() or 'notification' in chunk_str.lower():
+                                log.info("*** Battery level response received via indication/notification ***")
                     except queue.Empty:
-                        break
+                        if responses_found > 0:
+                            break
             except Exception as e:
                 log.debug(f"Error checking battery level response: {e}")
+            if responses_found == 0:
+                log.warning("No write confirmation or response received for battery level command")
         except Exception as e:
             log.error(f"Error sending battery level command: {e}")
         
@@ -807,6 +833,50 @@ def scan_and_connect_ble_device(bus, adapter_path, target_name):
         if not device_address:
             log.error(f"Device '{target_name}' not found after {max_wait} seconds")
             return False
+        
+        # Find device path and check pairing status
+        device_path = None
+        try:
+            remote_om = dbus.Interface(
+                bus.get_object(BLUEZ_SERVICE_NAME, "/"),
+                DBUS_OM_IFACE)
+            objects = remote_om.GetManagedObjects()
+            
+            for path, interfaces in objects.items():
+                if DEVICE_IFACE in interfaces:
+                    dev_props = interfaces[DEVICE_IFACE]
+                    if dev_props.get('Address', '').upper() == device_address.upper():
+                        device_path = path
+                        break
+            
+            if device_path:
+                log.info(f"Checking if device {device_address} needs pairing...")
+                try:
+                    device_obj = bus.get_object(BLUEZ_SERVICE_NAME, device_path)
+                    device_props = dbus.Interface(device_obj, DBUS_PROP_IFACE)
+                    paired = device_props.Get(DEVICE_IFACE, "Paired")
+                    trusted = device_props.Get(DEVICE_IFACE, "Trusted")
+                    log.info(f"Device pairing status: Paired={paired}, Trusted={trusted}")
+                    
+                    if not paired or not trusted:
+                        log.warning("Device is not paired/trusted - this may prevent data reception")
+                        log.info("Attempting to pair and trust device...")
+                        try:
+                            device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
+                            if not paired:
+                                device_iface.Pair()
+                                log.info("Pairing initiated, waiting...")
+                                time.sleep(3)
+                            if not trusted:
+                                device_props.Set(DEVICE_IFACE, "Trusted", dbus.Boolean(True))
+                                log.info("Device set as trusted")
+                        except Exception as e:
+                            log.warning(f"Could not pair/trust device automatically: {e}")
+                            log.info("You may need to pair the device manually with: bluetoothctl pair <address>")
+                except Exception as e:
+                    log.debug(f"Could not check pairing status: {e}")
+        except Exception as e:
+            log.debug(f"Could not find device path for pairing check: {e}")
         
         # Connect to device
         return connect_and_scan_ble_device(device_address)
