@@ -522,44 +522,60 @@ def connect_and_scan_ble_device(device_address):
             
             def process_millennium_response(handle, data):
                 """Process Millennium protocol response, handling 01 prefix and odd parity"""
-                # Strip 01 prefix if present (status/ack byte)
+                # The 01 byte is likely a write acknowledgment from char-write-req
+                # Ignore notifications that are just 01 + one byte (these are acks, not data)
+                if len(data) == 2 and data[0] == 0x01:
+                    log.debug(f"Ignoring write acknowledgment on handle {handle:04x}: 01 {data[1]:02x}")
+                    return None
+                
+                # Strip 01 prefix if present (but keep the data)
                 if len(data) > 0 and data[0] == 0x01:
                     data = data[1:]
                 
                 if len(data) == 0:
-                    return
+                    return None
                 
                 # Accumulate response for this handle
                 if handle not in response_buffers:
                     response_buffers[handle] = bytearray()
                 response_buffers[handle].extend(data)
                 
-                # Decode odd parity
+                # Decode odd parity from accumulated buffer
                 decoded = bytearray()
                 for b in response_buffers[handle]:
                     decoded.append(decode_odd_parity(b))
                 
                 # Check if we have a complete response
-                # Responses start with lowercase letter (w, x, s, etc.)
-                if len(decoded) > 0:
+                # For 's' command, response is 's' + 64 chars + 2 CRC = 67 bytes
+                # For 'w' command, response is 'w' + 4 hex + 2 CRC = 7 bytes  
+                # For 'x' command, response is 'x' + 2 CRC = 3 bytes
+                if len(decoded) >= 3:  # Minimum response is 'x' + 2 CRC = 3 bytes
                     first_char = chr(decoded[0]) if decoded[0] < 128 else '?'
-                    # If it starts with lowercase, it's likely a complete response
-                    # For 's' command, response is 's' + 64 chars + 2 CRC = 67 bytes
-                    # For 'w' command, response is 'w' + 4 hex + 2 CRC = 7 bytes
-                    # For 'x' command, response is 'x' + 2 CRC = 3 bytes
-                    if first_char.islower():
-                        # Log the full decoded response
+                    
+                    # Check for complete 'x' response (3 bytes)
+                    if first_char == 'x' and len(decoded) >= 3:
                         log.info(f"RX [DECODED] handle {handle:04x}: {' '.join(f'{b:02x}' for b in decoded)}")
                         log.info(f"RX [DECODED] handle {handle:04x} ASCII: {decoded.decode('ascii', errors='replace')}")
-                        # Clear buffer for this handle
                         del response_buffers[handle]
                         return decoded
-                    # If we have enough bytes for a complete response, process it
-                    elif len(decoded) >= 67:  # 's' response is longest
-                        log.info(f"RX [DECODED] handle {handle:04x} (long): {' '.join(f'{b:02x}' for b in decoded)}")
+                    
+                    # Check for complete 'w' response (7 bytes: 'w' + 4 hex + 2 CRC)
+                    if first_char == 'w' and len(decoded) >= 7:
+                        log.info(f"RX [DECODED] handle {handle:04x}: {' '.join(f'{b:02x}' for b in decoded)}")
                         log.info(f"RX [DECODED] handle {handle:04x} ASCII: {decoded.decode('ascii', errors='replace')}")
                         del response_buffers[handle]
                         return decoded
+                    
+                    # Check for complete 's' response (67 bytes: 's' + 64 chars + 2 CRC)
+                    if first_char == 's' and len(decoded) >= 67:
+                        log.info(f"RX [DECODED] handle {handle:04x}: {' '.join(f'{b:02x}' for b in decoded)}")
+                        log.info(f"RX [DECODED] handle {handle:04x} ASCII: {decoded.decode('ascii', errors='replace')}")
+                        del response_buffers[handle]
+                        return decoded
+                    
+                    # Log progress for accumulating responses
+                    if len(decoded) > 0:
+                        log.debug(f"Accumulating response on handle {handle:04x}: {len(decoded)}/{67} bytes, starts with '{first_char}'")
                 
                 return None
             
@@ -674,7 +690,8 @@ def connect_and_scan_ble_device(device_address):
                                 
                                 log.info(f"  -> Sending Millennium S probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
                                 log.info(f"     Encoded bytes: {s_probe_hex}")
-                                gatttool_process.stdin.write(f"char-write-req {handle:04x} {s_probe_hex}\n")
+                                # Use char-write-cmd (write without response) to avoid write acknowledgments
+                                gatttool_process.stdin.write(f"char-write-cmd {handle:04x} {s_probe_hex}\n")
                                 gatttool_process.stdin.flush()
                                 log.info(f"  <- Sent Millennium S probe to handle {handle:04x}")
                                 # Track that we sent Millennium protocol to this handle
@@ -719,7 +736,8 @@ def connect_and_scan_ble_device(device_address):
                                         
                                         log.info(f"  -> Sending Millennium '{cmd}' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
                                         log.info(f"     Encoded bytes: {millennium_hex}")
-                                        gatttool_process.stdin.write(f"char-write-req {handle:04x} {millennium_hex}\n")
+                                        # Use char-write-cmd (write without response) to avoid write acknowledgments
+                                        gatttool_process.stdin.write(f"char-write-cmd {handle:04x} {millennium_hex}\n")
                                         gatttool_process.stdin.flush()
                                         log.info(f"  <- Sent Millennium '{cmd}' to handle {handle:04x}")
                                         # Track that we sent Millennium protocol to this handle
@@ -756,7 +774,8 @@ def connect_and_scan_ble_device(device_address):
                                     service_uuid = wh['service_uuid']
                                     
                                     log.info(f"  -> Sending Chessnut Air probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                    gatttool_process.stdin.write(f"char-write-req {handle:04x} {chessnut_hex}\n")
+                                    # Use char-write-cmd (write without response) to avoid write acknowledgments
+                                    gatttool_process.stdin.write(f"char-write-cmd {handle:04x} {chessnut_hex}\n")
                                     gatttool_process.stdin.flush()
                                     log.info(f"  <- Sent Chessnut Air probe to handle {handle:04x}")
                                     # Track that we sent Chessnut Air protocol to this handle
@@ -799,7 +818,8 @@ def connect_and_scan_ble_device(device_address):
                                     log.info(f"Sending Millennium-encoded 'S' to active characteristic handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
                                     log.info(f"Encoded bytes: {encoded_hex}")
                                     try:
-                                        gatttool_process.stdin.write(f"char-write-req {handle:04x} {encoded_hex}\n")
+                                        # Use char-write-cmd (write without response) to avoid write acknowledgments
+                                        gatttool_process.stdin.write(f"char-write-cmd {handle:04x} {encoded_hex}\n")
                                         gatttool_process.stdin.flush()
                                         # Track that we sent Millennium protocol
                                         with last_sent_protocol_lock:
@@ -816,7 +836,8 @@ def connect_and_scan_ble_device(device_address):
                                     
                                     log.info(f"Sending Chessnut Air command [0x21, 0x01, 0x00] to active characteristic handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
                                     try:
-                                        gatttool_process.stdin.write(f"char-write-req {handle:04x} {chessnut_hex}\n")
+                                        # Use char-write-cmd (write without response) to avoid write acknowledgments
+                                        gatttool_process.stdin.write(f"char-write-cmd {handle:04x} {chessnut_hex}\n")
                                         gatttool_process.stdin.flush()
                                         # Track that we sent Chessnut Air protocol
                                         with last_sent_protocol_lock:
