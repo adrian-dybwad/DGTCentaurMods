@@ -447,6 +447,11 @@ def connect_and_scan_ble_device(device_address):
         
         gatttool_process = proc
         
+        # Millennium ChessLink BLE UUIDs
+        MILLENNIUM_SERVICE_UUID = "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
+        MILLENNIUM_RX_CHAR_UUID = "49535343-8841-43F4-A8D4-ECBE34729BB3"  # Write commands TO device
+        MILLENNIUM_TX_CHAR_UUID = "49535343-1E4D-4BD9-BA61-23C647249616"  # Read responses FROM device
+        
         # Enable notifications - prioritize Millennium TX characteristic for receiving responses
         notification_handles = []
         millennium_tx_handle = None
@@ -543,11 +548,6 @@ def connect_and_scan_ble_device(device_address):
         
         threading.Thread(target=drain_stdout, daemon=True).start()
         threading.Thread(target=drain_stderr, daemon=True).start()
-        
-        # Millennium ChessLink BLE UUIDs
-        MILLENNIUM_SERVICE_UUID = "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
-        MILLENNIUM_RX_CHAR_UUID = "49535343-8841-43F4-A8D4-ECBE34729BB3"  # Write commands TO device
-        MILLENNIUM_TX_CHAR_UUID = "49535343-1E4D-4BD9-BA61-23C647249616"  # Read responses FROM device
         
         # Store write handles - prioritize Millennium RX characteristic
         write_handles = []
