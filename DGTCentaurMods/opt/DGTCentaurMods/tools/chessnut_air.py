@@ -203,7 +203,19 @@ def connect_and_scan_ble_device(device_address):
         log.info("Disconnecting any existing connection...")
         subprocess.run(['bluetoothctl', 'disconnect', device_address], 
                       capture_output=True, timeout=5, text=True)
-        time.sleep(3)
+        time.sleep(2)
+        
+        # Connect via bluetoothctl first (some devices require this)
+        log.info("Connecting via bluetoothctl...")
+        connect_result = subprocess.run(['bluetoothctl', 'connect', device_address], 
+                                       capture_output=True, timeout=10, text=True)
+        if connect_result.returncode == 0:
+            log.info(f"bluetoothctl connect succeeded: {connect_result.stdout}")
+        else:
+            log.warning(f"bluetoothctl connect failed or timed out: {connect_result.stderr}")
+            log.info("Continuing anyway - gatttool may be able to connect directly")
+        
+        time.sleep(2)  # Wait for connection to establish
         
         # Discover services
         max_retries = 5
@@ -218,19 +230,43 @@ def connect_and_scan_ble_device(device_address):
             if result.returncode == 0:
                 break
             
+            log.warning(f"gatttool --primary attempt {attempt + 1} failed: returncode={result.returncode}")
+            if result.stderr:
+                log.warning(f"stderr: {result.stderr}")
+            if result.stdout:
+                log.warning(f"stdout: {result.stdout}")
+            
             if "Device or resource busy" in result.stderr or "busy" in result.stderr.lower():
                 if attempt < max_retries - 1:
                     log.warning(f"Device busy, retrying in {retry_delay} seconds (attempt {attempt + 1}/{max_retries})...")
                     subprocess.run(['bluetoothctl', 'disconnect', device_address], 
                                   capture_output=True, timeout=5, text=True)
+                    time.sleep(1)
+                    # Try connecting again
+                    subprocess.run(['bluetoothctl', 'connect', device_address], 
+                                  capture_output=True, timeout=10, text=True)
                     time.sleep(retry_delay)
                     retry_delay *= 2
                 else:
-                    log.error(f"gatttool --primary failed after {max_retries} attempts: {result.stderr}")
+                    log.error(f"gatttool --primary failed after {max_retries} attempts")
+                    return False
+            elif "Connection refused" in result.stderr or "refused" in result.stderr.lower():
+                log.warning("Connection refused - device may require pairing")
+                if attempt < max_retries - 1:
+                    log.info("Retrying connection...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    log.error("Connection refused after all attempts - device may require pairing")
                     return False
             else:
-                log.error(f"gatttool --primary failed: {result.stderr}")
-                return False
+                if attempt < max_retries - 1:
+                    log.warning(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    log.error(f"gatttool --primary failed after {max_retries} attempts")
+                    return False
         
         if result.returncode != 0:
             log.error(f"gatttool --primary failed: {result.stderr}")
