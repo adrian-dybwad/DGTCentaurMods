@@ -447,24 +447,69 @@ def connect_and_scan_ble_device(device_address):
         
         gatttool_process = proc
         
-        # Enable notifications on all characteristics that have CCCD
+        # Enable notifications - prioritize Millennium TX characteristic for receiving responses
         notification_handles = []
-        for char in all_characteristics:
-            if char.get('cccd_handle'):
-                log.info(f"Enabling notifications on characteristic {char['uuid']} (CCCD handle {char['cccd_handle']:04x})")
-                proc.stdin.write(f"char-write-req {char['cccd_handle']:04x} 0100\n")
-                proc.stdin.flush()
-                notification_handles.append({
-                    'value_handle': char['value_handle'],
-                    'uuid': char['uuid'],
-                    'service_uuid': char.get('service_uuid', 'unknown')
-                })
-                time.sleep(0.2)
+        millennium_tx_handle = None
+        
+        if all_characteristics:
+            # First, find and enable Millennium TX characteristic
+            for char in all_characteristics:
+                char_uuid = char.get('uuid', '').upper()
+                service_uuid = char.get('service_uuid', '').upper()
+                
+                if (char_uuid == MILLENNIUM_TX_CHAR_UUID.upper() and 
+                    service_uuid == MILLENNIUM_SERVICE_UUID.upper() and
+                    char.get('cccd_handle')):
+                    millennium_tx_handle = {
+                        'value_handle': char['value_handle'],
+                        'uuid': char.get('uuid', 'unknown'),
+                        'service_uuid': char.get('service_uuid', 'unknown'),
+                        'cccd_handle': char['cccd_handle']
+                    }
+                    log.info(f"Found Millennium TX characteristic: handle {char['value_handle']:04x}, CCCD {char['cccd_handle']:04x}, UUID {char_uuid}")
+                    break
+            
+            # Enable notifications on Millennium TX characteristic first
+            if millennium_tx_handle:
+                try:
+                    log.info(f"Enabling notifications on Millennium TX characteristic (CCCD handle {millennium_tx_handle['cccd_handle']:04x})")
+                    proc.stdin.write(f"char-write-req {millennium_tx_handle['cccd_handle']:04x} 0100\n")
+                    proc.stdin.flush()
+                    time.sleep(0.2)
+                    notification_handles.append(millennium_tx_handle)
+                except Exception as e:
+                    log.error(f"Error enabling notifications on Millennium TX: {e}")
+            
+            # Also enable notifications on all other characteristics with CCCD (for fallback/debugging)
+            for char in all_characteristics:
+                char_uuid = char.get('uuid', '').upper()
+                service_uuid = char.get('service_uuid', '').upper()
+                
+                # Skip if this is the Millennium TX (already enabled above)
+                if (char_uuid == MILLENNIUM_TX_CHAR_UUID.upper() and 
+                    service_uuid == MILLENNIUM_SERVICE_UUID.upper()):
+                    continue
+                
+                if char.get('cccd_handle'):
+                    log.info(f"Enabling notifications on characteristic {char['uuid']} (CCCD handle {char['cccd_handle']:04x})")
+                    try:
+                        proc.stdin.write(f"char-write-req {char['cccd_handle']:04x} 0100\n")
+                        proc.stdin.flush()
+                        time.sleep(0.2)  # Small delay between enabling notifications
+                    except Exception as e:
+                        log.error(f"Error enabling notifications on {char['uuid']}: {e}")
+                    notification_handles.append({
+                        'value_handle': char['value_handle'],
+                        'uuid': char.get('uuid', 'unknown'),
+                        'service_uuid': char.get('service_uuid', 'unknown')
+                    })
         
         if not notification_handles:
             log.warning("No characteristics with notification support found")
         else:
             log.info(f"Enabled notifications on {len(notification_handles)} characteristics")
+            if millennium_tx_handle:
+                log.info(f"Primary notification target: Millennium TX characteristic (handle {millennium_tx_handle['value_handle']:04x})")
         
         # Start threads to drain stdout and stderr
         stdout_queue = queue.Queue()
@@ -499,15 +544,43 @@ def connect_and_scan_ble_device(device_address):
         threading.Thread(target=drain_stdout, daemon=True).start()
         threading.Thread(target=drain_stderr, daemon=True).start()
         
-        # Store all write handles for periodic sending (needed by both threads)
+        # Millennium ChessLink BLE UUIDs
+        MILLENNIUM_SERVICE_UUID = "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
+        MILLENNIUM_RX_CHAR_UUID = "49535343-8841-43F4-A8D4-ECBE34729BB3"  # Write commands TO device
+        MILLENNIUM_TX_CHAR_UUID = "49535343-1E4D-4BD9-BA61-23C647249616"  # Read responses FROM device
+        
+        # Store write handles - prioritize Millennium RX characteristic
         write_handles = []
+        millennium_rx_handle = None
         if all_characteristics:
             for char in all_characteristics:
-                write_handles.append({
-                    'value_handle': char['value_handle'],
-                    'uuid': char.get('uuid', 'unknown'),
-                    'service_uuid': char.get('service_uuid', 'unknown')
-                })
+                char_uuid = char.get('uuid', '').upper()
+                service_uuid = char.get('service_uuid', '').upper()
+                
+                # Check if this is the Millennium RX characteristic (for writing commands)
+                if (char_uuid == MILLENNIUM_RX_CHAR_UUID.upper() and 
+                    service_uuid == MILLENNIUM_SERVICE_UUID.upper()):
+                    millennium_rx_handle = {
+                        'value_handle': char['value_handle'],
+                        'uuid': char.get('uuid', 'unknown'),
+                        'service_uuid': char.get('service_uuid', 'unknown')
+                    }
+                    log.info(f"Found Millennium RX characteristic: handle {char['value_handle']:04x}, UUID {char_uuid}")
+                
+                # Also add all characteristics with write properties for fallback
+                if 'write' in char.get('properties', []).lower() or 'write-without-response' in char.get('properties', []).lower():
+                    write_handles.append({
+                        'value_handle': char['value_handle'],
+                        'uuid': char.get('uuid', 'unknown'),
+                        'service_uuid': char.get('service_uuid', 'unknown')
+                    })
+        
+        # If we found the Millennium RX characteristic, use only that for writing
+        if millennium_rx_handle:
+            write_handles = [millennium_rx_handle]
+            log.info(f"Using Millennium RX characteristic (handle {millennium_rx_handle['value_handle']:04x}) for writing commands")
+        else:
+            log.warning(f"Millennium RX characteristic not found! Will try all writeable characteristics as fallback")
         
         # Start notification reader
         def read_notifications():
@@ -522,13 +595,8 @@ def connect_and_scan_ble_device(device_address):
             
             def process_millennium_response(handle, data):
                 """Process Millennium protocol response, handling 01 prefix and odd parity"""
-                # The 01 byte is likely a write acknowledgment from char-write-req
-                # Ignore notifications that are just 01 + one byte (these are acks, not data)
-                if len(data) == 2 and data[0] == 0x01:
-                    log.debug(f"Ignoring write acknowledgment on handle {handle:04x}: 01 {data[1]:02x}")
-                    return None
-                
-                # Strip 01 prefix if present (but keep the data)
+                # The 01 byte is a status/prefix byte from the Millennium device
+                # Strip it if present, but keep the actual data
                 if len(data) > 0 and data[0] == 0x01:
                     data = data[1:]
                 
