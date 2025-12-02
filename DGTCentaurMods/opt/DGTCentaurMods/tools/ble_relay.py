@@ -660,14 +660,17 @@ def connect_and_scan_ble_device(device_address):
                                     log.info(f"  <- Sent Millennium '{cmd}' to handle {handle:04x}")
                                     # Track that we sent Millennium protocol to this handle
                                     last_sent_protocol[handle] = "millennium"
-                                    time.sleep(0.1)  # Small delay between commands
+                                    time.sleep(0.5)  # Delay between commands to allow device to process
+                                
+                                # Wait after completing sequence for this characteristic
+                                time.sleep(0.3)
                             except Exception as e:
                                 log.error(f"  Error sending Millennium commands to handle {wh['value_handle']:04x}: {e}")
                                 import traceback
                                 log.error(traceback.format_exc())
                     
                     # Wait a bit before sending the next protocol
-                    time.sleep(1)
+                    time.sleep(2)
                     
                     # Send Chessnut Air initial command [0x21, 0x01, 0x00] to all characteristics
                     log.info("Sending Chessnut Air initial command [0x21, 0x01, 0x00] to all characteristics...")
@@ -686,7 +689,7 @@ def connect_and_scan_ble_device(device_address):
                                 log.info(f"  <- Sent Chessnut Air probe to handle {handle:04x}")
                                 # Track that we sent Chessnut Air protocol to this handle
                                 last_sent_protocol[handle] = "chessnut_air"
-                                time.sleep(0.1)  # Small delay between writes
+                                time.sleep(0.3)  # Delay between writes to allow device to process
                             except Exception as e:
                                 log.error(f"  Error sending Chessnut Air probe to handle {wh['value_handle']:04x}: {e}")
                                 import traceback
@@ -694,8 +697,9 @@ def connect_and_scan_ble_device(device_address):
                     
                     log.info(f"Completed sending initial commands to all {len(write_handles)} characteristics")
                     initial_commands_sent = True
-                    # Wait a bit for replies
-                    time.sleep(2)
+                    # Wait for replies - give device time to process and respond
+                    log.info("Waiting 5 seconds for device responses...")
+                    time.sleep(5)
                 
                 while running and not kill and device_connected:
                     try:
