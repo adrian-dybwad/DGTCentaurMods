@@ -386,16 +386,31 @@ def connect_and_scan_ble_device(device_address):
                                                    f"{service['start_handle']:04x}", f"{service['end_handle']:04x}"],
                                                   capture_output=True, timeout=10, text=True)
                 
+                log.debug(f"--characteristics output for service {service['uuid']}:\n{char_props_result.stdout}")
+                if char_props_result.returncode != 0:
+                    log.warning(f"--characteristics failed: {char_props_result.stderr}")
+                
                 # Parse properties from --characteristics output
                 # Format: handle = 0xXXXX, char properties = 0xXX, char value handle = 0xYYYY uuid: UUID
                 properties_map = {}
                 if char_props_result.returncode == 0:
                     for line in char_props_result.stdout.split('\n'):
+                        # Try multiple regex patterns to match different output formats
                         props_match = re.search(r'char value handle = 0x([0-9a-f]+).*char properties = 0x([0-9a-f]+)', line, re.IGNORECASE)
-                        if props_match:
+                        if not props_match:
+                            # Alternative format: handle = 0xXXXX, char properties = 0xXX, char value handle = 0xYYYY
+                            props_match = re.search(r'handle = 0x([0-9a-f]+).*char properties = 0x([0-9a-f]+).*char value handle = 0x([0-9a-f]+)', line, re.IGNORECASE)
+                            if props_match:
+                                # Use the value handle (group 3) in this format
+                                value_handle = int(props_match.group(3), 16)
+                                properties_hex = int(props_match.group(2), 16)
+                                properties_map[value_handle] = properties_hex
+                        else:
                             value_handle = int(props_match.group(1), 16)
                             properties_hex = int(props_match.group(2), 16)
                             properties_map[value_handle] = properties_hex
+                        
+                        if props_match:
                             # Properties: 0x02=read, 0x04=write, 0x08=notify, 0x10=indicate, 0x20=write-without-response
                             props_list = []
                             if properties_hex & 0x02: props_list.append("read")
@@ -642,17 +657,37 @@ def connect_and_scan_ble_device(device_address):
             if millennium_tx_handles:
                 log.info(f"Found {len(millennium_tx_handles)} NOTIFY characteristics for receiving responses")
         else:
-            log.warning(f"No WRITABLE characteristics found in Millennium service! Will try all characteristics as fallback")
-            # Fallback: add all characteristics in Millennium service
+            log.warning(f"No WRITABLE characteristics found via --characteristics! Using heuristic: exclude NOTIFY characteristics")
+            # Heuristic: Exclude characteristics that have notify enabled (those are TX, not RX)
+            # RX characteristics should NOT have notify, they should accept writes
+            notify_handles = {char['value_handle'] for char in millennium_tx_handles}
+            log.info(f"Excluding {len(notify_handles)} NOTIFY characteristics (TX): {[f'{h:04x}' for h in notify_handles]}")
+            
+            # Add all characteristics in Millennium service EXCEPT those with notify
             for char in all_characteristics:
                 service_uuid = normalize_uuid(char.get('service_uuid', ''))
                 value_handle = char['value_handle']
                 if service_uuid == MILLENNIUM_SERVICE_UUID_NORM and 0x0030 <= value_handle <= 0x003d:
-                    write_handles.append({
-                        'value_handle': value_handle,
-                        'uuid': char.get('uuid', 'unknown'),
-                        'service_uuid': char.get('service_uuid', 'unknown')
-                    })
+                    if value_handle not in notify_handles:
+                        write_handles.append({
+                            'value_handle': value_handle,
+                            'uuid': char.get('uuid', 'unknown'),
+                            'service_uuid': char.get('service_uuid', 'unknown')
+                        })
+                        log.info(f"Including characteristic handle {value_handle:04x} (UUID: {char.get('uuid')}) - not a notify characteristic")
+            
+            if not write_handles:
+                log.warning(f"Fallback: No characteristics found after excluding notify ones, will try ALL characteristics")
+                # Last resort: try all characteristics
+                for char in all_characteristics:
+                    service_uuid = normalize_uuid(char.get('service_uuid', ''))
+                    value_handle = char['value_handle']
+                    if service_uuid == MILLENNIUM_SERVICE_UUID_NORM and 0x0030 <= value_handle <= 0x003d:
+                        write_handles.append({
+                            'value_handle': value_handle,
+                            'uuid': char.get('uuid', 'unknown'),
+                            'service_uuid': char.get('service_uuid', 'unknown')
+                        })
         
         # Start notification reader
         def read_notifications():
