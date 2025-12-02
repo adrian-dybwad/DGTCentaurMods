@@ -50,6 +50,8 @@ device_connected = False
 device_address = None
 gatttool_process = None
 notification_threads = []
+active_write_handle = None  # The characteristic handle that received a reply
+active_write_lock = threading.Lock()  # Lock for thread-safe access to active_write_handle
 
 
 def signal_handler(signum, frame):
@@ -428,9 +430,19 @@ def connect_and_scan_ble_device(device_address):
         threading.Thread(target=drain_stdout, daemon=True).start()
         threading.Thread(target=drain_stderr, daemon=True).start()
         
+        # Store all write handles for periodic sending (needed by both threads)
+        write_handles = []
+        if all_characteristics:
+            for char in all_characteristics:
+                write_handles.append({
+                    'value_handle': char['value_handle'],
+                    'uuid': char.get('uuid', 'unknown'),
+                    'service_uuid': char.get('service_uuid', 'unknown')
+                })
+        
         # Start notification reader
         def read_notifications():
-            global running, kill
+            global running, kill, active_write_handle, active_write_lock
             buffer = ""
             while running and not kill:
                 try:
@@ -458,9 +470,30 @@ def connect_and_scan_ble_device(device_address):
                                         if char_info:
                                             log.info(f"RX [{char_info['service_uuid']}] [{char_info['uuid']}] (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)}")
                                             log.info(f"RX [{char_info['service_uuid']}] [{char_info['uuid']}] (handle {handle:04x}) ASCII: {data.decode('utf-8', errors='replace')}")
+                                            
+                                            # Check if this is the first reply - if so, set it as the active write handle
+                                            with active_write_lock:
+                                                if active_write_handle is None:
+                                                    # Find the corresponding write handle (same value handle)
+                                                    for wh in write_handles:
+                                                        if wh['value_handle'] == handle:
+                                                            active_write_handle = wh
+                                                            log.info(f"*** REPLY RECEIVED: Setting active write handle to {handle:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}) ***")
+                                                            log.info(f"*** Will now only send to this characteristic ***")
+                                                            break
                                         else:
                                             log.info(f"RX (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)}")
                                             log.info(f"RX (handle {handle:04x}) ASCII: {data.decode('utf-8', errors='replace')}")
+                                            
+                                            # Even if we don't have char_info, try to find the write handle
+                                            with active_write_lock:
+                                                if active_write_handle is None:
+                                                    for wh in write_handles:
+                                                        if wh['value_handle'] == handle:
+                                                            active_write_handle = wh
+                                                            log.info(f"*** REPLY RECEIVED: Setting active write handle to {handle:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}) ***")
+                                                            log.info(f"*** Will now only send to this characteristic ***")
+                                                            break
                                     except ValueError:
                                         pass
                     except queue.Empty:
@@ -474,22 +507,13 @@ def connect_and_scan_ble_device(device_address):
         
         # Start periodic send thread (send "S" to all characteristics every 10 seconds)
         if all_characteristics:
-            # Store all write handles for periodic sending
-            write_handles = []
-            for char in all_characteristics:
-                write_handles.append({
-                    'value_handle': char['value_handle'],
-                    'uuid': char.get('uuid', 'unknown'),
-                    'service_uuid': char.get('service_uuid', 'unknown')
-                })
-            
             log.info(f"Will send periodic 'S' to {len(write_handles)} characteristics:")
             for wh in write_handles:
                 log.info(f"  - Handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']})")
             
             def periodic_send():
-                """Send 'S' byte to all characteristics every 10 seconds"""
-                global running, kill, gatttool_process, device_connected
+                """Send 'S' byte to all characteristics every 10 seconds, then only to the one that replies"""
+                global running, kill, gatttool_process, device_connected, active_write_handle, active_write_lock
                 log.info("Periodic send thread started, waiting for connection...")
                 # Wait for device_connected to be True
                 wait_count = 0
@@ -506,23 +530,43 @@ def connect_and_scan_ble_device(device_address):
                 while running and not kill and device_connected:
                     try:
                         if gatttool_process and gatttool_process.poll() is None:
-                            log.info(f"Sending 'S' (0x53) to {len(write_handles)} characteristics...")
-                            for wh in write_handles:
+                            with active_write_lock:
+                                current_active = active_write_handle
+                            
+                            if current_active is None:
+                                # No reply yet, send to all characteristics
+                                log.info(f"Sending 'S' (0x53) to {len(write_handles)} characteristics (waiting for reply)...")
+                                for wh in write_handles:
+                                    try:
+                                        handle = wh['value_handle']
+                                        uuid = wh['uuid']
+                                        service_uuid = wh['service_uuid']
+                                        
+                                        log.info(f"  -> Sending to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                        gatttool_process.stdin.write(f"char-write-req {handle:04x} 53\n")
+                                        gatttool_process.stdin.flush()
+                                        log.info(f"  <- Sent 'S' (0x53) to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                        time.sleep(0.1)  # Small delay between writes
+                                    except Exception as e:
+                                        log.error(f"  Error sending to handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}): {e}")
+                                        import traceback
+                                        log.error(traceback.format_exc())
+                                log.info(f"Completed sending 'S' to all {len(write_handles)} characteristics")
+                            else:
+                                # Reply received, only send to the active characteristic
+                                handle = current_active['value_handle']
+                                uuid = current_active['uuid']
+                                service_uuid = current_active['service_uuid']
+                                
+                                log.info(f"Sending 'S' (0x53) to active characteristic handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
                                 try:
-                                    handle = wh['value_handle']
-                                    uuid = wh['uuid']
-                                    service_uuid = wh['service_uuid']
-                                    
-                                    log.info(f"  -> Sending to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
                                     gatttool_process.stdin.write(f"char-write-req {handle:04x} 53\n")
                                     gatttool_process.stdin.flush()
-                                    log.info(f"  <- Sent 'S' (0x53) to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                    time.sleep(0.1)  # Small delay between writes
+                                    log.info(f"Sent 'S' (0x53) to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
                                 except Exception as e:
-                                    log.error(f"  Error sending to handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}): {e}")
+                                    log.error(f"Error sending to active handle {handle:04x}: {e}")
                                     import traceback
                                     log.error(traceback.format_exc())
-                            log.info(f"Completed sending 'S' to all {len(write_handles)} characteristics")
                         else:
                             log.warning("gatttool process not available, skipping send")
                             if gatttool_process:
