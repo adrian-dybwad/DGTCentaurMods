@@ -230,27 +230,47 @@ def connect_and_scan_ble_device(device_address, bus=None):
                             log.info("Device already connected via BlueZ")
                         else:
                             log.info("Connecting device via D-Bus (BlueZ)...")
-                            device_iface.Connect()
-                            # Wait for connection
-                            max_wait = 10
-                            wait_time = 0
-                            while wait_time < max_wait:
+                            connection_in_progress = False
+                            try:
+                                device_iface.Connect()
+                            except dbus.exceptions.DBusException as e:
+                                error_str = str(e)
+                                if "InProgress" in error_str or "In Progress" in error_str:
+                                    connection_in_progress = True
+                                    log.info("Connection already in progress - waiting for completion...")
+                                else:
+                                    log.info(f"Connect() returned: {e} - will wait and check connection state")
+                            
+                            # Wait briefly for connection (max 2 seconds)
+                            for _ in range(10):  # 10 * 0.2 = 2 seconds
                                 try:
                                     connected = device_props.Get(DEVICE_IFACE, "Connected")
                                     if connected:
-                                        log.info("Device connected via D-Bus successfully")
+                                        log.info("Device connected via D-Bus")
                                         break
                                 except:
                                     pass
-                                time.sleep(0.5)
-                                wait_time += 0.5
+                                time.sleep(0.2)
                             
-                            if not device_props.Get(DEVICE_IFACE, "Connected"):
-                                log.error("Failed to connect device via D-Bus")
-                                return False
+                            # Final check - always continue to gatttool even if not connected
+                            try:
+                                connected = device_props.Get(DEVICE_IFACE, "Connected")
+                                if connected:
+                                    log.info("Device is connected - ready for GATT operations")
+                                else:
+                                    log.info("Device not connected yet - gatttool will attempt connection")
+                            except:
+                                log.info("Will proceed with gatttool - it may connect automatically")
                     except dbus.exceptions.DBusException as e:
-                        log.error(f"Error connecting device via D-Bus: {e}")
-                        return False
+                        error_str = str(e)
+                        if "InProgress" in error_str or "In Progress" in error_str:
+                            log.info("Connection in progress - will wait briefly then continue")
+                            # Wait a moment for in-progress connection
+                            time.sleep(1)
+                        else:
+                            log.info(f"D-Bus connection error: {e} - continuing to gatttool")
+                    except Exception as e:
+                        log.info(f"Error in D-Bus connection: {e} - continuing to gatttool")
                 else:
                     log.warning("Could not find device path for D-Bus connection")
                     log.warning("Will attempt gatttool connection (may fail)")
@@ -958,29 +978,10 @@ def scan_and_connect_ble_device(bus, adapter_path, target_name):
                                 except Exception as e:
                                     log.debug(f"Could not set device as trusted: {e}")
                             
-                            # Try pairing (may fail if device requires PIN/user interaction)
+                            # Skip pairing - GATT operations typically work without pairing
+                            # Pairing is only needed for encrypted characteristics, which Chessnut doesn't use
                             if not paired:
-                                try:
-                                    device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
-                                    device_iface.Pair()
-                                    log.info("Pairing initiated, waiting...")
-                                    time.sleep(3)
-                                    # Check if pairing succeeded
-                                    try:
-                                        paired_after = device_props.Get(DEVICE_IFACE, "Paired")
-                                        if paired_after:
-                                            log.info("Pairing succeeded")
-                                        else:
-                                            log.info("Pairing may require PIN or user interaction - continuing without pairing")
-                                    except:
-                                        pass
-                                except dbus.exceptions.DBusException as e:
-                                    if "AuthenticationFailed" in str(e) or "Authentication" in str(e):
-                                        log.info("Pairing requires authentication (PIN/user interaction) - continuing without pairing")
-                                        log.info("Many BLE devices work without pairing for GATT operations")
-                                    else:
-                                        log.warning(f"Pairing attempt failed: {e}")
-                                        log.info("Continuing without pairing - GATT may still work")
+                                log.info("Skipping pairing - GATT operations work without pairing for this device")
                         except Exception as e:
                             log.info(f"Could not pair/trust device automatically: {e}")
                             log.info("Continuing without pairing - many BLE devices work without pairing")
