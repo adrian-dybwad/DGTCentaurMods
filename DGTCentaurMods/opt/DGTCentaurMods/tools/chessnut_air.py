@@ -192,36 +192,80 @@ def parse_gatttool_char_desc_output(output):
     return characteristics
 
 
-def connect_and_scan_ble_device(device_address):
+def connect_and_scan_ble_device(device_address, bus=None):
     """Connect to Chessnut Air BLE device and enable notifications"""
     global device_connected, gatttool_process
     
     try:
         log.info(f"Connecting to device {device_address}")
         
-        # Disconnect any existing connection
-        log.info("Disconnecting any existing connection...")
-        subprocess.run(['bluetoothctl', 'disconnect', device_address], 
-                      capture_output=True, timeout=5, text=True)
-        time.sleep(2)
+        # ROOT CAUSE FIX: Connect device via D-Bus first
+        # gatttool cannot establish BLE connections - it requires the device to already be connected via BlueZ
+        device_path = None
+        if bus:
+            try:
+                remote_om = dbus.Interface(
+                    bus.get_object(BLUEZ_SERVICE_NAME, "/"),
+                    DBUS_OM_IFACE)
+                objects = remote_om.GetManagedObjects()
+                
+                for path, interfaces in objects.items():
+                    if DEVICE_IFACE in interfaces:
+                        dev_props = interfaces[DEVICE_IFACE]
+                        dev_address = str(dev_props.get('Address', ''))
+                        if dev_address.upper() == device_address.upper():
+                            device_path = path
+                            break
+                
+                if device_path:
+                    log.info(f"Found device path: {device_path}")
+                    device_obj = bus.get_object(BLUEZ_SERVICE_NAME, device_path)
+                    device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
+                    device_props = dbus.Interface(device_obj, DBUS_PROP_IFACE)
+                    
+                    # Check current connection state
+                    try:
+                        connected = device_props.Get(DEVICE_IFACE, "Connected")
+                        if connected:
+                            log.info("Device already connected via BlueZ")
+                        else:
+                            log.info("Connecting device via D-Bus (BlueZ)...")
+                            device_iface.Connect()
+                            # Wait for connection
+                            max_wait = 10
+                            wait_time = 0
+                            while wait_time < max_wait:
+                                try:
+                                    connected = device_props.Get(DEVICE_IFACE, "Connected")
+                                    if connected:
+                                        log.info("Device connected via D-Bus successfully")
+                                        break
+                                except:
+                                    pass
+                                time.sleep(0.5)
+                                wait_time += 0.5
+                            
+                            if not device_props.Get(DEVICE_IFACE, "Connected"):
+                                log.error("Failed to connect device via D-Bus")
+                                return False
+                    except dbus.exceptions.DBusException as e:
+                        log.error(f"Error connecting device via D-Bus: {e}")
+                        return False
+                else:
+                    log.warning("Could not find device path for D-Bus connection")
+                    log.warning("Will attempt gatttool connection (may fail)")
+            except Exception as e:
+                log.warning(f"Error in D-Bus connection: {e}")
+                log.warning("Will attempt gatttool connection (may fail)")
         
-        # Connect via bluetoothctl first (some devices require this)
-        log.info("Connecting via bluetoothctl...")
-        connect_result = subprocess.run(['bluetoothctl', 'connect', device_address], 
-                                       capture_output=True, timeout=10, text=True)
-        if connect_result.returncode == 0:
-            log.info(f"bluetoothctl connect succeeded: {connect_result.stdout}")
-        else:
-            log.warning(f"bluetoothctl connect failed or timed out: {connect_result.stderr}")
-            log.info("Continuing anyway - gatttool may be able to connect directly")
+        # Wait a moment for connection to stabilize
+        time.sleep(1)
         
-        time.sleep(2)  # Wait for connection to establish
-        
-        # Discover services
+        # Discover services with gatttool (device should now be connected)
         max_retries = 5
         retry_delay = 2
         
-        log.info("Discovering services with gatttool...")
+        log.info("Discovering services with gatttool (device should be connected via BlueZ)...")
         result = None
         for attempt in range(max_retries):
             result = subprocess.run(['gatttool', '-b', device_address, '--primary'],
@@ -230,43 +274,30 @@ def connect_and_scan_ble_device(device_address):
             if result.returncode == 0:
                 break
             
-            log.warning(f"gatttool --primary attempt {attempt + 1} failed: returncode={result.returncode}")
-            if result.stderr:
-                log.warning(f"stderr: {result.stderr}")
-            if result.stdout:
-                log.warning(f"stdout: {result.stdout}")
-            
             if "Device or resource busy" in result.stderr or "busy" in result.stderr.lower():
                 if attempt < max_retries - 1:
                     log.warning(f"Device busy, retrying in {retry_delay} seconds (attempt {attempt + 1}/{max_retries})...")
-                    subprocess.run(['bluetoothctl', 'disconnect', device_address], 
-                                  capture_output=True, timeout=5, text=True)
-                    time.sleep(1)
-                    # Try connecting again
-                    subprocess.run(['bluetoothctl', 'connect', device_address], 
-                                  capture_output=True, timeout=10, text=True)
+                    # Disconnect and reconnect via D-Bus
+                    if device_path and bus:
+                        try:
+                            device_obj = bus.get_object(BLUEZ_SERVICE_NAME, device_path)
+                            device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
+                            device_iface.Disconnect()
+                            time.sleep(1)
+                            device_iface.Connect()
+                            time.sleep(2)
+                        except:
+                            pass
                     time.sleep(retry_delay)
                     retry_delay *= 2
                 else:
-                    log.error(f"gatttool --primary failed after {max_retries} attempts")
-                    return False
-            elif "Connection refused" in result.stderr or "refused" in result.stderr.lower():
-                log.warning("Connection refused - device may require pairing")
-                if attempt < max_retries - 1:
-                    log.info("Retrying connection...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
-                else:
-                    log.error("Connection refused after all attempts - device may require pairing")
+                    log.error(f"gatttool --primary failed after {max_retries} attempts: {result.stderr}")
                     return False
             else:
-                if attempt < max_retries - 1:
-                    log.warning(f"Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
-                else:
-                    log.error(f"gatttool --primary failed after {max_retries} attempts")
-                    return False
+                log.error(f"gatttool --primary failed: {result.stderr}")
+                if result.stdout:
+                    log.error(f"stdout: {result.stdout}")
+                return False
         
         if result.returncode != 0:
             log.error(f"gatttool --primary failed: {result.stderr}")
@@ -948,8 +979,8 @@ def scan_and_connect_ble_device(bus, adapter_path, target_name):
         except Exception as e:
             log.debug(f"Could not find device path for pairing check: {e}")
         
-        # Connect to device
-        return connect_and_scan_ble_device(device_address)
+        # Connect to device (pass bus for D-Bus connection)
+        return connect_and_scan_ble_device(device_address, bus)
         
     except Exception as e:
         log.error(f"Error in scan_and_connect_ble_device: {e}")
