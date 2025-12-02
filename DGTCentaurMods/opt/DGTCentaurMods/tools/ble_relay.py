@@ -508,83 +508,100 @@ def connect_and_scan_ble_device(device_address):
         # Start notification reader
         def read_notifications():
             global running, kill, active_write_handle, active_write_lock, active_protocol
-            buffer = ""
+            buffer = b""  # Use bytes buffer since stdout_queue contains bytes
+            
+            def process_notification_data(handle, data):
+                """Process notification data and update active handle if needed"""
+                # Find which characteristic this handle belongs to
+                char_info = None
+                for nh in notification_handles:
+                    if nh['value_handle'] == handle:
+                        char_info = nh
+                        break
+                
+                if char_info:
+                    log.info(f"RX [{char_info['service_uuid']}] [{char_info['uuid']}] (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)}")
+                    log.info(f"RX [{char_info['service_uuid']}] [{char_info['uuid']}] (handle {handle:04x}) ASCII: {data.decode('utf-8', errors='replace')}")
+                else:
+                    log.info(f"RX (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)}")
+                    log.info(f"RX (handle {handle:04x}) ASCII: {data.decode('utf-8', errors='replace')}")
+                
+                # Check if this is the first reply - if so, set it as the active write handle
+                with active_write_lock, last_sent_protocol_lock:
+                    if active_write_handle is None:
+                        # Find the corresponding write handle (same value handle)
+                        for wh in write_handles:
+                            if wh['value_handle'] == handle:
+                                active_write_handle = wh
+                                # Determine which protocol triggered this response
+                                # Check which protocol was last sent to this handle
+                                protocol = last_sent_protocol.get(handle)
+                                if protocol:
+                                    active_protocol = protocol
+                                    log.info(f"*** REPLY RECEIVED: Detected {active_protocol} protocol (response to last sent command) ***")
+                                else:
+                                    # Fallback: if we can't determine, default to chessnut_air
+                                    active_protocol = "chessnut_air"
+                                    log.info(f"*** REPLY RECEIVED: Could not determine protocol, defaulting to chessnut_air ***")
+                                log.info(f"*** Setting active write handle to {handle:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}) ***")
+                                log.info(f"*** Will now only send to this characteristic using {active_protocol} protocol ***")
+                                break
+            
             while running and not kill:
                 try:
                     try:
                         chunk = stdout_queue.get(timeout=0.1)
+                        # chunk is bytes from stdout
                         buffer += chunk
-                        while '\n' in buffer:
-                            line, buffer = buffer.split('\n', 1)
+                        while b'\n' in buffer:
+                            line_bytes, buffer = buffer.split(b'\n', 1)
+                            line = line_bytes.decode('utf-8', errors='replace').strip()
+                            
+                            # Log all non-empty lines for debugging
+                            if line:
+                                log.debug(f"gatttool stdout: {line}")
+                            
+                            # Try to parse notification/indication in standard format
                             if 'Notification' in line or 'Indication' in line:
-                                match = re.search(r'handle = 0x([0-9a-f]+).*value: ([0-9a-f ]+)', line, re.IGNORECASE)
+                                match = re.search(r'handle\s*=\s*0x([0-9a-f]+).*?value:\s*([0-9a-f ]+)', line, re.IGNORECASE)
                                 if match:
                                     handle_str = match.group(1)
                                     hex_str = match.group(2).replace(' ', '')
                                     try:
                                         handle = int(handle_str, 16)
                                         data = bytearray.fromhex(hex_str)
-                                        
-                                        # Find which characteristic this handle belongs to
-                                        char_info = None
-                                        for nh in notification_handles:
-                                            if nh['value_handle'] == handle:
-                                                char_info = nh
-                                                break
-                                        
-                                        if char_info:
-                                            log.info(f"RX [{char_info['service_uuid']}] [{char_info['uuid']}] (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)}")
-                                            log.info(f"RX [{char_info['service_uuid']}] [{char_info['uuid']}] (handle {handle:04x}) ASCII: {data.decode('utf-8', errors='replace')}")
-                                            
-                                            # Check if this is the first reply - if so, set it as the active write handle
-                                            with active_write_lock, last_sent_protocol_lock:
-                                                if active_write_handle is None:
-                                                    # Find the corresponding write handle (same value handle)
-                                                    for wh in write_handles:
-                                                        if wh['value_handle'] == handle:
-                                                            active_write_handle = wh
-                                                            # Determine which protocol triggered this response
-                                                            # Check which protocol was last sent to this handle
-                                                            protocol = last_sent_protocol.get(handle)
-                                                            if protocol:
-                                                                active_protocol = protocol
-                                                                log.info(f"*** REPLY RECEIVED: Detected {active_protocol} protocol (response to last sent command) ***")
-                                                            else:
-                                                                # Fallback: if we can't determine, default to chessnut_air
-                                                                active_protocol = "chessnut_air"
-                                                                log.info(f"*** REPLY RECEIVED: Could not determine protocol, defaulting to chessnut_air ***")
-                                                            log.info(f"*** Setting active write handle to {handle:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}) ***")
-                                                            log.info(f"*** Will now only send to this characteristic using {active_protocol} protocol ***")
-                                                            break
-                                        else:
-                                            log.info(f"RX (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)}")
-                                            log.info(f"RX (handle {handle:04x}) ASCII: {data.decode('utf-8', errors='replace')}")
-                                            
-                                            # Even if we don't have char_info, try to find the write handle
-                                            with active_write_lock, last_sent_protocol_lock:
-                                                if active_write_handle is None:
-                                                    for wh in write_handles:
-                                                        if wh['value_handle'] == handle:
-                                                            active_write_handle = wh
-                                                            # Determine which protocol triggered this response
-                                                            protocol = last_sent_protocol.get(handle)
-                                                            if protocol:
-                                                                active_protocol = protocol
-                                                                log.info(f"*** REPLY RECEIVED: Detected {active_protocol} protocol (response to last sent command) ***")
-                                                            else:
-                                                                # Fallback: if we can't determine, default to chessnut_air
-                                                                active_protocol = "chessnut_air"
-                                                                log.info(f"*** REPLY RECEIVED: Could not determine protocol, defaulting to chessnut_air ***")
-                                                            log.info(f"*** Setting active write handle to {handle:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}) ***")
-                                                            log.info(f"*** Will now only send to this characteristic using {active_protocol} protocol ***")
-                                                            break
-                                    except ValueError:
-                                        pass
+                                        process_notification_data(handle, data)
+                                    except ValueError as e:
+                                        log.warning(f"Failed to parse notification data: {e}, line: {line}")
+                                else:
+                                    # Log notification lines that don't match our regex
+                                    log.warning(f"Notification/Indication line didn't match regex: {line}")
+                            # Try to catch other potential notification formats
+                            elif 'handle' in line.lower() and ('value' in line.lower() or '0x' in line.lower()):
+                                # Might be a different format of notification
+                                log.warning(f"Potential notification in different format: {line}")
+                                # Try various regex patterns
+                                match = re.search(r'handle.*?0x([0-9a-f]+).*?(?:value|data).*?([0-9a-f ]+)', line, re.IGNORECASE)
+                                if not match:
+                                    # Try without explicit "value" keyword
+                                    match = re.search(r'handle.*?0x([0-9a-f]+).*?([0-9a-f]{2}(?:\s+[0-9a-f]{2})+)', line, re.IGNORECASE)
+                                if match:
+                                    handle_str = match.group(1)
+                                    hex_str = match.group(2).replace(' ', '')
+                                    try:
+                                        handle = int(handle_str, 16)
+                                        data = bytearray.fromhex(hex_str)
+                                        log.info(f"Parsed alternative format notification: handle={handle:04x}, data={hex_str}")
+                                        process_notification_data(handle, data)
+                                    except ValueError as e:
+                                        log.warning(f"Failed to parse alternative format notification: {e}, line: {line}")
                     except queue.Empty:
                         pass
                 except Exception as e:
                     if running:
                         log.error(f"Notification read error: {e}")
+                        import traceback
+                        log.error(traceback.format_exc())
                     break
         
         threading.Thread(target=read_notifications, daemon=True).start()
