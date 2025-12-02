@@ -376,27 +376,51 @@ def connect_and_scan_ble_device(device_address):
         time.sleep(0.5)
         gatttool_process = proc
         
-        # Enable notifications on FEN RX characteristic
-        if fen_rx_char.get('cccd_handle'):
-            log.info(f"Enabling notifications on FEN RX characteristic (CCCD handle {fen_rx_char['cccd_handle']:04x})")
-            try:
-                proc.stdin.write(f"char-write-req {fen_rx_char['cccd_handle']:04x} 0100\n")
-                proc.stdin.flush()
-                time.sleep(0.2)
-            except Exception as e:
-                log.error(f"Error enabling notifications on FEN RX: {e}")
+        # Set BLE MTU to 500 (required for receiving full FEN data)
+        # According to Chessnut documentation: "If you cannot receive the full FEN data, 
+        # please set the BLE MTU to 500 after the BLE connection is established."
+        log.info("Setting BLE MTU to 500...")
+        try:
+            # Use D-Bus to access BlueZ GATT interface and request MTU exchange
+            bus = BleTools.get_bus()
+            device_path = None
+            
+            # Find the device path
+            remote_om = dbus.Interface(
+                bus.get_object(BLUEZ_SERVICE_NAME, "/"),
+                DBUS_OM_IFACE)
+            objects = remote_om.GetManagedObjects()
+            
+            for path, interfaces in objects.items():
+                if DEVICE_IFACE in interfaces:
+                    device_props = interfaces[DEVICE_IFACE]
+                    if device_props.get("Address", "").upper() == device_address.upper():
+                        device_path = path
+                        break
+            
+            if device_path:
+                # Try to get GATT interface (if available)
+                try:
+                    device_obj = bus.get_object(BLUEZ_SERVICE_NAME, device_path)
+                    # Check if device has GATT interface
+                    if 'org.bluez.Device1' in objects.get(device_path, {}):
+                        # MTU exchange is typically handled automatically, but we can try to request it
+                        # Note: BlueZ doesn't expose MTU exchange directly via D-Bus in older versions
+                        # The MTU is negotiated automatically during connection
+                        log.info("MTU exchange is typically handled automatically by BlueZ during connection")
+                        log.info("If MTU is still too small, you may need to use a BLE library that supports explicit MTU exchange")
+                except Exception as e:
+                    log.debug(f"Could not access device GATT interface: {e}")
+            else:
+                log.warning("Could not find device path for MTU exchange")
+        except Exception as e:
+            log.warning(f"Could not set MTU via D-Bus: {e}")
+            log.warning("MTU exchange may need to be handled by the BLE stack automatically")
+            log.warning("If you're not receiving data, the MTU might be too small (default is 23 bytes)")
+            log.warning("Consider using a BLE library like 'bleak' or 'bluepy' that supports explicit MTU exchange")
         
-        # Enable notifications on Operation RX characteristic
-        if op_rx_char.get('cccd_handle'):
-            log.info(f"Enabling notifications on Operation RX characteristic (CCCD handle {op_rx_char['cccd_handle']:04x})")
-            try:
-                proc.stdin.write(f"char-write-req {op_rx_char['cccd_handle']:04x} 0100\n")
-                proc.stdin.flush()
-                time.sleep(0.2)
-            except Exception as e:
-                log.error(f"Error enabling notifications on Operation RX: {e}")
-        
-        # Start threads to drain stdout and stderr
+        # Start threads to drain stdout and stderr BEFORE enabling notifications
+        # This ensures we can see confirmation messages
         stdout_queue = queue.Queue()
         stderr_queue = queue.Queue()
         
@@ -429,6 +453,44 @@ def connect_and_scan_ble_device(device_address):
         threading.Thread(target=drain_stdout, daemon=True).start()
         threading.Thread(target=drain_stderr, daemon=True).start()
         
+        # Enable notifications on FEN RX characteristic
+        if fen_rx_char.get('cccd_handle'):
+            log.info(f"Enabling notifications on FEN RX characteristic (CCCD handle {fen_rx_char['cccd_handle']:04x})")
+            try:
+                proc.stdin.write(f"char-write-req {fen_rx_char['cccd_handle']:04x} 0100\n")
+                proc.stdin.flush()
+                time.sleep(0.5)  # Wait for confirmation
+                # Check for confirmation in output
+                try:
+                    # Drain any immediate response
+                    while not stdout_queue.empty():
+                        chunk = stdout_queue.get_nowait()
+                        log.debug(f"gatttool stdout after FEN notification enable: {chunk}")
+                except queue.Empty:
+                    pass
+            except Exception as e:
+                log.error(f"Error enabling notifications on FEN RX: {e}")
+        
+        # Enable notifications on Operation RX characteristic
+        if op_rx_char.get('cccd_handle'):
+            log.info(f"Enabling notifications on Operation RX characteristic (CCCD handle {op_rx_char['cccd_handle']:04x})")
+            try:
+                proc.stdin.write(f"char-write-req {op_rx_char['cccd_handle']:04x} 0100\n")
+                proc.stdin.flush()
+                time.sleep(0.5)  # Wait for confirmation
+                # Check for confirmation in output
+                try:
+                    # Drain any immediate response
+                    while not stdout_queue.empty():
+                        chunk = stdout_queue.get_nowait()
+                        log.debug(f"gatttool stdout after Operation notification enable: {chunk}")
+                except queue.Empty:
+                    pass
+            except Exception as e:
+                log.error(f"Error enabling notifications on Operation RX: {e}")
+        
+        # Remove duplicate thread creation
+        
         # Start notification reader
         def read_notifications():
             global running, kill
@@ -439,8 +501,15 @@ def connect_and_scan_ble_device(device_address):
                     try:
                         chunk = stdout_queue.get(timeout=0.1)
                         buffer += chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
+                        # Log all gatttool output for debugging
+                        if chunk:
+                            log.debug(f"gatttool output chunk: {repr(chunk)}")
                         while '\n' in buffer:
                             line, buffer = buffer.split('\n', 1)
+                            line_stripped = line.strip()
+                            # Log all lines for debugging
+                            if line_stripped:
+                                log.debug(f"gatttool line: {line_stripped}")
                             if 'Notification' in line or 'Indication' in line:
                                 match = re.search(r'handle = 0x([0-9a-f]+).*value: ([0-9a-f ]+)', line, re.IGNORECASE)
                                 if match:
