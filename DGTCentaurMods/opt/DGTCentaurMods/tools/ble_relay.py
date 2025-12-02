@@ -113,8 +113,10 @@ gatttool_process = None
 notification_threads = []
 active_write_handle = None  # The characteristic handle that received a reply
 active_write_lock = threading.Lock()  # Lock for thread-safe access to active_write_handle
-initial_probe_sent = False  # Track if we've sent the initial probe [0x21, 0x01, 0x00]
-initial_probe_replied = False  # Track if the initial probe got a reply
+initial_commands_sent = False  # Track if we've sent the initial commands
+active_protocol = None  # Track which protocol got a response: "millennium" or "chessnut_air"
+last_sent_protocol = {}  # Track which protocol was last sent to each handle: {handle: "millennium" or "chessnut_air"}
+last_sent_protocol_lock = threading.Lock()  # Lock for thread-safe access to last_sent_protocol
 
 
 def signal_handler(signum, frame):
@@ -505,7 +507,7 @@ def connect_and_scan_ble_device(device_address):
         
         # Start notification reader
         def read_notifications():
-            global running, kill, active_write_handle, active_write_lock, initial_probe_replied
+            global running, kill, active_write_handle, active_write_lock, active_protocol
             buffer = ""
             while running and not kill:
                 try:
@@ -535,29 +537,46 @@ def connect_and_scan_ble_device(device_address):
                                             log.info(f"RX [{char_info['service_uuid']}] [{char_info['uuid']}] (handle {handle:04x}) ASCII: {data.decode('utf-8', errors='replace')}")
                                             
                                             # Check if this is the first reply - if so, set it as the active write handle
-                                            with active_write_lock:
+                                            with active_write_lock, last_sent_protocol_lock:
                                                 if active_write_handle is None:
                                                     # Find the corresponding write handle (same value handle)
                                                     for wh in write_handles:
                                                         if wh['value_handle'] == handle:
                                                             active_write_handle = wh
-                                                            initial_probe_replied = True
-                                                            log.info(f"*** REPLY RECEIVED: Setting active write handle to {handle:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}) ***")
-                                                            log.info(f"*** Will now only send to this characteristic ***")
+                                                            # Determine which protocol triggered this response
+                                                            # Check which protocol was last sent to this handle
+                                                            protocol = last_sent_protocol.get(handle)
+                                                            if protocol:
+                                                                active_protocol = protocol
+                                                                log.info(f"*** REPLY RECEIVED: Detected {active_protocol} protocol (response to last sent command) ***")
+                                                            else:
+                                                                # Fallback: if we can't determine, default to chessnut_air
+                                                                active_protocol = "chessnut_air"
+                                                                log.info(f"*** REPLY RECEIVED: Could not determine protocol, defaulting to chessnut_air ***")
+                                                            log.info(f"*** Setting active write handle to {handle:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}) ***")
+                                                            log.info(f"*** Will now only send to this characteristic using {active_protocol} protocol ***")
                                                             break
                                         else:
                                             log.info(f"RX (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)}")
                                             log.info(f"RX (handle {handle:04x}) ASCII: {data.decode('utf-8', errors='replace')}")
                                             
                                             # Even if we don't have char_info, try to find the write handle
-                                            with active_write_lock:
+                                            with active_write_lock, last_sent_protocol_lock:
                                                 if active_write_handle is None:
                                                     for wh in write_handles:
                                                         if wh['value_handle'] == handle:
                                                             active_write_handle = wh
-                                                            initial_probe_replied = True
-                                                            log.info(f"*** REPLY RECEIVED: Setting active write handle to {handle:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}) ***")
-                                                            log.info(f"*** Will now only send to this characteristic ***")
+                                                            # Determine which protocol triggered this response
+                                                            protocol = last_sent_protocol.get(handle)
+                                                            if protocol:
+                                                                active_protocol = protocol
+                                                                log.info(f"*** REPLY RECEIVED: Detected {active_protocol} protocol (response to last sent command) ***")
+                                                            else:
+                                                                # Fallback: if we can't determine, default to chessnut_air
+                                                                active_protocol = "chessnut_air"
+                                                                log.info(f"*** REPLY RECEIVED: Could not determine protocol, defaulting to chessnut_air ***")
+                                                            log.info(f"*** Setting active write handle to {handle:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}) ***")
+                                                            log.info(f"*** Will now only send to this characteristic using {active_protocol} protocol ***")
                                                             break
                                     except ValueError:
                                         pass
@@ -577,9 +596,9 @@ def connect_and_scan_ble_device(device_address):
                 log.info(f"  - Handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']})")
             
             def periodic_send():
-                """Send probe bytes first, then 'S' encoded with Millennium protocol if no reply"""
+                """Send initial commands for both protocols, then use the one that gets a response"""
                 global running, kill, gatttool_process, device_connected, active_write_handle, active_write_lock
-                global initial_probe_sent, initial_probe_replied
+                global initial_commands_sent, active_protocol
                 log.info("Periodic send thread started, waiting for connection...")
                 # Wait for device_connected to be True
                 wait_count = 0
@@ -593,28 +612,60 @@ def connect_and_scan_ble_device(device_address):
                 
                 log.info("Periodic send thread: device connected, starting periodic sends")
                 
-                # First, send the initial probe [0x21, 0x01, 0x00] to all characteristics
-                if not initial_probe_sent:
-                    log.info("Sending initial probe [0x21, 0x01, 0x00] to all characteristics...")
-                    probe_bytes = [0x21, 0x01, 0x00]
-                    probe_hex = ' '.join(f'{b:02x}' for b in probe_bytes)
-                    for wh in write_handles:
-                        try:
-                            handle = wh['value_handle']
-                            uuid = wh['uuid']
-                            service_uuid = wh['service_uuid']
-                            
-                            log.info(f"  -> Sending probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                            gatttool_process.stdin.write(f"char-write-req {handle:04x} {probe_hex}\n")
-                            gatttool_process.stdin.flush()
-                            log.info(f"  <- Sent probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                            time.sleep(0.1)  # Small delay between writes
-                        except Exception as e:
-                            log.error(f"  Error sending probe to handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}): {e}")
-                            import traceback
-                            log.error(traceback.format_exc())
-                    log.info(f"Completed sending probe to all {len(write_handles)} characteristics")
-                    initial_probe_sent = True
+                # First, send both initial commands to all characteristics
+                if not initial_commands_sent:
+                    # Send Millennium initial command "W0202" to all characteristics
+                    log.info("Sending Millennium initial command 'W0202' to all characteristics...")
+                    millennium_init = encode_millennium_command("W0202")
+                    millennium_hex = ' '.join(f'{b:02x}' for b in millennium_init)
+                    with last_sent_protocol_lock:
+                        for wh in write_handles:
+                            try:
+                                handle = wh['value_handle']
+                                uuid = wh['uuid']
+                                service_uuid = wh['service_uuid']
+                                
+                                log.info(f"  -> Sending Millennium 'W0202' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                log.info(f"     Encoded bytes: {millennium_hex}")
+                                gatttool_process.stdin.write(f"char-write-req {handle:04x} {millennium_hex}\n")
+                                gatttool_process.stdin.flush()
+                                log.info(f"  <- Sent Millennium 'W0202' to handle {handle:04x}")
+                                # Track that we sent Millennium protocol to this handle
+                                last_sent_protocol[handle] = "millennium"
+                                time.sleep(0.1)  # Small delay between writes
+                            except Exception as e:
+                                log.error(f"  Error sending Millennium command to handle {wh['value_handle']:04x}: {e}")
+                                import traceback
+                                log.error(traceback.format_exc())
+                    
+                    # Wait a bit before sending the next protocol
+                    time.sleep(1)
+                    
+                    # Send Chessnut Air initial command [0x21, 0x01, 0x00] to all characteristics
+                    log.info("Sending Chessnut Air initial command [0x21, 0x01, 0x00] to all characteristics...")
+                    chessnut_bytes = [0x21, 0x01, 0x00]
+                    chessnut_hex = ' '.join(f'{b:02x}' for b in chessnut_bytes)
+                    with last_sent_protocol_lock:
+                        for wh in write_handles:
+                            try:
+                                handle = wh['value_handle']
+                                uuid = wh['uuid']
+                                service_uuid = wh['service_uuid']
+                                
+                                log.info(f"  -> Sending Chessnut Air probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                gatttool_process.stdin.write(f"char-write-req {handle:04x} {chessnut_hex}\n")
+                                gatttool_process.stdin.flush()
+                                log.info(f"  <- Sent Chessnut Air probe to handle {handle:04x}")
+                                # Track that we sent Chessnut Air protocol to this handle
+                                last_sent_protocol[handle] = "chessnut_air"
+                                time.sleep(0.1)  # Small delay between writes
+                            except Exception as e:
+                                log.error(f"  Error sending Chessnut Air probe to handle {wh['value_handle']:04x}: {e}")
+                                import traceback
+                                log.error(traceback.format_exc())
+                    
+                    log.info(f"Completed sending initial commands to all {len(write_handles)} characteristics")
+                    initial_commands_sent = True
                     # Wait a bit for replies
                     time.sleep(2)
                 
@@ -623,57 +674,54 @@ def connect_and_scan_ble_device(device_address):
                         if gatttool_process and gatttool_process.poll() is None:
                             with active_write_lock:
                                 current_active = active_write_handle
-                                probe_replied = initial_probe_replied
+                                current_protocol = active_protocol
                             
                             if current_active is None:
-                                # No reply yet
-                                if not probe_replied:
-                                    # Initial probe didn't get a reply, try sending encoded "S"
-                                    log.info(f"Initial probe got no reply, sending Millennium-encoded 'S' to {len(write_handles)} characteristics...")
-                                    encoded_s = encode_millennium_command("S")
-                                    encoded_hex = ' '.join(f'{b:02x}' for b in encoded_s)
-                                    
-                                    for wh in write_handles:
-                                        try:
-                                            handle = wh['value_handle']
-                                            uuid = wh['uuid']
-                                            service_uuid = wh['service_uuid']
-                                            
-                                            log.info(f"  -> Sending encoded 'S' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                            log.info(f"     Encoded bytes: {encoded_hex}")
-                                            gatttool_process.stdin.write(f"char-write-req {handle:04x} {encoded_hex}\n")
-                                            gatttool_process.stdin.flush()
-                                            log.info(f"  <- Sent encoded 'S' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                            time.sleep(0.1)  # Small delay between writes
-                                        except Exception as e:
-                                            log.error(f"  Error sending encoded 'S' to handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}): {e}")
-                                            import traceback
-                                            log.error(traceback.format_exc())
-                                    log.info(f"Completed sending encoded 'S' to all {len(write_handles)} characteristics")
-                                    initial_probe_replied = True  # Mark as tried, don't repeat
-                                else:
-                                    # Already tried both, just wait
-                                    log.debug("Waiting for reply from characteristics...")
+                                # No reply yet, continue waiting
+                                log.debug("Waiting for reply from characteristics...")
                             else:
-                                # Reply received, only send to the active characteristic
+                                # Reply received, only send to the active characteristic using the detected protocol
                                 handle = current_active['value_handle']
                                 uuid = current_active['uuid']
                                 service_uuid = current_active['service_uuid']
                                 
-                                # Use Millennium encoding for "S"
-                                encoded_s = encode_millennium_command("S")
-                                encoded_hex = ' '.join(f'{b:02x}' for b in encoded_s)
-                                
-                                log.info(f"Sending Millennium-encoded 'S' to active characteristic handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                log.info(f"Encoded bytes: {encoded_hex}")
-                                try:
-                                    gatttool_process.stdin.write(f"char-write-req {handle:04x} {encoded_hex}\n")
-                                    gatttool_process.stdin.flush()
-                                    log.info(f"Sent encoded 'S' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                except Exception as e:
-                                    log.error(f"Error sending to active handle {handle:04x}: {e}")
-                                    import traceback
-                                    log.error(traceback.format_exc())
+                                if current_protocol == "millennium":
+                                    # Use Millennium subsequent command "S"
+                                    encoded_s = encode_millennium_command("S")
+                                    encoded_hex = ' '.join(f'{b:02x}' for b in encoded_s)
+                                    
+                                    log.info(f"Sending Millennium-encoded 'S' to active characteristic handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                    log.info(f"Encoded bytes: {encoded_hex}")
+                                    try:
+                                        gatttool_process.stdin.write(f"char-write-req {handle:04x} {encoded_hex}\n")
+                                        gatttool_process.stdin.flush()
+                                        # Track that we sent Millennium protocol
+                                        with last_sent_protocol_lock:
+                                            last_sent_protocol[handle] = "millennium"
+                                        log.info(f"Sent Millennium 'S' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                    except Exception as e:
+                                        log.error(f"Error sending to active handle {handle:04x}: {e}")
+                                        import traceback
+                                        log.error(traceback.format_exc())
+                                elif current_protocol == "chessnut_air":
+                                    # Use Chessnut Air subsequent command [0x21, 0x01, 0x00]
+                                    chessnut_bytes = [0x21, 0x01, 0x00]
+                                    chessnut_hex = ' '.join(f'{b:02x}' for b in chessnut_bytes)
+                                    
+                                    log.info(f"Sending Chessnut Air command [0x21, 0x01, 0x00] to active characteristic handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                    try:
+                                        gatttool_process.stdin.write(f"char-write-req {handle:04x} {chessnut_hex}\n")
+                                        gatttool_process.stdin.flush()
+                                        # Track that we sent Chessnut Air protocol
+                                        with last_sent_protocol_lock:
+                                            last_sent_protocol[handle] = "chessnut_air"
+                                        log.info(f"Sent Chessnut Air command to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
+                                    except Exception as e:
+                                        log.error(f"Error sending to active handle {handle:04x}: {e}")
+                                        import traceback
+                                        log.error(traceback.format_exc())
+                                else:
+                                    log.warning(f"Unknown protocol: {current_protocol}, cannot send command")
                         else:
                             log.warning("gatttool process not available, skipping send")
                             if gatttool_process:
