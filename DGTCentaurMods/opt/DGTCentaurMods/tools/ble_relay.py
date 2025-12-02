@@ -380,8 +380,44 @@ def connect_and_scan_ble_device(device_address):
             
             if char_result and char_result.returncode == 0:
                 chars = parse_gatttool_char_desc_output(char_result.stdout)
+                
+                # Also get characteristics with properties using --characteristics
+                char_props_result = subprocess.run(['gatttool', '-b', device_address, '--characteristics',
+                                                   f"{service['start_handle']:04x}", f"{service['end_handle']:04x}"],
+                                                  capture_output=True, timeout=10, text=True)
+                
+                # Parse properties from --characteristics output
+                # Format: handle = 0xXXXX, char properties = 0xXX, char value handle = 0xYYYY uuid: UUID
+                properties_map = {}
+                if char_props_result.returncode == 0:
+                    for line in char_props_result.stdout.split('\n'):
+                        props_match = re.search(r'char value handle = 0x([0-9a-f]+).*char properties = 0x([0-9a-f]+)', line, re.IGNORECASE)
+                        if props_match:
+                            value_handle = int(props_match.group(1), 16)
+                            properties_hex = int(props_match.group(2), 16)
+                            properties_map[value_handle] = properties_hex
+                            # Properties: 0x02=read, 0x04=write, 0x08=notify, 0x10=indicate, 0x20=write-without-response
+                            props_list = []
+                            if properties_hex & 0x02: props_list.append("read")
+                            if properties_hex & 0x04: props_list.append("write")
+                            if properties_hex & 0x08: props_list.append("notify")
+                            if properties_hex & 0x10: props_list.append("indicate")
+                            if properties_hex & 0x20: props_list.append("write-without-response")
+                            log.info(f"Characteristic handle {value_handle:04x} properties: 0x{properties_hex:02x} ({', '.join(props_list)})")
+                
                 for char in chars:
                     char['service_uuid'] = service['uuid']
+                    # Add properties if we found them
+                    if char['value_handle'] in properties_map:
+                        char['properties'] = properties_map[char['value_handle']]
+                        props_hex = properties_map[char['value_handle']]
+                        props_list = []
+                        if props_hex & 0x02: props_list.append("read")
+                        if props_hex & 0x04: props_list.append("write")
+                        if props_hex & 0x08: props_list.append("notify")
+                        if props_hex & 0x10: props_list.append("indicate")
+                        if props_hex & 0x20: props_list.append("write-without-response")
+                        char['properties_list'] = props_list
                 all_characteristics.extend(chars)
                 log.info(f"Found {len(chars)} characteristics in service {service['uuid']}")
         
@@ -564,39 +600,59 @@ def connect_and_scan_ble_device(device_address):
         threading.Thread(target=drain_stdout, daemon=True).start()
         threading.Thread(target=drain_stderr, daemon=True).start()
         
-        # Store write handles - use characteristics in the Millennium service (handles 0030-003d)
-        # The real Millennium board uses different UUIDs than what we expose as a peripheral
+        # Store write handles - prioritize WRITABLE characteristics in the Millennium service
+        # RX characteristic should have "write" or "write-without-response" properties
+        # TX characteristic should have "notify" property (we're getting echo-backs there)
         write_handles = []
-        millennium_service_handles = []
+        millennium_rx_handles = []  # Characteristics with write properties
+        millennium_tx_handles = []  # Characteristics with notify properties (for receiving responses)
+        
         if all_characteristics:
             for char in all_characteristics:
                 char_uuid = normalize_uuid(char.get('uuid', ''))
                 service_uuid = normalize_uuid(char.get('service_uuid', ''))
                 value_handle = char['value_handle']
+                properties = char.get('properties', 0)
+                properties_list = char.get('properties_list', [])
                 
                 # Collect characteristics in the Millennium service (service range is 0030-003d)
-                # Only use characteristics whose value handle is in the Millennium service range
                 if service_uuid == MILLENNIUM_SERVICE_UUID_NORM and 0x0030 <= value_handle <= 0x003d:
-                    millennium_service_handles.append({
+                    char_info = {
+                        'value_handle': value_handle,
+                        'uuid': char.get('uuid', 'unknown'),
+                        'service_uuid': char.get('service_uuid', 'unknown'),
+                        'properties': properties,
+                        'properties_list': properties_list
+                    }
+                    
+                    # Check if it has write properties (RX characteristic)
+                    if properties & 0x04 or properties & 0x20:  # write or write-without-response
+                        millennium_rx_handles.append(char_info)
+                        log.info(f"Found WRITABLE characteristic in Millennium service: UUID {char.get('uuid')}, handle {value_handle:04x}, properties: {', '.join(properties_list)}")
+                    
+                    # Check if it has notify properties (TX characteristic)
+                    if properties & 0x08:  # notify
+                        millennium_tx_handles.append(char_info)
+                        log.info(f"Found NOTIFY characteristic in Millennium service: UUID {char.get('uuid')}, handle {value_handle:04x}, properties: {', '.join(properties_list)}")
+        
+        # Use writable characteristics (RX) for writing commands
+        if millennium_rx_handles:
+            write_handles = millennium_rx_handles
+            log.info(f"Using {len(millennium_rx_handles)} WRITABLE characteristics from Millennium service for writing commands")
+            if millennium_tx_handles:
+                log.info(f"Found {len(millennium_tx_handles)} NOTIFY characteristics for receiving responses")
+        else:
+            log.warning(f"No WRITABLE characteristics found in Millennium service! Will try all characteristics as fallback")
+            # Fallback: add all characteristics in Millennium service
+            for char in all_characteristics:
+                service_uuid = normalize_uuid(char.get('service_uuid', ''))
+                value_handle = char['value_handle']
+                if service_uuid == MILLENNIUM_SERVICE_UUID_NORM and 0x0030 <= value_handle <= 0x003d:
+                    write_handles.append({
                         'value_handle': value_handle,
                         'uuid': char.get('uuid', 'unknown'),
                         'service_uuid': char.get('service_uuid', 'unknown')
                     })
-                    log.info(f"Found characteristic in Millennium service: UUID {char.get('uuid')}, handle {value_handle:04x}")
-        
-        # If we found characteristics in the Millennium service, use only those for writing
-        if millennium_service_handles:
-            write_handles = millennium_service_handles
-            log.info(f"Using {len(millennium_service_handles)} characteristics from Millennium service (handles 0030-003d) for writing commands")
-        else:
-            log.warning(f"No characteristics found in Millennium service range (0030-003d)! Will try all characteristics as fallback")
-            # Fallback: add all characteristics
-            for char in all_characteristics:
-                write_handles.append({
-                    'value_handle': char['value_handle'],
-                    'uuid': char.get('uuid', 'unknown'),
-                    'service_uuid': char.get('service_uuid', 'unknown')
-                })
         
         # Start notification reader
         def read_notifications():
