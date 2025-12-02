@@ -472,6 +472,33 @@ def connect_and_scan_ble_device(device_address):
         
         threading.Thread(target=read_notifications, daemon=True).start()
         
+        # Start periodic send thread (send "S" every 10 seconds)
+        if all_characteristics:
+            # Use the first characteristic's value handle for writing
+            write_handle = all_characteristics[0]['value_handle']
+            log.info(f"Will send periodic 'S' to characteristic handle {write_handle:04x}")
+            
+            def periodic_send():
+                """Send 'S' byte every 10 seconds"""
+                global running, kill, gatttool_process
+                while running and not kill and device_connected:
+                    try:
+                        if gatttool_process and gatttool_process.poll() is None:
+                            # Send "S" (0x53 in hex) to the write characteristic
+                            gatttool_process.stdin.write(f"char-write-req {write_handle:04x} 53\n")
+                            gatttool_process.stdin.flush()
+                            log.info(f"Sent 'S' (0x53) to handle {write_handle:04x}")
+                        time.sleep(10)
+                    except Exception as e:
+                        if running:
+                            log.error(f"Error in periodic send: {e}")
+                        break
+            
+            threading.Thread(target=periodic_send, daemon=True).start()
+            log.info("Periodic send thread started (sending 'S' every 10 seconds)")
+        else:
+            log.warning("No characteristics found, cannot send periodic data")
+        
         device_connected = True
         log.info("BLE connection established and notifications enabled")
         return True
