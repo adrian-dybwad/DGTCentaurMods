@@ -721,9 +721,20 @@ def connect_and_scan_ble_device(device_address, bus=None):
                             if 'Characteristic value was written successfully' in line:
                                 log.info(f"Command write confirmed: {line_stripped}")
                             
-                            if 'Notification' in line or 'Indication' in line:
+                            # Check for notifications/indications - be more flexible with pattern matching
+                            if 'Notification' in line or 'Indication' in line or 'notify' in line.lower() or 'indicate' in line.lower():
                                 log.info(f"*** RECEIVED NOTIFICATION/INDICATION: {line_stripped} ***")
-                                match = re.search(r'handle = 0x([0-9a-f]+).*value: ([0-9a-f ]+)', line, re.IGNORECASE)
+                                # Try multiple patterns to extract handle and value
+                                match = None
+                                # Pattern 1: handle = 0xXXXX ... value: XX XX XX
+                                match = re.search(r'handle\s*=\s*0x([0-9a-f]+).*value:\s*([0-9a-f ]+)', line, re.IGNORECASE)
+                                if not match:
+                                    # Pattern 2: handle 0xXXXX value XX XX XX
+                                    match = re.search(r'handle\s+0x([0-9a-f]+).*value\s+([0-9a-f ]+)', line, re.IGNORECASE)
+                                if not match:
+                                    # Pattern 3: Just look for hex values after handle
+                                    match = re.search(r'0x([0-9a-f]+).*?([0-9a-f]{2}(?:\s+[0-9a-f]{2})+)', line, re.IGNORECASE)
+                                
                                 if match:
                                     handle_str = match.group(1)
                                     hex_str = match.group(2).replace(' ', '')
@@ -747,6 +758,10 @@ def connect_and_scan_ble_device(device_address, bus=None):
                                                 charging = (battery_level_byte & 0x80) != 0
                                                 battery_percent = battery_level_byte & 0x7F
                                                 log.info(f"*** RX [Operation RX] Battery Level: {battery_percent}% ({'Charging' if charging else 'Not charging'}) ***")
+                                    except (ValueError, IndexError) as e:
+                                        log.warning(f"Could not parse notification data: {e}, line: {line_stripped}")
+                                else:
+                                    log.warning(f"Could not extract handle/value from notification line: {line_stripped}")
                                         
                                         # Try to decode as text if possible
                                         try:
@@ -778,34 +793,15 @@ def connect_and_scan_ble_device(device_address, bus=None):
         time.sleep(1)
         
         # Send initial enable reporting command
+        # Chessnut devices typically use char-write-cmd (write without response) for commands
         log.info("Sending initial enable reporting command [0x21, 0x01, 0x00]...")
         chessnut_hex = ' '.join(f'{b:02x}' for b in CHESSNUT_ENABLE_REPORTING_CMD)
         try:
-            # Use char-write-req to get confirmation
-            proc.stdin.write(f"char-write-req {op_tx_char['value_handle']:04x} {chessnut_hex}\n")
+            # Use char-write-cmd (write without response) - preferred by Chessnut devices
+            proc.stdin.write(f"char-write-cmd {op_tx_char['value_handle']:04x} {chessnut_hex}\n")
             proc.stdin.flush()
-            log.info(f"Sent enable reporting command (with response) to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
-            log.info("Waiting for write confirmation...")
-            time.sleep(2)  # Wait longer for response
-            # Check for response - drain all available output
-            responses_found = 0
-            try:
-                timeout = time.time() + 3
-                while time.time() < timeout:
-                    try:
-                        chunk = stdout_queue.get(timeout=0.3)
-                        chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
-                        log.info(f"Enable reporting command response chunk: {repr(chunk_str)}")
-                        if 'written successfully' in chunk_str.lower() or 'error' in chunk_str.lower():
-                            responses_found += 1
-                            log.info(f"*** Enable reporting command write {'SUCCEEDED' if 'success' in chunk_str.lower() else 'FAILED'} ***")
-                    except queue.Empty:
-                        if responses_found > 0:
-                            break
-            except Exception as e:
-                log.debug(f"Error checking enable reporting response: {e}")
-            if responses_found == 0:
-                log.warning("No write confirmation received for enable reporting command")
+            log.info(f"Sent enable reporting command (write without response) to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
+            time.sleep(0.5)  # Brief delay for command to be processed
         except Exception as e:
             log.error(f"Error sending enable reporting command: {e}")
         
@@ -813,34 +809,11 @@ def connect_and_scan_ble_device(device_address, bus=None):
         log.info("Sending battery level command [0x29, 0x01, 0x00]...")
         battery_hex = ' '.join(f'{b:02x}' for b in CHESSNUT_BATTERY_LEVEL_CMD)
         try:
-            # Use char-write-req to get confirmation
-            proc.stdin.write(f"char-write-req {op_tx_char['value_handle']:04x} {battery_hex}\n")
+            # Use char-write-cmd (write without response) - preferred by Chessnut devices
+            proc.stdin.write(f"char-write-cmd {op_tx_char['value_handle']:04x} {battery_hex}\n")
             proc.stdin.flush()
-            log.info(f"Sent battery level command (with response) to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
-            log.info("Waiting for write confirmation and battery response...")
-            time.sleep(3)  # Wait longer for both write confirmation and battery response
-            # Check for response - drain all available output
-            responses_found = 0
-            try:
-                timeout = time.time() + 4
-                while time.time() < timeout:
-                    try:
-                        chunk = stdout_queue.get(timeout=0.3)
-                        chunk_str = chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
-                        log.info(f"Battery level command response chunk: {repr(chunk_str)}")
-                        if 'written successfully' in chunk_str.lower() or 'error' in chunk_str.lower() or 'indication' in chunk_str.lower() or 'notification' in chunk_str.lower():
-                            responses_found += 1
-                            if 'written successfully' in chunk_str.lower():
-                                log.info("*** Battery level command write SUCCEEDED ***")
-                            if 'indication' in chunk_str.lower() or 'notification' in chunk_str.lower():
-                                log.info("*** Battery level response received via indication/notification ***")
-                    except queue.Empty:
-                        if responses_found > 0:
-                            break
-            except Exception as e:
-                log.debug(f"Error checking battery level response: {e}")
-            if responses_found == 0:
-                log.warning("No write confirmation or response received for battery level command")
+            log.info(f"Sent battery level command (write without response) to Operation TX characteristic (handle {op_tx_char['value_handle']:04x})")
+            time.sleep(0.5)  # Brief delay for command to be processed
         except Exception as e:
             log.error(f"Error sending battery level command: {e}")
         
