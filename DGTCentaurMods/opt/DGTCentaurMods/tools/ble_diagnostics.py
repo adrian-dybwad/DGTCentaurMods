@@ -189,7 +189,7 @@ def check_system_logs():
 
 
 def check_ble_config_files():
-    """Check BLE configuration files"""
+    """Check BLE configuration files and suggest MTU fix"""
     config_files = [
         "/etc/bluetooth/main.conf",
         "/etc/bluetooth/network.conf",
@@ -199,6 +199,9 @@ def check_ble_config_files():
     log.info("BLE Configuration Files")
     log.info(f"{'='*60}")
     
+    mtu_found = False
+    mtu_enabled = False
+    
     for config_file in config_files:
         if os.path.exists(config_file):
             log.info(f"\n{config_file}:")
@@ -206,10 +209,45 @@ def check_ble_config_files():
                 with open(config_file, 'r') as f:
                     content = f.read()
                     log.info(content)
+                    
+                    # Check for MTU setting
+                    if 'ExchangeMTU' in content:
+                        mtu_found = True
+                        # Check if it's enabled (not commented)
+                        for line in content.split('\n'):
+                            if 'ExchangeMTU' in line and not line.strip().startswith('#'):
+                                mtu_enabled = True
+                                log.info(f"\n*** FOUND: ExchangeMTU is enabled in {config_file} ***")
+                                # Extract the value
+                                import re
+                                match = re.search(r'ExchangeMTU\s*=\s*(\d+)', line)
+                                if match:
+                                    mtu_value = int(match.group(1))
+                                    log.info(f"*** MTU is set to {mtu_value} bytes ***")
+                                    if mtu_value >= 500:
+                                        log.info("*** MTU is sufficient for Chessnut (needs 500) ***")
+                                    else:
+                                        log.warning(f"*** MTU {mtu_value} is too small for Chessnut (needs 500) ***")
             except Exception as e:
                 log.error(f"Error reading {config_file}: {e}")
         else:
             log.info(f"{config_file}: File not found")
+    
+    if mtu_found and not mtu_enabled:
+        log.info(f"\n{'='*60}")
+        log.info("MTU CONFIGURATION ISSUE DETECTED")
+        log.info(f"{'='*60}")
+        log.warning("ExchangeMTU is commented out in /etc/bluetooth/main.conf")
+        log.warning("This means BLE connections will use default MTU of 23 bytes")
+        log.warning("Chessnut Air needs MTU of 500 bytes for 36-byte FEN packets")
+        log.info("\nTo fix this, edit /etc/bluetooth/main.conf and uncomment/modify:")
+        log.info("  Change: #ExchangeMTU = 517")
+        log.info("  To:     ExchangeMTU = 500")
+        log.info("\nThen restart Bluetooth service:")
+        log.info("  sudo systemctl restart bluetooth")
+    elif not mtu_found:
+        log.warning("\nExchangeMTU setting not found in config files")
+        log.warning("You may need to add it manually to /etc/bluetooth/main.conf under [GATT] section")
 
 
 def check_mtu_settings():
