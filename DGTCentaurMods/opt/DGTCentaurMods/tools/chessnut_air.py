@@ -762,18 +762,6 @@ def connect_and_scan_ble_device(device_address, bus=None):
                                         log.warning(f"Could not parse notification data: {e}, line: {line_stripped}")
                                 else:
                                     log.warning(f"Could not extract handle/value from notification line: {line_stripped}")
-                                        
-                                        # Try to decode as text if possible
-                                        try:
-                                            text = data.decode('utf-8', errors='replace')
-                                            if text.isprintable() or '\n' in text or '\r' in text:
-                                                log.info(f"RX [{char_name}] (handle {handle:04x}) text: {repr(text)}")
-                                        except:
-                                            pass
-                                    except ValueError as e:
-                                        log.warning(f"Error parsing notification data: {e}, hex_str: {hex_str}")
-                                else:
-                                    log.warning(f"Could not parse notification line: {line_stripped}")
                     except queue.Empty:
                         pass
                 except Exception as e:
