@@ -223,54 +223,52 @@ def connect_and_scan_ble_device(device_address, bus=None):
                     device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
                     device_props = dbus.Interface(device_obj, DBUS_PROP_IFACE)
                     
-                    # Check current connection state
+                    # Check current connection state - CRITICAL: Only connect if not already connected
                     try:
                         connected = device_props.Get(DEVICE_IFACE, "Connected")
                         if connected:
-                            log.info("Device already connected via BlueZ")
+                            log.info("Device already connected via BlueZ - skipping Connect() call")
                         else:
-                            log.info("Connecting device via D-Bus (BlueZ)...")
-                            connection_in_progress = False
+                            log.info("Device not connected - attempting connection via D-Bus...")
                             try:
                                 device_iface.Connect()
+                                # Wait briefly for connection to complete (max 2 seconds)
+                                for _ in range(10):  # 10 * 0.2 = 2 seconds
+                                    try:
+                                        connected = device_props.Get(DEVICE_IFACE, "Connected")
+                                        if connected:
+                                            log.info("Device connected via D-Bus")
+                                            break
+                                    except:
+                                        pass
+                                    time.sleep(0.2)
                             except dbus.exceptions.DBusException as e:
                                 error_str = str(e)
                                 if "InProgress" in error_str or "In Progress" in error_str:
-                                    connection_in_progress = True
                                     log.info("Connection already in progress - waiting for completion...")
+                                    # Wait for in-progress connection
+                                    for _ in range(10):  # 10 * 0.2 = 2 seconds
+                                        try:
+                                            connected = device_props.Get(DEVICE_IFACE, "Connected")
+                                            if connected:
+                                                log.info("Connection completed")
+                                                break
+                                        except:
+                                            pass
+                                        time.sleep(0.2)
+                                elif "Failed" in error_str or "NotAvailable" in error_str:
+                                    log.warning(f"Connection failed: {e} - gatttool may still work")
                                 else:
-                                    log.info(f"Connect() returned: {e} - will wait and check connection state")
-                            
-                            # Wait briefly for connection (max 2 seconds)
-                            for _ in range(10):  # 10 * 0.2 = 2 seconds
-                                try:
-                                    connected = device_props.Get(DEVICE_IFACE, "Connected")
-                                    if connected:
-                                        log.info("Device connected via D-Bus")
-                                        break
-                                except:
-                                    pass
-                                time.sleep(0.2)
-                            
-                            # Final check - always continue to gatttool even if not connected
-                            try:
-                                connected = device_props.Get(DEVICE_IFACE, "Connected")
-                                if connected:
-                                    log.info("Device is connected - ready for GATT operations")
-                                else:
-                                    log.info("Device not connected yet - gatttool will attempt connection")
-                            except:
-                                log.info("Will proceed with gatttool - it may connect automatically")
+                                    log.info(f"Connection attempt: {e} - continuing to gatttool")
                     except dbus.exceptions.DBusException as e:
                         error_str = str(e)
                         if "InProgress" in error_str or "In Progress" in error_str:
-                            log.info("Connection in progress - will wait briefly then continue")
-                            # Wait a moment for in-progress connection
+                            log.info("Connection in progress - waiting briefly then continuing")
                             time.sleep(1)
                         else:
-                            log.info(f"D-Bus connection error: {e} - continuing to gatttool")
+                            log.info(f"D-Bus error checking connection: {e} - continuing to gatttool")
                     except Exception as e:
-                        log.info(f"Error in D-Bus connection: {e} - continuing to gatttool")
+                        log.info(f"Error checking connection state: {e} - continuing to gatttool")
                 else:
                     log.warning("Could not find device path for D-Bus connection")
                     log.warning("Will attempt gatttool connection (may fail)")
@@ -297,17 +295,8 @@ def connect_and_scan_ble_device(device_address, bus=None):
             if "Device or resource busy" in result.stderr or "busy" in result.stderr.lower():
                 if attempt < max_retries - 1:
                     log.warning(f"Device busy, retrying in {retry_delay} seconds (attempt {attempt + 1}/{max_retries})...")
-                    # Disconnect and reconnect via D-Bus
-                    if device_path and bus:
-                        try:
-                            device_obj = bus.get_object(BLUEZ_SERVICE_NAME, device_path)
-                            device_iface = dbus.Interface(device_obj, DEVICE_IFACE)
-                            device_iface.Disconnect()
-                            time.sleep(1)
-                            device_iface.Connect()
-                            time.sleep(2)
-                        except:
-                            pass
+                    # Don't disconnect/reconnect - just wait and retry
+                    # Disconnecting causes the connect/disconnect cycle
                     time.sleep(retry_delay)
                     retry_delay *= 2
                 else:
