@@ -26,80 +26,97 @@ REQUIRED_MTU = 500
 def parse_fen_data(data: bytes) -> str:
     """Parse FEN data from Chessnut Air notification.
     
-    The Chessnut Air sends board position as a 32-byte array where each byte
-    represents two squares (4 bits per square).
+    Based on official Chessnut eBoards API documentation:
+    https://github.com/chessnutech/Chessnut_eBoards
     
-    Piece encoding (4 bits):
-        0x0 = empty
-        0x1 = white pawn
-        0x2 = white rook
-        0x3 = white knight
-        0x4 = white bishop
-        0x5 = white queen
-        0x6 = white king
-        0x7 = black pawn
-        0x8 = black rook
-        0x9 = black knight
-        0xA = black bishop
-        0xB = black queen
-        0xC = black king
+    The notification is a 36-byte array:
+    - Bytes [0-1]: Header
+    - Bytes [2-33]: Position data (32 bytes, 64 squares)
+    - Bytes [34-35]: Reserved/checksum
+    
+    Square order: h8 -> g8 -> f8 -> ... -> a8 -> h7 -> ... -> a1
+    Each byte encodes two squares:
+    - Lower 4 bits = first square (e.g., h8)
+    - Higher 4 bits = next square (e.g., g8)
+    
+    Piece encoding (from official docs):
+        0 = empty
+        1 = black queen (q)
+        2 = black king (k)
+        3 = black bishop (b)
+        4 = black pawn (p)
+        5 = black knight (n)
+        6 = white rook (R)
+        7 = white pawn (P)
+        8 = white rook (r) - docs say this but likely typo, treating as white rook
+        9 = white bishop (B)
+        10 = white knight (N)
+        11 = white queen (Q)
+        12 = white king (K)
     
     Args:
-        data: Raw bytes from FEN characteristic notification
+        data: Raw bytes from FEN characteristic notification (36 bytes expected)
         
     Returns:
         FEN position string (piece placement part only)
     """
-    if len(data) < 32:
+    # Need at least 34 bytes (2 header + 32 position)
+    if len(data) < 34:
         return f"<incomplete data: {len(data)} bytes>"
     
-    # Piece mapping from Chessnut encoding to FEN characters
-    piece_map = {
-        0x0: None,   # empty
-        0x1: 'P',    # white pawn
-        0x2: 'R',    # white rook
-        0x3: 'N',    # white knight
-        0x4: 'B',    # white bishop
-        0x5: 'Q',    # white queen
-        0x6: 'K',    # white king
-        0x7: 'p',    # black pawn
-        0x8: 'r',    # black rook
-        0x9: 'n',    # black knight
-        0xA: 'b',    # black bishop
-        0xB: 'q',    # black queen
-        0xC: 'k',    # black king
-    }
+    # Piece mapping from official Chessnut docs
+    # ['', 'q', 'k', 'b', 'p', 'n', 'R', 'P', 'r', 'B', 'N', 'Q', 'K']
+    piece_map = [
+        None,  # 0: empty
+        'q',   # 1: black queen
+        'k',   # 2: black king
+        'b',   # 3: black bishop
+        'p',   # 4: black pawn
+        'n',   # 5: black knight
+        'R',   # 6: white rook
+        'P',   # 7: white pawn
+        'r',   # 8: white rook (docs show lowercase, may be typo - using as black rook)
+        'B',   # 9: white bishop
+        'N',   # 10: white knight
+        'Q',   # 11: white queen
+        'K',   # 12: white king
+    ]
     
-    # Build the board array (8x8)
-    board = []
-    for i in range(32):
-        byte = data[i]
-        # Each byte contains two squares
-        high_nibble = (byte >> 4) & 0x0F
-        low_nibble = byte & 0x0F
-        board.append(piece_map.get(high_nibble))
-        board.append(piece_map.get(low_nibble))
-        
-    # Convert to FEN (rank 8 to rank 1)
-    fen_rows = []
-    for rank in range(7, -1, -1):  # 8th rank to 1st rank
-        row = ""
-        empty_count = 0
-        for file in range(8):  # a to h
-            square_idx = rank * 8 + file
-            piece = board[square_idx]
-            if piece is None:
-                empty_count += 1
+    # Build FEN string following the official algorithm
+    # Position data starts at byte 2
+    fen = ""
+    empty = 0
+    
+    for row in range(8):  # 8 rows (rank 8 to rank 1)
+        for col in range(7, -1, -1):  # columns h to a (7 to 0)
+            # Calculate byte index: each byte has 2 squares
+            index = (row * 8 + col) // 2 + 2  # +2 for header offset
+            
+            # Lower nibble for even columns (h, f, d, b), higher for odd (g, e, c, a)
+            if col % 2 == 0:
+                piece_val = data[index] & 0x0F
             else:
-                if empty_count > 0:
-                    row += str(empty_count)
-                    empty_count = 0
-                row += piece
-        if empty_count > 0:
-            row += str(empty_count)
-        fen_rows.append(row)
+                piece_val = (data[index] >> 4) & 0x0F
+            
+            # Get piece character
+            piece = piece_map[piece_val] if piece_val < len(piece_map) else None
+            
+            if piece is None:
+                empty += 1
+            else:
+                if empty > 0:
+                    fen += str(empty)
+                    empty = 0
+                fen += piece
+        
+        # End of row
+        if empty > 0:
+            fen += str(empty)
+            empty = 0
+        if row < 7:
+            fen += '/'
     
-    return "/".join(fen_rows)
+    return fen
 
 
 def parse_battery_response(data: bytes) -> tuple[int, bool]:
@@ -267,8 +284,8 @@ class ChessnutClient:
         Args:
             data: Raw bytes from notification
         """
-        # Try to parse as FEN data (32+ bytes)
-        if len(data) >= 32:
+        # Try to parse as FEN data (36 bytes: 2 header + 32 position + 2 reserved)
+        if len(data) >= 34:
             fen = parse_fen_data(data)
             log.info(f"FEN: {fen}")
             if fen != self.last_fen:
