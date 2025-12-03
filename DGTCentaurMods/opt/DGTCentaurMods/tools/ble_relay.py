@@ -3,28 +3,22 @@
 BLE Relay Tool
 
 This tool connects to a BLE chess board and auto-detects the protocol
-(Millennium or Chessnut Air) by probing with initial commands.
-
-It supports two backends:
-- bleak: Modern async BLE library (default)
-- gatttool: Legacy gatttool command-line tool (use --use-gatttool)
-
-For dual-mode devices where bleak fails, use --use-gatttool.
+(Millennium, Chessnut Air, or DGT Pegasus) by probing with initial commands.
 
 Usage:
     python3 tools/ble_relay.py [--device-name "Chessnut Air"]
-    python3 tools/ble_relay.py --device-name "MILLENNIUM CHESS" --use-gatttool
+    python3 tools/ble_relay.py --device-name "MILLENNIUM CHESS"
+    python3 tools/ble_relay.py --device-name "DGT_PEGASUS_*"
     
 Requirements:
-    pip install bleak (for bleak backend)
-    gatttool (for gatttool backend, part of bluez package)
+    pip install bleak
 """
 
 import argparse
 import asyncio
+import os
 import signal
 import sys
-import os
 
 # Ensure we import the repo package first (not a system-installed copy)
 try:
@@ -35,98 +29,14 @@ except Exception as e:
     print(f"Warning: Could not add repo path: {e}")
 
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.tools.clients.ble_client import BLEClient
-
-# Millennium ChessLink BLE UUIDs
-# Note: The service UUID is the full 128-bit UUID, but the characteristics use
-# short 16-bit UUIDs (fff1, fff2) in the standard Bluetooth base UUID format
-MILLENNIUM_SERVICE_UUID = "49535343-fe7d-4ae5-8fa9-9fafd205e455"
-MILLENNIUM_RX_CHAR_UUID = "0000fff1-0000-1000-8000-00805f9b34fb"  # Write commands TO device
-MILLENNIUM_TX_CHAR_UUID = "0000fff2-0000-1000-8000-00805f9b34fb"  # Notify responses FROM device
-
-# Chessnut Air BLE UUIDs
-CHESSNUT_FEN_RX_CHAR_UUID = "1b7e8262-2877-41c3-b46e-cf057c562023"  # Notify from board (FEN data)
-CHESSNUT_OP_TX_CHAR_UUID = "1b7e8272-2877-41c3-b46e-cf057c562023"  # Write to board
-CHESSNUT_OP_RX_CHAR_UUID = "1b7e8273-2877-41c3-b46e-cf057c562023"  # Notify from board (responses)
-
-# Chessnut Air commands
-CHESSNUT_ENABLE_REPORTING_CMD = bytes([0x21, 0x01, 0x00])
-
-# DGT Pegasus BLE UUIDs (Nordic UART Service - NUS)
-PEGASUS_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-PEGASUS_RX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # Write commands TO device
-PEGASUS_TX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # Notify responses FROM device
-
-
-def odd_par(b: int) -> int:
-    """Calculate odd parity for a byte and set MSB if needed.
-    
-    Args:
-        b: Byte value (0-127)
-    
-    Returns:
-        Byte with odd parity (MSB set if needed)
-    """
-    byte = b & 127
-    par = 1
-    for _ in range(7):
-        bit = byte & 1
-        byte = byte >> 1
-        par = par ^ bit
-    if par == 1:
-        byte = b | 128
-    else:
-        byte = b & 127
-    return byte
-
-
-def encode_millennium_command(command_text: str) -> bytes:
-    """Encode a Millennium protocol command with odd parity and XOR CRC.
-    
-    Uses the old Millennium protocol format with odd parity encoding.
-    
-    Args:
-        command_text: The command string to encode (e.g., "S")
-    
-    Returns:
-        Encoded command with odd parity and CRC appended
-    """
-    # Calculate CRC (XOR of all ASCII characters)
-    cs = 0
-    for char in command_text:
-        cs = cs ^ ord(char)
-    
-    # Convert CRC to hex string
-    h = f"0x{cs:02x}"
-    h1 = h[2:3]  # First hex digit
-    h2 = h[3:4]  # Second hex digit
-    
-    # Build encoded packet with odd parity
-    tosend = bytearray()
-    # Encode each character in command with odd parity
-    for char in command_text:
-        tosend.append(odd_par(ord(char)))
-    # Encode CRC hex digits with odd parity
-    tosend.append(odd_par(ord(h1)))
-    tosend.append(odd_par(ord(h2)))
-    
-    return bytes(tosend)
-
-
-def decode_odd_parity(byte_with_parity: int) -> int:
-    """Decode a byte with odd parity (strip MSB).
-    
-    Args:
-        byte_with_parity: Byte with parity bit in MSB
-        
-    Returns:
-        Decoded byte (7 bits)
-    """
-    return byte_with_parity & 0x7F
+from DGTCentaurMods.tools.clients.ble_client import BLEClient, clear_bluez_device_cache
+from DGTCentaurMods.tools.clients.millennium_client import MillenniumClient
+from DGTCentaurMods.tools.clients.chessnut_client import ChessnutClient
+from DGTCentaurMods.tools.clients.pegasus_client import PegasusClient
 
 
 class BLERelayClient:
-    """BLE relay client that auto-detects Millennium or Chessnut Air protocol."""
+    """BLE relay client that auto-detects Millennium, Chessnut Air, or Pegasus protocol."""
     
     def __init__(self, device_name: str = "Chessnut Air"):
         """Initialize the BLE relay client.
@@ -138,9 +48,12 @@ class BLERelayClient:
         self.ble_client = BLEClient()
         self.detected_protocol: str | None = None
         self.write_char_uuid: str | None = None
-        self.response_buffer: bytearray = bytearray()
-        self._got_response = False
         self._running = True
+        
+        # Protocol clients
+        self.millennium = MillenniumClient()
+        self.chessnut = ChessnutClient()
+        self.pegasus = PegasusClient()
     
     def _normalize_uuid(self, uuid_str: str) -> str:
         """Normalize UUID for comparison (lowercase, with dashes)."""
@@ -167,75 +80,6 @@ class BLERelayClient:
         
         return None
     
-    def _millennium_notification_handler(self, sender, data: bytearray):
-        """Handle notifications from Millennium TX characteristic.
-        
-        Args:
-            sender: The characteristic that sent the notification
-            data: The notification data
-        """
-        hex_str = ' '.join(f'{b:02x}' for b in data)
-        log.info(f"RX [Millennium] ({len(data)} bytes): {hex_str}")
-        
-        # Skip echo-backs (single byte with 0x01 prefix)
-        if len(data) == 2 and data[0] == 0x01:
-            log.debug(f"Ignoring echo-back: {hex_str}")
-            return
-        
-        # Strip 0x01 prefix if present
-        if len(data) > 0 and data[0] == 0x01:
-            data = data[1:]
-        
-        if len(data) == 0:
-            return
-        
-        # Accumulate response
-        self.response_buffer.extend(data)
-        
-        # Decode odd parity
-        decoded = bytearray()
-        for b in self.response_buffer:
-            decoded.append(decode_odd_parity(b))
-                        
-        # Check for complete response
-        if len(decoded) >= 3:
-            first_char = chr(decoded[0]) if decoded[0] < 128 else '?'
-            
-            # Check for complete responses
-            complete = False
-            if first_char == 'x' and len(decoded) >= 3:
-                complete = True
-            elif first_char == 'w' and len(decoded) >= 7:
-                complete = True
-            elif first_char == 's' and len(decoded) >= 67:
-                complete = True
-            
-            if complete:
-                ascii_str = decoded.decode('ascii', errors='replace')
-                log.info(f"RX [Millennium DECODED]: {ascii_str}")
-                self.response_buffer.clear()
-                self._got_response = True
-                
-                if self.detected_protocol is None:
-                    self.detected_protocol = "millennium"
-                    log.info("Detected protocol: Millennium")
-    
-    def _chessnut_notification_handler(self, sender, data: bytearray):
-        """Handle notifications from Chessnut characteristics.
-        
-        Args:
-            sender: The characteristic that sent the notification
-            data: The notification data
-        """
-        hex_str = ' '.join(f'{b:02x}' for b in data)
-        log.info(f"RX [Chessnut] ({len(data)} bytes): {hex_str}")
-        
-        self._got_response = True
-        
-        if self.detected_protocol is None:
-            self.detected_protocol = "chessnut_air"
-            log.info("Detected protocol: Chessnut Air")
-    
     async def _probe_millennium(self) -> bool:
         """Probe for Millennium protocol.
         
@@ -243,8 +87,8 @@ class BLERelayClient:
             True if Millennium protocol detected, False otherwise
         """
         # Find Millennium characteristics
-        rx_uuid = self._find_characteristic_uuid(MILLENNIUM_RX_CHAR_UUID)
-        tx_uuid = self._find_characteristic_uuid(MILLENNIUM_TX_CHAR_UUID)
+        rx_uuid = self._find_characteristic_uuid(self.millennium.rx_uuid)
+        tx_uuid = self._find_characteristic_uuid(self.millennium.tx_uuid)
         
         if not rx_uuid or not tx_uuid:
             log.info("Millennium characteristics not found")
@@ -254,13 +98,13 @@ class BLERelayClient:
         log.info(f"Found Millennium TX: {tx_uuid}")
         
         # Enable notifications on TX
-        if not await self.ble_client.start_notify(tx_uuid, self._millennium_notification_handler):
+        if not await self.ble_client.start_notify(tx_uuid, self.millennium.notification_handler):
             log.warning("Failed to enable Millennium notifications")
             return False
         
         # Send S probe command
-        self._got_response = False
-        s_cmd = encode_millennium_command("S")
+        self.millennium.reset_response_flag()
+        s_cmd = self.millennium.encode_command(self.millennium.get_probe_command())
         log.info(f"Sending Millennium S probe: {' '.join(f'{b:02x}' for b in s_cmd)}")
         
         if not await self.ble_client.write_characteristic(rx_uuid, s_cmd, response=False):
@@ -270,8 +114,10 @@ class BLERelayClient:
         # Wait for response
         for _ in range(30):  # 3 seconds
             await asyncio.sleep(0.1)
-            if self._got_response:
+            if self.millennium.got_response():
                 self.write_char_uuid = rx_uuid
+                self.millennium.rx_char_uuid = rx_uuid
+                self.millennium.tx_char_uuid = tx_uuid
                 return True
         
         log.info("No Millennium response received")
@@ -284,9 +130,9 @@ class BLERelayClient:
             True if Chessnut Air protocol detected, False otherwise
         """
         # Find Chessnut characteristics
-        tx_uuid = self._find_characteristic_uuid(CHESSNUT_OP_TX_CHAR_UUID)
-        rx_uuid = self._find_characteristic_uuid(CHESSNUT_OP_RX_CHAR_UUID)
-        fen_uuid = self._find_characteristic_uuid(CHESSNUT_FEN_RX_CHAR_UUID)
+        tx_uuid = self._find_characteristic_uuid(self.chessnut.op_tx_uuid)
+        rx_uuid = self._find_characteristic_uuid(self.chessnut.op_rx_uuid)
+        fen_uuid = self._find_characteristic_uuid(self.chessnut.fen_uuid)
         
         if not tx_uuid:
             log.info("Chessnut TX characteristic not found")
@@ -300,40 +146,31 @@ class BLERelayClient:
         
         # Enable notifications
         if rx_uuid:
-            await self.ble_client.start_notify(rx_uuid, self._chessnut_notification_handler)
+            await self.ble_client.start_notify(rx_uuid, self.chessnut.operation_notification_handler)
         if fen_uuid:
-            await self.ble_client.start_notify(fen_uuid, self._chessnut_notification_handler)
+            await self.ble_client.start_notify(fen_uuid, self.chessnut.fen_notification_handler)
         
         # Send enable reporting command
-        self._got_response = False
-        log.info(f"Sending Chessnut enable reporting: {' '.join(f'{b:02x}' for b in CHESSNUT_ENABLE_REPORTING_CMD)}")
+        self.chessnut.reset_response_flag()
+        cmd = self.chessnut.get_enable_reporting_command()
+        log.info(f"Sending Chessnut enable reporting: {' '.join(f'{b:02x}' for b in cmd)}")
         
-        if not await self.ble_client.write_characteristic(tx_uuid, CHESSNUT_ENABLE_REPORTING_CMD, response=False):
+        if not await self.ble_client.write_characteristic(tx_uuid, cmd, response=False):
             log.warning("Failed to send Chessnut probe")
             return False
         
         # Wait for response
         for _ in range(30):  # 3 seconds
             await asyncio.sleep(0.1)
-            if self._got_response:
+            if self.chessnut.got_response():
                 self.write_char_uuid = tx_uuid
+                self.chessnut.op_tx_char_uuid = tx_uuid
+                self.chessnut.op_rx_char_uuid = rx_uuid
+                self.chessnut.fen_char_uuid = fen_uuid
                 return True
         
         log.info("No Chessnut response received")
         return False
-    
-    def _pegasus_notification_handler(self, sender, data: bytearray):
-        """Handle notifications from DGT Pegasus board."""
-        self._got_response = True
-        log.info(f"RX [Pegasus] ({len(data)} bytes): {data.hex()}")
-        
-        # Try to decode as ASCII if printable
-        try:
-            ascii_str = data.decode('ascii', errors='replace')
-            printable = ''.join(c if c.isprintable() or c in '\r\n' else '.' for c in ascii_str)
-            log.info(f"RX [Pegasus ASCII]: {printable}")
-        except Exception:
-            pass
     
     async def _probe_pegasus(self) -> bool:
         """Probe for DGT Pegasus protocol.
@@ -342,8 +179,8 @@ class BLERelayClient:
             True if Pegasus protocol detected, False otherwise
         """
         # Find Pegasus characteristics (Nordic UART Service)
-        tx_uuid = self._find_characteristic_uuid(PEGASUS_TX_CHAR_UUID)
-        rx_uuid = self._find_characteristic_uuid(PEGASUS_RX_CHAR_UUID)
+        tx_uuid = self._find_characteristic_uuid(self.pegasus.tx_uuid)
+        rx_uuid = self._find_characteristic_uuid(self.pegasus.rx_uuid)
         
         if not tx_uuid or not rx_uuid:
             log.info("Pegasus characteristics not found")
@@ -353,33 +190,25 @@ class BLERelayClient:
         log.info(f"Found Pegasus RX (write): {rx_uuid}")
         
         # Enable notifications on TX characteristic
-        await self.ble_client.start_notify(tx_uuid, self._pegasus_notification_handler)
+        await self.ble_client.start_notify(tx_uuid, self.pegasus.notification_handler)
         
-        self._got_response = False
+        self.pegasus.reset_response_flag()
         self.write_char_uuid = rx_uuid
-        self.detected_protocol = "pegasus"
+        self.pegasus.rx_char_uuid = rx_uuid
+        self.pegasus.tx_char_uuid = tx_uuid
         
-        # The Pegasus protocol is similar to the DGT serial protocol
-        # Try sending a reset command or request board state
-        # Common DGT commands: 0x40 = DGT_SEND_RESET, 0x42 = DGT_SEND_BRD
-        probe_cmd = bytes([0x40])  # Reset command
-        log.info(f"Sending Pegasus probe (reset): {probe_cmd.hex()}")
-        
-        if not await self.ble_client.write_characteristic(rx_uuid, probe_cmd, response=False):
-            log.warning("Failed to send Pegasus probe")
-            return False
-        
-        await asyncio.sleep(0.5)
-        
-        # Send board request
-        board_cmd = bytes([0x42])  # Request board state
-        log.info(f"Sending Pegasus board request: {board_cmd.hex()}")
-        await self.ble_client.write_characteristic(rx_uuid, board_cmd, response=False)
+        # Send probe commands
+        for probe_cmd in self.pegasus.get_probe_commands():
+            log.info(f"Sending Pegasus probe: {probe_cmd.hex()}")
+            if not await self.ble_client.write_characteristic(rx_uuid, probe_cmd, response=False):
+                log.warning("Failed to send Pegasus probe")
+                return False
+            await asyncio.sleep(0.5)
         
         # Wait for response
         for _ in range(30):  # 3 seconds
             await asyncio.sleep(0.1)
-            if self._got_response:
+            if self.pegasus.got_response():
                 return True
         
         # Even if no response, if we found the characteristics, consider it detected
@@ -401,12 +230,12 @@ class BLERelayClient:
         # Try Millennium first
         log.info("Probing for Millennium protocol...")
         if await self._probe_millennium():
+            self.detected_protocol = "millennium"
             log.info("Millennium protocol detected and active")
             
             # Send full initialization sequence
-            init_commands = ["W0203", "W0407", "X", "S"]
-            for cmd in init_commands:
-                encoded = encode_millennium_command(cmd)
+            for cmd in self.millennium.get_initialization_commands():
+                encoded = self.millennium.encode_command(cmd)
                 log.info(f"Sending Millennium '{cmd}': {' '.join(f'{b:02x}' for b in encoded)}")
                 await self.ble_client.write_characteristic(self.write_char_uuid, encoded, response=False)
                 await asyncio.sleep(0.5)
@@ -416,12 +245,19 @@ class BLERelayClient:
         # Try Chessnut Air
         log.info("Probing for Chessnut Air protocol...")
         if await self._probe_chessnut():
+            self.detected_protocol = "chessnut_air"
             log.info("Chessnut Air protocol detected and active")
+            
+            # Check MTU
+            if self.ble_client.mtu_size:
+                self.chessnut.check_mtu(self.ble_client.mtu_size)
+            
             return True
         
         # Try DGT Pegasus
         log.info("Probing for DGT Pegasus protocol...")
         if await self._probe_pegasus():
+            self.detected_protocol = "pegasus"
             log.info("DGT Pegasus protocol detected and active")
             return True
         
@@ -449,21 +285,23 @@ class BLERelayClient:
         
             # Send periodic status command
             if self.detected_protocol == "millennium" and self.write_char_uuid:
-                s_cmd = encode_millennium_command("S")
+                s_cmd = self.millennium.encode_command(self.millennium.get_status_command())
                 log.info("Sending periodic Millennium S command")
                 await self.ble_client.write_characteristic(self.write_char_uuid, s_cmd, response=False)
             elif self.detected_protocol == "chessnut_air" and self.write_char_uuid:
                 log.info("Sending periodic Chessnut enable reporting")
                 await self.ble_client.write_characteristic(
                     self.write_char_uuid,
-                    CHESSNUT_ENABLE_REPORTING_CMD,
+                    self.chessnut.get_enable_reporting_command(),
                     response=False
                 )
             elif self.detected_protocol == "pegasus" and self.write_char_uuid:
-                # DGT Pegasus: request board state periodically
-                board_cmd = bytes([0x42])  # DGT_SEND_BRD
                 log.info("Sending periodic Pegasus board request")
-                await self.ble_client.write_characteristic(self.write_char_uuid, board_cmd, response=False)
+                await self.ble_client.write_characteristic(
+                    self.write_char_uuid,
+                    self.pegasus.get_board_command(),
+                    response=False
+                )
     
     def stop(self):
         """Signal the client to stop."""
@@ -474,7 +312,7 @@ class BLERelayClient:
 class GatttoolRelayClient:
     """BLE relay client using gatttool backend.
     
-    This is useful for devices where bleak fails due to BlueZ dual-mode handling.
+    Useful for devices where bleak fails due to BlueZ dual-mode handling.
     """
     
     def __init__(self, device_name: str = "Chessnut Air"):
@@ -490,6 +328,11 @@ class GatttoolRelayClient:
         self.write_handle: int | None = None
         self.read_handle: int | None = None
         self._running = True
+        
+        # Protocol clients
+        self.millennium = MillenniumClient()
+        self.chessnut = ChessnutClient()
+        self.pegasus = PegasusClient()
     
     async def scan_for_device(self) -> str | None:
         """Scan for device by name using hcitool lescan.
@@ -497,8 +340,8 @@ class GatttoolRelayClient:
         Returns:
             Device address if found, None otherwise
         """
-        import subprocess
         import re
+        import subprocess
         
         log.info(f"Scanning for device: {self.device_name} (using LE scan)")
         
@@ -575,30 +418,20 @@ class GatttoolRelayClient:
         
         # Probe for Millennium protocol
         log.info("Probing for Millennium protocol...")
-        mill_rx = self.gatttool_client.find_characteristic_by_uuid(MILLENNIUM_RX_CHAR_UUID)
-        mill_tx = self.gatttool_client.find_characteristic_by_uuid(MILLENNIUM_TX_CHAR_UUID)
+        mill_rx = self.gatttool_client.find_characteristic_by_uuid(self.millennium.rx_uuid)
+        mill_tx = self.gatttool_client.find_characteristic_by_uuid(self.millennium.tx_uuid)
         
         if mill_rx and mill_tx:
             log.info(f"Found Millennium RX: handle {mill_rx['value_handle']:04x}")
             log.info(f"Found Millennium TX: handle {mill_tx['value_handle']:04x}")
                                         
             # Enable notifications on TX
-            def notification_handler(handle: int, data: bytearray):
-                log.info(f"RX [Millennium] ({len(data)} bytes): {data.hex()}")
-                # Decode odd parity
-                decoded = bytearray(decode_odd_parity(b) for b in data)
-                try:
-                    ascii_str = decoded.decode('ascii', errors='replace')
-                    log.info(f"RX [Millennium DECODED]: {ascii_str}")
-                except Exception:
-                    pass
-            
             await self.gatttool_client.enable_notifications(
-                mill_tx['value_handle'], notification_handler
+                mill_tx['value_handle'], self.millennium.gatttool_notification_handler
             )
             
             # Send probe command
-            s_cmd = encode_millennium_command("S")
+            s_cmd = self.millennium.encode_command(self.millennium.get_probe_command())
             log.info(f"Sending Millennium S probe: {s_cmd.hex()}")
             await self.gatttool_client.write_characteristic(
                 mill_rx['value_handle'], s_cmd, response=False
@@ -614,24 +447,22 @@ class GatttoolRelayClient:
         
         # Probe for Chessnut Air
         log.info("Probing for Chessnut Air protocol...")
-        fen_rx = self.gatttool_client.find_characteristic_by_uuid(CHESSNUT_FEN_RX_CHAR_UUID)
-        op_tx = self.gatttool_client.find_characteristic_by_uuid(CHESSNUT_OP_TX_CHAR_UUID)
+        fen_rx = self.gatttool_client.find_characteristic_by_uuid(self.chessnut.fen_uuid)
+        op_tx = self.gatttool_client.find_characteristic_by_uuid(self.chessnut.op_tx_uuid)
         
         if fen_rx and op_tx:
             log.info(f"Found Chessnut FEN RX: handle {fen_rx['value_handle']:04x}")
             log.info(f"Found Chessnut OP TX: handle {op_tx['value_handle']:04x}")
             
-            def notification_handler(handle: int, data: bytearray):
-                log.info(f"RX [Chessnut] ({len(data)} bytes): {data.hex()}")
-            
             await self.gatttool_client.enable_notifications(
-                fen_rx['value_handle'], notification_handler
+                fen_rx['value_handle'], self.chessnut.gatttool_notification_handler
             )
             
             # Send enable reporting
-            log.info(f"Sending Chessnut enable reporting: {CHESSNUT_ENABLE_REPORTING_CMD.hex()}")
+            cmd = self.chessnut.get_enable_reporting_command()
+            log.info(f"Sending Chessnut enable reporting: {cmd.hex()}")
             await self.gatttool_client.write_characteristic(
-                op_tx['value_handle'], CHESSNUT_ENABLE_REPORTING_CMD, response=False
+                op_tx['value_handle'], cmd, response=False
             )
             
             await asyncio.sleep(2)
@@ -640,6 +471,35 @@ class GatttoolRelayClient:
             self.write_handle = op_tx['value_handle']
             self.read_handle = fen_rx['value_handle']
             log.info("Chessnut Air protocol active")
+            return True
+        
+        # Probe for Pegasus
+        log.info("Probing for DGT Pegasus protocol...")
+        peg_rx = self.gatttool_client.find_characteristic_by_uuid(self.pegasus.rx_uuid)
+        peg_tx = self.gatttool_client.find_characteristic_by_uuid(self.pegasus.tx_uuid)
+        
+        if peg_rx and peg_tx:
+            log.info(f"Found Pegasus RX (write): handle {peg_rx['value_handle']:04x}")
+            log.info(f"Found Pegasus TX (notify): handle {peg_tx['value_handle']:04x}")
+            
+            await self.gatttool_client.enable_notifications(
+                peg_tx['value_handle'], self.pegasus.gatttool_notification_handler
+            )
+            
+            # Send probe commands
+            for probe_cmd in self.pegasus.get_probe_commands():
+                log.info(f"Sending Pegasus probe: {probe_cmd.hex()}")
+                await self.gatttool_client.write_characteristic(
+                    peg_rx['value_handle'], probe_cmd, response=False
+                )
+                await asyncio.sleep(0.5)
+            
+            await asyncio.sleep(2)
+            
+            self.detected_protocol = "pegasus"
+            self.write_handle = peg_rx['value_handle']
+            self.read_handle = peg_tx['value_handle']
+            log.info("DGT Pegasus protocol active")
             return True
         
         log.error("No supported protocol detected")
@@ -660,10 +520,22 @@ class GatttoolRelayClient:
                 last_periodic = now
                 
                 if self.detected_protocol == "millennium" and self.write_handle:
-                    s_cmd = encode_millennium_command("S")
+                    s_cmd = self.millennium.encode_command(self.millennium.get_status_command())
                     log.info("Sending periodic Millennium S command")
                     await self.gatttool_client.write_characteristic(
                         self.write_handle, s_cmd, response=False
+                    )
+                elif self.detected_protocol == "chessnut_air" and self.write_handle:
+                    cmd = self.chessnut.get_enable_reporting_command()
+                    log.info("Sending periodic Chessnut enable reporting")
+                    await self.gatttool_client.write_characteristic(
+                        self.write_handle, cmd, response=False
+                    )
+                elif self.detected_protocol == "pegasus" and self.write_handle:
+                    cmd = self.pegasus.get_board_command()
+                    log.info("Sending periodic Pegasus board request")
+                    await self.gatttool_client.write_characteristic(
+                        self.write_handle, cmd, response=False
                     )
     
     async def disconnect(self):
@@ -816,7 +688,6 @@ Requirements:
     
     # Clear cache if requested
     if args.clear_cache:
-        from DGTCentaurMods.tools.clients.ble_client import clear_bluez_device_cache
         if args.device_address:
             log.info(f"Clearing BlueZ cache for device: {args.device_address}")
             clear_bluez_device_cache(args.device_address)
