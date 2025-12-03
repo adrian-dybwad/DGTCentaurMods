@@ -35,6 +35,13 @@ except ImportError:
         "bleak library not installed. Install with: pip install bleak"
     )
 
+# Try to import dbus for PreferredBearer support
+try:
+    import dbus
+    DBUS_AVAILABLE = True
+except ImportError:
+    DBUS_AVAILABLE = False
+
 from DGTCentaurMods.board.logging import log
 
 # Suppress verbose D-Bus logging from bleak/dbus libraries
@@ -191,6 +198,82 @@ async def test_ble_connection_with_gatttool_async(device_address: str, timeout: 
     """Async wrapper for test_ble_connection_with_gatttool."""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, test_ble_connection_with_gatttool, device_address, timeout)
+
+
+def set_preferred_bearer_le(device_address: str) -> bool:
+    """Set the PreferredBearer D-Bus property to 'le' for a device.
+    
+    For dual-mode Bluetooth devices (supporting both Classic BT and BLE),
+    BlueZ may default to connecting via Classic BT. Setting PreferredBearer
+    to 'le' forces BlueZ to use the Low Energy transport.
+    
+    Requires:
+        - BlueZ with Experimental = true in /etc/bluetooth/main.conf
+        - The device must be discovered (present in BlueZ's device list)
+        - The dbus Python package
+    
+    Args:
+        device_address: MAC address of the device (e.g., "34:81:F4:ED:78:34")
+        
+    Returns:
+        True if PreferredBearer was set successfully, False otherwise
+    """
+    if not DBUS_AVAILABLE:
+        log.warning("dbus package not available, cannot set PreferredBearer")
+        return False
+    
+    # Convert address to D-Bus path format: 34:81:F4:ED:78:34 -> 34_81_F4_ED_78_34
+    device_path_format = device_address.upper().replace(":", "_")
+    device_path = f"/org/bluez/hci0/dev_{device_path_format}"
+    
+    try:
+        bus = dbus.SystemBus()
+        
+        # Check if device exists
+        manager = dbus.Interface(
+            bus.get_object('org.bluez', '/'),
+            'org.freedesktop.DBus.ObjectManager'
+        )
+        objects = manager.GetManagedObjects()
+        
+        if device_path not in objects:
+            log.debug(f"Device {device_address} not in BlueZ object tree")
+            return False
+        
+        # Get the device properties interface
+        device_props = dbus.Interface(
+            bus.get_object('org.bluez', device_path),
+            'org.freedesktop.DBus.Properties'
+        )
+        
+        # Set PreferredBearer to 'le'
+        device_props.Set('org.bluez.Device1', 'PreferredBearer', dbus.String('le'))
+        log.info(f"Set PreferredBearer to 'le' for {device_address}")
+        return True
+        
+    except dbus.exceptions.DBusException as e:
+        error_name = e.get_dbus_name()
+        error_msg = e.get_dbus_message()
+        
+        if "UnknownProperty" in error_name or "InvalidArgs" in error_msg:
+            log.warning(
+                f"PreferredBearer property not available. "
+                f"Ensure Experimental = true is set in /etc/bluetooth/main.conf"
+            )
+        elif "UnknownObject" in error_name:
+            log.debug(f"Device {device_address} not available in D-Bus")
+        else:
+            log.warning(f"Failed to set PreferredBearer: {error_name}: {error_msg}")
+        return False
+    except Exception as e:
+        log.warning(f"Error setting PreferredBearer: {e}")
+        return False
+
+
+async def set_preferred_bearer_le_async(device_address: str) -> bool:
+    """Async wrapper for set_preferred_bearer_le."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, set_preferred_bearer_le, device_address)
 
 
 class BLEClient:
@@ -475,14 +558,12 @@ class BLEClient:
             log.warning(f"Device '{device_name}' not found after {scan_timeout} seconds")
             return False
         
-        # Try using gatttool first - gatttool uses LE transport directly
-        log.info("Testing BLE connection with gatttool...")
-        gatttool_success = await test_ble_connection_with_gatttool_async(found_device.address, timeout=15)
-        
-        if gatttool_success:
-            log.info("gatttool connected via BLE - proceeding with bleak connection")
-        else:
-            log.warning("gatttool failed - will still try bleak connection")
+        # For dual-mode devices, set PreferredBearer to 'le' to force BLE connection
+        # This is critical for devices like the Millennium board that support both
+        # Classic BT and BLE - without this, BlueZ will try Classic BT first
+        if DBUS_AVAILABLE:
+            log.info("Setting PreferredBearer to 'le' for dual-mode device support...")
+            await set_preferred_bearer_le_async(found_device.address)
         
         # Connect with retries
         max_retries = 3
