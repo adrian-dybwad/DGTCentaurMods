@@ -9,12 +9,20 @@ This module is device-agnostic and can be used with any BLE device.
 Device-specific logic (UUIDs, commands, data parsing) should be implemented
 in subclasses or by the calling code.
 
+Dual-Mode Device Support:
+    For devices that support both Classic Bluetooth and BLE (dual-mode),
+    BlueZ may cache the device as a Classic BT device and refuse BLE connections.
+    This module includes utilities to clear the BlueZ cache for specific devices.
+
 Requirements:
     pip install bleak
 """
 
 import asyncio
 import logging
+import os
+import glob
+import subprocess
 from typing import Callable, Any
 
 try:
@@ -38,6 +46,96 @@ logging.getLogger("bleak.backends.bluezdbus").setLevel(logging.INFO)
 
 # Type alias for notification callback
 NotificationCallback = Callable[[Any, bytearray], None]
+
+
+def clear_bluez_device_cache(device_address: str) -> bool:
+    """Clear BlueZ cache for a specific device to force fresh BLE discovery.
+    
+    For dual-mode devices (supporting both Classic BT and BLE), BlueZ may
+    cache the device as a Classic BT device. This prevents BLE connections
+    even when address_type='public' is specified. Clearing the cache forces
+    BlueZ to rediscover the device properly.
+    
+    Args:
+        device_address: MAC address of the device (e.g., "34:81:F4:ED:78:34")
+        
+    Returns:
+        True if cache was cleared (or didn't exist), False on error
+    """
+    # Convert address format: 34:81:F4:ED:78:34 -> 34_81_F4_ED_78_34
+    device_path_format = device_address.upper().replace(":", "_")
+    
+    # BlueZ stores device info in /var/lib/bluetooth/<adapter>/<device>/
+    bluez_base = "/var/lib/bluetooth"
+    
+    if not os.path.exists(bluez_base):
+        log.debug(f"BlueZ directory not found: {bluez_base}")
+        return True  # Not an error, just no cache to clear
+    
+    cleared = False
+    
+    # Find all adapter directories
+    for adapter_dir in glob.glob(os.path.join(bluez_base, "*")):
+        if not os.path.isdir(adapter_dir):
+            continue
+            
+        # Check for device directory
+        device_dir = os.path.join(adapter_dir, device_path_format)
+        if os.path.exists(device_dir):
+            log.info(f"Found BlueZ cache for device: {device_dir}")
+            
+            # Try to remove via bluetoothctl first (cleaner)
+            try:
+                result = subprocess.run(
+                    ["bluetoothctl", "remove", device_address],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    log.info(f"Removed device via bluetoothctl: {device_address}")
+                    cleared = True
+                else:
+                    log.debug(f"bluetoothctl remove output: {result.stderr}")
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                log.debug(f"bluetoothctl failed: {e}")
+        
+        # Also check cache directory
+        cache_file = os.path.join(adapter_dir, "cache", device_path_format)
+        if os.path.exists(cache_file):
+            log.info(f"Found BlueZ cache file: {cache_file}")
+            try:
+                os.remove(cache_file)
+                log.info(f"Removed cache file: {cache_file}")
+                cleared = True
+            except PermissionError:
+                log.warning(f"Permission denied removing cache: {cache_file}")
+                log.warning("Try running with sudo or as root")
+            except Exception as e:
+                log.warning(f"Failed to remove cache file: {e}")
+    
+    if cleared:
+        log.info("BlueZ cache cleared, restarting bluetooth service...")
+        try:
+            subprocess.run(
+                ["sudo", "systemctl", "restart", "bluetooth"],
+                capture_output=True,
+                timeout=10
+            )
+            # Give BlueZ time to restart
+            import time
+            time.sleep(2)
+            log.info("Bluetooth service restarted")
+        except Exception as e:
+            log.warning(f"Failed to restart bluetooth: {e}")
+    
+    return True
+
+
+async def clear_bluez_cache_async(device_address: str) -> bool:
+    """Async wrapper for clear_bluez_device_cache."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, clear_bluez_device_cache, device_address)
 
 
 class BLEClient:
@@ -242,7 +340,8 @@ class BLEClient:
         self,
         device_name: str,
         scan_timeout: float = 30.0,
-        partial_match: bool = True
+        partial_match: bool = True,
+        clear_cache_on_br_error: bool = True
     ) -> bool:
         """Scan for a device by name and connect to it immediately.
         
@@ -250,10 +349,16 @@ class BLEClient:
         avoiding the issue where the device "expires" from BlueZ cache between
         scan and connect operations.
         
+        For dual-mode devices (supporting both Classic BT and BLE), this method
+        will automatically clear the BlueZ cache and retry if it detects that
+        BlueZ is trying to connect via Classic BT instead of BLE.
+        
         Args:
             device_name: Name of the device to find
             scan_timeout: Maximum time to scan in seconds
             partial_match: If True, match devices containing the name
+            clear_cache_on_br_error: If True, automatically clear BlueZ cache
+                                     when BR/EDR error is detected
             
         Returns:
             True if connection successful, False otherwise
@@ -305,6 +410,7 @@ class BLEClient:
         # Connect with retries
         max_retries = 3
         last_error = None
+        br_error_detected = False
         
         for attempt in range(max_retries):
             if attempt > 0:
@@ -368,18 +474,53 @@ class BLEClient:
                 last_error = str(e)
                 error_str = str(e).lower()
                 if "br-connection" in error_str or "profile-unavailable" in error_str:
+                    br_error_detected = True
                     log.warning("BR/EDR connection error - BlueZ is trying classic Bluetooth instead of BLE")
-                    log.warning("This can happen with dual-mode devices (supporting both classic BT and BLE)")
-                    log.warning("Possible fixes:")
-                    log.warning(f"  1. Remove device: bluetoothctl remove {found_device.address}")
-                    log.warning("  2. Set BlueZ to LE mode: edit /etc/bluetooth/main.conf, set ControllerMode=le")
-                    log.warning("  3. Restart bluetooth: sudo systemctl restart bluetooth")
+                    log.warning("This happens with dual-mode devices when BlueZ has cached them as Classic BT")
+                    
+                    # On first BR/EDR error, try to clear the cache and rescan
+                    if attempt == 0 and clear_cache_on_br_error:
+                        log.info("Attempting to clear BlueZ cache and rescan...")
+                        await clear_bluez_cache_async(found_device.address)
+                        
+                        # Rescan for the device after clearing cache
+                        log.info("Rescanning for device after cache clear...")
+                        stop_event.clear()
+                        found_device = None
+                        
+                        scanner = BleakScanner(detection_callback=detection_callback)
+                        try:
+                            await scanner.start()
+                            await asyncio.wait_for(stop_event.wait(), timeout=10.0)
+                            await scanner.stop()
+                        except asyncio.TimeoutError:
+                            await scanner.stop()
+                        except Exception as scan_err:
+                            log.warning(f"Rescan error: {scan_err}")
+                            try:
+                                await scanner.stop()
+                            except:
+                                pass
+                        
+                        if found_device:
+                            log.info(f"Device found again at {found_device.address}")
+                        else:
+                            log.warning("Device not found after cache clear")
+                    
                 log.warning(f"BLE error (attempt {attempt + 1}/{max_retries}): {e}")
             except Exception as e:
                 last_error = str(e)
                 log.warning(f"Unexpected error (attempt {attempt + 1}/{max_retries}): {e}")
         
         log.error(f"Failed to connect after {max_retries} attempts. Last error: {last_error}")
+        
+        if br_error_detected:
+            log.error("BR/EDR errors detected. Manual intervention may be required:")
+            log.error(f"  1. Run: sudo bluetoothctl remove {found_device.address if found_device else 'DEVICE_ADDRESS'}")
+            log.error("  2. Run: sudo rm -rf /var/lib/bluetooth/*/cache/*")
+            log.error("  3. Run: sudo systemctl restart bluetooth")
+            log.error("  4. Wait a few seconds and try again")
+        
         return False
     
     async def disconnect(self):

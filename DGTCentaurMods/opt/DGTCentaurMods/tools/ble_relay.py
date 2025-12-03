@@ -340,11 +340,11 @@ class BLERelayClient:
         log.info("Probing for Chessnut Air protocol...")
         if await self._probe_chessnut():
             log.info("Chessnut Air protocol detected and active")
-            return True
+        return True
         
         log.warning("No supported protocol detected")
         return False
-    
+
     async def disconnect(self):
         """Disconnect from the device."""
         await self.ble_client.disconnect()
@@ -414,6 +414,9 @@ def main():
 This tool connects to a BLE chess board and auto-detects the protocol
 (Millennium or Chessnut Air) by probing with initial commands.
 
+For dual-mode devices (like Millennium boards that support both Classic BT
+and BLE), use --clear-cache to clear BlueZ cache before connecting.
+
 Requirements:
     pip install bleak
         """
@@ -422,6 +425,15 @@ Requirements:
         '--device-name',
         default='Chessnut Air',
         help='Name of the BLE device to connect to (default: Chessnut Air)'
+    )
+    parser.add_argument(
+        '--clear-cache',
+        action='store_true',
+        help='Clear BlueZ cache for the device before connecting (helps with dual-mode devices)'
+    )
+    parser.add_argument(
+        '--device-address',
+        help='MAC address of the device (used with --clear-cache to clear cache before scanning)'
     )
     args = parser.parse_args()
     
@@ -434,6 +446,43 @@ Requirements:
         log.info(f"bleak version: {bleak.__version__}")
     except AttributeError:
         log.info("bleak version: unknown")
+    
+    # Clear cache if requested
+    if args.clear_cache:
+        from DGTCentaurMods.board.ble_client import clear_bluez_device_cache
+        if args.device_address:
+            log.info(f"Clearing BlueZ cache for device: {args.device_address}")
+            clear_bluez_device_cache(args.device_address)
+        else:
+            log.info("Clearing all BlueZ device cache...")
+            # Clear all cache files
+            import glob
+            import os
+            cache_pattern = "/var/lib/bluetooth/*/cache/*"
+            cache_files = glob.glob(cache_pattern)
+            if cache_files:
+                for cache_file in cache_files:
+                    try:
+                        os.remove(cache_file)
+                        log.info(f"Removed: {cache_file}")
+                    except PermissionError:
+                        log.warning(f"Permission denied: {cache_file} (try running with sudo)")
+                    except Exception as e:
+                        log.warning(f"Failed to remove {cache_file}: {e}")
+                
+                # Restart bluetooth
+                import subprocess
+                try:
+                    log.info("Restarting bluetooth service...")
+                    subprocess.run(["sudo", "systemctl", "restart", "bluetooth"], 
+                                   capture_output=True, timeout=10)
+                    import time
+                    time.sleep(2)
+                    log.info("Bluetooth service restarted")
+                except Exception as e:
+                    log.warning(f"Failed to restart bluetooth: {e}")
+            else:
+                log.info("No cache files found")
     
     # Run the async main
     try:

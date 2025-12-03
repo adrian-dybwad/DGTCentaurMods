@@ -99,7 +99,7 @@ def parse_fen_data(data: bytes) -> str:
         low_nibble = byte & 0x0F
         board.append(piece_map.get(high_nibble))
         board.append(piece_map.get(low_nibble))
-    
+        
     # Convert to FEN (rank 8 to rank 1)
     fen_rows = []
     for rank in range(7, -1, -1):  # 8th rank to 1st rank
@@ -248,7 +248,7 @@ class ChessnutAirClient:
         log.info("Move pieces on the board to see FEN updates")
         
         return True
-    
+        
     async def disconnect(self):
         """Disconnect from the device."""
         await self.ble_client.disconnect()
@@ -311,11 +311,11 @@ Requirements:
         log.info(f"bleak version: {bleak.__version__}")
     except AttributeError:
         log.info("bleak version: unknown")
-    
+        
     # Run the async main
-    try:
+        try:
         asyncio.run(async_main(args.device_name))
-    except KeyboardInterrupt:
+        except KeyboardInterrupt:
         log.info("Interrupted by user")
     except Exception as e:
         log.error(f"Fatal error: {e}")
