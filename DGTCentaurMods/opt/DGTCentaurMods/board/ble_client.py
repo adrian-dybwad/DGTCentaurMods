@@ -110,6 +110,9 @@ class BLEClient:
     ) -> str | None:
         """Scan for a BLE device by name.
         
+        Uses a callback-based scanner that stops as soon as the device is found,
+        rather than waiting for the full timeout.
+        
         Args:
             device_name: Name of the device to find (case-insensitive)
             timeout: Maximum time to scan in seconds
@@ -121,22 +124,46 @@ class BLEClient:
         log.info(f"Scanning for device with name: {device_name}")
         
         target_name_upper = device_name.upper()
+        found_device: BLEDevice | None = None
+        stop_event = asyncio.Event()
         
-        devices = await BleakScanner.discover(timeout=timeout)
-        
-        for device in devices:
+        def detection_callback(device: BLEDevice, advertisement_data):
+            nonlocal found_device
             name = device.name or ""
             name_upper = name.upper()
             
             if name_upper == target_name_upper:
                 log.info(f"Found device: {device.name} at {device.address}")
-                self._device_name = device.name
-                return device.address
-            
-            if partial_match and target_name_upper in name_upper:
+                found_device = device
+                stop_event.set()
+            elif partial_match and target_name_upper in name_upper:
                 log.info(f"Found device (partial match): {device.name} at {device.address}")
-                self._device_name = device.name
-                return device.address
+                found_device = device
+                stop_event.set()
+        
+        scanner = BleakScanner(detection_callback=detection_callback)
+        
+        try:
+            await scanner.start()
+            
+            # Wait for device to be found or timeout
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                pass
+            
+            await scanner.stop()
+        except Exception as e:
+            log.error(f"Error during scan: {e}")
+            try:
+                await scanner.stop()
+            except:
+                pass
+            return None
+        
+        if found_device:
+            self._device_name = found_device.name
+            return found_device.address
         
         log.warning(f"Device '{device_name}' not found after {timeout} seconds")
         return None
@@ -201,7 +228,11 @@ class BLEClient:
         scan_timeout: float = 30.0,
         partial_match: bool = True
     ) -> bool:
-        """Scan for a device by name and connect to it.
+        """Scan for a device by name and connect to it immediately.
+        
+        This method scans for the device and connects as soon as it's found,
+        avoiding the issue where the device "expires" from BlueZ cache between
+        scan and connect operations.
         
         Args:
             device_name: Name of the device to find
@@ -211,16 +242,83 @@ class BLEClient:
         Returns:
             True if connection successful, False otherwise
         """
-        address = await self.scan_for_device(
-            device_name,
-            timeout=scan_timeout,
-            partial_match=partial_match
-        )
+        log.info(f"Scanning for device with name: {device_name}")
         
-        if not address:
+        target_name_upper = device_name.upper()
+        found_device: BLEDevice | None = None
+        stop_event = asyncio.Event()
+        
+        def detection_callback(device: BLEDevice, advertisement_data):
+            nonlocal found_device
+            name = device.name or ""
+            name_upper = name.upper()
+            
+            if name_upper == target_name_upper:
+                log.info(f"Found device: {device.name} at {device.address}")
+                found_device = device
+                stop_event.set()
+            elif partial_match and target_name_upper in name_upper:
+                log.info(f"Found device (partial match): {device.name} at {device.address}")
+                found_device = device
+                stop_event.set()
+        
+        scanner = BleakScanner(detection_callback=detection_callback)
+        
+        try:
+            await scanner.start()
+            
+            # Wait for device to be found or timeout
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=scan_timeout)
+            except asyncio.TimeoutError:
+                pass
+            
+            await scanner.stop()
+        except Exception as e:
+            log.error(f"Error during scan: {e}")
+            try:
+                await scanner.stop()
+            except:
+                pass
             return False
         
-        return await self.connect(address)
+        if not found_device:
+            log.warning(f"Device '{device_name}' not found after {scan_timeout} seconds")
+            return False
+        
+        # Connect immediately using the BLEDevice object (more reliable than address)
+        log.info(f"Connecting to {found_device.address}...")
+        
+        try:
+            # Use the BLEDevice object directly for more reliable connection
+            self._client = BleakClient(found_device)
+            await self._client.connect()
+            
+            if not self._client.is_connected:
+                log.error("Failed to connect to device")
+                return False
+            
+            self._device_address = found_device.address
+            self._device_name = found_device.name
+            log.info("Connected to device")
+            
+            # Log MTU size
+            try:
+                mtu = self._client.mtu_size
+                log.info(f"MTU size: {mtu}")
+            except AttributeError:
+                log.info("MTU size not available (platform limitation)")
+            
+            return True
+            
+        except BleakError as e:
+            log.error(f"BLE connection error: {e}")
+            return False
+        except Exception as e:
+            log.error(f"Unexpected error during connection: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+            return False
     
     async def disconnect(self):
         """Disconnect from the device."""
