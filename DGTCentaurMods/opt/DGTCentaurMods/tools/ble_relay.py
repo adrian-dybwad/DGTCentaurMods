@@ -611,8 +611,11 @@ async def async_main(device_name: str, use_gatttool: bool = False, device_addres
         use_gatttool: If True, use gatttool backend instead of bleak
         device_address: Optional MAC address to skip scanning
     """
+    client = None
+    fallback_to_gatttool = False
+    
     if use_gatttool:
-        log.info("Using gatttool backend")
+        log.info("Using gatttool backend (requested)")
         client = GatttoolRelayClient(device_name)
         if device_address:
             client.device_address = device_address
@@ -630,9 +633,45 @@ async def async_main(device_name: str, use_gatttool: bool = False, device_addres
         if await client.connect():
             await client.run()
         else:
-            log.error("Failed to connect or detect protocol")
+            # Check if bleak connected but found no services (BlueZ GATT bug)
+            if not use_gatttool and client.ble_client.is_connected:
+                services = client.ble_client.services
+                service_count = len(list(services)) if services else 0
+                if service_count == 0:
+                    log.warning("BlueZ connected but no GATT services discovered")
+                    log.info("This is a known BlueZ issue with some dual-mode devices")
+                    log.info("Falling back to gatttool backend...")
+                    fallback_to_gatttool = True
+                    
+                    # Get the address from the bleak client for gatttool
+                    if not device_address and client.ble_client.device_address:
+                        device_address = client.ble_client.device_address
+            
+            if not fallback_to_gatttool:
+                log.error("Failed to connect or detect protocol")
     finally:
         await client.disconnect()
+    
+    # Fallback to gatttool if bleak failed due to BlueZ GATT issue
+    if fallback_to_gatttool and device_address:
+        log.info("=" * 50)
+        log.info("Attempting gatttool fallback...")
+        log.info("=" * 50)
+        
+        client = GatttoolRelayClient(device_name)
+        client.device_address = device_address
+        
+        # Re-register signal handlers for new client
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, client.stop)
+        
+        try:
+            if await client.connect():
+                await client.run()
+            else:
+                log.error("Gatttool fallback also failed")
+        finally:
+            await client.disconnect()
 
 
 def main():
