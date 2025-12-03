@@ -1,29 +1,24 @@
 #!/usr/bin/env python3
 """
-BLE Scanner Tool for Chessnut Air
+BLE Relay Tool
 
-This tool connects to a BLE device called "Chessnut Air" and logs all data received.
+This tool connects to a BLE chess board and auto-detects the protocol
+(Millennium or Chessnut Air) by probing with initial commands.
+
+It uses the generic BLEClient class for BLE communication.
 
 Usage:
-    python3 tools/ble_relay.py
+    python3 tools/ble_relay.py [--device-name "Chessnut Air"]
+    
+Requirements:
+    pip install bleak
 """
 
 import argparse
+import asyncio
+import signal
 import sys
 import os
-import time
-import threading
-import signal
-import subprocess
-import re
-import select
-import queue
-import dbus
-import dbus.mainloop.glib
-try:
-    from gi.repository import GObject
-except ImportError:
-    import gobject as GObject
 
 # Ensure we import the repo package first (not a system-installed copy)
 try:
@@ -33,15 +28,25 @@ try:
 except Exception as e:
     print(f"Warning: Could not add repo path: {e}")
 
-from DGTCentaurMods.thirdparty.bletools import BleTools
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.board.bluetooth_controller import BluetoothController
+from DGTCentaurMods.board.ble_client import BLEClient
+
+# Millennium ChessLink BLE UUIDs
+MILLENNIUM_SERVICE_UUID = "49535343-fe7d-4ae5-8fa9-9fafd205e455"
+MILLENNIUM_RX_CHAR_UUID = "49535343-8841-43f4-a8d4-ecbe34729bb3"  # Write commands TO device
+MILLENNIUM_TX_CHAR_UUID = "49535343-1e4d-4bd9-ba61-23c647249616"  # Read responses FROM device
+
+# Chessnut Air BLE UUIDs
+CHESSNUT_FEN_RX_CHAR_UUID = "1b7e8262-2877-41c3-b46e-cf057c562023"  # Notify from board (FEN data)
+CHESSNUT_OP_TX_CHAR_UUID = "1b7e8272-2877-41c3-b46e-cf057c562023"  # Write to board
+CHESSNUT_OP_RX_CHAR_UUID = "1b7e8273-2877-41c3-b46e-cf057c562023"  # Notify from board (responses)
+
+# Chessnut Air commands
+CHESSNUT_ENABLE_REPORTING_CMD = bytes([0x21, 0x01, 0x00])
 
 
-def odd_par(b):
+def odd_par(b: int) -> int:
     """Calculate odd parity for a byte and set MSB if needed.
-    
-    Copied from game/millennium.py odd_par function.
     
     Args:
         b: Byte value (0-127)
@@ -62,1182 +67,378 @@ def odd_par(b):
     return byte
 
 
-def encode_millennium_command(command_text: str) -> bytearray:
+def encode_millennium_command(command_text: str) -> bytes:
     """Encode a Millennium protocol command with odd parity and XOR CRC.
     
     Uses the old Millennium protocol format with odd parity encoding.
-    Copied from game/millennium.py sendMillenniumCommand function.
     
     Args:
         command_text: The command string to encode (e.g., "S")
     
     Returns:
-        bytearray: Encoded command with odd parity and CRC appended
+        Encoded command with odd parity and CRC appended
     """
-    log.info(f"Encoding Millennium command with odd parity: '{command_text}'")
-    
     # Calculate CRC (XOR of all ASCII characters)
     cs = 0
-    for el in range(0, len(command_text)):
-        cs = cs ^ ord(command_text[el])
+    for char in command_text:
+        cs = cs ^ ord(char)
     
     # Convert CRC to hex string
-    h = "0x{:02x}".format(cs)
+    h = f"0x{cs:02x}"
     h1 = h[2:3]  # First hex digit
     h2 = h[3:4]  # Second hex digit
     
     # Build encoded packet with odd parity
     tosend = bytearray()
     # Encode each character in command with odd parity
-    for el in range(0, len(command_text)):
-        tosend.append(odd_par(ord(command_text[el])))
+    for char in command_text:
+        tosend.append(odd_par(ord(char)))
     # Encode CRC hex digits with odd parity
     tosend.append(odd_par(ord(h1)))
     tosend.append(odd_par(ord(h2)))
     
-    log.info(f"Encoded Millennium command '{command_text}': {' '.join(f'{b:02x}' for b in tosend)}")
-    return tosend
-
-BLUEZ_SERVICE_NAME = "org.bluez"
-DBUS_OM_IFACE = "org.freedesktop.DBus.ObjectManager"
-DBUS_PROP_IFACE = "org.freedesktop.DBus.Properties"
-DEVICE_IFACE = "org.bluez.Device1"
-ADAPTER_IFACE = "org.bluez.Adapter1"
-
-# Global state
-running = True
-kill = 0
-device_connected = False
-device_address = None
-gatttool_process = None
-notification_threads = []
-active_write_handle = None  # The characteristic handle that received a reply
-active_write_lock = threading.Lock()  # Lock for thread-safe access to active_write_handle
-initial_commands_sent = False  # Track if we've sent the initial commands
-active_protocol = None  # Track which protocol got a response: "millennium" or "chessnut_air"
-last_sent_protocol = {}  # Track which protocol was last sent to each handle: {handle: "millennium" or "chessnut_air"}
-last_sent_protocol_lock = threading.Lock()  # Lock for thread-safe access to last_sent_protocol
-millennium_w_probe_responded = set()  # Track which handles responded to the S probe
-millennium_w_probe_lock = threading.Lock()  # Lock for thread-safe access to millennium_w_probe_responded
+    return bytes(tosend)
 
 
-def signal_handler(signum, frame):
-    """Handle SIGINT and SIGTERM signals"""
-    global kill, running
-    log.info("Signal received, shutting down...")
-    kill = 1
-    running = False
-
-
-def find_device_by_name(bus, adapter_path, device_name):
-    """Find a BLE device by name (Alias or Name property)"""
-    try:
-        remote_om = dbus.Interface(
-            bus.get_object(BLUEZ_SERVICE_NAME, "/"),
-            DBUS_OM_IFACE)
-        objects = remote_om.GetManagedObjects()
-        
-        target_name_normalized = device_name.strip().upper()
-        
-        for path, interfaces in objects.items():
-            if DEVICE_IFACE in interfaces:
-                device_props = interfaces[DEVICE_IFACE]
-                alias = device_props.get("Alias", "")
-                name = device_props.get("Name", "")
-                address = device_props.get("Address", "")
-                
-                alias_normalized = str(alias).strip().upper()
-                name_normalized = str(name).strip().upper()
-                
-                if alias_normalized == target_name_normalized or name_normalized == target_name_normalized:
-                    log.info(f"Found device '{device_name}' at path: {path} (Address: {address})")
-                    return address
-        
-        log.warning(f"Device with name '{device_name}' not found")
-        return None
-    except Exception as e:
-        log.error(f"Error finding device by name: {e}")
-        import traceback
-        log.error(traceback.format_exc())
-        return None
-
-
-def parse_gatttool_primary_output(output):
-    """Parse gatttool --primary output to find service handles and UUIDs"""
-    services = []
-    pattern = r'attr handle = 0x([0-9a-f]+), end grp handle = 0x([0-9a-f]+) uuid: ([0-9a-f-]+)'
+def decode_odd_parity(byte_with_parity: int) -> int:
+    """Decode a byte with odd parity (strip MSB).
     
-    for line in output.split('\n'):
-        match = re.search(pattern, line, re.IGNORECASE)
-        if match:
-            start_handle = int(match.group(1), 16)
-            end_handle = int(match.group(2), 16)
-            uuid = match.group(3).lower()
-            services.append({
-                'start_handle': start_handle,
-                'end_handle': end_handle,
-                'uuid': uuid
-            })
-    
-    return services
+    Args:
+        byte_with_parity: Byte with parity bit in MSB
+        
+    Returns:
+        Decoded byte (7 bits)
+    """
+    return byte_with_parity & 0x7F
 
 
-def parse_gatttool_char_desc_output(output):
-    """Parse gatttool char-desc output to find characteristic handles and UUIDs"""
-    characteristics = []
-    lines = output.split('\n')
-    i = 0
+class BLERelayClient:
+    """BLE relay client that auto-detects Millennium or Chessnut Air protocol."""
     
-    while i < len(lines):
-        line = lines[i].strip()
-        if not line:
-            i += 1
-            continue
+    def __init__(self, device_name: str = "Chessnut Air"):
+        """Initialize the BLE relay client.
         
-        # Look for characteristic declaration (uuid 2803)
-        char_decl_match = re.search(r'handle = 0x([0-9a-f]+), uuid = 00002803-0000-1000-8000-00805f9b34fb', line, re.IGNORECASE)
-        if char_decl_match:
-            decl_handle = int(char_decl_match.group(1), 16)
-            # Next line should be the characteristic value with the actual UUID
-            if i + 1 < len(lines):
-                value_line = lines[i + 1].strip()
-                # Skip if it's another declaration or CCCD
-                if '00002803' not in value_line and '00002902' not in value_line:
-                    # Pattern: handle = 0xXXXX, uuid = UUID
-                    value_match = re.search(r'handle = 0x([0-9a-f]+), uuid = ([0-9a-f-]+)', value_line, re.IGNORECASE)
-                    if value_match:
-                        value_handle = int(value_match.group(1), 16)
-                        uuid_raw = value_match.group(2).lower()
-                        
-                        # Skip standard Bluetooth UUIDs that aren't characteristics
-                        if uuid_raw in ['00002800-0000-1000-8000-00805f9b34fb',  # Primary Service
-                                       '00002801-0000-1000-8000-00805f9b34fb',  # Secondary Service
-                                       '00002803-0000-1000-8000-00805f9b34fb',  # Characteristic
-                                       '00002902-0000-1000-8000-00805f9b34fb']:  # CCCD
-                            i += 1
-                            continue
-                        
-                        # Look for CCCD (Client Characteristic Configuration Descriptor) on next line
-                        properties = 0
-                        cccd_handle = None
-                        if i + 2 < len(lines):
-                            cccd_line = lines[i + 2].strip()
-                            cccd_match = re.search(r'handle = 0x([0-9a-f]+), uuid = 00002902-0000-1000-8000-00805f9b34fb', cccd_line, re.IGNORECASE)
-                            if cccd_match:
-                                cccd_handle = int(cccd_match.group(1), 16)
-                        
-                        characteristics.append({
-                            'decl_handle': decl_handle,
-                            'value_handle': value_handle,
-                            'uuid': uuid_raw,
-                            'cccd_handle': cccd_handle
-                        })
-        i += 1
+        Args:
+            device_name: Name of the BLE device to connect to
+        """
+        self.device_name = device_name
+        self.ble_client = BLEClient()
+        self.detected_protocol: str | None = None
+        self.write_char_uuid: str | None = None
+        self.response_buffer: bytearray = bytearray()
+        self._got_response = False
     
-    return characteristics
-
-
-def read_gatttool_output(process, timeout=3, max_bytes=8192):
-    """Read output from gatttool process until prompt appears or timeout"""
-    output = ""
-    stderr_output = ""
-    start_time = time.time()
-    prompt_pattern = re.compile(r'\[?([A-Z]+)\]?>|^>\s*$')
+    def _normalize_uuid(self, uuid_str: str) -> str:
+        """Normalize UUID for comparison (lowercase, with dashes)."""
+        return uuid_str.lower()
     
-    last_chunk_time = start_time
-    no_data_count = 0
-    
-    while time.time() - start_time < timeout:
-        try:
-            ready, _, _ = select.select([process.stdout, process.stderr], [], [], 0.2)
-        except (OSError, ValueError):
-            break
+    def _find_characteristic_uuid(self, target_uuid: str) -> str | None:
+        """Find a characteristic UUID in the discovered services.
         
-        if process.stdout in ready:
-            try:
-                chunk = process.stdout.read(max_bytes - len(output))
-                if chunk:
-                    output += chunk
-                    last_chunk_time = time.time()
-                    no_data_count = 0
-                    if prompt_pattern.search(output):
-                        lines = output.split('\n')
-                        cleaned_lines = []
-                        for line in lines:
-                            line_stripped = line.strip()
-                            if prompt_pattern.match(line_stripped) or line_stripped.endswith('>'):
-                                break
-                            cleaned_lines.append(line)
-                        output = '\n'.join(cleaned_lines)
-                        break
-            except (OSError, ValueError):
-                break
-        
-        if process.stderr in ready:
-            try:
-                chunk = process.stderr.read(1024)
-                if chunk:
-                    stderr_output += chunk
-                    last_chunk_time = time.time()
-                    no_data_count = 0
-            except (OSError, ValueError):
-                break
-        
-        if not ready:
-            no_data_count += 1
-            if output and no_data_count > 3:
-                break
-            time.sleep(0.05)
-        else:
-            no_data_count = 0
-        
-        if output and (time.time() - last_chunk_time) > 0.5:
-            break
-    
-    if stderr_output:
-        output += "\n[stderr]\n" + stderr_output
-    
-    return output.strip()
-
-
-def connect_and_scan_ble_device(device_address):
-    """Connect to BLE device and scan for all services and characteristics"""
-    global device_connected, gatttool_process
-    
-    try:
-        log.info(f"Connecting to device {device_address}")
-        
-        # First, disconnect any existing connection to avoid conflicts
-        # bluetoothctl and gatttool conflict - bluetoothctl holds the connection
-        log.info("Disconnecting any existing connection...")
-        subprocess.run(['bluetoothctl', 'disconnect', device_address], 
-                      capture_output=True, timeout=5, text=True)
-        time.sleep(3)  # Wait for disconnection to complete
-        
-        # Retry gatttool commands with exponential backoff
-        max_retries = 5
-        retry_delay = 2
-        
-        # Use gatttool non-interactive commands directly (they connect automatically)
-        # This avoids the bluetoothctl conflict
-        log.info("Discovering services with gatttool (will connect automatically)...")
-        result = None
-        for attempt in range(max_retries):
-            result = subprocess.run(['gatttool', '-b', device_address, '--primary'],
-                                   capture_output=True, timeout=15, text=True)
+        Args:
+            target_uuid: UUID to find (case-insensitive)
             
-            if result.returncode == 0:
-                break
-            
-            if "Device or resource busy" in result.stderr or "busy" in result.stderr.lower():
-                if attempt < max_retries - 1:
-                    log.warning(f"Device busy, retrying in {retry_delay} seconds (attempt {attempt + 1}/{max_retries})...")
-                    # Try disconnecting again
-                    subprocess.run(['bluetoothctl', 'disconnect', device_address], 
-                                  capture_output=True, timeout=5, text=True)
-                    time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
-                else:
-                    log.error(f"gatttool --primary failed after {max_retries} attempts: {result.stderr}")
-                    return False
-            else:
-                log.error(f"gatttool --primary failed: {result.stderr}")
-                return False
+        Returns:
+            The actual UUID string if found, None otherwise
+        """
+        if not self.ble_client.services:
+            return None
         
-        if result.returncode != 0:
-            log.error(f"gatttool --primary failed: {result.stderr}")
+        target_lower = target_uuid.lower()
+        
+        for service in self.ble_client.services:
+            for char in service.characteristics:
+                if char.uuid.lower() == target_lower:
+                    return char.uuid
+        
+        return None
+    
+    def _millennium_notification_handler(self, sender, data: bytearray):
+        """Handle notifications from Millennium TX characteristic.
+        
+        Args:
+            sender: The characteristic that sent the notification
+            data: The notification data
+        """
+        hex_str = ' '.join(f'{b:02x}' for b in data)
+        log.info(f"RX [Millennium] ({len(data)} bytes): {hex_str}")
+        
+        # Skip echo-backs (single byte with 0x01 prefix)
+        if len(data) == 2 and data[0] == 0x01:
+            log.debug(f"Ignoring echo-back: {hex_str}")
+            return
+        
+        # Strip 0x01 prefix if present
+        if len(data) > 0 and data[0] == 0x01:
+            data = data[1:]
+        
+        if len(data) == 0:
+            return
+        
+        # Accumulate response
+        self.response_buffer.extend(data)
+        
+        # Decode odd parity
+        decoded = bytearray()
+        for b in self.response_buffer:
+            decoded.append(decode_odd_parity(b))
+        
+        # Check for complete response
+        if len(decoded) >= 3:
+            first_char = chr(decoded[0]) if decoded[0] < 128 else '?'
+            
+            # Check for complete responses
+            complete = False
+            if first_char == 'x' and len(decoded) >= 3:
+                complete = True
+            elif first_char == 'w' and len(decoded) >= 7:
+                complete = True
+            elif first_char == 's' and len(decoded) >= 67:
+                complete = True
+            
+            if complete:
+                ascii_str = decoded.decode('ascii', errors='replace')
+                log.info(f"RX [Millennium DECODED]: {ascii_str}")
+                self.response_buffer.clear()
+                self._got_response = True
+                
+                if self.detected_protocol is None:
+                    self.detected_protocol = "millennium"
+                    log.info("Detected protocol: Millennium")
+    
+    def _chessnut_notification_handler(self, sender, data: bytearray):
+        """Handle notifications from Chessnut characteristics.
+        
+        Args:
+            sender: The characteristic that sent the notification
+            data: The notification data
+        """
+        hex_str = ' '.join(f'{b:02x}' for b in data)
+        log.info(f"RX [Chessnut] ({len(data)} bytes): {hex_str}")
+        
+        self._got_response = True
+        
+        if self.detected_protocol is None:
+            self.detected_protocol = "chessnut_air"
+            log.info("Detected protocol: Chessnut Air")
+    
+    async def _probe_millennium(self) -> bool:
+        """Probe for Millennium protocol.
+        
+        Returns:
+            True if Millennium protocol detected, False otherwise
+        """
+        # Find Millennium characteristics
+        rx_uuid = self._find_characteristic_uuid(MILLENNIUM_RX_CHAR_UUID)
+        tx_uuid = self._find_characteristic_uuid(MILLENNIUM_TX_CHAR_UUID)
+        
+        if not rx_uuid or not tx_uuid:
+            log.info("Millennium characteristics not found")
             return False
         
-        log.info(f"Services found:\n{result.stdout}")
-        services = parse_gatttool_primary_output(result.stdout)
+        log.info(f"Found Millennium RX: {rx_uuid}")
+        log.info(f"Found Millennium TX: {tx_uuid}")
         
-        # For each service, discover characteristics with retry
-        all_characteristics = []
-        for service in services:
-            log.info(f"Discovering characteristics for service {service['uuid']} (handles {service['start_handle']:04x}-{service['end_handle']:04x})")
+        # Enable notifications on TX
+        if not await self.ble_client.start_notify(tx_uuid, self._millennium_notification_handler):
+            log.warning("Failed to enable Millennium notifications")
+            return False
+        
+        # Send S probe command
+        self._got_response = False
+        s_cmd = encode_millennium_command("S")
+        log.info(f"Sending Millennium S probe: {' '.join(f'{b:02x}' for b in s_cmd)}")
+        
+        if not await self.ble_client.write_characteristic(rx_uuid, s_cmd, response=False):
+            log.warning("Failed to send Millennium probe")
+            return False
+        
+        # Wait for response
+        for _ in range(30):  # 3 seconds
+            await asyncio.sleep(0.1)
+            if self._got_response:
+                self.write_char_uuid = rx_uuid
+                return True
+        
+        log.info("No Millennium response received")
+        return False
+    
+    async def _probe_chessnut(self) -> bool:
+        """Probe for Chessnut Air protocol.
+        
+        Returns:
+            True if Chessnut Air protocol detected, False otherwise
+        """
+        # Find Chessnut characteristics
+        tx_uuid = self._find_characteristic_uuid(CHESSNUT_OP_TX_CHAR_UUID)
+        rx_uuid = self._find_characteristic_uuid(CHESSNUT_OP_RX_CHAR_UUID)
+        fen_uuid = self._find_characteristic_uuid(CHESSNUT_FEN_RX_CHAR_UUID)
+        
+        if not tx_uuid:
+            log.info("Chessnut TX characteristic not found")
+            return False
+        
+        log.info(f"Found Chessnut TX: {tx_uuid}")
+        if rx_uuid:
+            log.info(f"Found Chessnut RX: {rx_uuid}")
+        if fen_uuid:
+            log.info(f"Found Chessnut FEN: {fen_uuid}")
+        
+        # Enable notifications
+        if rx_uuid:
+            await self.ble_client.start_notify(rx_uuid, self._chessnut_notification_handler)
+        if fen_uuid:
+            await self.ble_client.start_notify(fen_uuid, self._chessnut_notification_handler)
+        
+        # Send enable reporting command
+        self._got_response = False
+        log.info(f"Sending Chessnut enable reporting: {' '.join(f'{b:02x}' for b in CHESSNUT_ENABLE_REPORTING_CMD)}")
+        
+        if not await self.ble_client.write_characteristic(tx_uuid, CHESSNUT_ENABLE_REPORTING_CMD, response=False):
+            log.warning("Failed to send Chessnut probe")
+            return False
+        
+        # Wait for response
+        for _ in range(30):  # 3 seconds
+            await asyncio.sleep(0.1)
+            if self._got_response:
+                self.write_char_uuid = tx_uuid
+                return True
+        
+        log.info("No Chessnut response received")
+        return False
+    
+    async def connect(self) -> bool:
+        """Connect to the device and auto-detect protocol.
+        
+        Returns:
+            True if connection and protocol detection successful, False otherwise
+        """
+        if not await self.ble_client.scan_and_connect(self.device_name):
+            return False
+        
+        # Log discovered services
+        self.ble_client.log_services()
+        
+        # Try Millennium first
+        log.info("Probing for Millennium protocol...")
+        if await self._probe_millennium():
+            log.info("Millennium protocol detected and active")
             
-            char_result = None
-            char_retry_delay = 2  # Reset retry delay for each service
-            for attempt in range(max_retries):
-                char_result = subprocess.run(['gatttool', '-b', device_address, '--char-desc', 
-                                           f"{service['start_handle']:04x}", f"{service['end_handle']:04x}"],
-                                           capture_output=True, timeout=10, text=True)
-                
-                if char_result.returncode == 0:
-                    break
-                
-                if "Device or resource busy" in char_result.stderr or "busy" in char_result.stderr.lower():
-                    if attempt < max_retries - 1:
-                        log.debug(f"Device busy, retrying characteristics discovery (attempt {attempt + 1}/{max_retries})...")
-                        time.sleep(char_retry_delay)
-                        char_retry_delay *= 2  # Exponential backoff
-                    else:
-                        log.warning(f"Failed to discover characteristics for service {service['uuid']} after {max_retries} attempts: {char_result.stderr}")
-                        break
-                else:
-                    log.warning(f"Failed to discover characteristics for service {service['uuid']}: {char_result.stderr}")
-                    break
+            # Send full initialization sequence
+            init_commands = ["W0203", "W0407", "X", "S"]
+            for cmd in init_commands:
+                encoded = encode_millennium_command(cmd)
+                log.info(f"Sending Millennium '{cmd}': {' '.join(f'{b:02x}' for b in encoded)}")
+                await self.ble_client.write_characteristic(self.write_char_uuid, encoded, response=False)
+                await asyncio.sleep(0.5)
             
-            if char_result and char_result.returncode == 0:
-                chars = parse_gatttool_char_desc_output(char_result.stdout)
-                
-                # Also get characteristics with properties using --characteristics
-                char_props_result = subprocess.run(['gatttool', '-b', device_address, '--characteristics',
-                                                   f"{service['start_handle']:04x}", f"{service['end_handle']:04x}"],
-                                                  capture_output=True, timeout=10, text=True)
-                
-                log.debug(f"--characteristics output for service {service['uuid']}:\n{char_props_result.stdout}")
-                if char_props_result.returncode != 0:
-                    log.warning(f"--characteristics failed: {char_props_result.stderr}")
-                
-                # Parse properties from --characteristics output
-                # Format: handle = 0xXXXX, char properties = 0xXX, char value handle = 0xYYYY uuid: UUID
-                properties_map = {}
-                if char_props_result.returncode == 0:
-                    for line in char_props_result.stdout.split('\n'):
-                        # Try multiple regex patterns to match different output formats
-                        props_match = re.search(r'char value handle = 0x([0-9a-f]+).*char properties = 0x([0-9a-f]+)', line, re.IGNORECASE)
-                        if not props_match:
-                            # Alternative format: handle = 0xXXXX, char properties = 0xXX, char value handle = 0xYYYY
-                            props_match = re.search(r'handle = 0x([0-9a-f]+).*char properties = 0x([0-9a-f]+).*char value handle = 0x([0-9a-f]+)', line, re.IGNORECASE)
-                            if props_match:
-                                # Use the value handle (group 3) in this format
-                                value_handle = int(props_match.group(3), 16)
-                                properties_hex = int(props_match.group(2), 16)
-                                properties_map[value_handle] = properties_hex
-                        else:
-                            value_handle = int(props_match.group(1), 16)
-                            properties_hex = int(props_match.group(2), 16)
-                            properties_map[value_handle] = properties_hex
-                        
-                        if props_match:
-                            # Properties: 0x02=read, 0x04=write, 0x08=notify, 0x10=indicate, 0x20=write-without-response
-                            props_list = []
-                            if properties_hex & 0x02: props_list.append("read")
-                            if properties_hex & 0x04: props_list.append("write")
-                            if properties_hex & 0x08: props_list.append("notify")
-                            if properties_hex & 0x10: props_list.append("indicate")
-                            if properties_hex & 0x20: props_list.append("write-without-response")
-                            log.info(f"Characteristic handle {value_handle:04x} properties: 0x{properties_hex:02x} ({', '.join(props_list)})")
-                
-                for char in chars:
-                    char['service_uuid'] = service['uuid']
-                    # Add properties if we found them
-                    if char['value_handle'] in properties_map:
-                        char['properties'] = properties_map[char['value_handle']]
-                        props_hex = properties_map[char['value_handle']]
-                        props_list = []
-                        if props_hex & 0x02: props_list.append("read")
-                        if props_hex & 0x04: props_list.append("write")
-                        if props_hex & 0x08: props_list.append("notify")
-                        if props_hex & 0x10: props_list.append("indicate")
-                        if props_hex & 0x20: props_list.append("write-without-response")
-                        char['properties_list'] = props_list
-                all_characteristics.extend(chars)
-                log.info(f"Found {len(chars)} characteristics in service {service['uuid']}")
+            return True
         
-        log.info(f"Total characteristics found: {len(all_characteristics)}")
+        # Try Chessnut Air
+        log.info("Probing for Chessnut Air protocol...")
+        if await self._probe_chessnut():
+            log.info("Chessnut Air protocol detected and active")
+            return True
         
-        # Start interactive gatttool for notifications
-        # Note: The device may already be connected from the --primary command above
-        # If so, we need to disconnect first, or use a new gatttool session
-        log.info("Starting gatttool interactive session for notifications...")
-        proc = None
-        interactive_retry_delay = 2  # Reset retry delay for interactive session
-        for attempt in range(max_retries):
-            try:
-                # Disconnect first to ensure clean state
-                if attempt > 0:
-                    subprocess.run(['bluetoothctl', 'disconnect', device_address], 
-                                  capture_output=True, timeout=5, text=True)
-                    time.sleep(2)
-                
-                proc = subprocess.Popen(
-                    ['gatttool', '-b', device_address, '-I'],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    bufsize=0
+        log.warning("No supported protocol detected")
+        return False
+    
+    async def disconnect(self):
+        """Disconnect from the device."""
+        await self.ble_client.disconnect()
+    
+    async def run(self):
+        """Main run loop - keeps connection alive and sends periodic commands."""
+        log.info(f"Running with {self.detected_protocol} protocol")
+        log.info("Press Ctrl+C to exit")
+        
+        while self.ble_client.is_connected:
+            await asyncio.sleep(10)
+            
+            # Send periodic status command
+            if self.detected_protocol == "millennium" and self.write_char_uuid:
+                s_cmd = encode_millennium_command("S")
+                log.info(f"Sending periodic Millennium S command")
+                await self.ble_client.write_characteristic(self.write_char_uuid, s_cmd, response=False)
+            elif self.detected_protocol == "chessnut_air" and self.write_char_uuid:
+                log.info(f"Sending periodic Chessnut enable reporting")
+                await self.ble_client.write_characteristic(
+                    self.write_char_uuid,
+                    CHESSNUT_ENABLE_REPORTING_CMD,
+                    response=False
                 )
-                time.sleep(1)
-                
-                # Connect in interactive mode
-                proc.stdin.write("connect\n")
-                proc.stdin.flush()
-                time.sleep(3)  # Wait for connection
-                
-                # Check if process is still alive (connection successful)
-                if proc.poll() is None:
-                    log.debug("gatttool interactive session started and connected successfully")
-                    break
-                else:
-                    exit_code = proc.returncode
-                    proc = None
-                    if attempt < max_retries - 1:
-                        log.warning(f"gatttool process exited with code {exit_code}, retrying in {interactive_retry_delay} seconds (attempt {attempt + 1}/{max_retries})...")
-                        time.sleep(interactive_retry_delay)
-                        interactive_retry_delay *= 2  # Exponential backoff
-            except Exception as e:
-                log.warning(f"Failed to start gatttool (attempt {attempt + 1}/{max_retries}): {e}")
-                if proc:
-                    try:
-                        proc.terminate()
-                    except:
-                        pass
-                proc = None
-                if attempt < max_retries - 1:
-                    time.sleep(interactive_retry_delay)
-                    interactive_retry_delay *= 2  # Exponential backoff
-        
-        if proc is None:
-            log.error(f"Failed to start gatttool interactive session after {max_retries} attempts")
-            return False
-        
-        time.sleep(0.5)
-        
-        gatttool_process = proc
-        
-        # Millennium ChessLink BLE UUIDs
-        MILLENNIUM_SERVICE_UUID = "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
-        MILLENNIUM_RX_CHAR_UUID = "49535343-8841-43F4-A8D4-ECBE34729BB3"  # Write commands TO device
-        MILLENNIUM_TX_CHAR_UUID = "49535343-1E4D-4BD9-BA61-23C647249616"  # Read responses FROM device
-        
-        # Normalize UUIDs for comparison (remove dashes, uppercase)
-        def normalize_uuid(uuid_str):
-            """Normalize UUID string for comparison"""
-            return uuid_str.replace('-', '').upper()
-        
-        MILLENNIUM_SERVICE_UUID_NORM = normalize_uuid(MILLENNIUM_SERVICE_UUID)
-        MILLENNIUM_RX_CHAR_UUID_NORM = normalize_uuid(MILLENNIUM_RX_CHAR_UUID)
-        MILLENNIUM_TX_CHAR_UUID_NORM = normalize_uuid(MILLENNIUM_TX_CHAR_UUID)
-        
-        log.info(f"Looking for Millennium RX: {MILLENNIUM_RX_CHAR_UUID} (normalized: {MILLENNIUM_RX_CHAR_UUID_NORM})")
-        log.info(f"Looking for Millennium TX: {MILLENNIUM_TX_CHAR_UUID} (normalized: {MILLENNIUM_TX_CHAR_UUID_NORM})")
-        log.info(f"Looking for Millennium Service: {MILLENNIUM_SERVICE_UUID} (normalized: {MILLENNIUM_SERVICE_UUID_NORM})")
-        
-        # Enable notifications - prioritize Millennium TX characteristic for receiving responses
-        notification_handles = []
-        millennium_tx_handle = None
-        
-        if all_characteristics:
-            # First, find and enable Millennium TX characteristic
-            for char in all_characteristics:
-                char_uuid = normalize_uuid(char.get('uuid', ''))
-                service_uuid = normalize_uuid(char.get('service_uuid', ''))
-                
-                if (char_uuid == MILLENNIUM_TX_CHAR_UUID_NORM and 
-                    service_uuid == MILLENNIUM_SERVICE_UUID_NORM and
-                    char.get('cccd_handle')):
-                    millennium_tx_handle = {
-                        'value_handle': char['value_handle'],
-                        'uuid': char.get('uuid', 'unknown'),
-                        'service_uuid': char.get('service_uuid', 'unknown'),
-                        'cccd_handle': char['cccd_handle']
-                    }
-                    log.info(f"Found Millennium TX characteristic: handle {char['value_handle']:04x}, CCCD {char['cccd_handle']:04x}, UUID {char_uuid}")
-                    break
-            
-            # Enable notifications on Millennium TX characteristic first
-            if millennium_tx_handle:
-                try:
-                    log.info(f"Enabling notifications on Millennium TX characteristic (CCCD handle {millennium_tx_handle['cccd_handle']:04x})")
-                    proc.stdin.write(f"char-write-req {millennium_tx_handle['cccd_handle']:04x} 0100\n")
-                    proc.stdin.flush()
-                    time.sleep(0.2)
-                    notification_handles.append(millennium_tx_handle)
-                except Exception as e:
-                    log.error(f"Error enabling notifications on Millennium TX: {e}")
-            
-            # Also enable notifications on all other characteristics with CCCD (for fallback/debugging)
-            for char in all_characteristics:
-                char_uuid = char.get('uuid', '').upper()
-                service_uuid = char.get('service_uuid', '').upper()
-                
-                # Skip if this is the Millennium TX (already enabled above)
-                char_uuid = normalize_uuid(char.get('uuid', ''))
-                service_uuid = normalize_uuid(char.get('service_uuid', ''))
-                if (char_uuid == MILLENNIUM_TX_CHAR_UUID_NORM and 
-                    service_uuid == MILLENNIUM_SERVICE_UUID_NORM):
-                    continue
-                
-                if char.get('cccd_handle'):
-                    log.info(f"Enabling notifications on characteristic {char['uuid']} (CCCD handle {char['cccd_handle']:04x})")
-                    try:
-                        proc.stdin.write(f"char-write-req {char['cccd_handle']:04x} 0100\n")
-                        proc.stdin.flush()
-                        time.sleep(0.2)  # Small delay between enabling notifications
-                    except Exception as e:
-                        log.error(f"Error enabling notifications on {char['uuid']}: {e}")
-                    notification_handles.append({
-                        'value_handle': char['value_handle'],
-                        'uuid': char.get('uuid', 'unknown'),
-                        'service_uuid': char.get('service_uuid', 'unknown')
-                    })
-        
-        if not notification_handles:
-            log.warning("No characteristics with notification support found")
-        else:
-            log.info(f"Enabled notifications on {len(notification_handles)} characteristics")
-            if millennium_tx_handle:
-                log.info(f"Primary notification target: Millennium TX characteristic (handle {millennium_tx_handle['value_handle']:04x})")
-        
-        # Start threads to drain stdout and stderr
-        stdout_queue = queue.Queue()
-        stderr_queue = queue.Queue()
-        
-        def drain_stdout():
-            while running and not kill:
-                try:
-                    if select.select([proc.stdout], [], [], 0.1)[0]:
-                        chunk = proc.stdout.read(1024)
-                        if chunk:
-                            stdout_queue.put(chunk)
-                        else:
-                            break
-                except Exception as e:
-                    if running:
-                        log.error(f"drain_stdout error: {e}")
-                    break
-        
-        def drain_stderr():
-            while running and not kill:
-                try:
-                    if select.select([proc.stderr], [], [], 0.1)[0]:
-                        chunk = proc.stderr.read(1024)
-                        if chunk:
-                            stderr_queue.put(chunk)
-                        else:
-                            break
-                except:
-                    break
-        
-        threading.Thread(target=drain_stdout, daemon=True).start()
-        threading.Thread(target=drain_stderr, daemon=True).start()
-        
-        # Store write handles - prioritize WRITABLE characteristics in the Millennium service
-        # RX characteristic should have "write" or "write-without-response" properties
-        # TX characteristic should have "notify" property (we're getting echo-backs there)
-        write_handles = []
-        millennium_rx_handles = []  # Characteristics with write properties
-        millennium_tx_handles = []  # Characteristics with notify properties (for receiving responses)
-        
-        if all_characteristics:
-            for char in all_characteristics:
-                char_uuid = normalize_uuid(char.get('uuid', ''))
-                service_uuid = normalize_uuid(char.get('service_uuid', ''))
-                value_handle = char['value_handle']
-                properties = char.get('properties', 0)
-                properties_list = char.get('properties_list', [])
-                
-                # Collect characteristics in the Millennium service (service range is 0030-003d)
-                if service_uuid == MILLENNIUM_SERVICE_UUID_NORM and 0x0030 <= value_handle <= 0x003d:
-                    char_info = {
-                        'value_handle': value_handle,
-                        'uuid': char.get('uuid', 'unknown'),
-                        'service_uuid': char.get('service_uuid', 'unknown'),
-                        'properties': properties,
-                        'properties_list': properties_list
-                    }
-                    
-                    # Check if it has write properties (RX characteristic)
-                    if properties & 0x04 or properties & 0x20:  # write or write-without-response
-                        millennium_rx_handles.append(char_info)
-                        log.info(f"Found WRITABLE characteristic in Millennium service: UUID {char.get('uuid')}, handle {value_handle:04x}, properties: {', '.join(properties_list)}")
-                    
-                    # Check if it has notify properties (TX characteristic)
-                    if properties & 0x08:  # notify
-                        millennium_tx_handles.append(char_info)
-                        log.info(f"Found NOTIFY characteristic in Millennium service: UUID {char.get('uuid')}, handle {value_handle:04x}, properties: {', '.join(properties_list)}")
-        
-        # Use writable characteristics (RX) for writing commands
-        # Prioritize the known RX UUID (49535343-8841-43F4-A8D4-ECBE34729BB3)
-        if millennium_rx_handles:
-            # Check if we found the known RX UUID
-            rx_uuid_handle = None
-            for char in millennium_rx_handles:
-                char_uuid = normalize_uuid(char.get('uuid', ''))
-                if char_uuid == MILLENNIUM_RX_CHAR_UUID_NORM:
-                    rx_uuid_handle = char
-                    log.info(f"Found Millennium RX UUID characteristic: handle {char['value_handle']:04x}, UUID {char.get('uuid')}")
-                    break
-            
-            # If we found the RX UUID, use only that. Otherwise use all writable characteristics.
-            if rx_uuid_handle:
-                write_handles = [rx_uuid_handle]
-                log.info(f"Using Millennium RX UUID characteristic (handle {rx_uuid_handle['value_handle']:04x}) for writing commands")
-            else:
-                write_handles = millennium_rx_handles
-                log.info(f"RX UUID not found, using {len(millennium_rx_handles)} WRITABLE characteristics from Millennium service for writing commands")
-            
-            if millennium_tx_handles:
-                log.info(f"Found {len(millennium_tx_handles)} NOTIFY characteristics for receiving responses")
-        else:
-            log.warning(f"No WRITABLE characteristics found via --characteristics! Using heuristic: exclude NOTIFY characteristics")
-            # Heuristic: Exclude characteristics that have notify enabled (those are TX, not RX)
-            # RX characteristics should NOT have notify, they should accept writes
-            notify_handles = {char['value_handle'] for char in millennium_tx_handles}
-            log.info(f"Excluding {len(notify_handles)} NOTIFY characteristics (TX): {[f'{h:04x}' for h in notify_handles]}")
-            
-            # Add all characteristics in Millennium service EXCEPT those with notify
-            for char in all_characteristics:
-                service_uuid = normalize_uuid(char.get('service_uuid', ''))
-                value_handle = char['value_handle']
-                if service_uuid == MILLENNIUM_SERVICE_UUID_NORM and 0x0030 <= value_handle <= 0x003d:
-                    if value_handle not in notify_handles:
-                        write_handles.append({
-                            'value_handle': value_handle,
-                            'uuid': char.get('uuid', 'unknown'),
-                            'service_uuid': char.get('service_uuid', 'unknown')
-                        })
-                        log.info(f"Including characteristic handle {value_handle:04x} (UUID: {char.get('uuid')}) - not a notify characteristic")
-            
-            if not write_handles:
-                log.warning(f"Fallback: No characteristics found after excluding notify ones, will try ALL characteristics")
-                # Last resort: try all characteristics
-                for char in all_characteristics:
-                    service_uuid = normalize_uuid(char.get('service_uuid', ''))
-                    value_handle = char['value_handle']
-                    if service_uuid == MILLENNIUM_SERVICE_UUID_NORM and 0x0030 <= value_handle <= 0x003d:
-                        write_handles.append({
-                            'value_handle': value_handle,
-                            'uuid': char.get('uuid', 'unknown'),
-                            'service_uuid': char.get('service_uuid', 'unknown')
-                        })
-        
-        # Start notification reader
-        def read_notifications():
-            global running, kill, active_write_handle, active_write_lock, active_protocol, millennium_w_probe_responded, millennium_w_probe_lock
-            buffer = ""
-            # Accumulate responses per handle (for multi-packet responses)
-            response_buffers = {}  # {handle: bytearray}
-            
-            def decode_odd_parity(byte_with_parity):
-                """Decode a byte with odd parity (strip MSB)"""
-                return byte_with_parity & 0x7F
-            
-            def process_millennium_response(handle, data):
-                """Process Millennium protocol response, handling 01 prefix and odd parity"""
-                # The device is echoing commands back with a 01 prefix
-                # This is NOT a valid response - it's just an echo
-                # Real responses should be longer and start with lowercase letters (s, w, x)
-                if len(data) == 2 and data[0] == 0x01:
-                    # This is just an echo-back, ignore it
-                    log.debug(f"Ignoring echo-back on handle {handle:04x}: 01 {data[1]:02x}")
-                    return None
-                
-                # For longer responses, strip 01 prefix if present
-                if len(data) > 0 and data[0] == 0x01:
-                    data = data[1:]
-                
-                if len(data) == 0:
-                    return None
-                
-                # Accumulate response for this handle
-                if handle not in response_buffers:
-                    response_buffers[handle] = bytearray()
-                response_buffers[handle].extend(data)
-                
-                # Decode odd parity from accumulated buffer
-                decoded = bytearray()
-                for b in response_buffers[handle]:
-                    decoded.append(decode_odd_parity(b))
-                
-                # Check if we have a complete response
-                # For 's' command, response is 's' + 64 chars + 2 CRC = 67 bytes
-                # For 'w' command, response is 'w' + 4 hex + 2 CRC = 7 bytes  
-                # For 'x' command, response is 'x' + 2 CRC = 3 bytes
-                if len(decoded) >= 3:  # Minimum response is 'x' + 2 CRC = 3 bytes
-                    first_char = chr(decoded[0]) if decoded[0] < 128 else '?'
-                    
-                    # Check for complete 'x' response (3 bytes)
-                    if first_char == 'x' and len(decoded) >= 3:
-                        log.info(f"RX [DECODED] handle {handle:04x}: {' '.join(f'{b:02x}' for b in decoded)}")
-                        log.info(f"RX [DECODED] handle {handle:04x} ASCII: {decoded.decode('ascii', errors='replace')}")
-                        del response_buffers[handle]
-                        return decoded
-                    
-                    # Check for complete 'w' response (7 bytes: 'w' + 4 hex + 2 CRC)
-                    if first_char == 'w' and len(decoded) >= 7:
-                        log.info(f"RX [DECODED] handle {handle:04x}: {' '.join(f'{b:02x}' for b in decoded)}")
-                        log.info(f"RX [DECODED] handle {handle:04x} ASCII: {decoded.decode('ascii', errors='replace')}")
-                        del response_buffers[handle]
-                        return decoded
-                    
-                    # Check for complete 's' response (67 bytes: 's' + 64 chars + 2 CRC)
-                    if first_char == 's' and len(decoded) >= 67:
-                        log.info(f"RX [DECODED] handle {handle:04x}: {' '.join(f'{b:02x}' for b in decoded)}")
-                        log.info(f"RX [DECODED] handle {handle:04x} ASCII: {decoded.decode('ascii', errors='replace')}")
-                        del response_buffers[handle]
-                        return decoded
-                    
-                    # Log progress for accumulating responses
-                    if len(decoded) > 0:
-                        log.debug(f"Accumulating response on handle {handle:04x}: {len(decoded)}/{67} bytes, starts with '{first_char}'")
-                
-                return None
-            
-            while running and not kill:
-                try:
-                    try:
-                        chunk = stdout_queue.get(timeout=0.1)
-                        buffer += chunk.decode('utf-8', errors='replace') if isinstance(chunk, bytes) else chunk
-                        while '\n' in buffer:
-                            line, buffer = buffer.split('\n', 1)
-                            if 'Notification' in line or 'Indication' in line:
-                                match = re.search(r'handle = 0x([0-9a-f]+).*value: ([0-9a-f ]+)', line, re.IGNORECASE)
-                                if match:
-                                    handle_str = match.group(1)
-                                    hex_str = match.group(2).replace(' ', '')
-                                    try:
-                                        handle = int(handle_str, 16)
-                                        data = bytearray.fromhex(hex_str)
-                                        
-                                        # Find which characteristic this handle belongs to
-                                        char_info = None
-                                        for nh in notification_handles:
-                                            if nh['value_handle'] == handle:
-                                                char_info = nh
-                                                break
-                                        
-                                        if char_info:
-                                            log.info(f"RX [{char_info['service_uuid']}] [{char_info['uuid']}] (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)}")
-                                            log.info(f"RX [{char_info['service_uuid']}] [{char_info['uuid']}] (handle {handle:04x}) ASCII: {data.decode('utf-8', errors='replace')}")
-                                        else:
-                                            log.info(f"RX (handle {handle:04x}): {' '.join(f'{b:02x}' for b in data)}")
-                                            log.info(f"RX (handle {handle:04x}) ASCII: {data.decode('utf-8', errors='replace')}")
-                                        
-                                        # Process Millennium response (decode odd parity, strip 01 prefix, accumulate)
-                                        decoded_response = process_millennium_response(handle, data)
-                                        
-                                        # Check if this is the first reply - if so, set it as the active write handle
-                                        with active_write_lock, last_sent_protocol_lock, millennium_w_probe_lock:
-                                            # Track if this is a response to a Millennium S probe
-                                            protocol = last_sent_protocol.get(handle)
-                                            if protocol == "millennium" and handle not in millennium_w_probe_responded:
-                                                millennium_w_probe_responded.add(handle)
-                                                log.info(f"*** Millennium S probe response received on handle {handle:04x} - will send full sequence ***")
-                                            
-                                            if active_write_handle is None:
-                                                # Find the corresponding write handle (same value handle)
-                                                for wh in write_handles:
-                                                    if wh['value_handle'] == handle:
-                                                        active_write_handle = wh
-                                                        # Determine which protocol triggered this response
-                                                        # Check which protocol was last sent to this handle
-                                                        if protocol:
-                                                            active_protocol = protocol
-                                                            log.info(f"*** REPLY RECEIVED: Detected {active_protocol} protocol (response to last sent command) ***")
-                                                        else:
-                                                            # Fallback: if we can't determine, default to chessnut_air
-                                                            active_protocol = "chessnut_air"
-                                                            log.info(f"*** REPLY RECEIVED: Could not determine protocol, defaulting to chessnut_air ***")
-                                                        log.info(f"*** Setting active write handle to {handle:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']}) ***")
-                                                        log.info(f"*** Will now only send to this characteristic using {active_protocol} protocol ***")
-                                                        break
-                                    except ValueError:
-                                        pass
-                    except queue.Empty:
-                        pass
-                except Exception as e:
-                    if running:
-                        log.error(f"Notification read error: {e}")
-                        import traceback
-                        log.error(traceback.format_exc())
-                    break
-        
-        threading.Thread(target=read_notifications, daemon=True).start()
-        
-        # Start periodic send thread (send "S" to all characteristics every 10 seconds)
-        if all_characteristics:
-            log.info(f"Will send periodic 'S' to {len(write_handles)} characteristics:")
-            for wh in write_handles:
-                log.info(f"  - Handle {wh['value_handle']:04x} (Service: {wh['service_uuid']}, UUID: {wh['uuid']})")
-            
-            def periodic_send():
-                """Send initial commands for both protocols, then use the one that gets a response"""
-                global running, kill, gatttool_process, device_connected, active_write_handle, active_write_lock
-                global initial_commands_sent, active_protocol
-                log.info("Periodic send thread started, waiting for connection...")
-                # Wait for device_connected to be True
-                wait_count = 0
-                while not device_connected and running and not kill and wait_count < 50:
-                    time.sleep(0.1)
-                    wait_count += 1
-                
-                if not device_connected:
-                    log.error("Periodic send thread: device_connected never became True, exiting")
-                    return
-                
-                log.info("Periodic send thread: device connected, starting periodic sends")
-                
-                # First, send both initial commands to all characteristics
-                if not initial_commands_sent:
-                    # Step 1: Send only S probe to all characteristics
-                    log.info("Step 1: Sending Millennium S probe to all characteristics...")
-                    with last_sent_protocol_lock:
-                        for wh in write_handles:
-                            try:
-                                handle = wh['value_handle']
-                                uuid = wh['uuid']
-                                service_uuid = wh['service_uuid']
-                                
-                                # Send only S as probe
-                                s_probe_encoded = encode_millennium_command("S")
-                                s_probe_hex = ' '.join(f'{b:02x}' for b in s_probe_encoded)
-                                
-                                log.info(f"  -> Sending Millennium S probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                log.info(f"     Encoded bytes: {s_probe_hex}")
-                                # Use char-write-cmd (write without response) to avoid write acknowledgments
-                                gatttool_process.stdin.write(f"char-write-cmd {handle:04x} {s_probe_hex}\n")
-                                gatttool_process.stdin.flush()
-                                log.info(f"  <- Sent Millennium S probe to handle {handle:04x}")
-                                # Track that we sent Millennium protocol to this handle
-                                last_sent_protocol[handle] = "millennium"
-                                time.sleep(0.2)  # Small delay between probes
-                            except Exception as e:
-                                log.error(f"  Error sending Millennium S probe to handle {wh['value_handle']:04x}: {e}")
-                                import traceback
-                                log.error(traceback.format_exc())
-                    
-                    # Wait for responses to the S probe
-                    log.info("Waiting 3 seconds for responses to S probe...")
-                    time.sleep(3)
-                    
-                    # Step 2: Send full sequence only to characteristics that responded
-                    with millennium_w_probe_lock, last_sent_protocol_lock:
-                        responding_handles = list(millennium_w_probe_responded)
-                    
-                    if responding_handles:
-                        log.info(f"Step 2: Sending full Millennium sequence to {len(responding_handles)} responding characteristics...")
-                        millennium_commands = ["W0203", "W0407", "X", "S"]
-                        with last_sent_protocol_lock:
-                            for handle in responding_handles:
-                                # Find the write handle info
-                                wh = None
-                                for w in write_handles:
-                                    if w['value_handle'] == handle:
-                                        wh = w
-                                        break
-                                
-                                if wh is None:
-                                    continue
-                                
-                                try:
-                                    uuid = wh['uuid']
-                                    service_uuid = wh['service_uuid']
-                                    
-                                    # Send each command in sequence
-                                    for cmd in millennium_commands:
-                                        millennium_encoded = encode_millennium_command(cmd)
-                                        millennium_hex = ' '.join(f'{b:02x}' for b in millennium_encoded)
-                                        
-                                        log.info(f"  -> Sending Millennium '{cmd}' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                        log.info(f"     Encoded bytes: {millennium_hex}")
-                                        # Use char-write-cmd (write without response) to avoid write acknowledgments
-                                        gatttool_process.stdin.write(f"char-write-cmd {handle:04x} {millennium_hex}\n")
-                                        gatttool_process.stdin.flush()
-                                        log.info(f"  <- Sent Millennium '{cmd}' to handle {handle:04x}")
-                                        # Track that we sent Millennium protocol to this handle
-                                        last_sent_protocol[handle] = "millennium"
-                                        time.sleep(0.5)  # Delay between commands to allow device to process
-                                    
-                                    # Wait after completing sequence for this characteristic
-                                    time.sleep(0.3)
-                                except Exception as e:
-                                    log.error(f"  Error sending Millennium full sequence to handle {handle:04x}: {e}")
-                                    import traceback
-                                    log.error(traceback.format_exc())
-                    else:
-                        log.info("No responses to S probe, skipping full Millennium sequence")
-                    
-                    # Check if we got any Millennium responses
-                    with millennium_w_probe_lock:
-                        got_millennium_response = len(millennium_w_probe_responded) > 0
-                    
-                    # Only send Chessnut Air if we didn't get a Millennium response
-                    if not got_millennium_response:
-                        # Wait a bit before sending the next protocol
-                        time.sleep(2)
-                        
-                        # Send Chessnut Air initial command [0x21, 0x01, 0x00] to all characteristics
-                        log.info("No Millennium responses received, sending Chessnut Air initial command [0x21, 0x01, 0x00] to all characteristics...")
-                        chessnut_bytes = [0x21, 0x01, 0x00]
-                        chessnut_hex = ' '.join(f'{b:02x}' for b in chessnut_bytes)
-                        with last_sent_protocol_lock:
-                            for wh in write_handles:
-                                try:
-                                    handle = wh['value_handle']
-                                    uuid = wh['uuid']
-                                    service_uuid = wh['service_uuid']
-                                    
-                                    log.info(f"  -> Sending Chessnut Air probe to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                    # Use char-write-cmd (write without response) to avoid write acknowledgments
-                                    gatttool_process.stdin.write(f"char-write-cmd {handle:04x} {chessnut_hex}\n")
-                                    gatttool_process.stdin.flush()
-                                    log.info(f"  <- Sent Chessnut Air probe to handle {handle:04x}")
-                                    # Track that we sent Chessnut Air protocol to this handle
-                                    last_sent_protocol[handle] = "chessnut_air"
-                                    time.sleep(0.3)  # Delay between writes to allow device to process
-                                except Exception as e:
-                                    log.error(f"  Error sending Chessnut Air probe to handle {wh['value_handle']:04x}: {e}")
-                                    import traceback
-                                    log.error(traceback.format_exc())
-                    else:
-                        log.info(f"Millennium responses received on {len(millennium_w_probe_responded)} characteristics, skipping Chessnut Air probe")
-                    
-                    log.info(f"Completed sending initial commands to all {len(write_handles)} characteristics")
-                    initial_commands_sent = True
-                    # Wait for replies - give device time to process and respond
-                    log.info("Waiting 5 seconds for device responses...")
-                    time.sleep(5)
-                
-                while running and not kill and device_connected:
-                    try:
-                        if gatttool_process and gatttool_process.poll() is None:
-                            with active_write_lock:
-                                current_active = active_write_handle
-                                current_protocol = active_protocol
-                            
-                            if current_active is None:
-                                # No reply yet, continue waiting
-                                log.debug("Waiting for reply from characteristics...")
-                            else:
-                                # Reply received, only send to the active characteristic using the detected protocol
-                                handle = current_active['value_handle']
-                                uuid = current_active['uuid']
-                                service_uuid = current_active['service_uuid']
-                                
-                                if current_protocol == "millennium":
-                                    # Use Millennium subsequent command "S"
-                                    encoded_s = encode_millennium_command("S")
-                                    encoded_hex = ' '.join(f'{b:02x}' for b in encoded_s)
-                                    
-                                    log.info(f"Sending Millennium-encoded 'S' to active characteristic handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                    log.info(f"Encoded bytes: {encoded_hex}")
-                                    try:
-                                        # Use char-write-cmd (write without response) to avoid write acknowledgments
-                                        gatttool_process.stdin.write(f"char-write-cmd {handle:04x} {encoded_hex}\n")
-                                        gatttool_process.stdin.flush()
-                                        # Track that we sent Millennium protocol
-                                        with last_sent_protocol_lock:
-                                            last_sent_protocol[handle] = "millennium"
-                                        log.info(f"Sent Millennium 'S' to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                    except Exception as e:
-                                        log.error(f"Error sending to active handle {handle:04x}: {e}")
-                                        import traceback
-                                        log.error(traceback.format_exc())
-                                elif current_protocol == "chessnut_air":
-                                    # Use Chessnut Air subsequent command [0x21, 0x01, 0x00]
-                                    chessnut_bytes = [0x21, 0x01, 0x00]
-                                    chessnut_hex = ' '.join(f'{b:02x}' for b in chessnut_bytes)
-                                    
-                                    log.info(f"Sending Chessnut Air command [0x21, 0x01, 0x00] to active characteristic handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                    try:
-                                        # Use char-write-cmd (write without response) to avoid write acknowledgments
-                                        gatttool_process.stdin.write(f"char-write-cmd {handle:04x} {chessnut_hex}\n")
-                                        gatttool_process.stdin.flush()
-                                        # Track that we sent Chessnut Air protocol
-                                        with last_sent_protocol_lock:
-                                            last_sent_protocol[handle] = "chessnut_air"
-                                        log.info(f"Sent Chessnut Air command to handle {handle:04x} (Service: {service_uuid}, UUID: {uuid})")
-                                    except Exception as e:
-                                        log.error(f"Error sending to active handle {handle:04x}: {e}")
-                                        import traceback
-                                        log.error(traceback.format_exc())
-                                else:
-                                    log.warning(f"Unknown protocol: {current_protocol}, cannot send command")
-                        else:
-                            log.warning("gatttool process not available, skipping send")
-                            if gatttool_process:
-                                log.warning(f"gatttool process poll() returned: {gatttool_process.poll()}")
-                            else:
-                                log.warning("gatttool_process is None")
-                        time.sleep(10)
-                    except Exception as e:
-                        if running:
-                            log.error(f"Error in periodic send: {e}")
-                            import traceback
-                            log.error(traceback.format_exc())
-                        break
-                
-                log.info("Periodic send thread exiting")
-            
-            send_thread = threading.Thread(target=periodic_send, daemon=True)
-            send_thread.start()
-            log.info("Periodic send thread started (sending 'S' to all characteristics every 10 seconds)")
-        else:
-            log.warning("No characteristics found, cannot send periodic data")
-        
-        device_connected = True
-        log.info("BLE connection established and notifications enabled")
-        log.info(f"device_connected set to True, periodic send thread should start sending")
-        return True
-        
-    except Exception as e:
-        log.error(f"Connection error: {e}")
-        import traceback
-        log.error(traceback.format_exc())
-        return False
-
-
-def scan_and_connect_ble_device(bus, adapter_path, target_name):
-    """Scan for and connect to target BLE device"""
-    log.info(f"Scanning for device with name: {target_name}")
     
-    # Start scanning
-    try:
-        adapter_obj = bus.get_object(BLUEZ_SERVICE_NAME, adapter_path)
-        adapter_iface = dbus.Interface(adapter_obj, ADAPTER_IFACE)
-        adapter_props = dbus.Interface(adapter_obj, DBUS_PROP_IFACE)
-        
-        try:
-            powered = adapter_props.Get(ADAPTER_IFACE, "Powered")
-            if not powered:
-                log.warning("Bluetooth adapter is not powered - discovery may fail")
-        except Exception as e:
-            log.debug(f"Could not check adapter power state: {e}")
-        
-        discovery_started_by_us = False
-        try:
-            discovering = adapter_props.Get(ADAPTER_IFACE, "Discovering")
-            if discovering:
-                log.info("Discovery already in progress, using existing scan")
-            else:
-                adapter_iface.StartDiscovery()
-                discovery_started_by_us = True
-                log.info("Started BLE scan")
-        except dbus.exceptions.DBusException as e:
-            if "InProgress" in str(e) or "org.bluez.Error.InProgress" in str(e):
-                log.info("Discovery already in progress, using existing scan")
-            else:
-                try:
-                    adapter_iface.StartDiscovery()
-                    discovery_started_by_us = True
-                    log.info("Started BLE scan")
-                except dbus.exceptions.DBusException as e2:
-                    if "InProgress" in str(e2) or "org.bluez.Error.InProgress" in str(e2):
-                        log.info("Discovery already in progress, using existing scan")
-                    else:
-                        raise
-        
-        time.sleep(2)
-        
-        # Wait for device to be discovered
-        max_wait = 30
-        wait_time = 0
-        device_address = None
-        
-        while wait_time < max_wait and not kill:
-            device_address = find_device_by_name(bus, adapter_path, target_name)
-            if device_address:
-                break
-            time.sleep(1)
-            wait_time += 1
-        
-        # Stop discovery if we started it
-        if discovery_started_by_us:
-            try:
-                adapter_iface.StopDiscovery()
-                log.info("Stopped BLE scan")
-            except Exception as e:
-                log.debug(f"Error stopping discovery: {e}")
-        
-        if not device_address:
-            log.error(f"Device '{target_name}' not found after {max_wait} seconds")
-            return False
-        
-        # Connect to device
-        return connect_and_scan_ble_device(device_address)
-        
-    except Exception as e:
-        log.error(f"Error in scan_and_connect_ble_device: {e}")
-        import traceback
-        log.error(traceback.format_exc())
-        return False
+    def stop(self):
+        """Signal the client to stop."""
+        self.ble_client.stop()
 
 
-def cleanup():
-    """Clean up BLE connections"""
-    global kill, gatttool_process, running, device_connected
+async def async_main(device_name: str):
+    """Async main entry point.
+    
+    Args:
+        device_name: Name of the BLE device to connect to
+    """
+    client = BLERelayClient(device_name)
+    
+    # Set up signal handlers
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, client.stop)
     
     try:
-        log.info("Cleaning up...")
-        kill = 1
-        running = False
-        
-        # Stop gatttool process
-        if gatttool_process:
-            try:
-                gatttool_process.stdin.write("exit\n")
-                gatttool_process.stdin.flush()
-                time.sleep(0.5)
-                gatttool_process.terminate()
-                gatttool_process.wait(timeout=2)
-                log.info("Stopped gatttool process")
-            except:
-                try:
-                    gatttool_process.kill()
-                except:
-                    pass
-        
-        device_connected = False
-        log.info("Cleanup complete")
-        
-    except Exception as e:
-        log.debug(f"Error during cleanup: {e}")
+        if await client.connect():
+            await client.run()
+        else:
+            log.error("Failed to connect or detect protocol")
+    finally:
+        await client.disconnect()
 
 
 def main():
-    """Main entry point"""
-    global kill, running, device_connected
-    
-    parser = argparse.ArgumentParser(description='BLE Scanner for Chessnut Air')
-    parser.add_argument('--device-name', default='Chessnut Air',
-                       help='Name of the BLE device to connect to (default: Chessnut Air)')
+    """Main entry point."""
+    parser = argparse.ArgumentParser(
+        description='BLE Relay Tool - Auto-detects Millennium or Chessnut Air protocol',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+This tool connects to a BLE chess board and auto-detects the protocol
+(Millennium or Chessnut Air) by probing with initial commands.
+
+Requirements:
+    pip install bleak
+        """
+    )
+    parser.add_argument(
+        '--device-name',
+        default='Chessnut Air',
+        help='Name of the BLE device to connect to (default: Chessnut Air)'
+    )
     args = parser.parse_args()
     
-    # Register signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    log.info("BLE Relay Tool")
+    log.info("=" * 50)
     
-    # Enable Bluetooth
-    log.info("Enabling Bluetooth...")
-    bluetooth_controller = BluetoothController()
-    bluetooth_controller.enable_bluetooth()
-    time.sleep(2)
+    # Check bleak version
+    try:
+        import bleak
+        log.info(f"bleak version: {bleak.__version__}")
+    except AttributeError:
+        log.info("bleak version: unknown")
     
-    # Get DBus bus and adapter
-    bus = BleTools.get_bus()
-    adapter = BleTools.find_adapter(bus)
-    
-    if not adapter:
-        log.error("No Bluetooth adapter found")
+    # Run the async main
+    try:
+        asyncio.run(async_main(args.device_name))
+    except KeyboardInterrupt:
+        log.info("Interrupted by user")
+    except Exception as e:
+        log.error(f"Fatal error: {e}")
+        import traceback
+        log.error(traceback.format_exc())
         sys.exit(1)
     
-    log.info(f"Using adapter: {adapter}")
-    
-    # Scan and connect
-    if scan_and_connect_ble_device(bus, adapter, args.device_name):
-        log.info("Connected to device. Waiting for data...")
-        log.info("Press Ctrl+C to exit")
-        
-        # Keep running until interrupted
-        try:
-            while running and not kill:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            log.info("Keyboard interrupt received")
-            running = False
-    else:
-        log.error("Failed to connect to device")
-        sys.exit(1)
-    
-    # Cleanup
-    cleanup()
     log.info("Exiting")
 
 
 if __name__ == "__main__":
     main()
-
