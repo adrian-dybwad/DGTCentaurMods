@@ -658,6 +658,23 @@ async def async_main(device_name: str, use_gatttool: bool = False, device_addres
         log.info("Attempting gatttool fallback...")
         log.info("=" * 50)
         
+        # Power cycle the Bluetooth adapter to clear any stale state from bleak
+        log.info("Power cycling Bluetooth adapter...")
+        import subprocess
+        try:
+            subprocess.run(['sudo', 'rfkill', 'block', 'bluetooth'], 
+                          capture_output=True, timeout=5)
+            await asyncio.sleep(2)
+            subprocess.run(['sudo', 'rfkill', 'unblock', 'bluetooth'], 
+                          capture_output=True, timeout=5)
+            await asyncio.sleep(2)
+            subprocess.run(['sudo', 'systemctl', 'restart', 'bluetooth'], 
+                          capture_output=True, timeout=10)
+            await asyncio.sleep(3)
+            log.info("Bluetooth adapter reset complete")
+        except Exception as e:
+            log.warning(f"Failed to reset Bluetooth adapter: {e}")
+        
         client = GatttoolRelayClient(device_name)
         client.device_address = device_address
         
