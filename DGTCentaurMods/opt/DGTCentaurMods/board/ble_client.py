@@ -314,19 +314,16 @@ class BLEClient:
             log.info(f"Connecting to {found_device.address}...")
             
             try:
-                # Use the BLEDevice object directly for more reliable connection
-                # For dual-mode devices, we may need to specify address_type to force BLE
-                # Try with the device object first, then with explicit address_type if needed
-                if attempt == 0:
-                    self._client = BleakClient(found_device)
-                else:
-                    # On retry, try with explicit address_type to force BLE connection
-                    # 'public' is for devices with fixed MAC addresses (most chess boards)
-                    log.info("Retrying with explicit address_type='public' to force BLE...")
-                    self._client = BleakClient(
-                        found_device.address,
-                        address_type='public'
-                    )
+                # For dual-mode devices (supporting both classic BT and BLE), we must
+                # specify address_type to force a BLE connection. Without this, BlueZ
+                # may attempt a classic Bluetooth connection which fails with
+                # "br-connection-profile-unavailable".
+                # 'public' is for devices with fixed MAC addresses (most chess boards)
+                self._client = BleakClient(
+                    found_device.address,
+                    address_type='public'
+                )
+                log.debug(f"Created BleakClient with address_type='public' for {found_device.address}")
                 
                 # Connect with timeout to avoid hanging (10 seconds per attempt)
                 await asyncio.wait_for(self._client.connect(), timeout=10.0)
