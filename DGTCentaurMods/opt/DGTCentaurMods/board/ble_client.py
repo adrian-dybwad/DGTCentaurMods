@@ -138,6 +138,62 @@ async def clear_bluez_cache_async(device_address: str) -> bool:
     return await loop.run_in_executor(None, clear_bluez_device_cache, device_address)
 
 
+def test_ble_connection_with_gatttool(device_address: str, timeout: int = 10) -> bool:
+    """Test BLE connection using gatttool.
+    
+    gatttool always uses LE transport, so this can be used to verify that
+    BLE connection is possible and to "prime" BlueZ to use LE for this device.
+    
+    Args:
+        device_address: MAC address of the device
+        timeout: Timeout in seconds
+        
+    Returns:
+        True if gatttool can connect and discover services, False otherwise
+    """
+    log.info(f"Testing BLE connection with gatttool to {device_address}...")
+    
+    try:
+        # Use gatttool --primary to discover services (this forces LE connection)
+        result = subprocess.run(
+            ['gatttool', '-b', device_address, '--primary'],
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        
+        if result.returncode == 0:
+            log.info("gatttool successfully connected via BLE")
+            log.debug(f"gatttool output: {result.stdout}")
+            
+            # Check if we got any services
+            if 'uuid:' in result.stdout.lower():
+                log.info("BLE services discovered via gatttool")
+                return True
+            else:
+                log.warning("gatttool connected but no services found")
+                return False
+        else:
+            log.warning(f"gatttool failed: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        log.warning(f"gatttool timed out after {timeout} seconds")
+        return False
+    except FileNotFoundError:
+        log.warning("gatttool not found - cannot test BLE connection")
+        return False
+    except Exception as e:
+        log.warning(f"gatttool error: {e}")
+        return False
+
+
+async def test_ble_connection_with_gatttool_async(device_address: str, timeout: int = 10) -> bool:
+    """Async wrapper for test_ble_connection_with_gatttool."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, test_ble_connection_with_gatttool, device_address, timeout)
+
+
 class BLEClient:
     """Generic async BLE client for connecting to and communicating with BLE devices.
     
@@ -419,6 +475,16 @@ class BLEClient:
         if not found_device:
             log.warning(f"Device '{device_name}' not found after {scan_timeout} seconds")
             return False
+        
+        # For dual-mode devices, try using gatttool first to "prime" the BLE connection
+        # gatttool always uses LE transport, which can help BlueZ recognize the device as BLE
+        log.info("Testing BLE connection with gatttool (this helps with dual-mode devices)...")
+        gatttool_success = await test_ble_connection_with_gatttool_async(found_device.address, timeout=15)
+        
+        if gatttool_success:
+            log.info("gatttool BLE test succeeded - proceeding with bleak connection")
+        else:
+            log.warning("gatttool BLE test failed - will still try bleak connection")
         
         # Connect with retries
         max_retries = 3
