@@ -346,11 +346,11 @@ class BLERelayClient:
         log.info("Probing for Chessnut Air protocol...")
         if await self._probe_chessnut():
             log.info("Chessnut Air protocol detected and active")
-        return True
+            return True
         
         log.warning("No supported protocol detected")
         return False
-
+        
     async def disconnect(self):
         """Disconnect from the device."""
         await self.ble_client.disconnect()
@@ -368,15 +368,15 @@ class BLERelayClient:
                 await asyncio.sleep(0.1)
             
             if not self._running:
-                    break
-            
+                break
+        
             # Send periodic status command
             if self.detected_protocol == "millennium" and self.write_char_uuid:
                 s_cmd = encode_millennium_command("S")
-                log.info(f"Sending periodic Millennium S command")
+                log.info("Sending periodic Millennium S command")
                 await self.ble_client.write_characteristic(self.write_char_uuid, s_cmd, response=False)
             elif self.detected_protocol == "chessnut_air" and self.write_char_uuid:
-                log.info(f"Sending periodic Chessnut enable reporting")
+                log.info("Sending periodic Chessnut enable reporting")
                 await self.ble_client.write_characteristic(
                     self.write_char_uuid,
                     CHESSNUT_ENABLE_REPORTING_CMD,
@@ -419,7 +419,7 @@ class GatttoolRelayClient:
         import re
         
         log.info(f"Scanning for device: {self.device_name}")
-        
+            
         # Use bluetoothctl to scan
         try:
             # Start scan
@@ -449,11 +449,11 @@ class GatttoolRelayClient:
             
             log.warning(f"Device '{self.device_name}' not found")
             return None
-            
+                
         except Exception as e:
             log.error(f"Scan error: {e}")
             return None
-    
+                
     async def connect(self) -> bool:
         """Connect to the device using gatttool.
         
@@ -488,7 +488,7 @@ class GatttoolRelayClient:
         if mill_rx and mill_tx:
             log.info(f"Found Millennium RX: handle {mill_rx['value_handle']:04x}")
             log.info(f"Found Millennium TX: handle {mill_tx['value_handle']:04x}")
-            
+                                        
             # Enable notifications on TX
             def notification_handler(handle: int, data: bytearray):
                 log.info(f"RX [Millennium] ({len(data)} bytes): {data.hex()}")
@@ -671,7 +671,6 @@ Requirements:
             log.info("Clearing all BlueZ device cache...")
             # Clear all cache files
             import glob
-            import os
             cache_pattern = "/var/lib/bluetooth/*/cache/*"
             cache_files = glob.glob(cache_pattern)
             if cache_files:
