@@ -27,7 +27,7 @@ except Exception as e:
     print(f"Warning: Could not add repo path: {e}")
 
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.board.ble_client import BLEClient
+from DGTCentaurMods.tools.clients.ble_client import BLEClient
 
 # Chessnut Air BLE UUIDs
 CHESSNUT_FEN_RX_CHAR_UUID = "1b7e8262-2877-41c3-b46e-cf057c562023"  # Notify from board (FEN data)

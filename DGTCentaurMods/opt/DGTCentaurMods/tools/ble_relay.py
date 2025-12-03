@@ -35,7 +35,7 @@ except Exception as e:
     print(f"Warning: Could not add repo path: {e}")
 
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.board.ble_client import BLEClient
+from DGTCentaurMods.tools.clients.ble_client import BLEClient
 
 # Millennium ChessLink BLE UUIDs
 # Note: The service UUID is the full 128-bit UUID, but the characteristics use
@@ -558,7 +558,7 @@ class GatttoolRelayClient:
         Returns:
             True if connected and protocol detected, False otherwise
         """
-        from DGTCentaurMods.board.gatttool_client import GatttoolClient
+        from DGTCentaurMods.tools.clients.gatttool_client import GatttoolClient
         
         # Scan for device if address not known
         if not self.device_address:
@@ -816,7 +816,7 @@ Requirements:
     
     # Clear cache if requested
     if args.clear_cache:
-        from DGTCentaurMods.board.ble_client import clear_bluez_device_cache
+        from DGTCentaurMods.tools.clients.ble_client import clear_bluez_device_cache
         if args.device_address:
             log.info(f"Clearing BlueZ cache for device: {args.device_address}")
             clear_bluez_device_cache(args.device_address)
