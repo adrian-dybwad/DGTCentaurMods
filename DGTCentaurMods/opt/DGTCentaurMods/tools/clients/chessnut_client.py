@@ -186,11 +186,13 @@ class ChessnutClient:
         if self.on_data:
             self.on_data(bytes(data))
         
-        # Parse and report FEN position
+        # Parse and always log FEN position
         fen = parse_fen_data(bytes(data))
+        log.info(f"FEN: {fen}")
+        
+        # Notify callback only on change
         if fen != self.last_fen:
             self.last_fen = fen
-            log.info(f"Board position: {fen}")
             if self.on_fen:
                 self.on_fen(fen)
     
@@ -223,6 +225,7 @@ class ChessnutClient:
         """Handle notifications from any Chessnut characteristic.
         
         Used when we don't know which characteristic the data is from.
+        Attempts to parse as FEN or battery data.
         
         Args:
             sender: The characteristic that sent the notification
@@ -234,6 +237,9 @@ class ChessnutClient:
         
         if self.on_data:
             self.on_data(bytes(data))
+        
+        # Try to parse as known packet types
+        self._parse_and_log_data(bytes(data))
     
     def gatttool_notification_handler(self, handle: int, data: bytearray):
         """Handle notifications when using gatttool backend.
@@ -242,11 +248,57 @@ class ChessnutClient:
             handle: The characteristic handle
             data: The notification data
         """
-        log.info(f"RX [Chessnut] ({len(data)} bytes): {data.hex()}")
+        hex_str = ' '.join(f'{b:02x}' for b in data)
+        log.info(f"RX [Chessnut] ({len(data)} bytes): {hex_str}")
         self._got_response = True
         
         if self.on_data:
             self.on_data(bytes(data))
+        
+        # Try to parse as known packet types
+        self._parse_and_log_data(bytes(data))
+    
+    def _parse_and_log_data(self, data: bytes):
+        """Parse data and log any recognized packet types.
+        
+        Attempts to parse the data as FEN or battery response and logs
+        the parsed result.
+        
+        Args:
+            data: Raw bytes from notification
+        """
+        # Try to parse as FEN data (32+ bytes)
+        if len(data) >= 32:
+            fen = parse_fen_data(data)
+            log.info(f"FEN: {fen}")
+            if fen != self.last_fen:
+                self.last_fen = fen
+                if self.on_fen:
+                    self.on_fen(fen)
+            return
+        
+        # Try to parse as battery response
+        battery, charging = parse_battery_response(data)
+        if battery >= 0:
+            self.battery_level = battery
+            self.is_charging = charging
+            charging_str = "Charging" if charging else "Not charging"
+            log.info(f"Battery: {battery}% ({charging_str})")
+            if self.on_battery:
+                self.on_battery(battery, charging)
+            return
+        
+        # Try to identify other known packet types
+        if len(data) >= 1:
+            packet_type = data[0]
+            if packet_type == 0x21:
+                log.info("Packet type: Enable reporting ACK")
+            elif packet_type == 0x22:
+                log.info("Packet type: Board state request ACK")
+            elif packet_type == 0x29:
+                log.info("Packet type: Battery request (no response data)")
+            else:
+                log.info(f"Packet type: Unknown (0x{packet_type:02x})")
     
     def get_enable_reporting_command(self) -> bytes:
         """Return the command to enable board reporting.
