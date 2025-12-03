@@ -182,45 +182,61 @@ class BLEClient:
         log.info(f"Found {len(devices)} device(s)")
         return devices
     
-    async def connect(self, device_address: str) -> bool:
+    async def connect(self, device_address: str, retries: int = 3) -> bool:
         """Connect to a BLE device by address.
         
         Args:
             device_address: MAC address of the device
+            retries: Number of connection attempts
             
         Returns:
             True if connection successful, False otherwise
         """
         log.info(f"Connecting to {device_address}...")
         
-        try:
-            self._client = BleakClient(device_address)
-            await self._client.connect()
-            
-            if not self._client.is_connected:
-                log.error("Failed to connect to device")
-                return False
-            
-            self._device_address = device_address
-            log.info("Connected to device")
-            
-            # Log MTU size
+        last_error = None
+        for attempt in range(retries):
             try:
-                mtu = self._client.mtu_size
-                log.info(f"MTU size: {mtu}")
-            except AttributeError:
-                log.info("MTU size not available (platform limitation)")
-            
-            return True
-            
-        except BleakError as e:
-            log.error(f"BLE connection error: {e}")
-            return False
-        except Exception as e:
-            log.error(f"Unexpected error during connection: {e}")
-            import traceback
-            log.error(traceback.format_exc())
-            return False
+                if attempt > 0:
+                    log.info(f"Connection attempt {attempt + 1}/{retries}...")
+                    await asyncio.sleep(1)  # Brief delay between retries
+                
+                self._client = BleakClient(device_address)
+                await asyncio.wait_for(self._client.connect(), timeout=30.0)
+                
+                if not self._client.is_connected:
+                    log.error("Failed to connect to device")
+                    continue
+                
+                self._device_address = device_address
+                log.info("Connected to device")
+                
+                # Log MTU size
+                try:
+                    mtu = self._client.mtu_size
+                    log.info(f"MTU size: {mtu}")
+                except AttributeError:
+                    log.info("MTU size not available (platform limitation)")
+                
+                return True
+                
+            except asyncio.TimeoutError:
+                last_error = "Connection timeout"
+                log.warning(f"Connection timeout (attempt {attempt + 1}/{retries})")
+            except BleakError as e:
+                last_error = str(e)
+                error_str = str(e)
+                # Check for BR/EDR vs BLE confusion
+                if "br-connection" in error_str.lower() or "profile-unavailable" in error_str.lower():
+                    log.warning(f"BR/EDR connection error - device may need to be unpaired from classic Bluetooth")
+                    log.warning("Try: bluetoothctl remove {device_address}")
+                log.warning(f"BLE connection error (attempt {attempt + 1}/{retries}): {e}")
+            except Exception as e:
+                last_error = str(e)
+                log.warning(f"Unexpected error (attempt {attempt + 1}/{retries}): {e}")
+        
+        log.error(f"Failed to connect after {retries} attempts. Last error: {last_error}")
+        return False
     
     async def scan_and_connect(
         self,
@@ -291,8 +307,12 @@ class BLEClient:
         
         try:
             # Use the BLEDevice object directly for more reliable connection
+            # On Linux, we need to specify the adapter to avoid BR/EDR vs BLE confusion
+            # when the device supports both classic Bluetooth and BLE
             self._client = BleakClient(found_device)
-            await self._client.connect()
+            
+            # Connect with timeout to avoid hanging
+            await asyncio.wait_for(self._client.connect(), timeout=30.0)
             
             if not self._client.is_connected:
                 log.error("Failed to connect to device")
