@@ -14,6 +14,7 @@ Requirements:
 """
 
 import asyncio
+import logging
 from typing import Callable, Any
 
 try:
@@ -27,6 +28,9 @@ except ImportError:
     )
 
 from DGTCentaurMods.board.logging import log
+
+# Suppress verbose D-Bus logging from bleak/dbus libraries
+logging.getLogger("org.freedesktop").setLevel(logging.INFO)
 
 
 # Type alias for notification callback
