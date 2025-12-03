@@ -63,10 +63,12 @@ GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
 # ============================================================================
 
 # Millennium ChessLink BLE UUIDs
+# Note: The service UUID is the full 128-bit UUID, but the characteristics use
+# short 16-bit UUIDs (fff1, fff2) in the standard Bluetooth base UUID format
 MILLENNIUM_UUIDS = {
     "service": "49535343-FE7D-4AE5-8FA9-9FAFD205E455",
-    "rx_characteristic": "49535343-8841-43F4-A8D4-ECBE34729BB3",
-    "tx_characteristic": "49535343-1E4D-4BD9-BA61-23C647249616"
+    "rx_characteristic": "0000FFF1-0000-1000-8000-00805F9B34FB",  # Write TO device
+    "tx_characteristic": "0000FFF2-0000-1000-8000-00805F9B34FB"   # Notify FROM device
 }
 
 # Nordic UART Service BLE UUIDs (used by Pegasus)
