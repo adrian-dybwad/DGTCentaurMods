@@ -315,7 +315,18 @@ class BLEClient:
             
             try:
                 # Use the BLEDevice object directly for more reliable connection
-                self._client = BleakClient(found_device)
+                # For dual-mode devices, we may need to specify address_type to force BLE
+                # Try with the device object first, then with explicit address_type if needed
+                if attempt == 0:
+                    self._client = BleakClient(found_device)
+                else:
+                    # On retry, try with explicit address_type to force BLE connection
+                    # 'public' is for devices with fixed MAC addresses (most chess boards)
+                    log.info("Retrying with explicit address_type='public' to force BLE...")
+                    self._client = BleakClient(
+                        found_device.address,
+                        address_type='public'
+                    )
                 
                 # Connect with timeout to avoid hanging (10 seconds per attempt)
                 await asyncio.wait_for(self._client.connect(), timeout=10.0)
@@ -360,8 +371,12 @@ class BLEClient:
                 last_error = str(e)
                 error_str = str(e).lower()
                 if "br-connection" in error_str or "profile-unavailable" in error_str:
-                    log.warning("BR/EDR connection error - device may need to be unpaired")
-                    log.warning(f"Try: bluetoothctl remove {found_device.address}")
+                    log.warning("BR/EDR connection error - BlueZ is trying classic Bluetooth instead of BLE")
+                    log.warning("This can happen with dual-mode devices (supporting both classic BT and BLE)")
+                    log.warning("Possible fixes:")
+                    log.warning(f"  1. Remove device: bluetoothctl remove {found_device.address}")
+                    log.warning("  2. Set BlueZ to LE mode: edit /etc/bluetooth/main.conf, set ControllerMode=le")
+                    log.warning("  3. Restart bluetooth: sudo systemctl restart bluetooth")
                 log.warning(f"BLE error (attempt {attempt + 1}/{max_retries}): {e}")
             except Exception as e:
                 last_error = str(e)
