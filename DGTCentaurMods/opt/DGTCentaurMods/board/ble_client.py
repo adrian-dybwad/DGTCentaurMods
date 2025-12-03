@@ -375,15 +375,28 @@ class BLEClient:
             name_upper = name.upper()
             
             if name_upper == target_name_upper:
+                # Log device metadata to help debug dual-mode issues
                 log.info(f"Found device: {device.name} at {device.address}")
+                log.debug(f"Device details: {device.details}")
+                log.debug(f"Advertisement data: {advertisement_data}")
                 found_device = device
                 stop_event.set()
             elif partial_match and target_name_upper in name_upper:
                 log.info(f"Found device (partial match): {device.name} at {device.address}")
+                log.debug(f"Device details: {device.details}")
                 found_device = device
                 stop_event.set()
         
-        scanner = BleakScanner(detection_callback=detection_callback)
+        # Use active scanning mode to get more complete advertisement data
+        # This helps ensure we're discovering the device via LE, not BR/EDR
+        try:
+            scanner = BleakScanner(
+                detection_callback=detection_callback,
+                scanning_mode="active"
+            )
+        except TypeError:
+            # Older versions of bleak may not support scanning_mode
+            scanner = BleakScanner(detection_callback=detection_callback)
         
         try:
             await scanner.start()
@@ -420,16 +433,29 @@ class BLEClient:
             log.info(f"Connecting to {found_device.address}...")
             
             try:
-                # For dual-mode devices (supporting both classic BT and BLE), we must
-                # specify address_type to force a BLE connection. Without this, BlueZ
-                # may attempt a classic Bluetooth connection which fails with
-                # "br-connection-profile-unavailable".
-                # 'public' is for devices with fixed MAC addresses (most chess boards)
-                self._client = BleakClient(
-                    found_device.address,
-                    address_type='public'
-                )
-                log.debug(f"Created BleakClient with address_type='public' for {found_device.address}")
+                # For dual-mode devices (supporting both classic BT and BLE), we need
+                # to ensure BlueZ uses the LE transport. We try multiple approaches:
+                # 1. First attempt: Use the BLEDevice object directly (contains LE metadata)
+                # 2. Second attempt: Use address with address_type='public'
+                # 3. Third attempt: Use address with address_type='random'
+                if attempt == 0:
+                    # Use BLEDevice object - this preserves the LE discovery metadata
+                    self._client = BleakClient(found_device)
+                    log.debug(f"Created BleakClient with BLEDevice object for {found_device.address}")
+                elif attempt == 1:
+                    # Try with explicit public address type
+                    self._client = BleakClient(
+                        found_device.address,
+                        address_type='public'
+                    )
+                    log.debug(f"Created BleakClient with address_type='public' for {found_device.address}")
+                else:
+                    # Try with random address type as last resort
+                    self._client = BleakClient(
+                        found_device.address,
+                        address_type='random'
+                    )
+                    log.debug(f"Created BleakClient with address_type='random' for {found_device.address}")
                 
                 # Connect with timeout to avoid hanging (10 seconds per attempt)
                 await asyncio.wait_for(self._client.connect(), timeout=10.0)
@@ -488,7 +514,14 @@ class BLEClient:
                         stop_event.clear()
                         found_device = None
                         
-                        scanner = BleakScanner(detection_callback=detection_callback)
+                        try:
+                            scanner = BleakScanner(
+                                detection_callback=detection_callback,
+                                scanning_mode="active"
+                            )
+                        except TypeError:
+                            scanner = BleakScanner(detection_callback=detection_callback)
+                        
                         try:
                             await scanner.start()
                             await asyncio.wait_for(stop_event.wait(), timeout=10.0)
