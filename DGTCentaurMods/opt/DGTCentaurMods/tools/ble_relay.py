@@ -303,6 +303,13 @@ class BLERelayClient:
                     self.chessnut.get_enable_reporting_command(),
                     response=False
                 )
+                await asyncio.sleep(0.5)
+                log.info("Sending periodic Chessnut battery request")
+                await self.ble_client.write_characteristic(
+                    self.write_char_uuid,
+                    self.chessnut.get_battery_command(),
+                    response=False
+                )
             elif self.detected_protocol == "pegasus" and self.write_char_uuid:
                 log.info("Sending periodic Pegasus board request")
                 await self.ble_client.write_characteristic(
@@ -522,9 +529,9 @@ class GatttoolRelayClient:
         while self._running and self.gatttool_client and self.gatttool_client.is_connected:
             await asyncio.sleep(0.1)
             
-            # Send periodic commands
+            # Send periodic commands every 10 seconds
             now = asyncio.get_event_loop().time()
-            if now - last_periodic > 5.0:
+            if now - last_periodic > 10.0:
                 last_periodic = now
                 
                 if self.detected_protocol == "millennium" and self.write_handle:
@@ -538,6 +545,12 @@ class GatttoolRelayClient:
                     log.info("Sending periodic Chessnut enable reporting")
                     await self.gatttool_client.write_characteristic(
                         self.write_handle, cmd, response=False
+                    )
+                    await asyncio.sleep(0.5)
+                    battery_cmd = self.chessnut.get_battery_command()
+                    log.info("Sending periodic Chessnut battery request")
+                    await self.gatttool_client.write_characteristic(
+                        self.write_handle, battery_cmd, response=False
                     )
                 elif self.detected_protocol == "pegasus" and self.write_handle:
                     cmd = self.pegasus.get_board_command()
