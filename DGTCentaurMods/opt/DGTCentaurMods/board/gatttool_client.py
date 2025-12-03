@@ -16,9 +16,8 @@ import subprocess
 import threading
 import queue
 import re
-import select
 import time
-from typing import Callable, Any
+from typing import Callable
 
 from DGTCentaurMods.board.logging import log
 
@@ -32,6 +31,9 @@ class GatttoolClient:
     
     This client uses gatttool in interactive mode to communicate with BLE devices.
     It is useful for devices where bleak fails due to BlueZ dual-mode handling.
+    
+    All operations (connect, discover, read, write, notify) are done within a
+    single interactive gatttool session to avoid connection issues.
     """
     
     def __init__(self):
@@ -43,11 +45,9 @@ class GatttoolClient:
         self._services: list[dict] = []
         self._characteristics: list[dict] = []
         self._notification_callbacks: dict[int, NotificationCallback] = {}
-        self._stdout_queue: queue.Queue = queue.Queue()
-        self._stderr_queue: queue.Queue = queue.Queue()
+        self._response_queue: queue.Queue = queue.Queue()
         self._reader_thread: threading.Thread | None = None
-        self._stdout_thread: threading.Thread | None = None
-        self._stderr_thread: threading.Thread | None = None
+        self._output_buffer = ""
     
     @property
     def is_connected(self) -> bool:
@@ -69,10 +69,203 @@ class GatttoolClient:
         """Get discovered characteristics."""
         return self._characteristics
     
+    def _read_output(self, timeout: float = 2.0) -> str:
+        """Read output from gatttool with timeout.
+        
+        Args:
+            timeout: Maximum time to wait for output
+            
+        Returns:
+            Output string
+        """
+        output_lines = []
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            try:
+                line = self._response_queue.get(timeout=0.1)
+                output_lines.append(line)
+                # Reset timeout on each line received
+                start_time = time.time()
+            except queue.Empty:
+                # If we have some output and queue is empty, we're done
+                if output_lines:
+                    break
+        
+        return '\n'.join(output_lines)
+    
+    def _reader_loop(self):
+        """Background thread to read gatttool output."""
+        while self._running and self._process:
+            try:
+                if self._process.stdout:
+                    line = self._process.stdout.readline()
+                    if line:
+                        line = line.strip()
+                        if line:
+                            log.debug(f"gatttool: {line}")
+                            self._response_queue.put(line)
+                            
+                            # Check for notifications
+                            if 'Notification' in line or 'Indication' in line:
+                                self._handle_notification_line(line)
+                    else:
+                        # EOF - process ended
+                        break
+            except Exception as e:
+                if self._running:
+                    log.debug(f"Reader error: {e}")
+                break
+    
+    def _handle_notification_line(self, line: str):
+        """Parse and handle a notification line."""
+        # Format: "Notification handle = 0x0037 value: 73 52 4e 42..."
+        match = re.search(
+            r'handle\s*=\s*0x([0-9a-f]+).*?value:\s*([0-9a-f ]+)',
+            line, re.IGNORECASE
+        )
+        if match:
+            handle = int(match.group(1), 16)
+            hex_str = match.group(2).strip()
+            try:
+                data = bytearray.fromhex(hex_str.replace(' ', ''))
+                
+                # Call registered callback
+                if handle in self._notification_callbacks:
+                    try:
+                        self._notification_callbacks[handle](handle, data)
+                    except Exception as e:
+                        log.error(f"Notification callback error: {e}")
+                else:
+                    log.info(f"RX [handle {handle:04x}]: {data.hex()}")
+            except ValueError as e:
+                log.warning(f"Failed to parse notification data: {e}")
+    
+    def _send_command(self, cmd: str):
+        """Send a command to gatttool."""
+        if self._process and self._process.stdin:
+            self._process.stdin.write(f"{cmd}\n")
+            self._process.stdin.flush()
+    
+    async def connect_and_discover(self, device_address: str, timeout: int = 15) -> bool:
+        """Connect to device and discover services in one session.
+        
+        This method connects and discovers services within a single gatttool
+        interactive session, avoiding the connection issues that occur when
+        using separate gatttool invocations.
+        
+        Args:
+            device_address: MAC address of the device
+            timeout: Connection timeout in seconds
+            
+        Returns:
+            True if connected and services discovered, False otherwise
+        """
+        self._device_address = device_address
+        self._services = []
+        self._characteristics = []
+        
+        # Stop any existing connection
+        await self.disconnect()
+        
+        log.info(f"Connecting to {device_address} via gatttool...")
+        
+        try:
+            self._process = subprocess.Popen(
+                ['gatttool', '-b', device_address, '-I'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1  # Line buffered
+            )
+            
+            self._running = True
+            
+            # Start reader thread
+            self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+            self._reader_thread.start()
+            
+            await asyncio.sleep(0.5)
+            
+            # Clear any initial output
+            while not self._response_queue.empty():
+                try:
+                    self._response_queue.get_nowait()
+                except queue.Empty:
+                    break
+            
+            # Send connect command
+            log.info("Sending connect command...")
+            self._send_command("connect")
+            
+            # Wait for connection
+            connected = False
+            start_time = time.time()
+            
+            while time.time() - start_time < timeout:
+                try:
+                    line = self._response_queue.get(timeout=0.5)
+                    if 'Connection successful' in line:
+                        connected = True
+                        log.info("Connected!")
+                        break
+                    elif 'Error' in line or 'error' in line:
+                        log.error(f"Connection error: {line}")
+                        await self.disconnect()
+                        return False
+                except queue.Empty:
+                    pass
+            
+            if not connected:
+                log.error(f"Connection timed out after {timeout} seconds")
+                await self.disconnect()
+                return False
+            
+            self._connected = True
+            
+            # Discover primary services
+            log.info("Discovering primary services...")
+            self._send_command("primary")
+            await asyncio.sleep(1)
+            
+            output = self._read_output(timeout=3.0)
+            self._services = self._parse_primary_output(output)
+            log.info(f"Found {len(self._services)} services")
+            
+            for service in self._services:
+                log.info(f"  Service: {service['uuid']} (handles {service['start_handle']:04x}-{service['end_handle']:04x})")
+            
+            # Discover characteristics
+            log.info("Discovering characteristics...")
+            self._send_command("char-desc")
+            await asyncio.sleep(2)
+            
+            output = self._read_output(timeout=3.0)
+            self._characteristics = self._parse_char_desc_output(output)
+            log.info(f"Found {len(self._characteristics)} characteristics")
+            
+            # Log key characteristics
+            for char in self._characteristics:
+                if char['uuid'] in ['0000fff1-0000-1000-8000-00805f9b34fb',
+                                    '0000fff2-0000-1000-8000-00805f9b34fb']:
+                    cccd_info = f", CCCD: {char['cccd_handle']:04x}" if char.get('cccd_handle') else ""
+                    log.info(f"  Key char: {char['uuid']} (handle {char['value_handle']:04x}{cccd_info})")
+            
+            return True
+            
+        except FileNotFoundError:
+            log.error("gatttool not found - ensure bluez is installed")
+            return False
+        except Exception as e:
+            log.error(f"Connection error: {e}")
+            await self.disconnect()
+            return False
+    
     def _parse_primary_output(self, output: str) -> list[dict]:
-        """Parse gatttool --primary output to find service handles and UUIDs."""
+        """Parse gatttool primary output to find service handles and UUIDs."""
         services = []
-        pattern = r'attr handle = 0x([0-9a-f]+), end grp handle = 0x([0-9a-f]+) uuid: ([0-9a-f-]+)'
+        pattern = r'attr handle[=:]\s*0x([0-9a-f]+),?\s*end grp handle[=:]\s*0x([0-9a-f]+)\s*uuid[=:]\s*([0-9a-f-]+)'
         
         for line in output.split('\n'):
             match = re.search(pattern, line, re.IGNORECASE)
@@ -92,341 +285,49 @@ class GatttoolClient:
         """Parse gatttool char-desc output to find characteristic handles and UUIDs."""
         characteristics = []
         lines = output.split('\n')
-        i = 0
         
-        while i < len(lines):
-            line = lines[i].strip()
-            if not line:
-                i += 1
+        # Pattern: "handle = 0xXXXX, uuid = UUID"
+        pattern = r'handle[=:]\s*0x([0-9a-f]+),?\s*uuid[=:]\s*([0-9a-f-]+)'
+        
+        prev_decl_handle = None
+        
+        for i, line in enumerate(lines):
+            match = re.search(pattern, line, re.IGNORECASE)
+            if not match:
                 continue
             
-            # Look for characteristic declaration (uuid 2803)
-            char_decl_match = re.search(
-                r'handle = 0x([0-9a-f]+), uuid = 00002803-0000-1000-8000-00805f9b34fb',
-                line, re.IGNORECASE
-            )
-            if char_decl_match:
-                decl_handle = int(char_decl_match.group(1), 16)
-                # Next line should be the characteristic value with the actual UUID
-                if i + 1 < len(lines):
-                    value_line = lines[i + 1].strip()
-                    # Skip if it's another declaration or CCCD
-                    if '00002803' not in value_line and '00002902' not in value_line:
-                        value_match = re.search(
-                            r'handle = 0x([0-9a-f]+), uuid = ([0-9a-f-]+)',
-                            value_line, re.IGNORECASE
-                        )
-                        if value_match:
-                            value_handle = int(value_match.group(1), 16)
-                            uuid_raw = value_match.group(2).lower()
-                            
-                            # Skip standard Bluetooth UUIDs
-                            skip_uuids = [
-                                '00002800-0000-1000-8000-00805f9b34fb',  # Primary Service
-                                '00002801-0000-1000-8000-00805f9b34fb',  # Secondary Service
-                                '00002803-0000-1000-8000-00805f9b34fb',  # Characteristic
-                                '00002902-0000-1000-8000-00805f9b34fb',  # CCCD
-                            ]
-                            if uuid_raw in skip_uuids:
-                                i += 1
-                                continue
-                            
-                            # Look for CCCD on next line
-                            cccd_handle = None
-                            if i + 2 < len(lines):
-                                cccd_line = lines[i + 2].strip()
-                                cccd_match = re.search(
-                                    r'handle = 0x([0-9a-f]+), uuid = 00002902-0000-1000-8000-00805f9b34fb',
-                                    cccd_line, re.IGNORECASE
-                                )
-                                if cccd_match:
-                                    cccd_handle = int(cccd_match.group(1), 16)
-                            
-                            characteristics.append({
-                                'decl_handle': decl_handle,
-                                'value_handle': value_handle,
-                                'uuid': uuid_raw,
-                                'cccd_handle': cccd_handle
-                            })
-            i += 1
+            handle = int(match.group(1), 16)
+            uuid = match.group(2).lower()
+            
+            # Skip standard Bluetooth attribute UUIDs
+            skip_uuids = [
+                '00002800-0000-1000-8000-00805f9b34fb',  # Primary Service
+                '00002801-0000-1000-8000-00805f9b34fb',  # Secondary Service
+                '00002803-0000-1000-8000-00805f9b34fb',  # Characteristic Declaration
+            ]
+            
+            if uuid in skip_uuids:
+                if uuid == '00002803-0000-1000-8000-00805f9b34fb':
+                    prev_decl_handle = handle
+                continue
+            
+            # CCCD (Client Characteristic Configuration Descriptor)
+            if uuid == '00002902-0000-1000-8000-00805f9b34fb':
+                # Attach to previous characteristic
+                if characteristics:
+                    characteristics[-1]['cccd_handle'] = handle
+                continue
+            
+            # This is a characteristic value
+            char_entry = {
+                'decl_handle': prev_decl_handle,
+                'value_handle': handle,
+                'uuid': uuid,
+                'cccd_handle': None
+            }
+            characteristics.append(char_entry)
         
         return characteristics
-    
-    async def discover_services(self, device_address: str, timeout: int = 15) -> bool:
-        """Discover services and characteristics using gatttool.
-        
-        Args:
-            device_address: MAC address of the device
-            timeout: Timeout in seconds
-            
-        Returns:
-            True if services were discovered, False otherwise
-        """
-        self._device_address = device_address
-        self._services = []
-        self._characteristics = []
-        
-        # Disconnect any existing connection first
-        log.info("Disconnecting any existing connection...")
-        try:
-            subprocess.run(
-                ['bluetoothctl', 'disconnect', device_address],
-                capture_output=True, timeout=5, text=True
-            )
-            await asyncio.sleep(1)
-        except Exception:
-            pass
-        
-        # Discover services
-        log.info(f"Discovering services on {device_address}...")
-        try:
-            result = subprocess.run(
-                ['gatttool', '-b', device_address, '--primary'],
-                capture_output=True, text=True, timeout=timeout
-            )
-            
-            if result.returncode != 0:
-                log.error(f"gatttool --primary failed: {result.stderr}")
-                return False
-            
-            self._services = self._parse_primary_output(result.stdout)
-            log.info(f"Found {len(self._services)} services")
-            
-            for service in self._services:
-                log.info(f"  Service: {service['uuid']} (handles {service['start_handle']:04x}-{service['end_handle']:04x})")
-            
-        except subprocess.TimeoutExpired:
-            log.error(f"gatttool --primary timed out after {timeout} seconds")
-            return False
-        except FileNotFoundError:
-            log.error("gatttool not found - ensure bluez is installed")
-            return False
-        except Exception as e:
-            log.error(f"Error discovering services: {e}")
-            return False
-        
-        # Discover characteristics for each service
-        for service in self._services:
-            log.info(f"Discovering characteristics for service {service['uuid']}...")
-            try:
-                result = subprocess.run(
-                    ['gatttool', '-b', device_address, '--char-desc',
-                     f"{service['start_handle']:04x}", f"{service['end_handle']:04x}"],
-                    capture_output=True, text=True, timeout=10
-                )
-                
-                if result.returncode == 0:
-                    chars = self._parse_char_desc_output(result.stdout)
-                    for char in chars:
-                        char['service_uuid'] = service['uuid']
-                    self._characteristics.extend(chars)
-                    log.info(f"  Found {len(chars)} characteristics")
-                else:
-                    log.warning(f"Failed to discover characteristics: {result.stderr}")
-                    
-            except subprocess.TimeoutExpired:
-                log.warning(f"Characteristic discovery timed out for service {service['uuid']}")
-            except Exception as e:
-                log.warning(f"Error discovering characteristics: {e}")
-        
-        log.info(f"Total characteristics found: {len(self._characteristics)}")
-        for char in self._characteristics:
-            cccd_info = f", CCCD: {char['cccd_handle']:04x}" if char.get('cccd_handle') else ""
-            log.info(f"  Characteristic: {char['uuid']} (handle {char['value_handle']:04x}{cccd_info})")
-        
-        return len(self._services) > 0
-    
-    async def connect(self, device_address: str | None = None, timeout: int = 10) -> bool:
-        """Connect to the device using gatttool interactive mode.
-        
-        Args:
-            device_address: MAC address (uses previously discovered address if None)
-            timeout: Connection timeout in seconds
-            
-        Returns:
-            True if connected, False otherwise
-        """
-        if device_address:
-            self._device_address = device_address
-        
-        if not self._device_address:
-            log.error("No device address specified")
-            return False
-        
-        # Stop any existing connection
-        await self.disconnect()
-        
-        log.info(f"Connecting to {self._device_address} via gatttool...")
-        
-        try:
-            self._process = subprocess.Popen(
-                ['gatttool', '-b', self._device_address, '-I'],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=0
-            )
-            
-            await asyncio.sleep(0.5)
-            
-            # Send connect command
-            self._process.stdin.write("connect\n")
-            self._process.stdin.flush()
-            
-            # Wait for connection
-            start_time = time.time()
-            connected = False
-            
-            while time.time() - start_time < timeout:
-                if self._process.poll() is not None:
-                    log.error("gatttool process exited unexpectedly")
-                    return False
-                
-                # Check for connection success in stdout
-                ready, _, _ = select.select([self._process.stdout], [], [], 0.5)
-                if ready:
-                    try:
-                        line = self._process.stdout.readline()
-                        if line:
-                            line = line.strip()
-                            log.debug(f"gatttool: {line}")
-                            if 'Connection successful' in line:
-                                connected = True
-                                break
-                            elif 'Error' in line or 'error' in line:
-                                log.error(f"Connection error: {line}")
-                                return False
-                    except Exception:
-                        pass
-            
-            if not connected:
-                log.error(f"Connection timed out after {timeout} seconds")
-                await self.disconnect()
-                return False
-            
-            self._connected = True
-            self._running = True
-            
-            # Start stdout/stderr drain threads
-            self._stdout_thread = threading.Thread(target=self._drain_stdout, daemon=True)
-            self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
-            self._stdout_thread.start()
-            self._stderr_thread.start()
-            
-            # Start notification reader thread
-            self._reader_thread = threading.Thread(target=self._read_notifications, daemon=True)
-            self._reader_thread.start()
-            
-            log.info("Connected via gatttool")
-            return True
-            
-        except FileNotFoundError:
-            log.error("gatttool not found - ensure bluez is installed")
-            return False
-        except Exception as e:
-            log.error(f"Connection error: {e}")
-            await self.disconnect()
-            return False
-    
-    def _drain_stdout(self):
-        """Drain stdout from gatttool process."""
-        while self._running and self._process:
-            try:
-                ready, _, _ = select.select([self._process.stdout], [], [], 0.1)
-                if ready:
-                    chunk = self._process.stdout.read(1024)
-                    if chunk:
-                        self._stdout_queue.put(chunk)
-                    else:
-                        break
-            except Exception:
-                break
-    
-    def _drain_stderr(self):
-        """Drain stderr from gatttool process."""
-        while self._running and self._process:
-            try:
-                ready, _, _ = select.select([self._process.stderr], [], [], 0.1)
-                if ready:
-                    chunk = self._process.stderr.read(1024)
-                    if chunk:
-                        self._stderr_queue.put(chunk)
-                    else:
-                        break
-            except Exception:
-                break
-    
-    def _read_notifications(self):
-        """Read and process notifications from gatttool."""
-        buffer = ""
-        
-        while self._running:
-            try:
-                chunk = self._stdout_queue.get(timeout=0.1)
-                buffer += chunk
-                
-                while '\n' in buffer:
-                    line, buffer = buffer.split('\n', 1)
-                    line = line.strip()
-                    
-                    if not line:
-                        continue
-                    
-                    # Parse notification/indication
-                    if 'Notification' in line or 'Indication' in line:
-                        match = re.search(
-                            r'handle\s*=\s*0x([0-9a-f]+).*?value:\s*([0-9a-f ]+)',
-                            line, re.IGNORECASE
-                        )
-                        if match:
-                            handle = int(match.group(1), 16)
-                            hex_str = match.group(2).replace(' ', '')
-                            try:
-                                data = bytearray.fromhex(hex_str)
-                                self._handle_notification(handle, data)
-                            except ValueError as e:
-                                log.warning(f"Failed to parse notification data: {e}")
-                    elif 'handle' in line.lower() and 'value' in line.lower():
-                        # Alternative notification format
-                        match = re.search(
-                            r'handle.*?0x([0-9a-f]+).*?value.*?([0-9a-f]{2}(?:\s+[0-9a-f]{2})*)',
-                            line, re.IGNORECASE
-                        )
-                        if match:
-                            handle = int(match.group(1), 16)
-                            hex_str = match.group(2).replace(' ', '')
-                            try:
-                                data = bytearray.fromhex(hex_str)
-                                self._handle_notification(handle, data)
-                            except ValueError:
-                                pass
-                                
-            except queue.Empty:
-                continue
-            except Exception as e:
-                if self._running:
-                    log.error(f"Notification reader error: {e}")
-                break
-    
-    def _handle_notification(self, handle: int, data: bytearray):
-        """Handle a notification from the device."""
-        log.debug(f"Notification from handle {handle:04x}: {data.hex()}")
-        
-        # Call registered callback
-        if handle in self._notification_callbacks:
-            try:
-                self._notification_callbacks[handle](handle, data)
-            except Exception as e:
-                log.error(f"Notification callback error: {e}")
-        else:
-            # Try to find by value_handle
-            for char in self._characteristics:
-                if char['value_handle'] == handle:
-                    log.info(f"RX [{char['uuid']}]: {data.hex()}")
-                    break
-            else:
-                log.info(f"RX [handle {handle:04x}]: {data.hex()}")
     
     async def enable_notifications(self, handle: int, callback: NotificationCallback) -> bool:
         """Enable notifications on a characteristic.
@@ -450,20 +351,27 @@ class GatttoolClient:
                 break
         
         if cccd_handle is None:
-            log.error(f"No CCCD found for handle {handle:04x}")
-            return False
+            # Try handle + 1 as a common pattern
+            cccd_handle = handle + 1
+            log.warning(f"No CCCD found for handle {handle:04x}, trying {cccd_handle:04x}")
         
         # Write 0x0100 to CCCD to enable notifications
         log.info(f"Enabling notifications on handle {handle:04x} (CCCD {cccd_handle:04x})")
-        try:
-            self._process.stdin.write(f"char-write-req {cccd_handle:04x} 0100\n")
-            self._process.stdin.flush()
-            self._notification_callbacks[handle] = callback
-            await asyncio.sleep(0.2)
+        self._send_command(f"char-write-req {cccd_handle:04x} 0100")
+        self._notification_callbacks[handle] = callback
+        await asyncio.sleep(0.3)
+        
+        # Check for success
+        output = self._read_output(timeout=1.0)
+        if 'successfully' in output.lower():
+            log.info("Notifications enabled")
             return True
-        except Exception as e:
-            log.error(f"Failed to enable notifications: {e}")
+        elif 'error' in output.lower():
+            log.error(f"Failed to enable notifications: {output}")
             return False
+        
+        # Assume success if no error
+        return True
     
     async def write_characteristic(self, handle: int, data: bytes, response: bool = True) -> bool:
         """Write data to a characteristic.
@@ -484,14 +392,18 @@ class GatttoolClient:
         cmd = "char-write-req" if response else "char-write-cmd"
         
         log.debug(f"Writing to handle {handle:04x}: {hex_data}")
-        try:
-            self._process.stdin.write(f"{cmd} {handle:04x} {hex_data}\n")
-            self._process.stdin.flush()
-            await asyncio.sleep(0.1)
-            return True
-        except Exception as e:
-            log.error(f"Write failed: {e}")
-            return False
+        self._send_command(f"{cmd} {handle:04x} {hex_data}")
+        await asyncio.sleep(0.1)
+        
+        if response:
+            output = self._read_output(timeout=1.0)
+            if 'successfully' in output.lower():
+                return True
+            elif 'error' in output.lower():
+                log.error(f"Write failed: {output}")
+                return False
+        
+        return True
     
     async def disconnect(self):
         """Disconnect from the device."""
@@ -500,9 +412,10 @@ class GatttoolClient:
         
         if self._process:
             try:
-                self._process.stdin.write("disconnect\n")
-                self._process.stdin.flush()
-                await asyncio.sleep(0.5)
+                self._send_command("disconnect")
+                await asyncio.sleep(0.3)
+                self._send_command("exit")
+                await asyncio.sleep(0.2)
                 self._process.terminate()
                 self._process.wait(timeout=2)
             except Exception:
@@ -533,4 +446,3 @@ class GatttoolClient:
     def stop(self):
         """Stop the client."""
         self._running = False
-
