@@ -52,6 +52,11 @@ CHESSNUT_OP_RX_CHAR_UUID = "1b7e8273-2877-41c3-b46e-cf057c562023"  # Notify from
 # Chessnut Air commands
 CHESSNUT_ENABLE_REPORTING_CMD = bytes([0x21, 0x01, 0x00])
 
+# DGT Pegasus BLE UUIDs (Nordic UART Service - NUS)
+PEGASUS_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+PEGASUS_RX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # Write commands TO device
+PEGASUS_TX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # Notify responses FROM device
+
 
 def odd_par(b: int) -> int:
     """Calculate odd parity for a byte and set MSB if needed.
@@ -317,6 +322,70 @@ class BLERelayClient:
         log.info("No Chessnut response received")
         return False
     
+    def _pegasus_notification_handler(self, sender, data: bytearray):
+        """Handle notifications from DGT Pegasus board."""
+        self._got_response = True
+        log.info(f"RX [Pegasus] ({len(data)} bytes): {data.hex()}")
+        
+        # Try to decode as ASCII if printable
+        try:
+            ascii_str = data.decode('ascii', errors='replace')
+            printable = ''.join(c if c.isprintable() or c in '\r\n' else '.' for c in ascii_str)
+            log.info(f"RX [Pegasus ASCII]: {printable}")
+        except Exception:
+            pass
+    
+    async def _probe_pegasus(self) -> bool:
+        """Probe for DGT Pegasus protocol.
+        
+        Returns:
+            True if Pegasus protocol detected, False otherwise
+        """
+        # Find Pegasus characteristics (Nordic UART Service)
+        tx_uuid = self._find_characteristic_uuid(PEGASUS_TX_CHAR_UUID)
+        rx_uuid = self._find_characteristic_uuid(PEGASUS_RX_CHAR_UUID)
+        
+        if not tx_uuid or not rx_uuid:
+            log.info("Pegasus characteristics not found")
+            return False
+        
+        log.info(f"Found Pegasus TX (notify): {tx_uuid}")
+        log.info(f"Found Pegasus RX (write): {rx_uuid}")
+        
+        # Enable notifications on TX characteristic
+        await self.ble_client.start_notify(tx_uuid, self._pegasus_notification_handler)
+        
+        self._got_response = False
+        self.write_char_uuid = rx_uuid
+        self.detected_protocol = "pegasus"
+        
+        # The Pegasus protocol is similar to the DGT serial protocol
+        # Try sending a reset command or request board state
+        # Common DGT commands: 0x40 = DGT_SEND_RESET, 0x42 = DGT_SEND_BRD
+        probe_cmd = bytes([0x40])  # Reset command
+        log.info(f"Sending Pegasus probe (reset): {probe_cmd.hex()}")
+        
+        if not await self.ble_client.write_characteristic(rx_uuid, probe_cmd, response=False):
+            log.warning("Failed to send Pegasus probe")
+            return False
+        
+        await asyncio.sleep(0.5)
+        
+        # Send board request
+        board_cmd = bytes([0x42])  # Request board state
+        log.info(f"Sending Pegasus board request: {board_cmd.hex()}")
+        await self.ble_client.write_characteristic(rx_uuid, board_cmd, response=False)
+        
+        # Wait for response
+        for _ in range(30):  # 3 seconds
+            await asyncio.sleep(0.1)
+            if self._got_response:
+                return True
+        
+        # Even if no response, if we found the characteristics, consider it detected
+        log.info("Pegasus characteristics found (no probe response yet)")
+        return True
+    
     async def connect(self) -> bool:
         """Connect to the device and auto-detect protocol.
         
@@ -348,6 +417,12 @@ class BLERelayClient:
         log.info("Probing for Chessnut Air protocol...")
         if await self._probe_chessnut():
             log.info("Chessnut Air protocol detected and active")
+            return True
+        
+        # Try DGT Pegasus
+        log.info("Probing for DGT Pegasus protocol...")
+        if await self._probe_pegasus():
+            log.info("DGT Pegasus protocol detected and active")
             return True
         
         log.warning("No supported protocol detected")
@@ -384,6 +459,11 @@ class BLERelayClient:
                     CHESSNUT_ENABLE_REPORTING_CMD,
                     response=False
                 )
+            elif self.detected_protocol == "pegasus" and self.write_char_uuid:
+                # DGT Pegasus: request board state periodically
+                board_cmd = bytes([0x42])  # DGT_SEND_BRD
+                log.info("Sending periodic Pegasus board request")
+                await self.ble_client.write_characteristic(self.write_char_uuid, board_cmd, response=False)
     
     def stop(self):
         """Signal the client to stop."""
@@ -452,9 +532,9 @@ class GatttoolRelayClient:
                             if match:
                                 found_address = match.group(1)
                                 log.info(f"Found device at {found_address}")
-                                break
+                            break
                 await asyncio.sleep(0.1)
-            
+        
             # Kill the scan process
             process.terminate()
             try:
@@ -629,7 +709,7 @@ async def async_main(device_name: str, use_gatttool: bool = False, device_addres
             await client.run()
         else:
             # Check if bleak connected but found no services (BlueZ GATT bug)
-            if not use_gatttool and client.ble_client.is_connected:
+            if not use_gatttool and hasattr(client, 'ble_client') and client.ble_client.is_connected:
                 services = client.ble_client.services
                 service_count = len(list(services)) if services else 0
                 if service_count == 0:
@@ -689,11 +769,11 @@ async def async_main(device_name: str, use_gatttool: bool = False, device_addres
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description='BLE Relay Tool - Auto-detects Millennium or Chessnut Air protocol',
+        description='BLE Relay Tool - Auto-detects Millennium, Chessnut Air, or DGT Pegasus protocol',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 This tool connects to a BLE chess board and auto-detects the protocol
-(Millennium or Chessnut Air) by probing with initial commands.
+(Millennium, Chessnut Air, or DGT Pegasus) by probing with initial commands.
 
 For dual-mode devices where bleak fails, use --use-gatttool to use the
 gatttool backend instead.
@@ -742,7 +822,6 @@ Requirements:
             clear_bluez_device_cache(args.device_address)
         else:
             log.info("Clearing all BlueZ device cache...")
-            # Clear all cache files
             import glob
             cache_pattern = "/var/lib/bluetooth/*/cache/*"
             cache_files = glob.glob(cache_pattern)
