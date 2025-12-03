@@ -31,6 +31,9 @@ from DGTCentaurMods.board.logging import log
 
 # Suppress verbose D-Bus logging from bleak/dbus libraries
 logging.getLogger("org.freedesktop").setLevel(logging.INFO)
+logging.getLogger("bleak").setLevel(logging.INFO)
+logging.getLogger("bleak.backends").setLevel(logging.INFO)
+logging.getLogger("bleak.backends.bluezdbus").setLevel(logging.INFO)
 
 
 # Type alias for notification callback
