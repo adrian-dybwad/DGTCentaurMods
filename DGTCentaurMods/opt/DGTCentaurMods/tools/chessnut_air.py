@@ -145,7 +145,7 @@ async def async_main(device_name: str, stale_connection_mode: str = "disconnect"
         stale_connection_mode: How to handle stale connections ("disconnect" or "reuse")
     """
     tool = ChessnutAirTool(device_name, stale_connection_mode=stale_connection_mode)
-    
+        
     # Set up signal handlers
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -192,7 +192,7 @@ Requirements:
         log.info(f"bleak version: {bleak.__version__}")
     except AttributeError:
         log.info("bleak version: unknown")
-        
+    
     # Determine stale connection mode
     stale_mode = "reuse" if args.reuse_connection else "disconnect"
     

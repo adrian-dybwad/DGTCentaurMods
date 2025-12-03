@@ -196,9 +196,9 @@ class GatttoolRelayClient:
                             if match:
                                 found_address = match.group(1)
                                 log.info(f"Found device at {found_address}")
-                            break
+                                break
                 await asyncio.sleep(0.1)
-        
+            
             # Kill the scan process
             process.terminate()
             try:
@@ -211,7 +211,7 @@ class GatttoolRelayClient:
             
             log.warning(f"Device '{self.device_name}' not found via LE scan")
             return None
-                
+            
         except Exception as e:
             log.error(f"Scan error: {e}")
             return None
@@ -231,7 +231,7 @@ class GatttoolRelayClient:
                 return False
         
         self.gatttool_client = GatttoolClient()
-        
+                
         # Connect and discover services in one session
         if not await self.gatttool_client.connect_and_discover(self.device_address):
             log.error("Failed to connect and discover services")
@@ -344,7 +344,7 @@ async def async_main(
         log.info("=" * 50)
         log.info("Attempting gatttool fallback...")
         log.info("=" * 50)
-        
+                
         # Power cycle the Bluetooth adapter to clear any stale state from bleak
         log.info("Power cycling Bluetooth adapter...")
         import subprocess
