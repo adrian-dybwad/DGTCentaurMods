@@ -3,17 +3,7 @@
 Chessnut Air BLE Tool
 
 This tool connects to a BLE device called "Chessnut Air" and logs all data received.
-It uses the bleak library for proper BLE communication with MTU negotiation support.
-
-The previous implementation used gatttool which had the following issues:
-1. gatttool does not support explicit MTU exchange
-2. Default MTU (23 bytes) is too small for Chessnut's 36-byte FEN packets
-3. gatttool has issues with BLE communication and data reception
-
-This version uses bleak which:
-1. Properly handles MTU negotiation (requests 500 bytes as required by Chessnut)
-2. Has reliable notification handling
-3. Is a modern, well-maintained Python BLE library
+It uses the generic BLEClient class for BLE communication.
 
 Usage:
     python3 tools/chessnut_air.py [--device-name "Chessnut Air"]
@@ -36,20 +26,11 @@ try:
 except Exception as e:
     print(f"Warning: Could not add repo path: {e}")
 
-try:
-    from bleak import BleakClient, BleakScanner
-    from bleak.exc import BleakError
-except ImportError:
-    print("Error: bleak library not installed. Install with: pip install bleak")
-    print("On Raspberry Pi: pip3 install bleak")
-    sys.exit(1)
-
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.board.ble_client import BLEClient
 
 # Chessnut Air BLE UUIDs
-CHESSNUT_FEN_SERVICE_UUID = "1b7e8261-2877-41c3-b46e-cf057c562023"
 CHESSNUT_FEN_RX_CHAR_UUID = "1b7e8262-2877-41c3-b46e-cf057c562023"  # Notify from board (FEN data)
-CHESSNUT_OP_SERVICE_UUID = "1b7e8271-2877-41c3-b46e-cf057c562023"
 CHESSNUT_OP_TX_CHAR_UUID = "1b7e8272-2877-41c3-b46e-cf057c562023"  # Write to board
 CHESSNUT_OP_RX_CHAR_UUID = "1b7e8273-2877-41c3-b46e-cf057c562023"  # Notify from board (responses)
 
@@ -57,20 +38,9 @@ CHESSNUT_OP_RX_CHAR_UUID = "1b7e8273-2877-41c3-b46e-cf057c562023"  # Notify from
 CHESSNUT_ENABLE_REPORTING_CMD = bytes([0x21, 0x01, 0x00])
 # Battery level command
 CHESSNUT_BATTERY_LEVEL_CMD = bytes([0x29, 0x01, 0x00])
-# Real-time mode command (enables continuous FEN updates)
-CHESSNUT_REALTIME_MODE_CMD = bytes([0x21, 0x01, 0x00])
 
 # Required MTU for Chessnut Air (needs 500 bytes for full FEN data)
 REQUIRED_MTU = 500
-
-# Global state for signal handling
-running = True
-
-
-def signal_handler(signum, frame):
-    """Handle SIGINT and SIGTERM signals."""
-    global running
-    running = False
 
 
 def parse_fen_data(data: bytes) -> str:
@@ -176,52 +146,19 @@ def parse_battery_response(data: bytes) -> tuple[int, bool]:
 
 
 class ChessnutAirClient:
-    """Async BLE client for Chessnut Air chess board."""
+    """Client for Chessnut Air chess board using generic BLEClient."""
     
     def __init__(self, device_name: str = "Chessnut Air"):
-        """Initialize the client.
+        """Initialize the Chessnut Air client.
         
         Args:
             device_name: Name of the BLE device to connect to
         """
         self.device_name = device_name
-        self.client: BleakClient | None = None
-        self.device_address: str | None = None
+        self.ble_client = BLEClient()
         self.last_fen: str = ""
         self.battery_level: int = -1
         self.is_charging: bool = False
-        self._running = True
-    
-    async def scan_for_device(self, timeout: float = 30.0) -> str | None:
-        """Scan for the Chessnut Air device.
-        
-        Args:
-            timeout: Maximum time to scan in seconds
-            
-        Returns:
-            Device address if found, None otherwise
-        """
-        log.info(f"Scanning for device with name: {self.device_name}")
-        
-        target_name_upper = self.device_name.upper()
-        
-        devices = await BleakScanner.discover(timeout=timeout)
-        
-        for device in devices:
-            device_name = device.name or ""
-            device_name_upper = device_name.upper()
-            
-            if device_name_upper == target_name_upper:
-                log.info(f"Found device: {device.name} at {device.address}")
-                return device.address
-            
-            # Also check for partial match
-            if target_name_upper in device_name_upper:
-                log.info(f"Found device (partial match): {device.name} at {device.address}")
-                return device.address
-        
-        log.warning(f"Device '{self.device_name}' not found after {timeout} seconds")
-        return None
     
     def _fen_notification_handler(self, sender, data: bytearray):
         """Handle notifications from FEN characteristic.
@@ -263,142 +200,66 @@ class ChessnutAirClient:
         Returns:
             True if connection successful, False otherwise
         """
-        if not self.device_address:
-            self.device_address = await self.scan_for_device()
-            if not self.device_address:
-                return False
-        
-        log.info(f"Connecting to {self.device_address}...")
-        
-        try:
-            self.client = BleakClient(self.device_address)
-            await self.client.connect()
-            
-            if not self.client.is_connected:
-                log.error("Failed to connect to device")
-                return False
-            
-            log.info("Connected to device")
-            
-            # Request MTU exchange
-            # Note: bleak handles MTU negotiation automatically on most platforms
-            # On Linux with BlueZ, we can try to request a larger MTU
-            try:
-                mtu = self.client.mtu_size
-                log.info(f"Current MTU size: {mtu}")
-                if mtu < REQUIRED_MTU:
-                    log.warning(f"MTU ({mtu}) is less than required ({REQUIRED_MTU})")
-                    log.warning("FEN data may be truncated. Consider updating BlueZ config.")
-            except AttributeError:
-                log.info("MTU size not available (platform limitation)")
-            
-            # Discover services
-            log.info("Discovering services...")
-            services = self.client.services
-            
-            for service in services:
-                log.info(f"Service: {service.uuid}")
-                for char in service.characteristics:
-                    props = ", ".join(char.properties)
-                    log.info(f"  Characteristic: {char.uuid} [{props}]")
-            
-            # Enable notifications on FEN characteristic
-            log.info(f"Enabling notifications on FEN characteristic ({CHESSNUT_FEN_RX_CHAR_UUID})...")
-            try:
-                await self.client.start_notify(
-                    CHESSNUT_FEN_RX_CHAR_UUID,
-                    self._fen_notification_handler
-                )
-                log.info("FEN notifications enabled")
-            except BleakError as e:
-                log.error(f"Failed to enable FEN notifications: {e}")
-                # Try with uppercase UUID
-                try:
-                    await self.client.start_notify(
-                        CHESSNUT_FEN_RX_CHAR_UUID.upper(),
-                        self._fen_notification_handler
-                    )
-                    log.info("FEN notifications enabled (uppercase UUID)")
-                except BleakError as e2:
-                    log.error(f"Failed to enable FEN notifications (retry): {e2}")
-            
-            # Enable notifications on Operation RX characteristic
-            log.info(f"Enabling notifications on Operation RX characteristic ({CHESSNUT_OP_RX_CHAR_UUID})...")
-            try:
-                await self.client.start_notify(
-                    CHESSNUT_OP_RX_CHAR_UUID,
-                    self._operation_notification_handler
-                )
-                log.info("Operation notifications enabled")
-            except BleakError as e:
-                log.error(f"Failed to enable Operation notifications: {e}")
-            
-            # Send enable reporting command
-            log.info("Sending enable reporting command...")
-            try:
-                await self.client.write_gatt_char(
-                    CHESSNUT_OP_TX_CHAR_UUID,
-                    CHESSNUT_ENABLE_REPORTING_CMD,
-                    response=False  # Write without response (faster)
-                )
-                log.info("Enable reporting command sent")
-            except BleakError as e:
-                log.error(f"Failed to send enable reporting command: {e}")
-            
-            await asyncio.sleep(0.5)
-            
-            # Send battery level command
-            log.info("Sending battery level command...")
-            try:
-                await self.client.write_gatt_char(
-                    CHESSNUT_OP_TX_CHAR_UUID,
-                    CHESSNUT_BATTERY_LEVEL_CMD,
-                    response=False
-                )
-                log.info("Battery level command sent")
-            except BleakError as e:
-                log.error(f"Failed to send battery level command: {e}")
-            
-            log.info("Connection established. Waiting for data...")
-            log.info("Move pieces on the board to see FEN updates")
-            
-            return True
-            
-        except BleakError as e:
-            log.error(f"BLE connection error: {e}")
+        if not await self.ble_client.scan_and_connect(self.device_name):
             return False
-        except Exception as e:
-            log.error(f"Unexpected error during connection: {e}")
-            import traceback
-            log.error(traceback.format_exc())
-            return False
+        
+        # Check MTU size
+        mtu = self.ble_client.mtu_size
+        if mtu and mtu < REQUIRED_MTU:
+            log.warning(f"MTU ({mtu}) is less than required ({REQUIRED_MTU})")
+            log.warning("FEN data may be truncated. Consider updating BlueZ config.")
+        
+        # Log discovered services
+        self.ble_client.log_services()
+        
+        # Enable notifications on FEN characteristic
+        log.info(f"Enabling notifications on FEN characteristic...")
+        await self.ble_client.start_notify(
+            CHESSNUT_FEN_RX_CHAR_UUID,
+            self._fen_notification_handler
+        )
+        
+        # Enable notifications on Operation RX characteristic
+        log.info(f"Enabling notifications on Operation RX characteristic...")
+        await self.ble_client.start_notify(
+            CHESSNUT_OP_RX_CHAR_UUID,
+            self._operation_notification_handler
+        )
+        
+        # Send enable reporting command
+        log.info("Sending enable reporting command...")
+        await self.ble_client.write_characteristic(
+            CHESSNUT_OP_TX_CHAR_UUID,
+            CHESSNUT_ENABLE_REPORTING_CMD,
+            response=False
+        )
+        
+        await asyncio.sleep(0.5)
+        
+        # Send battery level command
+        log.info("Sending battery level command...")
+        await self.ble_client.write_characteristic(
+            CHESSNUT_OP_TX_CHAR_UUID,
+            CHESSNUT_BATTERY_LEVEL_CMD,
+            response=False
+        )
+        
+        log.info("Connection established. Waiting for data...")
+        log.info("Move pieces on the board to see FEN updates")
+        
+        return True
     
     async def disconnect(self):
         """Disconnect from the device."""
-        if self.client and self.client.is_connected:
-            log.info("Disconnecting...")
-            try:
-                await self.client.disconnect()
-                log.info("Disconnected")
-            except Exception as e:
-                log.error(f"Error during disconnect: {e}")
+        await self.ble_client.disconnect()
     
     async def run(self):
         """Main run loop - keeps connection alive and processes notifications."""
-        global running
-        
-        while running and self._running:
-            if self.client and self.client.is_connected:
-                await asyncio.sleep(1)
-            else:
-                log.warning("Connection lost, attempting to reconnect...")
-                if not await self.connect():
-                    log.error("Reconnection failed, waiting before retry...")
-                    await asyncio.sleep(5)
+        await self.ble_client.run_with_reconnect(self.device_name)
     
     def stop(self):
         """Signal the client to stop."""
-        self._running = False
+        self.ble_client.stop()
 
 
 async def async_main(device_name: str):
