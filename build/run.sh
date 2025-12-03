@@ -176,6 +176,6 @@ python -m "$MODULE" "${MODULE_ARGS[@]}"
 deactivate
 
 # Start web service if it exists
-if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "DGTCentaurMods.service"; then
-	#sudo systemctl start DGTCentaurMods 2>/dev/null || true
-fi
+#if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "DGTCentaurMods.service"; then
+#	sudo systemctl start DGTCentaurMods 2>/dev/null || true
+#fi
