@@ -488,14 +488,9 @@ class GatttoolRelayClient:
         
         self.gatttool_client = GatttoolClient()
         
-        # Discover services first
-        if not await self.gatttool_client.discover_services(self.device_address):
-            log.error("Failed to discover services")
-            return False
-        
-        # Connect
-        if not await self.gatttool_client.connect():
-            log.error("Failed to connect")
+        # Connect and discover services in one session
+        if not await self.gatttool_client.connect_and_discover(self.device_address):
+            log.error("Failed to connect and discover services")
             return False
         
         # Probe for Millennium protocol
