@@ -38,14 +38,22 @@ from DGTCentaurMods.tools.clients.pegasus_client import PegasusClient
 class BLERelayClient:
     """BLE relay client that auto-detects Millennium, Chessnut Air, or Pegasus protocol."""
     
-    def __init__(self, device_name: str = "Chessnut Air"):
+    def __init__(
+        self,
+        device_name: str = "Chessnut Air",
+        stale_connection_mode: str = "disconnect"
+    ):
         """Initialize the BLE relay client.
         
         Args:
             device_name: Name of the BLE device to connect to
+            stale_connection_mode: How to handle stale connections from previous
+                                   sessions. Options:
+                                   - "disconnect": Disconnect stale connections (default)
+                                   - "reuse": Attempt to reuse existing connections
         """
         self.device_name = device_name
-        self.ble_client = BLEClient()
+        self.ble_client = BLEClient(stale_connection_mode=stale_connection_mode)
         self.detected_protocol: str | None = None
         self.write_char_uuid: str | None = None
         self._running = True
@@ -550,13 +558,19 @@ class GatttoolRelayClient:
             self.gatttool_client.stop()
 
 
-async def async_main(device_name: str, use_gatttool: bool = False, device_address: str | None = None):
+async def async_main(
+    device_name: str,
+    use_gatttool: bool = False,
+    device_address: str | None = None,
+    stale_connection_mode: str = "disconnect"
+):
     """Async main entry point.
     
     Args:
         device_name: Name of the BLE device to connect to
         use_gatttool: If True, use gatttool backend instead of bleak
         device_address: Optional MAC address to skip scanning
+        stale_connection_mode: How to handle stale connections ("disconnect" or "reuse")
     """
     client = None
     fallback_to_gatttool = False
@@ -569,7 +583,8 @@ async def async_main(device_name: str, use_gatttool: bool = False, device_addres
             log.info(f"Using provided address: {device_address}")
     else:
         log.info("Using bleak backend")
-        client = BLERelayClient(device_name)
+        log.info(f"Stale connection mode: {stale_connection_mode}")
+        client = BLERelayClient(device_name, stale_connection_mode=stale_connection_mode)
     
     # Set up signal handlers
     loop = asyncio.get_event_loop()
@@ -674,6 +689,11 @@ Requirements:
         '--device-address',
         help='MAC address of the device (used with --clear-cache to clear cache before scanning)'
     )
+    parser.add_argument(
+        '--reuse-connection',
+        action='store_true',
+        help='Attempt to reuse existing BLE connections instead of disconnecting them'
+    )
     args = parser.parse_args()
     
     log.info("BLE Relay Tool")
@@ -720,12 +740,16 @@ Requirements:
             else:
                 log.info("No cache files found")
     
+    # Determine stale connection mode
+    stale_mode = "reuse" if args.reuse_connection else "disconnect"
+    
     # Run the async main
     try:
         asyncio.run(async_main(
             args.device_name, 
             use_gatttool=args.use_gatttool,
-            device_address=args.device_address
+            device_address=args.device_address,
+            stale_connection_mode=stale_mode
         ))
     except KeyboardInterrupt:
         log.info("Interrupted by user")

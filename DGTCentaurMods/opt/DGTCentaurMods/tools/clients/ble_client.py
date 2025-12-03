@@ -285,6 +285,7 @@ class BLEClient:
     - Notification subscription and handling
     - Characteristic read/write operations
     - MTU size reporting
+    - Stale connection handling (reuse or disconnect)
     
     Example usage:
         async def my_notification_handler(sender, data):
@@ -296,15 +297,34 @@ class BLEClient:
             await client.write_characteristic("uuid-here", bytes([0x01, 0x02]))
             # ... do work ...
             await client.disconnect()
+    
+    Stale Connection Handling:
+        When a previous script exits without properly disconnecting, BlueZ may
+        keep the BLE connection open. The `stale_connection_mode` parameter
+        controls how this is handled:
+        
+        - "disconnect" (default): Disconnect any stale connections before scanning.
+          Ensures a clean connection state.
+        
+        - "reuse": Attempt to reuse an existing connection if the device is already
+          connected. More efficient but may have stale state.
     """
     
-    def __init__(self):
-        """Initialize the BLE client."""
+    def __init__(self, stale_connection_mode: str = "disconnect"):
+        """Initialize the BLE client.
+        
+        Args:
+            stale_connection_mode: How to handle stale connections from previous
+                                   sessions. Options:
+                                   - "disconnect": Disconnect stale connections (default)
+                                   - "reuse": Attempt to reuse existing connections
+        """
         self._client: BleakClient | None = None
         self._device_address: str | None = None
         self._device_name: str | None = None
         self._running = True
         self._notification_handlers: dict[str, NotificationCallback] = {}
+        self._stale_connection_mode = stale_connection_mode
     
     @property
     def is_connected(self) -> bool:
@@ -336,6 +356,132 @@ class BLEClient:
         """Get the discovered GATT services, or None if not connected."""
         if self._client:
             return self._client.services
+        return None
+    
+    async def _find_connected_device(self, device_name: str) -> BLEDevice | None:
+        """Check if a device is already connected in BlueZ.
+        
+        When a previous script exits without properly disconnecting, BlueZ may
+        keep the BLE connection open. This method finds such devices.
+        
+        Args:
+            device_name: Name of the device to find (case-insensitive, partial match)
+            
+        Returns:
+            BLEDevice if found and connected, None otherwise
+        """
+        if not DBUS_AVAILABLE:
+            return None
+        
+        try:
+            bus = dbus.SystemBus()
+            manager = dbus.Interface(
+                bus.get_object('org.bluez', '/'),
+                'org.freedesktop.DBus.ObjectManager'
+            )
+            
+            target_upper = device_name.upper()
+            
+            for path, interfaces in manager.GetManagedObjects().items():
+                if 'org.bluez.Device1' in interfaces:
+                    props = interfaces['org.bluez.Device1']
+                    name = str(props.get('Name', ''))
+                    connected = bool(props.get('Connected', False))
+                    
+                    if connected and target_upper in name.upper():
+                        address = str(props.get('Address', ''))
+                        log.info(f"Found existing connection: {name} ({address})")
+                        
+                        # Do a quick scan to get the proper BLEDevice object
+                        # This ensures we have all the metadata bleak needs
+                        device = await BleakScanner.find_device_by_address(
+                            address, timeout=5.0
+                        )
+                        if device:
+                            return device
+                        
+                        # If scan didn't find it, we can still try with just the address
+                        log.debug(f"Device not found in scan, will use address directly")
+                        return None
+            
+            return None
+        except Exception as e:
+            log.debug(f"Error checking for connected devices: {e}")
+            return None
+    
+    async def _disconnect_stale_connection(self, device_name: str) -> bool:
+        """Disconnect a device if it's already connected (stale connection).
+        
+        When a previous script exits without properly disconnecting, BlueZ may
+        keep the BLE connection open. This method disconnects such connections
+        to ensure a clean state.
+        
+        Args:
+            device_name: Name of the device to disconnect (case-insensitive, partial match)
+            
+        Returns:
+            True if a stale connection was found and disconnected, False otherwise
+        """
+        if not DBUS_AVAILABLE:
+            return False
+        
+        try:
+            bus = dbus.SystemBus()
+            manager = dbus.Interface(
+                bus.get_object('org.bluez', '/'),
+                'org.freedesktop.DBus.ObjectManager'
+            )
+            
+            target_upper = device_name.upper()
+            disconnected = False
+            
+            for path, interfaces in manager.GetManagedObjects().items():
+                if 'org.bluez.Device1' in interfaces:
+                    props = interfaces['org.bluez.Device1']
+                    name = str(props.get('Name', ''))
+                    connected = bool(props.get('Connected', False))
+                    
+                    if connected and target_upper in name.upper():
+                        address = str(props.get('Address', ''))
+                        log.info(f"Found stale connection to {name} ({address}), disconnecting...")
+                        
+                        try:
+                            device = dbus.Interface(
+                                bus.get_object('org.bluez', path),
+                                'org.bluez.Device1'
+                            )
+                            device.Disconnect()
+                            await asyncio.sleep(1)
+                            log.info("Disconnected stale connection")
+                            disconnected = True
+                        except dbus.exceptions.DBusException as e:
+                            log.warning(f"Failed to disconnect stale connection: {e}")
+            
+            return disconnected
+        except Exception as e:
+            log.debug(f"Error disconnecting stale connection: {e}")
+            return False
+    
+    async def _handle_stale_connections(self, device_name: str) -> BLEDevice | None:
+        """Handle stale connections based on the configured mode.
+        
+        Args:
+            device_name: Name of the device
+            
+        Returns:
+            BLEDevice if an existing connection can be reused, None otherwise
+        """
+        if self._stale_connection_mode == "reuse":
+            # Try to find and reuse an existing connection
+            existing = await self._find_connected_device(device_name)
+            if existing:
+                log.info(f"Attempting to reuse existing connection to {device_name}")
+                return existing
+        else:
+            # Default: disconnect any stale connections
+            if await self._disconnect_stale_connection(device_name):
+                log.info("Stale connection cleared, proceeding with fresh scan")
+        
         return None
     
     async def scan_for_device(
@@ -491,6 +637,12 @@ class BLEClient:
         will automatically clear the BlueZ cache and retry if it detects that
         BlueZ is trying to connect via Classic BT instead of BLE.
         
+        Stale Connection Handling:
+            Before scanning, this method checks for and handles any stale
+            connections from previous sessions based on `stale_connection_mode`:
+            - "disconnect" (default): Disconnects stale connections
+            - "reuse": Attempts to reuse existing connections
+        
         Args:
             device_name: Name of the device to find
             scan_timeout: Maximum time to scan in seconds
@@ -501,6 +653,39 @@ class BLEClient:
         Returns:
             True if connection successful, False otherwise
         """
+        # Handle stale connections from previous sessions
+        existing_device = await self._handle_stale_connections(device_name)
+        
+        if existing_device and self._stale_connection_mode == "reuse":
+            # Try to reuse the existing connection
+            log.info(f"Attempting to reuse existing connection to {existing_device.address}")
+            try:
+                self._client = BleakClient(existing_device)
+                await asyncio.wait_for(self._client.connect(), timeout=10.0)
+                
+                if self._client.is_connected:
+                    self._device_address = existing_device.address
+                    self._device_name = existing_device.name
+                    log.info("Successfully reused existing BlueZ connection")
+                    
+                    # Log MTU size
+                    try:
+                        mtu = self._client.mtu_size
+                        log.info(f"MTU size: {mtu}")
+                    except AttributeError:
+                        pass
+                    
+                    return True
+            except Exception as e:
+                log.warning(f"Failed to reuse existing connection: {e}")
+                # Fall through to normal scan
+                if self._client:
+                    try:
+                        await self._client.disconnect()
+                    except:
+                        pass
+                    self._client = None
+        
         log.info(f"Scanning for device with name: {device_name}")
         
         target_name_upper = device_name.upper()

@@ -35,14 +35,19 @@ from DGTCentaurMods.tools.clients.chessnut_client import ChessnutClient
 class ChessnutAirTool:
     """Tool for connecting to and monitoring a Chessnut Air chess board."""
     
-    def __init__(self, device_name: str = "Chessnut Air"):
+    def __init__(
+        self,
+        device_name: str = "Chessnut Air",
+        stale_connection_mode: str = "disconnect"
+    ):
         """Initialize the Chessnut Air tool.
         
         Args:
             device_name: Name of the BLE device to connect to
+            stale_connection_mode: How to handle stale connections ("disconnect" or "reuse")
         """
         self.device_name = device_name
-        self.ble_client = BLEClient()
+        self.ble_client = BLEClient(stale_connection_mode=stale_connection_mode)
         self.chessnut = ChessnutClient(
             on_fen=self._on_fen,
             on_battery=self._on_battery
@@ -132,13 +137,14 @@ class ChessnutAirTool:
         self.ble_client.stop()
 
 
-async def async_main(device_name: str):
+async def async_main(device_name: str, stale_connection_mode: str = "disconnect"):
     """Async main entry point.
     
     Args:
         device_name: Name of the BLE device to connect to
+        stale_connection_mode: How to handle stale connections ("disconnect" or "reuse")
     """
-    tool = ChessnutAirTool(device_name)
+    tool = ChessnutAirTool(device_name, stale_connection_mode=stale_connection_mode)
     
     # Set up signal handlers
     loop = asyncio.get_event_loop()
@@ -170,6 +176,11 @@ Requirements:
         default='Chessnut Air',
         help='Name of the BLE device to connect to (default: Chessnut Air)'
     )
+    parser.add_argument(
+        '--reuse-connection',
+        action='store_true',
+        help='Attempt to reuse existing BLE connections instead of disconnecting them'
+    )
     args = parser.parse_args()
     
     log.info("Chessnut Air BLE Tool")
@@ -182,9 +193,12 @@ Requirements:
     except AttributeError:
         log.info("bleak version: unknown")
         
+    # Determine stale connection mode
+    stale_mode = "reuse" if args.reuse_connection else "disconnect"
+    
     # Run the async main
     try:
-        asyncio.run(async_main(args.device_name))
+        asyncio.run(async_main(args.device_name, stale_connection_mode=stale_mode))
     except KeyboardInterrupt:
         log.info("Interrupted by user")
     except Exception as e:
