@@ -5,13 +5,19 @@ BLE Relay Tool
 This tool connects to a BLE chess board and auto-detects the protocol
 (Millennium or Chessnut Air) by probing with initial commands.
 
-It uses the generic BLEClient class for BLE communication.
+It supports two backends:
+- bleak: Modern async BLE library (default)
+- gatttool: Legacy gatttool command-line tool (use --use-gatttool)
+
+For dual-mode devices where bleak fails, use --use-gatttool.
 
 Usage:
     python3 tools/ble_relay.py [--device-name "Chessnut Air"]
+    python3 tools/ble_relay.py --device-name "MILLENNIUM CHESS" --use-gatttool
     
 Requirements:
-    pip install bleak
+    pip install bleak (for bleak backend)
+    gatttool (for gatttool backend, part of bluez package)
 """
 
 import argparse
@@ -144,7 +150,7 @@ class BLERelayClient:
         """
         if not self.ble_client.services:
             return None
-        
+
         target_lower = target_uuid.lower()
         
         for service in self.ble_client.services:
@@ -183,7 +189,7 @@ class BLERelayClient:
         decoded = bytearray()
         for b in self.response_buffer:
             decoded.append(decode_odd_parity(b))
-        
+                        
         # Check for complete response
         if len(decoded) >= 3:
             first_char = chr(decoded[0]) if decoded[0] < 128 else '?'
@@ -362,7 +368,7 @@ class BLERelayClient:
                 await asyncio.sleep(0.1)
             
             if not self._running:
-                break
+                    break
             
             # Send periodic status command
             if self.detected_protocol == "millennium" and self.write_char_uuid:
@@ -383,13 +389,215 @@ class BLERelayClient:
         self.ble_client.stop()
 
 
-async def async_main(device_name: str):
+class GatttoolRelayClient:
+    """BLE relay client using gatttool backend.
+    
+    This is useful for devices where bleak fails due to BlueZ dual-mode handling.
+    """
+    
+    def __init__(self, device_name: str = "Chessnut Air"):
+        """Initialize the gatttool relay client.
+        
+        Args:
+            device_name: Name of the BLE device to connect to
+        """
+        self.device_name = device_name
+        self.device_address: str | None = None
+        self.gatttool_client = None
+        self.detected_protocol: str | None = None
+        self.write_handle: int | None = None
+        self.read_handle: int | None = None
+        self._running = True
+    
+    async def scan_for_device(self) -> str | None:
+        """Scan for device by name using bluetoothctl.
+        
+        Returns:
+            Device address if found, None otherwise
+        """
+        import subprocess
+        import re
+        
+        log.info(f"Scanning for device: {self.device_name}")
+        
+        # Use bluetoothctl to scan
+        try:
+            # Start scan
+            subprocess.run(['bluetoothctl', 'scan', 'on'], 
+                          capture_output=True, timeout=2, text=True)
+            
+            # Wait for scan results
+            await asyncio.sleep(5)
+            
+            # Get devices
+            result = subprocess.run(['bluetoothctl', 'devices'],
+                                   capture_output=True, timeout=5, text=True)
+            
+            # Stop scan
+            subprocess.run(['bluetoothctl', 'scan', 'off'],
+                          capture_output=True, timeout=2, text=True)
+            
+            if result.returncode == 0:
+                target_upper = self.device_name.upper()
+                for line in result.stdout.split('\n'):
+                    if target_upper in line.upper():
+                        match = re.search(r'Device\s+([0-9A-Fa-f:]+)', line)
+                        if match:
+                            addr = match.group(1)
+                            log.info(f"Found device at {addr}")
+                            return addr
+            
+            log.warning(f"Device '{self.device_name}' not found")
+            return None
+            
+        except Exception as e:
+            log.error(f"Scan error: {e}")
+            return None
+    
+    async def connect(self) -> bool:
+        """Connect to the device using gatttool.
+        
+        Returns:
+            True if connected and protocol detected, False otherwise
+        """
+        from DGTCentaurMods.board.gatttool_client import GatttoolClient
+        
+        # Scan for device if address not known
+        if not self.device_address:
+            self.device_address = await self.scan_for_device()
+            if not self.device_address:
+                return False
+        
+        self.gatttool_client = GatttoolClient()
+        
+        # Discover services first
+        if not await self.gatttool_client.discover_services(self.device_address):
+            log.error("Failed to discover services")
+            return False
+        
+        # Connect
+        if not await self.gatttool_client.connect():
+            log.error("Failed to connect")
+            return False
+        
+        # Probe for Millennium protocol
+        log.info("Probing for Millennium protocol...")
+        mill_rx = self.gatttool_client.find_characteristic_by_uuid(MILLENNIUM_RX_CHAR_UUID)
+        mill_tx = self.gatttool_client.find_characteristic_by_uuid(MILLENNIUM_TX_CHAR_UUID)
+        
+        if mill_rx and mill_tx:
+            log.info(f"Found Millennium RX: handle {mill_rx['value_handle']:04x}")
+            log.info(f"Found Millennium TX: handle {mill_tx['value_handle']:04x}")
+            
+            # Enable notifications on TX
+            def notification_handler(handle: int, data: bytearray):
+                log.info(f"RX [Millennium] ({len(data)} bytes): {data.hex()}")
+                # Decode odd parity
+                decoded = bytearray(decode_odd_parity(b) for b in data)
+                try:
+                    ascii_str = decoded.decode('ascii', errors='replace')
+                    log.info(f"RX [Millennium DECODED]: {ascii_str}")
+                except Exception:
+                    pass
+            
+            await self.gatttool_client.enable_notifications(
+                mill_tx['value_handle'], notification_handler
+            )
+            
+            # Send probe command
+            s_cmd = encode_millennium_command("S")
+            log.info(f"Sending Millennium S probe: {s_cmd.hex()}")
+            await self.gatttool_client.write_characteristic(
+                mill_rx['value_handle'], s_cmd, response=False
+            )
+            
+            await asyncio.sleep(2)
+            
+            self.detected_protocol = "millennium"
+            self.write_handle = mill_rx['value_handle']
+            self.read_handle = mill_tx['value_handle']
+            log.info("Millennium protocol active")
+            return True
+        
+        # Probe for Chessnut Air
+        log.info("Probing for Chessnut Air protocol...")
+        fen_rx = self.gatttool_client.find_characteristic_by_uuid(CHESSNUT_FEN_RX_CHAR_UUID)
+        op_tx = self.gatttool_client.find_characteristic_by_uuid(CHESSNUT_OP_TX_CHAR_UUID)
+        
+        if fen_rx and op_tx:
+            log.info(f"Found Chessnut FEN RX: handle {fen_rx['value_handle']:04x}")
+            log.info(f"Found Chessnut OP TX: handle {op_tx['value_handle']:04x}")
+            
+            def notification_handler(handle: int, data: bytearray):
+                log.info(f"RX [Chessnut] ({len(data)} bytes): {data.hex()}")
+            
+            await self.gatttool_client.enable_notifications(
+                fen_rx['value_handle'], notification_handler
+            )
+            
+            # Send enable reporting
+            log.info(f"Sending Chessnut enable reporting: {CHESSNUT_ENABLE_REPORTING_CMD.hex()}")
+            await self.gatttool_client.write_characteristic(
+                op_tx['value_handle'], CHESSNUT_ENABLE_REPORTING_CMD, response=False
+            )
+            
+            await asyncio.sleep(2)
+            
+            self.detected_protocol = "chessnut_air"
+            self.write_handle = op_tx['value_handle']
+            self.read_handle = fen_rx['value_handle']
+            log.info("Chessnut Air protocol active")
+            return True
+        
+        log.error("No supported protocol detected")
+        return False
+    
+    async def run(self):
+        """Run the relay loop."""
+        log.info("Running gatttool relay loop (Ctrl+C to exit)...")
+        
+        last_periodic = asyncio.get_event_loop().time()
+        
+        while self._running and self.gatttool_client and self.gatttool_client.is_connected:
+            await asyncio.sleep(0.1)
+            
+            # Send periodic commands
+            now = asyncio.get_event_loop().time()
+            if now - last_periodic > 5.0:
+                last_periodic = now
+                
+                if self.detected_protocol == "millennium" and self.write_handle:
+                    s_cmd = encode_millennium_command("S")
+                    log.info("Sending periodic Millennium S command")
+                    await self.gatttool_client.write_characteristic(
+                        self.write_handle, s_cmd, response=False
+                    )
+    
+    async def disconnect(self):
+        """Disconnect from the device."""
+        if self.gatttool_client:
+            await self.gatttool_client.disconnect()
+    
+    def stop(self):
+        """Signal the client to stop."""
+        self._running = False
+        if self.gatttool_client:
+            self.gatttool_client.stop()
+
+
+async def async_main(device_name: str, use_gatttool: bool = False):
     """Async main entry point.
     
     Args:
         device_name: Name of the BLE device to connect to
+        use_gatttool: If True, use gatttool backend instead of bleak
     """
-    client = BLERelayClient(device_name)
+    if use_gatttool:
+        log.info("Using gatttool backend")
+        client = GatttoolRelayClient(device_name)
+    else:
+        log.info("Using bleak backend")
+        client = BLERelayClient(device_name)
     
     # Set up signal handlers
     loop = asyncio.get_event_loop()
@@ -414,11 +622,12 @@ def main():
 This tool connects to a BLE chess board and auto-detects the protocol
 (Millennium or Chessnut Air) by probing with initial commands.
 
-For dual-mode devices (like Millennium boards that support both Classic BT
-and BLE), use --clear-cache to clear BlueZ cache before connecting.
+For dual-mode devices where bleak fails, use --use-gatttool to use the
+gatttool backend instead.
 
 Requirements:
-    pip install bleak
+    pip install bleak (for bleak backend)
+    gatttool (for gatttool backend, part of bluez package)
         """
     )
     parser.add_argument(
@@ -427,9 +636,14 @@ Requirements:
         help='Name of the BLE device to connect to (default: Chessnut Air)'
     )
     parser.add_argument(
+        '--use-gatttool',
+        action='store_true',
+        help='Use gatttool backend instead of bleak (useful for dual-mode devices)'
+    )
+    parser.add_argument(
         '--clear-cache',
         action='store_true',
-        help='Clear BlueZ cache for the device before connecting (helps with dual-mode devices)'
+        help='Clear BlueZ cache for the device before connecting'
     )
     parser.add_argument(
         '--device-address',
@@ -486,7 +700,7 @@ Requirements:
     
     # Run the async main
     try:
-        asyncio.run(async_main(args.device_name))
+        asyncio.run(async_main(args.device_name, use_gatttool=args.use_gatttool))
     except KeyboardInterrupt:
         log.info("Interrupted by user")
     except Exception as e:
