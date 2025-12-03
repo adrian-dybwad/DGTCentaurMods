@@ -183,6 +183,76 @@ class PegasusClient:
             self.get_board_command()
         ]
     
+    async def probe_with_bleak(self, ble_client) -> bool:
+        """Probe for DGT Pegasus protocol using bleak BLEClient.
+        
+        Args:
+            ble_client: BLEClient instance
+            
+        Returns:
+            True if protocol detected and initialized, False otherwise
+        """
+        import asyncio
+        
+        # Helper to find characteristic UUID
+        def find_char_uuid(target_uuid: str) -> str | None:
+            if not ble_client.services:
+                return None
+            target_lower = target_uuid.lower()
+            for service in ble_client.services:
+                for char in service.characteristics:
+                    if char.uuid.lower() == target_lower:
+                        return char.uuid
+            return None
+        
+        tx_uuid = find_char_uuid(self.tx_uuid)
+        rx_uuid = find_char_uuid(self.rx_uuid)
+        
+        if not tx_uuid or not rx_uuid:
+            log.info("Pegasus characteristics not found")
+            return False
+        
+        log.info(f"Found Pegasus TX (notify): {tx_uuid}")
+        log.info(f"Found Pegasus RX (write): {rx_uuid}")
+        
+        # Store UUIDs for later use
+        self._bleak_tx_uuid = tx_uuid
+        self._bleak_rx_uuid = rx_uuid
+        self._ble_client = ble_client
+        
+        # Enable notifications on TX characteristic
+        await ble_client.start_notify(tx_uuid, self.notification_handler)
+        
+        # Send probe commands
+        self.reset_response_flag()
+        for probe_cmd in self.get_probe_commands():
+            log.info(f"Sending Pegasus probe: {probe_cmd.hex()}")
+            if not await ble_client.write_characteristic(rx_uuid, probe_cmd, response=False):
+                log.warning("Failed to send Pegasus probe")
+                return False
+            await asyncio.sleep(0.5)
+        
+        # Wait for response
+        for _ in range(30):  # 3 seconds
+            await asyncio.sleep(0.1)
+            if self.got_response():
+                break
+        
+        # Even if no response, if we found the characteristics, consider it detected
+        log.info("DGT Pegasus protocol active")
+        return True
+    
+    async def send_periodic_commands_bleak(self, ble_client) -> None:
+        """Send periodic commands using bleak BLEClient.
+        
+        Args:
+            ble_client: BLEClient instance
+        """
+        if hasattr(self, '_bleak_rx_uuid') and self._bleak_rx_uuid:
+            cmd = self.get_board_command()
+            log.info("Sending periodic Pegasus board request")
+            await ble_client.write_characteristic(self._bleak_rx_uuid, cmd, response=False)
+    
     async def probe_with_gatttool(self, gatttool_client) -> bool:
         """Probe for DGT Pegasus protocol using gatttool client.
         

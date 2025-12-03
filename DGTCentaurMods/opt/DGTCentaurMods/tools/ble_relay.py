@@ -36,7 +36,11 @@ from DGTCentaurMods.tools.clients.pegasus_client import PegasusClient
 
 
 class BLERelayClient:
-    """BLE relay client that auto-detects Millennium, Chessnut Air, or Pegasus protocol."""
+    """BLE relay client that auto-detects Millennium, Chessnut Air, or Pegasus protocol.
+    
+    This is a generic client that delegates protocol-specific logic to
+    the protocol client classes.
+    """
     
     def __init__(
         self,
@@ -55,173 +59,15 @@ class BLERelayClient:
         self.device_name = device_name
         self.ble_client = BLEClient(stale_connection_mode=stale_connection_mode)
         self.detected_protocol: str | None = None
-        self.write_char_uuid: str | None = None
         self._running = True
         
-        # Protocol clients
+        # Protocol clients - protocol-specific logic is delegated to these
         self.millennium = MillenniumClient()
         self.chessnut = ChessnutClient()
         self.pegasus = PegasusClient()
-    
-    def _normalize_uuid(self, uuid_str: str) -> str:
-        """Normalize UUID for comparison (lowercase, with dashes)."""
-        return uuid_str.lower()
-    
-    def _find_characteristic_uuid(self, target_uuid: str) -> str | None:
-        """Find a characteristic UUID in the discovered services.
         
-        Args:
-            target_uuid: UUID to find (case-insensitive)
-            
-        Returns:
-            The actual UUID string if found, None otherwise
-        """
-        if not self.ble_client.services:
-            return None
-
-        target_lower = target_uuid.lower()
-        
-        for service in self.ble_client.services:
-            for char in service.characteristics:
-                if char.uuid.lower() == target_lower:
-                    return char.uuid
-        
-        return None
-    
-    async def _probe_millennium(self) -> bool:
-        """Probe for Millennium protocol.
-        
-        Returns:
-            True if Millennium protocol detected, False otherwise
-        """
-        # Find Millennium characteristics
-        rx_uuid = self._find_characteristic_uuid(self.millennium.rx_uuid)
-        tx_uuid = self._find_characteristic_uuid(self.millennium.tx_uuid)
-        
-        if not rx_uuid or not tx_uuid:
-            log.info("Millennium characteristics not found")
-            return False
-        
-        log.info(f"Found Millennium RX: {rx_uuid}")
-        log.info(f"Found Millennium TX: {tx_uuid}")
-        
-        # Enable notifications on TX
-        if not await self.ble_client.start_notify(tx_uuid, self.millennium.notification_handler):
-            log.warning("Failed to enable Millennium notifications")
-            return False
-        
-        # Send S probe command
-        self.millennium.reset_response_flag()
-        s_cmd = self.millennium.encode_command(self.millennium.get_probe_command())
-        log.info(f"Sending Millennium S probe: {' '.join(f'{b:02x}' for b in s_cmd)}")
-        
-        if not await self.ble_client.write_characteristic(rx_uuid, s_cmd, response=False):
-            log.warning("Failed to send Millennium probe")
-            return False
-        
-        # Wait for response
-        for _ in range(30):  # 3 seconds
-            await asyncio.sleep(0.1)
-            if self.millennium.got_response():
-                self.write_char_uuid = rx_uuid
-                self.millennium.rx_char_uuid = rx_uuid
-                self.millennium.tx_char_uuid = tx_uuid
-                return True
-        
-        log.info("No Millennium response received")
-        return False
-    
-    async def _probe_chessnut(self) -> bool:
-        """Probe for Chessnut Air protocol.
-        
-        Returns:
-            True if Chessnut Air protocol detected, False otherwise
-        """
-        # Find Chessnut characteristics
-        tx_uuid = self._find_characteristic_uuid(self.chessnut.op_tx_uuid)
-        rx_uuid = self._find_characteristic_uuid(self.chessnut.op_rx_uuid)
-        fen_uuid = self._find_characteristic_uuid(self.chessnut.fen_uuid)
-        
-        if not tx_uuid:
-            log.info("Chessnut TX characteristic not found")
-            return False
-        
-        log.info(f"Found Chessnut TX: {tx_uuid}")
-        if rx_uuid:
-            log.info(f"Found Chessnut RX: {rx_uuid}")
-        if fen_uuid:
-            log.info(f"Found Chessnut FEN: {fen_uuid}")
-        
-        # Enable notifications
-        if rx_uuid:
-            await self.ble_client.start_notify(rx_uuid, self.chessnut.operation_notification_handler)
-        if fen_uuid:
-            await self.ble_client.start_notify(fen_uuid, self.chessnut.fen_notification_handler)
-        
-        # Send enable reporting command
-        self.chessnut.reset_response_flag()
-        cmd = self.chessnut.get_enable_reporting_command()
-        log.info(f"Sending Chessnut enable reporting: {' '.join(f'{b:02x}' for b in cmd)}")
-        
-        if not await self.ble_client.write_characteristic(tx_uuid, cmd, response=False):
-            log.warning("Failed to send Chessnut probe")
-            return False
-        
-        # Wait for response
-        for _ in range(30):  # 3 seconds
-            await asyncio.sleep(0.1)
-            if self.chessnut.got_response():
-                self.write_char_uuid = tx_uuid
-                self.chessnut.op_tx_char_uuid = tx_uuid
-                self.chessnut.op_rx_char_uuid = rx_uuid
-                self.chessnut.fen_char_uuid = fen_uuid
-                return True
-        
-        log.info("No Chessnut response received")
-        return False
-    
-    async def _probe_pegasus(self) -> bool:
-        """Probe for DGT Pegasus protocol.
-        
-        Returns:
-            True if Pegasus protocol detected, False otherwise
-        """
-        # Find Pegasus characteristics (Nordic UART Service)
-        tx_uuid = self._find_characteristic_uuid(self.pegasus.tx_uuid)
-        rx_uuid = self._find_characteristic_uuid(self.pegasus.rx_uuid)
-        
-        if not tx_uuid or not rx_uuid:
-            log.info("Pegasus characteristics not found")
-            return False
-        
-        log.info(f"Found Pegasus TX (notify): {tx_uuid}")
-        log.info(f"Found Pegasus RX (write): {rx_uuid}")
-        
-        # Enable notifications on TX characteristic
-        await self.ble_client.start_notify(tx_uuid, self.pegasus.notification_handler)
-        
-        self.pegasus.reset_response_flag()
-        self.write_char_uuid = rx_uuid
-        self.pegasus.rx_char_uuid = rx_uuid
-        self.pegasus.tx_char_uuid = tx_uuid
-        
-        # Send probe commands
-        for probe_cmd in self.pegasus.get_probe_commands():
-            log.info(f"Sending Pegasus probe: {probe_cmd.hex()}")
-            if not await self.ble_client.write_characteristic(rx_uuid, probe_cmd, response=False):
-                log.warning("Failed to send Pegasus probe")
-                return False
-            await asyncio.sleep(0.5)
-        
-        # Wait for response
-        for _ in range(30):  # 3 seconds
-            await asyncio.sleep(0.1)
-            if self.pegasus.got_response():
-                return True
-        
-        # Even if no response, if we found the characteristics, consider it detected
-        log.info("Pegasus characteristics found (no probe response yet)")
-        return True
+        # The active protocol client (set after detection)
+        self._active_client = None
     
     async def connect(self) -> bool:
         """Connect to the device and auto-detect protocol.
@@ -235,39 +81,19 @@ class BLERelayClient:
         # Log discovered services
         self.ble_client.log_services()
         
-        # Try Millennium first
-        log.info("Probing for Millennium protocol...")
-        if await self._probe_millennium():
-            self.detected_protocol = "millennium"
-            log.info("Millennium protocol detected and active")
-            
-            # Send full initialization sequence
-            for cmd in self.millennium.get_initialization_commands():
-                encoded = self.millennium.encode_command(cmd)
-                log.info(f"Sending Millennium '{cmd}': {' '.join(f'{b:02x}' for b in encoded)}")
-                await self.ble_client.write_characteristic(self.write_char_uuid, encoded, response=False)
-                await asyncio.sleep(0.5)
-            
-            return True
+        # Try each protocol client in order
+        protocol_clients = [
+            ("millennium", self.millennium),
+            ("chessnut_air", self.chessnut),
+            ("pegasus", self.pegasus),
+        ]
         
-        # Try Chessnut Air
-        log.info("Probing for Chessnut Air protocol...")
-        if await self._probe_chessnut():
-            self.detected_protocol = "chessnut_air"
-            log.info("Chessnut Air protocol detected and active")
-            
-            # Check MTU
-            if self.ble_client.mtu_size:
-                self.chessnut.check_mtu(self.ble_client.mtu_size)
-            
-            return True
-        
-        # Try DGT Pegasus
-        log.info("Probing for DGT Pegasus protocol...")
-        if await self._probe_pegasus():
-            self.detected_protocol = "pegasus"
-            log.info("DGT Pegasus protocol detected and active")
-            return True
+        for protocol_name, client in protocol_clients:
+            log.info(f"Probing for {protocol_name} protocol...")
+            if await client.probe_with_bleak(self.ble_client):
+                self.detected_protocol = protocol_name
+                self._active_client = client
+                return True
         
         log.warning("No supported protocol detected")
         return False
@@ -291,32 +117,9 @@ class BLERelayClient:
             if not self._running:
                 break
         
-            # Send periodic status command
-            if self.detected_protocol == "millennium" and self.write_char_uuid:
-                s_cmd = self.millennium.encode_command(self.millennium.get_status_command())
-                log.info("Sending periodic Millennium S command")
-                await self.ble_client.write_characteristic(self.write_char_uuid, s_cmd, response=False)
-            elif self.detected_protocol == "chessnut_air" and self.write_char_uuid:
-                log.info("Sending periodic Chessnut enable reporting")
-                await self.ble_client.write_characteristic(
-                    self.write_char_uuid,
-                    self.chessnut.get_enable_reporting_command(),
-                    response=False
-                )
-                await asyncio.sleep(0.5)
-                log.info("Sending periodic Chessnut battery request")
-                await self.ble_client.write_characteristic(
-                    self.write_char_uuid,
-                    self.chessnut.get_battery_command(),
-                    response=False
-                )
-            elif self.detected_protocol == "pegasus" and self.write_char_uuid:
-                log.info("Sending periodic Pegasus board request")
-                await self.ble_client.write_characteristic(
-                    self.write_char_uuid,
-                    self.pegasus.get_board_command(),
-                    response=False
-                )
+            # Send periodic commands via the active client
+            if self._active_client:
+                await self._active_client.send_periodic_commands_bleak(self.ble_client)
     
     def stop(self):
         """Signal the client to stop."""

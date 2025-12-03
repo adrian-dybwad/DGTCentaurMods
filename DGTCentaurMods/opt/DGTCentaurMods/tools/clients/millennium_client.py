@@ -255,6 +255,84 @@ class MillenniumClient:
         """
         return "S"
     
+    async def probe_with_bleak(self, ble_client) -> bool:
+        """Probe for Millennium protocol using bleak BLEClient.
+        
+        Args:
+            ble_client: BLEClient instance
+            
+        Returns:
+            True if protocol detected and initialized, False otherwise
+        """
+        import asyncio
+        
+        # Helper to find characteristic UUID
+        def find_char_uuid(target_uuid: str) -> str | None:
+            if not ble_client.services:
+                return None
+            target_lower = target_uuid.lower()
+            for service in ble_client.services:
+                for char in service.characteristics:
+                    if char.uuid.lower() == target_lower:
+                        return char.uuid
+            return None
+        
+        rx_uuid = find_char_uuid(self.rx_uuid)
+        tx_uuid = find_char_uuid(self.tx_uuid)
+        
+        if not rx_uuid or not tx_uuid:
+            log.info("Millennium characteristics not found")
+            return False
+        
+        log.info(f"Found Millennium RX: {rx_uuid}")
+        log.info(f"Found Millennium TX: {tx_uuid}")
+        
+        # Store UUIDs for later use
+        self._bleak_rx_uuid = rx_uuid
+        self._bleak_tx_uuid = tx_uuid
+        self._ble_client = ble_client
+        
+        # Enable notifications on TX
+        if not await ble_client.start_notify(tx_uuid, self.notification_handler):
+            log.warning("Failed to enable Millennium notifications")
+            return False
+        
+        # Send probe command
+        self.reset_response_flag()
+        s_cmd = self.encode_command(self.get_probe_command())
+        log.info(f"Sending Millennium S probe: {' '.join(f'{b:02x}' for b in s_cmd)}")
+        
+        if not await ble_client.write_characteristic(rx_uuid, s_cmd, response=False):
+            log.warning("Failed to send Millennium probe")
+            return False
+        
+        # Wait for response
+        for _ in range(30):  # 3 seconds
+            await asyncio.sleep(0.1)
+            if self.got_response():
+                break
+        
+        # Send initialization sequence
+        for cmd in self.get_initialization_commands():
+            encoded = self.encode_command(cmd)
+            log.info(f"Sending Millennium '{cmd}': {' '.join(f'{b:02x}' for b in encoded)}")
+            await ble_client.write_characteristic(rx_uuid, encoded, response=False)
+            await asyncio.sleep(0.5)
+        
+        log.info("Millennium protocol active")
+        return True
+    
+    async def send_periodic_commands_bleak(self, ble_client) -> None:
+        """Send periodic commands using bleak BLEClient.
+        
+        Args:
+            ble_client: BLEClient instance
+        """
+        if hasattr(self, '_bleak_rx_uuid') and self._bleak_rx_uuid:
+            s_cmd = self.encode_command(self.get_status_command())
+            log.info("Sending periodic Millennium S command")
+            await ble_client.write_characteristic(self._bleak_rx_uuid, s_cmd, response=False)
+    
     async def probe_with_gatttool(self, gatttool_client) -> bool:
         """Probe for Millennium protocol using gatttool client.
         

@@ -338,6 +338,90 @@ class ChessnutClient:
             log.warning(f"MTU ({mtu}) is less than required ({REQUIRED_MTU})")
             log.warning("FEN data may be truncated. Consider updating BlueZ config.")
     
+    async def probe_with_bleak(self, ble_client) -> bool:
+        """Probe for Chessnut Air protocol using bleak BLEClient.
+        
+        Args:
+            ble_client: BLEClient instance
+            
+        Returns:
+            True if protocol detected and initialized, False otherwise
+        """
+        import asyncio
+        
+        # Helper to find characteristic UUID
+        def find_char_uuid(target_uuid: str) -> str | None:
+            if not ble_client.services:
+                return None
+            target_lower = target_uuid.lower()
+            for service in ble_client.services:
+                for char in service.characteristics:
+                    if char.uuid.lower() == target_lower:
+                        return char.uuid
+            return None
+        
+        tx_uuid = find_char_uuid(self.op_tx_uuid)
+        rx_uuid = find_char_uuid(self.op_rx_uuid)
+        fen_uuid = find_char_uuid(self.fen_uuid)
+        
+        if not tx_uuid:
+            log.info("Chessnut TX characteristic not found")
+            return False
+        
+        log.info(f"Found Chessnut TX: {tx_uuid}")
+        if rx_uuid:
+            log.info(f"Found Chessnut RX: {rx_uuid}")
+        if fen_uuid:
+            log.info(f"Found Chessnut FEN: {fen_uuid}")
+        
+        # Store UUIDs for later use
+        self._bleak_tx_uuid = tx_uuid
+        self._bleak_rx_uuid = rx_uuid
+        self._bleak_fen_uuid = fen_uuid
+        self._ble_client = ble_client
+        
+        # Enable notifications
+        if rx_uuid:
+            await ble_client.start_notify(rx_uuid, self.operation_notification_handler)
+        if fen_uuid:
+            await ble_client.start_notify(fen_uuid, self.fen_notification_handler)
+        
+        # Send enable reporting command
+        self.reset_response_flag()
+        cmd = self.get_enable_reporting_command()
+        log.info(f"Sending Chessnut enable reporting: {' '.join(f'{b:02x}' for b in cmd)}")
+        
+        if not await ble_client.write_characteristic(tx_uuid, cmd, response=False):
+            log.warning("Failed to send Chessnut probe")
+            return False
+        
+        # Wait for response
+        for _ in range(30):  # 3 seconds
+            await asyncio.sleep(0.1)
+            if self.got_response():
+                break
+        
+        # Check MTU
+        if ble_client.mtu_size:
+            self.check_mtu(ble_client.mtu_size)
+        
+        log.info("Chessnut Air protocol active")
+        return True
+    
+    async def send_periodic_commands_bleak(self, ble_client) -> None:
+        """Send periodic commands using bleak BLEClient.
+        
+        Only sends battery request periodically. Enable reporting is sent
+        once during probe_with_bleak().
+        
+        Args:
+            ble_client: BLEClient instance
+        """
+        if hasattr(self, '_bleak_tx_uuid') and self._bleak_tx_uuid:
+            battery_cmd = self.get_battery_command()
+            log.info("Sending periodic Chessnut battery request")
+            await ble_client.write_characteristic(self._bleak_tx_uuid, battery_cmd, response=False)
+    
     async def probe_with_gatttool(self, gatttool_client) -> bool:
         """Probe for Chessnut Air protocol using gatttool client.
         
@@ -384,18 +468,13 @@ class ChessnutClient:
     async def send_periodic_commands(self, gatttool_client) -> None:
         """Send periodic commands using gatttool client.
         
+        Only sends battery request periodically. Enable reporting is sent
+        once during probe_with_gatttool().
+        
         Args:
             gatttool_client: GatttoolClient instance
         """
-        import asyncio
-        
         if hasattr(self, '_op_tx_handle') and self._op_tx_handle:
-            cmd = self.get_enable_reporting_command()
-            log.info("Sending periodic Chessnut enable reporting")
-            await gatttool_client.write_characteristic(
-                self._op_tx_handle, cmd, response=False
-            )
-            await asyncio.sleep(0.5)
             battery_cmd = self.get_battery_command()
             log.info("Sending periodic Chessnut battery request")
             await gatttool_client.write_characteristic(
