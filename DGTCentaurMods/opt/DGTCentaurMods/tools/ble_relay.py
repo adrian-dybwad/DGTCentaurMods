@@ -38,9 +38,11 @@ from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board.ble_client import BLEClient
 
 # Millennium ChessLink BLE UUIDs
+# Note: The service UUID is the full 128-bit UUID, but the characteristics use
+# short 16-bit UUIDs (fff1, fff2) in the standard Bluetooth base UUID format
 MILLENNIUM_SERVICE_UUID = "49535343-fe7d-4ae5-8fa9-9fafd205e455"
-MILLENNIUM_RX_CHAR_UUID = "49535343-8841-43f4-a8d4-ecbe34729bb3"  # Write commands TO device
-MILLENNIUM_TX_CHAR_UUID = "49535343-1e4d-4bd9-ba61-23c647249616"  # Read responses FROM device
+MILLENNIUM_RX_CHAR_UUID = "0000fff1-0000-1000-8000-00805f9b34fb"  # Write commands TO device
+MILLENNIUM_TX_CHAR_UUID = "0000fff2-0000-1000-8000-00805f9b34fb"  # Notify responses FROM device
 
 # Chessnut Air BLE UUIDs
 CHESSNUT_FEN_RX_CHAR_UUID = "1b7e8262-2877-41c3-b46e-cf057c562023"  # Notify from board (FEN data)
