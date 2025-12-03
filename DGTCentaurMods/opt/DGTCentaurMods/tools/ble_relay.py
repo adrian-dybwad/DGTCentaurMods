@@ -127,6 +127,7 @@ class BLERelayClient:
         self.write_char_uuid: str | None = None
         self.response_buffer: bytearray = bytearray()
         self._got_response = False
+        self._running = True
     
     def _normalize_uuid(self, uuid_str: str) -> str:
         """Normalize UUID for comparison (lowercase, with dashes)."""
@@ -353,8 +354,15 @@ class BLERelayClient:
         log.info(f"Running with {self.detected_protocol} protocol")
         log.info("Press Ctrl+C to exit")
         
-        while self.ble_client.is_connected:
-            await asyncio.sleep(10)
+        while self._running and self.ble_client.is_connected:
+            # Use shorter sleep intervals to respond to stop signal faster
+            for _ in range(100):  # 10 seconds total (100 * 0.1s)
+                if not self._running:
+                    break
+                await asyncio.sleep(0.1)
+            
+            if not self._running:
+                break
             
             # Send periodic status command
             if self.detected_protocol == "millennium" and self.write_char_uuid:
@@ -371,6 +379,7 @@ class BLERelayClient:
     
     def stop(self):
         """Signal the client to stop."""
+        self._running = False
         self.ble_client.stop()
 
 
