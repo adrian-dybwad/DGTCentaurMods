@@ -182,4 +182,69 @@ class PegasusClient:
             self.get_reset_command(),
             self.get_board_command()
         ]
+    
+    async def probe_with_gatttool(self, gatttool_client) -> bool:
+        """Probe for DGT Pegasus protocol using gatttool client.
+        
+        Args:
+            gatttool_client: GatttoolClient instance
+            
+        Returns:
+            True if protocol detected and initialized, False otherwise
+        """
+        import asyncio
+        
+        rx_char = gatttool_client.find_characteristic_by_uuid(self.rx_uuid)
+        tx_char = gatttool_client.find_characteristic_by_uuid(self.tx_uuid)
+        
+        if not rx_char or not tx_char:
+            log.info("Pegasus characteristics not found")
+            return False
+        
+        log.info(f"Found Pegasus RX (write): handle {rx_char['value_handle']:04x}")
+        log.info(f"Found Pegasus TX (notify): handle {tx_char['value_handle']:04x}")
+        
+        # Store handles for later use
+        self._rx_handle = rx_char['value_handle']
+        self._tx_handle = tx_char['value_handle']
+        
+        # Enable notifications on TX characteristic
+        await gatttool_client.enable_notifications(
+            tx_char['value_handle'], self.gatttool_notification_handler
+        )
+        
+        # Send probe commands
+        self.reset_response_flag()
+        for probe_cmd in self.get_probe_commands():
+            log.info(f"Sending Pegasus probe: {probe_cmd.hex()}")
+            await gatttool_client.write_characteristic(
+                rx_char['value_handle'], probe_cmd, response=False
+            )
+            await asyncio.sleep(0.5)
+        
+        await asyncio.sleep(2)
+        
+        log.info("DGT Pegasus protocol active")
+        return True
+    
+    async def send_periodic_commands(self, gatttool_client) -> None:
+        """Send periodic commands using gatttool client.
+        
+        Args:
+            gatttool_client: GatttoolClient instance
+        """
+        if hasattr(self, '_rx_handle') and self._rx_handle:
+            cmd = self.get_board_command()
+            log.info("Sending periodic Pegasus board request")
+            await gatttool_client.write_characteristic(
+                self._rx_handle, cmd, response=False
+            )
+    
+    def get_write_handle(self) -> int | None:
+        """Return the write handle for gatttool operations."""
+        return getattr(self, '_rx_handle', None)
+    
+    def get_read_handle(self) -> int | None:
+        """Return the read/notify handle for gatttool operations."""
+        return getattr(self, '_tx_handle', None)
 

@@ -328,6 +328,8 @@ class GatttoolRelayClient:
     """BLE relay client using gatttool backend.
     
     Useful for devices where bleak fails due to BlueZ dual-mode handling.
+    This is a generic client that delegates protocol-specific logic to
+    the protocol client classes.
     """
     
     def __init__(self, device_name: str = "Chessnut Air"):
@@ -340,14 +342,15 @@ class GatttoolRelayClient:
         self.device_address: str | None = None
         self.gatttool_client = None
         self.detected_protocol: str | None = None
-        self.write_handle: int | None = None
-        self.read_handle: int | None = None
         self._running = True
         
-        # Protocol clients
+        # Protocol clients - protocol-specific logic is delegated to these
         self.millennium = MillenniumClient()
         self.chessnut = ChessnutClient()
         self.pegasus = PegasusClient()
+        
+        # The active protocol client (set after detection)
+        self._active_client = None
     
     async def scan_for_device(self) -> str | None:
         """Scan for device by name using hcitool lescan.
@@ -411,7 +414,7 @@ class GatttoolRelayClient:
             return None
                 
     async def connect(self) -> bool:
-        """Connect to the device using gatttool.
+        """Connect to the device using gatttool and auto-detect protocol.
         
         Returns:
             True if connected and protocol detected, False otherwise
@@ -431,91 +434,19 @@ class GatttoolRelayClient:
             log.error("Failed to connect and discover services")
             return False
         
-        # Probe for Millennium protocol
-        log.info("Probing for Millennium protocol...")
-        mill_rx = self.gatttool_client.find_characteristic_by_uuid(self.millennium.rx_uuid)
-        mill_tx = self.gatttool_client.find_characteristic_by_uuid(self.millennium.tx_uuid)
+        # Try each protocol client in order
+        protocol_clients = [
+            ("millennium", self.millennium),
+            ("chessnut_air", self.chessnut),
+            ("pegasus", self.pegasus),
+        ]
         
-        if mill_rx and mill_tx:
-            log.info(f"Found Millennium RX: handle {mill_rx['value_handle']:04x}")
-            log.info(f"Found Millennium TX: handle {mill_tx['value_handle']:04x}")
-                                        
-            # Enable notifications on TX
-            await self.gatttool_client.enable_notifications(
-                mill_tx['value_handle'], self.millennium.gatttool_notification_handler
-            )
-            
-            # Send probe command
-            s_cmd = self.millennium.encode_command(self.millennium.get_probe_command())
-            log.info(f"Sending Millennium S probe: {s_cmd.hex()}")
-            await self.gatttool_client.write_characteristic(
-                mill_rx['value_handle'], s_cmd, response=False
-            )
-            
-            await asyncio.sleep(2)
-            
-            self.detected_protocol = "millennium"
-            self.write_handle = mill_rx['value_handle']
-            self.read_handle = mill_tx['value_handle']
-            log.info("Millennium protocol active")
-            return True
-        
-        # Probe for Chessnut Air
-        log.info("Probing for Chessnut Air protocol...")
-        fen_rx = self.gatttool_client.find_characteristic_by_uuid(self.chessnut.fen_uuid)
-        op_tx = self.gatttool_client.find_characteristic_by_uuid(self.chessnut.op_tx_uuid)
-        
-        if fen_rx and op_tx:
-            log.info(f"Found Chessnut FEN RX: handle {fen_rx['value_handle']:04x}")
-            log.info(f"Found Chessnut OP TX: handle {op_tx['value_handle']:04x}")
-            
-            await self.gatttool_client.enable_notifications(
-                fen_rx['value_handle'], self.chessnut.gatttool_notification_handler
-            )
-            
-            # Send enable reporting
-            cmd = self.chessnut.get_enable_reporting_command()
-            log.info(f"Sending Chessnut enable reporting: {cmd.hex()}")
-            await self.gatttool_client.write_characteristic(
-                op_tx['value_handle'], cmd, response=False
-            )
-            
-            await asyncio.sleep(2)
-            
-            self.detected_protocol = "chessnut_air"
-            self.write_handle = op_tx['value_handle']
-            self.read_handle = fen_rx['value_handle']
-            log.info("Chessnut Air protocol active")
-            return True
-        
-        # Probe for Pegasus
-        log.info("Probing for DGT Pegasus protocol...")
-        peg_rx = self.gatttool_client.find_characteristic_by_uuid(self.pegasus.rx_uuid)
-        peg_tx = self.gatttool_client.find_characteristic_by_uuid(self.pegasus.tx_uuid)
-        
-        if peg_rx and peg_tx:
-            log.info(f"Found Pegasus RX (write): handle {peg_rx['value_handle']:04x}")
-            log.info(f"Found Pegasus TX (notify): handle {peg_tx['value_handle']:04x}")
-            
-            await self.gatttool_client.enable_notifications(
-                peg_tx['value_handle'], self.pegasus.gatttool_notification_handler
-            )
-            
-            # Send probe commands
-            for probe_cmd in self.pegasus.get_probe_commands():
-                log.info(f"Sending Pegasus probe: {probe_cmd.hex()}")
-                await self.gatttool_client.write_characteristic(
-                    peg_rx['value_handle'], probe_cmd, response=False
-                )
-                await asyncio.sleep(0.5)
-            
-            await asyncio.sleep(2)
-            
-            self.detected_protocol = "pegasus"
-            self.write_handle = peg_rx['value_handle']
-            self.read_handle = peg_tx['value_handle']
-            log.info("DGT Pegasus protocol active")
-            return True
+        for protocol_name, client in protocol_clients:
+            log.info(f"Probing for {protocol_name} protocol...")
+            if await client.probe_with_gatttool(self.gatttool_client):
+                self.detected_protocol = protocol_name
+                self._active_client = client
+                return True
         
         log.error("No supported protocol detected")
         return False
@@ -534,30 +465,8 @@ class GatttoolRelayClient:
             if now - last_periodic > 10.0:
                 last_periodic = now
                 
-                if self.detected_protocol == "millennium" and self.write_handle:
-                    s_cmd = self.millennium.encode_command(self.millennium.get_status_command())
-                    log.info("Sending periodic Millennium S command")
-                    await self.gatttool_client.write_characteristic(
-                        self.write_handle, s_cmd, response=False
-                    )
-                elif self.detected_protocol == "chessnut_air" and self.write_handle:
-                    cmd = self.chessnut.get_enable_reporting_command()
-                    log.info("Sending periodic Chessnut enable reporting")
-                    await self.gatttool_client.write_characteristic(
-                        self.write_handle, cmd, response=False
-                    )
-                    await asyncio.sleep(0.5)
-                    battery_cmd = self.chessnut.get_battery_command()
-                    log.info("Sending periodic Chessnut battery request")
-                    await self.gatttool_client.write_characteristic(
-                        self.write_handle, battery_cmd, response=False
-                    )
-                elif self.detected_protocol == "pegasus" and self.write_handle:
-                    cmd = self.pegasus.get_board_command()
-                    log.info("Sending periodic Pegasus board request")
-                    await self.gatttool_client.write_characteristic(
-                        self.write_handle, cmd, response=False
-                    )
+                if self._active_client:
+                    await self._active_client.send_periodic_commands(self.gatttool_client)
     
     async def disconnect(self):
         """Disconnect from the device."""

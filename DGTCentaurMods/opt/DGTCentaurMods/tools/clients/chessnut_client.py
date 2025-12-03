@@ -337,4 +337,76 @@ class ChessnutClient:
         if mtu < REQUIRED_MTU:
             log.warning(f"MTU ({mtu}) is less than required ({REQUIRED_MTU})")
             log.warning("FEN data may be truncated. Consider updating BlueZ config.")
+    
+    async def probe_with_gatttool(self, gatttool_client) -> bool:
+        """Probe for Chessnut Air protocol using gatttool client.
+        
+        Args:
+            gatttool_client: GatttoolClient instance
+            
+        Returns:
+            True if protocol detected and initialized, False otherwise
+        """
+        import asyncio
+        
+        fen_char = gatttool_client.find_characteristic_by_uuid(self.fen_uuid)
+        op_tx_char = gatttool_client.find_characteristic_by_uuid(self.op_tx_uuid)
+        
+        if not fen_char or not op_tx_char:
+            log.info("Chessnut characteristics not found")
+            return False
+        
+        log.info(f"Found Chessnut FEN RX: handle {fen_char['value_handle']:04x}")
+        log.info(f"Found Chessnut OP TX: handle {op_tx_char['value_handle']:04x}")
+        
+        # Store handles for later use
+        self._fen_handle = fen_char['value_handle']
+        self._op_tx_handle = op_tx_char['value_handle']
+        
+        # Enable notifications on FEN characteristic
+        await gatttool_client.enable_notifications(
+            fen_char['value_handle'], self.gatttool_notification_handler
+        )
+        
+        # Send enable reporting command
+        self.reset_response_flag()
+        cmd = self.get_enable_reporting_command()
+        log.info(f"Sending Chessnut enable reporting: {cmd.hex()}")
+        await gatttool_client.write_characteristic(
+            op_tx_char['value_handle'], cmd, response=False
+        )
+        
+        await asyncio.sleep(2)
+        
+        log.info("Chessnut Air protocol active")
+        return True
+    
+    async def send_periodic_commands(self, gatttool_client) -> None:
+        """Send periodic commands using gatttool client.
+        
+        Args:
+            gatttool_client: GatttoolClient instance
+        """
+        import asyncio
+        
+        if hasattr(self, '_op_tx_handle') and self._op_tx_handle:
+            cmd = self.get_enable_reporting_command()
+            log.info("Sending periodic Chessnut enable reporting")
+            await gatttool_client.write_characteristic(
+                self._op_tx_handle, cmd, response=False
+            )
+            await asyncio.sleep(0.5)
+            battery_cmd = self.get_battery_command()
+            log.info("Sending periodic Chessnut battery request")
+            await gatttool_client.write_characteristic(
+                self._op_tx_handle, battery_cmd, response=False
+            )
+    
+    def get_write_handle(self) -> int | None:
+        """Return the write handle for gatttool operations."""
+        return getattr(self, '_op_tx_handle', None)
+    
+    def get_read_handle(self) -> int | None:
+        """Return the read/notify handle for gatttool operations."""
+        return getattr(self, '_fen_handle', None)
 
