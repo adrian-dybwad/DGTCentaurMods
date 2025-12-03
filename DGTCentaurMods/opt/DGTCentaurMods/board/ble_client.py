@@ -302,43 +302,73 @@ class BLEClient:
             log.warning(f"Device '{device_name}' not found after {scan_timeout} seconds")
             return False
         
-        # Connect immediately using the BLEDevice object (more reliable than address)
-        log.info(f"Connecting to {found_device.address}...")
+        # Connect with retries
+        max_retries = 3
+        last_error = None
         
-        try:
-            # Use the BLEDevice object directly for more reliable connection
-            # On Linux, we need to specify the adapter to avoid BR/EDR vs BLE confusion
-            # when the device supports both classic Bluetooth and BLE
-            self._client = BleakClient(found_device)
+        for attempt in range(max_retries):
+            if attempt > 0:
+                log.info(f"Connection attempt {attempt + 1}/{max_retries}...")
+                await asyncio.sleep(2)  # Wait before retry
             
-            # Connect with timeout to avoid hanging
-            await asyncio.wait_for(self._client.connect(), timeout=30.0)
+            log.info(f"Connecting to {found_device.address}...")
             
-            if not self._client.is_connected:
-                log.error("Failed to connect to device")
-                return False
-            
-            self._device_address = found_device.address
-            self._device_name = found_device.name
-            log.info("Connected to device")
-            
-            # Log MTU size
             try:
-                mtu = self._client.mtu_size
-                log.info(f"MTU size: {mtu}")
-            except AttributeError:
-                log.info("MTU size not available (platform limitation)")
-            
-            return True
-            
-        except BleakError as e:
-            log.error(f"BLE connection error: {e}")
-            return False
-        except Exception as e:
-            log.error(f"Unexpected error during connection: {e}")
-            import traceback
-            log.error(traceback.format_exc())
-            return False
+                # Use the BLEDevice object directly for more reliable connection
+                self._client = BleakClient(found_device)
+                
+                # Connect with timeout to avoid hanging (10 seconds per attempt)
+                await asyncio.wait_for(self._client.connect(), timeout=10.0)
+                
+                if not self._client.is_connected:
+                    log.warning("Connection returned but not connected, retrying...")
+                    continue
+                
+                self._device_address = found_device.address
+                self._device_name = found_device.name
+                log.info("Connected to device")
+                
+                # Log MTU size
+                try:
+                    mtu = self._client.mtu_size
+                    log.info(f"MTU size: {mtu}")
+                except AttributeError:
+                    log.info("MTU size not available (platform limitation)")
+                
+                return True
+                
+            except asyncio.TimeoutError:
+                last_error = "Connection timeout"
+                log.warning(f"Connection timeout (attempt {attempt + 1}/{max_retries})")
+                # Try to clean up the failed connection
+                if self._client:
+                    try:
+                        await self._client.disconnect()
+                    except:
+                        pass
+                    self._client = None
+            except asyncio.CancelledError:
+                last_error = "Connection cancelled"
+                log.warning(f"Connection cancelled (attempt {attempt + 1}/{max_retries})")
+                if self._client:
+                    try:
+                        await self._client.disconnect()
+                    except:
+                        pass
+                    self._client = None
+            except BleakError as e:
+                last_error = str(e)
+                error_str = str(e).lower()
+                if "br-connection" in error_str or "profile-unavailable" in error_str:
+                    log.warning("BR/EDR connection error - device may need to be unpaired")
+                    log.warning(f"Try: bluetoothctl remove {found_device.address}")
+                log.warning(f"BLE error (attempt {attempt + 1}/{max_retries}): {e}")
+            except Exception as e:
+                last_error = str(e)
+                log.warning(f"Unexpected error (attempt {attempt + 1}/{max_retries}): {e}")
+        
+        log.error(f"Failed to connect after {max_retries} attempts. Last error: {last_error}")
+        return False
     
     async def disconnect(self):
         """Disconnect from the device."""
