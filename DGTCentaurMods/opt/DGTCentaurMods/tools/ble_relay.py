@@ -412,7 +412,7 @@ class GatttoolRelayClient:
         self._running = True
     
     async def scan_for_device(self) -> str | None:
-        """Scan for device by name using bluetoothctl.
+        """Scan for device by name using hcitool lescan.
         
         Returns:
             Device address if found, None otherwise
@@ -420,36 +420,52 @@ class GatttoolRelayClient:
         import subprocess
         import re
         
-        log.info(f"Scanning for device: {self.device_name}")
-            
-        # Use bluetoothctl to scan
+        log.info(f"Scanning for device: {self.device_name} (using LE scan)")
+        
+        target_upper = self.device_name.upper()
+        
         try:
-            # Start scan
-            subprocess.run(['bluetoothctl', 'scan', 'on'], 
-                          capture_output=True, timeout=2, text=True)
+            # Use hcitool lescan which specifically scans for BLE devices
+            # Run for up to 10 seconds
+            process = subprocess.Popen(
+                ['sudo', 'hcitool', 'lescan'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
             
-            # Wait for scan results
-            await asyncio.sleep(5)
+            found_address = None
+            start_time = asyncio.get_event_loop().time()
+            timeout = 10.0
             
-            # Get devices
-            result = subprocess.run(['bluetoothctl', 'devices'],
-                                   capture_output=True, timeout=5, text=True)
+            while asyncio.get_event_loop().time() - start_time < timeout:
+                # Check if process has output
+                import select
+                ready, _, _ = select.select([process.stdout], [], [], 0.5)
+                if ready:
+                    line = process.stdout.readline()
+                    if line:
+                        line = line.strip()
+                        if target_upper in line.upper():
+                            # Parse: "34:81:F4:ED:78:34 MILLENNIUM CHESS"
+                            match = re.match(r'([0-9A-Fa-f:]+)\s+', line)
+                            if match:
+                                found_address = match.group(1)
+                                log.info(f"Found device at {found_address}")
+                                break
+                await asyncio.sleep(0.1)
             
-            # Stop scan
-            subprocess.run(['bluetoothctl', 'scan', 'off'],
-                          capture_output=True, timeout=2, text=True)
+            # Kill the scan process
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
             
-            if result.returncode == 0:
-                target_upper = self.device_name.upper()
-                for line in result.stdout.split('\n'):
-                    if target_upper in line.upper():
-                        match = re.search(r'Device\s+([0-9A-Fa-f:]+)', line)
-                        if match:
-                            addr = match.group(1)
-                            log.info(f"Found device at {addr}")
-                            return addr
+            if found_address:
+                return found_address
             
-            log.warning(f"Device '{self.device_name}' not found")
+            log.warning(f"Device '{self.device_name}' not found via LE scan")
             return None
                 
         except Exception as e:
@@ -587,16 +603,20 @@ class GatttoolRelayClient:
             self.gatttool_client.stop()
 
 
-async def async_main(device_name: str, use_gatttool: bool = False):
+async def async_main(device_name: str, use_gatttool: bool = False, device_address: str | None = None):
     """Async main entry point.
     
     Args:
         device_name: Name of the BLE device to connect to
         use_gatttool: If True, use gatttool backend instead of bleak
+        device_address: Optional MAC address to skip scanning
     """
     if use_gatttool:
         log.info("Using gatttool backend")
         client = GatttoolRelayClient(device_name)
+        if device_address:
+            client.device_address = device_address
+            log.info(f"Using provided address: {device_address}")
     else:
         log.info("Using bleak backend")
         client = BLERelayClient(device_name)
@@ -701,7 +721,11 @@ Requirements:
     
     # Run the async main
     try:
-        asyncio.run(async_main(args.device_name, use_gatttool=args.use_gatttool))
+        asyncio.run(async_main(
+            args.device_name, 
+            use_gatttool=args.use_gatttool,
+            device_address=args.device_address
+        ))
     except KeyboardInterrupt:
         log.info("Interrupted by user")
     except Exception as e:
