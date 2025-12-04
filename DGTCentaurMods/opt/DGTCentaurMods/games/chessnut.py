@@ -111,8 +111,8 @@ class Chessnut:
         Generates FEN notifications when pieces are moved.
         
         Args:
-            event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
-            piece_event: Piece event constant (EVENT_LIFT_PIECE, EVENT_PLACE_PIECE)
+            event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_LIFT_PIECE, EVENT_PLACE_PIECE, etc.)
+            piece_event: Raw board piece event (0=LIFT, 1=PLACE)
             field: Chess field index (0-63)
             time_in_seconds: Time in seconds since the start of the game
         """
@@ -121,7 +121,7 @@ class Chessnut:
                 return
             
             # Generate FEN update on piece events
-            if piece_event in (EVENT_LIFT_PIECE, EVENT_PLACE_PIECE):
+            if event in (EVENT_LIFT_PIECE, EVENT_PLACE_PIECE):
                 self._send_fen_notification()
         except Exception as e:
             log.error(f"[Chessnut] Error in handle_manager_event: {e}")
