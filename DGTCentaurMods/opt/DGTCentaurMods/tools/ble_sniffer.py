@@ -242,6 +242,8 @@ class TXCharacteristic(Characteristic):
         # Format: 's' + 64 chars (board) + 2 char CRC
         # Board: RNBKQBNR PPPPPPPP ........ ........ ........ ........ pppppppp rnbkqbnr
         self._board_state = self._encode_board_state()
+        self._notification_thread = None
+        self._client_connected = False
 
     def _encode_board_state(self):
         """Encode a starting position board state with Millennium odd parity framing"""
@@ -273,6 +275,33 @@ class TXCharacteristic(Characteristic):
         
         return encoded
 
+    def _send_notification(self):
+        """Send a notification with board state"""
+        if not self._client_connected:
+            return
+        
+        log(">>> SENDING NOTIFICATION (board state)")
+        
+        # Build dbus array
+        value = dbus.Array([dbus.Byte(b) for b in self._board_state], signature='y')
+        
+        # Send PropertiesChanged signal
+        self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': value}, [])
+        
+        log(f"    Sent {len(self._board_state)} bytes via PropertiesChanged")
+
+    def _notification_loop(self):
+        """Send periodic notifications"""
+        import threading
+        count = 0
+        while self._client_connected and count < 10:  # Send up to 10 notifications
+            time.sleep(2)  # Every 2 seconds
+            if self._client_connected:
+                count += 1
+                log(f">>> AUTO-NOTIFICATION #{count}")
+                self._send_notification()
+        log(">>> Auto-notification loop ended")
+
     @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
     def ReadValue(self, options):
         """Log read requests and return board state"""
@@ -285,6 +314,15 @@ class TXCharacteristic(Characteristic):
             log(f"    Device: {device}")
             log(f"    MTU: {mtu}")
             log(f"    Link: {link}")
+        
+        # Mark client as connected and start auto-notifications
+        if not self._client_connected:
+            self._client_connected = True
+            self.notifying = True  # Enable notifications
+            log("    Client connected - starting auto-notification thread")
+            import threading
+            self._notification_thread = threading.Thread(target=self._notification_loop, daemon=True)
+            self._notification_thread.start()
         
         # Return board state
         log(f"    Returning board state ({len(self._board_state)} bytes)")
