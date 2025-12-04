@@ -630,29 +630,92 @@ class UARTTXCharacteristic(Characteristic):
     def StartNotify(self):
         """Called when BLE client subscribes to notifications"""
         try:
+            log.info("=" * 60)
             log.info("TX Characteristic StartNotify called - BLE client subscribing to notifications")
-            UARTService.tx_obj = self
-            self.notifying = True
-
-            # Determine client type from service UUID
+            log.info(f"TX Characteristic UUID: {self.uuid}")
+            log.info(f"TX Characteristic path: {self.path}")
+            log.info(f"Service path: {self.service.path if hasattr(self.service, 'path') else 'N/A'}")
+            
+            # Only set tx_obj and create Universal if this is the first StartNotify
+            # or if we're replacing a stale connection
             global universal, ble_connected, relay_mode
+            
+            # Determine client type from service UUID BEFORE setting tx_obj
             client_type = None
-            service_uuid = self.service.service_uuid.upper() if hasattr(self.service, 'service_uuid') else None
+            
+            # Get service UUID - check both the service object and try to infer from characteristic UUID
+            service_uuid = None
+            if hasattr(self.service, 'service_uuid'):
+                service_uuid = self.service.service_uuid.upper()
+                log.info(f"[Universal] Service UUID from service object: {service_uuid}")
+            elif hasattr(self.service, 'uuid'):
+                service_uuid = self.service.uuid.upper()
+                log.info(f"[Universal] Service UUID from service.uuid: {service_uuid}")
+            
+            # Also try to determine from the characteristic UUID itself
+            char_uuid = self.uuid.upper() if self.uuid else None
+            log.info(f"[Universal] Characteristic UUID: {char_uuid}")
+            
+            # Log all expected UUIDs for comparison
+            log.info(f"[Universal] Expected Millennium service UUID: {MILLENNIUM_UUIDS['service'].upper()}")
+            log.info(f"[Universal] Expected Nordic service UUID: {NORDIC_UUIDS['service'].upper()}")
+            log.info(f"[Universal] Expected Chessnut service UUID: {CHESSNUT_UUIDS['service'].upper()}")
             
             if service_uuid:
                 if service_uuid == MILLENNIUM_UUIDS["service"].upper():
                     client_type = Universal.CLIENT_MILLENNIUM
-                    log.info("[Universal] Client connected via Millennium ChessLink service")
+                    log.info("[Universal] MATCH: Client connected via Millennium ChessLink service")
                 elif service_uuid == NORDIC_UUIDS["service"].upper():
                     client_type = Universal.CLIENT_PEGASUS
-                    log.info("[Universal] Client connected via Nordic UART service (Pegasus)")
+                    log.info("[Universal] MATCH: Client connected via Nordic UART service (Pegasus)")
                 elif service_uuid == CHESSNUT_UUIDS["service"].upper():
                     client_type = Universal.CLIENT_CHESSNUT
-                    log.info("[Universal] Client connected via Chessnut service")
+                    log.info("[Universal] MATCH: Client connected via Chessnut service")
                 else:
-                    log.info(f"[Universal] Client connected via unknown service: {service_uuid}")
+                    log.info(f"[Universal] NO MATCH: Unknown service UUID: {service_uuid}")
+            elif char_uuid:
+                # Fallback: try to determine from characteristic UUID
+                log.info(f"[Universal] Falling back to characteristic UUID detection")
+                log.info(f"[Universal] Expected Millennium TX char UUID: {MILLENNIUM_UUIDS['tx_characteristic'].upper()}")
+                log.info(f"[Universal] Expected Nordic TX char UUID: {NORDIC_UUIDS['tx_characteristic'].upper()}")
+                
+                if char_uuid == MILLENNIUM_UUIDS["tx_characteristic"].upper():
+                    client_type = Universal.CLIENT_MILLENNIUM
+                    log.info("[Universal] MATCH: Client connected via Millennium TX characteristic")
+                elif char_uuid == NORDIC_UUIDS["tx_characteristic"].upper():
+                    client_type = Universal.CLIENT_PEGASUS
+                    log.info("[Universal] MATCH: Client connected via Nordic TX characteristic (Pegasus)")
+                elif char_uuid == CHESSNUT_UUIDS["op_rx_characteristic"].upper():
+                    client_type = Universal.CLIENT_CHESSNUT
+                    log.info("[Universal] MATCH: Client connected via Chessnut TX characteristic")
+                else:
+                    log.info(f"[Universal] NO MATCH: Unknown characteristic UUID: {char_uuid}")
             else:
-                log.info("[Universal] Could not determine service UUID")
+                log.info("[Universal] Could not determine service or characteristic UUID")
+            
+            # Now set tx_obj and create Universal
+            UARTService.tx_obj = self
+            self.notifying = True
+
+            # Log connection summary
+            log.info("=" * 60)
+            log.info("BLE CLIENT CONNECTION ESTABLISHED")
+            log.info("=" * 60)
+            log.info(f"Connection type: Bluetooth Low Energy (BLE)")
+            log.info(f"Service UUID: {service_uuid}")
+            log.info(f"Characteristic UUID: {char_uuid}")
+            
+            # Map client type to friendly name
+            client_type_name = {
+                Universal.CLIENT_MILLENNIUM: "Millennium ChessLink",
+                Universal.CLIENT_PEGASUS: "DGT Pegasus (Nordic UART)",
+                Universal.CLIENT_CHESSNUT: "Chessnut Air",
+                None: "Unknown (will auto-detect)"
+            }.get(client_type, f"Unknown ({client_type})")
+            
+            log.info(f"Detected protocol: {client_type_name}")
+            log.info(f"Protocol detection: {'Explicit from service UUID' if client_type else 'Will auto-detect from data'}")
+            log.info("=" * 60)
 
             # Instantiate Universal with client type hint and compare_mode if relay enabled
             try:
@@ -661,7 +724,7 @@ class UARTTXCharacteristic(Characteristic):
                     client_type=client_type,
                     compare_mode=relay_mode
                 )
-                log.info(f"[Universal] Instantiated with client_type={client_type}, compare_mode={relay_mode}")
+                log.info(f"[Universal] Instantiated for BLE with client_type={client_type}, compare_mode={relay_mode}")
             except Exception as e:
                 log.error(f"[Universal] Error instantiating: {e}")
                 import traceback
@@ -680,12 +743,16 @@ class UARTTXCharacteristic(Characteristic):
         """Called when BLE client unsubscribes from notifications"""
         if not self.notifying:
             return
-        log.info("BLE client stopped notifications")
+        log.info("=" * 60)
+        log.info("BLE CLIENT DISCONNECTED")
+        log.info("=" * 60)
+        log.info(f"Characteristic UUID: {self.uuid}")
         self.notifying = False
         global ble_connected, universal
         ble_connected = False
         universal = None  # Reset universal instance for clean reconnection
-        log.info("[Universal] Instance reset on BLE disconnect")
+        log.info("[Universal] Instance reset - ready for new connection")
+        log.info("=" * 60)
         return self.notifying
     
     def updateValue(self, value):
@@ -935,10 +1002,14 @@ def client_to_shadow_target():
                 data = client_sock.recv(1024)
                 if len(data) == 0:
                     # Empty data indicates client disconnected
-                    log.info("Client disconnected (received empty data)")
+                    log.info("=" * 60)
+                    log.info("RFCOMM CLIENT DISCONNECTED")
+                    log.info("=" * 60)
+                    log.info("Received empty data - client has disconnected")
                     client_connected = False
                     universal = None  # Reset for next connection
-                    log.info("[Universal] Instance reset on RFCOMM client disconnect")
+                    log.info("[Universal] Instance reset - ready for new connection")
+                    log.info("=" * 60)
                     break
                 
                 data_bytes = bytearray(data)
@@ -1188,14 +1259,20 @@ def main():
     ble_adv_millennium = None
     ble_adv_nordic = None
     
+    # Define the correct BLE device names for each protocol
+    # These names are what chess apps expect to see when scanning
+    MILLENNIUM_BLE_NAME = "MILLENNIUM CHESS"
+    PEGASUS_BLE_NAME = "DGT_PEGASUS"
+    CHESSNUT_BLE_NAME = "Chessnut Air"
+    
     if ble_app is not None:
         # Register Millennium ChessLink advertisement (PRIMARY)
         # This is registered first with more frequent intervals for better discoverability
         try:
-            log.info("Registering PRIMARY Millennium ChessLink BLE advertisement...")
-            ble_adv_millennium = UARTAdvertisement(0, local_name=args.local_name, advertise_millennium=True, advertise_nordic=False)
+            log.info(f"Registering PRIMARY Millennium ChessLink BLE advertisement as '{MILLENNIUM_BLE_NAME}'...")
+            ble_adv_millennium = UARTAdvertisement(0, local_name=MILLENNIUM_BLE_NAME, advertise_millennium=True, advertise_nordic=False)
             ble_adv_millennium.register()
-            log.info("Millennium ChessLink BLE advertisement registered successfully (PRIMARY)")
+            log.info(f"Millennium ChessLink BLE advertisement registered successfully as '{MILLENNIUM_BLE_NAME}' (PRIMARY)")
             # Give Millennium advertisement time to establish before registering secondary
             time.sleep(0.5)
         except Exception as e:
@@ -1205,15 +1282,15 @@ def main():
             log.warning("Continuing without Millennium BLE advertisement...")
             ble_adv_millennium = None
         
-        # Register Nordic UART advertisement (SECONDARY)
+        # Register Nordic UART advertisement (SECONDARY) for Pegasus
         # This is registered after Millennium with less frequent intervals
         # Can be disabled with --disable-nordic flag
         if not args.disable_nordic:
             try:
-                log.info("Registering SECONDARY Nordic UART BLE advertisement...")
-                ble_adv_nordic = UARTAdvertisement(1, local_name=args.local_name, advertise_millennium=False, advertise_nordic=True)
+                log.info(f"Registering SECONDARY Nordic UART (Pegasus) BLE advertisement as '{PEGASUS_BLE_NAME}'...")
+                ble_adv_nordic = UARTAdvertisement(1, local_name=PEGASUS_BLE_NAME, advertise_millennium=False, advertise_nordic=True)
                 ble_adv_nordic.register()
-                log.info("Nordic UART BLE advertisement registered successfully (SECONDARY)")
+                log.info(f"Nordic UART BLE advertisement registered successfully as '{PEGASUS_BLE_NAME}' (SECONDARY)")
             except Exception as e:
                 log.error(f"Failed to register Nordic BLE advertisement: {e}")
                 import traceback
@@ -1230,10 +1307,10 @@ def main():
         ble_adv_chessnut = None
         if args.enable_chessnut:
             try:
-                log.info("Registering TERTIARY Chessnut Air BLE advertisement...")
-                ble_adv_chessnut = UARTAdvertisement(2, local_name=args.local_name, advertise_millennium=False, advertise_nordic=False, advertise_chessnut=True)
+                log.info(f"Registering TERTIARY Chessnut Air BLE advertisement as '{CHESSNUT_BLE_NAME}'...")
+                ble_adv_chessnut = UARTAdvertisement(2, local_name=CHESSNUT_BLE_NAME, advertise_millennium=False, advertise_nordic=False, advertise_chessnut=True)
                 ble_adv_chessnut.register()
-                log.info("Chessnut Air BLE advertisement registered successfully (TERTIARY)")
+                log.info(f"Chessnut Air BLE advertisement registered successfully as '{CHESSNUT_BLE_NAME}' (TERTIARY)")
             except Exception as e:
                 log.error(f"Failed to register Chessnut BLE advertisement: {e}")
                 import traceback
@@ -1243,9 +1320,16 @@ def main():
         else:
             log.info("Chessnut Air BLE advertisement disabled (use --enable-chessnut to enable)")
         
-        if ble_adv_millennium is not None or ble_adv_nordic is not None:
+        if ble_adv_millennium is not None or ble_adv_nordic is not None or ble_adv_chessnut is not None:
             log.info("=" * 60)
-            log.info(f"✓ BLE services registered and advertising as '{args.local_name}'")
+            log.info("BLE ADVERTISEMENTS REGISTERED")
+            log.info("=" * 60)
+            if ble_adv_millennium is not None:
+                log.info(f"  Millennium ChessLink: '{MILLENNIUM_BLE_NAME}'")
+            if ble_adv_nordic is not None:
+                log.info(f"  DGT Pegasus (Nordic): '{PEGASUS_BLE_NAME}'")
+            if ble_adv_chessnut is not None:
+                log.info(f"  Chessnut Air:         '{CHESSNUT_BLE_NAME}'")
             log.info("")
             # Wait for advertisement registration callbacks to complete
             log.info("Waiting for BLE advertisement registration to complete...")
@@ -1304,7 +1388,13 @@ def main():
                 log.info("  or")
                 log.info("  bluetoothctl scan on")
                 log.info("")
-                log.info("You should see the device listed with name: " + args.local_name)
+                log.info("You should see devices listed with names:")
+                if ble_adv_millennium is not None:
+                    log.info(f"  - {MILLENNIUM_BLE_NAME}")
+                if ble_adv_nordic is not None:
+                    log.info(f"  - {PEGASUS_BLE_NAME}")
+                if ble_adv_chessnut is not None:
+                    log.info(f"  - {CHESSNUT_BLE_NAME}")
             else:
                 log.warning("⚠ BLE advertisement registration status unknown")
                 log.warning("Advertisement may still be active (callbacks are async)")
@@ -1435,16 +1525,28 @@ def main():
             client_sock, client_info = server_sock.accept()
             connected = True
             client_connected = True
-            log.info(f"✓ Client connected from {client_info} (RFCOMM)")
-            log.info(f"✓ Connection established on RFCOMM channel {port}")
+            log.info("=" * 60)
+            log.info("RFCOMM CLIENT CONNECTION ESTABLISHED")
+            log.info("=" * 60)
+            log.info(f"Client address: {client_info}")
+            log.info(f"RFCOMM channel: {port}")
+            log.info(f"Connection type: Bluetooth Classic (RFCOMM/SPP)")
+            log.info(f"Protocol detection: Auto-detect (client_type=None)")
+            log.info("=" * 60)
             
             # Instantiate Universal on BT classic connection
+            # client_type=None triggers auto-detection from incoming data
+            # compare_mode=relay_mode enables response comparison in relay mode
             global universal
             try:
-                universal = Universal(sendMessage_callback=sendMessage)
-                log.info("[Universal] Instantiated and parser reset on BT classic connection")
+                universal = Universal(
+                    sendMessage_callback=sendMessage,
+                    client_type=None,  # Auto-detect protocol from incoming data
+                    compare_mode=relay_mode
+                )
+                log.info(f"[Universal] Instantiated for RFCOMM with auto-detection, compare_mode={relay_mode}")
             except Exception as e:
-                log.error(f"[Universal] Error instantiating or resetting parser: {e}")
+                log.error(f"[Universal] Error instantiating: {e}")
                 import traceback
                 traceback.print_exc()
         except bluetooth.BluetoothError as e:
