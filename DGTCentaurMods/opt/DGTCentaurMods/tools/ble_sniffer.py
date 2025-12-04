@@ -16,6 +16,7 @@ import sys
 import signal
 import time
 import dbus
+import dbus.service
 import dbus.mainloop.glib
 from gi.repository import GLib
 
