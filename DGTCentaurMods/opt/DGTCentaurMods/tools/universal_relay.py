@@ -78,13 +78,21 @@ NORDIC_UUIDS = {
     "tx_characteristic": "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 }
 
+# Chessnut Air BLE UUIDs
+CHESSNUT_UUIDS = {
+    "service": "1B7E8261-2877-41C3-B46E-CF057C562023",
+    "fen_characteristic": "1B7E8262-2877-41C3-B46E-CF057C562023",   # Notify FEN data
+    "op_tx_characteristic": "1B7E8272-2877-41C3-B46E-CF057C562023", # Write commands
+    "op_rx_characteristic": "1B7E8273-2877-41C3-B46E-CF057C562023"  # Notify responses
+}
+
 # ============================================================================
 # BLE Service Implementation (matching millennium.py)
 # ============================================================================
 
 class UARTAdvertisement(Advertisement):
-    """BLE advertisement supporting both Millennium ChessLink and Nordic UART services"""
-    def __init__(self, index, local_name="MILLENNIUM CHESS", advertise_millennium=True, advertise_nordic=True):
+    """BLE advertisement supporting Millennium ChessLink, Nordic UART, and Chessnut services"""
+    def __init__(self, index, local_name="MILLENNIUM CHESS", advertise_millennium=True, advertise_nordic=True, advertise_chessnut=False):
         """Initialize BLE advertisement.
         
         Args:
@@ -93,10 +101,12 @@ class UARTAdvertisement(Advertisement):
                        Example: "MILLENNIUM CHESS"
             advertise_millennium: If True, advertise Millennium ChessLink service UUID (default: True)
             advertise_nordic: If True, advertise Nordic UART service UUID (default: True)
+            advertise_chessnut: If True, advertise Chessnut Air service UUID (default: False)
         """
         # Store flags for use in register() method to determine primary/secondary
         self._advertise_millennium = advertise_millennium
         self._advertise_nordic = advertise_nordic
+        self._advertise_chessnut = advertise_chessnut
         Advertisement.__init__(self, index, "peripheral")
         self.local_name = local_name
         self.add_local_name(local_name)
@@ -112,6 +122,11 @@ class UARTAdvertisement(Advertisement):
         if advertise_nordic:
             self.add_service_uuid(NORDIC_UUIDS["service"])
             log.info(f"BLE Advertisement: Nordic UART service UUID: {NORDIC_UUIDS['service']}")
+        
+        # Advertise Chessnut Air service UUID
+        if advertise_chessnut:
+            self.add_service_uuid(CHESSNUT_UUIDS["service"])
+            log.info(f"BLE Advertisement: Chessnut Air service UUID: {CHESSNUT_UUIDS['service']}")
         
         log.info(f"BLE Advertisement initialized with name: {local_name}")
     
@@ -619,13 +634,36 @@ class UARTTXCharacteristic(Characteristic):
             UARTService.tx_obj = self
             self.notifying = True
 
-            # Instantiate Universal and reset parser on BLE connection
-            global universal, ble_connected
+            # Determine client type from service UUID
+            global universal, ble_connected, relay_mode
+            client_type = None
+            service_uuid = self.service.service_uuid.upper() if hasattr(self.service, 'service_uuid') else None
+            
+            if service_uuid:
+                if service_uuid == MILLENNIUM_UUIDS["service"].upper():
+                    client_type = Universal.CLIENT_MILLENNIUM
+                    log.info("[Universal] Client connected via Millennium ChessLink service")
+                elif service_uuid == NORDIC_UUIDS["service"].upper():
+                    client_type = Universal.CLIENT_PEGASUS
+                    log.info("[Universal] Client connected via Nordic UART service (Pegasus)")
+                elif service_uuid == CHESSNUT_UUIDS["service"].upper():
+                    client_type = Universal.CLIENT_CHESSNUT
+                    log.info("[Universal] Client connected via Chessnut service")
+                else:
+                    log.info(f"[Universal] Client connected via unknown service: {service_uuid}")
+            else:
+                log.info("[Universal] Could not determine service UUID")
+
+            # Instantiate Universal with client type hint and compare_mode if relay enabled
             try:
-                universal = Universal(sendMessage_callback=sendMessage)
-                log.info("[Universal] Instantiated and parser reset on BLE connection")
+                universal = Universal(
+                    sendMessage_callback=sendMessage,
+                    client_type=client_type,
+                    compare_mode=relay_mode
+                )
+                log.info(f"[Universal] Instantiated with client_type={client_type}, compare_mode={relay_mode}")
             except Exception as e:
-                log.error(f"[Universal] Error instantiating or resetting parser: {e}")
+                log.error(f"[Universal] Error instantiating: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -644,8 +682,10 @@ class UARTTXCharacteristic(Characteristic):
             return
         log.info("BLE client stopped notifications")
         self.notifying = False
-        global ble_connected
+        global ble_connected, universal
         ble_connected = False
+        universal = None  # Reset universal instance for clean reconnection
+        log.info("[Universal] Instance reset on BLE disconnect")
         return self.notifying
     
     def updateValue(self, value):
@@ -807,8 +847,12 @@ def connect_to_shadow_target(shadow_target="MILLENNIUM CHESS"):
 
 
 def shadow_target_to_client():
-    """Relay data from SHADOW TARGET to client"""
-    global running, shadow_target_sock, client_sock, shadow_target_connected, client_connected, _last_message, shadow_target
+    """Relay data from SHADOW TARGET to client.
+    
+    In relay mode with compare_mode enabled, this function also compares
+    the shadow host response with the emulator's response and logs any differences.
+    """
+    global running, shadow_target_sock, client_sock, shadow_target_connected, client_connected, _last_message, shadow_target, universal
     
     log.info(f"Starting SHADOW TARGET '{shadow_target}' -> Client relay thread")
     try:
@@ -818,26 +862,30 @@ def shadow_target_to_client():
                     time.sleep(0.1)
                     continue
                 
-                # if not client_connected or client_sock is None:
-                #     time.sleep(0.1)
-                #     continue
-                
                 # Read from SHADOW TARGET
                 data = shadow_target_sock.recv(1024)
                 if len(data) > 0:
                     data_bytes = bytearray(data)
-                    log.warning(f"SHADOW TARGET -> Client: {' '.join(f'{b:02x}' for b in data_bytes)} <------------------------------------")
+                    log.info(f"SHADOW TARGET -> Client: {' '.join(f'{b:02x}' for b in data_bytes)}")
                     log.debug(f"SHADOW TARGET -> Client (ASCII): {data_bytes.decode('utf-8', errors='replace')}")
                     
+                    # Compare with emulator response if Universal is in compare_mode
+                    if universal is not None and universal.compare_mode:
+                        match, emulator_response = universal.compare_with_shadow(bytes(data_bytes))
+                        if match is False:
+                            log.error("[Relay] MISMATCH: Emulator response differs from shadow host")
+                        elif match is True:
+                            log.info("[Relay] MATCH: Emulator response matches shadow host")
+                        # Note: match=None means no emulator response was pending
+                    
+                    # Legacy comparison with _last_message (for debugging)
                     if _last_message is not None:
                         if _last_message == data_bytes:
-                            log.warning(f"[shadow_to_client] _last_message is the same as data_bytes <------------------------------------")
+                            log.debug(f"[shadow_to_client] _last_message matches data_bytes")
                         else:
-                            log.error(f"[shadow_to_client] _last_message is different from data_bytes <------------------------------------")
-                        log.warning(f"[shadow_to_client] _last_message={' '.join(f'{b:02x}' for b in _last_message)} <------------------------------------")
+                            log.warning(f"[shadow_to_client] _last_message differs from data_bytes")
+                        log.debug(f"[shadow_to_client] _last_message={' '.join(f'{b:02x}' for b in _last_message)}")
                         _last_message = None
-                    else:
-                        log.error(f"[shadow_to_client] _last_message is None <------------------------------------")
 
                     # Write to RFCOMM client
                     if client_connected and client_sock is not None:
@@ -869,7 +917,7 @@ def shadow_target_to_client():
 
 def client_to_shadow_target():
     """Relay data from client to SHADOW TARGET"""
-    global running, shadow_target_sock, client_sock, shadow_target_connected, client_connected
+    global running, shadow_target_sock, client_sock, shadow_target_connected, client_connected, universal
     
     log.info("Starting Client -> SHADOW TARGET relay thread")
     try:
@@ -889,6 +937,8 @@ def client_to_shadow_target():
                     # Empty data indicates client disconnected
                     log.info("Client disconnected (received empty data)")
                     client_connected = False
+                    universal = None  # Reset for next connection
+                    log.info("[Universal] Instance reset on RFCOMM client disconnect")
                     break
                 
                 data_bytes = bytearray(data)
@@ -896,7 +946,6 @@ def client_to_shadow_target():
                 log.debug(f"Client -> SHADOW TARGET (ASCII): {data_bytes.decode('utf-8', errors='replace')}")
                 
                 # Process each byte through universal parser
-                global universal
                 if universal is not None:
                     for byte_val in data_bytes:
                         universal.receive_data(byte_val)
@@ -929,12 +978,15 @@ def client_to_shadow_target():
 def cleanup():
     """Clean up connections and resources"""
     global kill, running, shadow_target_sock, client_sock, server_sock
-    global shadow_target_connected, client_connected, ble_app, ble_adv_millennium, ble_adv_nordic
+    global shadow_target_connected, client_connected, ble_app, ble_adv_millennium, ble_adv_nordic, ble_adv_chessnut
+    global universal
     
     try:
         log.info("Cleaning up relay...")
         kill = 1
         running = False
+        universal = None  # Reset universal instance
+        log.info("[Universal] Instance reset on cleanup")
         
         # Clean up BLE services
         try:
@@ -971,6 +1023,14 @@ def cleanup():
                         log.info("Nordic BLE advertisement unregistered")
                     except Exception as e:
                         log.debug(f"Error unregistering Nordic BLE advertisement: {e}")
+                
+                # Unregister Chessnut advertisement
+                if 'ble_adv_chessnut' in globals() and ble_adv_chessnut is not None:
+                    try:
+                        ad_manager.UnregisterAdvertisement(ble_adv_chessnut.get_path())
+                        log.info("Chessnut BLE advertisement unregistered")
+                    except Exception as e:
+                        log.debug(f"Error unregistering Chessnut BLE advertisement: {e}")
             
             # Unregister BLE application
             if ble_app is not None:
@@ -1041,7 +1101,7 @@ def main():
     """Main entry point"""
     global server_sock, client_sock, shadow_target_sock
     global shadow_target_connected, client_connected, running, kill
-    global ble_app, ble_adv_millennium, ble_adv_nordic, shadow_target_to_client_thread, shadow_target_to_client_thread_started
+    global ble_app, ble_adv_millennium, ble_adv_nordic, ble_adv_chessnut, shadow_target_to_client_thread, shadow_target_to_client_thread_started
     
     parser = argparse.ArgumentParser(description="Bluetooth Classic SPP Relay with BLE - Connect to target device and relay data")
     parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
@@ -1050,6 +1110,8 @@ def main():
                        help="Name of the target device to connect to (default: 'MILLENNIUM CHESS'). Example: 'MILLENNIUM CHESS'")
     parser.add_argument("--disable-nordic", action="store_true",
                        help="Disable Nordic UART BLE advertisement (only advertise Millennium ChessLink).")
+    parser.add_argument("--enable-chessnut", action="store_true",
+                       help="Enable Chessnut Air BLE service and advertisement.")
     parser.add_argument(
         "--port",
         type=int,
@@ -1092,6 +1154,20 @@ def main():
         ))
     else:
         log.info("Nordic UART service disabled (--disable-nordic flag set)")
+    
+    # Add Chessnut Air service (only if enabled)
+    if args.enable_chessnut:
+        log.info(f"Adding Chessnut Air service: {CHESSNUT_UUIDS['service']}")
+        # Chessnut uses separate characteristics for FEN and operations
+        # For simplicity, we use the op_tx (write) and op_rx (notify) for the UART-style interface
+        ble_app.add_service(UARTService(
+            2,
+            CHESSNUT_UUIDS["service"],
+            CHESSNUT_UUIDS["op_tx_characteristic"],  # Write commands
+            CHESSNUT_UUIDS["op_rx_characteristic"]   # Notify responses
+        ))
+    else:
+        log.info("Chessnut Air service disabled (use --enable-chessnut to enable)")
     
     # Register the BLE application
     try:
@@ -1146,8 +1222,26 @@ def main():
                 ble_adv_nordic = None
         else:
             log.info("Nordic UART BLE advertisement disabled (--disable-nordic flag set)")
-            log.info("Only Millennium ChessLink service will be advertised")
             ble_adv_nordic = None
+        
+        # Register Chessnut Air advertisement (TERTIARY)
+        # Can be enabled with --enable-chessnut flag
+        global ble_adv_chessnut
+        ble_adv_chessnut = None
+        if args.enable_chessnut:
+            try:
+                log.info("Registering TERTIARY Chessnut Air BLE advertisement...")
+                ble_adv_chessnut = UARTAdvertisement(2, local_name=args.local_name, advertise_millennium=False, advertise_nordic=False, advertise_chessnut=True)
+                ble_adv_chessnut.register()
+                log.info("Chessnut Air BLE advertisement registered successfully (TERTIARY)")
+            except Exception as e:
+                log.error(f"Failed to register Chessnut BLE advertisement: {e}")
+                import traceback
+                log.error(traceback.format_exc())
+                log.warning("Continuing without Chessnut BLE advertisement...")
+                ble_adv_chessnut = None
+        else:
+            log.info("Chessnut Air BLE advertisement disabled (use --enable-chessnut to enable)")
         
         if ble_adv_millennium is not None or ble_adv_nordic is not None:
             log.info("=" * 60)

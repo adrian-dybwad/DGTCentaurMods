@@ -85,6 +85,10 @@ class Pegasus:
     - Note: length byte includes payload + terminator (not including the length byte itself)
     """
     
+    # Class property indicating whether this emulator supports RFCOMM (Bluetooth Classic)
+    # Pegasus uses BLE only (Nordic UART Service), not RFCOMM
+    supports_rfcomm = False
+    
     def __init__(self, sendMessage_callback=None, manager=None):
         """Initialize the Pegasus handler.
         

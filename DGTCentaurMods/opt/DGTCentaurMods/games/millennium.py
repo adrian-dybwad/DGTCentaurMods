@@ -219,6 +219,10 @@ class PacketParser:
 class Millennium:
     """Handles Millennium protocol packets and commands."""
     
+    # Class property indicating whether this emulator supports RFCOMM (Bluetooth Classic)
+    # Used by Universal for auto-detection when client type is unknown
+    supports_rfcomm = True
+    
     FILES = "abcdefgh"
     
     def __init__(self, sendMessage_callback=None, manager=None):

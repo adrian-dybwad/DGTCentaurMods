@@ -1,4 +1,4 @@
-# Millennium Game
+# Universal Game Handler
 #
 # This file is part of the DGTCentaur Mods open source software
 # ( https://github.com/EdNekebno/DGTCentaur )
@@ -24,39 +24,188 @@
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.games.millennium import Millennium
 from DGTCentaurMods.games.pegasus import Pegasus
+from DGTCentaurMods.games.chessnut import Chessnut
 from DGTCentaurMods.games.manager import GameManager
-import chess
 
 
 class Universal:
-    """Universal game handler that supports multiple protocols (Millennium, Pegasus)."""
+    """Universal game handler that supports multiple protocols (Millennium, Pegasus, Chessnut).
     
-    def __init__(self, sendMessage_callback=None):
-        """Initialize the Universal handler with Millennium and Pegasus parsers.
+    This class can operate in two modes:
+    1. Known client type (BLE): Only creates the specific emulator for that protocol
+    2. Unknown client type (RFCOMM): Creates all RFCOMM-capable emulators and auto-detects
+    
+    In relay mode (compare_mode=True), emulator responses are buffered for comparison
+    with shadow host responses instead of being sent directly to the client.
+    """
+    
+    # Client type constants
+    CLIENT_UNKNOWN = "unknown"
+    CLIENT_MILLENNIUM = "millennium"
+    CLIENT_PEGASUS = "pegasus"
+    CLIENT_CHESSNUT = "chessnut"
+    
+    def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False):
+        """Initialize the Universal handler.
         
         Args:
-            sendMessage_callback: Optional callback function(data) for sending messages
+            sendMessage_callback: Callback function(data) for sending messages to client
+            client_type: Hint about client type from BLE service UUID:
+                        - CLIENT_MILLENNIUM: Millennium ChessLink
+                        - CLIENT_PEGASUS: Nordic UART (Pegasus)
+                        - CLIENT_CHESSNUT: Chessnut Air
+                        - CLIENT_UNKNOWN or None: Auto-detect from incoming data (RFCOMM)
+            compare_mode: If True, buffer emulator responses for comparison with
+                         shadow host instead of sending directly. Used in relay mode.
         """
-        self.sendMessage = sendMessage_callback
-        self.is_pegasus = False
+        self._sendMessage = sendMessage_callback
+        self.compare_mode = compare_mode
+        self._pending_response = None
+        self.client_type = client_type or self.CLIENT_UNKNOWN
+        
+        # Protocol detection flags
         self.is_millennium = False
+        self.is_pegasus = False
+        self.is_chessnut = False
+        
+        # Game manager shared by all emulators
         self.manager = GameManager()
-        self._millennium = Millennium(sendMessage_callback=sendMessage_callback, manager=self.manager)
-        self._pegasus = Pegasus(sendMessage_callback=sendMessage_callback, manager=self.manager)
+        
+        # Emulator instances - created based on client_type
+        self._millennium = None
+        self._pegasus = None
+        self._chessnut = None
+        
+        # Create emulators based on client_type
+        if client_type == self.CLIENT_MILLENNIUM:
+            self._millennium = Millennium(
+                sendMessage_callback=self._handle_emulator_response,
+                manager=self.manager
+            )
+            self.is_millennium = True
+            log.info("[Universal] Created Millennium emulator (BLE client type)")
+            
+        elif client_type == self.CLIENT_PEGASUS:
+            self._pegasus = Pegasus(
+                sendMessage_callback=self._handle_emulator_response,
+                manager=self.manager
+            )
+            self.is_pegasus = True
+            log.info("[Universal] Created Pegasus emulator (BLE client type)")
+            
+        elif client_type == self.CLIENT_CHESSNUT:
+            self._chessnut = Chessnut(
+                sendMessage_callback=self._handle_emulator_response,
+                manager=self.manager
+            )
+            self.is_chessnut = True
+            log.info("[Universal] Created Chessnut emulator (BLE client type)")
+            
+        else:
+            # Unknown client type (RFCOMM) - create all RFCOMM-capable emulators
+            # for auto-detection. Only emulators with supports_rfcomm=True are created.
+            log.info("[Universal] Unknown client type - creating RFCOMM-capable emulators for auto-detection")
+            
+            if Millennium.supports_rfcomm:
+                self._millennium = Millennium(
+                    sendMessage_callback=self._handle_emulator_response,
+                    manager=self.manager
+                )
+                log.info("[Universal] Created Millennium emulator (supports RFCOMM)")
+            
+            if Pegasus.supports_rfcomm:
+                self._pegasus = Pegasus(
+                    sendMessage_callback=self._handle_emulator_response,
+                    manager=self.manager
+                )
+                log.info("[Universal] Created Pegasus emulator (supports RFCOMM)")
+            
+            if Chessnut.supports_rfcomm:
+                self._chessnut = Chessnut(
+                    sendMessage_callback=self._handle_emulator_response,
+                    manager=self.manager
+                )
+                log.info("[Universal] Created Chessnut emulator (supports RFCOMM)")
+        
         self.subscribe_manager()
     
-    def _manager_event_callback(self, event, piece_event = None, field = None, time_in_seconds = None):
+    def _handle_emulator_response(self, data):
+        """Handle response generated by an emulator.
+        
+        In compare_mode, buffers the response for later comparison with shadow host.
+        Otherwise, sends directly to the client.
+        
+        Args:
+            data: Response data bytes from emulator
+        """
+        if self.compare_mode:
+            self._pending_response = bytes(data) if data else None
+            log.debug(f"[Universal] Emulator response buffered ({len(data) if data else 0} bytes)")
+        else:
+            if self._sendMessage:
+                self._sendMessage(data)
+    
+    def get_pending_response(self):
+        """Get and clear the pending emulator response.
+        
+        Used in compare_mode to retrieve the buffered response for comparison.
+        
+        Returns:
+            The buffered response bytes, or None if no response pending
+        """
+        response = self._pending_response
+        self._pending_response = None
+        return response
+    
+    def compare_with_shadow(self, shadow_response):
+        """Compare shadow host response with emulator response.
+        
+        Args:
+            shadow_response: Response bytes from shadow host
+            
+        Returns:
+            Tuple (match, emulator_response) where:
+            - match: True if responses match, False if different, None if no emulator response
+            - emulator_response: The emulator's response bytes (for logging)
+        """
+        emulator_response = self.get_pending_response()
+        
+        if emulator_response is None:
+            log.debug("[Universal] No emulator response to compare (emulator may not have generated one)")
+            return (None, None)
+        
+        shadow_bytes = bytes(shadow_response) if shadow_response else b''
+        match = emulator_response == shadow_bytes
+        
+        if not match:
+            log.warning("[Universal] Response MISMATCH between emulator and shadow host:")
+            log.warning(f"  Shadow host: {shadow_bytes.hex() if shadow_bytes else '(empty)'}")
+            log.warning(f"  Emulator:    {emulator_response.hex() if emulator_response else '(empty)'}")
+        else:
+            log.debug(f"[Universal] Response match: {shadow_bytes.hex()}")
+        
+        return (match, emulator_response)
+    
+    def _manager_event_callback(self, event, piece_event=None, field=None, time_in_seconds=None):
         """Handle game events from the manager.
+        
+        Routes events to the active emulator based on detected protocol.
         
         Args:
             event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
+            piece_event: Piece event type
+            field: Chess field index
+            time_in_seconds: Time since game start
         """
         try:
             log.info(f"[Universal] _manager_event_callback: {event} piece_event={piece_event}, field={field}, time_in_seconds={time_in_seconds}")
-            if self.is_millennium and hasattr(self._millennium, 'handle_manager_event'):
+            
+            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_event'):
                 self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
-            elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_event'):
+            elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_event'):
                 self._pegasus.handle_manager_event(event, piece_event, field, time_in_seconds)
+            elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
+                self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
         except Exception as e:
             log.error(f"[Universal] Error in _manager_event_callback: {e}")
             import traceback
@@ -69,11 +218,14 @@ class Universal:
             move: Chess move object
         """
         try:
-            log.info(f"[Universal] _manager_move_callback: {move} is_millennium={self.is_millennium} is_pegasus={self.is_pegasus}")
-            if self.is_millennium and hasattr(self._millennium, 'handle_manager_move'):
+            log.info(f"[Universal] _manager_move_callback: {move} is_millennium={self.is_millennium} is_pegasus={self.is_pegasus} is_chessnut={self.is_chessnut}")
+            
+            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_move'):
                 self._millennium.handle_manager_move(move)
-            elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_move'):
+            elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_move'):
                 self._pegasus.handle_manager_move(move)
+            elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_move'):
+                self._chessnut.handle_manager_move(move)
         except Exception as e:
             log.error(f"[Universal] Error in _manager_move_callback: {e}")
             import traceback
@@ -87,10 +239,13 @@ class Universal:
         """
         try:
             log.info(f"[Universal] _manager_key_callback: {key}")
-            if self.is_millennium and hasattr(self._millennium, 'handle_manager_key'):
+            
+            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_key'):
                 self._millennium.handle_manager_key(key)
-            elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_key'):
+            elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_key'):
                 self._pegasus.handle_manager_key(key)
+            elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_key'):
+                self._chessnut.handle_manager_key(key)
         except Exception as e:
             log.error(f"[Universal] Error in _manager_key_callback: {e}")
             import traceback
@@ -99,67 +254,82 @@ class Universal:
     def _manager_takeback_callback(self):
         """Handle takeback requests from the manager."""
         try:
-            log.info(f"[Universal] _manager_takeback_callback")
-            if self.is_millennium and hasattr(self._millennium, 'handle_manager_takeback'):
+            log.info("[Universal] _manager_takeback_callback")
+            
+            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_takeback'):
                 self._millennium.handle_manager_takeback()
-            elif self.is_pegasus and hasattr(self._pegasus, 'handle_manager_takeback'):
+            elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_takeback'):
                 self._pegasus.handle_manager_takeback()
+            elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_takeback'):
+                self._chessnut.handle_manager_takeback()
         except Exception as e:
             log.error(f"[Universal] Error in _manager_takeback_callback: {e}")
             import traceback
             traceback.print_exc()
 
     def receive_data(self, byte_value):
-        """Receive one byte of data and parse packet.
+        """Receive one byte of data and route to appropriate emulator.
         
-        This function implements a packet parser that handles:
-        - Odd parity stripping (MSB parity bit)
-        - ASCII payload accumulation
-        - XOR CRC verification (last 2 ASCII hex digits)
-        
-        When a valid packet is received, it automatically calls the packet handler.
+        If client_type was specified at construction, routes directly to that emulator.
+        Otherwise, tries each RFCOMM-capable emulator until one successfully parses.
+        Once a protocol is detected, unused emulators are freed to save memory.
         
         Args:
-            byte_value: Raw byte value from wire (with possible odd parity bit)
+            byte_value: Raw byte value from wire
             
         Returns:
-            Tuple (packet_type, payload, is_complete) where:
-            - packet_type: First byte of payload (message type) as integer, or None
-            - payload: List of ASCII character values (0-127), or None
-            - is_complete: True if packet is complete and CRC valid, False otherwise
-            
-        Example:
-            # Receive bytes one at a time
-            for byte in byte_stream:
-                packet_type, payload, is_complete = receive_data(byte)
-                if is_complete:
-                    # Packet handler is automatically called
-                    log.info(f"Received packet type {packet_type}, payload: {payload}")
+            True if byte was successfully parsed, False otherwise
         """
-        if not self.is_pegasus and self._millennium.parse_byte(byte_value):
-            if not self.is_millennium:
-                log.info("[Universal] Millennium protocol detected")
-                self.is_millennium = True
+        # If already detected, route directly to that emulator
+        if self.is_millennium and self._millennium:
+            return self._millennium.parse_byte(byte_value)
+        elif self.is_pegasus and self._pegasus:
+            return self._pegasus.parse_byte(byte_value)
+        elif self.is_chessnut and self._chessnut:
+            return self._chessnut.parse_byte(byte_value)
+        
+        # Auto-detect: try each RFCOMM-capable emulator
+        if self._millennium and self._millennium.parse_byte(byte_value):
+            log.info("[Universal] Millennium protocol detected via auto-detection")
+            self.is_millennium = True
+            self.client_type = self.CLIENT_MILLENNIUM
+            # Free unused emulators to save memory
+            self._pegasus = None
+            self._chessnut = None
             return True
-        elif not self.is_millennium and self._pegasus.parse_byte(byte_value):
-            if not self.is_pegasus:
-                log.info("[Universal] Pegasus protocol detected")
-                self.is_pegasus = True
+        
+        if self._pegasus and self._pegasus.parse_byte(byte_value):
+            log.info("[Universal] Pegasus protocol detected via auto-detection")
+            self.is_pegasus = True
+            self.client_type = self.CLIENT_PEGASUS
+            # Free unused emulators
+            self._millennium = None
+            self._chessnut = None
             return True
-        else:
-            #is_millennium = False
-            #is_pegasus = False
-            return False
+        
+        if self._chessnut and self._chessnut.parse_byte(byte_value):
+            log.info("[Universal] Chessnut protocol detected via auto-detection")
+            self.is_chessnut = True
+            self.client_type = self.CLIENT_CHESSNUT
+            # Free unused emulators
+            self._millennium = None
+            self._pegasus = None
+            return True
+        
+        return False
 
     def reset_parser(self):
-        """Reset the packet parser state.
+        """Reset the packet parser state for all active emulators.
         
         Clears any accumulated buffer and resets parser to initial state.
         Useful when starting a new communication session or recovering from errors.
         """
-        self._millennium.reset_parser()
-        self._pegasus.reset()
-
+        if self._millennium:
+            self._millennium.reset_parser()
+        if self._pegasus:
+            self._pegasus.reset()
+        if self._chessnut:
+            self._chessnut.reset()
 
     def subscribe_manager(self):
         """Subscribe to the game manager with callbacks."""
@@ -176,4 +346,3 @@ class Universal:
             log.error(f"[Universal] Failed to subscribe to game manager: {e}")
             import traceback
             traceback.print_exc()
-
