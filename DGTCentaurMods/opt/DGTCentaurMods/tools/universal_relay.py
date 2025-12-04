@@ -452,11 +452,18 @@ def sendMessage(data):
         return
     
     # Send via BLE if connected (both services share the same tx_obj)
+    log.info(f"[sendMessage] Checking BLE: tx_obj={UARTService.tx_obj is not None}, notifying={UARTService.tx_obj.notifying if UARTService.tx_obj else 'N/A'}")
     if UARTService.tx_obj is not None and UARTService.tx_obj.notifying:
         try:
+            log.info(f"[sendMessage] Sending {len(tosend)} bytes via BLE")
             UARTService.tx_obj.updateValue(tosend)
+            log.info(f"[sendMessage] BLE send complete")
         except Exception as e:
             log.error(f"[sendMessage] Error sending via BLE: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+    else:
+        log.warning(f"[sendMessage] BLE not ready - tx_obj={UARTService.tx_obj is not None}, notifying={UARTService.tx_obj.notifying if UARTService.tx_obj else 'N/A'}")
     
     # Send via BT classic if connected
     global client_connected, client_sock
@@ -766,11 +773,14 @@ class UARTTXCharacteristic(Characteristic):
     
     def updateValue(self, value):
         """Update the characteristic value and notify subscribers"""
+        log.info(f"[updateValue] Called with {len(value)} bytes, notifying={self.notifying}")
         if not self.notifying:
+            log.warning("[updateValue] Not notifying, skipping")
             return
         send = dbus.Array(signature=dbus.Signature('y'))
         for i in range(0, len(value)):
             send.append(dbus.Byte(value[i]))
+        log.info(f"[updateValue] Sending PropertiesChanged with {len(send)} bytes: {' '.join(f'{b:02x}' for b in value)}")
         self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': send}, [])
     
     def ReadValue(self, options):
