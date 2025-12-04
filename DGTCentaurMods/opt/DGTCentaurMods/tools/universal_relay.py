@@ -779,6 +779,7 @@ class UARTTXCharacteristic(Characteristic):
         Sends PropertiesChanged if client has subscribed to notifications OR
         if a BLE client is connected (some clients listen without StartNotify).
         """
+        global ble_connected
         log.info(f"[updateValue] Called with {len(value)} bytes, notifying={self.notifying}, ble_connected={ble_connected}")
         
         # Always cache the value for ReadValue polling
@@ -792,7 +793,6 @@ class UARTTXCharacteristic(Characteristic):
         # Send PropertiesChanged if notifying OR if BLE client is connected
         # Some clients (like HIARCS Desktop) connect via ReadValue and listen for
         # property changes without explicitly calling StartNotify
-        global ble_connected
         if self.notifying or ble_connected:
             log.info(f"[updateValue] Sending PropertiesChanged with {len(send)} bytes: {' '.join(f'{b:02x}' for b in value)}")
             self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': send}, [])
