@@ -521,12 +521,11 @@ def main():
     adapter_props.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(True))
     log("Bluetooth adapter powered on")
     
-    # Create and register GATT application with all required services
-    # Real Millennium board has: GAP (0x1800), Device Info (0x180A), Millennium service
+    # Create and register GATT application
+    # Note: BlueZ handles GAP (0x1800) internally, so we only register our custom service
+    # The Device Info service (0x180A) can be added if needed
     app = Application(bus)
-    app.add_service(GAPService(bus, 0, args.name))  # Generic Access Profile
-    app.add_service(DeviceInfoService(bus, 1))       # Device Information
-    app.add_service(MillenniumService(bus, 2))       # Millennium ChessLink
+    app.add_service(MillenniumService(bus, 0))       # Millennium ChessLink
     
     service_manager = dbus.Interface(adapter_obj, GATT_MANAGER_IFACE)
     service_manager.RegisterApplication(
