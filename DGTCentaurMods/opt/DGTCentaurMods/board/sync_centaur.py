@@ -791,14 +791,20 @@ class SyncCentaur:
         if not spec:
             raise KeyError(f"Unknown command name: {command_name}")
         
-        # Skip if new command == previous command == DGT_NOTIFY_EVENTS
-        #if command_name == self._last_command == DGT_NOTIFY_EVENTS:
-        #    return
+        # For special commands, check if they already exist in the last n places in the queue
+        # where n is the number of special commands (2: DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS)
+        # This prevents queue flooding when the board is slow to respond
+        if command_name in self._special_commands:
+            if command_name in self._last_n_commands:
+                log.debug(f"[SyncCentaur.sendCommand] Skipping {command_name} - already in last {len(self._special_commands)} queue positions")
+                return
         
         # Queue the command without a result queue (non-blocking, no return value)
         try:
             self._request_queue.put_nowait((command_name, data, timeout, None))
             self._last_command = command_name
+            # Update tracking of last n commands for deduplication
+            self._last_n_commands.append(command_name)
         except queue.Full:
             log.error(f"Request queue full, cannot queue command {command_name}")
     
