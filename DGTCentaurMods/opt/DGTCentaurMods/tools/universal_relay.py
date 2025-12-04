@@ -1131,6 +1131,65 @@ def client_to_shadow_target():
         client_connected = False
 
 
+def client_reader():
+    """Read data from RFCOMM client in server-only mode (no relay to shadow target).
+    
+    This function reads data from the connected RFCOMM client and processes it
+    through the universal parser. Unlike client_to_shadow_target(), this does
+    not forward data to a shadow target - it only processes incoming commands
+    and sends responses back to the client.
+    """
+    global running, client_sock, client_connected, universal
+    
+    log.info("Starting Client reader thread (server-only mode)")
+    try:
+        while running and not kill:
+            try:
+                if not client_connected or client_sock is None:
+                    time.sleep(0.1)
+                    continue
+                
+                # Read from client
+                data = client_sock.recv(1024)
+                if len(data) == 0:
+                    # Empty data indicates client disconnected
+                    log.info("=" * 60)
+                    log.info("RFCOMM CLIENT DISCONNECTED")
+                    log.info("=" * 60)
+                    log.info("Received empty data - client has disconnected")
+                    client_connected = False
+                    universal = None  # Reset for next connection
+                    log.info("[Universal] Instance reset - ready for new connection")
+                    log.info("=" * 60)
+                    break
+                
+                data_bytes = bytearray(data)
+                log.info(f"Client -> Server: {' '.join(f'{b:02x}' for b in data_bytes)}")
+                log.debug(f"Client -> Server (ASCII): {data_bytes.decode('utf-8', errors='replace')}")
+                
+                # Process each byte through universal parser
+                if universal is not None:
+                    for byte_val in data_bytes:
+                        universal.receive_data(byte_val)
+                else:
+                    log.warning("Client data received but universal is None - data not processed")
+                    
+            except bluetooth.BluetoothError as e:
+                if running:
+                    log.error(f"Bluetooth error in client reader: {e}")
+                client_connected = False
+                break
+            except Exception as e:
+                if running:
+                    log.error(f"Error in client reader: {e}")
+                break
+    except Exception as e:
+        log.error(f"Client reader thread error: {e}")
+    finally:
+        log.info("Client reader thread stopped")
+        client_connected = False
+
+
 def cleanup():
     """Clean up connections and resources"""
     global kill, running, shadow_target_sock, client_sock, server_sock
@@ -1707,8 +1766,16 @@ def main():
             log.info("Skipping client_to_shadow_target thread (BLE connection or no RFCOMM client)")
         
         log.info("Relay threads started")
+        client_reader_thread = None  # Not used in relay mode
     else:
-        log.info("Relay mode disabled - no relay threads started (server-only mode)")
+        log.info("Relay mode disabled - starting client reader thread (server-only mode)")
+        # In server-only mode, we still need to read from the client to process commands
+        # and send responses back. We just don't forward to a shadow target.
+        client_reader_thread = None
+        if connected and client_sock is not None:
+            client_reader_thread = threading.Thread(target=client_reader, daemon=True)
+            client_reader_thread.start()
+            log.info("Started client_reader thread (RFCOMM, server-only mode)")
         client_to_shadow_target_thread = None
     
     # Main loop - monitor for exit conditions and handle client reconnections
@@ -1729,7 +1796,7 @@ def main():
                     running = False
                     break
             
-            # Check if client_to_shadow_target thread is still alive (only for RFCOMM connections)
+            # Check if client_to_shadow_target thread is still alive (only for RFCOMM connections in relay mode)
             if client_to_shadow_target_thread is not None and not client_to_shadow_target_thread.is_alive():
                 log.warning("client_to_shadow_target thread has stopped")
                 # If client disconnected, wait for a new client
@@ -1764,6 +1831,51 @@ def main():
                 else:
                     # Thread died but client still connected - error condition
                     log.error("client_to_shadow_target thread died but client still connected")
+                    running = False
+                    break
+            
+            # Check if client_reader thread is still alive (server-only mode)
+            if not relay_mode and client_reader_thread is not None and not client_reader_thread.is_alive():
+                log.warning("client_reader thread has stopped")
+                # If client disconnected, wait for a new client
+                if not client_connected:
+                    log.info("Client disconnected, waiting for new client connection (server-only mode)...")
+                    # Close old socket if it exists
+                    if client_sock is not None:
+                        try:
+                            client_sock.close()
+                        except:
+                            pass
+                        client_sock = None
+                    
+                    # Wait for new client connection
+                    while not client_connected and not kill and running:
+                        try:
+                            client_sock, client_info = server_sock.accept()
+                            client_connected = True
+                            log.info(f"New client connected from {client_info}")
+                            # Create new Universal instance for the new client
+                            universal = Universal(
+                                sendMessage_callback=sendMessage,
+                                client_type=None,  # Auto-detect protocol from incoming data
+                                compare_mode=False
+                            )
+                            log.info(f"[Universal] Instantiated for new RFCOMM client with auto-detection")
+                            # Restart the client_reader thread
+                            client_reader_thread = threading.Thread(target=client_reader, daemon=True)
+                            client_reader_thread.start()
+                            log.info("Restarted client_reader thread")
+                            break
+                        except bluetooth.BluetoothError:
+                            # Timeout, check kill flag
+                            time.sleep(0.1)
+                        except Exception as e:
+                            if running:
+                                log.error(f"Error accepting client connection: {e}")
+                            time.sleep(0.1)
+                else:
+                    # Thread died but client still connected - error condition
+                    log.error("client_reader thread died but client still connected")
                     running = False
                     break
             
