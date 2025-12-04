@@ -607,9 +607,18 @@ class UARTTXCharacteristic(Characteristic):
         self.notifying = False
     
     def sendMessage(self, data):
-        """Send a message via BLE notification"""
-        if not self.notifying:
+        """Send a message via BLE notification.
+        
+        Note: Some clients (like HIARCS Desktop) connect via ReadValue without
+        calling StartNotify. We still try to send data in this case, though
+        the client may not receive it if it's not listening for notifications.
+        """
+        global ble_connected
+        if not self.notifying and not ble_connected:
+            log.debug("sendMessage: Not notifying and not BLE connected, skipping")
             return
+        if not self.notifying:
+            log.debug("sendMessage: Client connected via ReadValue (not StartNotify), attempting to send anyway")
         log.debug(f"BLE TX -> Client: {' '.join(f'{b:02x}' for b in data)}")
 
 
@@ -765,11 +774,87 @@ class UARTTXCharacteristic(Characteristic):
         self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': send}, [])
     
     def ReadValue(self, options):
-        """Read the current characteristic value"""
+        """Read the current characteristic value.
+        
+        Some BLE clients (like HIARCS Desktop) call ReadValue instead of or before
+        StartNotify. We treat this as a connection event and initialize Universal.
+        """
         try:
+            log.info("=" * 60)
             log.info("TX Characteristic ReadValue called by BLE client")
+            log.info(f"Characteristic UUID: {self.uuid}")
+            log.info(f"Options: {options}")
+            
+            global universal, ble_connected, relay_mode
+            
+            # If Universal is not initialized, treat ReadValue as a connection event
+            # This handles clients that read before subscribing to notifications
+            if universal is None:
+                log.info("ReadValue triggered before StartNotify - initializing connection")
+                
+                # Determine client type from service UUID
+                client_type = None
+                service_uuid = None
+                if hasattr(self.service, 'service_uuid'):
+                    service_uuid = self.service.service_uuid.upper()
+                elif hasattr(self.service, 'uuid'):
+                    service_uuid = self.service.uuid.upper()
+                
+                char_uuid = self.uuid.upper() if self.uuid else None
+                
+                if service_uuid:
+                    if service_uuid == MILLENNIUM_UUIDS["service"].upper():
+                        client_type = Universal.CLIENT_MILLENNIUM
+                    elif service_uuid == NORDIC_UUIDS["service"].upper():
+                        client_type = Universal.CLIENT_PEGASUS
+                    elif service_uuid == CHESSNUT_UUIDS["service"].upper():
+                        client_type = Universal.CLIENT_CHESSNUT
+                elif char_uuid:
+                    if char_uuid == MILLENNIUM_UUIDS["tx_characteristic"].upper():
+                        client_type = Universal.CLIENT_MILLENNIUM
+                    elif char_uuid == NORDIC_UUIDS["tx_characteristic"].upper():
+                        client_type = Universal.CLIENT_PEGASUS
+                    elif char_uuid == CHESSNUT_UUIDS["op_rx_characteristic"].upper():
+                        client_type = Universal.CLIENT_CHESSNUT
+                
+                # Map client type to friendly name
+                client_type_name = {
+                    Universal.CLIENT_MILLENNIUM: "Millennium ChessLink",
+                    Universal.CLIENT_PEGASUS: "DGT Pegasus (Nordic UART)",
+                    Universal.CLIENT_CHESSNUT: "Chessnut Air",
+                    None: "Unknown (will auto-detect)"
+                }.get(client_type, f"Unknown ({client_type})")
+                
+                log.info("=" * 60)
+                log.info("BLE CLIENT CONNECTION (via ReadValue)")
+                log.info("=" * 60)
+                log.info(f"Connection type: Bluetooth Low Energy (BLE)")
+                log.info(f"Service UUID: {service_uuid}")
+                log.info(f"Characteristic UUID: {char_uuid}")
+                log.info(f"Detected protocol: {client_type_name}")
+                log.info("=" * 60)
+                
+                # Set tx_obj so sendMessage works
+                UARTService.tx_obj = self
+                
+                try:
+                    universal = Universal(
+                        sendMessage_callback=sendMessage,
+                        client_type=client_type,
+                        compare_mode=relay_mode
+                    )
+                    log.info(f"[Universal] Instantiated for BLE (ReadValue) with client_type={client_type}")
+                except Exception as e:
+                    log.error(f"[Universal] Error instantiating: {e}")
+                    import traceback
+                    traceback.print_exc()
+                
+                ble_connected = True
+            
+            # Return empty value - the real data comes via notifications
             value = bytearray()
             value.append(0)
+            log.info("=" * 60)
             return value
         except Exception as e:
             log.error(f"Error in ReadValue: {e}")
