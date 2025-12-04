@@ -61,9 +61,12 @@ class Universal:
         self._sendMessage = sendMessage_callback
         self.compare_mode = compare_mode
         self._pending_response = None
-        self.client_type = client_type or self.CLIENT_UNKNOWN
         
-        # Protocol detection flags
+        # Store the hint but don't trust it - always verify from data
+        self._client_type_hint = client_type
+        self.client_type = self.CLIENT_UNKNOWN
+        
+        # Protocol detection flags - only set True after data confirms protocol
         self.is_millennium = False
         self.is_pegasus = False
         self.is_chessnut = False
@@ -71,61 +74,36 @@ class Universal:
         # Game manager shared by all emulators
         self.manager = GameManager()
         
-        # Emulator instances - created based on client_type
+        # Emulator instances - always create all emulators for auto-detection
+        # The hint from BLE characteristic is unreliable as apps may connect to any service
         self._millennium = None
         self._pegasus = None
         self._chessnut = None
         
-        # Create emulators based on client_type
-        if client_type == self.CLIENT_MILLENNIUM:
-            self._millennium = Millennium(
-                sendMessage_callback=self._handle_emulator_response,
-                manager=self.manager
-            )
-            self.is_millennium = True
-            log.info("[Universal] Created Millennium emulator (BLE client type)")
-            
-        elif client_type == self.CLIENT_PEGASUS:
-            self._pegasus = Pegasus(
-                sendMessage_callback=self._handle_emulator_response,
-                manager=self.manager
-            )
-            self.is_pegasus = True
-            log.info("[Universal] Created Pegasus emulator (BLE client type)")
-            
-        elif client_type == self.CLIENT_CHESSNUT:
-            self._chessnut = Chessnut(
-                sendMessage_callback=self._handle_emulator_response,
-                manager=self.manager
-            )
-            self.is_chessnut = True
-            log.info("[Universal] Created Chessnut emulator (BLE client type)")
-            
-        else:
-            # Unknown client type (RFCOMM) - create all RFCOMM-capable emulators
-            # for auto-detection. Only emulators with supports_rfcomm=True are created.
-            log.info("[Universal] Unknown client type - creating RFCOMM-capable emulators for auto-detection")
-            
-            if Millennium.supports_rfcomm:
-                self._millennium = Millennium(
-                    sendMessage_callback=self._handle_emulator_response,
-                    manager=self.manager
-                )
-                log.info("[Universal] Created Millennium emulator (supports RFCOMM)")
-            
-            if Pegasus.supports_rfcomm:
-                self._pegasus = Pegasus(
-                    sendMessage_callback=self._handle_emulator_response,
-                    manager=self.manager
-                )
-                log.info("[Universal] Created Pegasus emulator (supports RFCOMM)")
-            
-            if Chessnut.supports_rfcomm:
-                self._chessnut = Chessnut(
-                    sendMessage_callback=self._handle_emulator_response,
-                    manager=self.manager
-                )
-                log.info("[Universal] Created Chessnut emulator (supports RFCOMM)")
+        # Always create all emulators for auto-detection from actual data
+        # The client_type hint from BLE service UUID is unreliable
+        log.info(f"[Universal] Creating emulators for auto-detection (hint: {client_type or 'none'})")
+        
+        # Create Millennium emulator
+        self._millennium = Millennium(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.manager
+        )
+        log.info("[Universal] Created Millennium emulator")
+        
+        # Create Pegasus emulator
+        self._pegasus = Pegasus(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.manager
+        )
+        log.info("[Universal] Created Pegasus emulator")
+        
+        # Create Chessnut emulator
+        self._chessnut = Chessnut(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.manager
+        )
+        log.info("[Universal] Created Chessnut emulator")
         
         self.subscribe_manager()
     
@@ -270,8 +248,8 @@ class Universal:
     def receive_data(self, byte_value):
         """Receive one byte of data and route to appropriate emulator.
         
-        If client_type was specified at construction, routes directly to that emulator.
-        Otherwise, tries each RFCOMM-capable emulator until one successfully parses.
+        Auto-detects protocol from actual data. If a client_type hint was provided
+        at construction (from BLE service UUID), that protocol is tried first.
         Once a protocol is detected, unused emulators are freed to save memory.
         
         Args:
@@ -288,33 +266,59 @@ class Universal:
         elif self.is_chessnut and self._chessnut:
             return self._chessnut.parse_byte(byte_value)
         
-        # Auto-detect: try each RFCOMM-capable emulator
-        if self._millennium and self._millennium.parse_byte(byte_value):
-            log.info("[Universal] Millennium protocol detected via auto-detection")
-            self.is_millennium = True
-            self.client_type = self.CLIENT_MILLENNIUM
-            # Free unused emulators to save memory
-            self._pegasus = None
-            self._chessnut = None
-            return True
+        # Auto-detect: try emulators in priority order based on hint
+        # Build priority order - hinted protocol first, then others
+        emulators_to_try = []
         
-        if self._pegasus and self._pegasus.parse_byte(byte_value):
-            log.info("[Universal] Pegasus protocol detected via auto-detection")
-            self.is_pegasus = True
-            self.client_type = self.CLIENT_PEGASUS
-            # Free unused emulators
-            self._millennium = None
-            self._chessnut = None
-            return True
+        if self._client_type_hint == self.CLIENT_MILLENNIUM:
+            emulators_to_try = [
+                (self._millennium, "Millennium", self.CLIENT_MILLENNIUM),
+                (self._pegasus, "Pegasus", self.CLIENT_PEGASUS),
+                (self._chessnut, "Chessnut", self.CLIENT_CHESSNUT),
+            ]
+        elif self._client_type_hint == self.CLIENT_PEGASUS:
+            emulators_to_try = [
+                (self._pegasus, "Pegasus", self.CLIENT_PEGASUS),
+                (self._millennium, "Millennium", self.CLIENT_MILLENNIUM),
+                (self._chessnut, "Chessnut", self.CLIENT_CHESSNUT),
+            ]
+        elif self._client_type_hint == self.CLIENT_CHESSNUT:
+            emulators_to_try = [
+                (self._chessnut, "Chessnut", self.CLIENT_CHESSNUT),
+                (self._millennium, "Millennium", self.CLIENT_MILLENNIUM),
+                (self._pegasus, "Pegasus", self.CLIENT_PEGASUS),
+            ]
+        else:
+            # No hint - default order
+            emulators_to_try = [
+                (self._millennium, "Millennium", self.CLIENT_MILLENNIUM),
+                (self._pegasus, "Pegasus", self.CLIENT_PEGASUS),
+                (self._chessnut, "Chessnut", self.CLIENT_CHESSNUT),
+            ]
         
-        if self._chessnut and self._chessnut.parse_byte(byte_value):
-            log.info("[Universal] Chessnut protocol detected via auto-detection")
-            self.is_chessnut = True
-            self.client_type = self.CLIENT_CHESSNUT
-            # Free unused emulators
-            self._millennium = None
-            self._pegasus = None
-            return True
+        for emulator, name, client_type in emulators_to_try:
+            if emulator and emulator.parse_byte(byte_value):
+                hint_match = " (matches hint)" if self._client_type_hint == client_type else ""
+                hint_mismatch = f" (hint was {self._client_type_hint})" if self._client_type_hint and self._client_type_hint != client_type else ""
+                log.info(f"[Universal] {name} protocol detected via auto-detection{hint_match}{hint_mismatch}")
+                
+                self.client_type = client_type
+                
+                # Set the appropriate flag and free unused emulators
+                if client_type == self.CLIENT_MILLENNIUM:
+                    self.is_millennium = True
+                    self._pegasus = None
+                    self._chessnut = None
+                elif client_type == self.CLIENT_PEGASUS:
+                    self.is_pegasus = True
+                    self._millennium = None
+                    self._chessnut = None
+                elif client_type == self.CLIENT_CHESSNUT:
+                    self.is_chessnut = True
+                    self._millennium = None
+                    self._pegasus = None
+                
+                return True
         
         return False
 
