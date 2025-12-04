@@ -20,7 +20,7 @@ import bluetooth
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board.bluetooth_controller import BluetoothController
-from DGTCentaurMods.games.millennium import receive_data
+from DGTCentaurMods.games.millennium import Millennium
 
 # Global state
 running = True
@@ -32,6 +32,9 @@ client_connected = False
 millennium_sock = None
 server_sock = None
 client_sock = None
+
+# Millennium protocol handler instance
+millennium_handler = None
 
 
 def find_millennium_device():
@@ -206,9 +209,11 @@ def client_to_millennium():
                     log.info(f"Client -> MILLENNIUM: {' '.join(f'{b:02x}' for b in data_bytes)}")
                     log.debug(f"Client -> MILLENNIUM (ASCII): {data_bytes.decode('utf-8', errors='replace')}")
                     
-                    # Process each byte through receive_data
-                    for byte_val in data_bytes:
-                        receive_data(byte_val)
+                    # Process each byte through millennium handler
+                    global millennium_handler
+                    if millennium_handler is not None:
+                        for byte_val in data_bytes:
+                            millennium_handler.parse_byte(byte_val)
                     
                     # Write to MILLENNIUM CHESS
                     millennium_sock.send(data)
@@ -283,6 +288,10 @@ def main():
     """Main entry point"""
     global server_sock, client_sock, millennium_sock
     global millennium_connected, client_connected, running, kill
+    global millennium_handler
+    
+    # Initialize Millennium protocol handler for parsing/logging
+    millennium_handler = Millennium()
     
     parser = argparse.ArgumentParser(description="Bluetooth Classic SPP Relay - Connect to MILLENNIUM CHESS and relay data")
     parser.add_argument(
