@@ -157,30 +157,51 @@ class Chessnut:
         if self.reporting_enabled:
             self._send_fen_notification()
     
+    # Valid Chessnut command bytes for protocol detection
+    VALID_COMMANDS = {CMD_ENABLE_REPORTING, CMD_BATTERY_REQUEST, CMD_LED_CONTROL}
+    
     def parse_byte(self, byte_value):
         """Parse one byte of incoming data.
         
         Accumulates bytes into buffer and processes complete commands.
+        Only returns True when a complete valid Chessnut command is processed.
+        Returns False while accumulating to allow other protocols to be tried
+        during auto-detection.
         
         Args:
             byte_value: Raw byte value from wire
             
         Returns:
-            True if byte was part of a valid Chessnut command, False otherwise
+            True only when a complete valid Chessnut command was processed,
+            False otherwise (including while accumulating)
         """
         self.buffer.append(byte_value)
         
-        # Need at least 3 bytes: command, length, payload
-        if len(self.buffer) < 3:
-            return True  # Accumulating
+        # Validate first byte is a known Chessnut command
+        # This prevents claiming bytes from other protocols during auto-detection
+        if self.buffer[0] not in self.VALID_COMMANDS:
+            # Not a valid Chessnut command byte - clear buffer and reject
+            self.buffer.clear()
+            return False
+        
+        # Need at least 2 bytes: command, length
+        if len(self.buffer) < 2:
+            return False  # Accumulating, but don't claim ownership yet
         
         cmd = self.buffer[0]
         length = self.buffer[1]
         
+        # Validate length is reasonable (prevent buffer overflow from bad data)
+        # Chessnut commands typically have small payloads
+        if length > 64:
+            log.debug(f"[Chessnut] Invalid length {length} - clearing buffer")
+            self.buffer.clear()
+            return False
+        
         # Check if we have the complete packet
         expected_length = 2 + length  # cmd + length + payload
         if len(self.buffer) < expected_length:
-            return True  # Still accumulating
+            return False  # Still accumulating, don't claim ownership yet
         
         # Process complete packet
         payload = self.buffer[2:expected_length]
