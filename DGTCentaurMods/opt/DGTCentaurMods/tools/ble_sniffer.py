@@ -30,6 +30,19 @@ GATT_SERVICE_IFACE = 'org.bluez.GattService1'
 GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
 LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
 
+# Standard BLE Service UUIDs
+GAP_SERVICE_UUID = "00001800-0000-1000-8000-00805F9B34FB"  # Generic Access Profile
+DEVICE_INFO_SERVICE_UUID = "0000180A-0000-1000-8000-00805F9B34FB"  # Device Information
+
+# Standard GAP Characteristic UUIDs
+GAP_DEVICE_NAME_UUID = "00002A00-0000-1000-8000-00805F9B34FB"
+GAP_APPEARANCE_UUID = "00002A01-0000-1000-8000-00805F9B34FB"
+
+# Standard Device Information Characteristic UUIDs
+DEVICE_INFO_MANUFACTURER_UUID = "00002A29-0000-1000-8000-00805F9B34FB"
+DEVICE_INFO_MODEL_UUID = "00002A24-0000-1000-8000-00805F9B34FB"
+DEVICE_INFO_FIRMWARE_UUID = "00002A26-0000-1000-8000-00805F9B34FB"
+
 # Millennium ChessLink BLE UUIDs
 MILLENNIUM_SERVICE_UUID = "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
 MILLENNIUM_RX_UUID = "0000FFF1-0000-1000-8000-00805F9B34FB"  # Write TO device
@@ -361,6 +374,49 @@ class TXCharacteristic(Characteristic):
         self.notifying = False
 
 
+class ReadOnlyCharacteristic(Characteristic):
+    """Simple read-only characteristic"""
+    
+    def __init__(self, bus, index, uuid, value, service):
+        Characteristic.__init__(self, bus, index, uuid, ['read'], service)
+        self._value = value.encode('utf-8') if isinstance(value, str) else value
+
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
+    def ReadValue(self, options):
+        return dbus.Array([dbus.Byte(b) for b in self._value], signature='y')
+
+
+class GAPService(Service):
+    """Generic Access Profile Service (0x1800)"""
+    
+    def __init__(self, bus, index, device_name):
+        Service.__init__(self, bus, index, GAP_SERVICE_UUID, True)
+        # Device Name characteristic
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 0, GAP_DEVICE_NAME_UUID, device_name, self))
+        # Appearance characteristic (0x0000 = Unknown)
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 1, GAP_APPEARANCE_UUID, bytes([0x00, 0x00]), self))
+        log(f"GAP Service created: {GAP_SERVICE_UUID}")
+
+
+class DeviceInfoService(Service):
+    """Device Information Service (0x180A)"""
+    
+    def __init__(self, bus, index):
+        Service.__init__(self, bus, index, DEVICE_INFO_SERVICE_UUID, True)
+        # Manufacturer Name
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 0, DEVICE_INFO_MANUFACTURER_UUID, "Millennium", self))
+        # Model Number
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 1, DEVICE_INFO_MODEL_UUID, "ChessLink", self))
+        # Firmware Revision
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 2, DEVICE_INFO_FIRMWARE_UUID, "1.0", self))
+        log(f"Device Info Service created: {DEVICE_INFO_SERVICE_UUID}")
+
+
 class MillenniumService(Service):
     """Millennium ChessLink Service"""
     
@@ -465,9 +521,12 @@ def main():
     adapter_props.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(True))
     log("Bluetooth adapter powered on")
     
-    # Create and register GATT application
+    # Create and register GATT application with all required services
+    # Real Millennium board has: GAP (0x1800), Device Info (0x180A), Millennium service
     app = Application(bus)
-    app.add_service(MillenniumService(bus, 0))
+    app.add_service(GAPService(bus, 0, args.name))  # Generic Access Profile
+    app.add_service(DeviceInfoService(bus, 1))       # Device Information
+    app.add_service(MillenniumService(bus, 2))       # Millennium ChessLink
     
     service_manager = dbus.Interface(adapter_obj, GATT_MANAGER_IFACE)
     service_manager.RegisterApplication(
