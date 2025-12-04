@@ -1417,69 +1417,91 @@ def main():
     # These names are what chess apps expect to see when scanning
     MILLENNIUM_BLE_NAME = "MILLENNIUM CHESS"
     PEGASUS_BLE_NAME = "DGT_PEGASUS"
-    CHESSNUT_BLE_NAME = "Chessnut Air"
+    # Use consistent name from --device-name for ALL BLE advertisements
+    # This prevents name oscillation - all advertisements show the same name
+    ble_name = args.device_name
     
     if ble_app is not None:
-        # Register a SINGLE BLE advertisement with one consistent name
-        # This avoids name oscillation issues caused by multiple advertisements
-        # The single advertisement includes all enabled service UUIDs
-        
-        # Determine which services to advertise
-        advertise_millennium = True  # Always advertise Millennium
-        advertise_nordic = not args.disable_nordic
-        advertise_chessnut = args.enable_chessnut
-        
-        # Use the device name from --device-name for BLE advertisement
-        # This ensures consistency between RFCOMM and BLE
-        ble_name = args.device_name
-        
+        # Register Millennium ChessLink advertisement
+        # Each advertisement has only ONE service UUID to fit in BLE payload (31 bytes max)
+        # But all use the SAME name for consistency
         try:
-            services_str = []
-            if advertise_millennium:
-                services_str.append("Millennium ChessLink")
-            if advertise_nordic:
-                services_str.append("Nordic UART")
-            if advertise_chessnut:
-                services_str.append("Chessnut Air")
-            
-            log.info(f"Registering SINGLE BLE advertisement as '{ble_name}'...")
-            log.info(f"  Services: {', '.join(services_str)}")
-            
+            log.info(f"Registering Millennium ChessLink BLE advertisement as '{ble_name}'...")
             ble_adv_millennium = UARTAdvertisement(
                 0, 
                 local_name=ble_name, 
-                advertise_millennium=advertise_millennium, 
-                advertise_nordic=advertise_nordic,
-                advertise_chessnut=advertise_chessnut
+                advertise_millennium=True, 
+                advertise_nordic=False,
+                advertise_chessnut=False
             )
             ble_adv_millennium.register()
-            log.info(f"BLE advertisement registered successfully as '{ble_name}'")
+            log.info(f"Millennium ChessLink BLE advertisement registered as '{ble_name}'")
+            time.sleep(0.5)
         except Exception as e:
-            log.error(f"Failed to register BLE advertisement: {e}")
+            log.error(f"Failed to register Millennium BLE advertisement: {e}")
             import traceback
             log.error(traceback.format_exc())
-            log.warning("Continuing without BLE advertisement...")
             ble_adv_millennium = None
         
-        # No secondary advertisements - use single consistent advertisement
+        # Register Nordic UART advertisement (same name, different service UUID)
         ble_adv_nordic = None
+        if not args.disable_nordic:
+            try:
+                log.info(f"Registering Nordic UART BLE advertisement as '{ble_name}'...")
+                ble_adv_nordic = UARTAdvertisement(
+                    1, 
+                    local_name=ble_name, 
+                    advertise_millennium=False, 
+                    advertise_nordic=True,
+                    advertise_chessnut=False
+                )
+                ble_adv_nordic.register()
+                log.info(f"Nordic UART BLE advertisement registered as '{ble_name}'")
+            except Exception as e:
+                log.error(f"Failed to register Nordic BLE advertisement: {e}")
+                import traceback
+                log.error(traceback.format_exc())
+                ble_adv_nordic = None
+        else:
+            log.info("Nordic UART BLE advertisement disabled (--disable-nordic flag set)")
+        
+        # Register Chessnut Air advertisement (same name, different service UUID)
         global ble_adv_chessnut
         ble_adv_chessnut = None
+        if args.enable_chessnut:
+            try:
+                log.info(f"Registering Chessnut Air BLE advertisement as '{ble_name}'...")
+                ble_adv_chessnut = UARTAdvertisement(
+                    2, 
+                    local_name=ble_name, 
+                    advertise_millennium=False, 
+                    advertise_nordic=False,
+                    advertise_chessnut=True
+                )
+                ble_adv_chessnut.register()
+                log.info(f"Chessnut Air BLE advertisement registered as '{ble_name}'")
+            except Exception as e:
+                log.error(f"Failed to register Chessnut BLE advertisement: {e}")
+                import traceback
+                log.error(traceback.format_exc())
+                ble_adv_chessnut = None
+        else:
+            log.info("Chessnut Air BLE advertisement disabled (use --enable-chessnut to enable)")
         
-        if ble_adv_millennium is not None:
+        if ble_adv_millennium is not None or ble_adv_nordic is not None or ble_adv_chessnut is not None:
             log.info("=" * 60)
-            log.info("BLE ADVERTISEMENT REGISTERED")
+            log.info("BLE ADVERTISEMENTS REGISTERED")
             log.info("=" * 60)
-            log.info(f"  Device Name: '{ble_name}'")
+            log.info(f"  Device Name: '{ble_name}' (consistent across all services)")
             log.info(f"  Services:")
-            if advertise_millennium:
+            if ble_adv_millennium is not None:
                 log.info(f"    - Millennium ChessLink: {MILLENNIUM_UUIDS['service']}")
-            if advertise_nordic:
+            if ble_adv_nordic is not None:
                 log.info(f"    - Nordic UART (Pegasus): {NORDIC_UUIDS['service']}")
-            if advertise_chessnut:
+            if ble_adv_chessnut is not None:
                 log.info(f"    - Chessnut Air: {CHESSNUT_UUIDS['service']}")
             log.info("")
-            # Wait for advertisement registration callback to complete
+            # Wait for advertisement registration callbacks to complete
             log.info("Waiting for BLE advertisement registration to complete...")
             
             # Poll for registration status with timeout (callbacks are async)
@@ -1487,35 +1509,62 @@ def main():
             poll_interval = 0.1  # Check every 100ms
             elapsed = 0.0
             
-            registered = False
+            millennium_registered = False
+            nordic_registered = False
+            chessnut_registered = False
             
             while elapsed < max_wait_time:
-                if hasattr(ble_adv_millennium, '_registration_successful') and ble_adv_millennium._registration_successful:
-                    registered = True
+                if ble_adv_millennium is not None and hasattr(ble_adv_millennium, '_registration_successful'):
+                    millennium_registered = ble_adv_millennium._registration_successful
+                if ble_adv_nordic is not None and hasattr(ble_adv_nordic, '_registration_successful'):
+                    nordic_registered = ble_adv_nordic._registration_successful
+                if ble_adv_chessnut is not None and hasattr(ble_adv_chessnut, '_registration_successful'):
+                    chessnut_registered = ble_adv_chessnut._registration_successful
+                
+                # Check if all enabled advertisements are registered
+                all_registered = True
+                if ble_adv_millennium is not None and not millennium_registered:
+                    all_registered = False
+                if ble_adv_nordic is not None and not nordic_registered:
+                    all_registered = False
+                if ble_adv_chessnut is not None and not chessnut_registered:
+                    all_registered = False
+                
+                if all_registered:
                     break
                 
                 time.sleep(poll_interval)
                 elapsed += poll_interval
             
-            if registered:
+            # Log registration status
+            if millennium_registered:
+                log.info("✓ Millennium ChessLink advertisement is ACTIVE")
+            elif ble_adv_millennium is not None:
+                log.warning("⚠ Millennium ChessLink advertisement registration status unknown")
+            
+            if nordic_registered:
+                log.info("✓ Nordic UART advertisement is ACTIVE")
+            elif ble_adv_nordic is not None:
+                log.warning("⚠ Nordic UART advertisement registration status unknown")
+            
+            if chessnut_registered:
+                log.info("✓ Chessnut Air advertisement is ACTIVE")
+            elif ble_adv_chessnut is not None:
+                log.warning("⚠ Chessnut Air advertisement registration status unknown")
+            
+            if millennium_registered or nordic_registered or chessnut_registered:
                 log.info("")
                 log.info("To verify the advertisement is being broadcast, run:")
                 log.info("  sudo hcitool lescan")
-                log.info("  or")
-                log.info("  bluetoothctl scan on")
                 log.info("")
                 log.info(f"You should see: {ble_name}")
             else:
-                log.warning(f"⚠ BLE advertisement registration status unknown for '{ble_name}'")
+                log.warning("")
+                log.warning("⚠ BLE advertisement registration status unknown")
                 log.warning("Advertisement may still be active (callbacks are async)")
                 log.warning("Check BlueZ logs: sudo journalctl -u bluetooth -f")
-                log.warning("")
-                log.warning("Troubleshooting steps:")
-                log.warning("  1. Check BlueZ is running: sudo systemctl status bluetooth")
-                log.warning("  2. Check BlueZ logs: sudo journalctl -u bluetooth -n 50")
-                log.warning("  3. Verify BLE is enabled: hciconfig hci0")
-                log.warning("  4. Try restarting BlueZ: sudo systemctl restart bluetooth")
             
+            log.info("")
             log.info("Waiting for BLE connection from apps...")
             log.info("=" * 60)
         else:
