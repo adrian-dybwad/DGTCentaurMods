@@ -48,6 +48,12 @@ MILLENNIUM_SERVICE_UUID = "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
 MILLENNIUM_RX_UUID = "0000FFF1-0000-1000-8000-00805F9B34FB"  # Write TO device
 MILLENNIUM_TX_UUID = "0000FFF2-0000-1000-8000-00805F9B34FB"  # Notify FROM device
 
+# Standard BLE Descriptor UUIDs
+CCCD_UUID = "00002902-0000-1000-8000-00805F9B34FB"  # Client Characteristic Configuration Descriptor
+
+# D-Bus interface for descriptors
+GATT_DESC_IFACE = 'org.bluez.GattDescriptor1'
+
 # Global state
 mainloop = None
 kill = False
@@ -119,6 +125,10 @@ class Application(dbus.service.Object):
             chrcs = service.get_characteristics()
             for chrc in chrcs:
                 response[chrc.get_path()] = chrc.get_properties()
+                # Include descriptors
+                descs = chrc.get_descriptors()
+                for desc in descs:
+                    response[desc.get_path()] = desc.get_properties()
         return response
 
 
@@ -159,6 +169,69 @@ class Service(dbus.service.Object):
         return self.characteristics
 
 
+class Descriptor(dbus.service.Object):
+    """GATT Descriptor base class"""
+    
+    def __init__(self, bus, index, uuid, flags, characteristic):
+        self.path = characteristic.path + '/desc' + str(index)
+        self.bus = bus
+        self.uuid = uuid
+        self.flags = flags
+        self.characteristic = characteristic
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_properties(self):
+        return {
+            GATT_DESC_IFACE: {
+                'Characteristic': self.characteristic.get_path(),
+                'UUID': self.uuid,
+                'Flags': self.flags,
+            }
+        }
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
+    def GetAll(self, interface):
+        if interface != GATT_DESC_IFACE:
+            raise dbus.exceptions.DBusException(
+                'org.bluez.Error.InvalidArguments',
+                'Invalid interface: ' + interface)
+        return self.get_properties()[GATT_DESC_IFACE]
+
+
+class CCCDescriptor(Descriptor):
+    """Client Characteristic Configuration Descriptor (CCCD)
+    
+    Required for characteristics that support notifications or indications.
+    iOS CoreBluetooth requires this descriptor to be present.
+    """
+    
+    def __init__(self, bus, index, characteristic):
+        Descriptor.__init__(
+            self, bus, index, CCCD_UUID,
+            ['read', 'write'], characteristic)
+        # CCCD value: 2 bytes, bit 0 = notifications, bit 1 = indications
+        self.value = [dbus.Byte(0), dbus.Byte(0)]
+        log(f"CCCD Descriptor created for {characteristic.uuid}")
+
+    @dbus.service.method(GATT_DESC_IFACE, in_signature='a{sv}', out_signature='ay')
+    def ReadValue(self, options):
+        log(f">>> CCCD ReadValue: {self.value}")
+        return self.value
+
+    @dbus.service.method(GATT_DESC_IFACE, in_signature='aya{sv}', out_signature='')
+    def WriteValue(self, value, options):
+        log(f">>> CCCD WriteValue: {list(value)}")
+        self.value = value
+        # Check if notifications were enabled
+        if len(value) > 0 and (value[0] & 0x01):
+            log(">>> CCCD: Notifications ENABLED by client")
+        else:
+            log(">>> CCCD: Notifications DISABLED by client")
+
+
 class Characteristic(dbus.service.Object):
     """GATT Characteristic"""
     
@@ -169,6 +242,7 @@ class Characteristic(dbus.service.Object):
         self.service = service
         self.flags = flags
         self.notifying = False
+        self.descriptors = []
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_properties(self):
@@ -178,11 +252,23 @@ class Characteristic(dbus.service.Object):
                 'UUID': self.uuid,
                 'Flags': self.flags,
                 'Notifying': self.notifying,
+                'Descriptors': dbus.Array(
+                    self.get_descriptor_paths(),
+                    signature='o')
             }
         }
 
     def get_path(self):
         return dbus.ObjectPath(self.path)
+
+    def add_descriptor(self, descriptor):
+        self.descriptors.append(descriptor)
+
+    def get_descriptor_paths(self):
+        return [desc.get_path() for desc in self.descriptors]
+
+    def get_descriptors(self):
+        return self.descriptors
 
     @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
     def GetAll(self, interface):
@@ -255,6 +341,9 @@ class TXCharacteristic(Characteristic):
             ['read', 'notify'],
             service)
         log(f"TX Characteristic created: {MILLENNIUM_TX_UUID}")
+        
+        # Add CCCD descriptor - required for iOS to enable notifications
+        self.add_descriptor(CCCDescriptor(bus, 0, self))
         
         # Pre-computed board state response (starting position)
         # Format: 's' + 64 chars (board) + 2 char CRC
