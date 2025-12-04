@@ -237,10 +237,45 @@ class TXCharacteristic(Characteristic):
             ['read', 'notify'],
             service)
         log(f"TX Characteristic created: {MILLENNIUM_TX_UUID}")
+        
+        # Pre-computed board state response (starting position)
+        # Format: 's' + 64 chars (board) + 2 char CRC
+        # Board: RNBKQBNR PPPPPPPP ........ ........ ........ ........ pppppppp rnbkqbnr
+        self._board_state = self._encode_board_state()
+
+    def _encode_board_state(self):
+        """Encode a starting position board state with Millennium odd parity framing"""
+        # Starting position in Millennium format (rank 1 to rank 8, a-h)
+        # White pieces uppercase, black lowercase, empty = '.'
+        board = "RNBKQBNRPPPPPPPP................................pppppppprnbkqbnr"
+        
+        # Build response: 's' + board + CRC
+        response = "s" + board
+        
+        # Calculate XOR CRC
+        crc = 0
+        for ch in response:
+            crc ^= ord(ch)
+        crc_hex = f"{crc:02X}"
+        
+        packet = response + crc_hex
+        
+        # Apply odd parity to each byte
+        encoded = bytearray()
+        for ch in packet:
+            byte_val = ord(ch)
+            # Count 1 bits
+            ones = bin(byte_val).count('1')
+            # Add parity bit in MSB if needed to make odd
+            if ones % 2 == 0:
+                byte_val |= 0x80
+            encoded.append(byte_val)
+        
+        return encoded
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
     def ReadValue(self, options):
-        """Log read requests"""
+        """Log read requests and return board state"""
         log("=" * 70)
         log(">>> READ REQUEST on TX characteristic (FFF2)")
         if options:
@@ -250,9 +285,19 @@ class TXCharacteristic(Characteristic):
             log(f"    Device: {device}")
             log(f"    MTU: {mtu}")
             log(f"    Link: {link}")
-        log("    Returning empty response (0x00)")
+        
+        # Return board state
+        log(f"    Returning board state ({len(self._board_state)} bytes)")
+        log(f"    Hex: {' '.join(f'{b:02x}' for b in self._board_state[:20])}...")
+        try:
+            # Show ASCII (strip parity for display)
+            ascii_str = ''.join(chr(b & 0x7F) for b in self._board_state)
+            log(f"    ASCII: {ascii_str}")
+        except:
+            pass
         log("=" * 70)
-        return dbus.Array([dbus.Byte(0)], signature='y')
+        
+        return dbus.Array([dbus.Byte(b) for b in self._board_state], signature='y')
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature='', out_signature='')
     def StartNotify(self):
