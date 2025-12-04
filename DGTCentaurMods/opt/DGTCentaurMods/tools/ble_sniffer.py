@@ -179,6 +179,11 @@ class Characteristic(dbus.service.Object):
                 'Invalid interface: ' + interface)
         return self.get_properties()[GATT_CHRC_IFACE]
 
+    @dbus.service.signal(DBUS_PROP_IFACE, signature='sa{sv}as')
+    def PropertiesChanged(self, interface, changed, invalidated):
+        """D-Bus signal for property changes (used for notifications)"""
+        pass
+
 
 class RXCharacteristic(Characteristic):
     """RX Characteristic - receives writes from client (FFF1)"""
