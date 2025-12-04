@@ -612,6 +612,7 @@ class UARTTXCharacteristic(Characteristic):
             self, tx_characteristic_uuid,
             ["read", "notify"], service)
         self.notifying = False
+        self._cached_value = bytearray([0])  # Cache for ReadValue polling clients
     
     def sendMessage(self, data):
         """Send a message via BLE notification.
@@ -772,16 +773,31 @@ class UARTTXCharacteristic(Characteristic):
         return self.notifying
     
     def updateValue(self, value):
-        """Update the characteristic value and notify subscribers"""
-        log.info(f"[updateValue] Called with {len(value)} bytes, notifying={self.notifying}")
-        if not self.notifying:
-            log.warning("[updateValue] Not notifying, skipping")
-            return
+        """Update the characteristic value and notify subscribers.
+        
+        Always caches the value for ReadValue polling clients.
+        Sends PropertiesChanged if client has subscribed to notifications OR
+        if a BLE client is connected (some clients listen without StartNotify).
+        """
+        log.info(f"[updateValue] Called with {len(value)} bytes, notifying={self.notifying}, ble_connected={ble_connected}")
+        
+        # Always cache the value for ReadValue polling
+        self._cached_value = bytearray(value)
+        
+        # Build dbus array for PropertiesChanged
         send = dbus.Array(signature=dbus.Signature('y'))
         for i in range(0, len(value)):
             send.append(dbus.Byte(value[i]))
-        log.info(f"[updateValue] Sending PropertiesChanged with {len(send)} bytes: {' '.join(f'{b:02x}' for b in value)}")
-        self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': send}, [])
+        
+        # Send PropertiesChanged if notifying OR if BLE client is connected
+        # Some clients (like HIARCS Desktop) connect via ReadValue and listen for
+        # property changes without explicitly calling StartNotify
+        global ble_connected
+        if self.notifying or ble_connected:
+            log.info(f"[updateValue] Sending PropertiesChanged with {len(send)} bytes: {' '.join(f'{b:02x}' for b in value)}")
+            self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': send}, [])
+        else:
+            log.debug("[updateValue] No BLE client connected, value cached for later ReadValue")
     
     def ReadValue(self, options):
         """Read the current characteristic value.
@@ -861,11 +877,13 @@ class UARTTXCharacteristic(Characteristic):
                 
                 ble_connected = True
             
-            # Return empty value - the real data comes via notifications
-            value = bytearray()
-            value.append(0)
+            # Return cached value for polling clients
+            # Some clients (like HIARCS Desktop) poll via ReadValue instead of using notifications
+            log.info(f"[ReadValue] Returning cached value: {len(self._cached_value)} bytes")
+            if len(self._cached_value) > 0 and self._cached_value != bytearray([0]):
+                log.info(f"[ReadValue] Cached data: {' '.join(f'{b:02x}' for b in self._cached_value[:50])}{'...' if len(self._cached_value) > 50 else ''}")
             log.info("=" * 60)
-            return value
+            return dbus.Array(self._cached_value, signature=dbus.Signature('y'))
         except Exception as e:
             log.error(f"Error in ReadValue: {e}")
             import traceback
