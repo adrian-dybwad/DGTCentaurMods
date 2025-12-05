@@ -37,7 +37,6 @@ MILLENNIUM_TX_UUID = "49535343-1E4D-4BD9-BA61-23C647249616"  # Peripheral TX -> 
 MILLENNIUM_RX_UUID = "49535343-8841-43F4-A8D4-ECBE34729BB3"  # App TX -> Peripheral RX
 
 # Global state
-kill = False
 device_name = "MILLENNIUM CHESS"
 
 
@@ -311,15 +310,21 @@ class SnifferTXCharacteristic(Characteristic):
         self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': send}, [])
 
 
+mainloop = None
+
+
 def signal_handler(signum, frame):
     """Handle termination signals."""
-    global kill
+    global mainloop
     log(f"Received signal {signum}, exiting...")
-    kill = True
+    if mainloop:
+        mainloop.quit()
+    else:
+        sys.exit(0)
 
 
 def main():
-    global device_name, kill
+    global device_name, mainloop
     
     parser = argparse.ArgumentParser(description="BLE Sniffer for Millennium ChessLink protocol")
     parser.add_argument("--name", default="MILLENNIUM CHESS", help="BLE device name")
@@ -336,6 +341,10 @@ def main():
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Initialize D-Bus main loop
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+    mainloop = GObject.MainLoop()
     
     # Initialize BLE application (same as game/millennium.py)
     app = Application()
@@ -367,7 +376,7 @@ def main():
     
     # Run main loop
     try:
-        app.run()
+        mainloop.run()
     except KeyboardInterrupt:
         log("Keyboard interrupt")
     except Exception as e:
