@@ -24,7 +24,13 @@ GATT_SERVICE_IFACE = 'org.bluez.GattService1'
 GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
 LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
 
-# Device Information Service UUIDs (standard BLE)
+# Generic Access Service UUIDs (standard BLE - 0x1800)
+GAP_SERVICE_UUID = "00001800-0000-1000-8000-00805f9b34fb"
+GAP_DEVICE_NAME_UUID = "00002a00-0000-1000-8000-00805f9b34fb"
+GAP_APPEARANCE_UUID = "00002a01-0000-1000-8000-00805f9b34fb"
+GAP_PPCP_UUID = "00002a04-0000-1000-8000-00805f9b34fb"  # Peripheral Preferred Connection Parameters
+
+# Device Information Service UUIDs (standard BLE - 0x180A)
 DEVICE_INFO_SERVICE_UUID = "0000180a-0000-1000-8000-00805f9b34fb"
 MANUFACTURER_NAME_UUID = "00002a29-0000-1000-8000-00805f9b34fb"
 MODEL_NUMBER_UUID = "00002a24-0000-1000-8000-00805f9b34fb"
@@ -220,7 +226,7 @@ class Characteristic(dbus.service.Object):
 
 
 # =============================================================================
-# Device Information Service Characteristics
+# Generic Access Service (0x1800)
 # =============================================================================
 
 class ReadOnlyCharacteristic(Characteristic):
@@ -236,6 +242,33 @@ class ReadOnlyCharacteristic(Characteristic):
     def ReadValue(self, options):
         return dbus.Array(self.value, signature='y')
 
+
+class GenericAccessService(Service):
+    """Generic Access Service (0x1800) - matches real Millennium board"""
+    
+    def __init__(self, bus, index):
+        Service.__init__(self, bus, index, GAP_SERVICE_UUID, True)
+        
+        # Device Name: "MILLENNIUM CHESS"
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 0, GAP_DEVICE_NAME_UUID, self, "MILLENNIUM CHESS"))
+        
+        # Appearance: 0x0080 = Generic Computer
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 1, GAP_APPEARANCE_UUID, self, bytes([0x80, 0x00])))
+        
+        # Peripheral Preferred Connection Parameters
+        # Min interval: 7.5ms (0x0006), Max interval: 160ms (0x0080)
+        # Latency: 0 (0x0000), Timeout: 3200 (0x0C80)
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 2, GAP_PPCP_UUID, self, bytes([0x06, 0x00, 0x80, 0x00, 0x00, 0x00, 0x80, 0x0C])))
+        
+        log(f"Generic Access Service created: {GAP_SERVICE_UUID}")
+
+
+# =============================================================================
+# Device Information Service (0x180A)
+# =============================================================================
 
 class DeviceInfoService(Service):
     """Device Information Service (0x180A) - matches real Millennium board"""
@@ -539,10 +572,11 @@ def main():
     except dbus.exceptions.DBusException as e:
         log(f"Could not get MAC address: {e}")
     
-    # Create and register GATT application with both services
+    # Create and register GATT application with all services
     app = Application(bus)
-    app.add_service(DeviceInfoService(bus, 0))
-    app.add_service(MillenniumService(bus, 1))
+    app.add_service(GenericAccessService(bus, 0))
+    app.add_service(DeviceInfoService(bus, 1))
+    app.add_service(MillenniumService(bus, 2))
     
     gatt_manager = dbus.Interface(
         bus.get_object(BLUEZ_SERVICE_NAME, adapter),
