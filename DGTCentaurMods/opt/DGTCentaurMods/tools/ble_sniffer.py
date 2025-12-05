@@ -366,6 +366,38 @@ def main():
         return
     log(f"Found Bluetooth adapter: {adapter}")
     
+    # Configure adapter for iOS compatibility (same as game/millennium.py)
+    adapter_props = dbus.Interface(
+        bus.get_object(BLUEZ_SERVICE_NAME, adapter),
+        DBUS_PROP_IFACE)
+    
+    try:
+        # Set Pairable=True (allows pairing)
+        adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
+        log("Adapter Pairable set to True")
+    except dbus.exceptions.DBusException as e:
+        log(f"Could not set Pairable: {e}")
+    
+    try:
+        # Set PairableTimeout to 0 (infinite)
+        adapter_props.Set("org.bluez.Adapter1", "PairableTimeout", dbus.UInt32(0))
+        log("Adapter PairableTimeout set to 0 (infinite)")
+    except dbus.exceptions.DBusException as e:
+        log(f"Could not set PairableTimeout: {e}")
+    
+    try:
+        # Disable Privacy mode (use public MAC address - required for iOS)
+        adapter_props.Set("org.bluez.Adapter1", "Privacy", dbus.Boolean(False))
+        log("Adapter Privacy disabled (using public MAC address)")
+    except dbus.exceptions.DBusException as e:
+        log(f"Could not disable Privacy: {e}")
+    
+    try:
+        mac_address = adapter_props.Get("org.bluez.Adapter1", "Address")
+        log(f"Adapter MAC address: {mac_address}")
+    except dbus.exceptions.DBusException as e:
+        log(f"Could not get MAC address: {e}")
+    
     # Create and register GATT application
     app = Application(bus)
     app.add_service(MillenniumService(bus, 0))
