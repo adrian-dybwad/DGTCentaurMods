@@ -1,663 +1,353 @@
 #!/usr/bin/env python3
 """
-BLE Sniffer - Minimal BLE peripheral for logging client behavior
+Minimal BLE peripheral sniffer for debugging HIARCS connection issues.
 
-This tool creates a minimal BLE peripheral that advertises as a Millennium ChessLink
-board and logs all incoming data from connected clients without responding.
+This uses the same thirdparty modules and structure as game/millennium.py
+which is known to work with HIARCS.
 
-Purpose: Understand what commands apps like HIARCS send when connecting.
-
-Usage:
-    python -m DGTCentaurMods.tools.ble_sniffer [--name "MILLENNIUM CHESS"]
+The purpose is to log all incoming BLE writes to understand what HIARCS
+expects from a Millennium ChessLink board.
 """
 
 import argparse
+import time
+import threading
 import sys
 import signal
-import time
+
 import dbus
 import dbus.service
 import dbus.mainloop.glib
-from gi.repository import GLib
 
-# BlueZ D-Bus constants
-BLUEZ_SERVICE_NAME = 'org.bluez'
-GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
-LE_ADVERTISING_MANAGER_IFACE = 'org.bluez.LEAdvertisingManager1'
-DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
-DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
-GATT_SERVICE_IFACE = 'org.bluez.GattService1'
-GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
-LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
+try:
+    from gi.repository import GObject
+except ImportError:
+    import gobject as GObject
 
-# Standard BLE Service UUIDs
-GAP_SERVICE_UUID = "00001800-0000-1000-8000-00805F9B34FB"  # Generic Access Profile
-DEVICE_INFO_SERVICE_UUID = "0000180A-0000-1000-8000-00805F9B34FB"  # Device Information
+# Use the same thirdparty modules as game/millennium.py
+from DGTCentaurMods.thirdparty.advertisement import Advertisement
+from DGTCentaurMods.thirdparty.service import Application, Service, Characteristic, NotSupportedException
+from DGTCentaurMods.thirdparty.bletools import BleTools
 
-# Standard GAP Characteristic UUIDs
-GAP_DEVICE_NAME_UUID = "00002A00-0000-1000-8000-00805F9B34FB"
-GAP_APPEARANCE_UUID = "00002A01-0000-1000-8000-00805F9B34FB"
+GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
 
-# Standard Device Information Characteristic UUIDs
-DEVICE_INFO_MANUFACTURER_UUID = "00002A29-0000-1000-8000-00805F9B34FB"
-DEVICE_INFO_MODEL_UUID = "00002A24-0000-1000-8000-00805F9B34FB"
-DEVICE_INFO_FIRMWARE_UUID = "00002A26-0000-1000-8000-00805F9B34FB"
-
-# Millennium ChessLink BLE UUIDs
+# Millennium ChessLink UUIDs (same as game/millennium.py)
 MILLENNIUM_SERVICE_UUID = "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
-MILLENNIUM_RX_UUID = "0000FFF1-0000-1000-8000-00805F9B34FB"  # Write TO device
-MILLENNIUM_TX_UUID = "0000FFF2-0000-1000-8000-00805F9B34FB"  # Notify FROM device
-
-# Standard BLE Descriptor UUIDs
-CCCD_UUID = "00002902-0000-1000-8000-00805F9B34FB"  # Client Characteristic Configuration Descriptor
-
-# D-Bus interface for descriptors
-GATT_DESC_IFACE = 'org.bluez.GattDescriptor1'
+MILLENNIUM_TX_UUID = "49535343-1E4D-4BD9-BA61-23C647249616"  # Peripheral TX -> App RX
+MILLENNIUM_RX_UUID = "49535343-8841-43F4-A8D4-ECBE34729BB3"  # App TX -> Peripheral RX
 
 # Global state
-mainloop = None
 kill = False
+device_name = "MILLENNIUM CHESS"
 
 
 def log(msg):
-    """Simple timestamped logging"""
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    print(f"{timestamp} {msg}")
+    """Simple logging with timestamp."""
+    timestamp = time.strftime("%H:%M:%S")
+    print(f"[{timestamp}] {msg}", flush=True)
 
 
-class Advertisement(dbus.service.Object):
-    """BLE Advertisement"""
+def odd_par(b):
+    """Calculate odd parity for a byte (same as game/millennium.py)."""
+    byte = b & 127
+    par = 1
+    for _ in range(7):
+        bit = byte & 1
+        byte = byte >> 1
+        par = par ^ bit
+    if par == 1:
+        byte = b | 128
+    else:
+        byte = b & 127
+    return byte
+
+
+class SnifferAdvertisement(Advertisement):
+    """BLE advertisement - same structure as game/millennium.py"""
     
-    PATH_BASE = '/org/bluez/example/advertisement'
-
-    def __init__(self, bus, index, name):
-        self.path = self.PATH_BASE + str(index)
-        self.bus = bus
-        self.ad_type = 'peripheral'
-        self.local_name = name
-        self.service_uuids = [MILLENNIUM_SERVICE_UUID]
+    def __init__(self, index):
+        Advertisement.__init__(self, index, "peripheral")
+        self.add_local_name(device_name)
         self.include_tx_power = True
-        dbus.service.Object.__init__(self, bus, self.path)
-
-    def get_properties(self):
-        properties = dict()
-        properties['Type'] = self.ad_type
-        properties['LocalName'] = dbus.String(self.local_name)
-        properties['ServiceUUIDs'] = dbus.Array(self.service_uuids, signature='s')
-        properties['IncludeTxPower'] = dbus.Boolean(self.include_tx_power)
-        return {LE_ADVERTISEMENT_IFACE: properties}
-
-    def get_path(self):
-        return dbus.ObjectPath(self.path)
-
-    @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
-    def GetAll(self, interface):
-        if interface != LE_ADVERTISEMENT_IFACE:
-            raise dbus.exceptions.DBusException(
-                'org.bluez.Error.InvalidArguments',
-                'Invalid interface: ' + interface)
-        return self.get_properties()[LE_ADVERTISEMENT_IFACE]
-
-    @dbus.service.method(LE_ADVERTISEMENT_IFACE, in_signature='', out_signature='')
-    def Release(self):
-        log(f"Advertisement released: {self.path}")
-
-
-class Application(dbus.service.Object):
-    """GATT Application"""
+        # NOTE: Do NOT advertise service UUID in advertisement packet
+        # Real Millennium Chess board does not include service UUIDs in advertisement
+        log(f"BLE Advertisement initialized with name: {device_name}")
     
-    def __init__(self, bus):
-        self.path = '/'
-        self.services = []
-        dbus.service.Object.__init__(self, bus, self.path)
-
-    def get_path(self):
-        return dbus.ObjectPath(self.path)
-
-    def add_service(self, service):
-        self.services.append(service)
-
-    @dbus.service.method(DBUS_OM_IFACE, out_signature='a{oa{sa{sv}}}')
-    def GetManagedObjects(self):
-        response = {}
-        for service in self.services:
-            response[service.get_path()] = service.get_properties()
-            chrcs = service.get_characteristics()
-            for chrc in chrcs:
-                response[chrc.get_path()] = chrc.get_properties()
-                # Include descriptors
-                descs = chrc.get_descriptors()
-                for desc in descs:
-                    response[desc.get_path()] = desc.get_properties()
-        return response
-
-
-class Service(dbus.service.Object):
-    """GATT Service"""
+    def register_ad_callback(self):
+        log("BLE advertisement registered successfully")
     
-    PATH_BASE = '/org/bluez/example/service'
-
-    def __init__(self, bus, index, uuid, primary):
-        self.path = self.PATH_BASE + str(index)
-        self.bus = bus
-        self.uuid = uuid
-        self.primary = primary
-        self.characteristics = []
-        dbus.service.Object.__init__(self, bus, self.path)
-
-    def get_properties(self):
-        return {
-            GATT_SERVICE_IFACE: {
-                'UUID': self.uuid,
-                'Primary': self.primary,
-                'Characteristics': dbus.Array(
-                    self.get_characteristic_paths(),
-                    signature='o')
-            }
-        }
-
-    def get_path(self):
-        return dbus.ObjectPath(self.path)
-
-    def add_characteristic(self, characteristic):
-        self.characteristics.append(characteristic)
-
-    def get_characteristic_paths(self):
-        return [chrc.get_path() for chrc in self.characteristics]
-
-    def get_characteristics(self):
-        return self.characteristics
-
-
-class Descriptor(dbus.service.Object):
-    """GATT Descriptor base class"""
+    def register_ad_error_callback(self, error):
+        log(f"Failed to register BLE advertisement: {error}")
     
-    def __init__(self, bus, index, uuid, flags, characteristic):
-        self.path = characteristic.path + '/desc' + str(index)
-        self.bus = bus
-        self.uuid = uuid
-        self.flags = flags
-        self.characteristic = characteristic
-        dbus.service.Object.__init__(self, bus, self.path)
-
-    def get_properties(self):
-        return {
-            GATT_DESC_IFACE: {
-                'Characteristic': self.characteristic.get_path(),
-                'UUID': self.uuid,
-                'Flags': self.flags,
-            }
-        }
-
-    def get_path(self):
-        return dbus.ObjectPath(self.path)
-
-    @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
-    def GetAll(self, interface):
-        if interface != GATT_DESC_IFACE:
-            raise dbus.exceptions.DBusException(
-                'org.bluez.Error.InvalidArguments',
-                'Invalid interface: ' + interface)
-        return self.get_properties()[GATT_DESC_IFACE]
-
-
-class CCCDescriptor(Descriptor):
-    """Client Characteristic Configuration Descriptor (CCCD)
-    
-    Required for characteristics that support notifications or indications.
-    iOS CoreBluetooth requires this descriptor to be present.
-    """
-    
-    def __init__(self, bus, index, characteristic):
-        Descriptor.__init__(
-            self, bus, index, CCCD_UUID,
-            ['read', 'write'], characteristic)
-        # CCCD value: 2 bytes, bit 0 = notifications, bit 1 = indications
-        self.value = [dbus.Byte(0), dbus.Byte(0)]
-        log(f"CCCD Descriptor created for {characteristic.uuid}")
-
-    @dbus.service.method(GATT_DESC_IFACE, in_signature='a{sv}', out_signature='ay')
-    def ReadValue(self, options):
-        log(f">>> CCCD ReadValue: {self.value}")
-        return self.value
-
-    @dbus.service.method(GATT_DESC_IFACE, in_signature='aya{sv}', out_signature='')
-    def WriteValue(self, value, options):
-        log(f">>> CCCD WriteValue: {list(value)}")
-        self.value = value
-        # Check if notifications were enabled
-        if len(value) > 0 and (value[0] & 0x01):
-            log(">>> CCCD: Notifications ENABLED by client")
-        else:
-            log(">>> CCCD: Notifications DISABLED by client")
-
-
-class Characteristic(dbus.service.Object):
-    """GATT Characteristic"""
-    
-    def __init__(self, bus, index, uuid, flags, service):
-        self.path = service.path + '/char' + str(index)
-        self.bus = bus
-        self.uuid = uuid
-        self.service = service
-        self.flags = flags
-        self.notifying = False
-        self.descriptors = []
-        dbus.service.Object.__init__(self, bus, self.path)
-
-    def get_properties(self):
-        return {
-            GATT_CHRC_IFACE: {
-                'Service': self.service.get_path(),
-                'UUID': self.uuid,
-                'Flags': self.flags,
-                'Notifying': self.notifying,
-                'Descriptors': dbus.Array(
-                    self.get_descriptor_paths(),
-                    signature='o')
-            }
-        }
-
-    def get_path(self):
-        return dbus.ObjectPath(self.path)
-
-    def add_descriptor(self, descriptor):
-        self.descriptors.append(descriptor)
-
-    def get_descriptor_paths(self):
-        return [desc.get_path() for desc in self.descriptors]
-
-    def get_descriptors(self):
-        return self.descriptors
-
-    @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
-    def GetAll(self, interface):
-        if interface != GATT_CHRC_IFACE:
-            raise dbus.exceptions.DBusException(
-                'org.bluez.Error.InvalidArguments',
-                'Invalid interface: ' + interface)
-        return self.get_properties()[GATT_CHRC_IFACE]
-
-    @dbus.service.signal(DBUS_PROP_IFACE, signature='sa{sv}as')
-    def PropertiesChanged(self, interface, changed, invalidated):
-        """D-Bus signal for property changes (used for notifications)"""
-        pass
-
-
-class RXCharacteristic(Characteristic):
-    """RX Characteristic - receives writes from client (FFF1)"""
-    
-    def __init__(self, bus, index, service):
-        Characteristic.__init__(
-            self, bus, index,
-            MILLENNIUM_RX_UUID,
-            ['write', 'write-without-response'],
-            service)
-        log(f"RX Characteristic created: {MILLENNIUM_RX_UUID}")
-
-    @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}', out_signature='')
-    def WriteValue(self, value, options):
-        """Log all incoming writes"""
-        bytes_data = bytearray(int(b) for b in value)
-        
-        log("=" * 70)
-        log(">>> WRITE RECEIVED on RX characteristic (FFF1)")
-        log(f"    Length: {len(bytes_data)} bytes")
-        log(f"    Hex: {' '.join(f'{b:02x}' for b in bytes_data)}")
-        log(f"    Dec: {' '.join(f'{b:3d}' for b in bytes_data)}")
-        
-        # Try to decode as ASCII
+    def register(self):
         try:
-            ascii_str = bytes_data.decode('utf-8', errors='replace')
-            printable = ''.join(c if c.isprintable() else '.' for c in ascii_str)
-            log(f"    ASCII: {printable}")
-        except:
-            pass
-        
-        # Check for Millennium protocol markers
-        if len(bytes_data) > 0:
-            first_byte = bytes_data[0]
-            # Strip parity bit
-            cmd = first_byte & 0x7F
-            if 0x20 <= cmd <= 0x7E:
-                log(f"    Possible Millennium command: '{chr(cmd)}' (0x{cmd:02x})")
-        
-        log("=" * 70)
-        
-        # Log options if any interesting ones
-        if options:
-            device = options.get('device', None)
-            if device:
-                log(f"    Device: {device}")
+            bus = BleTools.get_bus()
+            adapter = BleTools.find_adapter(bus)
+            log(f"Found Bluetooth adapter: {adapter}")
+            
+            ad_manager = dbus.Interface(
+                bus.get_object("org.bluez", adapter),
+                "org.bluez.LEAdvertisingManager1")
+            
+            options = {
+                "MinInterval": dbus.UInt16(0x0014),  # 20ms
+                "MaxInterval": dbus.UInt16(0x0098),  # 152.5ms
+            }
+            
+            log(f"Registering advertisement at path: {self.get_path()}")
+            ad_manager.RegisterAdvertisement(
+                self.get_path(),
+                options,
+                reply_handler=self.register_ad_callback,
+                error_handler=self.register_ad_error_callback)
+        except Exception as e:
+            log(f"Exception during BLE advertisement registration: {e}")
+            import traceback
+            log(traceback.format_exc())
 
 
-class TXCharacteristic(Characteristic):
-    """TX Characteristic - sends notifications to client (FFF2)"""
+class SnifferService(Service):
+    """BLE UART service - same structure as game/millennium.py"""
+    tx_obj = None
     
-    def __init__(self, bus, index, service):
-        Characteristic.__init__(
-            self, bus, index,
-            MILLENNIUM_TX_UUID,
-            ['read', 'notify'],
-            service)
-        log(f"TX Characteristic created: {MILLENNIUM_TX_UUID}")
-        
-        # Add CCCD descriptor - required for iOS to enable notifications
-        self.add_descriptor(CCCDescriptor(bus, 0, self))
-        
-        # Pre-computed board state response (starting position)
-        # Format: 's' + 64 chars (board) + 2 char CRC
-        # Board: RNBKQBNR PPPPPPPP ........ ........ ........ ........ pppppppp rnbkqbnr
-        self._board_state = self._encode_board_state()
-        self._notification_thread = None
-        self._client_connected = False
+    def __init__(self, index):
+        Service.__init__(self, index, MILLENNIUM_SERVICE_UUID, True)
+        self.add_characteristic(SnifferTXCharacteristic(self))
+        self.add_characteristic(SnifferRXCharacteristic(self))
+        log(f"Service created: {MILLENNIUM_SERVICE_UUID}")
 
-    def _encode_board_state(self):
-        """Encode a starting position board state with Millennium odd parity framing"""
-        # Starting position in Millennium format (rank 1 to rank 8, a-h)
-        # White pieces uppercase, black lowercase, empty = '.'
-        board = "RNBKQBNRPPPPPPPP................................pppppppprnbkqbnr"
-        
-        # Build response: 's' + board + CRC
-        response = "s" + board
-        
-        # Calculate XOR CRC
-        crc = 0
-        for ch in response:
-            crc ^= ord(ch)
-        crc_hex = f"{crc:02X}"
-        
-        packet = response + crc_hex
-        
-        # Apply odd parity to each byte
-        encoded = bytearray()
-        for ch in packet:
-            byte_val = ord(ch)
-            # Count 1 bits
-            ones = bin(byte_val).count('1')
-            # Add parity bit in MSB if needed to make odd
-            if ones % 2 == 0:
-                byte_val |= 0x80
-            encoded.append(byte_val)
-        
-        return encoded
 
-    def _send_notification(self):
-        """Send a notification with board state"""
-        if not self._client_connected:
+class SnifferRXCharacteristic(Characteristic):
+    """RX characteristic - receives commands from BLE client"""
+    
+    def __init__(self, service):
+        # Same flags as game/millennium.py
+        flags = ["write", "write-without-response"]
+        Characteristic.__init__(self, MILLENNIUM_RX_UUID, flags, service)
+        log(f"RX Characteristic created: {MILLENNIUM_RX_UUID}")
+        log(f"  Flags: {flags}")
+    
+    def WriteValue(self, value, options):
+        """Log all incoming writes from the client."""
+        global kill
+        if kill:
             return
         
-        log(">>> SENDING NOTIFICATION (board state)")
-        
-        # Build dbus array
-        value = dbus.Array([dbus.Byte(b) for b in self._board_state], signature='y')
-        
-        # Send PropertiesChanged signal
-        self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': value}, [])
-        
-        log(f"    Sent {len(self._board_state)} bytes via PropertiesChanged")
-
-    def _notification_loop(self):
-        """Send periodic notifications"""
-        import threading
-        count = 0
-        while self._client_connected and count < 10:  # Send up to 10 notifications
-            time.sleep(2)  # Every 2 seconds
-            if self._client_connected:
-                count += 1
-                log(f">>> AUTO-NOTIFICATION #{count}")
-                self._send_notification()
-        log(">>> Auto-notification loop ended")
-
-    @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
-    def ReadValue(self, options):
-        """Log read requests and return board state"""
-        log("=" * 70)
-        log(">>> READ REQUEST on TX characteristic (FFF2)")
-        if options:
-            device = options.get('device', None)
-            mtu = options.get('mtu', None)
-            link = options.get('link', None)
-            log(f"    Device: {device}")
-            log(f"    MTU: {mtu}")
-            log(f"    Link: {link}")
-        
-        # Mark client as connected and start auto-notifications
-        if not self._client_connected:
-            self._client_connected = True
-            self.notifying = True  # Enable notifications
-            log("    Client connected - starting auto-notification thread")
-            import threading
-            self._notification_thread = threading.Thread(target=self._notification_loop, daemon=True)
-            self._notification_thread.start()
-        
-        # Return board state
-        log(f"    Returning board state ({len(self._board_state)} bytes)")
-        log(f"    Hex: {' '.join(f'{b:02x}' for b in self._board_state[:20])}...")
         try:
-            # Show ASCII (strip parity for display)
-            ascii_str = ''.join(chr(b & 0x7F) for b in self._board_state)
-            log(f"    ASCII: {ascii_str}")
-        except:
-            pass
-        log("=" * 70)
+            bytes_data = bytearray()
+            for i in range(len(value)):
+                bytes_data.append(value[i])
+            
+            hex_str = ' '.join(f'{b:02x}' for b in bytes_data)
+            ascii_str = ''.join(chr(b & 127) if 32 <= (b & 127) < 127 else '.' for b in bytes_data)
+            
+            log(f"RX WriteValue: {len(bytes_data)} bytes")
+            log(f"  Hex: {hex_str}")
+            log(f"  ASCII (stripped parity): {ascii_str}")
+            log(f"  Options: {dict(options) if options else '{}'}")
+            
+            # Parse as Millennium command
+            if len(bytes_data) > 0:
+                cmd = chr(bytes_data[0] & 127)
+                log(f"  Command: '{cmd}' (0x{bytes_data[0]:02x})")
+                
+                # Respond to known commands
+                self._handle_command(cmd, bytes_data)
+                
+        except Exception as e:
+            log(f"Error in WriteValue: {e}")
+            import traceback
+            log(traceback.format_exc())
+    
+    def _handle_command(self, cmd, data):
+        """Handle known Millennium commands and send responses."""
+        if cmd == 'V':
+            # Version request
+            log("  -> Responding with version: v3130")
+            self._send_response("v3130")
+        elif cmd == 'I':
+            # Identity request
+            log("  -> Responding with identity: i0055mm")
+            self._send_response("i0055mm\n")
+        elif cmd == 'S':
+            # Status request - send initial board state
+            log("  -> Responding with board state")
+            # Starting position: RNBKQBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbkqbnr
+            board_state = "sRNBQKBNRPPPPPPPP................................pppppppprnbqkbnr"
+            self._send_response(board_state)
+        elif cmd == 'T':
+            # Reset
+            log("  -> Responding with reset ack: t")
+            self._send_response("t")
+        elif cmd == 'X':
+            # Extinguish LEDs
+            log("  -> Responding with LED ack: x")
+            self._send_response("x")
+        else:
+            log(f"  -> Unknown command, no response")
+    
+    def _send_response(self, txt):
+        """Send a Millennium protocol response via TX characteristic."""
+        if SnifferService.tx_obj is None:
+            log("  -> Cannot send: TX not initialized")
+            return
+        if not SnifferService.tx_obj.notifying:
+            log("  -> Cannot send: notifications not enabled")
+            return
         
-        return dbus.Array([dbus.Byte(b) for b in self._board_state], signature='y')
+        # Build response with parity and checksum (same as game/millennium.py)
+        cs = 0
+        tosend = bytearray()
+        for ch in txt:
+            tosend.append(odd_par(ord(ch)))
+            cs = cs ^ ord(ch)
+        h = "0x{:02x}".format(cs)
+        h1 = h[2:3]
+        h2 = h[3:4]
+        tosend.append(odd_par(ord(h1)))
+        tosend.append(odd_par(ord(h2)))
+        
+        log(f"  -> Sending: {tosend.hex()}")
+        SnifferService.tx_obj.updateValue(tosend)
 
-    @dbus.service.method(GATT_CHRC_IFACE, in_signature='', out_signature='')
-    def StartNotify(self):
-        """Log notification subscription"""
-        log("=" * 70)
-        log(">>> START NOTIFY on TX characteristic (FFF2)")
-        log("    Client subscribed to notifications")
-        log("=" * 70)
-        self.notifying = True
 
-    @dbus.service.method(GATT_CHRC_IFACE, in_signature='', out_signature='')
-    def StopNotify(self):
-        """Log notification unsubscription"""
-        log("=" * 70)
-        log(">>> STOP NOTIFY on TX characteristic (FFF2)")
-        log("    Client unsubscribed from notifications")
-        log("=" * 70)
+class SnifferTXCharacteristic(Characteristic):
+    """TX characteristic - sends responses to BLE client via notifications.
+    
+    This matches game/millennium.py exactly:
+    - Only "notify" flag (no "read")
+    - Removes Value property from get_properties()
+    - Raises NotSupportedException if ReadValue is called
+    """
+    
+    def __init__(self, service):
+        # Same flags as game/millennium.py - ONLY notify, no read
+        flags = ["notify"]
+        Characteristic.__init__(self, MILLENNIUM_TX_UUID, flags, service)
         self.notifying = False
-
-
-class ReadOnlyCharacteristic(Characteristic):
-    """Simple read-only characteristic"""
+        log(f"TX Characteristic created: {MILLENNIUM_TX_UUID}")
+        log(f"  Flags: {flags}")
     
-    def __init__(self, bus, index, uuid, value, service):
-        Characteristic.__init__(self, bus, index, uuid, ['read'], service)
-        self._value = value.encode('utf-8') if isinstance(value, str) else value
-
-    @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
+    def get_properties(self):
+        """Override to ensure no Value property is exposed (matches real Millennium Chess board)."""
+        props = Characteristic.get_properties(self)
+        # Ensure no 'Value' property is in the properties dict
+        if 'Value' in props.get(GATT_CHRC_IFACE, {}):
+            del props[GATT_CHRC_IFACE]['Value']
+            log("TX: Removed 'Value' property to match real board")
+        return props
+    
+    @dbus.service.method("org.freedesktop.DBus.Properties",
+                         in_signature='s',
+                         out_signature='a{sv}')
+    def GetAll(self, interface):
+        """Override GetAll to ensure Value property is never returned."""
+        if interface != GATT_CHRC_IFACE:
+            from DGTCentaurMods.thirdparty.service import InvalidArgsException
+            raise InvalidArgsException()
+        
+        props = self.get_properties()[GATT_CHRC_IFACE]
+        if 'Value' in props:
+            del props['Value']
+        return props
+    
     def ReadValue(self, options):
-        return dbus.Array([dbus.Byte(b) for b in self._value], signature='y')
-
-
-class GAPService(Service):
-    """Generic Access Profile Service (0x1800)"""
+        """Real Millennium Chess board does NOT support ReadValue for TX characteristic."""
+        log("TX ReadValue called - raising NotSupportedException (matches real board)")
+        raise NotSupportedException()
     
-    def __init__(self, bus, index, device_name):
-        Service.__init__(self, bus, index, GAP_SERVICE_UUID, True)
-        # Device Name characteristic
-        self.add_characteristic(ReadOnlyCharacteristic(
-            bus, 0, GAP_DEVICE_NAME_UUID, device_name, self))
-        # Appearance characteristic (0x0000 = Unknown)
-        self.add_characteristic(ReadOnlyCharacteristic(
-            bus, 1, GAP_APPEARANCE_UUID, bytes([0x00, 0x00]), self))
-        log(f"GAP Service created: {GAP_SERVICE_UUID}")
-
-
-class DeviceInfoService(Service):
-    """Device Information Service (0x180A)"""
+    def StartNotify(self):
+        """Called when BLE client subscribes to notifications."""
+        log("TX StartNotify: Client subscribing to notifications")
+        SnifferService.tx_obj = self
+        self.notifying = True
+        log("TX StartNotify: Notifications enabled")
+        return self.notifying
     
-    def __init__(self, bus, index):
-        Service.__init__(self, bus, index, DEVICE_INFO_SERVICE_UUID, True)
-        # Manufacturer Name
-        self.add_characteristic(ReadOnlyCharacteristic(
-            bus, 0, DEVICE_INFO_MANUFACTURER_UUID, "Millennium", self))
-        # Model Number
-        self.add_characteristic(ReadOnlyCharacteristic(
-            bus, 1, DEVICE_INFO_MODEL_UUID, "ChessLink", self))
-        # Firmware Revision
-        self.add_characteristic(ReadOnlyCharacteristic(
-            bus, 2, DEVICE_INFO_FIRMWARE_UUID, "1.0", self))
-        log(f"Device Info Service created: {DEVICE_INFO_SERVICE_UUID}")
-
-
-class MillenniumService(Service):
-    """Millennium ChessLink Service"""
+    def StopNotify(self):
+        """Called when BLE client unsubscribes from notifications."""
+        if not self.notifying:
+            return
+        log("TX StopNotify: Client unsubscribed")
+        self.notifying = False
+        return self.notifying
     
-    def __init__(self, bus, index):
-        Service.__init__(self, bus, index, MILLENNIUM_SERVICE_UUID, True)
-        self.add_characteristic(RXCharacteristic(bus, 0, self))
-        self.add_characteristic(TXCharacteristic(bus, 1, self))
-        log(f"Millennium Service created: {MILLENNIUM_SERVICE_UUID}")
-
-
-def find_adapter(bus):
-    """Find the Bluetooth adapter"""
-    remote_om = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, '/'),
-                               DBUS_OM_IFACE)
-    objects = remote_om.GetManagedObjects()
-
-    for o, props in objects.items():
-        if GATT_MANAGER_IFACE in props.keys():
-            return o
-    return None
-
-
-def register_ad_cb():
-    """Advertisement registration success callback"""
-    log("=" * 70)
-    log("BLE Advertisement registered successfully")
-    log("Device is now discoverable")
-    log("=" * 70)
-
-
-def register_ad_error_cb(error):
-    """Advertisement registration error callback"""
-    log(f"ERROR: Failed to register advertisement: {error}")
-    mainloop.quit()
-
-
-def register_app_cb():
-    """Application registration success callback"""
-    log("GATT application registered successfully")
-
-
-def register_app_error_cb(error):
-    """Application registration error callback"""
-    log(f"ERROR: Failed to register application: {error}")
-    mainloop.quit()
+    def updateValue(self, value):
+        """Update the characteristic value and notify subscribers."""
+        if not self.notifying:
+            return
+        send = dbus.Array(signature=dbus.Signature('y'))
+        for i in range(len(value)):
+            send.append(dbus.Byte(value[i]))
+        self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': send}, [])
 
 
 def signal_handler(signum, frame):
-    """Handle termination signals"""
+    """Handle termination signals."""
     global kill
-    log(f"Received signal {signum}, shutting down...")
+    log(f"Received signal {signum}, exiting...")
     kill = True
-    if mainloop:
-        mainloop.quit()
 
 
 def main():
-    global mainloop
+    global device_name, kill
     
-    parser = argparse.ArgumentParser(
-        description="BLE Sniffer - Log all incoming BLE writes from chess apps")
-    parser.add_argument(
-        "--name", "-n",
-        default="MILLENNIUM CHESS",
-        help="Device name to advertise (default: MILLENNIUM CHESS)")
+    parser = argparse.ArgumentParser(description="BLE Sniffer for Millennium ChessLink protocol")
+    parser.add_argument("--name", default="MILLENNIUM CHESS", help="BLE device name")
     args = parser.parse_args()
     
-    # Set up signal handlers
+    device_name = args.name
+    
+    log("=" * 60)
+    log("BLE Sniffer - Millennium ChessLink Protocol")
+    log(f"Device name: {device_name}")
+    log("Using same structure as game/millennium.py")
+    log("=" * 60)
+    
+    # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Initialize D-Bus
-    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-    bus = dbus.SystemBus()
+    # Initialize BLE application (same as game/millennium.py)
+    app = Application()
+    app.add_service(SnifferService(0))
     
-    # Find adapter
-    adapter_path = find_adapter(bus)
-    if not adapter_path:
-        log("ERROR: No Bluetooth adapter found")
-        sys.exit(1)
+    # Register the application
+    try:
+        app.register()
+        log("BLE application registered")
+    except Exception as e:
+        log(f"Failed to register BLE application: {e}")
+        import traceback
+        log(traceback.format_exc())
+        return
     
-    log("=" * 70)
-    log("BLE SNIFFER - Millennium ChessLink Protocol Logger")
-    log("=" * 70)
-    log(f"Adapter: {adapter_path}")
-    log(f"Device name: {args.name}")
-    log(f"Service UUID: {MILLENNIUM_SERVICE_UUID}")
-    log(f"RX Characteristic (write): {MILLENNIUM_RX_UUID}")
-    log(f"TX Characteristic (notify): {MILLENNIUM_TX_UUID}")
-    log("=" * 70)
-    log("")
-    log("This tool will log ALL incoming BLE writes from connected clients.")
-    log("Connect your chess app (HIARCS, etc.) to see what commands it sends.")
-    log("")
-    log("=" * 70)
-    
-    # Get adapter interfaces
-    adapter_obj = bus.get_object(BLUEZ_SERVICE_NAME, adapter_path)
-    adapter_props = dbus.Interface(adapter_obj, DBUS_PROP_IFACE)
-    
-    # Power on adapter
-    adapter_props.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(True))
-    log("Bluetooth adapter powered on")
-    
-    # Create and register GATT application
-    # Note: BlueZ handles GAP (0x1800) internally, so we only register our custom service
-    # The Device Info service (0x180A) can be added if needed
-    app = Application(bus)
-    app.add_service(MillenniumService(bus, 0))       # Millennium ChessLink
-    
-    service_manager = dbus.Interface(adapter_obj, GATT_MANAGER_IFACE)
-    service_manager.RegisterApplication(
-        app.get_path(), {},
-        reply_handler=register_app_cb,
-        error_handler=register_app_error_cb)
-    
-    # Create and register advertisement
-    ad = Advertisement(bus, 0, args.name)
-    ad_manager = dbus.Interface(adapter_obj, LE_ADVERTISING_MANAGER_IFACE)
-    ad_manager.RegisterAdvertisement(
-        ad.get_path(), {},
-        reply_handler=register_ad_cb,
-        error_handler=register_ad_error_cb)
+    # Register advertisement
+    adv = SnifferAdvertisement(0)
+    try:
+        adv.register()
+    except Exception as e:
+        log(f"Failed to register advertisement: {e}")
+        import traceback
+        log(traceback.format_exc())
     
     log("")
     log("Waiting for BLE connections...")
-    log("Press Ctrl+C to stop")
+    log("Connect with HIARCS or other app to see incoming commands")
     log("")
     
     # Run main loop
-    mainloop = GLib.MainLoop()
     try:
-        mainloop.run()
+        app.run()
     except KeyboardInterrupt:
-        pass
+        log("Keyboard interrupt")
+    except Exception as e:
+        log(f"Error in main loop: {e}")
+        import traceback
+        log(traceback.format_exc())
     
-    log("")
-    log("Shutting down...")
-    
-    # Unregister
-    try:
-        ad_manager.UnregisterAdvertisement(ad.get_path())
-    except:
-        pass
-    try:
-        service_manager.UnregisterApplication(app.get_path())
-    except:
-        pass
-    
-    log("Done")
+    log("Exiting")
 
 
 if __name__ == "__main__":
     main()
-
