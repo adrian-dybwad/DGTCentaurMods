@@ -56,12 +56,13 @@ class Advertisement(dbus.service.Object):
     
     PATH_BASE = '/org/bluez/example/advertisement'
 
-    def __init__(self, bus, index, name):
+    def __init__(self, bus, index, name, include_service_uuid=False):
         self.path = self.PATH_BASE + str(index)
         self.bus = bus
         self.ad_type = 'peripheral'
         self.local_name = name
         self.include_tx_power = True
+        self.include_service_uuid = include_service_uuid
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_properties(self):
@@ -69,7 +70,8 @@ class Advertisement(dbus.service.Object):
         properties['Type'] = self.ad_type
         properties['LocalName'] = dbus.String(self.local_name)
         properties['IncludeTxPower'] = dbus.Boolean(self.include_tx_power)
-        # NOTE: Not including ServiceUUIDs - real Millennium board doesn't
+        if self.include_service_uuid:
+            properties['ServiceUUIDs'] = dbus.Array([MILLENNIUM_SERVICE_UUID], signature='s')
         return {LE_ADVERTISEMENT_IFACE: properties}
 
     def get_path(self):
@@ -338,14 +340,17 @@ def signal_handler(signum, frame):
 def main():
     global mainloop, device_name
     
-    parser = argparse.ArgumentParser(description="BLE Sniffer - Test 1: From-scratch GATT with correct UUIDs")
+    parser = argparse.ArgumentParser(description="BLE Sniffer - Millennium ChessLink emulator for debugging")
     parser.add_argument("--name", default="MILLENNIUM CHESS", help="BLE device name")
+    parser.add_argument("--advertise-uuid", action="store_true", 
+                        help="Include service UUID in advertisement (some apps scan by UUID)")
     args = parser.parse_args()
     device_name = args.name
     
     log("=" * 60)
-    log("BLE Sniffer - Test 1: From-scratch GATT with correct UUIDs")
+    log("BLE Sniffer - Millennium ChessLink")
     log(f"Device name: {device_name}")
+    log(f"Advertise service UUID: {args.advertise_uuid}")
     log("=" * 60)
     
     signal.signal(signal.SIGINT, signal_handler)
@@ -376,7 +381,7 @@ def main():
         error_handler=lambda e: log(f"Failed to register GATT: {e}"))
     
     # Create and register advertisement
-    adv = Advertisement(bus, 0, device_name)
+    adv = Advertisement(bus, 0, device_name, include_service_uuid=args.advertise_uuid)
     
     ad_manager = dbus.Interface(
         bus.get_object(BLUEZ_SERVICE_NAME, adapter),
