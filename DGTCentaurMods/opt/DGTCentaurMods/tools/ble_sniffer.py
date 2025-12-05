@@ -89,7 +89,9 @@ class Advertisement(dbus.service.Object):
         properties = dict()
         properties['Type'] = self.ad_type
         properties['LocalName'] = dbus.String(self.local_name)
-        properties['IncludeTxPower'] = dbus.Boolean(self.include_tx_power)
+        properties['IncludeTxPower'] = dbus.Boolean(True)
+        # Explicitly set TX Power Level to 0 dBm (matching real Millennium board)
+        properties['TxPower'] = dbus.Int16(0)
         if self.include_service_uuid:
             properties['ServiceUUIDs'] = dbus.Array([MILLENNIUM_SERVICE_UUID], signature='s')
         return {LE_ADVERTISEMENT_IFACE: properties}
