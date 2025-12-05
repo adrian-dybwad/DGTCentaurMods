@@ -128,10 +128,6 @@ class SnifferRXCharacteristic(Characteristic):
     
     def WriteValue(self, value, options):
         """Log all incoming writes from the client."""
-        global kill
-        if kill:
-            return
-        
         try:
             bytes_data = bytearray()
             for i in range(len(value)):
