@@ -40,6 +40,7 @@ FIRMWARE_REV_UUID = "00002a26-0000-1000-8000-00805f9b34fb"
 SOFTWARE_REV_UUID = "00002a28-0000-1000-8000-00805f9b34fb"
 SYSTEM_ID_UUID = "00002a23-0000-1000-8000-00805f9b34fb"
 IEEE_REGULATORY_UUID = "00002a2a-0000-1000-8000-00805f9b34fb"
+PNP_ID_UUID = "00002a50-0000-1000-8000-00805f9b34fb"
 
 # Millennium ChessLink Service UUIDs
 MILLENNIUM_SERVICE_UUID = "49535343-fe7d-4ae5-8fa9-9fafd205e455"
@@ -295,6 +296,10 @@ class DeviceInfoService(Service):
             bus, 6, SYSTEM_ID_UUID, self, bytes.fromhex("0000000000000000")))
         self.add_characteristic(ReadOnlyCharacteristic(
             bus, 7, IEEE_REGULATORY_UUID, self, bytes.fromhex("0001000400000000")))
+        # PnP ID: Vendor ID Source (1=Bluetooth SIG), Vendor ID, Product ID, Product Version
+        # Using generic values - format: [VID Source, VID Lo, VID Hi, PID Lo, PID Hi, Ver Lo, Ver Hi]
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 8, PNP_ID_UUID, self, bytes([0x01, 0x0D, 0x00, 0x00, 0x00, 0x01, 0x00])))
         
         log(f"Device Info Service created: {DEVICE_INFO_SERVICE_UUID}")
 
