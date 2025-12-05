@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-BLE Sniffer - Test version using from-scratch GATT with correct UUIDs
+BLE Sniffer - Millennium ChessLink emulator matching real board GATT structure
 
-Test 1: From-scratch GATT implementation (like original) but with correct UUIDs
+Based on nRF Connect capture of real Millennium ChessLink board.
 """
 
 import argparse
@@ -24,10 +24,24 @@ GATT_SERVICE_IFACE = 'org.bluez.GattService1'
 GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
 LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
 
-# Millennium ChessLink BLE UUIDs - CORRECT UUIDs from game/millennium.py
-MILLENNIUM_SERVICE_UUID = "49535343-FE7D-4AE5-8FA9-9FAFD205E455"
-MILLENNIUM_TX_UUID = "49535343-1E4D-4BD9-BA61-23C647249616"  # Peripheral TX -> App RX
-MILLENNIUM_RX_UUID = "49535343-8841-43F4-A8D4-ECBE34729BB3"  # App TX -> Peripheral RX
+# Device Information Service UUIDs (standard BLE)
+DEVICE_INFO_SERVICE_UUID = "0000180a-0000-1000-8000-00805f9b34fb"
+MANUFACTURER_NAME_UUID = "00002a29-0000-1000-8000-00805f9b34fb"
+MODEL_NUMBER_UUID = "00002a24-0000-1000-8000-00805f9b34fb"
+SERIAL_NUMBER_UUID = "00002a25-0000-1000-8000-00805f9b34fb"
+HARDWARE_REV_UUID = "00002a27-0000-1000-8000-00805f9b34fb"
+FIRMWARE_REV_UUID = "00002a26-0000-1000-8000-00805f9b34fb"
+SOFTWARE_REV_UUID = "00002a28-0000-1000-8000-00805f9b34fb"
+SYSTEM_ID_UUID = "00002a23-0000-1000-8000-00805f9b34fb"
+IEEE_REGULATORY_UUID = "00002a2a-0000-1000-8000-00805f9b34fb"
+
+# Millennium ChessLink Service UUIDs
+MILLENNIUM_SERVICE_UUID = "49535343-fe7d-4ae5-8fa9-9fafd205e455"
+MILLENNIUM_CONFIG_UUID = "49535343-6daa-4d02-abf6-19569aca69fe"  # READ/WRITE config
+MILLENNIUM_NOTIFY1_UUID = "49535343-aca3-481c-91ec-d85e28a60318"  # WRITE/NOTIFY
+MILLENNIUM_TX_UUID = "49535343-1e4d-4bd9-ba61-23c647249616"  # READ/WRITE/WRITE_NO_RESP/NOTIFY
+MILLENNIUM_RX_UUID = "49535343-8841-43f4-a8d4-ecbe34729bb3"  # WRITE/WRITE_NO_RESP
+MILLENNIUM_NOTIFY2_UUID = "49535343-026e-3a9b-954c-97daef17e26e"  # WRITE/NOTIFY
 
 # Global state
 mainloop = None
@@ -205,19 +219,120 @@ class Characteristic(dbus.service.Object):
         pass
 
 
+# =============================================================================
+# Device Information Service Characteristics
+# =============================================================================
+
+class ReadOnlyCharacteristic(Characteristic):
+    """Simple read-only characteristic with static value"""
+    
+    def __init__(self, bus, index, uuid, service, value):
+        Characteristic.__init__(self, bus, index, uuid, ['read'], service)
+        if isinstance(value, str):
+            self.value = [dbus.Byte(ord(c)) for c in value]
+        else:
+            self.value = [dbus.Byte(b) for b in value]
+
+    def ReadValue(self, options):
+        return dbus.Array(self.value, signature='y')
+
+
+class DeviceInfoService(Service):
+    """Device Information Service (0x180A) - matches real Millennium board"""
+    
+    def __init__(self, bus, index):
+        Service.__init__(self, bus, index, DEVICE_INFO_SERVICE_UUID, True)
+        
+        # Add all characteristics from real board
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 0, MANUFACTURER_NAME_UUID, self, "MCHP"))
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 1, MODEL_NUMBER_UUID, self, "BT5056"))
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 2, SERIAL_NUMBER_UUID, self, "3481F4ED7834"))
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 3, HARDWARE_REV_UUID, self, "5056_SPP     "))
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 4, FIRMWARE_REV_UUID, self, "2220013"))
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 5, SOFTWARE_REV_UUID, self, "0000"))
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 6, SYSTEM_ID_UUID, self, bytes.fromhex("0000000000000000")))
+        self.add_characteristic(ReadOnlyCharacteristic(
+            bus, 7, IEEE_REGULATORY_UUID, self, bytes.fromhex("0001000400000000")))
+        
+        log(f"Device Info Service created: {DEVICE_INFO_SERVICE_UUID}")
+
+
+# =============================================================================
+# Millennium ChessLink Service Characteristics
+# =============================================================================
+
+class ConfigCharacteristic(Characteristic):
+    """Config characteristic - 49535343-6daa-4d02-abf6-19569aca69fe"""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, MILLENNIUM_CONFIG_UUID,
+                                ['read', 'write'], service)
+        self.value = bytes.fromhex("00240024000000F401")
+        log(f"Config Characteristic created: {MILLENNIUM_CONFIG_UUID}")
+
+    def ReadValue(self, options):
+        log(f"Config ReadValue: {self.value.hex()}")
+        return dbus.Array([dbus.Byte(b) for b in self.value], signature='y')
+
+    def WriteValue(self, value, options):
+        self.value = bytes([int(b) for b in value])
+        log(f"Config WriteValue: {self.value.hex()}")
+
+
+class Notify1Characteristic(Characteristic):
+    """Notify1 characteristic - 49535343-aca3-481c-91ec-d85e28a60318"""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, MILLENNIUM_NOTIFY1_UUID,
+                                ['write', 'notify'], service)
+        self.notifying = False
+        log(f"Notify1 Characteristic created: {MILLENNIUM_NOTIFY1_UUID}")
+
+    def WriteValue(self, value, options):
+        data = bytes([int(b) for b in value])
+        log(f"Notify1 WriteValue: {data.hex()}")
+
+    def StartNotify(self):
+        log("Notify1 StartNotify")
+        self.notifying = True
+
+    def StopNotify(self):
+        log("Notify1 StopNotify")
+        self.notifying = False
+
+
 class TXCharacteristic(Characteristic):
-    """TX characteristic - notify only, no read"""
+    """TX characteristic - 49535343-1e4d-4bd9-ba61-23c647249616
+    
+    Real board has: READ, WRITE, WRITE_WITHOUT_RESPONSE, NOTIFY
+    """
     
     tx_instance = None
     
     def __init__(self, bus, index, service):
-        # Only notify flag - no read
+        # Match real board flags exactly
         Characteristic.__init__(self, bus, index, MILLENNIUM_TX_UUID,
-                                ['notify'], service)
+                                ['read', 'write', 'write-without-response', 'notify'], service)
         self.notifying = False
+        self.value = bytes.fromhex("0000000000")
         TXCharacteristic.tx_instance = self
         log(f"TX Characteristic created: {MILLENNIUM_TX_UUID}")
-        log(f"  Flags: ['notify']")
+        log(f"  Flags: ['read', 'write', 'write-without-response', 'notify']")
+
+    def ReadValue(self, options):
+        log(f"TX ReadValue: {self.value.hex()}")
+        return dbus.Array([dbus.Byte(b) for b in self.value], signature='y')
+
+    def WriteValue(self, value, options):
+        data = bytes([int(b) for b in value])
+        log(f"TX WriteValue: {data.hex()}")
 
     def StartNotify(self):
         log("TX StartNotify: Client subscribing to notifications")
@@ -236,7 +351,7 @@ class TXCharacteristic(Characteristic):
 
 
 class RXCharacteristic(Characteristic):
-    """RX characteristic - write and write-without-response"""
+    """RX characteristic - 49535343-8841-43f4-a8d4-ecbe34729bb3"""
     
     def __init__(self, bus, index, service):
         Characteristic.__init__(self, bus, index, MILLENNIUM_RX_UUID,
@@ -319,14 +434,42 @@ class RXCharacteristic(Characteristic):
         TXCharacteristic.tx_instance.send_notification(tosend)
 
 
+class Notify2Characteristic(Characteristic):
+    """Notify2 characteristic - 49535343-026e-3a9b-954c-97daef17e26e"""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, MILLENNIUM_NOTIFY2_UUID,
+                                ['write', 'notify'], service)
+        self.notifying = False
+        log(f"Notify2 Characteristic created: {MILLENNIUM_NOTIFY2_UUID}")
+
+    def WriteValue(self, value, options):
+        data = bytes([int(b) for b in value])
+        log(f"Notify2 WriteValue: {data.hex()}")
+
+    def StartNotify(self):
+        log("Notify2 StartNotify")
+        self.notifying = True
+
+    def StopNotify(self):
+        log("Notify2 StopNotify")
+        self.notifying = False
+
+
 class MillenniumService(Service):
-    """Millennium ChessLink service"""
+    """Millennium ChessLink service - matches real board with 5 characteristics"""
     
     def __init__(self, bus, index):
         Service.__init__(self, bus, index, MILLENNIUM_SERVICE_UUID, True)
-        self.add_characteristic(TXCharacteristic(bus, 0, self))
-        self.add_characteristic(RXCharacteristic(bus, 1, self))
-        log(f"Service created: {MILLENNIUM_SERVICE_UUID}")
+        
+        # Add all 5 characteristics in same order as real board
+        self.add_characteristic(ConfigCharacteristic(bus, 0, self))
+        self.add_characteristic(Notify1Characteristic(bus, 1, self))
+        self.add_characteristic(TXCharacteristic(bus, 2, self))
+        self.add_characteristic(RXCharacteristic(bus, 3, self))
+        self.add_characteristic(Notify2Characteristic(bus, 4, self))
+        
+        log(f"Millennium Service created: {MILLENNIUM_SERVICE_UUID}")
 
 
 def signal_handler(signum, frame):
@@ -340,17 +483,18 @@ def signal_handler(signum, frame):
 def main():
     global mainloop, device_name
     
-    parser = argparse.ArgumentParser(description="BLE Sniffer - Millennium ChessLink emulator for debugging")
+    parser = argparse.ArgumentParser(description="BLE Sniffer - Millennium ChessLink emulator matching real board")
     parser.add_argument("--name", default="MILLENNIUM CHESS", help="BLE device name")
     parser.add_argument("--advertise-uuid", action="store_true", 
-                        help="Include service UUID in advertisement (some apps scan by UUID)")
+                        help="Include service UUID in advertisement")
     args = parser.parse_args()
     device_name = args.name
     
     log("=" * 60)
-    log("BLE Sniffer - Millennium ChessLink")
+    log("BLE Sniffer - Millennium ChessLink (Full GATT)")
     log(f"Device name: {device_name}")
     log(f"Advertise service UUID: {args.advertise_uuid}")
+    log("Includes Device Info Service + full Millennium service")
     log("=" * 60)
     
     signal.signal(signal.SIGINT, signal_handler)
@@ -366,27 +510,24 @@ def main():
         return
     log(f"Found Bluetooth adapter: {adapter}")
     
-    # Configure adapter for iOS compatibility (same as game/millennium.py)
+    # Configure adapter for iOS compatibility
     adapter_props = dbus.Interface(
         bus.get_object(BLUEZ_SERVICE_NAME, adapter),
         DBUS_PROP_IFACE)
     
     try:
-        # Set Pairable=True (allows pairing)
         adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
         log("Adapter Pairable set to True")
     except dbus.exceptions.DBusException as e:
         log(f"Could not set Pairable: {e}")
     
     try:
-        # Set PairableTimeout to 0 (infinite)
         adapter_props.Set("org.bluez.Adapter1", "PairableTimeout", dbus.UInt32(0))
         log("Adapter PairableTimeout set to 0 (infinite)")
     except dbus.exceptions.DBusException as e:
         log(f"Could not set PairableTimeout: {e}")
     
     try:
-        # Disable Privacy mode (use public MAC address - required for iOS)
         adapter_props.Set("org.bluez.Adapter1", "Privacy", dbus.Boolean(False))
         log("Adapter Privacy disabled (using public MAC address)")
     except dbus.exceptions.DBusException as e:
@@ -398,9 +539,10 @@ def main():
     except dbus.exceptions.DBusException as e:
         log(f"Could not get MAC address: {e}")
     
-    # Create and register GATT application
+    # Create and register GATT application with both services
     app = Application(bus)
-    app.add_service(MillenniumService(bus, 0))
+    app.add_service(DeviceInfoService(bus, 0))
+    app.add_service(MillenniumService(bus, 1))
     
     gatt_manager = dbus.Interface(
         bus.get_object(BLUEZ_SERVICE_NAME, adapter),
@@ -427,7 +569,7 @@ def main():
     
     log("")
     log("Waiting for BLE connections...")
-    log("Connect with HIARCS to test")
+    log("Device should now match real Millennium ChessLink GATT structure")
     log("")
     
     try:
