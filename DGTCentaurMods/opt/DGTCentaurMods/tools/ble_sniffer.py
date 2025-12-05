@@ -183,6 +183,35 @@ class SnifferRXCharacteristic(Characteristic):
             # Extinguish LEDs
             log("  -> Responding with LED ack: x")
             self._send_response("x")
+        elif cmd == 'W':
+            # Write E2ROM - format: W + 2 hex addr + 2 hex value + 2 checksum = 7 bytes
+            if len(data) >= 5:
+                h1 = data[1] & 127
+                h2 = data[2] & 127
+                h3 = data[3] & 127
+                h4 = data[4] & 127
+                addr_str = chr(h1) + chr(h2)
+                val_str = chr(h3) + chr(h4)
+                log(f"  -> Write E2ROM: addr={addr_str} value={val_str}")
+                # Echo back the write confirmation
+                self._send_response('w' + chr(h1) + chr(h2) + chr(h3) + chr(h4))
+            else:
+                log(f"  -> Write E2ROM: incomplete data ({len(data)} bytes)")
+        elif cmd == 'R':
+            # Read E2ROM - format: R + 2 hex addr + 2 checksum = 5 bytes
+            if len(data) >= 3:
+                h1 = data[1] & 127
+                h2 = data[2] & 127
+                addr_str = chr(h1) + chr(h2)
+                log(f"  -> Read E2ROM: addr={addr_str}")
+                # Return 00 as value
+                self._send_response(chr(h1) + chr(h2) + '00')
+            else:
+                log(f"  -> Read E2ROM: incomplete data ({len(data)} bytes)")
+        elif cmd == 'L':
+            # LED pattern command
+            log(f"  -> LED pattern command ({len(data)} bytes)")
+            self._send_response("l")
         else:
             log(f"  -> Unknown command, no response")
     
