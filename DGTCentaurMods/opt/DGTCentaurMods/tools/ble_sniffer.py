@@ -572,11 +572,11 @@ def main():
     except dbus.exceptions.DBusException as e:
         log(f"Could not get MAC address: {e}")
     
-    # Create and register GATT application with all services
+    # Create and register GATT application
+    # Note: Generic Access Service (0x1800) is managed by BlueZ internally
     app = Application(bus)
-    app.add_service(GenericAccessService(bus, 0))
-    app.add_service(DeviceInfoService(bus, 1))
-    app.add_service(MillenniumService(bus, 2))
+    app.add_service(DeviceInfoService(bus, 0))
+    app.add_service(MillenniumService(bus, 1))
     
     gatt_manager = dbus.Interface(
         bus.get_object(BLUEZ_SERVICE_NAME, adapter),
