@@ -23,6 +23,8 @@ DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
 GATT_SERVICE_IFACE = 'org.bluez.GattService1'
 GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
 LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
+AGENT_IFACE = 'org.bluez.Agent1'
+AGENT_MANAGER_IFACE = 'org.bluez.AgentManager1'
 
 # Device Information Service UUIDs (standard BLE - 0x180A)
 # Note: Generic Access Service (0x1800) is NOT defined here because BlueZ
@@ -68,10 +70,78 @@ def find_adapter(bus):
     return None
 
 
+class NoInputNoOutputAgent(dbus.service.Object):
+    """Bluetooth agent that auto-accepts all connections without pairing prompts.
+    
+    This implements a "NoInputNoOutput" capability agent which:
+    - Automatically authorizes all connection requests
+    - Doesn't require PIN entry or confirmation
+    - Matches how real Millennium board handles connections (no pairing required)
+    """
+    
+    AGENT_PATH = "/org/bluez/millennium_agent"
+    CAPABILITY = "NoInputNoOutput"
+    
+    def __init__(self, bus):
+        self.bus = bus
+        dbus.service.Object.__init__(self, bus, self.AGENT_PATH)
+    
+    @dbus.service.method(AGENT_IFACE, in_signature='', out_signature='')
+    def Release(self):
+        log("Agent released")
+    
+    @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
+    def AuthorizeService(self, device, uuid):
+        """Auto-authorize all service access requests."""
+        log(f"AuthorizeService: {device} -> {uuid} (auto-authorized)")
+    
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='s')
+    def RequestPinCode(self, device):
+        """Return empty PIN (no PIN required)."""
+        log(f"RequestPinCode: {device} (returning empty)")
+        return ""
+    
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='u')
+    def RequestPasskey(self, device):
+        """Return 0 passkey (no passkey required)."""
+        log(f"RequestPasskey: {device} (returning 0)")
+        return dbus.UInt32(0)
+    
+    @dbus.service.method(AGENT_IFACE, in_signature='ouq', out_signature='')
+    def DisplayPasskey(self, device, passkey, entered):
+        log(f"DisplayPasskey: {device} passkey={passkey}")
+    
+    @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
+    def DisplayPinCode(self, device, pincode):
+        log(f"DisplayPinCode: {device} pin={pincode}")
+    
+    @dbus.service.method(AGENT_IFACE, in_signature='ou', out_signature='')
+    def RequestConfirmation(self, device, passkey):
+        """Auto-confirm all pairing requests."""
+        log(f"RequestConfirmation: {device} passkey={passkey} (auto-confirmed)")
+    
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
+    def RequestAuthorization(self, device):
+        """Auto-authorize all connection requests."""
+        log(f"RequestAuthorization: {device} (auto-authorized)")
+    
+    @dbus.service.method(AGENT_IFACE, in_signature='', out_signature='')
+    def Cancel(self):
+        log("Agent request cancelled")
+
+
 class Advertisement(dbus.service.Object):
-    """BLE Advertisement"""
+    """BLE Advertisement matching real Millennium ChessLink board.
+    
+    The real board advertises as a "Generic Computer" (appearance 0x0080)
+    and does not require pairing.
+    """
     
     PATH_BASE = '/org/bluez/example/advertisement'
+    
+    # BLE Appearance values (from Bluetooth SIG assigned numbers)
+    # 0x0080 = Generic Computer - matches real Millennium board
+    APPEARANCE_GENERIC_COMPUTER = 0x0080
 
     def __init__(self, bus, index, name, include_service_uuid=False):
         self.path = self.PATH_BASE + str(index)
@@ -89,6 +159,9 @@ class Advertisement(dbus.service.Object):
         properties['IncludeTxPower'] = dbus.Boolean(True)
         # Explicitly set TX Power Level to 0 dBm (matching real Millennium board)
         properties['TxPower'] = dbus.Int16(0)
+        # Set Appearance to Generic Computer (0x0080) - matches real Millennium board
+        # This determines the icon shown on client devices
+        properties['Appearance'] = dbus.UInt16(self.APPEARANCE_GENERIC_COMPUTER)
         if self.include_service_uuid:
             properties['ServiceUUIDs'] = dbus.Array([MILLENNIUM_SERVICE_UUID], signature='s')
         return {LE_ADVERTISEMENT_IFACE: properties}
@@ -582,17 +655,13 @@ def main():
     except dbus.exceptions.DBusException as e:
         log(f"Could not set DiscoverableTimeout: {e}")
     
+    # Disable pairing requirement - real Millennium board doesn't require pairing
+    # This prevents the "pair request" prompt on client devices
     try:
-        adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
-        log("Adapter Pairable set to True")
+        adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(False))
+        log("Adapter Pairable set to False (no pairing required, like real board)")
     except dbus.exceptions.DBusException as e:
         log(f"Could not set Pairable: {e}")
-    
-    try:
-        adapter_props.Set("org.bluez.Adapter1", "PairableTimeout", dbus.UInt32(0))
-        log("Adapter PairableTimeout set to 0 (infinite)")
-    except dbus.exceptions.DBusException as e:
-        log(f"Could not set PairableTimeout: {e}")
     
     try:
         adapter_props.Set("org.bluez.Adapter1", "Privacy", dbus.Boolean(False))
@@ -605,6 +674,25 @@ def main():
         log(f"Adapter MAC address: {mac_address}")
     except dbus.exceptions.DBusException as e:
         log(f"Could not get MAC address: {e}")
+    
+    # Register a NoInputNoOutput agent to auto-accept connections without pairing
+    # This matches the real Millennium board behavior (no pairing prompt)
+    agent = NoInputNoOutputAgent(bus)
+    agent_manager = dbus.Interface(
+        bus.get_object(BLUEZ_SERVICE_NAME, '/org/bluez'),
+        AGENT_MANAGER_IFACE)
+    
+    try:
+        agent_manager.RegisterAgent(agent.AGENT_PATH, agent.CAPABILITY)
+        log(f"Agent registered with capability: {agent.CAPABILITY}")
+    except dbus.exceptions.DBusException as e:
+        log(f"Could not register agent: {e}")
+    
+    try:
+        agent_manager.RequestDefaultAgent(agent.AGENT_PATH)
+        log("Agent set as default")
+    except dbus.exceptions.DBusException as e:
+        log(f"Could not set default agent: {e}")
     
     # Create and register GATT application
     # Note: Generic Access Service (0x1800) is managed by BlueZ internally
