@@ -133,16 +133,11 @@ class NoInputNoOutputAgent(dbus.service.Object):
 class Advertisement(dbus.service.Object):
     """BLE Advertisement matching real Millennium ChessLink board.
     
-    The real board advertises as a "Generic Computer" (appearance 0x0080)
-    and does not require pairing.
+    The real board advertises with LocalName and TxPower only - no Appearance.
+    It does not require pairing.
     """
     
     PATH_BASE = '/org/bluez/example/advertisement'
-    
-    # BLE Appearance values (from Bluetooth SIG assigned numbers)
-    # 0x0000 = Unknown - shows generic Bluetooth icon (like real Millennium board)
-    # Using Unknown rather than Generic Computer to match real board's icon
-    APPEARANCE_UNKNOWN = 0x0000
 
     def __init__(self, bus, index, name, include_service_uuid=False):
         self.path = self.PATH_BASE + str(index)
@@ -157,12 +152,13 @@ class Advertisement(dbus.service.Object):
         properties = dict()
         properties['Type'] = self.ad_type
         properties['LocalName'] = dbus.String(self.local_name)
+        # Explicitly include local name in advertisement packet (matches real board)
+        # Real Millennium board does NOT include appearance in advertisement
+        properties['Includes'] = dbus.Array(['local-name'], signature='s')
         properties['IncludeTxPower'] = dbus.Boolean(True)
         # Explicitly set TX Power Level to 0 dBm (matching real Millennium board)
         properties['TxPower'] = dbus.Int16(0)
-        # Set Appearance to Unknown (0x0000) - shows generic Bluetooth icon like real board
-        # This determines the icon shown on client devices
-        properties['Appearance'] = dbus.UInt16(self.APPEARANCE_UNKNOWN)
+        # Do NOT include Appearance - real Millennium board doesn't advertise it
         if self.include_service_uuid:
             properties['ServiceUUIDs'] = dbus.Array([MILLENNIUM_SERVICE_UUID], signature='s')
         return {LE_ADVERTISEMENT_IFACE: properties}
@@ -670,15 +666,16 @@ def main():
     except dbus.exceptions.DBusException as e:
         log(f"Could not disable Privacy: {e}")
     
-    # Try to set device class to "Uncategorized" (0x1F0000) to match generic BLE peripheral
-    # This affects the icon shown on some clients
-    # Class format: bits 0-1 = format type, bits 2-7 = minor class, bits 8-12 = major class
-    # Major class 0x1F = Uncategorized, Minor class 0 = generic
+    # Set device class to Audio/Video to match real Millennium board (shows headphone icon)
+    # Class of Device format: bits 0-1 = format type (0), bits 2-7 = minor class, bits 8-12 = major class
+    # Major class 0x04 = Audio/Video
+    # Minor class 0x04 = Headphones (within Audio/Video)
+    # Full CoD: 0x200404 = Audio/Video, Headphones, with service class bits
+    # Or simpler: 0x000404 = Audio/Video major class, Headphones minor class
     try:
-        # Class of Device: 0x001F00 = Uncategorized, no minor class
-        # Or 0x000000 = Miscellaneous
-        adapter_props.Set("org.bluez.Adapter1", "Class", dbus.UInt32(0x000000))
-        log("Adapter Class set to Miscellaneous (0x000000)")
+        # 0x200404 = Service class (Audio) + Major class (Audio/Video) + Minor class (Headphones)
+        adapter_props.Set("org.bluez.Adapter1", "Class", dbus.UInt32(0x200404))
+        log("Adapter Class set to Audio/Video Headphones (0x200404) - matches real board icon")
     except dbus.exceptions.DBusException as e:
         log(f"Could not set Class (may be read-only): {e}")
     
