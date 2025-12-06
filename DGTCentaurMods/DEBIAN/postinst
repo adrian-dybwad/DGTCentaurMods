@@ -194,6 +194,21 @@ echo -e "::: Installing dhcpcd hook for WiFi status widget"
     sed -i "/DiscoverableTimeout/s/^# *//" $BTMAIN
     sed -i "/PairableTimeout/s/^# *//" $BTMAIN
     sed -i "s/#JustWorksRepairing = never/JustWorksRepairing = always/g" $BTMAIN
+    
+    # Set Bluetooth Class of Device to Audio/Video (headphones icon) to match real Millennium board
+    # Class 0x200404 = Service Class (Audio) + Major Class (Audio/Video) + Minor Class (Headphones)
+    if grep -q "^#Class = " $BTMAIN; then
+        # Uncomment and set the Class line
+        sed -i "s/^#Class = .*/Class = 0x200404/" $BTMAIN
+    elif grep -q "^Class = " $BTMAIN; then
+        # Update existing Class line
+        sed -i "s/^Class = .*/Class = 0x200404/" $BTMAIN
+    else
+        # Add Class line under [General] section
+        sed -i "/^\[General\]/a Class = 0x200404" $BTMAIN
+    fi
+    echo -e "::: Bluetooth Class set to 0x200404 (Audio/Video - headphones icon)"
+    
     #Mark file as changed
     sed -i "$ a #dgtcentaurmods" $BTMAIN
 
