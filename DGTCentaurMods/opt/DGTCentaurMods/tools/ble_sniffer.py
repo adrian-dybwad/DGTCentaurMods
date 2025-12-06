@@ -3,12 +3,20 @@
 BLE Sniffer - Millennium ChessLink emulator matching real board GATT structure
 
 Based on nRF Connect capture of real Millennium ChessLink board.
+
+To match real Millennium board behavior (no pairing prompt on iOS/Android),
+this script configures BlueZ to:
+- Disable bondable mode (no new pairings)
+- Disable secure connections
+- Set IO capability to NoInputNoOutput (Just Works pairing)
+- Use characteristics without encryption requirements
 """
 
 import argparse
 import sys
 import signal
 import time
+import subprocess
 import dbus
 import dbus.service
 import dbus.mainloop.glib
@@ -68,6 +76,48 @@ def find_adapter(bus):
         if GATT_MANAGER_IFACE in props:
             return o
     return None
+
+
+def configure_adapter_security():
+    """Configure Bluetooth adapter security settings to prevent pairing prompts.
+    
+    The real Millennium board operates without requiring pairing. To match this:
+    - Disable bondable mode (prevents creating new bonds/pairings)
+    - Disable secure connections (prevents security negotiation)
+    - Set IO capability to NoInputNoOutput (0x03) for "Just Works" mode
+    
+    These settings are applied via btmgmt which directly configures the controller.
+    """
+    commands = [
+        # Disable bondable mode - prevents pairing requests
+        ['btmgmt', 'bondable', 'off'],
+        # Disable secure connections - prevents security negotiation
+        ['btmgmt', 'sc', 'off'],
+        # Set IO capability to NoInputNoOutput (Just Works, no pairing UI)
+        ['btmgmt', 'io-cap', '0x03'],
+        # Enable LE (Low Energy) advertising
+        ['btmgmt', 'le', 'on'],
+        # Make adapter connectable for LE
+        ['btmgmt', 'connectable', 'on'],
+    ]
+    
+    for cmd in commands:
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            cmd_str = ' '.join(cmd)
+            if result.returncode == 0:
+                log(f"btmgmt: {cmd_str} - OK")
+            else:
+                # Non-fatal - some commands may not be available on all BlueZ versions
+                stderr = result.stderr.strip() if result.stderr else "unknown error"
+                log(f"btmgmt: {cmd_str} - {stderr}")
+        except FileNotFoundError:
+            log(f"btmgmt not found - skipping security configuration")
+            break
+        except subprocess.TimeoutExpired:
+            log(f"btmgmt command timed out: {' '.join(cmd)}")
+        except Exception as e:
+            log(f"btmgmt error: {e}")
 
 
 class NoInputNoOutputAgent(dbus.service.Object):
@@ -619,6 +669,11 @@ def main():
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Configure adapter security settings BEFORE D-Bus setup
+    # This disables bonding and secure connections to prevent pairing prompts
+    log("Configuring adapter security (matching real Millennium board)...")
+    configure_adapter_security()
     
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()
