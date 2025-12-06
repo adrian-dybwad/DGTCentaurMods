@@ -20,6 +20,7 @@ import sys
 import signal
 import time
 import subprocess
+import os
 import socket
 import threading
 import dbus
@@ -34,10 +35,17 @@ try:
 except ImportError:
     HAS_PYBLUEZ = False
 
+# Try to import psutil for process management
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+
 # RFCOMM constants
-# Channel 1 is registered in BlueZ's default SDP as "Serial Port"
-# The real Millennium board uses channel 6, but we use 1 to match the Pi's SDP
-RFCOMM_CHANNEL = 1
+# Use 0 (PORT_ANY) to let the system assign an available channel
+# This avoids conflicts with other services using specific channels
+RFCOMM_CHANNEL = 0  # 0 = bluetooth.PORT_ANY
 SPP_UUID = "00001101-0000-1000-8000-00805f9b34fb"  # Serial Port Profile UUID
 
 # BlueZ D-Bus constants
@@ -961,6 +969,37 @@ def main():
             log("WARNING: PyBluez not installed - RFCOMM support disabled")
             log("  Install with: pip install pybluez")
         else:
+            # Stop any existing rfcomm service/process that might be using the channel
+            # (same approach as universal_relay.py)
+            log("Stopping any existing rfcomm processes...")
+            os.system('sudo service rfcomm stop 2>/dev/null')
+            time.sleep(1)
+            
+            if HAS_PSUTIL:
+                # Kill any remaining rfcomm processes
+                for p in psutil.process_iter(attrs=['pid', 'name']):
+                    if str(p.info["name"]) == "rfcomm":
+                        try:
+                            p.kill()
+                            log(f"  Killed rfcomm process (PID {p.info['pid']})")
+                        except Exception:
+                            pass
+                
+                # Wait for processes to die
+                for _ in range(20):  # Wait up to 2 seconds
+                    found = False
+                    for p in psutil.process_iter(attrs=['pid', 'name']):
+                        if str(p.info["name"]) == "rfcomm":
+                            found = True
+                            break
+                    if not found:
+                        break
+                    time.sleep(0.1)
+            else:
+                # Fallback: use killall
+                os.system('sudo killall rfcomm 2>/dev/null')
+                time.sleep(1)
+            
             rfcomm_server = RFCOMMServer(channel=args.rfcomm_channel, service_name=device_name)
             if rfcomm_server.start():
                 # SDP service is now advertised by RFCOMMServer.start()
