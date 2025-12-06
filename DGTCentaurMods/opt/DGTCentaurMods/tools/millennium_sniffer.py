@@ -4,15 +4,13 @@ Millennium Sniffer - Millennium ChessLink emulator supporting BLE and RFCOMM
 
 Emulates a real Millennium ChessLink board for testing and development.
 Supports both:
-- BLE (Bluetooth Low Energy) GATT services
-- RFCOMM (Classic Bluetooth Serial Port Profile)
+- BLE (Bluetooth Low Energy) GATT services - no pairing required
+- RFCOMM (Classic Bluetooth Serial Port Profile) - pairing required
 
 The real Millennium board supports both connection types simultaneously.
 
-To match real Millennium board behavior (no pairing prompt on iOS/macOS):
-- Remove all paired devices on startup (cached pairing state triggers re-pairing)
-- Disable bondable mode (prevents new pairings from being created)
-- Set Adapter.Pairable = False
+For BLE: Disable bondable mode to prevent pairing prompts (real board doesn't bond)
+For RFCOMM/SPP: Pairing is required and should persist across restarts
 """
 
 import argparse
@@ -1088,29 +1086,9 @@ def main():
     except dbus.exceptions.DBusException as e:
         log(f"Could not set default agent: {e}")
     
-    # Remove all paired devices to prevent pairing prompts from cached state
-    # The real Millennium board doesn't have any paired device state - it operates
-    # without bonding. Cached pairing info on the Pi can trigger re-pairing requests.
-    try:
-        adapter_iface = dbus.Interface(
-            bus.get_object(BLUEZ_SERVICE_NAME, adapter),
-            'org.bluez.Adapter1')
-        remote_om = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, '/'),
-                                   DBUS_OM_IFACE)
-        objects = remote_om.GetManagedObjects()
-        for path, interfaces in objects.items():
-            if 'org.bluez.Device1' in interfaces:
-                device_props = interfaces['org.bluez.Device1']
-                if device_props.get('Paired', False):
-                    paired_device_name = device_props.get('Name', 'Unknown')
-                    log(f"Removing paired device: {paired_device_name} at {path}")
-                    try:
-                        adapter_iface.RemoveDevice(path)
-                        log(f"  Removed successfully")
-                    except dbus.exceptions.DBusException as e:
-                        log(f"  Failed to remove: {e}")
-    except dbus.exceptions.DBusException as e:
-        log(f"Could not enumerate paired devices: {e}")
+    # Note: We do NOT remove paired devices here.
+    # RFCOMM/SPP requires pairing to persist across restarts.
+    # If a reset is needed, run the postinst script or manually unpair devices.
     
     # Create and register GATT application if BLE is enabled
     if not args.no_ble:
