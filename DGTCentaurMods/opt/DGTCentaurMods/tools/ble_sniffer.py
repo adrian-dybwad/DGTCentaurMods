@@ -472,9 +472,13 @@ class RXCharacteristic(Characteristic):
         - 's' (0x73) - Request board state 
         - 'V' (0x56) - Request version string
         - 'I' (0x49) - Request identity
+        - 'R' (0x52) - Read E2ROM
         - 'W' (0x57) - Write E2ROM
-        - 'L' (0x4C) - LED control
+        - 'L' (0x4C) - LED control (multi-packet, 167 bytes total)
         - 'X' (0x58) - Extended LED control
+        
+        Note: LED commands span multiple packets. Continuation packets starting
+        with data bytes (not command letters) are silently ignored.
         """
         # Board state (starting position for emulator)
         board_state = "sRNBQKBNRPPPPPPPP................................pppppppprnbqkbnr"
@@ -497,6 +501,16 @@ class RXCharacteristic(Characteristic):
         elif cmd == 'I':
             log("  -> Responding with identity: i0055mm")
             self._send_response("i0055mm\n")
+        elif cmd == 'R':
+            # Read E2ROM - return stored value for address
+            if len(data) >= 5:
+                h1, h2, h3, h4 = [data[i] & 127 for i in range(1, 5)]
+                addr = chr(h1) + chr(h2)
+                # Return default value "00" for any address
+                log(f"  -> Read E2ROM: addr={addr}")
+                self._send_response('r' + addr + '00')
+            else:
+                log(f"  -> Read E2ROM: insufficient data")
         elif cmd == 'W':
             if len(data) >= 5:
                 h1, h2, h3, h4 = [data[i] & 127 for i in range(1, 5)]
@@ -508,6 +522,9 @@ class RXCharacteristic(Characteristic):
         elif cmd == 'X':
             log(f"  -> Extended LED command ({len(data)} bytes)")
             self._send_response("x")
+        elif cmd in '0123456789':
+            # Continuation packet from multi-packet command (like LED) - silently ignore
+            pass
         else:
             log(f"  -> Unknown command '{cmd}' (0x{ord(cmd):02x}), no response")
 
