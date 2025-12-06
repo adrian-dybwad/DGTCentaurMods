@@ -94,6 +94,8 @@ def configure_adapter_security():
         ['sudo', 'btmgmt', 'bondable', 'off'],
         # Disable secure connections - prevents security negotiation
         ['sudo', 'btmgmt', 'sc', 'off'],
+        # Disable Simple Secure Pairing (SSP) - prevents pairing prompts
+        ['sudo', 'btmgmt', 'ssp', 'off'],
         # Set IO capability to NoInputNoOutput (Just Works, no pairing UI)
         ['sudo', 'btmgmt', 'io-cap', '0x03'],
         # Enable LE (Low Energy) advertising
