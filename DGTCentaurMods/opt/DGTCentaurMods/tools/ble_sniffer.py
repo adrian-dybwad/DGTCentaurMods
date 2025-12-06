@@ -711,8 +711,8 @@ def main():
             if 'org.bluez.Device1' in interfaces:
                 device_props = interfaces['org.bluez.Device1']
                 if device_props.get('Paired', False):
-                    device_name = device_props.get('Name', 'Unknown')
-                    log(f"Found paired device: {device_name} at {path}")
+                    paired_device_name = device_props.get('Name', 'Unknown')
+                    log(f"Found paired device: {paired_device_name} at {path}")
                     # Optionally remove paired devices - commented out to avoid breaking other pairings
                     # adapter_iface.RemoveDevice(path)
     except dbus.exceptions.DBusException as e:
