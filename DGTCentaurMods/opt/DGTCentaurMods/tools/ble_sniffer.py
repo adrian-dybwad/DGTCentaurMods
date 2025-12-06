@@ -777,8 +777,9 @@ def main():
     except dbus.exceptions.DBusException as e:
         log(f"Could not set default agent: {e}")
     
-    # Remove any existing paired devices to prevent pairing prompts from cached state
-    # This ensures fresh connections don't trigger pairing based on old state
+    # Remove all paired devices to prevent pairing prompts from cached state
+    # The real Millennium board doesn't have any paired device state - it operates
+    # without bonding. Cached pairing info on the Pi can trigger re-pairing requests.
     try:
         adapter_iface = dbus.Interface(
             bus.get_object(BLUEZ_SERVICE_NAME, adapter),
@@ -791,9 +792,12 @@ def main():
                 device_props = interfaces['org.bluez.Device1']
                 if device_props.get('Paired', False):
                     paired_device_name = device_props.get('Name', 'Unknown')
-                    log(f"Found paired device: {paired_device_name} at {path}")
-                    # Optionally remove paired devices - commented out to avoid breaking other pairings
-                    # adapter_iface.RemoveDevice(path)
+                    log(f"Removing paired device: {paired_device_name} at {path}")
+                    try:
+                        adapter_iface.RemoveDevice(path)
+                        log(f"  Removed successfully")
+                    except dbus.exceptions.DBusException as e:
+                        log(f"  Failed to remove: {e}")
     except dbus.exceptions.DBusException as e:
         log(f"Could not enumerate paired devices: {e}")
     
