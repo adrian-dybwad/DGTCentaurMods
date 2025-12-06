@@ -550,10 +550,41 @@ def main():
         return
     log(f"Found Bluetooth adapter: {adapter}")
     
-    # Configure adapter for iOS compatibility
+    # Configure adapter for iOS compatibility and proper device naming
     adapter_props = dbus.Interface(
         bus.get_object(BLUEZ_SERVICE_NAME, adapter),
         DBUS_PROP_IFACE)
+    
+    # Set the adapter Alias to the device name - this is what clients see as the device name
+    try:
+        adapter_props.Set("org.bluez.Adapter1", "Alias", dbus.String(device_name))
+        log(f"Adapter Alias set to '{device_name}'")
+    except dbus.exceptions.DBusException as e:
+        log(f"Could not set Alias: {e}")
+    
+    # Ensure adapter is powered on
+    try:
+        powered = adapter_props.Get("org.bluez.Adapter1", "Powered")
+        if not powered:
+            adapter_props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(True))
+            log("Adapter powered on")
+        else:
+            log("Adapter already powered on")
+    except dbus.exceptions.DBusException as e:
+        log(f"Could not check/set Powered: {e}")
+    
+    # Make adapter discoverable
+    try:
+        adapter_props.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(True))
+        log("Adapter Discoverable set to True")
+    except dbus.exceptions.DBusException as e:
+        log(f"Could not set Discoverable: {e}")
+    
+    try:
+        adapter_props.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(0))
+        log("Adapter DiscoverableTimeout set to 0 (infinite)")
+    except dbus.exceptions.DBusException as e:
+        log(f"Could not set DiscoverableTimeout: {e}")
     
     try:
         adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(True))
@@ -589,11 +620,32 @@ def main():
         bus.get_object(BLUEZ_SERVICE_NAME, adapter),
         GATT_MANAGER_IFACE)
     
+    # Track registration status
+    gatt_registered = [False]
+    adv_registered = [False]
+    registration_error = [None]
+    
+    def gatt_register_success():
+        log("GATT application registered successfully")
+        gatt_registered[0] = True
+    
+    def gatt_register_error(error):
+        log(f"Failed to register GATT application: {error}")
+        registration_error[0] = str(error)
+    
+    def adv_register_success():
+        log("Advertisement registered successfully")
+        adv_registered[0] = True
+    
+    def adv_register_error(error):
+        log(f"Failed to register advertisement: {error}")
+        registration_error[0] = str(error)
+    
     log("Registering GATT application...")
     gatt_manager.RegisterApplication(
         app.get_path(), {},
-        reply_handler=lambda: log("GATT application registered"),
-        error_handler=lambda e: log(f"Failed to register GATT: {e}"))
+        reply_handler=gatt_register_success,
+        error_handler=gatt_register_error)
     
     # Create and register advertisement
     adv = Advertisement(bus, 0, device_name, include_service_uuid=args.advertise_uuid)
@@ -605,11 +657,26 @@ def main():
     log("Registering advertisement...")
     ad_manager.RegisterAdvertisement(
         adv.get_path(), {},
-        reply_handler=lambda: log("Advertisement registered"),
-        error_handler=lambda e: log(f"Failed to register advertisement: {e}"))
+        reply_handler=adv_register_success,
+        error_handler=adv_register_error)
+    
+    # Give D-Bus time to process registrations
+    time.sleep(1)
+    
+    # Run one iteration of the main loop to process registration callbacks
+    context = mainloop.get_context()
+    while context.pending():
+        context.iteration(False)
     
     log("")
+    if registration_error[0]:
+        log(f"WARNING: Registration failed: {registration_error[0]}")
+        log("BLE service may not work correctly!")
+    else:
+        log("GATT and Advertisement registration initiated")
+    log("")
     log("Waiting for BLE connections...")
+    log(f"Device name: {device_name}")
     log("Device should now match real Millennium ChessLink GATT structure")
     log("")
     
@@ -617,6 +684,8 @@ def main():
         mainloop.run()
     except Exception as e:
         log(f"Error: {e}")
+        import traceback
+        log(traceback.format_exc())
     
     log("Exiting")
 
