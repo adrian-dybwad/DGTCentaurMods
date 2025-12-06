@@ -4,12 +4,10 @@ BLE Sniffer - Millennium ChessLink emulator matching real board GATT structure
 
 Based on nRF Connect capture of real Millennium ChessLink board.
 
-To match real Millennium board behavior (no pairing prompt on iOS/Android),
-this script configures BlueZ to:
-- Disable bondable mode (no new pairings)
-- Disable secure connections
-- Set IO capability to NoInputNoOutput (Just Works pairing)
-- Use characteristics without encryption requirements
+To match real Millennium board behavior (no pairing prompt on iOS/macOS):
+- Remove all paired devices on startup (cached pairing state triggers re-pairing)
+- Disable bondable mode (prevents new pairings from being created)
+- Set Adapter.Pairable = False
 """
 
 import argparse
@@ -79,23 +77,17 @@ def find_adapter(bus):
 
 
 def configure_adapter_security():
-    """Configure Bluetooth adapter security settings to prevent pairing prompts.
+    """Configure Bluetooth adapter for BLE operation without pairing.
     
     The real Millennium board operates without requiring pairing. To match this:
     - Disable bondable mode (prevents creating new bonds/pairings)
-    - Disable secure connections (prevents security negotiation)
-    - Set IO capability to NoInputNoOutput (0x03) for "Just Works" mode
+    - Enable LE advertising and connectable mode
     
     These settings are applied via btmgmt which directly configures the controller.
-    Must run with sudo to have permission to change adapter settings.
     """
     commands = [
-        # Disable bondable mode - prevents pairing requests
+        # Disable bondable mode - prevents new pairing requests
         ['sudo', 'btmgmt', 'bondable', 'off'],
-        # Disable secure connections - prevents security negotiation
-        ['sudo', 'btmgmt', 'sc', 'off'],
-        # Set IO capability to NoInputNoOutput (Just Works, no pairing UI)
-        ['sudo', 'btmgmt', 'io-cap', '0x03'],
         # Enable LE (Low Energy) advertising
         ['sudo', 'btmgmt', 'le', 'on'],
         # Make adapter connectable for LE
@@ -107,14 +99,12 @@ def configure_adapter_security():
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
             cmd_str = ' '.join(cmd[1:])  # Skip 'sudo' in log output
             if result.returncode == 0:
-                # Parse output to show the actual result
                 stdout = result.stdout.strip()
                 if stdout:
                     log(f"btmgmt: {cmd_str} - {stdout}")
                 else:
                     log(f"btmgmt: {cmd_str} - OK")
             else:
-                # Non-fatal - some commands may not be available on all BlueZ versions
                 stderr = result.stderr.strip() if result.stderr else "unknown error"
                 stdout = result.stdout.strip() if result.stdout else ""
                 log(f"btmgmt: {cmd_str} - {stderr or stdout or 'failed'}")
@@ -128,12 +118,11 @@ def configure_adapter_security():
 
 
 class NoInputNoOutputAgent(dbus.service.Object):
-    """Bluetooth agent that auto-accepts all connections without pairing prompts.
+    """Bluetooth agent that auto-accepts connections without user interaction.
     
-    This implements a "NoInputNoOutput" capability agent which:
-    - Automatically authorizes all connection requests
-    - Doesn't require PIN entry or confirmation
-    - Matches how real Millennium board handles connections (no pairing required)
+    This is a fallback - the primary mechanism for preventing pairing prompts is
+    removing paired devices on startup and disabling bondable mode. This agent
+    handles any edge cases where BlueZ still attempts pairing negotiation.
     """
     
     AGENT_PATH = "/org/bluez/millennium_agent"
@@ -735,15 +724,6 @@ def main():
         log("Adapter Pairable set to False (no pairing required, like real board)")
     except dbus.exceptions.DBusException as e:
         log(f"Could not set Pairable: {e}")
-    
-    try:
-        adapter_props.Set("org.bluez.Adapter1", "Privacy", dbus.Boolean(False))
-        log("Adapter Privacy disabled (using public MAC address)")
-    except dbus.exceptions.DBusException as e:
-        log(f"Could not disable Privacy: {e}")
-    
-    # Note: Device Class is set in /etc/bluetooth/main.conf by postinst
-    # Class = 0x200404 (Audio/Video Headphones) to match real Millennium board icon
     
     try:
         mac_address = adapter_props.Get("org.bluez.Adapter1", "Address")

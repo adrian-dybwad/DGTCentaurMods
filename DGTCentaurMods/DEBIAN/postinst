@@ -209,28 +209,6 @@ echo -e "::: Installing dhcpcd hook for WiFi status widget"
     fi
     echo -e "::: Bluetooth Class set to 0x200404 (Audio/Video - headphones icon)"
     
-    # Disable ReverseServiceDiscovery to prevent BlueZ from reading iPhone characteristics
-    # which can trigger pairing prompts
-    if grep -q "^#ReverseServiceDiscovery = " $BTMAIN; then
-        sed -i "s/^#ReverseServiceDiscovery = .*/ReverseServiceDiscovery = false/" $BTMAIN
-    elif grep -q "^ReverseServiceDiscovery = " $BTMAIN; then
-        sed -i "s/^ReverseServiceDiscovery = .*/ReverseServiceDiscovery = false/" $BTMAIN
-    else
-        sed -i "/^\[General\]/a ReverseServiceDiscovery = false" $BTMAIN
-    fi
-    echo -e "::: ReverseServiceDiscovery disabled (prevents reading iPhone characteristics)"
-    
-    # Disable SecureConnections to prevent BLE security negotiation
-    # This matches real Millennium board behavior - no pairing/bonding required
-    if grep -q "^#SecureConnections = " $BTMAIN; then
-        sed -i "s/^#SecureConnections = .*/SecureConnections = false/" $BTMAIN
-    elif grep -q "^SecureConnections = " $BTMAIN; then
-        sed -i "s/^SecureConnections = .*/SecureConnections = false/" $BTMAIN
-    else
-        sed -i "/^\[General\]/a SecureConnections = false" $BTMAIN
-    fi
-    echo -e "::: SecureConnections disabled (no BLE security negotiation)"
-    
     #Mark file as changed
     sed -i "$ a #dgtcentaurmods" $BTMAIN
 
