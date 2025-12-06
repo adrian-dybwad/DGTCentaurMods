@@ -45,6 +45,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     "SERIAL_NUMBER":      CommandSpec(0x55, 0xa2),
     "LONG_SERIAL_NUMBER": CommandSpec(0x45, 0x91),
     "TRADEMARK":          CommandSpec(0x47, 0x92),
+    "VERSION":            CommandSpec(0x4D, 0x93),
     "BOARD_DUMP":         CommandSpec(0x42, 0x86),
     "BATTERY_STATUS":     CommandSpec(0x32, 0xa0),
     "UNKNOWN_44":         CommandSpec(0x44),
@@ -277,6 +278,10 @@ class Pegasus:
             return True
         elif packet_type == command.TRADEMARK:
             self.send_packet_string(command.TRADEMARK_RESP, board.getMetaProperty('tm'))
+            return True
+        elif packet_type == command.VERSION:
+            # Version request - respond with version info [major, minor]
+            self.send_packet(command.VERSION_RESP, [1, 0])
             return True
         elif packet_type == command.BOARD_DUMP:
             return self.board_dump()
