@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
-BLE Sniffer - Millennium ChessLink emulator matching real board GATT structure
+Millennium Sniffer - Millennium ChessLink emulator supporting BLE and RFCOMM
 
-Based on nRF Connect capture of real Millennium ChessLink board.
+Emulates a real Millennium ChessLink board for testing and development.
+Supports both:
+- BLE (Bluetooth Low Energy) GATT services
+- RFCOMM (Classic Bluetooth Serial Port Profile)
+
+The real Millennium board supports both connection types simultaneously.
 
 To match real Millennium board behavior (no pairing prompt on iOS/macOS):
 - Remove all paired devices on startup (cached pairing state triggers re-pairing)
@@ -15,10 +20,16 @@ import sys
 import signal
 import time
 import subprocess
+import socket
+import threading
 import dbus
 import dbus.service
 import dbus.mainloop.glib
 from gi.repository import GLib
+
+# RFCOMM constants
+RFCOMM_CHANNEL = 1  # Standard SPP channel
+SPP_UUID = "00001101-0000-1000-8000-00805f9b34fb"  # Serial Port Profile UUID
 
 # BlueZ D-Bus constants
 BLUEZ_SERVICE_NAME = 'org.bluez'
@@ -115,6 +126,219 @@ def configure_adapter_security():
             log(f"btmgmt command timed out: {' '.join(cmd)}")
         except Exception as e:
             log(f"btmgmt error: {e}")
+
+
+# =============================================================================
+# RFCOMM Server for Classic Bluetooth SPP
+# =============================================================================
+
+class RFCOMMServer:
+    """RFCOMM server for Classic Bluetooth Serial Port Profile connections.
+    
+    The real Millennium board accepts RFCOMM connections on channel 1 and uses
+    the same protocol as BLE (commands like 'M', 's', 'V', etc.).
+    """
+    
+    def __init__(self, channel=RFCOMM_CHANNEL):
+        self.channel = channel
+        self.server_socket = None
+        self.running = False
+        self.clients = []
+        self.thread = None
+    
+    def start(self):
+        """Start the RFCOMM server in a background thread."""
+        try:
+            self.server_socket = socket.socket(
+                socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_socket.bind(("", self.channel))
+            self.server_socket.listen(1)
+            self.server_socket.settimeout(1.0)  # Allow periodic checks for shutdown
+            self.running = True
+            
+            self.thread = threading.Thread(target=self._accept_loop, daemon=True)
+            self.thread.start()
+            
+            log(f"RFCOMM server started on channel {self.channel}")
+            return True
+        except Exception as e:
+            log(f"Failed to start RFCOMM server: {e}")
+            return False
+    
+    def stop(self):
+        """Stop the RFCOMM server."""
+        self.running = False
+        for client in self.clients:
+            try:
+                client.close()
+            except Exception:
+                pass
+        self.clients.clear()
+        if self.server_socket:
+            try:
+                self.server_socket.close()
+            except Exception:
+                pass
+        if self.thread:
+            self.thread.join(timeout=2.0)
+        log("RFCOMM server stopped")
+    
+    def _accept_loop(self):
+        """Accept incoming RFCOMM connections."""
+        while self.running:
+            try:
+                client_socket, client_info = self.server_socket.accept()
+                log(f"RFCOMM connection from {client_info}")
+                self.clients.append(client_socket)
+                
+                # Handle client in a new thread
+                client_thread = threading.Thread(
+                    target=self._handle_client, 
+                    args=(client_socket, client_info),
+                    daemon=True)
+                client_thread.start()
+            except socket.timeout:
+                continue
+            except Exception as e:
+                if self.running:
+                    log(f"RFCOMM accept error: {e}")
+    
+    def _handle_client(self, client_socket, client_info):
+        """Handle a connected RFCOMM client."""
+        log(f"RFCOMM client handler started for {client_info}")
+        buffer = b""
+        
+        try:
+            client_socket.settimeout(0.5)
+            while self.running:
+                try:
+                    data = client_socket.recv(1024)
+                    if not data:
+                        break
+                    
+                    buffer += data
+                    hex_str = ' '.join(f'{b:02x}' for b in data)
+                    ascii_str = ''.join(chr(b & 127) if 32 <= (b & 127) < 127 else '.' for b in data)
+                    
+                    log(f"RFCOMM RX: {len(data)} bytes")
+                    log(f"  Hex: {hex_str}")
+                    log(f"  ASCII: {ascii_str}")
+                    
+                    # Process commands from buffer
+                    while len(buffer) > 0:
+                        cmd = chr(buffer[0] & 127)
+                        response = self._handle_command(cmd, buffer)
+                        if response:
+                            client_socket.send(response)
+                            log(f"RFCOMM TX: {response.hex()} ({response.decode('ascii', errors='replace')})")
+                        
+                        # For now, consume one byte at a time for simple commands
+                        # Multi-byte commands like LED need special handling
+                        if cmd in 'MLX':
+                            # These commands have variable length payloads
+                            # For simplicity, consume all available data
+                            buffer = b""
+                        else:
+                            # Simple 2-byte commands (cmd + null terminator)
+                            if len(buffer) >= 2:
+                                buffer = buffer[2:]
+                            else:
+                                buffer = b""
+                        break
+                        
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    log(f"RFCOMM client read error: {e}")
+                    break
+        finally:
+            log(f"RFCOMM client disconnected: {client_info}")
+            try:
+                client_socket.close()
+            except Exception:
+                pass
+            if client_socket in self.clients:
+                self.clients.remove(client_socket)
+    
+    def _handle_command(self, cmd, data):
+        """Handle Millennium protocol command and return response.
+        
+        Same protocol as BLE - returns response with checksum.
+        """
+        board_state = "sRNBQKBNRPPPPPPPP................................pppppppprnbqkbnr"
+        
+        response_txt = None
+        if cmd == 'M':
+            log("  RFCOMM -> Responding with board state (M command)")
+            response_txt = board_state
+        elif cmd in 'sS':
+            log("  RFCOMM -> Responding with board state (s/S command)")
+            response_txt = board_state
+        elif cmd == 'V':
+            log("  RFCOMM -> Responding with version: v3130")
+            response_txt = "v3130"
+        elif cmd == 'I':
+            log("  RFCOMM -> Responding with identity: i0055mm")
+            response_txt = "i0055mm\n"
+        elif cmd == 'R':
+            if len(data) >= 5:
+                h1, h2 = [data[i] & 127 for i in range(1, 3)]
+                addr = chr(h1) + chr(h2)
+                log(f"  RFCOMM -> Read E2ROM: addr={addr}")
+                response_txt = 'r' + addr + '00'
+            else:
+                log("  RFCOMM -> Read E2ROM: insufficient data")
+        elif cmd == 'W':
+            if len(data) >= 5:
+                h1, h2, h3, h4 = [data[i] & 127 for i in range(1, 5)]
+                log(f"  RFCOMM -> Write E2ROM: addr={chr(h1)}{chr(h2)} value={chr(h3)}{chr(h4)}")
+                response_txt = 'w' + chr(h1) + chr(h2) + chr(h3) + chr(h4)
+        elif cmd == 'L':
+            log(f"  RFCOMM -> LED pattern command")
+            response_txt = "l"
+        elif cmd == 'X':
+            log(f"  RFCOMM -> Extended LED command")
+            response_txt = "x"
+        elif cmd in '0123456789':
+            # Continuation packet - no response
+            pass
+        else:
+            log(f"  RFCOMM -> Unknown command '{cmd}' (0x{ord(cmd):02x})")
+        
+        if response_txt:
+            # Add checksum
+            cs = 0
+            for ch in response_txt:
+                cs ^= ord(ch)
+            return (response_txt + f"{cs:02x}").encode('ascii')
+        return None
+
+
+def register_sdp_service(bus, adapter_path):
+    """Register SPP service with SDP for Classic Bluetooth discovery.
+    
+    This makes the RFCOMM service discoverable by clients searching for
+    Serial Port Profile devices.
+    """
+    try:
+        # Use bluetoothctl or sdptool to register the service
+        # This is done via subprocess since D-Bus SDP registration is complex
+        result = subprocess.run(
+            ['sudo', 'sdptool', 'add', '--channel', str(RFCOMM_CHANNEL), 'SP'],
+            capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            log(f"SDP Serial Port service registered on channel {RFCOMM_CHANNEL}")
+            return True
+        else:
+            log(f"SDP registration failed: {result.stderr or result.stdout}")
+            return False
+    except FileNotFoundError:
+        log("sdptool not found - SDP registration skipped")
+        return False
+    except Exception as e:
+        log(f"SDP registration error: {e}")
+        return False
 
 
 class NoInputNoOutputAgent(dbus.service.Object):
@@ -649,18 +873,26 @@ def signal_handler(signum, frame):
 def main():
     global mainloop, device_name
     
-    parser = argparse.ArgumentParser(description="BLE Sniffer - Millennium ChessLink emulator matching real board")
-    parser.add_argument("--name", default="MILLENNIUM CHESS", help="BLE device name")
+    parser = argparse.ArgumentParser(description="Millennium Sniffer - ChessLink emulator (BLE + RFCOMM)")
+    parser.add_argument("--name", default="MILLENNIUM CHESS", help="Bluetooth device name")
     parser.add_argument("--advertise-uuid", action="store_true", 
-                        help="Include service UUID in advertisement")
+                        help="Include service UUID in BLE advertisement")
+    parser.add_argument("--no-ble", action="store_true",
+                        help="Disable BLE (GATT) server")
+    parser.add_argument("--no-rfcomm", action="store_true",
+                        help="Disable RFCOMM (Classic Bluetooth SPP) server")
+    parser.add_argument("--rfcomm-channel", type=int, default=RFCOMM_CHANNEL,
+                        help=f"RFCOMM channel number (default: {RFCOMM_CHANNEL})")
     args = parser.parse_args()
     device_name = args.name
     
     log("=" * 60)
-    log("BLE Sniffer - Millennium ChessLink (Full GATT)")
+    log("Millennium Sniffer - ChessLink Emulator")
     log(f"Device name: {device_name}")
-    log(f"Advertise service UUID: {args.advertise_uuid}")
-    log("Includes Device Info Service + full Millennium service")
+    log(f"BLE (GATT): {'Disabled' if args.no_ble else 'Enabled'}")
+    log(f"RFCOMM (SPP): {'Disabled' if args.no_rfcomm else f'Enabled (channel {args.rfcomm_channel})'}")
+    if not args.no_ble:
+        log(f"Advertise service UUID: {args.advertise_uuid}")
     log("=" * 60)
     
     signal.signal(signal.SIGINT, signal_handler)
@@ -680,6 +912,16 @@ def main():
         log("ERROR: No Bluetooth adapter found")
         return
     log(f"Found Bluetooth adapter: {adapter}")
+    
+    # Start RFCOMM server if enabled
+    rfcomm_server = None
+    if not args.no_rfcomm:
+        rfcomm_server = RFCOMMServer(channel=args.rfcomm_channel)
+        if rfcomm_server.start():
+            # Register SDP service for discoverability
+            register_sdp_service(bus, adapter)
+        else:
+            log("WARNING: RFCOMM server failed to start")
     
     # Configure adapter for iOS compatibility and proper device naming
     adapter_props = dbus.Interface(
@@ -781,74 +1023,79 @@ def main():
     except dbus.exceptions.DBusException as e:
         log(f"Could not enumerate paired devices: {e}")
     
-    # Create and register GATT application
-    # Note: Generic Access Service (0x1800) is managed by BlueZ internally
-    app = Application(bus)
-    app.add_service(DeviceInfoService(bus, 0))
-    app.add_service(MillenniumService(bus, 1))
-    
-    gatt_manager = dbus.Interface(
-        bus.get_object(BLUEZ_SERVICE_NAME, adapter),
-        GATT_MANAGER_IFACE)
-    
-    # Track registration status
-    gatt_registered = [False]
-    adv_registered = [False]
-    registration_error = [None]
-    
-    def gatt_register_success():
-        log("GATT application registered successfully")
-        gatt_registered[0] = True
-    
-    def gatt_register_error(error):
-        log(f"Failed to register GATT application: {error}")
-        registration_error[0] = str(error)
-    
-    def adv_register_success():
-        log("Advertisement registered successfully")
-        adv_registered[0] = True
-    
-    def adv_register_error(error):
-        log(f"Failed to register advertisement: {error}")
-        registration_error[0] = str(error)
-    
-    log("Registering GATT application...")
-    gatt_manager.RegisterApplication(
-        app.get_path(), {},
-        reply_handler=gatt_register_success,
-        error_handler=gatt_register_error)
-    
-    # Create and register advertisement
-    adv = Advertisement(bus, 0, device_name, include_service_uuid=args.advertise_uuid)
-    
-    ad_manager = dbus.Interface(
-        bus.get_object(BLUEZ_SERVICE_NAME, adapter),
-        LE_ADVERTISING_MANAGER_IFACE)
-    
-    log("Registering advertisement...")
-    ad_manager.RegisterAdvertisement(
-        adv.get_path(), {},
-        reply_handler=adv_register_success,
-        error_handler=adv_register_error)
-    
-    # Give D-Bus time to process registrations
-    time.sleep(1)
-    
-    # Run one iteration of the main loop to process registration callbacks
-    context = mainloop.get_context()
-    while context.pending():
-        context.iteration(False)
+    # Create and register GATT application if BLE is enabled
+    if not args.no_ble:
+        # Note: Generic Access Service (0x1800) is managed by BlueZ internally
+        app = Application(bus)
+        app.add_service(DeviceInfoService(bus, 0))
+        app.add_service(MillenniumService(bus, 1))
+        
+        gatt_manager = dbus.Interface(
+            bus.get_object(BLUEZ_SERVICE_NAME, adapter),
+            GATT_MANAGER_IFACE)
+        
+        # Track registration status
+        gatt_registered = [False]
+        adv_registered = [False]
+        registration_error = [None]
+        
+        def gatt_register_success():
+            log("GATT application registered successfully")
+            gatt_registered[0] = True
+        
+        def gatt_register_error(error):
+            log(f"Failed to register GATT application: {error}")
+            registration_error[0] = str(error)
+        
+        def adv_register_success():
+            log("Advertisement registered successfully")
+            adv_registered[0] = True
+        
+        def adv_register_error(error):
+            log(f"Failed to register advertisement: {error}")
+            registration_error[0] = str(error)
+        
+        log("Registering GATT application...")
+        gatt_manager.RegisterApplication(
+            app.get_path(), {},
+            reply_handler=gatt_register_success,
+            error_handler=gatt_register_error)
+        
+        # Create and register advertisement
+        adv = Advertisement(bus, 0, device_name, include_service_uuid=args.advertise_uuid)
+        
+        ad_manager = dbus.Interface(
+            bus.get_object(BLUEZ_SERVICE_NAME, adapter),
+            LE_ADVERTISING_MANAGER_IFACE)
+        
+        log("Registering advertisement...")
+        ad_manager.RegisterAdvertisement(
+            adv.get_path(), {},
+            reply_handler=adv_register_success,
+            error_handler=adv_register_error)
+        
+        # Give D-Bus time to process registrations
+        time.sleep(1)
+        
+        # Run one iteration of the main loop to process registration callbacks
+        context = mainloop.get_context()
+        while context.pending():
+            context.iteration(False)
+        
+        log("")
+        if registration_error[0]:
+            log(f"WARNING: BLE registration failed: {registration_error[0]}")
+            log("BLE service may not work correctly!")
+        else:
+            log("BLE GATT and Advertisement registration complete")
     
     log("")
-    if registration_error[0]:
-        log(f"WARNING: Registration failed: {registration_error[0]}")
-        log("BLE service may not work correctly!")
-    else:
-        log("GATT and Advertisement registration initiated")
-    log("")
-    log("Waiting for BLE connections...")
+    log("Waiting for connections...")
     log(f"Device name: {device_name}")
-    log("Device should now match real Millennium ChessLink GATT structure")
+    if not args.no_ble:
+        log("  BLE: Ready for GATT connections")
+    if not args.no_rfcomm:
+        log(f"  RFCOMM: Listening on channel {args.rfcomm_channel}")
     log("")
     
     try:
@@ -857,6 +1104,10 @@ def main():
         log(f"Error: {e}")
         import traceback
         log(traceback.format_exc())
+    finally:
+        # Cleanup
+        if rfcomm_server:
+            rfcomm_server.stop()
     
     log("Exiting")
 
