@@ -87,30 +87,37 @@ def configure_adapter_security():
     - Set IO capability to NoInputNoOutput (0x03) for "Just Works" mode
     
     These settings are applied via btmgmt which directly configures the controller.
+    Must run with sudo to have permission to change adapter settings.
     """
     commands = [
         # Disable bondable mode - prevents pairing requests
-        ['btmgmt', 'bondable', 'off'],
+        ['sudo', 'btmgmt', 'bondable', 'off'],
         # Disable secure connections - prevents security negotiation
-        ['btmgmt', 'sc', 'off'],
+        ['sudo', 'btmgmt', 'sc', 'off'],
         # Set IO capability to NoInputNoOutput (Just Works, no pairing UI)
-        ['btmgmt', 'io-cap', '0x03'],
+        ['sudo', 'btmgmt', 'io-cap', '0x03'],
         # Enable LE (Low Energy) advertising
-        ['btmgmt', 'le', 'on'],
+        ['sudo', 'btmgmt', 'le', 'on'],
         # Make adapter connectable for LE
-        ['btmgmt', 'connectable', 'on'],
+        ['sudo', 'btmgmt', 'connectable', 'on'],
     ]
     
     for cmd in commands:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-            cmd_str = ' '.join(cmd)
+            cmd_str = ' '.join(cmd[1:])  # Skip 'sudo' in log output
             if result.returncode == 0:
-                log(f"btmgmt: {cmd_str} - OK")
+                # Parse output to show the actual result
+                stdout = result.stdout.strip()
+                if stdout:
+                    log(f"btmgmt: {cmd_str} - {stdout}")
+                else:
+                    log(f"btmgmt: {cmd_str} - OK")
             else:
                 # Non-fatal - some commands may not be available on all BlueZ versions
                 stderr = result.stderr.strip() if result.stderr else "unknown error"
-                log(f"btmgmt: {cmd_str} - {stderr}")
+                stdout = result.stdout.strip() if result.stdout else ""
+                log(f"btmgmt: {cmd_str} - {stderr or stdout or 'failed'}")
         except FileNotFoundError:
             log(f"btmgmt not found - skipping security configuration")
             break
