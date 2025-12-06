@@ -655,13 +655,23 @@ class RXCharacteristic(Characteristic):
             log.info(f"  Hex: {hex_str}")
             log.info(f"  ASCII: {ascii_str}")
             
+            # Ensure Universal instance exists for Millennium protocol
+            if universal is None:
+                log.info("[Universal] Creating instance on first RX data (Millennium)")
+                # Reset any stale Pegasus state
+                if NordicTXCharacteristic.nordic_tx_instance is not None:
+                    NordicTXCharacteristic.nordic_tx_instance.notifying = False
+                ble_client_type = 'millennium'
+                universal = Universal(
+                    sendMessage_callback=sendMessage,
+                    client_type=Universal.CLIENT_MILLENNIUM,
+                    compare_mode=relay_mode
+                )
+            
             # Process through Universal
-            if universal is not None:
-                for byte_val in bytes_data:
-                    universal.receive_data(byte_val)
-                log.debug(f"Processed {len(bytes_data)} bytes through universal parser")
-            else:
-                log.warning("universal is None - data not processed")
+            for byte_val in bytes_data:
+                universal.receive_data(byte_val)
+            log.debug(f"Processed {len(bytes_data)} bytes through universal parser")
             
             # Forward to shadow target if in relay mode
             if relay_mode and shadow_target_connected and shadow_target_sock is not None:
@@ -828,13 +838,23 @@ class NordicRXCharacteristic(Characteristic):
             log.info(f"  Hex: {hex_str}")
             log.info(f"  ASCII: {ascii_str}")
             
+            # Ensure Universal instance exists for Pegasus protocol
+            if universal is None:
+                log.info("[Universal] Creating instance on first RX data (Pegasus)")
+                # Reset any stale Millennium state
+                if TXCharacteristic.tx_instance is not None:
+                    TXCharacteristic.tx_instance.notifying = False
+                ble_client_type = 'pegasus'
+                universal = Universal(
+                    sendMessage_callback=sendMessage,
+                    client_type=Universal.CLIENT_PEGASUS,
+                    compare_mode=relay_mode
+                )
+            
             # Process through Universal (Pegasus protocol)
-            if universal is not None:
-                for byte_val in bytes_data:
-                    universal.receive_data(byte_val)
-                log.debug(f"Processed {len(bytes_data)} bytes through universal parser (Pegasus)")
-            else:
-                log.warning("universal is None - data not processed")
+            for byte_val in bytes_data:
+                universal.receive_data(byte_val)
+            log.debug(f"Processed {len(bytes_data)} bytes through universal parser (Pegasus)")
             
             # Forward to shadow target if in relay mode
             if relay_mode and shadow_target_connected and shadow_target_sock is not None:
