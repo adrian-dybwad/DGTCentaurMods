@@ -152,11 +152,8 @@ class Advertisement(dbus.service.Object):
         properties = dict()
         properties['Type'] = self.ad_type
         properties['LocalName'] = dbus.String(self.local_name)
-        # Explicitly include local name in advertisement packet (matches real board)
-        # Real Millennium board does NOT include appearance in advertisement
-        properties['Includes'] = dbus.Array(['local-name'], signature='s')
         properties['IncludeTxPower'] = dbus.Boolean(True)
-        # Explicitly set TX Power Level to 0 dBm (matching real Millennium board)
+        # Real Millennium board advertises TxPower = 0
         properties['TxPower'] = dbus.Int16(0)
         # Do NOT include Appearance - real Millennium board doesn't advertise it
         if self.include_service_uuid:
@@ -666,18 +663,8 @@ def main():
     except dbus.exceptions.DBusException as e:
         log(f"Could not disable Privacy: {e}")
     
-    # Set device class to Audio/Video to match real Millennium board (shows headphone icon)
-    # Class of Device format: bits 0-1 = format type (0), bits 2-7 = minor class, bits 8-12 = major class
-    # Major class 0x04 = Audio/Video
-    # Minor class 0x04 = Headphones (within Audio/Video)
-    # Full CoD: 0x200404 = Audio/Video, Headphones, with service class bits
-    # Or simpler: 0x000404 = Audio/Video major class, Headphones minor class
-    try:
-        # 0x200404 = Service class (Audio) + Major class (Audio/Video) + Minor class (Headphones)
-        adapter_props.Set("org.bluez.Adapter1", "Class", dbus.UInt32(0x200404))
-        log("Adapter Class set to Audio/Video Headphones (0x200404) - matches real board icon")
-    except dbus.exceptions.DBusException as e:
-        log(f"Could not set Class (may be read-only): {e}")
+    # Note: Device Class is set in /etc/bluetooth/main.conf by postinst
+    # Class = 0x200404 (Audio/Video Headphones) to match real Millennium board icon
     
     try:
         mac_address = adapter_props.Get("org.bluez.Adapter1", "Address")
