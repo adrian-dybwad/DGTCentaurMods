@@ -140,8 +140,9 @@ class Advertisement(dbus.service.Object):
     PATH_BASE = '/org/bluez/example/advertisement'
     
     # BLE Appearance values (from Bluetooth SIG assigned numbers)
-    # 0x0080 = Generic Computer - matches real Millennium board
-    APPEARANCE_GENERIC_COMPUTER = 0x0080
+    # 0x0000 = Unknown - shows generic Bluetooth icon (like real Millennium board)
+    # Using Unknown rather than Generic Computer to match real board's icon
+    APPEARANCE_UNKNOWN = 0x0000
 
     def __init__(self, bus, index, name, include_service_uuid=False):
         self.path = self.PATH_BASE + str(index)
@@ -159,9 +160,9 @@ class Advertisement(dbus.service.Object):
         properties['IncludeTxPower'] = dbus.Boolean(True)
         # Explicitly set TX Power Level to 0 dBm (matching real Millennium board)
         properties['TxPower'] = dbus.Int16(0)
-        # Set Appearance to Generic Computer (0x0080) - matches real Millennium board
+        # Set Appearance to Unknown (0x0000) - shows generic Bluetooth icon like real board
         # This determines the icon shown on client devices
-        properties['Appearance'] = dbus.UInt16(self.APPEARANCE_GENERIC_COMPUTER)
+        properties['Appearance'] = dbus.UInt16(self.APPEARANCE_UNKNOWN)
         if self.include_service_uuid:
             properties['ServiceUUIDs'] = dbus.Array([MILLENNIUM_SERVICE_UUID], signature='s')
         return {LE_ADVERTISEMENT_IFACE: properties}
@@ -669,6 +670,18 @@ def main():
     except dbus.exceptions.DBusException as e:
         log(f"Could not disable Privacy: {e}")
     
+    # Try to set device class to "Uncategorized" (0x1F0000) to match generic BLE peripheral
+    # This affects the icon shown on some clients
+    # Class format: bits 0-1 = format type, bits 2-7 = minor class, bits 8-12 = major class
+    # Major class 0x1F = Uncategorized, Minor class 0 = generic
+    try:
+        # Class of Device: 0x001F00 = Uncategorized, no minor class
+        # Or 0x000000 = Miscellaneous
+        adapter_props.Set("org.bluez.Adapter1", "Class", dbus.UInt32(0x000000))
+        log("Adapter Class set to Miscellaneous (0x000000)")
+    except dbus.exceptions.DBusException as e:
+        log(f"Could not set Class (may be read-only): {e}")
+    
     try:
         mac_address = adapter_props.Get("org.bluez.Adapter1", "Address")
         log(f"Adapter MAC address: {mac_address}")
@@ -682,6 +695,13 @@ def main():
         bus.get_object(BLUEZ_SERVICE_NAME, '/org/bluez'),
         AGENT_MANAGER_IFACE)
     
+    # First, try to unregister any existing agent to avoid conflicts
+    try:
+        agent_manager.UnregisterAgent(agent.AGENT_PATH)
+        log("Unregistered existing agent")
+    except dbus.exceptions.DBusException:
+        pass  # No existing agent, that's fine
+    
     try:
         agent_manager.RegisterAgent(agent.AGENT_PATH, agent.CAPABILITY)
         log(f"Agent registered with capability: {agent.CAPABILITY}")
@@ -693,6 +713,26 @@ def main():
         log("Agent set as default")
     except dbus.exceptions.DBusException as e:
         log(f"Could not set default agent: {e}")
+    
+    # Remove any existing paired devices to prevent pairing prompts from cached state
+    # This ensures fresh connections don't trigger pairing based on old state
+    try:
+        adapter_iface = dbus.Interface(
+            bus.get_object(BLUEZ_SERVICE_NAME, adapter),
+            'org.bluez.Adapter1')
+        remote_om = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, '/'),
+                                   DBUS_OM_IFACE)
+        objects = remote_om.GetManagedObjects()
+        for path, interfaces in objects.items():
+            if 'org.bluez.Device1' in interfaces:
+                device_props = interfaces['org.bluez.Device1']
+                if device_props.get('Paired', False):
+                    device_name = device_props.get('Name', 'Unknown')
+                    log(f"Found paired device: {device_name} at {path}")
+                    # Optionally remove paired devices - commented out to avoid breaking other pairings
+                    # adapter_iface.RemoveDevice(path)
+    except dbus.exceptions.DBusException as e:
+        log(f"Could not enumerate paired devices: {e}")
     
     # Create and register GATT application
     # Note: Generic Access Service (0x1800) is managed by BlueZ internally
