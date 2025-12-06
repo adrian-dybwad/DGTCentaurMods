@@ -1331,8 +1331,12 @@ def main():
             reply_handler=gatt_register_success,
             error_handler=gatt_register_error)
         
-        # Create and register advertisement - advertise both Millennium and Nordic UUIDs
-        adv = Advertisement(bus, 0, args.device_name, service_uuids=[MILLENNIUM_UUIDS["service"], NORDIC_UUIDS["service"]])
+        # Create and register advertisement
+        # Note: BLE advertisement packets have a 31-byte limit, so we can only advertise
+        # one service UUID. We advertise the Millennium UUID to maintain compatibility with
+        # ChessLink app which scans for that UUID. Pegasus apps typically scan by device name.
+        # Both services are available in the GATT server after connection.
+        adv = Advertisement(bus, 0, args.device_name, service_uuids=[MILLENNIUM_UUIDS["service"]])
         
         ad_manager = dbus.Interface(
             bus.get_object(BLUEZ_SERVICE_NAME, adapter),
