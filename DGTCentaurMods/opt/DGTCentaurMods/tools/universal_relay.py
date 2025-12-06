@@ -41,6 +41,7 @@ kill = 0
 shadow_target_connected = False
 client_connected = False
 ble_connected = False
+ble_client_type = None  # Track which BLE client type is connected: 'millennium' or 'pegasus'
 universal = None  # Universal instance
 _last_message = None  # Last message sent via sendMessage
 relay_mode = False  # Whether relay mode is enabled (connects to relay target)
@@ -567,16 +568,23 @@ class TXCharacteristic(Characteristic):
         log.debug(f"TX WriteValue: {data.hex()}")
 
     def StartNotify(self):
-        global ble_connected, universal, relay_mode
+        global ble_connected, ble_client_type, universal, relay_mode
         
         log.info("=" * 60)
-        log.info("TX Characteristic StartNotify called - BLE client subscribing")
+        log.info("TX Characteristic StartNotify called - Millennium BLE client subscribing")
         log.info("=" * 60)
+        
+        # Always reset to clean state on new connection
+        universal = None
+        ble_connected = False
+        if NordicTXCharacteristic.nordic_tx_instance is not None:
+            NordicTXCharacteristic.nordic_tx_instance.notifying = False
         
         TXCharacteristic.tx_instance = self
         self.notifying = True
+        ble_client_type = 'millennium'
         
-        # Create Universal instance for this connection
+        # Create fresh Universal instance for this connection
         try:
             universal = Universal(
                 sendMessage_callback=sendMessage,
@@ -590,20 +598,21 @@ class TXCharacteristic(Characteristic):
             traceback.print_exc()
         
         ble_connected = True
-        log.info("BLE notifications enabled successfully")
+        log.info("Millennium BLE notifications enabled successfully")
 
     def StopNotify(self):
-        global ble_connected, universal
+        global ble_connected, ble_client_type, universal
         
         if not self.notifying:
             return
         
         log.info("=" * 60)
-        log.info("BLE CLIENT DISCONNECTED")
+        log.info("MILLENNIUM BLE CLIENT DISCONNECTED")
         log.info("=" * 60)
         
         self.notifying = False
         ble_connected = False
+        ble_client_type = None
         universal = None
         log.info("[Universal] Instance reset - ready for new connection")
 
@@ -732,16 +741,23 @@ class NordicTXCharacteristic(Characteristic):
         log.info(f"Nordic TX Characteristic created: {NORDIC_UUIDS['tx']}")
 
     def StartNotify(self):
-        global ble_connected, universal, relay_mode
+        global ble_connected, ble_client_type, universal, relay_mode
         
         log.info("=" * 60)
         log.info("Nordic TX StartNotify called - Pegasus BLE client subscribing")
         log.info("=" * 60)
         
+        # Always reset to clean state on new connection
+        universal = None
+        ble_connected = False
+        if TXCharacteristic.tx_instance is not None:
+            TXCharacteristic.tx_instance.notifying = False
+        
         NordicTXCharacteristic.nordic_tx_instance = self
         self.notifying = True
+        ble_client_type = 'pegasus'
         
-        # Create Universal instance for this connection
+        # Create fresh Universal instance for this connection
         try:
             universal = Universal(
                 sendMessage_callback=sendMessage,
@@ -755,10 +771,10 @@ class NordicTXCharacteristic(Characteristic):
             traceback.print_exc()
         
         ble_connected = True
-        log.info("Nordic BLE notifications enabled successfully")
+        log.info("Pegasus BLE notifications enabled successfully")
 
     def StopNotify(self):
-        global ble_connected, universal
+        global ble_connected, ble_client_type, universal
         
         if not self.notifying:
             return
@@ -769,6 +785,7 @@ class NordicTXCharacteristic(Characteristic):
         
         self.notifying = False
         ble_connected = False
+        ble_client_type = None
         universal = None
         log.info("[Universal] Instance reset - ready for new connection")
 
