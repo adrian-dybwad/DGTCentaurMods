@@ -1331,28 +1331,53 @@ def main():
             reply_handler=gatt_register_success,
             error_handler=gatt_register_error)
         
-        # Create and register advertisement
-        # Note: BLE advertisement packets have a 31-byte limit, so we can only advertise
-        # one service UUID. We advertise the Millennium UUID to maintain compatibility with
-        # ChessLink app which scans for that UUID. Pegasus apps typically scan by device name.
-        # Both services are available in the GATT server after connection.
-        adv = Advertisement(bus, 0, args.device_name, service_uuids=[MILLENNIUM_UUIDS["service"]])
+        # Create and register advertisements
+        # We create two separate advertisements:
+        # 1. Millennium advertisement - for ChessLink app (scans by service UUID)
+        # 2. Pegasus advertisement - for DGT Pegasus app (scans by name pattern and Nordic UUID)
+        # Each advertisement contains only one 128-bit UUID to stay within the 31-byte limit.
         
         ad_manager = dbus.Interface(
             bus.get_object(BLUEZ_SERVICE_NAME, adapter),
             LE_ADVERTISING_MANAGER_IFACE)
         
-        def adv_register_success():
-            log.info("Advertisement registered successfully")
+        # Advertisement 1: Millennium (for ChessLink app)
+        adv_millennium = Advertisement(bus, 0, args.device_name, service_uuids=[MILLENNIUM_UUIDS["service"]])
         
-        def adv_register_error(error):
-            log.error(f"Failed to register advertisement: {error}")
+        def adv_millennium_success():
+            log.info("Millennium advertisement registered successfully")
         
-        log.info("Registering advertisement...")
+        def adv_millennium_error(error):
+            log.error(f"Failed to register Millennium advertisement: {error}")
+        
+        log.info("Registering Millennium advertisement...")
         ad_manager.RegisterAdvertisement(
-            adv.get_path(), {},
-            reply_handler=adv_register_success,
-            error_handler=adv_register_error)
+            adv_millennium.get_path(), {},
+            reply_handler=adv_millennium_success,
+            error_handler=adv_millennium_error)
+        
+        # Advertisement 2: Pegasus (for DGT Pegasus app)
+        # Use Pegasus-style name: DGT_PEGASUS_<serial>
+        # Try to get serial from centaur if available, otherwise use default
+        try:
+            from DGTCentaurMods.board import board as board_module
+            serial_no = board_module.getMetaProperty('serial no') or '50000'
+        except Exception:
+            serial_no = '50000'
+        pegasus_name = f"DGT_PEGASUS_{serial_no}"
+        adv_pegasus = Advertisement(bus, 1, pegasus_name, service_uuids=[NORDIC_UUIDS["service"]])
+        
+        def adv_pegasus_success():
+            log.info("Pegasus advertisement registered successfully")
+        
+        def adv_pegasus_error(error):
+            log.error(f"Failed to register Pegasus advertisement: {error}")
+        
+        log.info(f"Registering Pegasus advertisement (name: {pegasus_name})...")
+        ad_manager.RegisterAdvertisement(
+            adv_pegasus.get_path(), {},
+            reply_handler=adv_pegasus_success,
+            error_handler=adv_pegasus_error)
         
         time.sleep(1)
     
