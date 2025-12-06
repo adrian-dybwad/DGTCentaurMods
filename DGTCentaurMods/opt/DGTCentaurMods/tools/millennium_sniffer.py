@@ -296,8 +296,13 @@ class RFCOMMServer:
                                 buffer = b""
                         break
                         
-                except socket.timeout:
-                    continue
+                except (socket.timeout, bluetooth.BluetoothError) as e:
+                    # Timeout is normal - keep waiting for more commands
+                    if "timed out" in str(e).lower():
+                        continue
+                    # Other Bluetooth errors - log and disconnect
+                    log(f"RFCOMM client error: {e}")
+                    break
                 except Exception as e:
                     log(f"RFCOMM client read error: {e}")
                     break
