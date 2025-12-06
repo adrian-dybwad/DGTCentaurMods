@@ -234,8 +234,12 @@ class RFCOMMServer:
                     args=(client_socket, client_info),
                     daemon=True)
                 client_thread.start()
-            except socket.timeout:
-                continue
+            except (socket.timeout, bluetooth.BluetoothError) as e:
+                # Timeout is normal - just continue waiting for connections
+                if "timed out" in str(e):
+                    continue
+                if self.running:
+                    log(f"RFCOMM accept error: {e}")
             except Exception as e:
                 if self.running:
                     log(f"RFCOMM accept error: {e}")
