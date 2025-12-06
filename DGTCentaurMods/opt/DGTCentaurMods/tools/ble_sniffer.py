@@ -419,16 +419,38 @@ class RXCharacteristic(Characteristic):
             log(traceback.format_exc())
 
     def _handle_command(self, cmd, data):
-        if cmd == 'V':
+        """Handle Millennium protocol commands.
+        
+        Real Millennium board commands (from protocol analysis):
+        - 'M' (0x4D) - Request version/status (responds with board state)
+        - 's' (0x73) - Request board state 
+        - 'V' (0x56) - Request version string
+        - 'I' (0x49) - Request identity
+        - 'W' (0x57) - Write E2ROM
+        - 'L' (0x4C) - LED control
+        - 'X' (0x58) - Extended LED control
+        """
+        # Board state (starting position for emulator)
+        board_state = "sRNBQKBNRPPPPPPPP................................pppppppprnbqkbnr"
+        
+        if cmd == 'M':
+            # Real board responds with board state to 'M' command
+            log("  -> Responding with board state (M command)")
+            self._send_response(board_state)
+        elif cmd == 's':
+            # Lowercase 's' also requests board state
+            log("  -> Responding with board state (s command)")
+            self._send_response(board_state)
+        elif cmd == 'S':
+            # Uppercase 'S' also requests board state
+            log("  -> Responding with board state (S command)")
+            self._send_response(board_state)
+        elif cmd == 'V':
             log("  -> Responding with version: v3130")
             self._send_response("v3130")
         elif cmd == 'I':
             log("  -> Responding with identity: i0055mm")
             self._send_response("i0055mm\n")
-        elif cmd == 'S':
-            log("  -> Responding with board state")
-            board_state = "sRNBQKBNRPPPPPPPP................................pppppppprnbqkbnr"
-            self._send_response(board_state)
         elif cmd == 'W':
             if len(data) >= 5:
                 h1, h2, h3, h4 = [data[i] & 127 for i in range(1, 5)]
@@ -437,8 +459,11 @@ class RXCharacteristic(Characteristic):
         elif cmd == 'L':
             log(f"  -> LED pattern command ({len(data)} bytes)")
             self._send_response("l")
+        elif cmd == 'X':
+            log(f"  -> Extended LED command ({len(data)} bytes)")
+            self._send_response("x")
         else:
-            log(f"  -> Unknown command '{cmd}', no response")
+            log(f"  -> Unknown command '{cmd}' (0x{ord(cmd):02x}), no response")
 
     def _send_response(self, txt):
         if TXCharacteristic.tx_instance is None:
