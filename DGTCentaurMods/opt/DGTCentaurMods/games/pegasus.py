@@ -212,11 +212,25 @@ class Pegasus:
         """Handle board dump packet.
         
         Real Pegasus board uses 0x7F (127) for empty squares, not 0.
+        DGT Pegasus app only interprets occupancy: 0x7F = empty, anything else = occupied.
         """
         log.info(f"[Pegasus Board dump] getting board state")
         bs = board.getBoardState()
-        # Transform empty squares (0) to 0x7F to match real Pegasus board protocol
-        bs_transformed = [0x7F if b == 0 else b for b in bs]
+        
+        if bs is None:
+            log.error("[Pegasus Board dump] getBoardState() returned None!")
+            # Return empty board as fallback
+            bs_transformed = [0x7F] * 64
+        else:
+            # Log raw board state for debugging
+            log.info(f"[Pegasus Board dump] raw state: {' '.join(f'{b:02x}' for b in bs)}")
+            # Transform empty squares (0) to 0x7F to match real Pegasus board protocol
+            bs_transformed = [0x7F if b == 0 else b for b in bs]
+            log.info(f"[Pegasus Board dump] transformed: {' '.join(f'{b:02x}' for b in bs_transformed)}")
+            # Count occupied vs empty
+            occupied = sum(1 for b in bs_transformed if b != 0x7F)
+            log.info(f"[Pegasus Board dump] {occupied}/64 squares occupied")
+        
         self.send_packet(command.BOARD_DUMP_RESP, bs_transformed)
         return True
 
