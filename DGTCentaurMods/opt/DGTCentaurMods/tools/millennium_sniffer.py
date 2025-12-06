@@ -35,8 +35,9 @@ except ImportError:
     HAS_PYBLUEZ = False
 
 # RFCOMM constants
-# Channel 6 matches the real Millennium board (discovered via SDP query)
-RFCOMM_CHANNEL = 6
+# Channel 1 is registered in BlueZ's default SDP as "Serial Port"
+# The real Millennium board uses channel 6, but we use 1 to match the Pi's SDP
+RFCOMM_CHANNEL = 1
 SPP_UUID = "00001101-0000-1000-8000-00805f9b34fb"  # Serial Port Profile UUID
 
 # BlueZ D-Bus constants
