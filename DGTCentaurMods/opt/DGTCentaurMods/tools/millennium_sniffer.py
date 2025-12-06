@@ -27,8 +27,16 @@ import dbus.service
 import dbus.mainloop.glib
 from gi.repository import GLib
 
+# Try to import PyBluez for RFCOMM support
+try:
+    import bluetooth
+    HAS_PYBLUEZ = True
+except ImportError:
+    HAS_PYBLUEZ = False
+
 # RFCOMM constants
-RFCOMM_CHANNEL = 1  # Standard SPP channel
+# Channel 6 matches the real Millennium board (discovered via SDP query)
+RFCOMM_CHANNEL = 6
 SPP_UUID = "00001101-0000-1000-8000-00805f9b34fb"  # Serial Port Profile UUID
 
 # BlueZ D-Bus constants
@@ -135,35 +143,63 @@ def configure_adapter_security():
 class RFCOMMServer:
     """RFCOMM server for Classic Bluetooth Serial Port Profile connections.
     
-    The real Millennium board accepts RFCOMM connections on channel 1 and uses
+    The real Millennium board accepts RFCOMM connections on channel 6 and uses
     the same protocol as BLE (commands like 'M', 's', 'V', etc.).
+    
+    Requires PyBluez for proper RFCOMM socket support on Linux.
     """
     
-    def __init__(self, channel=RFCOMM_CHANNEL):
+    def __init__(self, channel=RFCOMM_CHANNEL, service_name="MILLENNIUM CHESS"):
         self.channel = channel
+        self.service_name = service_name
         self.server_socket = None
         self.running = False
         self.clients = []
         self.thread = None
+        self.actual_channel = None
     
     def start(self):
         """Start the RFCOMM server in a background thread."""
+        if not HAS_PYBLUEZ:
+            log("RFCOMM server requires PyBluez (pip install pybluez)")
+            return False
+        
         try:
-            self.server_socket = socket.socket(
-                socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # Use PyBluez for proper RFCOMM socket support
+            self.server_socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
             self.server_socket.bind(("", self.channel))
             self.server_socket.listen(1)
             self.server_socket.settimeout(1.0)  # Allow periodic checks for shutdown
             self.running = True
             
+            # Get the actual port we bound to
+            self.actual_channel = self.server_socket.getsockname()[1]
+            
+            # Advertise the SPP service via SDP so clients can discover it
+            # This is critical for macOS to create the serial port
+            try:
+                uuid = "94f39d29-7d6d-437d-973b-fba39e49d4ee"
+                bluetooth.advertise_service(
+                    self.server_socket, 
+                    self.service_name,
+                    service_id=uuid,
+                    service_classes=[uuid, bluetooth.SERIAL_PORT_CLASS],
+                    profiles=[bluetooth.SERIAL_PORT_PROFILE]
+                )
+                log(f"RFCOMM service '{self.service_name}' advertised via SDP")
+            except Exception as e:
+                log(f"Warning: Could not advertise SDP service: {e}")
+                log("RFCOMM may still work but service discovery won't find it")
+            
             self.thread = threading.Thread(target=self._accept_loop, daemon=True)
             self.thread.start()
             
-            log(f"RFCOMM server started on channel {self.channel}")
+            log(f"RFCOMM server started on channel {self.actual_channel}")
             return True
         except Exception as e:
             log(f"Failed to start RFCOMM server: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def stop(self):
@@ -916,12 +952,16 @@ def main():
     # Start RFCOMM server if enabled
     rfcomm_server = None
     if not args.no_rfcomm:
-        rfcomm_server = RFCOMMServer(channel=args.rfcomm_channel)
-        if rfcomm_server.start():
-            # Register SDP service for discoverability
-            register_sdp_service(bus, adapter)
+        if not HAS_PYBLUEZ:
+            log("WARNING: PyBluez not installed - RFCOMM support disabled")
+            log("  Install with: pip install pybluez")
         else:
-            log("WARNING: RFCOMM server failed to start")
+            rfcomm_server = RFCOMMServer(channel=args.rfcomm_channel, service_name=device_name)
+            if rfcomm_server.start():
+                # SDP service is now advertised by RFCOMMServer.start()
+                pass
+            else:
+                log("WARNING: RFCOMM server failed to start")
     
     # Configure adapter for iOS compatibility and proper device naming
     adapter_props = dbus.Interface(
