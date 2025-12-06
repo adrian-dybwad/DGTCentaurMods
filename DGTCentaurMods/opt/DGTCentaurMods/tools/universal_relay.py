@@ -239,21 +239,24 @@ class NoInputNoOutputAgent(dbus.service.Object):
 # ============================================================================
 
 class Advertisement(dbus.service.Object):
-    """BLE Advertisement matching real Millennium ChessLink board.
+    """BLE Advertisement for universal relay.
     
-    The real board advertises with LocalName and TxPower only - no Appearance.
-    It does not require pairing for BLE connections.
+    Advertises both Millennium and Nordic UART services for discovery by
+    ChessLink and DGT Pegasus apps respectively.
+    
+    Uses ServiceUUIDs for the primary UUID and Includes for scan response.
     """
     
     PATH_BASE = '/org/bluez/universal_relay/advertisement'
 
-    def __init__(self, bus, index, name, service_uuids=None):
+    def __init__(self, bus, index, name, service_uuids=None, scan_rsp_uuids=None):
         self.path = self.PATH_BASE + str(index)
         self.bus = bus
         self.ad_type = 'peripheral'
         self.local_name = name
         self.include_tx_power = True
         self.service_uuids = service_uuids or []
+        self.scan_rsp_uuids = scan_rsp_uuids or []
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_properties(self):
@@ -261,11 +264,20 @@ class Advertisement(dbus.service.Object):
         properties['Type'] = self.ad_type
         properties['LocalName'] = dbus.String(self.local_name)
         properties['IncludeTxPower'] = dbus.Boolean(True)
-        # Real Millennium board advertises TxPower = 0
         properties['TxPower'] = dbus.Int16(0)
-        # Do NOT include Appearance - real Millennium board doesn't advertise it
+        
+        # Primary service UUIDs in advertisement data
         if self.service_uuids:
             properties['ServiceUUIDs'] = dbus.Array(self.service_uuids, signature='s')
+        
+        # Additional service UUIDs in scan response (experimental BlueZ feature)
+        # This allows advertising multiple 128-bit UUIDs by using the scan response packet
+        if self.scan_rsp_uuids:
+            try:
+                properties['ScanResponseServiceUUIDs'] = dbus.Array(self.scan_rsp_uuids, signature='s')
+            except Exception:
+                pass  # Ignore if not supported
+        
         return {LE_ADVERTISEMENT_IFACE: properties}
 
     def get_path(self):
@@ -1331,30 +1343,38 @@ def main():
             reply_handler=gatt_register_success,
             error_handler=gatt_register_error)
         
-        # Create and register advertisement
-        # The DGT Pegasus app discovers devices by Nordic UART Service UUID in the advertisement.
-        # ChessLink app discovers by Millennium service UUID.
-        # Since we can only advertise one 128-bit UUID (31-byte packet limit), we need to choose.
-        # 
-        # Solution: Advertise the Nordic UUID since that's required for DGT Pegasus app discovery.
-        # ChessLink app should still work as it can discover by device name and then find the
-        # Millennium service in the GATT server after connection.
+        # Create and register advertisement with both service UUIDs
+        # - Nordic UART Service UUID in main advertisement (for DGT Pegasus app)
+        # - Millennium Service UUID in scan response (for ChessLink app)
+        # This uses BlueZ's ScanResponseServiceUUIDs (experimental) to fit both 128-bit UUIDs
         
         ad_manager = dbus.Interface(
             bus.get_object(BLUEZ_SERVICE_NAME, adapter),
             LE_ADVERTISING_MANAGER_IFACE)
         
-        # Single advertisement with Nordic UART Service UUID (for DGT Pegasus app)
-        # Using device name from args (default "MILLENNIUM CHESS") to maintain compatibility
-        adv = Advertisement(bus, 0, args.device_name, service_uuids=[NORDIC_UUIDS["service"]])
+        # Nordic UUID in main advertisement, Millennium in scan response
+        adv = Advertisement(
+            bus, 0, args.device_name,
+            service_uuids=[NORDIC_UUIDS["service"]],
+            scan_rsp_uuids=[MILLENNIUM_UUIDS["service"]]
+        )
         
         def adv_register_success():
-            log.info("Advertisement registered successfully (Nordic UART Service)")
+            log.info("Advertisement registered successfully (Nordic + Millennium UUIDs)")
         
         def adv_register_error(error):
             log.error(f"Failed to register advertisement: {error}")
+            # Fallback: try with just Nordic UUID if scan response not supported
+            log.info("Retrying with Nordic UUID only...")
+            adv_fallback = Advertisement(bus, 1, args.device_name, service_uuids=[NORDIC_UUIDS["service"]])
+            ad_manager.RegisterAdvertisement(
+                adv_fallback.get_path(), {},
+                reply_handler=lambda: log.info("Fallback advertisement registered (Nordic only)"),
+                error_handler=lambda e: log.error(f"Fallback also failed: {e}"))
         
-        log.info(f"Registering advertisement (name: {args.device_name}, UUID: Nordic UART)...")
+        log.info(f"Registering advertisement (name: {args.device_name})...")
+        log.info(f"  Primary UUID: {NORDIC_UUIDS['service']} (Nordic UART)")
+        log.info(f"  Scan Response UUID: {MILLENNIUM_UUIDS['service']} (Millennium)")
         ad_manager.RegisterAdvertisement(
             adv.get_path(), {},
             reply_handler=adv_register_success,
