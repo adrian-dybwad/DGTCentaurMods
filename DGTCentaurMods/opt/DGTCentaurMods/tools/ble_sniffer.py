@@ -24,13 +24,9 @@ GATT_SERVICE_IFACE = 'org.bluez.GattService1'
 GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
 LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
 
-# Generic Access Service UUIDs (standard BLE - 0x1800)
-GAP_SERVICE_UUID = "00001800-0000-1000-8000-00805f9b34fb"
-GAP_DEVICE_NAME_UUID = "00002a00-0000-1000-8000-00805f9b34fb"
-GAP_APPEARANCE_UUID = "00002a01-0000-1000-8000-00805f9b34fb"
-GAP_PPCP_UUID = "00002a04-0000-1000-8000-00805f9b34fb"  # Peripheral Preferred Connection Parameters
-
 # Device Information Service UUIDs (standard BLE - 0x180A)
+# Note: Generic Access Service (0x1800) is NOT defined here because BlueZ
+# provides it automatically. We only register Device Info + Millennium services.
 DEVICE_INFO_SERVICE_UUID = "0000180a-0000-1000-8000-00805f9b34fb"
 MANUFACTURER_NAME_UUID = "00002a29-0000-1000-8000-00805f9b34fb"
 MODEL_NUMBER_UUID = "00002a24-0000-1000-8000-00805f9b34fb"
@@ -229,11 +225,11 @@ class Characteristic(dbus.service.Object):
 
 
 # =============================================================================
-# Generic Access Service (0x1800)
+# Helper Characteristic Classes
 # =============================================================================
 
 class ReadOnlyCharacteristic(Characteristic):
-    """Simple read-only characteristic with static value"""
+    """Simple read-only characteristic with static value."""
     
     def __init__(self, bus, index, uuid, service, value):
         Characteristic.__init__(self, bus, index, uuid, ['read'], service)
@@ -246,27 +242,10 @@ class ReadOnlyCharacteristic(Characteristic):
         return dbus.Array(self.value, signature='y')
 
 
-class GenericAccessService(Service):
-    """Generic Access Service (0x1800) - matches real Millennium board"""
-    
-    def __init__(self, bus, index):
-        Service.__init__(self, bus, index, GAP_SERVICE_UUID, True)
-        
-        # Device Name: "MILLENNIUM CHESS"
-        self.add_characteristic(ReadOnlyCharacteristic(
-            bus, 0, GAP_DEVICE_NAME_UUID, self, "MILLENNIUM CHESS"))
-        
-        # Appearance: 0x0080 = Generic Computer
-        self.add_characteristic(ReadOnlyCharacteristic(
-            bus, 1, GAP_APPEARANCE_UUID, self, bytes([0x80, 0x00])))
-        
-        # Peripheral Preferred Connection Parameters
-        # Min interval: 7.5ms (0x0006), Max interval: 160ms (0x0080)
-        # Latency: 0 (0x0000), Timeout: 3200 (0x0C80)
-        self.add_characteristic(ReadOnlyCharacteristic(
-            bus, 2, GAP_PPCP_UUID, self, bytes([0x06, 0x00, 0x80, 0x00, 0x00, 0x00, 0x80, 0x0C])))
-        
-        log(f"Generic Access Service created: {GAP_SERVICE_UUID}")
+# Note: Generic Access Service (0x1800) is NOT registered here because BlueZ
+# automatically provides this service. The real Millennium board's Bluetooth chip
+# also provides this internally. Only Device Info and Millennium services are
+# explicitly registered to match the real board's visible service count.
 
 
 # =============================================================================
@@ -466,6 +445,11 @@ class RXCharacteristic(Characteristic):
             log(f"  -> Unknown command '{cmd}' (0x{ord(cmd):02x}), no response")
 
     def _send_response(self, txt):
+        """Send response to client via TX characteristic notifications.
+        
+        Real Millennium board sends plain ASCII without parity bits, followed
+        by a 2-character hex checksum. This matches the real board's format.
+        """
         if TXCharacteristic.tx_instance is None:
             log("  -> Cannot send: TX not initialized")
             return
@@ -473,29 +457,16 @@ class RXCharacteristic(Characteristic):
             log("  -> Cannot send: notifications not enabled")
             return
         
-        # Build response with parity and checksum
+        # Build response with checksum (plain ASCII, no parity - matches real board)
         cs = 0
-        tosend = bytearray()
         for ch in txt:
-            byte = ord(ch) & 127
-            par = 1
-            temp = byte
-            for _ in range(7):
-                par ^= (temp & 1)
-                temp >>= 1
-            tosend.append(byte | (128 if par else 0))
             cs ^= ord(ch)
-        h = f"{cs:02x}"
-        for c in h:
-            byte = ord(c) & 127
-            par = 1
-            temp = byte
-            for _ in range(7):
-                par ^= (temp & 1)
-                temp >>= 1
-            tosend.append(byte | (128 if par else 0))
         
-        log(f"  -> Sending: {tosend.hex()}")
+        # Append 2-char hex checksum
+        response = txt + f"{cs:02x}"
+        tosend = response.encode('ascii')
+        
+        log(f"  -> Sending: {tosend.hex()} ({response})")
         TXCharacteristic.tx_instance.send_notification(tosend)
 
 
