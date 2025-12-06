@@ -698,11 +698,156 @@ class MillenniumService(Service):
 
 
 # ============================================================================
+# Nordic UART Service Characteristics (for Pegasus)
+# ============================================================================
+
+class NordicTXCharacteristic(Characteristic):
+    """Nordic TX characteristic (6E400003) - notifications FROM device to client.
+    
+    This characteristic sends data TO the connected Pegasus client via notifications.
+    Real Pegasus board has only 'notify' flag (no 'read').
+    """
+    
+    nordic_tx_instance = None
+    
+    def __init__(self, bus, index, service):
+        # Real Pegasus has only 'notify' - no 'read'
+        Characteristic.__init__(self, bus, index, NORDIC_UUIDS["tx"],
+                                ['notify'], service)
+        self.notifying = False
+        self.value = bytes([0])
+        NordicTXCharacteristic.nordic_tx_instance = self
+        log.info(f"Nordic TX Characteristic created: {NORDIC_UUIDS['tx']}")
+
+    def StartNotify(self):
+        global ble_connected, universal, relay_mode
+        
+        log.info("=" * 60)
+        log.info("Nordic TX StartNotify called - Pegasus BLE client subscribing")
+        log.info("=" * 60)
+        
+        NordicTXCharacteristic.nordic_tx_instance = self
+        self.notifying = True
+        
+        # Create Universal instance for this connection
+        try:
+            universal = Universal(
+                sendMessage_callback=sendMessage,
+                client_type=Universal.CLIENT_PEGASUS,
+                compare_mode=relay_mode
+            )
+            log.info(f"[Universal] Instantiated for Pegasus BLE with client_type=PEGASUS, compare_mode={relay_mode}")
+        except Exception as e:
+            log.error(f"[Universal] Error instantiating: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        ble_connected = True
+        log.info("Nordic BLE notifications enabled successfully")
+
+    def StopNotify(self):
+        global ble_connected, universal
+        
+        if not self.notifying:
+            return
+        
+        log.info("=" * 60)
+        log.info("PEGASUS BLE CLIENT DISCONNECTED")
+        log.info("=" * 60)
+        
+        self.notifying = False
+        ble_connected = False
+        universal = None
+        log.info("[Universal] Instance reset - ready for new connection")
+
+    def send_notification(self, data):
+        """Send data to Pegasus client via notification."""
+        if not self.notifying:
+            log.debug("Nordic send_notification: Not notifying, skipping")
+            return
+        
+        value = dbus.Array([dbus.Byte(b) for b in data], signature='y')
+        self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': value}, [])
+        log.debug(f"Nordic TX notification sent: {len(data)} bytes")
+
+
+class NordicRXCharacteristic(Characteristic):
+    """Nordic RX characteristic (6E400002) - receives commands FROM Pegasus client.
+    
+    The client writes commands here, and this characteristic processes them
+    and sends responses via the Nordic TX characteristic.
+    """
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, NORDIC_UUIDS["rx"],
+                                ['write', 'write-without-response'], service)
+        log.info(f"Nordic RX Characteristic created: {NORDIC_UUIDS['rx']}")
+
+    def WriteValue(self, value, options):
+        global kill, ble_connected, shadow_target_connected, shadow_target_sock
+        global relay_mode, shadow_target, universal
+        
+        if kill:
+            return
+        
+        try:
+            bytes_data = bytearray([int(b) for b in value])
+            hex_str = ' '.join(f'{b:02x}' for b in bytes_data)
+            ascii_str = ''.join(chr(b & 127) if 32 <= (b & 127) < 127 else '.' for b in bytes_data)
+            
+            log.info(f"Nordic BLE RX: {len(bytes_data)} bytes")
+            log.info(f"  Hex: {hex_str}")
+            log.info(f"  ASCII: {ascii_str}")
+            
+            # Process through Universal (Pegasus protocol)
+            if universal is not None:
+                for byte_val in bytes_data:
+                    universal.receive_data(byte_val)
+                log.debug(f"Processed {len(bytes_data)} bytes through universal parser (Pegasus)")
+            else:
+                log.warning("universal is None - data not processed")
+            
+            # Forward to shadow target if in relay mode
+            if relay_mode and shadow_target_connected and shadow_target_sock is not None:
+                try:
+                    data_to_send = bytes(bytes_data)
+                    log.info(f"Nordic BLE -> SHADOW TARGET: {len(data_to_send)} bytes")
+                    shadow_target_sock.send(data_to_send)
+                except (bluetooth.BluetoothError, OSError) as e:
+                    log.error(f"Error sending to {shadow_target}: {e}")
+                    shadow_target_connected = False
+            
+            ble_connected = True
+            
+        except Exception as e:
+            log.error(f"Error in Nordic RX WriteValue: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+
+
+class NordicUARTService(Service):
+    """Nordic UART Service - used by Pegasus clients.
+    
+    Real Pegasus board uses Nordic UART Service (NUS) for BLE communication.
+    """
+    
+    def __init__(self, bus, index):
+        Service.__init__(self, bus, index, NORDIC_UUIDS["service"], True)
+        
+        # Add TX characteristic (notify FROM device) - index 0
+        self.add_characteristic(NordicTXCharacteristic(bus, 0, self))
+        # Add RX characteristic (write TO device) - index 1
+        self.add_characteristic(NordicRXCharacteristic(bus, 1, self))
+        
+        log.info(f"Nordic UART Service created: {NORDIC_UUIDS['service']}")
+
+
+# ============================================================================
 # sendMessage callback for Universal
 # ============================================================================
 
 def sendMessage(data):
-    """Send a message via BLE or BT classic.
+    """Send a message via BLE (Millennium or Nordic) or BT classic.
     
     Args:
         data: Message data bytes (already formatted with messageType, length, payload)
@@ -718,15 +863,21 @@ def sendMessage(data):
         log.debug(f"[sendMessage] Relay mode enabled - not sending to client")
         return
     
-    # Send via BLE if connected
+    # Send via Millennium BLE if connected
     if TXCharacteristic.tx_instance is not None and TXCharacteristic.tx_instance.notifying:
         try:
-            log.info(f"[sendMessage] Sending {len(tosend)} bytes via BLE")
+            log.info(f"[sendMessage] Sending {len(tosend)} bytes via Millennium BLE")
             TXCharacteristic.tx_instance.send_notification(tosend)
         except Exception as e:
-            log.error(f"[sendMessage] Error sending via BLE: {e}")
-    else:
-        log.debug(f"[sendMessage] BLE not ready")
+            log.error(f"[sendMessage] Error sending via Millennium BLE: {e}")
+    
+    # Send via Nordic (Pegasus) BLE if connected
+    if NordicTXCharacteristic.nordic_tx_instance is not None and NordicTXCharacteristic.nordic_tx_instance.notifying:
+        try:
+            log.info(f"[sendMessage] Sending {len(tosend)} bytes via Nordic BLE (Pegasus)")
+            NordicTXCharacteristic.nordic_tx_instance.send_notification(tosend)
+        except Exception as e:
+            log.error(f"[sendMessage] Error sending via Nordic BLE: {e}")
     
     # Send via BT classic if connected
     global client_connected, client_sock
@@ -1162,6 +1313,7 @@ def main():
         ble_app = Application(bus)
         ble_app.add_service(DeviceInfoService(bus, 0))
         ble_app.add_service(MillenniumService(bus, 1))
+        ble_app.add_service(NordicUARTService(bus, 2))  # For Pegasus clients
         
         gatt_manager = dbus.Interface(
             bus.get_object(BLUEZ_SERVICE_NAME, adapter),
@@ -1179,8 +1331,8 @@ def main():
             reply_handler=gatt_register_success,
             error_handler=gatt_register_error)
         
-        # Create and register advertisement
-        adv = Advertisement(bus, 0, args.device_name, service_uuids=[MILLENNIUM_UUIDS["service"]])
+        # Create and register advertisement - advertise both Millennium and Nordic UUIDs
+        adv = Advertisement(bus, 0, args.device_name, service_uuids=[MILLENNIUM_UUIDS["service"], NORDIC_UUIDS["service"]])
         
         ad_manager = dbus.Interface(
             bus.get_object(BLUEZ_SERVICE_NAME, adapter),

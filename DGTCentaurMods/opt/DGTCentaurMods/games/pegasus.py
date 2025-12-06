@@ -209,10 +209,14 @@ class Pegasus:
        
     def board_dump(self):
         """Handle board dump packet.
+        
+        Real Pegasus board uses 0x7F (127) for empty squares, not 0.
         """
         log.info(f"[Pegasus Board dump] getting board state")
         bs = board.getBoardState()
-        self.send_packet(command.BOARD_DUMP_RESP, bs)
+        # Transform empty squares (0) to 0x7F to match real Pegasus board protocol
+        bs_transformed = [0x7F if b == 0 else b for b in bs]
+        self.send_packet(command.BOARD_DUMP_RESP, bs_transformed)
         return True
 
     def send_packet_string(self, packet_type, payload: str = ""):
@@ -222,6 +226,9 @@ class Pegasus:
         
     def send_packet(self, packet_type, payload: bytes = b""):
         """Send a packet.
+        
+        Real Pegasus board response format: <type> <length_hi> <length_lo> <payload>
+        No trailing 0x00 terminator (verified via sniffer analysis).
         
         Args:
             packet_type: Packet type byte as integer
@@ -235,7 +242,7 @@ class Pegasus:
         tosend.append(hi)
         tosend.append(lo)
         tosend.extend(payload)
-        tosend.append(0x00)
+        # No trailing 0x00 terminator - real Pegasus board doesn't send one
         log.info(f"[Pegasus] Sending packet: {' '.join(f'{b:02x}' for b in tosend)}")
         self.sendMessage(tosend)
     
@@ -253,7 +260,9 @@ class Pegasus:
         else:
             log.info(f"[Pegasus] Received packet: {command_name} type=0x{packet_type:02X}")
         if packet_type == command.INITIAL_COMMAND:
-            return self.battery_status()
+            # Real Pegasus board does NOT respond to reset command (0x40)
+            self.begin()
+            return False
         elif packet_type == command.DEVELOPER_KEY:
             # Developer key registration
             log.info(f"[Pegasus Developer key] raw: {' '.join(f'{b:02x}' for b in payload)}")
