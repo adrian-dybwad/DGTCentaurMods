@@ -209,6 +209,17 @@ echo -e "::: Installing dhcpcd hook for WiFi status widget"
     fi
     echo -e "::: Bluetooth Class set to 0x200404 (Audio/Video - headphones icon)"
     
+    # Disable ReverseServiceDiscovery to prevent BlueZ from reading iPhone characteristics
+    # which can trigger pairing prompts
+    if grep -q "^#ReverseServiceDiscovery = " $BTMAIN; then
+        sed -i "s/^#ReverseServiceDiscovery = .*/ReverseServiceDiscovery = false/" $BTMAIN
+    elif grep -q "^ReverseServiceDiscovery = " $BTMAIN; then
+        sed -i "s/^ReverseServiceDiscovery = .*/ReverseServiceDiscovery = false/" $BTMAIN
+    else
+        sed -i "/^\[General\]/a ReverseServiceDiscovery = false" $BTMAIN
+    fi
+    echo -e "::: ReverseServiceDiscovery disabled (prevents reading iPhone characteristics)"
+    
     #Mark file as changed
     sed -i "$ a #dgtcentaurmods" $BTMAIN
 
