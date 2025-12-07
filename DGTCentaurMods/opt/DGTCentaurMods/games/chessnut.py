@@ -324,8 +324,8 @@ class Chessnut:
         if squares_to_light:
             log.info(f"[Chessnut] LED command: lighting squares {squares_to_light}")
             try:
-                # Use ledArray to light multiple LEDs
-                board.ledArray(squares_to_light, speed=3, intensity=5)
+                # Use ledArray with repeat=0 so LEDs stay on until next command
+                board.ledArray(squares_to_light, speed=3, intensity=5, repeat=0)
             except Exception as e:
                 log.error(f"[Chessnut] Error setting LEDs: {e}")
         else:
