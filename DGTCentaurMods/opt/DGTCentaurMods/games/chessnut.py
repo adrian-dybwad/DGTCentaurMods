@@ -130,11 +130,14 @@ class Chessnut:
             time_in_seconds: Time in seconds since the start of the game
         """
         try:
+            log.debug(f"[Chessnut] handle_manager_event: event={event}, reporting_enabled={self.reporting_enabled}")
             if not self.reporting_enabled:
+                log.debug("[Chessnut] Skipping event - reporting not enabled")
                 return
             
             # Generate FEN update on piece events
             if event in (EVENT_LIFT_PIECE, EVENT_PLACE_PIECE):
+                log.info(f"[Chessnut] Piece event detected, sending FEN notification")
                 self._send_fen_notification()
         except Exception as e:
             log.error(f"[Chessnut] Error in handle_manager_event: {e}")
@@ -245,8 +248,9 @@ class Chessnut:
             return True
         
         elif cmd == CMD_ENABLE_REPORTING:
-            log.info("[Chessnut] Enable reporting command received")
+            log.info("[Chessnut] Enable reporting command received - setting reporting_enabled=True")
             self.reporting_enabled = True
+            log.info(f"[Chessnut] reporting_enabled is now: {self.reporting_enabled}")
             # Send initial FEN notification
             self._send_fen_notification()
             return True
