@@ -495,8 +495,9 @@ class ChessnutOperationService(Service):
 class Advertisement(dbus.service.Object):
     """BLE Advertisement for Chessnut Air.
     
-    The app finds devices by name "Chessnut Air". We advertise with name
-    only - service UUIDs are discovered after connection.
+    Real Chessnut Air advertises with:
+    - LocalName: "Chessnut Air"
+    - Manufacturer Data: Company ID 0x4450 (17488)
     """
     
     PATH_BASE = '/org/bluez/chessnut/advertisement'
@@ -508,11 +509,17 @@ class Advertisement(dbus.service.Object):
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_properties(self):
+        # Manufacturer data from real Chessnut Air: 4353b953056400003e9751101b00
+        mfr_data = [0x43, 0x53, 0xb9, 0x53, 0x05, 0x64, 0x00, 0x00, 
+                    0x3e, 0x97, 0x51, 0x10, 0x1b, 0x00]
+        
         properties = {
             'Type': 'peripheral',
             'LocalName': dbus.String(self.name),
             'Discoverable': dbus.Boolean(True),
-            'Includes': dbus.Array(['tx-power'], signature='s'),
+            'ManufacturerData': dbus.Dictionary({
+                dbus.UInt16(0x4450): dbus.Array(mfr_data, signature='y')
+            }, signature='qv'),
         }
         return {LE_ADVERTISEMENT_IFACE: properties}
 
@@ -696,7 +703,6 @@ def main():
         log("SNIFFER READY")
         log("=" * 60)
         log(f"Device name: {device_name}")
-        log(f"Manufacturer ID: 0x4450 (Chessnut)")
         log(f"FEN Service: {CHESSNUT_FEN_SERVICE_UUID}")
         log(f"OP Service: {CHESSNUT_OP_SERVICE_UUID}")
         log("Connect with the Chessnut app or any BLE client")
