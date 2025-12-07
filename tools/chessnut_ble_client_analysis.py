@@ -54,9 +54,13 @@ CHESSNUT_OP_RX_UUID = "1b7e8273-2877-41c3-b46e-cf057c562023"   # Notify - respon
 # Target device name
 CHESSNUT_DEVICE_NAME = "Chessnut"
 
-# Chessnut Air Commands
+# Chessnut Air Commands (from sniffer capture)
+CMD_INIT = bytes([0x0b, 0x04, 0x03, 0xe8, 0x00, 0xc8])  # Init/config
 CMD_ENABLE_REPORTING = bytes([0x21, 0x01, 0x00])  # Enable reporting
+CMD_HAPTIC_ON = bytes([0x27, 0x01, 0x01])         # Haptic on
+CMD_HAPTIC_OFF = bytes([0x27, 0x01, 0x00])        # Haptic off
 CMD_BATTERY_REQUEST = bytes([0x29, 0x01, 0x00])   # Battery request
+CMD_SOUND = bytes([0x31, 0x01, 0x00])             # Sound control
 
 # Chessnut Air Response Types
 RESP_FEN_DATA = 0x01    # FEN notification
@@ -376,6 +380,16 @@ class ChessnutAnalyzer:
         
         await asyncio.sleep(0.3)
         
+        # Send INIT command (like the app does)
+        self._log("\nSending INIT command...")
+        try:
+            hex_cmd = ' '.join(f'{b:02x}' for b in CMD_INIT)
+            self._log(f"  TX: {hex_cmd}")
+            await client.write_gatt_char(CHESSNUT_OP_TX_UUID, CMD_INIT, response=False)
+            await asyncio.sleep(0.2)
+        except Exception as e:
+            self._log(f"  ERROR: {e}")
+        
         # Send battery request
         self._log("\nSending BATTERY_REQUEST command...")
         try:
@@ -399,6 +413,37 @@ class ChessnutAnalyzer:
                 self._log("  No battery response received")
         except Exception as e:
             analysis.protocol_errors.append(f"Battery request failed: {e}")
+            self._log(f"  ERROR: {e}")
+        
+        await asyncio.sleep(0.2)
+        
+        # Send SOUND command
+        self._log("\nSending SOUND command...")
+        try:
+            hex_cmd = ' '.join(f'{b:02x}' for b in CMD_SOUND)
+            self._log(f"  TX: {hex_cmd}")
+            await client.write_gatt_char(CHESSNUT_OP_TX_UUID, CMD_SOUND, response=False)
+            await asyncio.sleep(0.2)
+        except Exception as e:
+            self._log(f"  ERROR: {e}")
+        
+        # Send HAPTIC commands
+        self._log("\nSending HAPTIC_ON command...")
+        try:
+            hex_cmd = ' '.join(f'{b:02x}' for b in CMD_HAPTIC_ON)
+            self._log(f"  TX: {hex_cmd}")
+            await client.write_gatt_char(CHESSNUT_OP_TX_UUID, CMD_HAPTIC_ON, response=False)
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            self._log(f"  ERROR: {e}")
+        
+        self._log("\nSending HAPTIC_OFF command...")
+        try:
+            hex_cmd = ' '.join(f'{b:02x}' for b in CMD_HAPTIC_OFF)
+            self._log(f"  TX: {hex_cmd}")
+            await client.write_gatt_char(CHESSNUT_OP_TX_UUID, CMD_HAPTIC_OFF, response=False)
+            await asyncio.sleep(0.2)
+        except Exception as e:
             self._log(f"  ERROR: {e}")
         
         # Stop notifications
