@@ -5,8 +5,36 @@ Serial port proxy using PTY and threading.
 Proxies /dev/ttyS0 through a PTY to /dev/ttyS0.real, allowing monitoring
 and interception of serial traffic.
 
-Usage:
-    sudo python3 proxy.py
+Useful to monitor traffic to and from the real centaur software.
+
+Example:
+1) In one ssh session, start this script:
+    cd ~/DGTCentaurMods/tools/dev-tools/proxies
+    python centaur.py
+2) In another ssh session, start the real centaur software:
+    cd ~/centaur # or wherever the centaur binary is
+    ./centaur
+3) Monitor the traffic logs in the ssh proxy session as you play the game.
+
+4) To stop the proxy, press Ctrl-C in the ssh proxy session. This will restore the serial ports.
+
+5) To stop the centaur software, you need to kill the process or it will instead shutdown the pi.
+To do this, use the kill command in a separate ssh session as follows:
+    sudo pkill centaur
+
+
+
+NOTE: If the ttyS0 port is not restored correctly on exiting this proxy script, 
+running the centaur software on its own will not work and you may also have 
+trouble using any Centaur Mods as well.
+
+To restore the ttyS0 port, do the following:
+    a) See if a port exists with the name /dev/ttyS0.real:
+        ls -l /dev/ttyS0*
+    b) If, and only if the /dev/ttyS0.real port exists, remove the ttyS0 symlink with:
+        sudo rm -f /dev/ttyS0
+    c) Restore the real device with:
+        sudo mv /dev/ttyS0.real /dev/ttyS0
 """
 
 import os
