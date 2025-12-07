@@ -275,12 +275,65 @@ class Chessnut:
         elif cmd == CMD_LED_CONTROL:
             payload_hex = ' '.join(f'{b:02x}' for b in payload) if payload else ''
             log.info(f"[Chessnut] LED control command received: {payload_hex}")
-            # LED control is acknowledged but not emulated
+            self._handle_led_command(payload)
             return True
         
         else:
             log.warning(f"[Chessnut] Unknown command: 0x{cmd:02x}")
             return False
+    
+    def _handle_led_command(self, payload):
+        """Handle Chessnut LED control command.
+        
+        Chessnut LED format (8 bytes = 64 squares):
+        - Each byte represents one row (rank)
+        - Byte 0 = rank 8, byte 7 = rank 1
+        - Within each byte: bit 7 (MSB) = file a, bit 0 (LSB) = file h
+        - Bit set = LED on, bit clear = LED off
+        
+        Example: byte 0x08 = 0b00001000 = LED on at file e (bit 3)
+        
+        Centaur board LED format:
+        - Square 0 = a1, square 7 = h1
+        - Square 8 = a2, ...
+        - Square 56 = a8, square 63 = h8
+        
+        Args:
+            payload: 8 bytes of LED data
+        """
+        if not payload or len(payload) < 8:
+            log.warning(f"[Chessnut] LED command too short: {len(payload) if payload else 0} bytes")
+            return
+        
+        # Convert Chessnut LED format to list of squares to light
+        squares_to_light = []
+        
+        for row_idx, row_byte in enumerate(payload[:8]):
+            # row_idx 0 = rank 8 (Centaur rank 7), row_idx 7 = rank 1 (Centaur rank 0)
+            centaur_rank = 7 - row_idx
+            
+            for file_idx in range(8):
+                # Chessnut: bit 7 = file a, bit 6 = file b, ..., bit 0 = file h
+                # So bit position for file_idx is (7 - file_idx)
+                bit_position = 7 - file_idx
+                if row_byte & (1 << bit_position):
+                    # Calculate Centaur square index: rank * 8 + file
+                    square = centaur_rank * 8 + file_idx
+                    squares_to_light.append(square)
+        
+        if squares_to_light:
+            log.info(f"[Chessnut] LED command: lighting squares {squares_to_light}")
+            try:
+                # Use ledArray to light multiple LEDs
+                board.ledArray(squares_to_light, speed=3, intensity=5)
+            except Exception as e:
+                log.error(f"[Chessnut] Error setting LEDs: {e}")
+        else:
+            log.debug("[Chessnut] LED command: turning off all LEDs")
+            try:
+                board.ledsOff()
+            except Exception as e:
+                log.error(f"[Chessnut] Error turning off LEDs: {e}")
     
     def _get_board_fen(self):
         """Get current board position as FEN string.
