@@ -109,12 +109,35 @@ NORDIC_UUIDS = {
 }
 
 # Chessnut Air BLE UUIDs
+# Real board has 4 services:
+# 1. FEN Service (1b7e8261) - contains FEN RX characteristic (notify)
+# 2. Operation Service (1b7e8271) - contains OP TX (write) and OP RX (notify)
+# 3. Unknown Service (1b7e8281) - contains write and notify characteristics
+# 4. OTA Service (9e5d1e47) - firmware update service
 CHESSNUT_UUIDS = {
-    "service": "1b7e8261-2877-41c3-b46e-cf057c562023",
-    "fen": "1b7e8262-2877-41c3-b46e-cf057c562023",
+    # Service 1: FEN
+    "fen_service": "1b7e8261-2877-41c3-b46e-cf057c562023",
+    "fen_rx": "1b7e8262-2877-41c3-b46e-cf057c562023",
+    # Service 2: Operation
+    "op_service": "1b7e8271-2877-41c3-b46e-cf057c562023",
     "op_tx": "1b7e8272-2877-41c3-b46e-cf057c562023",
-    "op_rx": "1b7e8273-2877-41c3-b46e-cf057c562023"
+    "op_rx": "1b7e8273-2877-41c3-b46e-cf057c562023",
+    # Service 3: Unknown
+    "unk_service": "1b7e8281-2877-41c3-b46e-cf057c562023",
+    "unk_tx": "1b7e8282-2877-41c3-b46e-cf057c562023",
+    "unk_rx": "1b7e8283-2877-41c3-b46e-cf057c562023",
+    # Service 4: OTA
+    "ota_service": "9e5d1e47-5c13-43a0-8635-82ad38a1386f",
+    "ota_char1": "e3dd50bf-f7a7-4e99-838e-570a086c666b",
+    "ota_char2": "92e86c7a-d961-4091-b74f-2409e72efe36",
+    "ota_char3": "347f7608-2e2d-47eb-913b-75d4edc4de3b",
 }
+
+# Chessnut manufacturer data for advertisement
+# Company ID: 0x4450 (17488)
+# Payload from real board: 4353b953056400003e9751101b00
+CHESSNUT_MANUFACTURER_ID = 0x4450
+CHESSNUT_MANUFACTURER_DATA = bytes.fromhex("4353b953056400003e9751101b00")
 
 # ============================================================================
 # Helper Functions
@@ -242,15 +265,16 @@ class NoInputNoOutputAgent(dbus.service.Object):
 class Advertisement(dbus.service.Object):
     """BLE Advertisement for universal relay.
     
-    Advertises both Millennium and Nordic UART services for discovery by
-    ChessLink and DGT Pegasus apps respectively.
+    Advertises services for discovery by chess apps:
+    - Millennium/Pegasus: Uses ServiceUUIDs
+    - Chessnut: Uses ManufacturerData (company ID 0x4450)
     
     Uses ServiceUUIDs for the primary UUID and Includes for scan response.
     """
     
     PATH_BASE = '/org/bluez/universal_relay/advertisement'
 
-    def __init__(self, bus, index, name, service_uuids=None, scan_rsp_uuids=None):
+    def __init__(self, bus, index, name, service_uuids=None, scan_rsp_uuids=None, manufacturer_data=None):
         self.path = self.PATH_BASE + str(index)
         self.bus = bus
         self.ad_type = 'peripheral'
@@ -258,6 +282,7 @@ class Advertisement(dbus.service.Object):
         self.include_tx_power = True
         self.service_uuids = service_uuids or []
         self.scan_rsp_uuids = scan_rsp_uuids or []
+        self.manufacturer_data = manufacturer_data  # Dict of {company_id: bytes}
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_properties(self):
@@ -278,6 +303,13 @@ class Advertisement(dbus.service.Object):
                 properties['ScanResponseServiceUUIDs'] = dbus.Array(self.scan_rsp_uuids, signature='s')
             except Exception:
                 pass  # Ignore if not supported
+        
+        # Manufacturer data for Chessnut (and potentially others)
+        if self.manufacturer_data:
+            mfr_dict = {}
+            for company_id, data in self.manufacturer_data.items():
+                mfr_dict[dbus.UInt16(company_id)] = dbus.Array([dbus.Byte(b) for b in data], signature='y')
+            properties['ManufacturerData'] = dbus.Dictionary(mfr_dict, signature='qv')
         
         return {LE_ADVERTISEMENT_IFACE: properties}
 
@@ -892,14 +924,310 @@ class NordicUARTService(Service):
 
 
 # ============================================================================
+# Chessnut Air Service Characteristics
+# ============================================================================
+
+class ChessnutFENCharacteristic(Characteristic):
+    """Chessnut FEN RX Characteristic (1b7e8262) - Notify FEN/board state to client.
+    
+    Sends 38-byte FEN notifications:
+    - Bytes 0-1: Header [0x01, 0x24]
+    - Bytes 2-33: Position data (32 bytes, 2 squares per byte)
+    - Bytes 34-37: Uptime counter (little-endian uint16) + [0x00, 0x00]
+    """
+    
+    fen_instance = None
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_UUIDS["fen_rx"],
+                                ['notify'], service)
+        self.notifying = False
+        ChessnutFENCharacteristic.fen_instance = self
+        log.info(f"Chessnut FEN Characteristic created: {CHESSNUT_UUIDS['fen_rx']}")
+
+    def StartNotify(self):
+        log.info("Chessnut FEN StartNotify")
+        self.notifying = True
+
+    def StopNotify(self):
+        log.info("Chessnut FEN StopNotify")
+        self.notifying = False
+
+    def send_notification(self, data):
+        """Send FEN notification to client."""
+        if not self.notifying:
+            return
+        value = dbus.Array([dbus.Byte(b) for b in data], signature='y')
+        self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': value}, [])
+        log.debug(f"Chessnut FEN notification sent: {len(data)} bytes")
+
+
+class ChessnutOperationTXCharacteristic(Characteristic):
+    """Chessnut Operation TX Characteristic (1b7e8272) - Receives commands from client.
+    
+    Commands are written here by the client:
+    - 0x0b: Init/config (no response)
+    - 0x21: Enable reporting
+    - 0x27: Haptic control (no response)
+    - 0x29: Battery request
+    - 0x31: Sound control (no response)
+    - 0x0a: LED control
+    """
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_UUIDS["op_tx"],
+                                ['write', 'write-without-response'], service)
+        log.info(f"Chessnut OP TX Characteristic created: {CHESSNUT_UUIDS['op_tx']}")
+
+    def WriteValue(self, value, options):
+        global kill, ble_connected, universal, relay_mode
+        
+        if kill:
+            return
+        
+        try:
+            bytes_data = bytearray([int(b) for b in value])
+            hex_str = ' '.join(f'{b:02x}' for b in bytes_data)
+            
+            log.info(f"Chessnut OP TX RX: {len(bytes_data)} bytes")
+            log.info(f"  Hex: {hex_str}")
+            
+            # Ensure Universal instance exists for Chessnut protocol
+            if universal is None:
+                log.info("[Universal] Creating instance on first RX data (Chessnut)")
+                # Reset any stale Millennium/Pegasus state
+                if TXCharacteristic.tx_instance is not None:
+                    TXCharacteristic.tx_instance.notifying = False
+                if NordicTXCharacteristic.nordic_tx_instance is not None:
+                    NordicTXCharacteristic.nordic_tx_instance.notifying = False
+                ble_client_type = 'chessnut'
+                universal = Universal(
+                    sendMessage_callback=sendMessage,
+                    client_type=Universal.CLIENT_CHESSNUT,
+                    compare_mode=relay_mode
+                )
+            
+            # Process through Universal (Chessnut protocol)
+            for byte_val in bytes_data:
+                universal.receive_data(byte_val)
+            log.debug(f"Processed {len(bytes_data)} bytes through universal parser (Chessnut)")
+            
+            ble_connected = True
+            
+        except Exception as e:
+            log.error(f"Error in Chessnut OP TX WriteValue: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+
+
+class ChessnutOperationRXCharacteristic(Characteristic):
+    """Chessnut Operation RX Characteristic (1b7e8273) - Notify responses to client.
+    
+    Sends command responses:
+    - Battery response: [0x2a, 0x02, battery_level, 0x00]
+    """
+    
+    op_rx_instance = None
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_UUIDS["op_rx"],
+                                ['notify'], service)
+        self.notifying = False
+        ChessnutOperationRXCharacteristic.op_rx_instance = self
+        log.info(f"Chessnut OP RX Characteristic created: {CHESSNUT_UUIDS['op_rx']}")
+
+    def StartNotify(self):
+        global ble_connected, ble_client_type, universal, relay_mode
+        
+        log.info("=" * 60)
+        log.info("Chessnut OP RX StartNotify called - Chessnut BLE client subscribing")
+        log.info("=" * 60)
+        
+        # Always reset to clean state on new connection
+        universal = None
+        ble_connected = False
+        if TXCharacteristic.tx_instance is not None:
+            TXCharacteristic.tx_instance.notifying = False
+        if NordicTXCharacteristic.nordic_tx_instance is not None:
+            NordicTXCharacteristic.nordic_tx_instance.notifying = False
+        
+        ChessnutOperationRXCharacteristic.op_rx_instance = self
+        self.notifying = True
+        ble_client_type = 'chessnut'
+        
+        # Create fresh Universal instance for this connection
+        try:
+            universal = Universal(
+                sendMessage_callback=sendMessage,
+                client_type=Universal.CLIENT_CHESSNUT,
+                compare_mode=relay_mode
+            )
+            log.info(f"[Universal] Instantiated for Chessnut BLE with client_type=CHESSNUT, compare_mode={relay_mode}")
+        except Exception as e:
+            log.error(f"[Universal] Error instantiating: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        ble_connected = True
+        log.info("Chessnut BLE notifications enabled successfully")
+
+    def StopNotify(self):
+        global ble_connected, ble_client_type, universal
+        
+        if not self.notifying:
+            return
+        
+        log.info("=" * 60)
+        log.info("CHESSNUT BLE CLIENT DISCONNECTED")
+        log.info("=" * 60)
+        
+        self.notifying = False
+        ble_connected = False
+        ble_client_type = None
+        universal = None
+        log.info("[Universal] Instance reset - ready for new connection")
+
+    def send_notification(self, data):
+        """Send notification to client."""
+        if not self.notifying:
+            return
+        value = dbus.Array([dbus.Byte(b) for b in data], signature='y')
+        self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': value}, [])
+        log.debug(f"Chessnut OP RX notification sent: {len(data)} bytes")
+
+
+class ChessnutUnknownTXCharacteristic(Characteristic):
+    """Chessnut Unknown TX Characteristic (1b7e8282) - Write."""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_UUIDS["unk_tx"],
+                                ['write', 'write-without-response'], service)
+
+    def WriteValue(self, value, options):
+        bytes_data = bytearray([int(b) for b in value])
+        hex_str = ' '.join(f'{b:02x}' for b in bytes_data)
+        log.info(f"Chessnut UNK TX RX: {hex_str}")
+
+
+class ChessnutUnknownRXCharacteristic(Characteristic):
+    """Chessnut Unknown RX Characteristic (1b7e8283) - Notify."""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_UUIDS["unk_rx"],
+                                ['notify'], service)
+        self.notifying = False
+
+    def StartNotify(self):
+        self.notifying = True
+
+    def StopNotify(self):
+        self.notifying = False
+
+
+class ChessnutOTAChar1(Characteristic):
+    """Chessnut OTA Characteristic 1 - Write/Notify/Indicate."""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_UUIDS["ota_char1"],
+                                ['write', 'notify', 'indicate'], service)
+        self.notifying = False
+
+    def WriteValue(self, value, options):
+        bytes_data = bytearray([int(b) for b in value])
+        log.info(f"Chessnut OTA1 RX: {' '.join(f'{b:02x}' for b in bytes_data)}")
+
+    def StartNotify(self):
+        self.notifying = True
+
+    def StopNotify(self):
+        self.notifying = False
+
+
+class ChessnutOTAChar2(Characteristic):
+    """Chessnut OTA Characteristic 2 - Write."""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_UUIDS["ota_char2"],
+                                ['write'], service)
+
+    def WriteValue(self, value, options):
+        bytes_data = bytearray([int(b) for b in value])
+        log.info(f"Chessnut OTA2 RX: {' '.join(f'{b:02x}' for b in bytes_data)}")
+
+
+class ChessnutOTAChar3(Characteristic):
+    """Chessnut OTA Characteristic 3 - Read."""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_UUIDS["ota_char3"],
+                                ['read'], service)
+
+    def ReadValue(self, options):
+        log.info("Chessnut OTA3 Read request")
+        return dbus.Array([dbus.Byte(0x00)], signature='y')
+
+
+class ChessnutFENService(Service):
+    """Chessnut Air FEN Service (1b7e8261).
+    
+    Contains one characteristic:
+    - FEN RX (1b7e8262): Notify - FEN/board state
+    """
+    
+    def __init__(self, bus, index):
+        Service.__init__(self, bus, index, CHESSNUT_UUIDS["fen_service"], True)
+        self.fen_char = ChessnutFENCharacteristic(bus, 0, self)
+        self.add_characteristic(self.fen_char)
+        log.info(f"Chessnut FEN Service created: {CHESSNUT_UUIDS['fen_service']}")
+
+
+class ChessnutOperationService(Service):
+    """Chessnut Air Operation Service (1b7e8271).
+    
+    Contains two characteristics:
+    - Operation TX (1b7e8272): Write - commands from client
+    - Operation RX (1b7e8273): Notify - responses to client
+    """
+    
+    def __init__(self, bus, index):
+        Service.__init__(self, bus, index, CHESSNUT_UUIDS["op_service"], True)
+        self.add_characteristic(ChessnutOperationTXCharacteristic(bus, 0, self))
+        self.op_rx_char = ChessnutOperationRXCharacteristic(bus, 1, self)
+        self.add_characteristic(self.op_rx_char)
+        log.info(f"Chessnut Operation Service created: {CHESSNUT_UUIDS['op_service']}")
+
+
+class ChessnutUnknownService(Service):
+    """Chessnut Air Unknown Service (1b7e8281)."""
+    
+    def __init__(self, bus, index):
+        Service.__init__(self, bus, index, CHESSNUT_UUIDS["unk_service"], True)
+        self.add_characteristic(ChessnutUnknownTXCharacteristic(bus, 0, self))
+        self.add_characteristic(ChessnutUnknownRXCharacteristic(bus, 1, self))
+        log.info(f"Chessnut Unknown Service created: {CHESSNUT_UUIDS['unk_service']}")
+
+
+class ChessnutOTAService(Service):
+    """Chessnut Air OTA Service (9e5d1e47)."""
+    
+    def __init__(self, bus, index):
+        Service.__init__(self, bus, index, CHESSNUT_UUIDS["ota_service"], True)
+        self.add_characteristic(ChessnutOTAChar1(bus, 0, self))
+        self.add_characteristic(ChessnutOTAChar2(bus, 1, self))
+        self.add_characteristic(ChessnutOTAChar3(bus, 2, self))
+        log.info(f"Chessnut OTA Service created: {CHESSNUT_UUIDS['ota_service']}")
+
+
+# ============================================================================
 # sendMessage callback for Universal
 # ============================================================================
 
-def sendMessage(data):
-    """Send a message via BLE (Millennium or Nordic) or BT classic.
+def sendMessage(data, message_type=None):
+    """Send a message via BLE (Millennium, Nordic, or Chessnut) or BT classic.
     
     Args:
         data: Message data bytes (already formatted with messageType, length, payload)
+        message_type: Optional message type hint for Chessnut ('fen' or 'op_rx')
     """
     global _last_message, relay_mode, shadow_target
 
@@ -927,6 +1255,24 @@ def sendMessage(data):
             NordicTXCharacteristic.nordic_tx_instance.send_notification(tosend)
         except Exception as e:
             log.error(f"[sendMessage] Error sending via Nordic BLE: {e}")
+    
+    # Send via Chessnut BLE if connected
+    # Chessnut uses two notification characteristics: FEN (0x01 header) and OP RX (0x2a battery)
+    if ble_client_type == 'chessnut':
+        try:
+            # Route based on first byte (response type)
+            if len(tosend) > 0 and tosend[0] == 0x01:
+                # FEN notification goes to FEN characteristic
+                if ChessnutFENCharacteristic.fen_instance is not None and ChessnutFENCharacteristic.fen_instance.notifying:
+                    log.info(f"[sendMessage] Sending {len(tosend)} bytes via Chessnut FEN")
+                    ChessnutFENCharacteristic.fen_instance.send_notification(tosend)
+            else:
+                # Other responses (battery, etc.) go to OP RX characteristic
+                if ChessnutOperationRXCharacteristic.op_rx_instance is not None and ChessnutOperationRXCharacteristic.op_rx_instance.notifying:
+                    log.info(f"[sendMessage] Sending {len(tosend)} bytes via Chessnut OP RX")
+                    ChessnutOperationRXCharacteristic.op_rx_instance.send_notification(tosend)
+        except Exception as e:
+            log.error(f"[sendMessage] Error sending via Chessnut BLE: {e}")
     
     # Send via BT classic if connected
     global client_connected, client_sock
@@ -1360,9 +1706,18 @@ def main():
     # Setup BLE if enabled
     if not args.no_ble:
         ble_app = Application(bus)
+        
+        # Add services for all supported protocols
+        # Service indices: 0=DeviceInfo, 1=Millennium, 2=Nordic, 3-6=Chessnut
         ble_app.add_service(DeviceInfoService(bus, 0))
         ble_app.add_service(MillenniumService(bus, 1))
         ble_app.add_service(NordicUARTService(bus, 2))  # For Pegasus clients
+        
+        # Add all 4 Chessnut services
+        ble_app.add_service(ChessnutFENService(bus, 3))
+        ble_app.add_service(ChessnutOperationService(bus, 4))
+        ble_app.add_service(ChessnutUnknownService(bus, 5))
+        ble_app.add_service(ChessnutOTAService(bus, 6))
         
         gatt_manager = dbus.Interface(
             bus.get_object(BLUEZ_SERVICE_NAME, adapter),
@@ -1380,38 +1735,39 @@ def main():
             reply_handler=gatt_register_success,
             error_handler=gatt_register_error)
         
-        # Create and register advertisement with both service UUIDs
-        # - Nordic UART Service UUID in main advertisement (for DGT Pegasus app)
-        # - Millennium Service UUID in scan response (for ChessLink app)
-        # This uses BlueZ's ScanResponseServiceUUIDs (experimental) to fit both 128-bit UUIDs
+        # Create and register advertisement
+        # Uses ManufacturerData for Chessnut (company ID 0x4450)
+        # Nordic/Millennium apps discover by LocalName
         
         ad_manager = dbus.Interface(
             bus.get_object(BLUEZ_SERVICE_NAME, adapter),
             LE_ADVERTISING_MANAGER_IFACE)
         
-        # Nordic UUID in main advertisement, Millennium in scan response
+        # Advertisement with LocalName and Chessnut ManufacturerData
+        # Chessnut app filters by manufacturer ID 0x4450
+        # Millennium/Pegasus apps filter by name
         adv = Advertisement(
             bus, 0, args.device_name,
-            service_uuids=[NORDIC_UUIDS["service"]],
-            scan_rsp_uuids=[MILLENNIUM_UUIDS["service"]]
+            service_uuids=None,  # Don't advertise UUIDs - apps discover services after connection
+            manufacturer_data={CHESSNUT_MANUFACTURER_ID: CHESSNUT_MANUFACTURER_DATA}
         )
         
         def adv_register_success():
-            log.info("Advertisement registered successfully (Nordic + Millennium UUIDs)")
+            log.info("Advertisement registered successfully (LocalName + Chessnut ManufacturerData)")
         
         def adv_register_error(error):
             log.error(f"Failed to register advertisement: {error}")
-            # Fallback: try with just Nordic UUID if scan response not supported
-            log.info("Retrying with Nordic UUID only...")
-            adv_fallback = Advertisement(bus, 1, args.device_name, service_uuids=[NORDIC_UUIDS["service"]])
+            # Fallback: try with just LocalName
+            log.info("Retrying with LocalName only...")
+            adv_fallback = Advertisement(bus, 1, args.device_name)
             ad_manager.RegisterAdvertisement(
                 adv_fallback.get_path(), {},
-                reply_handler=lambda: log.info("Fallback advertisement registered (Nordic only)"),
+                reply_handler=lambda: log.info("Fallback advertisement registered (LocalName only)"),
                 error_handler=lambda e: log.error(f"Fallback also failed: {e}"))
         
         log.info(f"Registering advertisement (name: {args.device_name})...")
-        log.info(f"  Primary UUID: {NORDIC_UUIDS['service']} (Nordic UART)")
-        log.info(f"  Scan Response UUID: {MILLENNIUM_UUIDS['service']} (Millennium)")
+        log.info(f"  LocalName: {args.device_name}")
+        log.info(f"  ManufacturerData: 0x{CHESSNUT_MANUFACTURER_ID:04x} (Chessnut)")
         ad_manager.RegisterAdvertisement(
             adv.get_path(), {},
             reply_handler=adv_register_success,

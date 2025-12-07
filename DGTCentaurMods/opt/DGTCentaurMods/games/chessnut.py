@@ -37,13 +37,16 @@ from DGTCentaurMods.games.manager import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
 
 
 # Chessnut Air command bytes
-CMD_ENABLE_REPORTING = 0x21
-CMD_BATTERY_REQUEST = 0x29
-CMD_LED_CONTROL = 0x0a
+CMD_INIT = 0x0b              # Init/config (no response)
+CMD_LED_CONTROL = 0x0a       # LED control
+CMD_ENABLE_REPORTING = 0x21  # Enable FEN reporting
+CMD_HAPTIC = 0x27            # Haptic feedback control (no response)
+CMD_BATTERY_REQUEST = 0x29   # Battery request
+CMD_SOUND = 0x31             # Sound/beep control (no response)
 
 # Chessnut Air response bytes
 RESP_FEN_DATA = 0x01  # FEN notification header byte 0
-RESP_BATTERY = 0x2a
+RESP_BATTERY = 0x2a   # Battery response header byte 0
 
 # Piece encoding for Chessnut Air FEN format
 # Index = piece code, value = FEN character
@@ -77,11 +80,17 @@ class Chessnut:
     - Responding to enable reporting command with FEN updates
     - Responding to battery level requests
     - Generating FEN notifications when board state changes
+    - Acknowledging init, haptic, and sound commands (no response)
     
     Packet format:
     - Commands: [command_byte, length, payload...]
-    - FEN notification: [0x01, 0x24, 32_bytes_position_data, ...]
+    - FEN notification: [0x01, 0x24, 32_bytes_position_data, uptime_lo, uptime_hi, 0x00, 0x00]
     - Battery response: [0x2a, 0x02, battery_level, 0x00]
+    
+    Real board analysis confirmed:
+    - FEN response is 38 bytes (not 36)
+    - Last 4 bytes are uptime counter (little-endian uint16) + 0x00 0x00
+    - Commands 0x0b (INIT), 0x27 (HAPTIC), 0x31 (SOUND) expect no response
     """
     
     # Class property indicating whether this emulator supports RFCOMM (Bluetooth Classic)
@@ -104,6 +113,10 @@ class Chessnut:
         # Simulated battery level (percentage)
         self._battery_level = 85
         self._is_charging = False
+        
+        # Uptime tracking for FEN notifications (simulated uptime in seconds)
+        import time
+        self._start_time = time.time()
     
     def handle_manager_event(self, event, piece_event, field, time_in_seconds):
         """Handle game events from the manager.
@@ -158,7 +171,8 @@ class Chessnut:
             self._send_fen_notification()
     
     # Valid Chessnut command bytes for protocol detection
-    VALID_COMMANDS = {CMD_ENABLE_REPORTING, CMD_BATTERY_REQUEST, CMD_LED_CONTROL}
+    VALID_COMMANDS = {CMD_INIT, CMD_LED_CONTROL, CMD_ENABLE_REPORTING, 
+                      CMD_HAPTIC, CMD_BATTERY_REQUEST, CMD_SOUND}
     
     def parse_byte(self, byte_value):
         """Parse one byte of incoming data.
@@ -218,12 +232,29 @@ class Chessnut:
             
         Returns:
             True if command was recognized and handled, False otherwise
+            
+        Real board analysis confirmed these commands expect no response:
+        - 0x0b (INIT): Initialization/config
+        - 0x27 (HAPTIC): Haptic feedback control
+        - 0x31 (SOUND): Sound/beep control
         """
-        if cmd == CMD_ENABLE_REPORTING:
+        if cmd == CMD_INIT:
+            # Init/config command - no response expected
+            payload_hex = ' '.join(f'{b:02x}' for b in payload) if payload else ''
+            log.info(f"[Chessnut] Init/config command received: {payload_hex}")
+            return True
+        
+        elif cmd == CMD_ENABLE_REPORTING:
             log.info("[Chessnut] Enable reporting command received")
             self.reporting_enabled = True
             # Send initial FEN notification
             self._send_fen_notification()
+            return True
+        
+        elif cmd == CMD_HAPTIC:
+            # Haptic feedback control - no response expected
+            state = "on" if payload and payload[0] else "off"
+            log.info(f"[Chessnut] Haptic feedback: {state}")
             return True
         
         elif cmd == CMD_BATTERY_REQUEST:
@@ -231,8 +262,15 @@ class Chessnut:
             self._send_battery_response()
             return True
         
+        elif cmd == CMD_SOUND:
+            # Sound control - no response expected
+            state = "on" if payload and payload[0] else "off"
+            log.info(f"[Chessnut] Sound control: {state}")
+            return True
+        
         elif cmd == CMD_LED_CONTROL:
-            log.info(f"[Chessnut] LED control command received: {payload}")
+            payload_hex = ' '.join(f'{b:02x}' for b in payload) if payload else ''
+            log.info(f"[Chessnut] LED control command received: {payload_hex}")
             # LED control is acknowledged but not emulated
             return True
         
@@ -309,7 +347,14 @@ class Chessnut:
         return bytes(result)
     
     def _send_fen_notification(self):
-        """Send FEN position notification to connected client."""
+        """Send FEN position notification to connected client.
+        
+        Real board sends 38 bytes:
+        - Bytes 0-1: Header [0x01, 0x24]
+        - Bytes 2-33: Position data (32 bytes)
+        - Bytes 34-35: Uptime counter (little-endian uint16, seconds since boot)
+        - Bytes 36-37: Reserved [0x00, 0x00]
+        """
         if not self.sendMessage:
             return
         
@@ -321,18 +366,25 @@ class Chessnut:
                 return
             self.last_fen = fen
             
-            # Build 36-byte FEN notification
-            # Bytes 0-1: Header (0x01, 0x24 = 36 decimal)
+            # Build 38-byte FEN notification (matches real Chessnut Air)
+            # Bytes 0-1: Header (0x01, 0x24)
             # Bytes 2-33: Position data (32 bytes)
-            # Bytes 34-35: Reserved/checksum (0x00, 0x00)
+            # Bytes 34-35: Uptime counter (little-endian uint16)
+            # Bytes 36-37: Reserved (0x00, 0x00)
             position_bytes = self._fen_to_chessnut_bytes(fen)
+            
+            # Calculate uptime in seconds
+            import time
+            uptime = int(time.time() - self._start_time) & 0xFFFF  # Wrap at 65535
+            uptime_lo = uptime & 0xFF
+            uptime_hi = (uptime >> 8) & 0xFF
             
             notification = bytearray([RESP_FEN_DATA, 0x24])  # Header
             notification.extend(position_bytes)  # 32 bytes position
-            notification.extend([0x00, 0x00])  # Reserved
+            notification.extend([uptime_lo, uptime_hi, 0x00, 0x00])  # Uptime + reserved
             
             log.info(f"[Chessnut] Sending FEN notification: {fen}")
-            log.debug(f"[Chessnut] FEN bytes: {notification.hex()}")
+            log.debug(f"[Chessnut] FEN bytes ({len(notification)}): {notification.hex()}")
             
             self.sendMessage(bytes(notification))
         except Exception as e:
