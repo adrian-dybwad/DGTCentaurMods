@@ -1351,20 +1351,7 @@ class GameManager:
         return self.chess_board.fen()
     
     def subscribe_game(self, event_callback, move_callback, key_callback, takeback_callback=None):
-        """Subscribe to the game manager.
-        
-        Stops any existing game thread before starting a new one to prevent
-        multiple threads with stale callbacks.
-        """
-        # Stop any existing game thread first
-        if self.game_thread is not None and self.game_thread.is_alive():
-            log.info("[GameManager.subscribe_game] Stopping existing game thread before starting new one")
-            self.should_stop = True
-            self._stop_event.set()
-            self.game_thread.join(timeout=1.0)
-            if self.game_thread.is_alive():
-                log.warning("[GameManager.subscribe_game] Old game thread did not stop within timeout")
-            self._stop_event.clear()
+        """Subscribe to the game manager."""
         
         self.source_file = inspect.getsourcefile(sys._getframe(1))
         thread_id = threading.get_ident()
