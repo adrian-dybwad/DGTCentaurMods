@@ -493,25 +493,43 @@ class ChessnutOperationService(Service):
 
 
 class Advertisement(dbus.service.Object):
-    """BLE Advertisement for Chessnut Air."""
+    """BLE Advertisement for Chessnut Air.
+    
+    Real Chessnut Air uses manufacturer data (company ID 17488 = 0x4450)
+    instead of service UUIDs in the advertisement. This avoids the 31-byte
+    packet limit issue with multiple 128-bit UUIDs. Services are discovered
+    after connection.
+    
+    Manufacturer data from real board: 4353b953056400003e9751101b00
+    """
     
     PATH_BASE = '/org/bluez/chessnut/advertisement'
+    
+    # Chessnut company ID (17488 = 0x4450, little-endian)
+    CHESSNUT_COMPANY_ID = 0x4450
 
     def __init__(self, bus, index, name):
         self.path = self.PATH_BASE + str(index)
         self.bus = bus
         self.name = name
-        # Advertise both services like real Chessnut Air
-        self.service_uuids = [CHESSNUT_FEN_SERVICE_UUID, CHESSNUT_OP_SERVICE_UUID]
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_properties(self):
+        # Manufacturer data from real Chessnut Air
+        # 4353b953056400003e9751101b00
+        manufacturer_data = bytes.fromhex('4353b953056400003e9751101b00')
+        
         properties = {
             'Type': 'peripheral',
             'LocalName': dbus.String(self.name),
-            'ServiceUUIDs': dbus.Array(self.service_uuids, signature='s'),
             'Discoverable': dbus.Boolean(True),
             'Includes': dbus.Array(['tx-power'], signature='s'),
+            # Use manufacturer data like the real Chessnut Air
+            'ManufacturerData': dbus.Dictionary({
+                dbus.UInt16(self.CHESSNUT_COMPANY_ID): dbus.Array(
+                    [dbus.Byte(b) for b in manufacturer_data], signature='y'
+                )
+            }, signature='qv'),
         }
         return {LE_ADVERTISEMENT_IFACE: properties}
 
@@ -695,8 +713,9 @@ def main():
         log("SNIFFER READY")
         log("=" * 60)
         log(f"Device name: {device_name}")
-        log(f"FEN Service UUID: {CHESSNUT_FEN_SERVICE_UUID}")
-        log(f"OP Service UUID: {CHESSNUT_OP_SERVICE_UUID}")
+        log(f"Manufacturer ID: 0x4450 (Chessnut)")
+        log(f"FEN Service: {CHESSNUT_FEN_SERVICE_UUID}")
+        log(f"OP Service: {CHESSNUT_OP_SERVICE_UUID}")
         log("Connect with the Chessnut app or any BLE client")
         log("Press Ctrl+C to stop")
         log("=" * 60)
