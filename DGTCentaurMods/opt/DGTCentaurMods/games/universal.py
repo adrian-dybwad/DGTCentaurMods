@@ -179,13 +179,18 @@ class Universal:
         """
         try:
             log.debug(f"[Universal] _manager_event_callback: {event} piece_event={piece_event}, field={field}")
+            log.debug(f"[Universal] Flags: is_millennium={self.is_millennium}, is_pegasus={self.is_pegasus}, is_chessnut={self.is_chessnut}")
+            log.debug(f"[Universal] Emulators: _millennium={self._millennium is not None}, _pegasus={self._pegasus is not None}, _chessnut={self._chessnut is not None}")
             
             # If protocol is confirmed, only forward to the active emulator
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_event'):
+                log.debug("[Universal] Routing event to Millennium")
                 self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_event'):
+                log.debug("[Universal] Routing event to Pegasus")
                 self._pegasus.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
+                log.debug("[Universal] Routing event to Chessnut")
                 self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
             else:
                 # Protocol not yet confirmed - forward to ALL emulators
