@@ -44,14 +44,31 @@ AGENT_IFACE = 'org.bluez.Agent1'
 AGENT_MANAGER_IFACE = 'org.bluez.AgentManager1'
 
 # Chessnut Air Service UUIDs
-# Real board has TWO services:
-# - FEN Service (1b7e8261) contains FEN RX characteristic
-# - Operation Service (1b7e8271) contains OP TX and OP RX characteristics
+# Real board has FOUR services:
+# 1. FEN Service (1b7e8261) - contains FEN RX characteristic
+# 2. Operation Service (1b7e8271) - contains OP TX and OP RX characteristics  
+# 3. Unknown Service (1b7e8281) - contains write and notify characteristics
+# 4. OTA Service (9e5d1e47) - firmware update service
+
+# Service 1: FEN
 CHESSNUT_FEN_SERVICE_UUID = "1b7e8261-2877-41c3-b46e-cf057c562023"
-CHESSNUT_OP_SERVICE_UUID = "1b7e8271-2877-41c3-b46e-cf057c562023"
 CHESSNUT_FEN_RX_UUID = "1b7e8262-2877-41c3-b46e-cf057c562023"   # Notify - FEN data
+
+# Service 2: Operation
+CHESSNUT_OP_SERVICE_UUID = "1b7e8271-2877-41c3-b46e-cf057c562023"
 CHESSNUT_OP_TX_UUID = "1b7e8272-2877-41c3-b46e-cf057c562023"   # Write - commands
 CHESSNUT_OP_RX_UUID = "1b7e8273-2877-41c3-b46e-cf057c562023"   # Notify - responses
+
+# Service 3: Unknown (possibly LED or config)
+CHESSNUT_UNK_SERVICE_UUID = "1b7e8281-2877-41c3-b46e-cf057c562023"
+CHESSNUT_UNK_TX_UUID = "1b7e8282-2877-41c3-b46e-cf057c562023"   # Write
+CHESSNUT_UNK_RX_UUID = "1b7e8283-2877-41c3-b46e-cf057c562023"   # Notify
+
+# Service 4: OTA/Firmware
+CHESSNUT_OTA_SERVICE_UUID = "9e5d1e47-5c13-43a0-8635-82ad38a1386f"
+CHESSNUT_OTA_CHAR1_UUID = "e3dd50bf-f7a7-4e99-838e-570a086c666b"  # Write/Notify/Indicate
+CHESSNUT_OTA_CHAR2_UUID = "92e86c7a-d961-4091-b74f-2409e72efe36"  # Write
+CHESSNUT_OTA_CHAR3_UUID = "347f7608-2e2d-47eb-913b-75d4edc4de3b"  # Read
 
 # Chessnut command bytes
 CMD_ENABLE_REPORTING = 0x21
@@ -492,6 +509,105 @@ class ChessnutOperationService(Service):
         self.add_characteristic(self.op_tx_char)
 
 
+class UnknownTXCharacteristic(Characteristic):
+    """Unknown TX Characteristic (1b7e8282) - Write."""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_UNK_TX_UUID,
+                                ['write', 'write-without-response'], service)
+
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}')
+    def WriteValue(self, value, options):
+        bytes_data = bytearray([int(b) for b in value])
+        hex_str = ' '.join(f'{b:02x}' for b in bytes_data)
+        log(f"RX [UNK TX] ({len(bytes_data)} bytes): {hex_str}")
+
+
+class UnknownRXCharacteristic(Characteristic):
+    """Unknown RX Characteristic (1b7e8283) - Notify."""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_UNK_RX_UUID,
+                                ['notify'], service)
+
+    @dbus.service.method(GATT_CHRC_IFACE)
+    def StartNotify(self):
+        log("Unknown RX notifications enabled")
+        self.notifying = True
+
+    @dbus.service.method(GATT_CHRC_IFACE)
+    def StopNotify(self):
+        self.notifying = False
+
+
+class ChessnutUnknownService(Service):
+    """Chessnut Air Unknown GATT Service (1b7e8281)."""
+    
+    def __init__(self, bus, index):
+        Service.__init__(self, bus, index, CHESSNUT_UNK_SERVICE_UUID, True)
+        self.add_characteristic(UnknownTXCharacteristic(bus, 0, self))
+        self.add_characteristic(UnknownRXCharacteristic(bus, 1, self))
+
+
+class OTAChar1(Characteristic):
+    """OTA Characteristic 1 - Write/Notify/Indicate."""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_OTA_CHAR1_UUID,
+                                ['write', 'notify', 'indicate'], service)
+
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}')
+    def WriteValue(self, value, options):
+        bytes_data = bytearray([int(b) for b in value])
+        hex_str = ' '.join(f'{b:02x}' for b in bytes_data)
+        log(f"RX [OTA1] ({len(bytes_data)} bytes): {hex_str}")
+
+    @dbus.service.method(GATT_CHRC_IFACE)
+    def StartNotify(self):
+        self.notifying = True
+
+    @dbus.service.method(GATT_CHRC_IFACE)
+    def StopNotify(self):
+        self.notifying = False
+
+
+class OTAChar2(Characteristic):
+    """OTA Characteristic 2 - Write."""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_OTA_CHAR2_UUID,
+                                ['write'], service)
+
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}')
+    def WriteValue(self, value, options):
+        bytes_data = bytearray([int(b) for b in value])
+        hex_str = ' '.join(f'{b:02x}' for b in bytes_data)
+        log(f"RX [OTA2] ({len(bytes_data)} bytes): {hex_str}")
+
+
+class OTAChar3(Characteristic):
+    """OTA Characteristic 3 - Read."""
+    
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, CHESSNUT_OTA_CHAR3_UUID,
+                                ['read'], service)
+
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
+    def ReadValue(self, options):
+        log("RX [OTA3] Read request")
+        return dbus.Array([0x00], signature='y')
+
+
+class ChessnutOTAService(Service):
+    """Chessnut Air OTA GATT Service (9e5d1e47)."""
+    
+    def __init__(self, bus, index):
+        Service.__init__(self, bus, index, CHESSNUT_OTA_SERVICE_UUID, True)
+        self.add_characteristic(OTAChar1(bus, 0, self))
+        self.add_characteristic(OTAChar2(bus, 1, self))
+        self.add_characteristic(OTAChar3(bus, 2, self))
+
+
 class Advertisement(dbus.service.Object):
     """BLE Advertisement for Chessnut Air.
     
@@ -661,13 +777,22 @@ def main():
     # Create application
     app = Application(bus)
     
-    # Add Chessnut FEN service (index 0)
+    # Add all 4 Chessnut services (matching real board)
+    # Service 1: FEN (index 0)
     fen_service = ChessnutFENService(bus, 0)
     app.add_service(fen_service)
     
-    # Add Chessnut Operation service (index 1) - needs reference to FEN char
+    # Service 2: Operation (index 1) - needs reference to FEN char
     op_service = ChessnutOperationService(bus, 1, fen_service.fen_char)
     app.add_service(op_service)
+    
+    # Service 3: Unknown (index 2)
+    unk_service = ChessnutUnknownService(bus, 2)
+    app.add_service(unk_service)
+    
+    # Service 4: OTA (index 3)
+    ota_service = ChessnutOTAService(bus, 3)
+    app.add_service(ota_service)
     
     # Register GATT application
     gatt_manager = dbus.Interface(
