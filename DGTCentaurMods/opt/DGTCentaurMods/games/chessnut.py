@@ -341,19 +341,24 @@ class Chessnut:
         
         # Convert to Chessnut 32-byte format
         # Square order: h8 -> g8 -> f8 -> ... -> a8 -> h7 -> ... -> a1
+        # Each byte holds 2 squares: lower nibble = first square, higher nibble = second
+        # So byte 0 = (g8 << 4) | h8, byte 1 = (e8 << 4) | f8, etc.
         result = bytearray(32)
         
-        for row in range(8):  # rank 8 to rank 1
-            for col in range(7, -1, -1):  # file h to a
-                piece_code = board_array[row][7 - col]  # 7-col to reverse file order
-                byte_idx = (row * 8 + (7 - col)) // 2
+        square_idx = 0  # Counts squares in Chessnut order (h8=0, g8=1, f8=2, ...)
+        for rank in range(8):  # rank 8 (idx 0) to rank 1 (idx 7)
+            for file in range(7, -1, -1):  # file h (idx 7) to file a (idx 0)
+                piece_code = board_array[rank][file]
+                byte_idx = square_idx // 2
                 
-                if (7 - col) % 2 == 0:
-                    # Lower nibble
+                if square_idx % 2 == 0:
+                    # First square in byte -> lower nibble
                     result[byte_idx] = (result[byte_idx] & 0xF0) | (piece_code & 0x0F)
                 else:
-                    # Higher nibble
+                    # Second square in byte -> higher nibble
                     result[byte_idx] = (result[byte_idx] & 0x0F) | ((piece_code & 0x0F) << 4)
+                
+                square_idx += 1
         
         return bytes(result)
     
