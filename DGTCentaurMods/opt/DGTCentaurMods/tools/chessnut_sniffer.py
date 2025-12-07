@@ -495,18 +495,11 @@ class ChessnutOperationService(Service):
 class Advertisement(dbus.service.Object):
     """BLE Advertisement for Chessnut Air.
     
-    Real Chessnut Air uses manufacturer data (company ID 17488 = 0x4450)
-    instead of service UUIDs in the advertisement. This avoids the 31-byte
-    packet limit issue with multiple 128-bit UUIDs. Services are discovered
-    after connection.
-    
-    Manufacturer data from real board: 4353b953056400003e9751101b00
+    The app finds devices by name "Chessnut Air". We advertise with name
+    only - service UUIDs are discovered after connection.
     """
     
     PATH_BASE = '/org/bluez/chessnut/advertisement'
-    
-    # Chessnut company ID (17488 = 0x4450, little-endian)
-    CHESSNUT_COMPANY_ID = 0x4450
 
     def __init__(self, bus, index, name):
         self.path = self.PATH_BASE + str(index)
@@ -515,21 +508,11 @@ class Advertisement(dbus.service.Object):
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_properties(self):
-        # Manufacturer data from real Chessnut Air
-        # 4353b953056400003e9751101b00
-        manufacturer_data = bytes.fromhex('4353b953056400003e9751101b00')
-        
         properties = {
             'Type': 'peripheral',
             'LocalName': dbus.String(self.name),
             'Discoverable': dbus.Boolean(True),
             'Includes': dbus.Array(['tx-power'], signature='s'),
-            # Use manufacturer data like the real Chessnut Air
-            'ManufacturerData': dbus.Dictionary({
-                dbus.UInt16(self.CHESSNUT_COMPANY_ID): dbus.Array(
-                    [dbus.Byte(b) for b in manufacturer_data], signature='y'
-                )
-            }, signature='qv'),
         }
         return {LE_ADVERTISEMENT_IFACE: properties}
 
