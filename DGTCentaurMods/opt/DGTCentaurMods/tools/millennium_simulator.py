@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Millennium Sniffer - Millennium ChessLink emulator supporting BLE and RFCOMM
+Millennium Simulator - Millennium ChessLink emulator supporting BLE and RFCOMM
 
 Emulates a real Millennium ChessLink board for testing and development.
 Supports both:
@@ -925,7 +925,7 @@ def signal_handler(signum, frame):
 def main():
     global mainloop, device_name
     
-    parser = argparse.ArgumentParser(description="Millennium Sniffer - ChessLink emulator (BLE + RFCOMM)")
+    parser = argparse.ArgumentParser(description="Millennium Simulator - ChessLink emulator (BLE + RFCOMM)")
     parser.add_argument("--name", default="MILLENNIUM CHESS", help="Bluetooth device name")
     parser.add_argument("--advertise-uuid", action="store_true", 
                         help="Include service UUID in BLE advertisement")
@@ -939,7 +939,7 @@ def main():
     device_name = args.name
     
     log("=" * 60)
-    log("Millennium Sniffer - ChessLink Emulator")
+    log("Millennium Simulator - ChessLink Emulator")
     log(f"Device name: {device_name}")
     log(f"BLE (GATT): {'Disabled' if args.no_ble else 'Enabled'}")
     log(f"RFCOMM (SPP): {'Disabled' if args.no_rfcomm else f'Enabled (channel {args.rfcomm_channel})'}")

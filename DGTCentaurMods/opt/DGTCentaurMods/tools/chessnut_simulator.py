@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Chessnut Sniffer - Chessnut Air BLE emulator
+Chessnut Simulator - Chessnut Air BLE emulator
 
 Emulates a real Chessnut Air chess board for testing and development.
 Uses BLE (Bluetooth Low Energy) only - Chessnut Air does not support RFCOMM.
@@ -765,7 +765,7 @@ def main():
     device_name = args.name if args.name else "Chessnut Air"
     
     log("=" * 60)
-    log("Chessnut Air Sniffer/Emulator")
+    log("Chessnut Air Simulator")
     log("=" * 60)
     log(f"Device name: {device_name}")
     log("")
@@ -838,7 +838,7 @@ def main():
         log("Advertisement registered")
         log("")
         log("=" * 60)
-        log("SNIFFER READY")
+        log("SIMULATOR READY")
         log("=" * 60)
         log(f"Device name: {device_name}")
         log(f"FEN Service: {CHESSNUT_FEN_SERVICE_UUID}")
@@ -873,7 +873,7 @@ def main():
     except Exception as e:
         log(f"Error in main loop: {e}")
     
-    log("Sniffer stopped")
+    log("Simulator stopped")
 
 
 if __name__ == "__main__":

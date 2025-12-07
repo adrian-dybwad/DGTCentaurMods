@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BLE Client Analysis Tool for DGT Pegasus Devices
+BLE Sniffer for DGT Pegasus Devices
 
 This tool scans for and analyzes DGT Pegasus BLE devices.
 It performs deep analysis including:
@@ -12,12 +12,12 @@ It performs deep analysis including:
 Designed to analyze DGT Pegasus boards using Nordic UART Service (NUS).
 
 Usage:
-    python3 tools/pegasus_ble_client_analysis.py
-    python3 tools/pegasus_ble_client_analysis.py --scan-time 15
-    python3 tools/pegasus_ble_client_analysis.py --connect-timeout 20
-    python3 tools/pegasus_ble_client_analysis.py --list-all
-    python3 tools/pegasus_ble_client_analysis.py --name "PEGASUS"
-    python3 tools/pegasus_ble_client_analysis.py --address AA:BB:CC:DD:EE:FF
+    python3 tools/sniffer_pegasus_ble.py
+    python3 tools/sniffer_pegasus_ble.py --scan-time 15
+    python3 tools/sniffer_pegasus_ble.py --connect-timeout 20
+    python3 tools/sniffer_pegasus_ble.py --list-all
+    python3 tools/sniffer_pegasus_ble.py --name "PEGASUS"
+    python3 tools/sniffer_pegasus_ble.py --address AA:BB:CC:DD:EE:FF
 
 Requirements:
     pip install bleak
@@ -799,22 +799,22 @@ async def main():
         epilog="""
 Examples:
     # Scan for PEGASUS devices (default)
-    python3 pegasus_ble_client_analysis.py
+    python3 sniffer_pegasus_ble.py
     
     # List all BLE devices (to find device addresses)
-    python3 pegasus_ble_client_analysis.py --list-all
+    python3 sniffer_pegasus_ble.py --list-all
     
     # Scan for devices with custom name filter
-    python3 pegasus_ble_client_analysis.py --name "DGT"
+    python3 sniffer_pegasus_ble.py --name "DGT"
     
     # Analyze specific devices by address
-    python3 pegasus_ble_client_analysis.py --address AA:BB:CC:DD:EE:FF
+    python3 sniffer_pegasus_ble.py --address AA:BB:CC:DD:EE:FF
     
     # Longer scan time
-    python3 pegasus_ble_client_analysis.py --scan-time 15
+    python3 sniffer_pegasus_ble.py --scan-time 15
     
     # Output as JSON
-    python3 pegasus_ble_client_analysis.py --json
+    python3 sniffer_pegasus_ble.py --json
         """
     )
     parser.add_argument(

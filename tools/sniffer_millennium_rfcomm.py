@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RFCOMM Client Analysis Tool for Millennium Chess Devices
+RFCOMM Sniffer for Millennium Chess Devices
 
 This tool scans for and tests Classic Bluetooth (RFCOMM/SPP) connections to
 Millennium Chess devices. It performs:
@@ -11,10 +11,10 @@ Millennium Chess devices. It performs:
 Designed to compare RFCOMM behavior between real Millennium board and emulators.
 
 Usage:
-    python3 tools/rfcomm_client_analysis.py
-    python3 tools/rfcomm_client_analysis.py --scan-time 10
-    python3 tools/rfcomm_client_analysis.py --address XX:XX:XX:XX:XX:XX
-    python3 tools/rfcomm_client_analysis.py --channel 1
+    python3 tools/sniffer_millennium_rfcomm.py
+    python3 tools/sniffer_millennium_rfcomm.py --scan-time 10
+    python3 tools/sniffer_millennium_rfcomm.py --address XX:XX:XX:XX:XX:XX
+    python3 tools/sniffer_millennium_rfcomm.py --channel 1
 
 Requirements:
     - Linux with BlueZ (uses standard socket API)
@@ -291,7 +291,7 @@ def print_comparison(analyses: list):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="RFCOMM Client Analysis Tool for Millennium Chess Devices")
+        description="RFCOMM Sniffer for Millennium Chess Devices")
     parser.add_argument("--scan-time", type=float, default=10.0,
                         help="Scan duration in seconds (default: 10)")
     parser.add_argument("--channel", type=int, default=DEFAULT_CHANNEL,

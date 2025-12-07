@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pegasus Sniffer - DGT Pegasus emulator using BLE (Nordic UART Service)
+Pegasus Simulator - DGT Pegasus emulator using BLE (Nordic UART Service)
 
 Emulates a real DGT Pegasus chess board for testing and development.
 Uses the Nordic UART Service (NUS) for BLE communication.
@@ -605,7 +605,7 @@ def signal_handler(signum, frame):
 def main():
     global mainloop, device_name, serial_number
     
-    parser = argparse.ArgumentParser(description="Pegasus Sniffer - DGT Pegasus BLE emulator")
+    parser = argparse.ArgumentParser(description="Pegasus Simulator - DGT Pegasus BLE emulator")
     parser.add_argument("--name", default=None, help="Bluetooth device name (default: DGT_PEGASUS_<serial>)")
     parser.add_argument("--serial", default="P00000000X", help="Serial number (default: P00000000X)")
     args = parser.parse_args()
@@ -615,7 +615,7 @@ def main():
     device_name = args.name if args.name else f"DGT_PEGASUS_{serial_number}"
     
     log("=" * 60)
-    log("Pegasus Sniffer - DGT Pegasus BLE Emulator")
+    log("Pegasus Simulator - DGT Pegasus BLE Emulator")
     log(f"Device name: {device_name}")
     log(f"Service UUID: {NORDIC_SERVICE_UUID}")
     log("=" * 60)
