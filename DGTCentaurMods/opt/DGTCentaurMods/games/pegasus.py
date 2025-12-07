@@ -211,8 +211,11 @@ class Pegasus:
     def board_dump(self):
         """Handle board dump packet.
         
-        Real Pegasus board uses 0x7F (127) for empty squares, not 0.
-        DGT Pegasus app only interprets occupancy: 0x7F = empty, anything else = occupied.
+        Real Pegasus board uses simple occupancy encoding:
+        - 0x00 = empty square
+        - 0x01 = occupied square
+        
+        The DGT app only cares about occupancy, not piece types.
         """
         log.info(f"[Pegasus Board dump] getting board state")
         bs = board.getBoardState()
@@ -220,18 +223,19 @@ class Pegasus:
         if bs is None:
             log.error("[Pegasus Board dump] getBoardState() returned None!")
             # Return empty board as fallback
-            bs_transformed = [0x7F] * 64
+            bs_occupancy = [0x00] * 64
         else:
             # Log raw board state for debugging
             log.info(f"[Pegasus Board dump] raw state: {' '.join(f'{b:02x}' for b in bs)}")
-            # Transform empty squares (0) to 0x7F to match real Pegasus board protocol
-            bs_transformed = [0x7F if b == 0 else b for b in bs]
-            log.info(f"[Pegasus Board dump] transformed: {' '.join(f'{b:02x}' for b in bs_transformed)}")
+            # Transform to simple occupancy: 0x00 = empty, 0x01 = occupied
+            # Centaur returns 0x00 for empty, non-zero for occupied pieces
+            bs_occupancy = [0x01 if b != 0 else 0x00 for b in bs]
+            log.info(f"[Pegasus Board dump] occupancy: {' '.join(f'{b:02x}' for b in bs_occupancy)}")
             # Count occupied vs empty
-            occupied = sum(1 for b in bs_transformed if b != 0x7F)
+            occupied = sum(1 for b in bs_occupancy if b != 0x00)
             log.info(f"[Pegasus Board dump] {occupied}/64 squares occupied")
         
-        self.send_packet(command.BOARD_DUMP_RESP, bs_transformed)
+        self.send_packet(command.BOARD_DUMP_RESP, bs_occupancy)
         return True
 
     def send_packet_string(self, packet_type, payload: str = ""):
@@ -291,7 +295,21 @@ class Pegasus:
             self.send_packet_string(command.LONG_SERIAL_NUMBER_RESP, board.getMetaProperty('serial no'))
             return True
         elif packet_type == command.TRADEMARK:
-            self.send_packet_string(command.TRADEMARK_RESP, board.getMetaProperty('tm'))
+            # Real Pegasus sends full 4-line trademark with \r\n line endings
+            # Format: "Digital Game Technology\r\nCopyright (c) 2021 DGT\r\n
+            #          software version: X.XX, build: XXXXXX\r\n
+            #          hardware version: X.XX, serial no: XXXXXXXXXX"
+            serial = board.getMetaProperty('serial no') or 'P00000000X'
+            sw_version = board.getMetaProperty('software version') or '1.00'
+            sw_build = board.getMetaProperty('build') or '210722'
+            hw_version = board.getMetaProperty('hardware version') or '1.00'
+            trademark = (
+                f"Digital Game Technology\r\n"
+                f"Copyright (c) 2021 DGT\r\n"
+                f"software version: {sw_version}, build: {sw_build}\r\n"
+                f"hardware version: {hw_version}, serial no: {serial}"
+            )
+            self.send_packet_string(command.TRADEMARK_RESP, trademark)
             return True
         elif packet_type == command.VERSION:
             # Version request - respond with version info [major, minor]
