@@ -89,10 +89,11 @@ def _extract_and_store_board_meta():
     
     _board_meta = controller.request_response(command.DGT_SEND_TRADEMARK)
 
-    log.info(f"[board._extract_and_store_board_meta] Board metadata: {' '.join(f'{b:02x}' for b in _board_meta)}")
     if _board_meta is None:
         log.warning("[board._extract_and_store_board_meta] Failed to get board metadata")
         return
+
+    log.info(f"[board._extract_and_store_board_meta] Board metadata: {' '.join(f'{b:02x}' for b in _board_meta)}")
     
     # Decode bytes to string
     try:
@@ -264,7 +265,8 @@ def shutdown(reboot=False):
     except Exception as e:
         log.debug(f"Controller sleep failed: {e}")
     
-    display_manager.shutdown()
+    if display_manager is not None:
+        display_manager.shutdown()
 
     if reboot:
         log.debug('Requesting system reboot via systemd')
