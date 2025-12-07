@@ -54,13 +54,54 @@ CHESSNUT_OP_RX_UUID = "1b7e8273-2877-41c3-b46e-cf057c562023"   # Notify - respon
 # Target device name
 CHESSNUT_DEVICE_NAME = "Chessnut"
 
-# Chessnut Air Commands (from sniffer capture)
+# Chessnut Air Commands (from sniffer capture and EasyLinkSDK)
 CMD_INIT = bytes([0x0b, 0x04, 0x03, 0xe8, 0x00, 0xc8])  # Init/config
 CMD_ENABLE_REPORTING = bytes([0x21, 0x01, 0x00])  # Enable reporting
 CMD_HAPTIC_ON = bytes([0x27, 0x01, 0x01])         # Haptic on
 CMD_HAPTIC_OFF = bytes([0x27, 0x01, 0x00])        # Haptic off
 CMD_BATTERY_REQUEST = bytes([0x29, 0x01, 0x00])   # Battery request
 CMD_SOUND = bytes([0x31, 0x01, 0x00])             # Sound control
+
+# Commands to probe for version/file info (need to discover correct format)
+# Based on EasyLinkSDK: cl_get_mcu_version, cl_get_ble_version, cl_get_file_count
+CMD_MCU_VERSION = bytes([0x38, 0x01, 0x00])       # Probe: MCU version request
+CMD_BLE_VERSION = bytes([0x39, 0x01, 0x00])       # Probe: BLE version request  
+CMD_FILE_COUNT = bytes([0x3a, 0x01, 0x00])        # Probe: File count request
+CMD_FILE_MODE = bytes([0x3b, 0x01, 0x00])         # Probe: Switch to file mode
+
+# Alternative probes - try different command IDs
+# 0x39 responded with 0x23 0x01 0x01 - possibly a mode/status confirmation
+PROBE_COMMANDS = [
+    # Lower range - possibly version/info commands
+    (bytes([0x22, 0x01, 0x00]), "0x22 (after enable reporting 0x21)"),
+    (bytes([0x23, 0x01, 0x00]), "0x23 (response type we saw)"),
+    (bytes([0x24, 0x01, 0x00]), "0x24"),
+    (bytes([0x25, 0x01, 0x00]), "0x25"),
+    (bytes([0x26, 0x01, 0x00]), "0x26"),
+    (bytes([0x28, 0x01, 0x00]), "0x28 (before battery 0x29)"),
+    (bytes([0x2b, 0x01, 0x00]), "0x2b (after battery resp 0x2a)"),
+    (bytes([0x2c, 0x01, 0x00]), "0x2c"),
+    (bytes([0x2d, 0x01, 0x00]), "0x2d"),
+    (bytes([0x2e, 0x01, 0x00]), "0x2e"),
+    (bytes([0x2f, 0x01, 0x00]), "0x2f"),
+    (bytes([0x30, 0x01, 0x00]), "0x30 (before sound 0x31)"),
+    (bytes([0x32, 0x01, 0x00]), "0x32 (after sound 0x31)"),
+    (bytes([0x33, 0x01, 0x00]), "0x33"),
+    (bytes([0x34, 0x01, 0x00]), "0x34"),
+    (bytes([0x35, 0x01, 0x00]), "0x35"),
+    (bytes([0x36, 0x01, 0x00]), "0x36"),
+    (bytes([0x37, 0x01, 0x00]), "0x37"),
+    # Higher range
+    (bytes([0x50, 0x01, 0x00]), "0x50"),
+    (bytes([0x51, 0x01, 0x00]), "0x51"),
+    (bytes([0x52, 0x01, 0x00]), "0x52"),
+    (bytes([0x60, 0x01, 0x00]), "0x60"),
+    (bytes([0x61, 0x01, 0x00]), "0x61"),
+    (bytes([0x70, 0x01, 0x00]), "0x70"),
+    (bytes([0x71, 0x01, 0x00]), "0x71"),
+    (bytes([0x80, 0x01, 0x00]), "0x80"),
+    (bytes([0x81, 0x01, 0x00]), "0x81"),
+]
 
 # Chessnut Air Response Types
 RESP_FEN_DATA = 0x01    # FEN notification
@@ -445,6 +486,36 @@ class ChessnutAnalyzer:
             await asyncio.sleep(0.2)
         except Exception as e:
             self._log(f"  ERROR: {e}")
+        
+        # Probe for unknown commands (version, file count, etc.)
+        self._log("\n" + "=" * 40)
+        self._log("PROBING FOR UNKNOWN COMMANDS")
+        self._log("=" * 40)
+        
+        for cmd, description in PROBE_COMMANDS:
+            self._log(f"\nProbing {description}...")
+            try:
+                self._notification_events["op_rx"].clear()
+                hex_cmd = ' '.join(f'{b:02x}' for b in cmd)
+                self._log(f"  TX: {hex_cmd}")
+                
+                await client.write_gatt_char(CHESSNUT_OP_TX_UUID, cmd, response=False)
+                
+                # Wait for response
+                try:
+                    await asyncio.wait_for(self._notification_events["op_rx"].wait(), timeout=1.0)
+                    response_data = self._notification_data.get("op_rx")
+                    if response_data:
+                        hex_str = ' '.join(f'{b:02x}' for b in response_data)
+                        ascii_str = ''.join(chr(b) if 32 <= b < 127 else '.' for b in response_data)
+                        self._log(f"  RX ({len(response_data)} bytes): {hex_str}")
+                        self._log(f"  ASCII: {ascii_str}")
+                except asyncio.TimeoutError:
+                    self._log("  No response (timeout)")
+            except Exception as e:
+                self._log(f"  ERROR: {e}")
+            
+            await asyncio.sleep(0.1)
         
         # Stop notifications
         try:
