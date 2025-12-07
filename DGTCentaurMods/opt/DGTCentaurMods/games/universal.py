@@ -368,6 +368,36 @@ class Universal:
         if self._chessnut:
             self._chessnut.reset()
 
+    def reset(self, new_client_type_hint=None):
+        """Reset all state for a new connection. Preserves GameManager only.
+        
+        Args:
+            new_client_type_hint: Optional hint for the new protocol type
+        """
+        log.info(f"[Universal] Reset for new connection (hint: {new_client_type_hint or 'none'}) id={id(self)}")
+        
+        # Clear all state
+        self._pending_response = None
+        self._client_type_hint = new_client_type_hint
+        self.client_type = self.CLIENT_UNKNOWN
+        self.is_millennium = False
+        self.is_pegasus = False
+        self.is_chessnut = False
+        
+        # Recreate all emulators
+        self._millennium = Millennium(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.manager
+        )
+        self._pegasus = Pegasus(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.manager
+        )
+        self._chessnut = Chessnut(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.manager
+        )
+
     def subscribe_manager(self):
         """Subscribe to the game manager with callbacks."""
         try:
