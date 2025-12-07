@@ -1805,8 +1805,24 @@ def main():
             reply_handler=adv2_register_success,
             error_handler=adv2_register_error)
         
-        # Wait for advertisement registrations
-        time.sleep(2)
+        # Pump the GLib mainloop to process D-Bus callbacks
+        # The mainloop isn't running yet, so we need to iterate manually
+        context = GLib.MainContext.default()
+        start_time = time.time()
+        timeout = 5.0  # 5 second timeout
+        
+        while time.time() - start_time < timeout:
+            # Process pending events
+            while context.pending():
+                context.iteration(False)
+            
+            # Check if both registered or if there's an error
+            if adv_error[0] is not None:
+                break
+            if adv1_registered[0] and adv2_registered[0]:
+                break
+            
+            time.sleep(0.1)
         
         # Check if any advertisement registration failed
         if adv_error[0] is not None:
