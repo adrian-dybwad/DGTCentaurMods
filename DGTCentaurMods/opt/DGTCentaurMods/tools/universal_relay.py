@@ -1757,24 +1757,25 @@ def main():
             LE_ADVERTISING_MANAGER_IFACE)
         
         # Register TWO advertisements:
-        # 1. Nordic UUID advertisement (for Pegasus app)
-        # 2. Chessnut ManufacturerData advertisement (for Chessnut app)
-        # Millennium app uses LocalName which is in both.
+        # 1. Nordic UUID advertisement (for Pegasus app) - LocalName "DGT PEGASUS"
+        # 2. Chessnut ManufacturerData advertisement (for Chessnut app) - LocalName "Chessnut Air"
+        # 3. Millennium advertisement (for Millennium app) - LocalName "MILLENNIUM CHESS"
         #
         # BlueZ supports multiple advertisements on adapters that support it.
         
         adv1_registered = [False]
         adv2_registered = [False]
+        adv3_registered = [False]
         adv_error = [None]
         
         # Advertisement 1: Nordic UUID for Pegasus
         adv1 = Advertisement(
-            bus, 0, args.device_name,
+            bus, 0, "DGT PEGASUS",
             service_uuids=[NORDIC_UUIDS["service"]]
         )
         
         def adv1_register_success():
-            log.info("Advertisement 1 registered (LocalName + Nordic UUID for Pegasus)")
+            log.info("Advertisement 1 registered (LocalName 'DGT PEGASUS' + Nordic UUID)")
             adv1_registered[0] = True
         
         def adv1_register_error(error):
@@ -1788,16 +1789,30 @@ def main():
         )
         
         def adv2_register_success():
-            log.info("Advertisement 2 registered (LocalName + ManufacturerData for Chessnut)")
+            log.info("Advertisement 2 registered (LocalName 'Chessnut Air' + ManufacturerData)")
             adv2_registered[0] = True
         
         def adv2_register_error(error):
             log.error(f"Failed to register advertisement 2: {error}")
             adv_error[0] = str(error)
         
-        log.info(f"Registering advertisements (name: {args.device_name})...")
-        log.info(f"  Adv 1: LocalName + Nordic UUID (for Pegasus)")
-        log.info(f"  Adv 2: LocalName + ManufacturerData 0x{CHESSNUT_MANUFACTURER_ID:04x} (for Chessnut)")
+        # Advertisement 3: Millennium (LocalName only, no UUID or ManufacturerData)
+        adv3 = Advertisement(
+            bus, 2, "MILLENNIUM CHESS"
+        )
+        
+        def adv3_register_success():
+            log.info("Advertisement 3 registered (LocalName 'MILLENNIUM CHESS')")
+            adv3_registered[0] = True
+        
+        def adv3_register_error(error):
+            log.error(f"Failed to register advertisement 3: {error}")
+            adv_error[0] = str(error)
+        
+        log.info(f"Registering advertisements...")
+        log.info(f"  Adv 1: LocalName 'DGT PEGASUS' + Nordic UUID (for Pegasus)")
+        log.info(f"  Adv 2: LocalName 'Chessnut Air' + ManufacturerData 0x{CHESSNUT_MANUFACTURER_ID:04x} (for Chessnut)")
+        log.info(f"  Adv 3: LocalName 'MILLENNIUM CHESS' (for Millennium)")
         
         ad_manager.RegisterAdvertisement(
             adv1.get_path(), {},
@@ -1808,6 +1823,11 @@ def main():
             adv2.get_path(), {},
             reply_handler=adv2_register_success,
             error_handler=adv2_register_error)
+        
+        ad_manager.RegisterAdvertisement(
+            adv3.get_path(), {},
+            reply_handler=adv3_register_success,
+            error_handler=adv3_register_error)
         
         # Pump the GLib mainloop to process D-Bus callbacks
         # The mainloop isn't running yet, so we need to iterate manually
@@ -1820,10 +1840,10 @@ def main():
             while context.pending():
                 context.iteration(False)
             
-            # Check if both registered or if there's an error
+            # Check if all registered or if there's an error
             if adv_error[0] is not None:
                 break
-            if adv1_registered[0] and adv2_registered[0]:
+            if adv1_registered[0] and adv2_registered[0] and adv3_registered[0]:
                 break
             
             time.sleep(0.1)
@@ -1834,13 +1854,14 @@ def main():
             log.error("All three apps (Chessnut, Pegasus, Millennium) require specific advertisement data.")
             sys.exit(1)
         
-        if not adv1_registered[0] or not adv2_registered[0]:
+        if not adv1_registered[0] or not adv2_registered[0] or not adv3_registered[0]:
             log.error("Advertisement registration did not complete in time.")
-            log.error(f"  Adv 1 (Nordic): {'OK' if adv1_registered[0] else 'FAILED'}")
+            log.error(f"  Adv 1 (Pegasus): {'OK' if adv1_registered[0] else 'FAILED'}")
             log.error(f"  Adv 2 (Chessnut): {'OK' if adv2_registered[0] else 'FAILED'}")
+            log.error(f"  Adv 3 (Millennium): {'OK' if adv3_registered[0] else 'FAILED'}")
             sys.exit(1)
         
-        log.info("Both advertisements registered successfully")
+        log.info("All three advertisements registered successfully")
     
     # Setup RFCOMM if enabled
     if not args.no_rfcomm:
