@@ -311,19 +311,26 @@ class Chessnut:
         - Lower nibble = first square, higher nibble = next square
         
         Args:
-            fen: FEN position string (piece placement part only)
+            fen: FEN position string (may include full FEN with move info)
             
         Returns:
             32-byte array representing the position
         """
+        # Extract just the piece placement part (before first space)
+        piece_placement = fen.split()[0] if ' ' in fen else fen
+        
         # Parse FEN into 8x8 board array
         # board_array[rank][file] where rank 0 = rank 8, file 0 = file a
         board_array = [[0] * 8 for _ in range(8)]
         
-        ranks = fen.split('/')
+        ranks = piece_placement.split('/')
         for rank_idx, rank_str in enumerate(ranks):
+            if rank_idx >= 8:
+                break  # Safety: only 8 ranks
             file_idx = 0
             for char in rank_str:
+                if file_idx >= 8:
+                    break  # Safety: only 8 files per rank
                 if char.isdigit():
                     file_idx += int(char)
                 elif char in FEN_TO_PIECE:
@@ -360,13 +367,16 @@ class Chessnut:
         - Bytes 36-37: Reserved [0x00, 0x00]
         """
         if not self.sendMessage:
+            log.warning("[Chessnut] _send_fen_notification: no sendMessage callback")
             return
         
         try:
             fen = self._get_board_fen()
+            log.debug(f"[Chessnut] _send_fen_notification: got FEN: {fen}")
             
             # Only send if FEN changed
             if fen == self.last_fen:
+                log.debug("[Chessnut] FEN unchanged, skipping notification")
                 return
             self.last_fen = fen
             
