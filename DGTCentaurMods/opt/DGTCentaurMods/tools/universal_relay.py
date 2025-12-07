@@ -631,7 +631,7 @@ class TXCharacteristic(Characteristic):
         ble_connected = True
 
     def StopNotify(self):
-        global ble_connected, ble_client_type
+        global ble_connected, ble_client_type, universal
         
         if not self.notifying:
             return
@@ -643,7 +643,8 @@ class TXCharacteristic(Characteristic):
         self.notifying = False
         ble_connected = False
         ble_client_type = None
-        # Don't set universal = None - keep instance alive, reset on next connect
+        universal = None
+        log.info("[Universal] Instance reset - ready for new connection")
 
     def send_notification(self, data):
         """Send data to client via notification."""
@@ -797,7 +798,7 @@ class NordicTXCharacteristic(Characteristic):
         ble_connected = True
 
     def StopNotify(self):
-        global ble_connected, ble_client_type
+        global ble_connected, ble_client_type, universal
         
         if not self.notifying:
             return
@@ -809,7 +810,8 @@ class NordicTXCharacteristic(Characteristic):
         self.notifying = False
         ble_connected = False
         ble_client_type = None
-        # Don't set universal = None - keep instance alive, reset on next connect
+        universal = None
+        log.info("[Universal] Instance reset - ready for new connection")
 
     def send_notification(self, data):
         """Send data to Pegasus client via notification."""
@@ -1027,7 +1029,7 @@ class ChessnutOperationRXCharacteristic(Characteristic):
         ble_connected = True
 
     def StopNotify(self):
-        global ble_connected, ble_client_type
+        global ble_connected, ble_client_type, universal
         
         if not self.notifying:
             return
@@ -1039,7 +1041,8 @@ class ChessnutOperationRXCharacteristic(Characteristic):
         self.notifying = False
         ble_connected = False
         ble_client_type = None
-        # Don't set universal = None - keep instance alive, reset on next connect
+        universal = None
+        log.info("[Universal] Instance reset - ready for new connection")
 
     def send_notification(self, data):
         """Send notification to client."""
