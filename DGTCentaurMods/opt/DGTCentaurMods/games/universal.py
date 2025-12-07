@@ -168,6 +168,8 @@ class Universal:
         """Handle game events from the manager.
         
         Routes events to the active emulator based on detected protocol.
+        Before protocol is confirmed, forwards to ALL emulators so that
+        whichever one is active will respond correctly.
         
         Args:
             event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
@@ -176,14 +178,25 @@ class Universal:
             time_in_seconds: Time since game start
         """
         try:
-            log.info(f"[Universal] _manager_event_callback: {event} piece_event={piece_event}, field={field}, time_in_seconds={time_in_seconds}")
+            log.debug(f"[Universal] _manager_event_callback: {event} piece_event={piece_event}, field={field}")
             
+            # If protocol is confirmed, only forward to the active emulator
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_event'):
                 self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_event'):
                 self._pegasus.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
                 self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
+            else:
+                # Protocol not yet confirmed - forward to ALL emulators
+                # Each emulator will only act if it has reporting enabled
+                log.debug("[Universal] Protocol not confirmed, forwarding event to all emulators")
+                if self._millennium and hasattr(self._millennium, 'handle_manager_event'):
+                    self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
+                if self._pegasus and hasattr(self._pegasus, 'handle_manager_event'):
+                    self._pegasus.handle_manager_event(event, piece_event, field, time_in_seconds)
+                if self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
+                    self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
         except Exception as e:
             log.error(f"[Universal] Error in _manager_event_callback: {e}")
             import traceback
@@ -192,11 +205,13 @@ class Universal:
     def _manager_move_callback(self, move):
         """Handle moves from the manager.
         
+        Before protocol is confirmed, forwards to ALL emulators.
+        
         Args:
             move: Chess move object
         """
         try:
-            log.info(f"[Universal] _manager_move_callback: {move} is_millennium={self.is_millennium} is_pegasus={self.is_pegasus} is_chessnut={self.is_chessnut}")
+            log.debug(f"[Universal] _manager_move_callback: {move}")
             
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_move'):
                 self._millennium.handle_manager_move(move)
@@ -204,6 +219,15 @@ class Universal:
                 self._pegasus.handle_manager_move(move)
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_move'):
                 self._chessnut.handle_manager_move(move)
+            else:
+                # Protocol not yet confirmed - forward to ALL emulators
+                log.debug("[Universal] Protocol not confirmed, forwarding move to all emulators")
+                if self._millennium and hasattr(self._millennium, 'handle_manager_move'):
+                    self._millennium.handle_manager_move(move)
+                if self._pegasus and hasattr(self._pegasus, 'handle_manager_move'):
+                    self._pegasus.handle_manager_move(move)
+                if self._chessnut and hasattr(self._chessnut, 'handle_manager_move'):
+                    self._chessnut.handle_manager_move(move)
         except Exception as e:
             log.error(f"[Universal] Error in _manager_move_callback: {e}")
             import traceback
