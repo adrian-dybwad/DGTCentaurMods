@@ -82,7 +82,7 @@ class Universal:
         
         # Always create all emulators for auto-detection from actual data
         # The client_type hint from BLE service UUID is unreliable
-        log.info(f"[Universal] Creating emulators for auto-detection (hint: {client_type or 'none'}) id={id(self)}")
+        log.info(f"[Universal] Creating emulators for auto-detection (hint: {client_type or 'none'})")
         
         # Create Millennium emulator
         self._millennium = Millennium(
@@ -178,7 +178,7 @@ class Universal:
             time_in_seconds: Time since game start
         """
         try:
-            log.debug(f"[Universal] _manager_event_callback: {event} piece_event={piece_event}, field={field} id={id(self)}")
+            log.debug(f"[Universal] _manager_event_callback: {event} piece_event={piece_event}, field={field}")
             log.debug(f"[Universal] Flags: is_millennium={self.is_millennium}, is_pegasus={self.is_pegasus}, is_chessnut={self.is_chessnut}")
             log.debug(f"[Universal] Emulators: _millennium={self._millennium is not None}, _pegasus={self._pegasus is not None}, _chessnut={self._chessnut is not None}")
             
@@ -329,28 +329,24 @@ class Universal:
             if emulator and emulator.parse_byte(byte_value):
                 hint_match = " (matches hint)" if self._client_type_hint == client_type else ""
                 hint_mismatch = f" (hint was {self._client_type_hint})" if self._client_type_hint and self._client_type_hint != client_type else ""
-                log.info(f"[Universal] {name} protocol detected via auto-detection{hint_match}{hint_mismatch} id={id(self)}")
+                log.info(f"[Universal] {name} protocol detected via auto-detection{hint_match}{hint_mismatch}")
                 
                 self.client_type = client_type
                 
                 # Set the appropriate flag and free unused emulators
                 if client_type == self.CLIENT_MILLENNIUM:
-                    log.info(f"[Universal] Setting is_millennium=True, clearing pegasus/chessnut id={id(self)}")
                     self.is_millennium = True
                     self._pegasus = None
                     self._chessnut = None
                 elif client_type == self.CLIENT_PEGASUS:
-                    log.info(f"[Universal] Setting is_pegasus=True, clearing millennium/chessnut id={id(self)}")
                     self.is_pegasus = True
                     self._millennium = None
                     self._chessnut = None
                 elif client_type == self.CLIENT_CHESSNUT:
-                    log.info(f"[Universal] Setting is_chessnut=True, clearing millennium/pegasus id={id(self)}")
                     self.is_chessnut = True
                     self._millennium = None
                     self._pegasus = None
                 
-                log.info(f"[Universal] After detection: is_millennium={self.is_millennium}, is_pegasus={self.is_pegasus}, is_chessnut={self.is_chessnut} id={id(self)}")
                 return True
         
         return False
