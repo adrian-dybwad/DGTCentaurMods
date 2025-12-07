@@ -850,18 +850,10 @@ class SyncCentaur:
         # Called from run_background() with no packet
         if packet is None:
             log.info("Discovery starting")
-            #self.ser.write(bytes([0x4d]))
-            #self.ser.write(bytes([0x4e]))
-            try:
-                self.ser.write(0x4d)
-                print(f"Discovery: wrote 0x4d")
-                self.ser.write(0x4e)
-                print(f"Discovery: wrote 0x4e")
-                self._send_command(command.DGT_BUS_SEND_87)
-                print(f"Discovery: sent DGT_BUS_SEND_87")
-                #self.sendPacket(command.DGT_RETURN_BUSADRES)
-            except Exception as e:
-                log.error(f"Error writing discovery bytes: {e}")
+            self.ser.write(bytes([0x4d]))
+            self.ser.write(bytes([0x4e]))
+            self._send_command(command.DGT_BUS_SEND_87)
+            #self.sendPacket(command.DGT_RETURN_BUSADRES)
             return
         
         log.debug(f"Discovery: packet: {' '.join(f'{b:02x}' for b in packet)}")
