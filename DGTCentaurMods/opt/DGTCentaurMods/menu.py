@@ -400,47 +400,6 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
         log.info(">>> board.unPauseEvents() complete")
   
 
-def bluetooth_pairing():
-    """
-    Run Bluetooth pairing mode with timeout.
-    Displays pairing instructions on e-paper screen.
-    
-    Returns:
-        bool: True if device paired successfully, False on timeout
-    """
-    from DGTCentaurMods.board.bluetooth_controller import BluetoothController
-    
-    clear_screen()
-    write_text(0, "Pair Now use")
-    write_text(1, "any passcode if")
-    write_text(2, "prompted.")
-    write_text(4, "Times out in")
-    write_text(5, "one minute.")
-    
-    def on_device_detected():
-        """Callback when pairing device is detected"""
-        write_text(8, "Pairing...")
-    
-    # Create Bluetooth controller instance and start pairing with 60 second timeout
-    bluetooth_controller = BluetoothController()
-    paired = bluetooth_controller.start_pairing(
-        timeout=60, 
-        on_device_detected=on_device_detected
-    )
-    
-    # Show result
-    clear_screen()
-    if paired:
-        write_text(0, "Paired!")
-        time.sleep(2)
-    else:
-        write_text(0, "Pairing timeout")
-        time.sleep(2)
-    clear_screen()
-    
-    return paired
-
-
 def chromecast_menu():
     """
     Select and start Chromecast display.
@@ -715,7 +674,6 @@ if __name__ == "__main__":
         if result == "settings":
             setmenu = {
                 "WiFi": "Wifi Setup",
-                "Pairing": "BT Pair",
                 "Sound": "Sound",
                 "LichessAPI": "Lichess API",
                 "reverseshell": "Shell 7777",
@@ -935,8 +893,6 @@ if __name__ == "__main__":
                                 write_text(1, "Failed to restore...")
                                 time.sleep(4)
 
-                if result == "Pairing":
-                    bluetooth_pairing()
                 if result == "LichessAPI":
                     rc = run_external_script("config/lichesstoken.py", start_key_polling=True)
                 if result == "Shutdown":
