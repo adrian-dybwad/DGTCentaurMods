@@ -1783,7 +1783,7 @@ def main():
         
         # Advertisement 2: ManufacturerData for Chessnut
         adv2 = Advertisement(
-            bus, 1, args.device_name,
+            bus, 1, "Chessnut Air",
             manufacturer_data={CHESSNUT_MANUFACTURER_ID: CHESSNUT_MANUFACTURER_DATA}
         )
         
