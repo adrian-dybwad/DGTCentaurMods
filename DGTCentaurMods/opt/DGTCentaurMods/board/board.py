@@ -518,22 +518,20 @@ def eventsThread(keycallback, fieldcallback, tout):
                 if fieldcallback != None:
                     try:
                         # Prefer push model via asyncserial piece listeners
-                        # Always update the listener to use the current fieldcallback.
-                        # This ensures new subscriptions get their callbacks registered
-                        # even if a previous listener existed.
-                        def _listener(piece_event, field_hex, time_in_seconds):
-                            nonlocal to
-                            try:
-                                #Rotate the field here. The callback to boardmanager should always have a proper square index
-                                field = rotateFieldHex(field_hex)
-                                log.info(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
-                                fieldcallback(piece_event, field, time_in_seconds)
-                                to = time.time() + tout
-                            except Exception as e:
-                                log.error(f"[board.events.push] error: {e}")
-                                import traceback
-                                traceback.print_exc()
-                        controller._piece_listener = _listener
+                        if controller._piece_listener == None:
+                            def _listener(piece_event, field_hex, time_in_seconds):
+                                nonlocal to
+                                try:
+                                    #Rotate the field here. The callback to boardmanager should always have a proper square index
+                                    field = rotateFieldHex(field_hex)
+                                    log.info(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
+                                    fieldcallback(piece_event, field, time_in_seconds)
+                                    to = time.time() + tout
+                                except Exception as e:
+                                    log.error(f"[board.events.push] error: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                            controller._piece_listener = _listener
                     except Exception as e:
                         log.error(f"Error in piece detection thread: {e}")
 
