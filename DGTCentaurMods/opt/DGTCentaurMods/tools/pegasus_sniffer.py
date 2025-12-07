@@ -455,27 +455,26 @@ class NordicRXCharacteristic(Characteristic):
         # Board dump - return 64 bytes representing piece positions
         if cmd == DGT_SEND_BRD or cmd == ord('B') or cmd == ord('b'):
             log("  -> Board dump request")
-            # Real Pegasus board state from analysis:
-            # Empty=0x7F (127), pieces use different codes
-            # Starting position: RNBQKBNR/PPPPPPPP/8/8/8/8/pppppppp/rnbqkbnr
-            # Piece codes (from DGT protocol):
-            # Empty=0x7F, wPawn=1, wRook=2, wKnight=3, wBishop=4, wQueen=5, wKing=6
-            # bPawn=7, bRook=8, bKnight=9, bBishop=10, bQueen=11, bKing=12
-            EMPTY = 0x7F  # Real board uses 127 for empty squares
+            # Real Pegasus uses simple occupancy encoding:
+            # 0x00 = empty square, 0x01 = occupied square
+            # The DGT app only displays occupancy, not piece types.
+            # Starting position: 16 pieces per side = 32 occupied squares
+            EMPTY = 0x00
+            OCCUPIED = 0x01
             board_state = [
-                # Rank 8 (a8-h8): Black pieces
-                8, 9, 10, 11, 12, 10, 9, 8,
-                # Rank 7 (a7-h7): Black pawns
-                7, 7, 7, 7, 7, 7, 7, 7,
-                # Ranks 6-3: Empty (0x7F)
+                # Rank 8 (a8-h8): Black pieces - occupied
+                OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED,
+                # Rank 7 (a7-h7): Black pawns - occupied
+                OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED,
+                # Ranks 6-3: Empty
                 EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
                 EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
                 EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
                 EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
-                # Rank 2 (a2-h2): White pawns
-                1, 1, 1, 1, 1, 1, 1, 1,
-                # Rank 1 (a1-h1): White pieces
-                2, 3, 4, 5, 6, 4, 3, 2,
+                # Rank 2 (a2-h2): White pawns - occupied
+                OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED,
+                # Rank 1 (a1-h1): White pieces - occupied
+                OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED, OCCUPIED,
             ]
             self._send_response(DGT_MSG_BOARD_DUMP, board_state)
             return
@@ -557,10 +556,9 @@ class NordicRXCharacteristic(Characteristic):
             self._send_response(DGT_MSG_DEVKEY_STATE, [0])
             return
         
-        # Developer key registration
+        # Developer key registration - real Pegasus does NOT respond
         if cmd == DGT_DEVELOPER_KEY:
-            log("  -> Developer key registration")
-            self._send_response(DGT_MSG_DEVKEY_STATE, [0x01])
+            log(f"  -> Developer key registration: {' '.join(f'{b:02x}' for b in data)}")
             return
         
         # LED control - multi-byte command starting with 0x60 (96)
