@@ -7,8 +7,8 @@ Chessnut Air peripheral for the app to connect to. All traffic is
 logged and forwarded bidirectionally.
 
 Usage:
-    python3 tools/chessnut_ble_proxy.py
-    python3 tools/chessnut_ble_proxy.py --target-address AA:BB:CC:DD:EE:FF
+    python3 tools/dev-tools/proxies/chessnut_ble.py
+    python3 tools/dev-tools/proxies/chessnut_ble.py --target-address AA:BB:CC:DD:EE:FF
 
 Requirements:
     pip install bleak pyobjc-framework-CoreBluetooth

@@ -11,9 +11,9 @@ This script imports the project's board module and provides an interface
 to test its functions.
 
 Usage examples:
-  python3 tools/dev-tools/board_probe.py
-  python3 tools/dev-tools/board_probe.py --state
-  python3 tools/dev-tools/board_probe.py --beep SOUND_GENERAL
+  python3 tools/dev-tools/probes/board.py
+  python3 tools/dev-tools/probes/board.py --state
+  python3 tools/dev-tools/probes/board.py --beep SOUND_GENERAL
 """
 
 import argparse

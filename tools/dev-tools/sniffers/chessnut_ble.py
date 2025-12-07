@@ -13,12 +13,12 @@ Based on official Chessnut eBoards API:
 https://github.com/chessnutech/Chessnut_eBoards
 
 Usage:
-    python3 tools/sniffer_chessnut_ble.py
-    python3 tools/sniffer_chessnut_ble.py --scan-time 15
-    python3 tools/sniffer_chessnut_ble.py --connect-timeout 20
-    python3 tools/sniffer_chessnut_ble.py --list-all
-    python3 tools/sniffer_chessnut_ble.py --name "Chessnut"
-    python3 tools/sniffer_chessnut_ble.py --address AA:BB:CC:DD:EE:FF
+    python3 tools/dev-tools/sniffers/chessnut_ble.py
+    python3 tools/dev-tools/sniffers/chessnut_ble.py --scan-time 15
+    python3 tools/dev-tools/sniffers/chessnut_ble.py --connect-timeout 20
+    python3 tools/dev-tools/sniffers/chessnut_ble.py --list-all
+    python3 tools/dev-tools/sniffers/chessnut_ble.py --name "Chessnut"
+    python3 tools/dev-tools/sniffers/chessnut_ble.py --address AA:BB:CC:DD:EE:FF
 
 Requirements:
     pip install bleak
@@ -659,16 +659,16 @@ async def main():
         epilog="""
 Examples:
     # Scan for any device with "Chessnut" in the name
-    python3 tools/sniffer_chessnut_ble.py
+    python3 tools/dev-tools/sniffers/chessnut_ble.py
     
     # List all BLE devices
-    python3 tools/sniffer_chessnut_ble.py --list-all
+    python3 tools/dev-tools/sniffers/chessnut_ble.py --list-all
     
     # Connect to specific address
-    python3 tools/sniffer_chessnut_ble.py --address AA:BB:CC:DD:EE:FF
+    python3 tools/dev-tools/sniffers/chessnut_ble.py --address AA:BB:CC:DD:EE:FF
     
     # Custom scan time
-    python3 tools/sniffer_chessnut_ble.py --scan-time 20
+    python3 tools/dev-tools/sniffers/chessnut_ble.py --scan-time 20
 """
     )
     parser.add_argument('--scan-time', type=float, default=10.0,

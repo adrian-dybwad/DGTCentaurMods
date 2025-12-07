@@ -11,8 +11,8 @@ This tool runs on macOS and:
 Uses CoreBluetooth via pyobjc for peripheral role, bleak for central role.
 
 Usage:
-    python3 tools/pegasus_ble_proxy.py --target "DGT_PEGASUS"
-    python3 tools/pegasus_ble_proxy.py --target-address "81163BE5-F389-1690-FE43-0FD6D51B8C04"
+    python3 tools/dev-tools/proxies/pegasus_ble.py --target "DGT_PEGASUS"
+    python3 tools/dev-tools/proxies/pegasus_ble.py --target-address "81163BE5-F389-1690-FE43-0FD6D51B8C04"
 """
 
 import asyncio

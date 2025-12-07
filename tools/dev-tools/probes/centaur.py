@@ -13,7 +13,7 @@ controller modules. It speaks the minimal protocol needed to discover and
 exercise commands.
 
 Usage examples:
-  python3 tools/dev-tools/centaur_probe.py \
+  python3 tools/dev-tools/probes/centaur.py \
       --port /dev/serial0 --baud 1000000 \
       --idle 15 --timeout 2.0 --post-wait 0.5
 

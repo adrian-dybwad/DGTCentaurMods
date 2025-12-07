@@ -13,12 +13,12 @@ Designed to identify differences between multiple BLE devices advertising
 as "MILLENNIUM CHESS" (e.g., original board vs relay/proxy).
 
 Usage:
-    python3 tools/sniffer_millennium_ble.py
-    python3 tools/sniffer_millennium_ble.py --scan-time 15
-    python3 tools/sniffer_millennium_ble.py --connect-timeout 20
-    python3 tools/sniffer_millennium_ble.py --list-all
-    python3 tools/sniffer_millennium_ble.py --name "CHESS"
-    python3 tools/sniffer_millennium_ble.py --address AA:BB:CC:DD:EE:FF --address 11:22:33:44:55:66
+    python3 tools/dev-tools/sniffers/millennium_ble.py
+    python3 tools/dev-tools/sniffers/millennium_ble.py --scan-time 15
+    python3 tools/dev-tools/sniffers/millennium_ble.py --connect-timeout 20
+    python3 tools/dev-tools/sniffers/millennium_ble.py --list-all
+    python3 tools/dev-tools/sniffers/millennium_ble.py --name "CHESS"
+    python3 tools/dev-tools/sniffers/millennium_ble.py --address AA:BB:CC:DD:EE:FF --address 11:22:33:44:55:66
 
 Requirements:
     pip install bleak

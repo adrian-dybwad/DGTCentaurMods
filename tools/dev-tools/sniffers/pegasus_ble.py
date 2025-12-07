@@ -12,12 +12,12 @@ It performs deep analysis including:
 Designed to analyze DGT Pegasus boards using Nordic UART Service (NUS).
 
 Usage:
-    python3 tools/sniffer_pegasus_ble.py
-    python3 tools/sniffer_pegasus_ble.py --scan-time 15
-    python3 tools/sniffer_pegasus_ble.py --connect-timeout 20
-    python3 tools/sniffer_pegasus_ble.py --list-all
-    python3 tools/sniffer_pegasus_ble.py --name "PEGASUS"
-    python3 tools/sniffer_pegasus_ble.py --address AA:BB:CC:DD:EE:FF
+    python3 tools/dev-tools/sniffers/pegasus_ble.py
+    python3 tools/dev-tools/sniffers/pegasus_ble.py --scan-time 15
+    python3 tools/dev-tools/sniffers/pegasus_ble.py --connect-timeout 20
+    python3 tools/dev-tools/sniffers/pegasus_ble.py --list-all
+    python3 tools/dev-tools/sniffers/pegasus_ble.py --name "PEGASUS"
+    python3 tools/dev-tools/sniffers/pegasus_ble.py --address AA:BB:CC:DD:EE:FF
 
 Requirements:
     pip install bleak
@@ -799,22 +799,22 @@ async def main():
         epilog="""
 Examples:
     # Scan for PEGASUS devices (default)
-    python3 sniffer_pegasus_ble.py
+    python3 tools/dev-tools/sniffers/pegasus_ble.py
     
     # List all BLE devices (to find device addresses)
-    python3 sniffer_pegasus_ble.py --list-all
+    python3 tools/dev-tools/sniffers/pegasus_ble.py --list-all
     
     # Scan for devices with custom name filter
-    python3 sniffer_pegasus_ble.py --name "DGT"
+    python3 tools/dev-tools/sniffers/pegasus_ble.py --name "DGT"
     
     # Analyze specific devices by address
-    python3 sniffer_pegasus_ble.py --address AA:BB:CC:DD:EE:FF
+    python3 tools/dev-tools/sniffers/pegasus_ble.py --address AA:BB:CC:DD:EE:FF
     
     # Longer scan time
-    python3 sniffer_pegasus_ble.py --scan-time 15
+    python3 tools/dev-tools/sniffers/pegasus_ble.py --scan-time 15
     
     # Output as JSON
-    python3 sniffer_pegasus_ble.py --json
+    python3 tools/dev-tools/sniffers/pegasus_ble.py --json
         """
     )
     parser.add_argument(

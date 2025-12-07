@@ -13,10 +13,10 @@ This script uses the simple_centaur module which provides:
   - Command sending with raw byte output
 
 Usage examples:
-  python3 tools/dev-tools/simple_centaur_probe.py
-  python3 tools/dev-tools/simple_centaur_probe.py --command DGT_BUS_SEND_STATE
-  python3 tools/dev-tools/simple_centaur_probe.py --command LED_OFF_CMD
-  python3 tools/dev-tools/simple_centaur_probe.py --list-commands
+  python3 tools/dev-tools/probes/simple_centaur.py
+  python3 tools/dev-tools/probes/simple_centaur.py --command DGT_BUS_SEND_STATE
+  python3 tools/dev-tools/probes/simple_centaur.py --command LED_OFF_CMD
+  python3 tools/dev-tools/probes/simple_centaur.py --list-commands
 """
 
 import argparse

@@ -11,10 +11,10 @@ Millennium Chess devices. It performs:
 Designed to compare RFCOMM behavior between real Millennium board and emulators.
 
 Usage:
-    python3 tools/sniffer_millennium_rfcomm.py
-    python3 tools/sniffer_millennium_rfcomm.py --scan-time 10
-    python3 tools/sniffer_millennium_rfcomm.py --address XX:XX:XX:XX:XX:XX
-    python3 tools/sniffer_millennium_rfcomm.py --channel 1
+    python3 tools/dev-tools/sniffers/millennium_rfcomm.py
+    python3 tools/dev-tools/sniffers/millennium_rfcomm.py --scan-time 10
+    python3 tools/dev-tools/sniffers/millennium_rfcomm.py --address XX:XX:XX:XX:XX:XX
+    python3 tools/dev-tools/sniffers/millennium_rfcomm.py --channel 1
 
 Requirements:
     - Linux with BlueZ (uses standard socket API)
