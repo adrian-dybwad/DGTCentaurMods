@@ -1743,30 +1743,32 @@ def main():
             bus.get_object(BLUEZ_SERVICE_NAME, adapter),
             LE_ADVERTISING_MANAGER_IFACE)
         
-        # Advertisement with LocalName and Chessnut ManufacturerData
-        # Chessnut app filters by manufacturer ID 0x4450
-        # Millennium/Pegasus apps filter by name
+        # Advertisement with LocalName, Nordic UUID, and Chessnut ManufacturerData
+        # - Chessnut app filters by manufacturer ID 0x4450
+        # - Pegasus app filters by Nordic UART service UUID
+        # - Millennium app filters by LocalName
         adv = Advertisement(
             bus, 0, args.device_name,
-            service_uuids=None,  # Don't advertise UUIDs - apps discover services after connection
+            service_uuids=[NORDIC_UUIDS["service"]],  # Nordic UUID for Pegasus app
             manufacturer_data={CHESSNUT_MANUFACTURER_ID: CHESSNUT_MANUFACTURER_DATA}
         )
         
         def adv_register_success():
-            log.info("Advertisement registered successfully (LocalName + Chessnut ManufacturerData)")
+            log.info("Advertisement registered successfully (LocalName + Nordic UUID + Chessnut ManufacturerData)")
         
         def adv_register_error(error):
             log.error(f"Failed to register advertisement: {error}")
-            # Fallback: try with just LocalName
-            log.info("Retrying with LocalName only...")
-            adv_fallback = Advertisement(bus, 1, args.device_name)
+            # Fallback: try without manufacturer data (may exceed packet size)
+            log.info("Retrying with Nordic UUID only...")
+            adv_fallback = Advertisement(bus, 1, args.device_name, service_uuids=[NORDIC_UUIDS["service"]])
             ad_manager.RegisterAdvertisement(
                 adv_fallback.get_path(), {},
-                reply_handler=lambda: log.info("Fallback advertisement registered (LocalName only)"),
+                reply_handler=lambda: log.info("Fallback advertisement registered (Nordic UUID only)"),
                 error_handler=lambda e: log.error(f"Fallback also failed: {e}"))
         
         log.info(f"Registering advertisement (name: {args.device_name})...")
         log.info(f"  LocalName: {args.device_name}")
+        log.info(f"  ServiceUUID: {NORDIC_UUIDS['service']} (Nordic UART for Pegasus)")
         log.info(f"  ManufacturerData: 0x{CHESSNUT_MANUFACTURER_ID:04x} (Chessnut)")
         ad_manager.RegisterAdvertisement(
             adv.get_path(), {},
