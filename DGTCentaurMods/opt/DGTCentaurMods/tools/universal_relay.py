@@ -1753,18 +1753,16 @@ def main():
             manufacturer_data={CHESSNUT_MANUFACTURER_ID: CHESSNUT_MANUFACTURER_DATA}
         )
         
+        adv_registered = [False]
+        adv_error = [None]
+        
         def adv_register_success():
             log.info("Advertisement registered successfully (LocalName + Nordic UUID + Chessnut ManufacturerData)")
+            adv_registered[0] = True
         
         def adv_register_error(error):
             log.error(f"Failed to register advertisement: {error}")
-            # Fallback: try without manufacturer data (may exceed packet size)
-            log.info("Retrying with Nordic UUID only...")
-            adv_fallback = Advertisement(bus, 1, args.device_name, service_uuids=[NORDIC_UUIDS["service"]])
-            ad_manager.RegisterAdvertisement(
-                adv_fallback.get_path(), {},
-                reply_handler=lambda: log.info("Fallback advertisement registered (Nordic UUID only)"),
-                error_handler=lambda e: log.error(f"Fallback also failed: {e}"))
+            adv_error[0] = str(error)
         
         log.info(f"Registering advertisement (name: {args.device_name})...")
         log.info(f"  LocalName: {args.device_name}")
@@ -1775,7 +1773,18 @@ def main():
             reply_handler=adv_register_success,
             error_handler=adv_register_error)
         
-        time.sleep(1)
+        # Wait for advertisement registration
+        time.sleep(2)
+        
+        # Check if advertisement registration failed
+        if adv_error[0] is not None:
+            log.error("Cannot continue without proper advertisement.")
+            log.error("All three apps (Chessnut, Pegasus, Millennium) require specific advertisement data.")
+            sys.exit(1)
+        
+        if not adv_registered[0]:
+            log.error("Advertisement registration did not complete in time.")
+            sys.exit(1)
     
     # Setup RFCOMM if enabled
     if not args.no_rfcomm:
