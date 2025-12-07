@@ -466,6 +466,10 @@ import threading
 import subprocess
 eventsthreadpointer = ""
 eventsrunning = 1
+# Global callbacks that can be updated by subscribeEvents without starting new threads
+_current_keycallback = None
+_current_fieldcallback = None
+_events_thread_started = False
 
 def temp():
     '''
@@ -486,11 +490,16 @@ def temp():
 def eventsThread(keycallback, fieldcallback, tout):
     # This monitors the board for events
     # keypresses and pieces lifted/placed down
+    # NOTE: keycallback and fieldcallback args are only used for initial setup.
+    # After first call, we use the global _current_keycallback and _current_fieldcallback
+    # which can be updated by subsequent subscribeEvents calls without starting new threads.
     global eventsrunning
     global standby
     global batterylevel
     global batterylastchecked
     global chargerconnected
+    global _current_keycallback
+    global _current_fieldcallback
     standby = False
     hold_timeout = False
     events_paused = False
@@ -514,20 +523,24 @@ def eventsThread(keycallback, fieldcallback, tout):
 
             key_pressed = None
             if not standby:
-                #Hold fields activity on standby
-                if fieldcallback != None:
+                # Use global callback - can be updated by subscribeEvents without restarting thread
+                current_fieldcb = _current_fieldcallback
+                if current_fieldcb is not None:
                     try:
                         # Prefer push model via asyncserial piece listeners
-                        # Always update the listener to use the current fieldcallback.
-                        # This ensures new subscriptions get their callbacks registered
-                        # even if a previous listener existed.
+                        # Create a closure that captures the CURRENT global callback at listener setup time
+                        # but the listener itself reads the global each time it's called
                         def _listener(piece_event, field_hex, time_in_seconds):
                             nonlocal to
+                            # Read global callback each time - this allows hot-swapping
+                            cb = _current_fieldcallback
+                            if cb is None:
+                                return
                             try:
                                 #Rotate the field here. The callback to boardmanager should always have a proper square index
                                 field = rotateFieldHex(field_hex)
                                 log.info(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
-                                fieldcallback(piece_event, field, time_in_seconds)
+                                cb(piece_event, field, time_in_seconds)
                                 to = time.time() + tout
                             except Exception as e:
                                 log.error(f"[board.events.push] error: {e}")
@@ -590,11 +603,13 @@ def eventsThread(keycallback, fieldcallback, tout):
             if standby != True and key_pressed is not None:
                 to = time.time() + tout
                 log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
-                # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
-                try:
-                    keycallback(key_pressed)
-                except Exception as e:
-                    log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
+                # Use global callback - can be updated by subscribeEvents without restarting thread
+                current_keycb = _current_keycallback
+                if current_keycb is not None:
+                    try:
+                        current_keycb(key_pressed)
+                    except Exception as e:
+                        log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
         else:
             # If pauseEvents() hold timeout in the thread
             to = time.time() + 100000
@@ -613,14 +628,34 @@ def eventsThread(keycallback, fieldcallback, tout):
 
 
 def subscribeEvents(keycallback, fieldcallback, timeout=100000):
-    # Called by any program wanting to subscribe to events
-    # Arguments are firstly the callback function for key presses, secondly for piece lifts and places
-    try:
-        eventsthreadpointer = threading.Thread(target=eventsThread, args=(keycallback, fieldcallback, timeout))
-        eventsthreadpointer.daemon = True
-        eventsthreadpointer.start()
-    except Exception as e:
-        print(f"[board.subscribeEvents] error: {e}")
+    """Subscribe to board events (key presses and piece lift/place).
+    
+    Updates the global callbacks. Only starts a new thread if one isn't already running.
+    This allows multiple games/protocols to update their callbacks without creating
+    multiple competing threads.
+    """
+    global _current_keycallback
+    global _current_fieldcallback
+    global _events_thread_started
+    global eventsthreadpointer
+    
+    # Update the global callbacks - the events thread reads these each iteration
+    _current_keycallback = keycallback
+    _current_fieldcallback = fieldcallback
+    log.info(f"[board.subscribeEvents] Updated callbacks: fieldcallback={fieldcallback}")
+    
+    # Only start the thread if one isn't already running
+    if not _events_thread_started:
+        try:
+            log.info("[board.subscribeEvents] Starting events thread (first subscription)")
+            eventsthreadpointer = threading.Thread(target=eventsThread, args=(keycallback, fieldcallback, timeout))
+            eventsthreadpointer.daemon = True
+            eventsthreadpointer.start()
+            _events_thread_started = True
+        except Exception as e:
+            print(f"[board.subscribeEvents] error: {e}")
+    else:
+        log.info("[board.subscribeEvents] Events thread already running, callbacks updated")
 
 def pauseEvents():
     global eventsrunning
