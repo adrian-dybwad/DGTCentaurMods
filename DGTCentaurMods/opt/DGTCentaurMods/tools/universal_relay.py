@@ -615,9 +615,7 @@ class TXCharacteristic(Characteristic):
         log.info("TX Characteristic StartNotify called - Millennium BLE client subscribing")
         log.info("=" * 60)
         
-        # Always reset to clean state on new connection
-        universal = None
-        ble_connected = False
+        # Reset other protocol states
         if NordicTXCharacteristic.nordic_tx_instance is not None:
             NordicTXCharacteristic.nordic_tx_instance.notifying = False
         
@@ -625,18 +623,21 @@ class TXCharacteristic(Characteristic):
         self.notifying = True
         ble_client_type = 'millennium'
         
-        # Create fresh Universal instance for this connection
-        try:
-            universal = Universal(
-                sendMessage_callback=sendMessage,
-                client_type=Universal.CLIENT_MILLENNIUM,
-                compare_mode=relay_mode
-            )
-            log.info(f"[Universal] Instantiated for BLE with client_type=MILLENNIUM, compare_mode={relay_mode}")
-        except Exception as e:
-            log.error(f"[Universal] Error instantiating: {e}")
-            import traceback
-            traceback.print_exc()
+        # Only create Universal instance if one doesn't exist yet
+        if universal is None:
+            try:
+                universal = Universal(
+                    sendMessage_callback=sendMessage,
+                    client_type=Universal.CLIENT_MILLENNIUM,
+                    compare_mode=relay_mode
+                )
+                log.info(f"[Universal] Instantiated for BLE with client_type=MILLENNIUM, compare_mode={relay_mode}")
+            except Exception as e:
+                log.error(f"[Universal] Error instantiating: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            log.info("[Universal] Reusing existing instance for Millennium BLE notifications")
         
         ble_connected = True
         log.info("Millennium BLE notifications enabled successfully")
@@ -798,9 +799,7 @@ class NordicTXCharacteristic(Characteristic):
         log.info("Nordic TX StartNotify called - Pegasus BLE client subscribing")
         log.info("=" * 60)
         
-        # Always reset to clean state on new connection
-        universal = None
-        ble_connected = False
+        # Reset other protocol states
         if TXCharacteristic.tx_instance is not None:
             TXCharacteristic.tx_instance.notifying = False
         
@@ -808,18 +807,21 @@ class NordicTXCharacteristic(Characteristic):
         self.notifying = True
         ble_client_type = 'pegasus'
         
-        # Create fresh Universal instance for this connection
-        try:
-            universal = Universal(
-                sendMessage_callback=sendMessage,
-                client_type=Universal.CLIENT_PEGASUS,
-                compare_mode=relay_mode
-            )
-            log.info(f"[Universal] Instantiated for Pegasus BLE with client_type=PEGASUS, compare_mode={relay_mode}")
-        except Exception as e:
-            log.error(f"[Universal] Error instantiating: {e}")
-            import traceback
-            traceback.print_exc()
+        # Only create Universal instance if one doesn't exist yet
+        if universal is None:
+            try:
+                universal = Universal(
+                    sendMessage_callback=sendMessage,
+                    client_type=Universal.CLIENT_PEGASUS,
+                    compare_mode=relay_mode
+                )
+                log.info(f"[Universal] Instantiated for Pegasus BLE with client_type=PEGASUS, compare_mode={relay_mode}")
+            except Exception as e:
+                log.error(f"[Universal] Error instantiating: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            log.info("[Universal] Reusing existing instance for Pegasus BLE notifications")
         
         ble_connected = True
         log.info("Pegasus BLE notifications enabled successfully")
@@ -1052,9 +1054,7 @@ class ChessnutOperationRXCharacteristic(Characteristic):
         log.info("Chessnut OP RX StartNotify called - Chessnut BLE client subscribing")
         log.info("=" * 60)
         
-        # Always reset to clean state on new connection
-        universal = None
-        ble_connected = False
+        # Reset other protocol states but keep existing Universal if it's already Chessnut
         if TXCharacteristic.tx_instance is not None:
             TXCharacteristic.tx_instance.notifying = False
         if NordicTXCharacteristic.nordic_tx_instance is not None:
@@ -1064,18 +1064,22 @@ class ChessnutOperationRXCharacteristic(Characteristic):
         self.notifying = True
         ble_client_type = 'chessnut'
         
-        # Create fresh Universal instance for this connection
-        try:
-            universal = Universal(
-                sendMessage_callback=sendMessage,
-                client_type=Universal.CLIENT_CHESSNUT,
-                compare_mode=relay_mode
-            )
-            log.info(f"[Universal] Instantiated for Chessnut BLE with client_type=CHESSNUT, compare_mode={relay_mode}")
-        except Exception as e:
-            log.error(f"[Universal] Error instantiating: {e}")
-            import traceback
-            traceback.print_exc()
+        # Only create Universal instance if one doesn't exist yet
+        # (OP TX WriteValue may have already created it)
+        if universal is None:
+            try:
+                universal = Universal(
+                    sendMessage_callback=sendMessage,
+                    client_type=Universal.CLIENT_CHESSNUT,
+                    compare_mode=relay_mode
+                )
+                log.info(f"[Universal] Instantiated for Chessnut BLE with client_type=CHESSNUT, compare_mode={relay_mode}")
+            except Exception as e:
+                log.error(f"[Universal] Error instantiating: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            log.info("[Universal] Reusing existing instance for Chessnut BLE notifications")
         
         ble_connected = True
         log.info("Chessnut BLE notifications enabled successfully")
