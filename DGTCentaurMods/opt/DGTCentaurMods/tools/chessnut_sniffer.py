@@ -71,9 +71,12 @@ CHESSNUT_OTA_CHAR2_UUID = "92e86c7a-d961-4091-b74f-2409e72efe36"  # Write
 CHESSNUT_OTA_CHAR3_UUID = "347f7608-2e2d-47eb-913b-75d4edc4de3b"  # Read
 
 # Chessnut command bytes
-CMD_ENABLE_REPORTING = 0x21
-CMD_BATTERY_REQUEST = 0x29
 CMD_LED_CONTROL = 0x0a
+CMD_INIT = 0x0b           # Initialization/config (6 bytes)
+CMD_ENABLE_REPORTING = 0x21
+CMD_HAPTIC = 0x27         # Haptic feedback control
+CMD_BATTERY_REQUEST = 0x29
+CMD_SOUND = 0x31          # Sound/beep control
 
 # Chessnut response bytes
 RESP_FEN_DATA = 0x01
@@ -408,22 +411,32 @@ class OperationTXCharacteristic(Characteristic):
         length = data[1]
         payload = data[2:2+length] if len(data) > 2 else []
         
-        if cmd == CMD_ENABLE_REPORTING:
-            log("  -> Enable reporting command")
+        if cmd == CMD_INIT:
+            log(f"  -> Init/config command: {' '.join(f'{b:02x}' for b in payload)}")
+        
+        elif cmd == CMD_LED_CONTROL:
+            log(f"  -> LED control: {' '.join(f'{b:02x}' for b in payload)}")
+        
+        elif cmd == CMD_ENABLE_REPORTING:
+            log("  -> Enable reporting")
             if self.fen_char:
                 self.fen_char.enable_reporting()
         
+        elif cmd == CMD_HAPTIC:
+            state = "on" if payload and payload[0] else "off"
+            log(f"  -> Haptic feedback: {state}")
+        
         elif cmd == CMD_BATTERY_REQUEST:
-            log("  -> Battery request command")
+            log("  -> Battery request")
             if self.op_rx_char:
                 self.op_rx_char.send_battery_response()
         
-        elif cmd == CMD_LED_CONTROL:
-            log(f"  -> LED control command: {' '.join(f'{b:02x}' for b in payload)}")
-            # LED control is acknowledged but not implemented in sniffer
+        elif cmd == CMD_SOUND:
+            state = "on" if payload and payload[0] else "off"
+            log(f"  -> Sound control: {state}")
         
         else:
-            log(f"  -> Unknown command 0x{cmd:02x}")
+            log(f"  -> Unknown command 0x{cmd:02x}: {' '.join(f'{b:02x}' for b in payload)}")
 
 
 class OperationRXCharacteristic(Characteristic):
