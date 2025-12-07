@@ -269,12 +269,17 @@ class Advertisement(dbus.service.Object):
     - Millennium/Pegasus: Uses ServiceUUIDs
     - Chessnut: Uses ManufacturerData (company ID 0x4450)
     
-    Uses ServiceUUIDs for the primary UUID and Includes for scan response.
+    BLE advertisement packets are limited to 31 bytes. To fit all required data:
+    - Primary advertisement: LocalName + ServiceUUIDs (for Pegasus)
+    - Scan response: ManufacturerData (for Chessnut)
+    
+    This uses BlueZ's ScanResponseManufacturerData property.
     """
     
     PATH_BASE = '/org/bluez/universal_relay/advertisement'
 
-    def __init__(self, bus, index, name, service_uuids=None, scan_rsp_uuids=None, manufacturer_data=None):
+    def __init__(self, bus, index, name, service_uuids=None, scan_rsp_uuids=None, 
+                 manufacturer_data=None, scan_rsp_manufacturer_data=None):
         self.path = self.PATH_BASE + str(index)
         self.bus = bus
         self.ad_type = 'peripheral'
@@ -282,7 +287,8 @@ class Advertisement(dbus.service.Object):
         self.include_tx_power = True
         self.service_uuids = service_uuids or []
         self.scan_rsp_uuids = scan_rsp_uuids or []
-        self.manufacturer_data = manufacturer_data  # Dict of {company_id: bytes}
+        self.manufacturer_data = manufacturer_data  # Dict of {company_id: bytes} for primary adv
+        self.scan_rsp_manufacturer_data = scan_rsp_manufacturer_data  # Dict for scan response
         dbus.service.Object.__init__(self, bus, self.path)
 
     def get_properties(self):
@@ -296,20 +302,23 @@ class Advertisement(dbus.service.Object):
         if self.service_uuids:
             properties['ServiceUUIDs'] = dbus.Array(self.service_uuids, signature='s')
         
-        # Additional service UUIDs in scan response (experimental BlueZ feature)
-        # This allows advertising multiple 128-bit UUIDs by using the scan response packet
+        # Additional service UUIDs in scan response
         if self.scan_rsp_uuids:
-            try:
-                properties['ScanResponseServiceUUIDs'] = dbus.Array(self.scan_rsp_uuids, signature='s')
-            except Exception:
-                pass  # Ignore if not supported
+            properties['ScanResponseServiceUUIDs'] = dbus.Array(self.scan_rsp_uuids, signature='s')
         
-        # Manufacturer data for Chessnut (and potentially others)
+        # Manufacturer data in primary advertisement
         if self.manufacturer_data:
             mfr_dict = {}
             for company_id, data in self.manufacturer_data.items():
                 mfr_dict[dbus.UInt16(company_id)] = dbus.Array([dbus.Byte(b) for b in data], signature='y')
             properties['ManufacturerData'] = dbus.Dictionary(mfr_dict, signature='qv')
+        
+        # Manufacturer data in scan response (allows fitting more data)
+        if self.scan_rsp_manufacturer_data:
+            mfr_dict = {}
+            for company_id, data in self.scan_rsp_manufacturer_data.items():
+                mfr_dict[dbus.UInt16(company_id)] = dbus.Array([dbus.Byte(b) for b in data], signature='y')
+            properties['ScanResponseManufacturerData'] = dbus.Dictionary(mfr_dict, signature='qv')
         
         return {LE_ADVERTISEMENT_IFACE: properties}
 
@@ -1747,10 +1756,14 @@ def main():
         # - Chessnut app filters by manufacturer ID 0x4450
         # - Pegasus app filters by Nordic UART service UUID
         # - Millennium app filters by LocalName
+        #
+        # BLE advertisement packets are 31 bytes max. To fit all data:
+        # - Primary advertisement: LocalName + Nordic UUID (for Pegasus)
+        # - Scan response: ManufacturerData (for Chessnut)
         adv = Advertisement(
             bus, 0, args.device_name,
             service_uuids=[NORDIC_UUIDS["service"]],  # Nordic UUID for Pegasus app
-            manufacturer_data={CHESSNUT_MANUFACTURER_ID: CHESSNUT_MANUFACTURER_DATA}
+            scan_rsp_manufacturer_data={CHESSNUT_MANUFACTURER_ID: CHESSNUT_MANUFACTURER_DATA}
         )
         
         adv_registered = [False]
@@ -1765,9 +1778,8 @@ def main():
             adv_error[0] = str(error)
         
         log.info(f"Registering advertisement (name: {args.device_name})...")
-        log.info(f"  LocalName: {args.device_name}")
-        log.info(f"  ServiceUUID: {NORDIC_UUIDS['service']} (Nordic UART for Pegasus)")
-        log.info(f"  ManufacturerData: 0x{CHESSNUT_MANUFACTURER_ID:04x} (Chessnut)")
+        log.info(f"  Primary: LocalName + Nordic UUID (for Pegasus)")
+        log.info(f"  ScanResponse: ManufacturerData 0x{CHESSNUT_MANUFACTURER_ID:04x} (for Chessnut)")
         ad_manager.RegisterAdvertisement(
             adv.get_path(), {},
             reply_handler=adv_register_success,
