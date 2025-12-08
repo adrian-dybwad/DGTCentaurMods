@@ -66,6 +66,7 @@ shadow_target = "MILLENNIUM CHESS"  # Default target device name (can be overrid
 mainloop = None  # GLib mainloop for BLE
 chess_board_widget = None  # ChessBoardWidget for e-paper display
 game_analysis_widget = None  # GameAnalysisWidget for position evaluation
+analysis_engine = None  # UCI engine for position analysis (ct800)
 graphs_enabled = True  # Whether evaluation graphs are shown (default: on)
 bluetooth_controller = None  # BluetoothController for RFCOMM pairing
 
@@ -1495,22 +1496,27 @@ def client_reader():
 def cleanup_and_exit(reason: str = "Normal exit"):
     """Clean up connections and resources, then exit the process.
     
-    This function performs all necessary cleanup and then calls sys.exit(0)
-    to ensure the process terminates even if background threads are running.
+    Properly stops all threads and closes all resources before exiting.
+    This includes:
+    - Bluetooth controller pairing thread
+    - Game handler and its game manager thread
+    - Analysis engine
+    - Board events and serial connection
+    - Sockets and BLE mainloop
     
     Args:
         reason: Description of why the exit is happening (logged for debugging)
     """
     global kill, running, shadow_target_sock, client_sock, server_sock
     global shadow_target_connected, client_connected, ble_app, mainloop
-    global game_handler, game_analysis_widget, bluetooth_controller
+    global game_handler, game_analysis_widget, bluetooth_controller, analysis_engine
     
     try:
         log.info(f"Exiting: {reason}")
         kill = 1
         running = False
         
-        # Stop bluetooth controller pairing thread first
+        # Stop bluetooth controller pairing thread
         if bluetooth_controller is not None:
             try:
                 bluetooth_controller.stop_pairing_thread()
@@ -1518,11 +1524,22 @@ def cleanup_and_exit(reason: str = "Normal exit"):
             except Exception as e:
                 log.debug(f"Error stopping bluetooth controller: {e}")
         
-        # Clean up game handler and UCI engine
+        # Clean up game handler (stops game manager thread and closes standalone engine)
         if game_handler is not None:
-            game_handler.cleanup()
+            try:
+                game_handler.cleanup()
+            except Exception as e:
+                log.debug(f"Error cleaning up game handler: {e}")
         
-        # Clean up analysis widget and its engine
+        # Close analysis engine
+        if analysis_engine is not None:
+            try:
+                analysis_engine.quit()
+                log.debug("Analysis engine closed")
+            except Exception as e:
+                log.debug(f"Error closing analysis engine: {e}")
+        
+        # Clean up analysis widget
         if game_analysis_widget is not None:
             try:
                 game_analysis_widget._stop_analysis_worker()
@@ -1572,7 +1589,21 @@ def cleanup_and_exit(reason: str = "Normal exit"):
     except Exception as e:
         log.error(f"Error in cleanup: {e}")
     
-    log.info("Exiting")
+    # Exit the process using sys.exit() which allows cleanup handlers to run.
+    # Use a background thread with timeout to force exit if sys.exit() hangs.
+    log.info("Attempting graceful exit with sys.exit()")
+    
+    def force_exit_after_timeout():
+        """Force exit if sys.exit() doesn't complete in time."""
+        time.sleep(3.0)  # Give sys.exit() 3 seconds to complete
+        log.warning("Graceful exit timed out, forcing exit with os._exit()")
+        os._exit(0)
+    
+    # Start watchdog thread to force exit if needed
+    watchdog = threading.Thread(target=force_exit_after_timeout, daemon=True)
+    watchdog.start()
+    
+    # Attempt graceful exit
     sys.exit(0)
 
 
@@ -1722,7 +1753,7 @@ def main():
     log.info("Chess board widget initialized")
     
     # Initialize analysis engine for evaluation (use ct800 like UCI does)
-    analysis_engine = None
+    global analysis_engine
     try:
         base_path = pathlib.Path(__file__).parent
         analysis_engine_path = str((base_path / "engines/ct800").resolve())
