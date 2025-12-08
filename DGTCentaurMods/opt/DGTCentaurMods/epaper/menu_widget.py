@@ -9,7 +9,6 @@ from .text import TextWidget
 from typing import Optional, Callable, List, Sequence
 from dataclasses import dataclass
 import threading
-from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
 
 try:
