@@ -46,7 +46,7 @@ import chess
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board import board
-from DGTCentaurMods.epaper import ChessBoardWidget, SplashScreen
+from DGTCentaurMods.epaper import ChessBoardWidget, SplashScreen, GameAnalysisWidget
 from DGTCentaurMods.bluetooth_controller import BluetoothController
 from DGTCentaurMods.game_handler import GameHandler
 
@@ -63,6 +63,8 @@ relay_mode = False  # Whether relay mode is enabled (connects to relay target)
 shadow_target = "MILLENNIUM CHESS"  # Default target device name (can be overridden via --shadow-target)
 mainloop = None  # GLib mainloop for BLE
 chess_board_widget = None  # ChessBoardWidget for e-paper display
+game_analysis_widget = None  # GameAnalysisWidget for position evaluation
+graphs_enabled = True  # Whether evaluation graphs are shown (default: on)
 
 # Socket references
 shadow_target_sock = None
@@ -1491,7 +1493,7 @@ def cleanup():
     """Clean up connections and resources"""
     global kill, running, shadow_target_sock, client_sock, server_sock
     global shadow_target_connected, client_connected, ble_app, mainloop
-    global game_handler
+    global game_handler, game_analysis_widget
     
     try:
         log.info("Cleaning up...")
@@ -1501,6 +1503,25 @@ def cleanup():
         # Clean up game handler and UCI engine
         if game_handler is not None:
             game_handler.cleanup()
+        
+        # Clean up analysis widget and its engine
+        if game_analysis_widget is not None:
+            try:
+                game_analysis_widget._stop_analysis_worker()
+            except Exception as e:
+                log.debug(f"Error stopping analysis worker: {e}")
+        
+        # Pause board events
+        try:
+            board.pauseEvents()
+        except Exception as e:
+            log.debug(f"Error pausing events: {e}")
+        
+        # Clean up board
+        try:
+            board.cleanup(leds_off=True)
+        except Exception as e:
+            log.debug(f"Error cleaning up board: {e}")
         
         if client_sock:
             try:
@@ -1541,6 +1562,53 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
+def key_callback(key_id):
+    """Handle key press events from the board.
+    
+    - BACK: Exit universal mode and return to menu
+    - HELP (?): Toggle evaluation graphs on/off
+    - LONG_PLAY: Shutdown system
+    """
+    global running, kill, graphs_enabled, game_analysis_widget, chess_board_widget
+    
+    log.info(f"Key event received: {key_id}")
+    
+    if key_id == board.Key.BACK:
+        log.info("BACK pressed - exiting Universal mode")
+        running = False
+        kill = 1
+    
+    elif key_id == board.Key.HELP:
+        # Toggle evaluation graphs
+        graphs_enabled = not graphs_enabled
+        if graphs_enabled:
+            log.info("HELP pressed - showing evaluation graphs")
+            if game_analysis_widget:
+                game_analysis_widget.reset()
+        else:
+            log.info("HELP pressed - hiding evaluation graphs")
+            if game_analysis_widget:
+                game_analysis_widget.clear_history()
+                game_analysis_widget.set_score(0.0, "---")
+    
+    elif key_id == board.Key.LONG_PLAY:
+        log.info("LONG_PLAY pressed - shutting down")
+        running = False
+        kill = 1
+        board.shutdown()
+
+
+def field_callback(piece_event, field, time_in_seconds):
+    """Handle piece movement events from the board.
+    
+    This is called when pieces are lifted or placed on the board.
+    The GameHandler processes these through its own piece listener.
+    """
+    # Note: GameHandler already has its own piece listener registered
+    # This callback is here for completeness but may not be needed
+    pass
+
+
 def main():
     """Main entry point"""
     global server_sock, client_sock, shadow_target_sock
@@ -1572,7 +1640,7 @@ def main():
     
     args = parser.parse_args()
     
-    global chess_board_widget
+    global chess_board_widget, game_analysis_widget, graphs_enabled
     
     # Initialize display and show splash screen
     log.info("Initializing display...")
@@ -1609,6 +1677,11 @@ def main():
     log.info(f"  ELO:               {args.engine_elo}")
     log.info(f"  Player color:      {args.player_color}")
     log.info("")
+    log.info("Controls:")
+    log.info("  BACK:              Exit to menu")
+    log.info("  UP:                Show evaluation")
+    log.info("  DOWN:              Hide evaluation")
+    log.info("")
     log.info("=" * 60)
     
     relay_mode = args.relay
@@ -1619,6 +1692,10 @@ def main():
         fallback_player_color = chess.WHITE if random.randint(0, 1) == 0 else chess.BLACK
     else:
         fallback_player_color = chess.WHITE if args.player_color == "white" else chess.BLACK
+    
+    # Subscribe to board events for key handling
+    board.subscribeEvents(key_callback, field_callback, timeout=100000)
+    log.info("Subscribed to board key events")
     
     # Initialize chess board widget for e-paper display
     # Clear splash and show chess board
@@ -1636,12 +1713,49 @@ def main():
             log.warning(f"Error displaying chess board widget: {e}")
     log.info("Chess board widget initialized")
     
+    # Initialize analysis engine for evaluation (use ct800 like UCI does)
+    analysis_engine = None
+    try:
+        import pathlib
+        import chess.engine
+        base_path = pathlib.Path(__file__).parent
+        analysis_engine_path = str((base_path / "engines/ct800").resolve())
+        analysis_engine = chess.engine.SimpleEngine.popen_uci(analysis_engine_path, timeout=None)
+        log.info(f"Analysis engine initialized: {analysis_engine_path}")
+    except Exception as e:
+        log.warning(f"Could not initialize analysis engine: {e}")
+        analysis_engine = None
+    
+    # Create game analysis widget at bottom (y=144, which is 16+128)
+    # Determine bottom color based on board orientation
+    bottom_color = "black" if chess_board_widget.flip else "white"
+    game_analysis_widget = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color, analysis_engine=analysis_engine)
+    future = board.display_manager.add_widget(game_analysis_widget)
+    if future:
+        try:
+            future.result(timeout=5.0)
+        except Exception as e:
+            log.warning(f"Error displaying game analysis widget: {e}")
+    log.info("Game analysis widget initialized (graphs_enabled=True by default)")
+    
     # Display update callback for GameHandler
     def update_display(fen):
-        """Update the chess board widget with new position."""
+        """Update the chess board widget with new position and trigger analysis."""
+        global graphs_enabled
         if chess_board_widget:
             try:
                 chess_board_widget.set_fen(fen)
+                
+                # Update analysis if graphs are enabled
+                if graphs_enabled and game_analysis_widget and analysis_engine:
+                    try:
+                        # Parse FEN to get board and turn
+                        board_obj = chess.Board(fen)
+                        current_turn_str = "white" if board_obj.turn == chess.WHITE else "black"
+                        # Use short time limit for responsive analysis
+                        game_analysis_widget.analyze_position(board_obj, current_turn_str, is_first_move=False, time_limit=0.3)
+                    except Exception as e:
+                        log.debug(f"Error updating analysis: {e}")
             except Exception as e:
                 log.error(f"Error updating chess board widget: {e}")
     
