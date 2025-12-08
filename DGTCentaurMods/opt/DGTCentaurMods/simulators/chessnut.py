@@ -42,6 +42,11 @@ import dbus.service
 import dbus.mainloop.glib
 from gi.repository import GLib
 
+try:
+    import chess
+except ImportError:
+    chess = None
+
 # BlueZ D-Bus constants
 BLUEZ_SERVICE_NAME = 'org.bluez'
 GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
@@ -96,6 +101,8 @@ RESP_BATTERY = 0x2a
 # Global state
 mainloop = None
 device_name = "Chessnut Air"
+move_history = []  # List of chess.Move objects to replay on connect
+playback_delay = 0.05  # Delay between position updates during playback (seconds)
 
 
 def log(msg):
@@ -236,10 +243,10 @@ class Characteristic(dbus.service.Object):
 class FENCharacteristic(Characteristic):
     """FEN RX Characteristic (1b7e8262) - Notify FEN/board state to client.
     
-    Sends 36-byte FEN notifications:
+    Sends 38-byte FEN notifications:
     - Bytes 0-1: Header [0x01, 0x24]
     - Bytes 2-33: Position data (32 bytes, 2 squares per byte)
-    - Bytes 34-35: Reserved [0x00, 0x00]
+    - Bytes 34-37: Extra data [uptime_lo, uptime_hi, 0x00, 0x00]
     
     Square order: h8 -> g8 -> ... -> a8 -> h7 -> ... -> a1
     Each byte: lower nibble = first square, upper nibble = second square
@@ -258,7 +265,17 @@ class FENCharacteristic(Characteristic):
         10 = white knight (N)
         11 = white queen (Q)
         12 = white king (K)
+    
+    Supports move history playback:
+        When an app connects, if there is a move history, it will be replayed
+        so the app SDK can build correct game state (turn, castling, en passant).
     """
+    
+    # Piece encoding: FEN char -> Chessnut code
+    FEN_TO_PIECE = {
+        'q': 1, 'k': 2, 'b': 3, 'p': 4, 'n': 5,
+        'R': 6, 'P': 7, 'r': 8, 'B': 9, 'N': 10, 'Q': 11, 'K': 12
+    }
     
     # Class variable to hold instance for cross-characteristic access
     fen_instance = None
@@ -269,6 +286,7 @@ class FENCharacteristic(Characteristic):
                                 ['notify'], service)
         FENCharacteristic.fen_instance = self
         self._reporting_enabled = False
+        self._start_time = time.time()
 
     @dbus.service.method(GATT_CHRC_IFACE)
     def StartNotify(self):
@@ -282,33 +300,179 @@ class FENCharacteristic(Characteristic):
         self._reporting_enabled = False
 
     def enable_reporting(self):
-        """Enable reporting and send initial FEN."""
+        """Enable reporting and replay move history or send current position.
+        
+        If move_history is set, replays all moves so the app SDK can build
+        correct game state (turn, castling rights, en passant, move counters).
+        """
+        global move_history, playback_delay
+        
         self._reporting_enabled = True
-        self.send_fen_notification()
+        
+        if move_history and chess:
+            self._replay_move_history()
+        else:
+            self.send_fen_notification()
+
+    def _replay_move_history(self):
+        """Replay move history to sync app state.
+        
+        When an app connects mid-game, the SDK has no history and cannot know:
+        - Whose turn it is
+        - Castling rights (has king/rook moved?)
+        - En passant availability
+        - Move counters
+        
+        By replaying the move history from the starting position, the app SDK
+        observes each position change and builds the correct game state.
+        """
+        global move_history, playback_delay
+        
+        if not self.notifying:
+            log("Cannot replay - notifications not enabled")
+            return
+        
+        log(f"Replaying {len(move_history)} moves to sync app state")
+        
+        # Create replay board starting from standard position
+        replay_board = chess.Board()
+        
+        # Send starting position first
+        starting_fen = replay_board.fen()
+        log(f"  Playback: starting position")
+        self._send_fen_direct(starting_fen)
+        time.sleep(playback_delay)
+        
+        # Replay each move, sending the resulting position
+        for i, move in enumerate(move_history):
+            replay_board.push(move)
+            fen = replay_board.fen()
+            turn = "white" if replay_board.turn == chess.WHITE else "black"
+            log(f"  Playback: move {i+1}/{len(move_history)} {move.uci()} -> next: {turn}")
+            self._send_fen_direct(fen)
+            time.sleep(playback_delay)
+        
+        log(f"Move history replay complete - app should have correct game state")
+        log(f"  Final FEN: {replay_board.fen()}")
+
+    def _send_fen_direct(self, fen):
+        """Send a FEN position notification.
+        
+        Args:
+            fen: Full FEN string to send
+        """
+        if not self.notifying:
+            return
+        
+        position_bytes = self._fen_to_chessnut_bytes(fen)
+        
+        uptime = int(time.time() - self._start_time) & 0xFFFF
+        uptime_lo = uptime & 0xFF
+        uptime_hi = (uptime >> 8) & 0xFF
+        
+        notification = bytearray([RESP_FEN_DATA, 0x24])
+        notification.extend(position_bytes)
+        notification.extend([uptime_lo, uptime_hi, 0x00, 0x00])
+        
+        self.send_notification(notification)
+
+    def _fen_to_chessnut_bytes(self, fen):
+        """Convert FEN position string to Chessnut 32-byte format.
+        
+        Args:
+            fen: FEN position string (may include full FEN with move info)
+            
+        Returns:
+            32-byte array representing the position
+        """
+        # Extract just the piece placement part (before first space)
+        piece_placement = fen.split()[0] if ' ' in fen else fen
+        
+        # Parse FEN into 8x8 board array
+        # board_array[rank][file] where rank 0 = rank 8, file 0 = file a
+        board_array = [[0] * 8 for _ in range(8)]
+        
+        ranks = piece_placement.split('/')
+        for rank_idx, rank_str in enumerate(ranks):
+            if rank_idx >= 8:
+                break
+            file_idx = 0
+            for char in rank_str:
+                if file_idx >= 8:
+                    break
+                if char.isdigit():
+                    file_idx += int(char)
+                elif char in self.FEN_TO_PIECE:
+                    board_array[rank_idx][file_idx] = self.FEN_TO_PIECE[char]
+                    file_idx += 1
+                else:
+                    file_idx += 1
+        
+        # Convert to 32-byte Chessnut format
+        # Square order: h8 -> g8 -> f8 -> ... -> a8 -> h7 -> ... -> a1
+        # Each byte: lower nibble = first square, higher nibble = second
+        result = bytearray(32)
+        
+        square_idx = 0
+        for rank in range(8):  # rank 8 (idx 0) to rank 1 (idx 7)
+            for file in range(7, -1, -1):  # file h (idx 7) to file a (idx 0)
+                piece_code = board_array[rank][file]
+                byte_idx = square_idx // 2
+                
+                if square_idx % 2 == 0:
+                    # First square in byte -> lower nibble
+                    result[byte_idx] = (result[byte_idx] & 0xF0) | (piece_code & 0x0F)
+                else:
+                    # Second square in byte -> higher nibble
+                    result[byte_idx] = (result[byte_idx] & 0x0F) | ((piece_code & 0x0F) << 4)
+                
+                square_idx += 1
+        
+        return bytes(result)
 
     def send_fen_notification(self):
         """Send FEN notification with current board state.
         
+        If move_history is set, sends the final position after all moves.
+        Otherwise sends the starting position.
+        
         Real Chessnut Air sends 38 bytes:
         - Bytes 0-1: Header [0x01, 0x24]
         - Bytes 2-33: Position data (32 bytes)
-        - Bytes 34-37: Extra data [0x44, 0x01, 0x00, 0x00] (status/checksum?)
+        - Bytes 34-37: Uptime + reserved
         """
+        global move_history
+        
         if not self.notifying:
             log("Cannot send FEN - notifications not enabled")
             return
         
-        # Build starting position FEN bytes
-        position_bytes = self._get_starting_position_bytes()
+        # Determine current position
+        if move_history and chess:
+            board = chess.Board()
+            for move in move_history:
+                board.push(move)
+            fen = board.fen()
+            piece_placement = fen.split()[0]
+        else:
+            fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+            piece_placement = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR"
         
-        # Build 38-byte notification (matches real Chessnut Air)
+        # Build position bytes
+        position_bytes = self._fen_to_chessnut_bytes(fen)
+        
+        # Build 38-byte notification
+        uptime = int(time.time() - self._start_time) & 0xFFFF
+        uptime_lo = uptime & 0xFF
+        uptime_hi = (uptime >> 8) & 0xFF
+        
         notification = bytearray([RESP_FEN_DATA, 0x24])  # Header
         notification.extend(position_bytes)  # 32 bytes position
-        notification.extend([0x44, 0x01, 0x00, 0x00])  # Extra bytes from real board
+        notification.extend([uptime_lo, uptime_hi, 0x00, 0x00])  # Uptime + reserved
         
         hex_str = ' '.join(f'{b:02x}' for b in notification)
         log(f"TX [FEN] ({len(notification)} bytes): {hex_str}")
-        log("  -> Starting position: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
+        log(f"  -> Position: {piece_placement}")
         
         self.send_notification(notification)
 
@@ -318,59 +482,7 @@ class FENCharacteristic(Characteristic):
         Returns:
             32 bytes representing starting chess position
         """
-        # Piece codes for Chessnut format
-        EMPTY = 0
-        # Black pieces
-        B_QUEEN = 1
-        B_KING = 2
-        B_BISHOP = 3
-        B_PAWN = 4
-        B_KNIGHT = 5
-        B_ROOK = 8
-        # White pieces
-        W_ROOK = 6
-        W_PAWN = 7
-        W_BISHOP = 9
-        W_KNIGHT = 10
-        W_QUEEN = 11
-        W_KING = 12
-        
-        # Board as 8x8 array (rank 8 first, file a first)
-        # Starting position
-        board = [
-            # Rank 8: black pieces (a8 to h8)
-            [B_ROOK, B_KNIGHT, B_BISHOP, B_QUEEN, B_KING, B_BISHOP, B_KNIGHT, B_ROOK],
-            # Rank 7: black pawns
-            [B_PAWN, B_PAWN, B_PAWN, B_PAWN, B_PAWN, B_PAWN, B_PAWN, B_PAWN],
-            # Ranks 6-3: empty
-            [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-            [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-            [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-            [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-            # Rank 2: white pawns
-            [W_PAWN, W_PAWN, W_PAWN, W_PAWN, W_PAWN, W_PAWN, W_PAWN, W_PAWN],
-            # Rank 1: white pieces (a1 to h1)
-            [W_ROOK, W_KNIGHT, W_BISHOP, W_QUEEN, W_KING, W_BISHOP, W_KNIGHT, W_ROOK],
-        ]
-        
-        # Convert to 32-byte Chessnut format
-        # Square order: h8 -> g8 -> f8 -> ... -> a8 -> h7 -> ... -> a1
-        # Each byte: lower nibble = first square (even col), upper nibble = second square (odd col)
-        result = bytearray(32)
-        
-        for row in range(8):  # rank 8 to rank 1
-            for col in range(7, -1, -1):  # file h to a (7 to 0)
-                piece = board[row][col]
-                byte_idx = (row * 8 + (7 - col)) // 2
-                
-                if (7 - col) % 2 == 0:
-                    # Lower nibble (even position in output)
-                    result[byte_idx] = (result[byte_idx] & 0xF0) | (piece & 0x0F)
-                else:
-                    # Upper nibble (odd position in output)
-                    result[byte_idx] = (result[byte_idx] & 0x0F) | ((piece & 0x0F) << 4)
-        
-        return bytes(result)
+        return self._fen_to_chessnut_bytes("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
 
 
 class OperationTXCharacteristic(Characteristic):
@@ -766,19 +878,74 @@ def setup_adapter(bus, adapter_path, name):
 
 
 def main():
-    global mainloop, device_name
+    global mainloop, device_name, move_history, playback_delay
     
-    parser = argparse.ArgumentParser(description='Chessnut Air BLE Emulator')
+    parser = argparse.ArgumentParser(
+        description='Chessnut Air BLE Simulator',
+        epilog='''
+Examples:
+  %(prog)s
+    - Simulate a Chessnut Air at starting position
+    
+  %(prog)s --moves "e2e4 e7e5 g1f3 b8c6"
+    - Simulate with 4 moves already played (Italian Game opening)
+    - When app connects, moves are replayed so SDK has correct game state
+    
+  %(prog)s --moves "e2e4,e7e5,g1f3,b8c6" --playback-delay 0.1
+    - Same moves with slower playback (100ms between positions)
+'''
+    )
     parser.add_argument("--name", default=None, 
                         help="Bluetooth device name (default: Chessnut Air)")
+    parser.add_argument("--moves", default=None,
+                        help="Space or comma separated UCI moves to simulate (e.g., 'e2e4 e7e5 g1f3')")
+    parser.add_argument("--playback-delay", type=float, default=0.05,
+                        help="Delay in seconds between position updates during playback (default: 0.05)")
     args = parser.parse_args()
     
     device_name = args.name if args.name else "Chessnut Air"
+    playback_delay = args.playback_delay
+    
+    # Parse move history if provided
+    if args.moves:
+        if not chess:
+            log("ERROR: python-chess is required for --moves option")
+            log("Install with: pip install python-chess")
+            sys.exit(1)
+        
+        # Parse moves (space or comma separated)
+        move_strs = args.moves.replace(',', ' ').split()
+        board = chess.Board()
+        move_history = []
+        
+        for uci_str in move_strs:
+            try:
+                move = chess.Move.from_uci(uci_str)
+                if move not in board.legal_moves:
+                    log(f"ERROR: Illegal move '{uci_str}' in position {board.fen()}")
+                    sys.exit(1)
+                board.push(move)
+                move_history.append(move)
+            except ValueError as e:
+                log(f"ERROR: Invalid UCI move '{uci_str}': {e}")
+                sys.exit(1)
     
     log("=" * 60)
     log("Chessnut Air Simulator")
     log("=" * 60)
     log(f"Device name: {device_name}")
+    
+    if move_history:
+        log(f"Move history: {len(move_history)} moves")
+        board = chess.Board()
+        for move in move_history:
+            board.push(move)
+        log(f"Current position: {board.fen()}")
+        log(f"Turn: {'White' if board.turn == chess.WHITE else 'Black'}")
+        log(f"Playback delay: {playback_delay}s")
+    else:
+        log("Starting position: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
+    
     log("")
     
     # Set up D-Bus main loop
