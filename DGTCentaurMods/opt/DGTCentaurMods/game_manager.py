@@ -1034,17 +1034,17 @@ class GameManager:
                 self.key_callback(key_pressed)
             if self.is_in_menu == 0 and key_pressed == board.Key.HELP:
                 self.is_in_menu = 1
-                widgets.resign_draw_menu(14)
+                #widgets.resign_draw_menu(14)
             if self.is_in_menu == 1 and key_pressed == board.Key.BACK:
-                widgets.write_text(14, "                   ")
+                #widgets.write_text(14, "                   ")
                 self.is_in_menu = 0
             if self.is_in_menu == 1 and key_pressed == board.Key.UP:
-                widgets.write_text(14, "                   ")
+                #widgets.write_text(14, "                   ")
                 if self.event_callback is not None:
                     self.event_callback(EVENT_REQUEST_DRAW)
                 self.is_in_menu = 0
             if self.is_in_menu == 1 and key_pressed == board.Key.DOWN:
-                widgets.write_text(14, "                   ")
+                #widgets.write_text(14, "                   ")
                 if self.event_callback is not None:
                     self.event_callback(EVENT_RESIGN_GAME)
                 self.is_in_menu = 0
