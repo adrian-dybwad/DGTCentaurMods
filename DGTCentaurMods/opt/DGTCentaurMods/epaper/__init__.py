@@ -15,9 +15,7 @@ from .status_bar import StatusBarWidget
 from .wifi_status import WiFiStatusWidget
 from .game_over import GameOverWidget
 from .menu_arrow import MenuArrowWidget
-from .button_menu import ButtonMenuWidget, ButtonConfig, create_main_menu_buttons
 
 __all__ = ['Manager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'BallWidget', 
            'ChessBoardWidget', 'GameAnalysisWidget', 'CheckerboardWidget', 'SplashScreen', 
-           'StatusBarWidget', 'WiFiStatusWidget', 'GameOverWidget', 'MenuArrowWidget',
-           'ButtonMenuWidget', 'ButtonConfig', 'create_main_menu_buttons']
+           'StatusBarWidget', 'WiFiStatusWidget', 'GameOverWidget', 'MenuArrowWidget']

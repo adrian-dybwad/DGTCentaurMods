@@ -11,8 +11,8 @@ on the small e-paper display.
 """
 
 from PIL import Image, ImageDraw, ImageFont
-from .framework.widget import Widget
-from .status_bar import STATUS_BAR_HEIGHT
+from DGTCentaurMods.epaper.framework.widget import Widget
+from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
 from typing import Optional, Callable, List
 from dataclasses import dataclass
 import threading
