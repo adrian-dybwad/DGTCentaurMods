@@ -620,7 +620,19 @@ class GameHandler:
         self._check_standalone_engine_turn()
     
     def cleanup(self):
-        """Clean up resources including UCI engine."""
+        """Clean up resources including UCI engine and game manager.
+        
+        Properly stops the game manager thread and closes the UCI engine.
+        """
+        # Unsubscribe from game manager first (stops game thread)
+        if self.manager:
+            try:
+                self.manager.unsubscribe_game()
+                log.info("[GameHandler] Unsubscribed from game manager")
+            except Exception as e:
+                log.error(f"[GameHandler] Error unsubscribing from game manager: {e}")
+        
+        # Close standalone engine
         if self._standalone_engine:
             try:
                 self._standalone_engine.quit()
