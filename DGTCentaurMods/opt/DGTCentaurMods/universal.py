@@ -1492,14 +1492,21 @@ def client_reader():
         client_connected = False
 
 
-def cleanup():
-    """Clean up connections and resources"""
+def cleanup_and_exit(reason: str = "Normal exit"):
+    """Clean up connections and resources, then exit the process.
+    
+    This function performs all necessary cleanup and then calls sys.exit(0)
+    to ensure the process terminates even if background threads are running.
+    
+    Args:
+        reason: Description of why the exit is happening (logged for debugging)
+    """
     global kill, running, shadow_target_sock, client_sock, server_sock
     global shadow_target_connected, client_connected, ble_app, mainloop
     global game_handler, game_analysis_widget, bluetooth_controller
     
     try:
-        log.info("Cleaning up...")
+        log.info(f"Exiting: {reason}")
         kill = 1
         running = False
         
@@ -1564,13 +1571,14 @@ def cleanup():
         log.info("Cleanup completed")
     except Exception as e:
         log.error(f"Error in cleanup: {e}")
+    
+    log.info("Exiting")
+    sys.exit(0)
 
 
 def signal_handler(signum, frame):
     """Handle termination signals"""
-    log.info(f"Received signal {signum}, cleaning up...")
-    cleanup()
-    sys.exit(0)
+    cleanup_and_exit(f"Received signal {signum}")
 
 
 def key_callback(key_id):
@@ -1774,9 +1782,7 @@ def main():
     
     # Check for early exit (BACK pressed during setup)
     if kill:
-        log.info("Early exit requested during setup")
-        cleanup()
-        return
+        cleanup_and_exit("BACK pressed during setup")
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -2005,18 +2011,14 @@ def main():
     
     # Check for early exit (BACK pressed during BLE setup)
     if kill:
-        log.info("Early exit requested during BLE setup")
-        cleanup()
-        return
+        cleanup_and_exit("BACK pressed during BLE setup")
     
     # Setup RFCOMM if enabled
     global bluetooth_controller
     if not args.no_rfcomm:
         # Check for early exit before starting RFCOMM setup
         if kill:
-            log.info("Early exit requested before RFCOMM setup")
-            cleanup()
-            return
+            cleanup_and_exit("BACK pressed before RFCOMM setup")
         
         # Kill any existing rfcomm processes
         os.system('sudo service rfcomm stop 2>/dev/null')
@@ -2033,9 +2035,7 @@ def main():
         
         # Check again before creating BluetoothController
         if kill:
-            log.info("Early exit requested before BluetoothController creation")
-            cleanup()
-            return
+            cleanup_and_exit("BACK pressed before BluetoothController creation")
         
         # Create Bluetooth controller for pairing
         bluetooth_controller = BluetoothController(device_name=args.device_name)
@@ -2047,9 +2047,7 @@ def main():
         
         # Check again before socket setup
         if kill:
-            log.info("Early exit requested before RFCOMM socket setup")
-            cleanup()
-            return
+            cleanup_and_exit("BACK pressed before RFCOMM socket setup")
         
         # Initialize server socket
         log.info("Setting up RFCOMM server socket...")
@@ -2082,9 +2080,7 @@ def main():
     
     # Check for early exit (BACK pressed during RFCOMM setup)
     if kill:
-        log.info("Early exit requested during RFCOMM setup")
-        cleanup()
-        return
+        cleanup_and_exit("BACK pressed during RFCOMM setup")
     
     # Connect to shadow target if relay mode
     if relay_mode:
@@ -2146,9 +2142,7 @@ def main():
             wait_time += 0.5
         
         if not shadow_target_connected:
-            log.error("Shadow target connection timeout")
-            cleanup()
-            sys.exit(1)
+            cleanup_and_exit("Shadow target connection timeout")
     
     # Start appropriate relay/reader threads
     if relay_mode:
@@ -2161,18 +2155,16 @@ def main():
             client_reader_thread.start()
     
     # Main loop
+    exit_reason = "BACK pressed"
     try:
         while running and not kill:
             time.sleep(1)
     except KeyboardInterrupt:
-        log.info("Keyboard interrupt")
-        running = False
+        exit_reason = "Keyboard interrupt"
     except Exception as e:
-        log.error(f"Error in main loop: {e}")
-        running = False
+        exit_reason = f"Error in main loop: {e}"
     
-    cleanup()
-    log.info("Exiting")
+    cleanup_and_exit(exit_reason)
 
 
 if __name__ == "__main__":
