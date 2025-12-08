@@ -1620,18 +1620,6 @@ def main():
     else:
         fallback_player_color = chess.WHITE if args.player_color == "white" else chess.BLACK
     
-    # Create GameHandler at startup (with standalone engine if configured)
-    # This allows standalone play against engine when no app is connected
-    game_handler = GameHandler(
-        sendMessage_callback=sendMessage,
-        client_type=None,
-        compare_mode=relay_mode,
-        standalone_engine_name=args.standalone_engine,
-        player_color=fallback_player_color,
-        engine_elo=args.engine_elo
-    )
-    log.info(f"[GameHandler] Created with standalone engine: {args.standalone_engine} @ {args.engine_elo}")
-    
     # Initialize chess board widget for e-paper display
     # Clear splash and show chess board
     board.display_manager.clear_widgets()
@@ -1647,6 +1635,28 @@ def main():
         except Exception as e:
             log.warning(f"Error displaying chess board widget: {e}")
     log.info("Chess board widget initialized")
+    
+    # Display update callback for GameHandler
+    def update_display(fen):
+        """Update the chess board widget with new position."""
+        if chess_board_widget:
+            try:
+                chess_board_widget.set_fen(fen)
+            except Exception as e:
+                log.error(f"Error updating chess board widget: {e}")
+    
+    # Create GameHandler at startup (with standalone engine if configured)
+    # This allows standalone play against engine when no app is connected
+    game_handler = GameHandler(
+        sendMessage_callback=sendMessage,
+        client_type=None,
+        compare_mode=relay_mode,
+        standalone_engine_name=args.standalone_engine,
+        player_color=fallback_player_color,
+        engine_elo=args.engine_elo,
+        display_update_callback=update_display
+    )
+    log.info(f"[GameHandler] Created with standalone engine: {args.standalone_engine} @ {args.engine_elo}")
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
