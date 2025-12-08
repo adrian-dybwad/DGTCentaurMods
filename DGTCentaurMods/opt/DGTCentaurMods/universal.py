@@ -67,6 +67,7 @@ mainloop = None  # GLib mainloop for BLE
 chess_board_widget = None  # ChessBoardWidget for e-paper display
 game_analysis_widget = None  # GameAnalysisWidget for position evaluation
 graphs_enabled = True  # Whether evaluation graphs are shown (default: on)
+bluetooth_controller = None  # BluetoothController for RFCOMM pairing
 
 # Socket references
 shadow_target_sock = None
@@ -1495,12 +1496,20 @@ def cleanup():
     """Clean up connections and resources"""
     global kill, running, shadow_target_sock, client_sock, server_sock
     global shadow_target_connected, client_connected, ble_app, mainloop
-    global game_handler, game_analysis_widget
+    global game_handler, game_analysis_widget, bluetooth_controller
     
     try:
         log.info("Cleaning up...")
         kill = 1
         running = False
+        
+        # Stop bluetooth controller pairing thread first
+        if bluetooth_controller is not None:
+            try:
+                bluetooth_controller.stop_pairing_thread()
+                log.debug("Bluetooth controller pairing thread stopped")
+            except Exception as e:
+                log.debug(f"Error stopping bluetooth controller: {e}")
         
         # Clean up game handler and UCI engine
         if game_handler is not None:
@@ -2001,7 +2010,14 @@ def main():
         return
     
     # Setup RFCOMM if enabled
+    global bluetooth_controller
     if not args.no_rfcomm:
+        # Check for early exit before starting RFCOMM setup
+        if kill:
+            log.info("Early exit requested before RFCOMM setup")
+            cleanup()
+            return
+        
         # Kill any existing rfcomm processes
         os.system('sudo service rfcomm stop 2>/dev/null')
         time.sleep(1)
@@ -2015,6 +2031,12 @@ def main():
         
         time.sleep(0.5)
         
+        # Check again before creating BluetoothController
+        if kill:
+            log.info("Early exit requested before BluetoothController creation")
+            cleanup()
+            return
+        
         # Create Bluetooth controller for pairing
         bluetooth_controller = BluetoothController(device_name=args.device_name)
         bluetooth_controller.enable_bluetooth()
@@ -2022,6 +2044,12 @@ def main():
         bluetooth_controller.start_pairing_thread()
         
         time.sleep(1)
+        
+        # Check again before socket setup
+        if kill:
+            log.info("Early exit requested before RFCOMM socket setup")
+            cleanup()
+            return
         
         # Initialize server socket
         log.info("Setting up RFCOMM server socket...")
