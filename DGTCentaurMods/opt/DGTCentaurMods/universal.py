@@ -43,10 +43,12 @@ import dbus.service
 import dbus.mainloop.glib
 from gi.repository import GLib
 import chess
+import chess.engine
+import pathlib
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board import board
-from DGTCentaurMods.epaper import ChessBoardWidget, SplashScreen, GameAnalysisWidget
+from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget
 from DGTCentaurMods.bluetooth_controller import BluetoothController
 from DGTCentaurMods.game_handler import GameHandler
 
@@ -1651,15 +1653,6 @@ def main():
         except Exception as e:
             log.warning(f"Error initializing display: {e}")
     
-    # Show loading splash screen
-    splash = SplashScreen(message="Universal Relay")
-    future = board.display_manager.add_widget(splash)
-    if future:
-        try:
-            future.result(timeout=5.0)
-        except Exception as e:
-            log.warning(f"Error displaying splash screen: {e}")
-    
     log.info("=" * 60)
     log.info("Universal Relay Starting")
     log.info("=" * 60)
@@ -1679,8 +1672,7 @@ def main():
     log.info("")
     log.info("Controls:")
     log.info("  BACK:              Exit to menu")
-    log.info("  UP:                Show evaluation")
-    log.info("  DOWN:              Hide evaluation")
+    log.info("  HELP (?):          Toggle evaluation")
     log.info("")
     log.info("=" * 60)
     
@@ -1716,8 +1708,6 @@ def main():
     # Initialize analysis engine for evaluation (use ct800 like UCI does)
     analysis_engine = None
     try:
-        import pathlib
-        import chess.engine
         base_path = pathlib.Path(__file__).parent
         analysis_engine_path = str((base_path / "engines/ct800").resolve())
         analysis_engine = chess.engine.SimpleEngine.popen_uci(analysis_engine_path, timeout=None)
