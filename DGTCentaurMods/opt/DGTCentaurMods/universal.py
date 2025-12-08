@@ -48,7 +48,7 @@ import pathlib
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board import board
-from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget
+from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget, SplashScreen
 from DGTCentaurMods.bluetooth_controller import BluetoothController
 from DGTCentaurMods.game_handler import GameHandler
 
@@ -1579,6 +1579,20 @@ def key_callback(key_id):
         log.info("BACK pressed - exiting Universal mode")
         running = False
         kill = 1
+        
+        # Show exiting splash screen immediately
+        try:
+            if board.display_manager:
+                board.display_manager.clear_widgets(addStatusBar=False)
+                splash = SplashScreen(message="    Exiting...")
+                future = board.display_manager.add_widget(splash)
+                if future:
+                    try:
+                        future.result(timeout=2.0)
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.debug(f"Error showing exit splash: {e}")
     
     elif key_id == board.Key.HELP:
         # Toggle evaluation graphs
@@ -1748,6 +1762,12 @@ def main():
         key_callback=key_callback
     )
     log.info(f"[GameHandler] Created with standalone engine: {args.standalone_engine} @ {args.engine_elo}")
+    
+    # Check for early exit (BACK pressed during setup)
+    if kill:
+        log.info("Early exit requested during setup")
+        cleanup()
+        return
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -1974,6 +1994,12 @@ def main():
         
         log.info("All three advertisements registered successfully")
     
+    # Check for early exit (BACK pressed during BLE setup)
+    if kill:
+        log.info("Early exit requested during BLE setup")
+        cleanup()
+        return
+    
     # Setup RFCOMM if enabled
     if not args.no_rfcomm:
         # Kill any existing rfcomm processes
@@ -2025,6 +2051,12 @@ def main():
         ble_thread = threading.Thread(target=ble_mainloop, daemon=True)
         ble_thread.start()
         log.info("BLE mainloop thread started")
+    
+    # Check for early exit (BACK pressed during RFCOMM setup)
+    if kill:
+        log.info("Early exit requested during RFCOMM setup")
+        cleanup()
+        return
     
     # Connect to shadow target if relay mode
     if relay_mode:
