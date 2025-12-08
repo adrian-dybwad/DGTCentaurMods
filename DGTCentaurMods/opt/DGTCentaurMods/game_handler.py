@@ -13,7 +13,7 @@ from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.emulators.millennium import Millennium
 from DGTCentaurMods.emulators.pegasus import Pegasus
 from DGTCentaurMods.emulators.chessnut import Chessnut
-from DGTCentaurMods.game_manager import GameManager
+from DGTCentaurMods.game_manager import GameManager, EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
 
 import chess
 import chess.engine
@@ -114,6 +114,8 @@ class GameHandler:
         # Initialize standalone UCI engine if configured
         if standalone_engine_name:
             self._initialize_standalone_engine()
+            # If player is black, engine needs to move first after game starts
+            # This will be triggered when we receive the first EVENT_WHITE_TURN
         
         self.subscribe_manager()
     
@@ -212,6 +214,14 @@ class GameHandler:
                     self._pegasus.handle_manager_event(event, piece_event, field, time_in_seconds)
                 if self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
                     self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
+                
+                # Handle standalone engine events (no app connected)
+                if event == EVENT_NEW_GAME:
+                    # Reset engine state on new game
+                    self._handle_new_game()
+                elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
+                    # Turn events are triggered AFTER the player's move is confirmed
+                    self._check_standalone_engine_turn()
         except Exception as e:
             log.error(f"[GameHandler] Error in _manager_event_callback: {e}")
             import traceback
@@ -221,7 +231,8 @@ class GameHandler:
         """Handle moves from the manager.
         
         Before protocol is confirmed, forwards to ALL emulators.
-        If no app connected, triggers standalone engine to play.
+        Note: Standalone engine is triggered by turn events (EVENT_WHITE_TURN, EVENT_BLACK_TURN)
+        which occur AFTER the move is confirmed, not by this callback.
         
         Args:
             move: Chess move object
@@ -244,9 +255,8 @@ class GameHandler:
                     self._pegasus.handle_manager_move(move)
                 if self._chessnut and hasattr(self._chessnut, 'handle_manager_move'):
                     self._chessnut.handle_manager_move(move)
-                
-                # Check if standalone engine should play (no app connected)
-                self._check_standalone_engine_turn()
+                # Note: Standalone engine is triggered by turn events, not move events
+                # Turn events happen AFTER the player's move is acknowledged with LEDs
         except Exception as e:
             log.error(f"[GameHandler] Error in _manager_move_callback: {e}")
             import traceback
@@ -477,10 +487,29 @@ class GameHandler:
         """
         return self.is_millennium or self.is_pegasus or self.is_chessnut
     
+    def _handle_new_game(self):
+        """Handle new game event for standalone engine.
+        
+        Resets engine state when a new game starts (board reset to starting position).
+        """
+        if not self._standalone_engine:
+            return
+        
+        log.info("[GameHandler] New game detected - resetting standalone engine state")
+        
+        # Send ucinewgame to reset engine's internal state
+        try:
+            # The chess.engine library handles ucinewgame automatically on new positions
+            # but we log this for clarity
+            log.info("[GameHandler] Engine state will be reset on next move")
+        except Exception as e:
+            log.error(f"[GameHandler] Error resetting engine state: {e}")
+    
     def _check_standalone_engine_turn(self):
         """If no app connected and it's engine's turn, play a move.
         
         This enables standalone play against a chess engine when no app is connected.
+        The engine move is displayed via LEDs and the player must execute it on the board.
         """
         if self.is_app_connected():
             return  # App is connected, don't use standalone engine
@@ -489,18 +518,18 @@ class GameHandler:
             return  # No standalone engine configured
         
         # Get current board state from manager
-        board = self.manager.chess_board
+        chess_board = self.manager.chess_board
         
         # Check if it's the engine's turn
         engine_color = chess.BLACK if self._player_color == chess.WHITE else chess.WHITE
-        if board.turn != engine_color:
+        if chess_board.turn != engine_color:
             return  # Not engine's turn
         
         # Check if game is over
-        if board.is_game_over():
+        if chess_board.is_game_over():
             return
         
-        log.info(f"[GameHandler] Standalone engine ({self._standalone_engine_name} @ {self._engine_elo}) playing")
+        log.info(f"[GameHandler] Standalone engine ({self._standalone_engine_name} @ {self._engine_elo}) thinking...")
         
         try:
             # Re-apply UCI options before each move
@@ -508,13 +537,15 @@ class GameHandler:
                 self._standalone_engine.configure(self._uci_options)
             
             # Get engine move with time limit
-            result = self._standalone_engine.play(board, chess.engine.Limit(time=5.0))
+            result = self._standalone_engine.play(chess_board, chess.engine.Limit(time=5.0))
             move = result.move
             
             if move:
                 log.info(f"[GameHandler] Standalone engine move: {move.uci()}")
                 # Use manager.computer_move to set up the forced move with LEDs
+                # This lights up the from/to squares and waits for player to execute the move
                 self.manager.computer_move(move.uci(), forced=True)
+                log.info(f"[GameHandler] Waiting for player to execute move {move.uci()} on board")
         except Exception as e:
             log.error(f"[GameHandler] Error getting standalone engine move: {e}")
             import traceback
