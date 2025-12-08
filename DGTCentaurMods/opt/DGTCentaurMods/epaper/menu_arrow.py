@@ -6,8 +6,23 @@ from PIL import Image, ImageDraw
 from .framework.widget import Widget
 from typing import Optional, Callable
 import threading
-from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
+
+# Lazy import of board module to avoid circular imports and premature hardware initialization.
+# The board module creates a SyncCentaur instance at module level which initializes
+# serial communication. If imported at module level here, it would be triggered
+# whenever any module imports from DGTCentaurMods.epaper (since epaper/__init__.py
+# imports MenuArrowWidget). This causes issues when modules only need display
+# functionality without board communication.
+_board_module = None
+
+def _get_board():
+    """Lazily import and return the board module."""
+    global _board_module
+    if _board_module is None:
+        from DGTCentaurMods.board import board
+        _board_module = board
+    return _board_module
 
 
 class MenuArrowWidget(Widget):
@@ -96,6 +111,7 @@ class MenuArrowWidget(Widget):
         if not self._active:
             return False  # Not handling keys
         
+        board = _get_board()
         log.info(f">>> MenuArrowWidget.handle_key: key={key_id}, selected_index={self.selected_index}")
         
         if key_id == board.Key.DOWN:
