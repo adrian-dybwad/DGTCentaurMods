@@ -283,7 +283,7 @@ class NoInputNoOutputAgent(dbus.service.Object):
 # ============================================================================
 
 class Advertisement(dbus.service.Object):
-    """BLE Advertisement for universal relay.
+    """BLE Advertisement for Universal.
     
     Advertises services for discovery by chess apps:
     - Millennium/Pegasus: Uses ServiceUUIDs
@@ -1643,7 +1643,7 @@ def main():
             log.warning(f"Error initializing display: {e}")
     
     log.info("=" * 60)
-    log.info("Universal Relay Starting")
+    log.info("Universal Starting")
     log.info("=" * 60)
     log.info("")
     log.info("Configuration:")
