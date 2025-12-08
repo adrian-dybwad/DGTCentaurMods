@@ -105,6 +105,13 @@ class Chessnut:
         # Uptime tracking for FEN notifications (simulated uptime in seconds)
         import time
         self._start_time = time.time()
+        
+        # Delay between position updates during move history playback (seconds)
+        # This gives the app SDK time to process each position change
+        self._playback_delay = 0.05
+        
+        # Track if we've already replayed move history (reset on disconnect)
+        self._moves_replayed = False
     
     def handle_manager_event(self, event, piece_event, field, time_in_seconds):
         """Handle game events from the manager.
@@ -239,7 +246,8 @@ class Chessnut:
             log.info("[Chessnut] Enable reporting command received - setting reporting_enabled=True")
             self.reporting_enabled = True
             log.info(f"[Chessnut] reporting_enabled is now: {self.reporting_enabled}")
-            # Send initial FEN notification
+            # Send current position only - move history replay is deferred until
+            # first LED command, which indicates the game has actually started
             self._send_fen_notification()
             return True
         
@@ -264,6 +272,8 @@ class Chessnut:
             payload_hex = ' '.join(f'{b:02x}' for b in payload) if payload else ''
             log.info(f"[Chessnut] LED control command received: {payload_hex}")
             self._handle_led_command(payload)
+            # LED command indicates the game has started - trigger move replay
+            self._trigger_move_replay()
             return True
         
         else:
@@ -403,6 +413,100 @@ class Chessnut:
         
         return bytes(result)
     
+    def _trigger_move_replay(self):
+        """Trigger move history replay (called when game actually starts).
+        
+        This is called when we receive the first LED command, which indicates
+        the app has finished setup and is ready to display the board.
+        """
+        if self._moves_replayed:
+            return  # Already replayed
+        
+        if self.manager and hasattr(self.manager, 'chess_board'):
+            move_stack = list(self.manager.chess_board.move_stack)
+            if move_stack:
+                self._moves_replayed = True
+                self._replay_move_history()
+    
+    def _replay_move_history(self):
+        """Replay move history to the app so it builds correct game state.
+        
+        When an app connects mid-game, the SDK has no history and cannot know:
+        - Whose turn it is
+        - Castling rights (has king/rook moved?)
+        - En passant availability
+        - Move counters
+        
+        By replaying the move history from the starting position, the app SDK
+        observes each position change and builds the correct game state.
+        
+        This enables seamless handover from standalone play to app-based play.
+        """
+        import time
+        import chess
+        
+        if not self.manager or not hasattr(self.manager, 'chess_board'):
+            log.info("[Chessnut] No manager/chess_board - sending current position only")
+            self._send_fen_notification()
+            return
+        
+        move_stack = list(self.manager.chess_board.move_stack)
+        if not move_stack:
+            log.info("[Chessnut] No move history - game at starting position")
+            self._send_fen_notification()
+            return
+        
+        log.info(f"[Chessnut] Replaying {len(move_stack)} moves to sync app state")
+        
+        # Create a temporary board to replay moves
+        replay_board = chess.Board()
+        
+        # Send starting position first
+        starting_fen = replay_board.fen()
+        log.debug(f"[Chessnut] Playback: starting position")
+        self._send_fen_direct(starting_fen)
+        time.sleep(self._playback_delay)
+        
+        # Replay each move, sending the resulting position
+        for i, move in enumerate(move_stack):
+            replay_board.push(move)
+            fen = replay_board.fen()
+            log.debug(f"[Chessnut] Playback: move {i+1}/{len(move_stack)} {move.uci()}")
+            self._send_fen_direct(fen)
+            time.sleep(self._playback_delay)
+        
+        # Update last_fen to current position to prevent duplicate sends
+        self.last_fen = self._get_board_fen()
+        log.info(f"[Chessnut] Move history replay complete - app should have correct game state")
+    
+    def _send_fen_direct(self, fen):
+        """Send a FEN position notification without checking last_fen.
+        
+        Used during move history playback where we need to send multiple
+        positions in sequence regardless of caching.
+        
+        Args:
+            fen: Full FEN string to send
+        """
+        if not self.sendMessage:
+            return
+        
+        try:
+            position_bytes = self._fen_to_chessnut_bytes(fen)
+            
+            import time
+            uptime = int(time.time() - self._start_time) & 0xFFFF
+            uptime_lo = uptime & 0xFF
+            uptime_hi = (uptime >> 8) & 0xFF
+            
+            notification = bytearray([RESP_FEN_DATA, 0x24])
+            notification.extend(position_bytes)
+            notification.extend([uptime_lo, uptime_hi, 0x00, 0x00])
+            
+            self.sendMessage(bytes(notification))
+        except Exception as e:
+            log.error(f"[Chessnut] Error in _send_fen_direct: {e}")
+    
     def _send_fen_notification(self):
         """Send FEN position notification to connected client.
         
@@ -483,6 +587,7 @@ class Chessnut:
         self.buffer = []
         self.reporting_enabled = False
         self.last_fen = None
+        self._moves_replayed = False  # Reset so moves can be replayed on next connection
         log.debug("[Chessnut] Parser reset")
     
     def set_battery_level(self, level, is_charging=False):
