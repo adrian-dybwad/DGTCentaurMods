@@ -40,7 +40,8 @@ class GameHandler:
     CLIENT_CHESSNUT = "chessnut"
     
     def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False,
-                 standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default"):
+                 standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default",
+                 display_update_callback=None):
         """Initialize the GameHandler.
         
         Args:
@@ -60,6 +61,7 @@ class GameHandler:
         self._sendMessage = sendMessage_callback
         self.compare_mode = compare_mode
         self._pending_response = None
+        self._display_update_callback = display_update_callback
         
         # Store the hint but don't trust it - always verify from data
         self._client_type_hint = client_type
@@ -222,6 +224,9 @@ class GameHandler:
                 elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
                     # Turn events are triggered AFTER the player's move is confirmed
                     self._check_standalone_engine_turn()
+            
+            # Update display with current position
+            self._update_display()
         except Exception as e:
             log.error(f"[GameHandler] Error in _manager_event_callback: {e}")
             import traceback
@@ -257,6 +262,9 @@ class GameHandler:
                     self._chessnut.handle_manager_move(move)
                 # Note: Standalone engine is triggered by turn events, not move events
                 # Turn events happen AFTER the player's move is acknowledged with LEDs
+            
+            # Update display with current position
+            self._update_display()
         except Exception as e:
             log.error(f"[GameHandler] Error in _manager_move_callback: {e}")
             import traceback

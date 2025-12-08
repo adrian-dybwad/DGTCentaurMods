@@ -45,6 +45,8 @@ from gi.repository import GLib
 import chess
 
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.board import board
+from DGTCentaurMods.epaper import ChessBoardWidget, SplashScreen
 from DGTCentaurMods.bluetooth_controller import BluetoothController
 from DGTCentaurMods.game_handler import GameHandler
 
@@ -60,6 +62,7 @@ _last_message = None  # Last message sent via sendMessage
 relay_mode = False  # Whether relay mode is enabled (connects to relay target)
 shadow_target = "MILLENNIUM CHESS"  # Default target device name (can be overridden via --shadow-target)
 mainloop = None  # GLib mainloop for BLE
+chess_board_widget = None  # ChessBoardWidget for e-paper display
 
 # Socket references
 shadow_target_sock = None
@@ -1569,6 +1572,26 @@ def main():
     
     args = parser.parse_args()
     
+    global chess_board_widget
+    
+    # Initialize display and show splash screen
+    log.info("Initializing display...")
+    promise = board.init_display()
+    if promise:
+        try:
+            promise.result(timeout=10.0)
+        except Exception as e:
+            log.warning(f"Error initializing display: {e}")
+    
+    # Show loading splash screen
+    splash = SplashScreen(message="Universal Relay")
+    future = board.display_manager.add_widget(splash)
+    if future:
+        try:
+            future.result(timeout=5.0)
+        except Exception as e:
+            log.warning(f"Error displaying splash screen: {e}")
+    
     log.info("=" * 60)
     log.info("Universal Relay Starting")
     log.info("=" * 60)
@@ -1608,6 +1631,22 @@ def main():
         engine_elo=args.engine_elo
     )
     log.info(f"[GameHandler] Created with standalone engine: {args.standalone_engine} @ {args.engine_elo}")
+    
+    # Initialize chess board widget for e-paper display
+    # Clear splash and show chess board
+    board.display_manager.clear_widgets()
+    
+    # Create chess board widget at y=16 (below status bar)
+    # Start with initial position
+    STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    chess_board_widget = ChessBoardWidget(0, 16, STARTING_FEN)
+    future = board.display_manager.add_widget(chess_board_widget)
+    if future:
+        try:
+            future.result(timeout=5.0)
+        except Exception as e:
+            log.warning(f"Error displaying chess board widget: {e}")
+    log.info("Chess board widget initialized")
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
