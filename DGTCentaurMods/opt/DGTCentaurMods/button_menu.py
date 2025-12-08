@@ -395,3 +395,57 @@ def create_main_menu_buttons(centaur_available: bool = True) -> List[ButtonConfi
     ))
     
     return buttons
+
+
+if __name__ == "__main__":
+    """Entry point for running button_menu as a standalone module.
+    
+    Usage: python -m DGTCentaurMods.button_menu
+    
+    Displays the main menu with large buttons and waits for user selection.
+    Requires the board hardware to be initialized for key events.
+    """
+    from DGTCentaurMods.board import board
+    from DGTCentaurMods.epaper import Manager
+    from DGTCentaurMods.epaper.status_bar import StatusBarWidget
+    
+    # Initialize display
+    display_manager = Manager()
+    display_manager.initialize()
+    
+    # Create main menu buttons
+    buttons = create_main_menu_buttons(centaur_available=True)
+    
+    # Create button menu widget (below status bar)
+    menu_widget = ButtonMenuWidget(
+        x=0,
+        y=STATUS_BAR_HEIGHT,
+        width=DISPLAY_WIDTH,
+        height=DISPLAY_HEIGHT - STATUS_BAR_HEIGHT,
+        buttons=buttons,
+        selected_index=0
+    )
+    
+    # Add menu widget to display
+    display_manager.add_widget(menu_widget)
+    
+    # Wait for selection
+    log.info("Button menu started, waiting for selection...")
+    
+    try:
+        while True:
+            # Check for key events from the board
+            key = board.controller.get_next_key(timeout=0.1)
+            if key is not None:
+                log.info(f"Key pressed: {key}")
+                if menu_widget.handle_key(key):
+                    # Key was handled by menu
+                    if menu_widget._selection_event.is_set():
+                        result = menu_widget._selection_result
+                        log.info(f"Selection: {result}")
+                        break
+    except KeyboardInterrupt:
+        log.info("Button menu interrupted")
+    finally:
+        display_manager.shutdown()
+        board.cleanup()
