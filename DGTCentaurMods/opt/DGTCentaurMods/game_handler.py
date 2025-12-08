@@ -396,6 +396,19 @@ class GameHandler:
         if self._chessnut:
             self._chessnut.reset()
 
+    def _update_display(self):
+        """Update the e-paper display with the current board position.
+        
+        Calls the display update callback if one was provided during initialization.
+        The callback receives the current FEN string from the game manager.
+        """
+        if self._display_update_callback and self.manager:
+            try:
+                fen = self.manager.chess_board.fen()
+                self._display_update_callback(fen)
+            except Exception as e:
+                log.error(f"[GameHandler] Error updating display: {e}")
+
     def subscribe_manager(self):
         """Subscribe to the game manager with callbacks."""
         try:
