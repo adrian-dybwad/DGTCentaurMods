@@ -14,14 +14,12 @@ from DGTCentaurMods.emulators.millennium import Millennium
 from DGTCentaurMods.emulators.pegasus import Pegasus
 from DGTCentaurMods.emulators.chessnut import Chessnut
 from DGTCentaurMods.game_manager import GameManager, EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
-from DGTCentaurMods.epaper import IconMenuWidget, IconMenuEntry
 
 import chess
 import chess.engine
 import pathlib
 import os
 import configparser
-import threading
 
 
 class GameHandler:
@@ -43,7 +41,7 @@ class GameHandler:
     
     def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False,
                  standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default",
-                 display_update_callback=None, key_callback=None):
+                 display_update_callback=None, key_callback=None, display_restore_callback=None):
         """Initialize the GameHandler.
         
         Args:
@@ -59,13 +57,16 @@ class GameHandler:
                                    (e.g., "stockfish_pi", "maia", "ct800")
             player_color: Which color the human plays (chess.WHITE or chess.BLACK)
             engine_elo: ELO section name from .uci config file (e.g., "1350", "1700", "Default")
+            display_update_callback: Callback function(fen) for updating display with position
             key_callback: Optional callback function(key) for external key handling.
-                         Called before forwarding keys to emulators.
+                         Called for keys not handled by GameManager (e.g., BACK when no game)
+            display_restore_callback: Callback function() to restore display after back menu cancel
         """
         self._sendMessage = sendMessage_callback
         self.compare_mode = compare_mode
         self._pending_response = None
         self._display_update_callback = display_update_callback
+        self._display_restore_callback = display_restore_callback
         self._external_key_callback = key_callback
         
         # Store the hint but don't trust it - always verify from data
@@ -82,11 +83,6 @@ class GameHandler:
         self._standalone_engine_name = standalone_engine_name
         self._player_color = player_color
         self._engine_elo = engine_elo
-        
-        # Back button menu state
-        self._back_menu = None
-        self._back_menu_original_callback = None
-        self._back_menu_on_result = None
         self._uci_options = {}
         
         # Game manager shared by all emulators
@@ -434,7 +430,8 @@ class GameHandler:
                 self._manager_event_callback,
                 self._manager_move_callback,
                 self._manager_key_callback,
-                self._manager_takeback_callback
+                self._manager_takeback_callback,
+                self._display_restore_callback
             )
             log.info("[GameHandler] Successfully subscribed to game manager")
         except Exception as e:
@@ -625,207 +622,6 @@ class GameHandler:
         
         # Check if engine should play now
         self._check_standalone_engine_turn()
-    
-    def is_game_in_progress(self) -> bool:
-        """Check if a game is in progress (at least one move has been made).
-        
-        Returns:
-            True if at least one move has been made, False otherwise
-        """
-        if self.manager and self.manager.chess_board:
-            return len(self.manager.chess_board.move_stack) > 0
-        return False
-    
-    def show_back_menu(self, on_result: callable) -> None:
-        """Show the back button menu (resign/draw/cancel) when BACK is pressed during a game.
-        
-        This method displays a menu with options for:
-        - Resign: End the game as a loss
-        - Request Draw: End the game as a draw
-        - Cancel: Return to the game
-        
-        The external key callback is temporarily replaced to route keys to the menu.
-        Once a selection is made, the original callback is restored and on_result is called.
-        
-        Args:
-            on_result: Callback function(result: str) called when user makes a selection
-        """
-        from DGTCentaurMods.board import board
-        
-        log.info("[GameHandler] Showing back button menu")
-        
-        # Create menu entries
-        entries = [
-            IconMenuEntry(key="resign", label="Resign", icon_name="resign"),
-            IconMenuEntry(key="draw", label="Draw", icon_name="draw"),
-            IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel"),
-        ]
-        
-        # Create menu widget (full screen)
-        self._back_menu = IconMenuWidget(
-            x=0, y=0, width=128, height=296,
-            entries=entries,
-            selected_index=2  # Default to Cancel
-        )
-        
-        # Clear display and show menu
-        if board.display_manager:
-            board.display_manager.clear_widgets(addStatusBar=False)
-            future = board.display_manager.add_widget(self._back_menu)
-            if future:
-                try:
-                    future.result(timeout=2.0)
-                except Exception as e:
-                    log.debug(f"Error displaying menu: {e}")
-        
-        # Store the original key callback and on_result for later
-        self._back_menu_original_callback = self._external_key_callback
-        self._back_menu_on_result = on_result
-        
-        # Activate the menu
-        self._back_menu.activate()
-        
-        # Replace external key callback to route to menu
-        def menu_key_handler(key_id):
-            if self._back_menu and self._back_menu._active:
-                self._back_menu.handle_key(key_id)
-        
-        self._external_key_callback = menu_key_handler
-        
-        # Start a thread to wait for selection and call the result callback
-        def wait_for_result():
-            try:
-                # Wait for selection event
-                self._back_menu._selection_event.wait()
-                result = self._back_menu._selection_result or "BACK"
-                
-                log.info(f"[GameHandler] Back menu result: {result}")
-                
-                # Restore original key callback
-                self._external_key_callback = self._back_menu_original_callback
-                
-                # Deactivate and clean up menu
-                self._back_menu.deactivate()
-                self._back_menu = None
-                
-                # Handle special cases
-                if result == "BACK":
-                    result = "cancel"
-                elif result == "SHUTDOWN":
-                    result = "exit"
-                
-                # Call result callback
-                if self._back_menu_on_result:
-                    self._back_menu_on_result(result)
-                    
-            except Exception as e:
-                log.error(f"[GameHandler] Error in back menu wait: {e}")
-                import traceback
-                traceback.print_exc()
-                # Restore original callback on error
-                self._external_key_callback = self._back_menu_original_callback
-                self._back_menu = None
-                if self._back_menu_on_result:
-                    self._back_menu_on_result("cancel")
-        
-        wait_thread = threading.Thread(target=wait_for_result, daemon=True)
-        wait_thread.start()
-    
-    def handle_resign(self) -> None:
-        """Handle game resignation by the human player.
-        
-        The human player (at the physical board) is resigning. The result is recorded
-        as a loss for the human's color. In standalone engine mode, _player_color
-        indicates which color the human plays. In relay mode (app connected), the
-        human is typically playing against the app, so we use _player_color if set,
-        otherwise default to the side whose turn it is.
-        
-        Note: This is different from EVENT_RESIGN_GAME in uci.py where the human
-        requests the computer/engine to resign (computer loses). Here, the human
-        is resigning themselves (human loses).
-        """
-        if not self.manager or not self.manager.chess_board:
-            log.warning("[GameHandler] Cannot resign - no active game")
-            return
-        
-        try:
-            from DGTCentaurMods.board import board
-            
-            # Determine which color the human is playing
-            # In standalone engine mode, _player_color is explicitly set
-            # In relay mode, we don't track this, so default to current turn
-            if self._player_color is not None:
-                human_color = self._player_color
-            else:
-                # Fallback: assume human is the side whose turn it is
-                human_color = self.manager.chess_board.turn
-            
-            # Human resigns, so human loses
-            if human_color == chess.WHITE:
-                result = "0-1"  # Black wins (human was white)
-                log.info("[GameHandler] Human (White) resigned - Black wins")
-            else:
-                result = "1-0"  # White wins (human was black)
-                log.info("[GameHandler] Human (Black) resigned - White wins")
-            
-            # Update database with result
-            if self.manager.database_session and self.manager.game_db_id >= 0:
-                try:
-                    from DGTCentaurMods.db import models
-                    game = self.manager.database_session.query(models.Game).get(self.manager.game_db_id)
-                    if game:
-                        game.result = result
-                        self.manager.database_session.commit()
-                        log.info(f"[GameHandler] Game {self.manager.game_db_id} result updated to {result}")
-                except Exception as e:
-                    log.error(f"[GameHandler] Error updating game result in database: {e}")
-            
-            # Play sound and turn off LEDs
-            board.beep(board.SOUND_GENERAL)
-            board.ledsOff()
-            
-        except Exception as e:
-            log.error(f"[GameHandler] Error handling resign: {e}")
-    
-    def handle_draw(self) -> None:
-        """Handle draw claim/agreement by the human player.
-        
-        The human player (at the physical board) is claiming or agreeing to a draw.
-        This records the game result as a draw. In a real game with an opponent,
-        draw offers would typically need acceptance, but for standalone/local play
-        we simply end the game as drawn.
-        
-        Note: For protocol-level draw offers to remote apps, that would need to be
-        handled by the specific emulator protocol, which is not implemented here.
-        """
-        if not self.manager or not self.manager.chess_board:
-            log.warning("[GameHandler] Cannot claim draw - no active game")
-            return
-        
-        try:
-            from DGTCentaurMods.board import board
-            
-            result = "1/2-1/2"
-            log.info("[GameHandler] Game ended in a draw (by agreement)")
-            
-            # Update database with result
-            if self.manager.database_session and self.manager.game_db_id >= 0:
-                try:
-                    from DGTCentaurMods.db import models
-                    game = self.manager.database_session.query(models.Game).get(self.manager.game_db_id)
-                    if game:
-                        game.result = result
-                        self.manager.database_session.commit()
-                        log.info(f"[GameHandler] Game {self.manager.game_db_id} result updated to {result}")
-                except Exception as e:
-                    log.error(f"[GameHandler] Error updating game result in database: {e}")
-            
-            # Play sound and turn off LEDs
-            board.beep(board.SOUND_GENERAL)
-            board.ledsOff()
-            
-        except Exception as e:
-            log.error(f"[GameHandler] Error handling draw: {e}")
     
     def cleanup(self):
         """Clean up resources including UCI engine and game manager.

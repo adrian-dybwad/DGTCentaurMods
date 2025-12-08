@@ -18,6 +18,7 @@
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.db import models
+from DGTCentaurMods.epaper import IconMenuWidget, IconMenuEntry
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import func, select, create_engine
 from scipy.optimize import linear_sum_assignment
@@ -231,6 +232,14 @@ class GameManager:
         # UI state
         self.is_showing_promotion = False
         self.is_in_menu = False
+        
+        # Back menu state (resign/draw/cancel menu)
+        self._back_menu = None
+        self._back_menu_on_result = None
+        self._back_menu_active = False
+        
+        # Display restore callback (called when back menu is cancelled)
+        self.on_display_restore = None
         
         # Thread control
         self.should_stop = False
@@ -1028,26 +1037,201 @@ class GameManager:
             self._handle_piece_place(field, piece_color)
     
     def _key_callback(self, key_pressed):
-        """Handle key press events."""
+        """Handle key press events.
+        
+        GameManager handles game-related key logic:
+        - BACK during game: Shows resign/draw menu, only passes through if user chooses to exit
+        - BACK with no game: Passes through to external callback (caller handles exit)
+        - Other keys: Passed through to external callback
+        
+        Args:
+            key_pressed: Key that was pressed (board.Key enum value)
+        """
+        # If back menu is active, route keys to it
+        if self._back_menu_active and self._back_menu:
+            self._back_menu.handle_key(key_pressed)
+            return
+        
+        # Handle BACK key - show menu if game in progress
+        if key_pressed == board.Key.BACK:
+            if self.is_game_in_progress():
+                log.info("[GameManager] BACK pressed during game - showing resign/draw menu")
+                self.show_back_menu(self._on_back_menu_result)
+                return
+            else:
+                # No game in progress - pass through to external callback for exit handling
+                log.info("[GameManager] BACK pressed - no game in progress, passing to external callback")
+        
+        # Pass other keys (and BACK when no game) to external callback
         if self.key_callback is not None:
-            if self.is_in_menu == 0 and key_pressed != board.Key.HELP:
-                self.key_callback(key_pressed)
-            if self.is_in_menu == 0 and key_pressed == board.Key.HELP:
-                self.is_in_menu = 1
-                #widgets.resign_draw_menu(14)
-            if self.is_in_menu == 1 and key_pressed == board.Key.BACK:
-                #widgets.write_text(14, "                   ")
-                self.is_in_menu = 0
-            if self.is_in_menu == 1 and key_pressed == board.Key.UP:
-                #widgets.write_text(14, "                   ")
-                if self.event_callback is not None:
-                    self.event_callback(EVENT_REQUEST_DRAW)
-                self.is_in_menu = 0
-            if self.is_in_menu == 1 and key_pressed == board.Key.DOWN:
-                #widgets.write_text(14, "                   ")
-                if self.event_callback is not None:
-                    self.event_callback(EVENT_RESIGN_GAME)
-                self.is_in_menu = 0
+            self.key_callback(key_pressed)
+    
+    def _on_back_menu_result(self, result: str):
+        """Handle the result from the back button menu.
+        
+        Args:
+            result: Menu selection - 'resign', 'draw', 'cancel', or 'exit'
+        """
+        log.info(f"[GameManager] Back menu result: {result}")
+        
+        if result == "resign":
+            self.handle_resign()
+            # Pass BACK to external callback to signal exit
+            if self.key_callback is not None:
+                self.key_callback(board.Key.BACK)
+        elif result == "draw":
+            self.handle_draw()
+            # Pass BACK to external callback to signal exit
+            if self.key_callback is not None:
+                self.key_callback(board.Key.BACK)
+        elif result == "exit":
+            # Shutdown requested - pass special key to external callback
+            if self.key_callback is not None:
+                self.key_callback(board.Key.LONG_PLAY)
+        else:
+            # Cancel - notify external callback to restore display
+            if self.on_display_restore is not None:
+                self.on_display_restore()
+    
+    def is_game_in_progress(self) -> bool:
+        """Check if a game is in progress (at least one move has been made).
+        
+        Returns:
+            True if at least one move has been made, False otherwise
+        """
+        return len(self.chess_board.move_stack) > 0
+    
+    def show_back_menu(self, on_result: callable) -> None:
+        """Show the back button menu (resign/draw/cancel) when BACK is pressed during a game.
+        
+        This method displays a menu with options for:
+        - Resign: End the game as a loss for the human
+        - Draw: End the game as a draw
+        - Cancel: Return to the game
+        
+        Keys are routed to the menu while it's active. Once a selection is made,
+        normal key routing resumes and on_result is called.
+        
+        Args:
+            on_result: Callback function(result: str) called when user makes a selection.
+                      Result is one of: 'resign', 'draw', 'cancel', 'exit'
+        """
+        log.info("[GameManager] Showing back button menu")
+        
+        # Create menu entries
+        entries = [
+            IconMenuEntry(key="resign", label="Resign", icon_name="resign"),
+            IconMenuEntry(key="draw", label="Draw", icon_name="draw"),
+            IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel"),
+        ]
+        
+        # Create menu widget (full screen)
+        self._back_menu = IconMenuWidget(
+            x=0, y=0, width=128, height=296,
+            entries=entries,
+            selected_index=2  # Default to Cancel
+        )
+        
+        # Store callback
+        self._back_menu_on_result = on_result
+        
+        # Clear display and show menu
+        if board.display_manager:
+            board.display_manager.clear_widgets(addStatusBar=False)
+            future = board.display_manager.add_widget(self._back_menu)
+            if future:
+                try:
+                    future.result(timeout=2.0)
+                except Exception as e:
+                    log.debug(f"Error displaying menu: {e}")
+        
+        # Activate the menu and route keys to it
+        self._back_menu.activate()
+        self._back_menu_active = True
+        
+        # Start a thread to wait for selection
+        def wait_for_result():
+            try:
+                # Wait for selection event
+                self._back_menu._selection_event.wait()
+                result = self._back_menu._selection_result or "BACK"
+                
+                log.info(f"[GameManager] Back menu result: {result}")
+                
+                # Deactivate menu and restore normal key routing
+                self._back_menu_active = False
+                self._back_menu.deactivate()
+                self._back_menu = None
+                
+                # Handle special cases
+                if result == "BACK":
+                    result = "cancel"
+                elif result == "SHUTDOWN":
+                    result = "exit"
+                
+                # Call result callback
+                if self._back_menu_on_result:
+                    self._back_menu_on_result(result)
+                    
+            except Exception as e:
+                log.error(f"[GameManager] Error in back menu wait: {e}")
+                import traceback
+                traceback.print_exc()
+                # Restore normal key routing on error
+                self._back_menu_active = False
+                self._back_menu = None
+                if self._back_menu_on_result:
+                    self._back_menu_on_result("cancel")
+        
+        wait_thread = threading.Thread(target=wait_for_result, daemon=True)
+        wait_thread.start()
+    
+    def handle_resign(self, player_color: chess.Color = None) -> None:
+        """Handle game resignation by the human player.
+        
+        The human player (at the physical board) is resigning. The result is recorded
+        as a loss for the specified color, or the current turn if not specified.
+        
+        Args:
+            player_color: Color of the player resigning. If None, defaults to current turn.
+        """
+        log.info("[GameManager] Processing resignation")
+        
+        # Determine which color is resigning
+        if player_color is None:
+            player_color = self.chess_board.turn
+        
+        # Human resigns, so human loses
+        if player_color == chess.WHITE:
+            result = "0-1"  # Black wins (human was white)
+            log.info("[GameManager] White resigned - Black wins")
+        else:
+            result = "1-0"  # White wins (human was black)
+            log.info("[GameManager] Black resigned - White wins")
+        
+        # Update database with result
+        self._update_game_result(result, "Termination.RESIGN", "handle_resign")
+        
+        # Play sound and turn off LEDs
+        board.beep(board.SOUND_GENERAL)
+        board.ledsOff()
+    
+    def handle_draw(self) -> None:
+        """Handle draw claim/agreement by the human player.
+        
+        The human player (at the physical board) is claiming or agreeing to a draw.
+        This records the game result as a draw.
+        """
+        log.info("[GameManager] Processing draw")
+        
+        result = "1/2-1/2"
+        
+        # Update database with result
+        self._update_game_result(result, "Termination.DRAW", "handle_draw")
+        
+        # Play sound and turn off LEDs
+        board.beep(board.SOUND_GENERAL)
+        board.ledsOff()
     
     def _reset_game(self):
         """Abandon current game and reset to starting position.
@@ -1340,8 +1524,18 @@ class GameManager:
         """Get current board position as FEN string."""
         return self.chess_board.fen()
     
-    def subscribe_game(self, event_callback, move_callback, key_callback, takeback_callback=None):
-        """Subscribe to the game manager."""
+    def subscribe_game(self, event_callback, move_callback, key_callback, takeback_callback=None,
+                       display_restore_callback=None):
+        """Subscribe to the game manager.
+        
+        Args:
+            event_callback: Called for game events (new game, turn changes, etc.)
+            move_callback: Called when a move is made
+            key_callback: Called for key presses (BACK passed only when no game in progress)
+            takeback_callback: Called when takeback is requested
+            display_restore_callback: Called when back menu is cancelled to restore display
+        """
+        self.on_display_restore = display_restore_callback
         
         self.source_file = inspect.getsourcefile(sys._getframe(1))
         thread_id = threading.get_ident()

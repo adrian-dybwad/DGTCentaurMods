@@ -1612,33 +1612,6 @@ def signal_handler(signum, frame):
     cleanup_and_exit(f"Received signal {signum}")
 
 
-def _handle_back_menu_result(result: str):
-    """Handle the result from the back button menu.
-    
-    Args:
-        result: Menu selection - 'resign', 'draw', 'cancel', or 'exit'
-    """
-    global running, kill, game_handler, chess_board_widget, game_analysis_widget
-    
-    log.info(f"Back menu result: {result}")
-    
-    if result == "resign":
-        game_handler.handle_resign()
-        _exit_universal("Game resigned")
-    elif result == "draw":
-        game_handler.handle_draw()
-        _exit_universal("Game drawn")
-    elif result == "exit":
-        # Shutdown requested from menu
-        running = False
-        kill = 1
-        board.shutdown()
-    else:
-        # Cancel - restore the game display
-        log.info("Back menu cancelled - restoring game display")
-        _restore_game_display()
-
-
 def _restore_game_display():
     """Restore the game display widgets after menu is cancelled."""
     global chess_board_widget, game_analysis_widget
@@ -1697,22 +1670,20 @@ def _exit_universal(reason: str):
 def key_callback(key_id):
     """Handle key press events from the board.
     
-    - BACK: If game in progress, show resign/draw menu. Otherwise exit.
-    - HELP (?): Toggle game analysis widget visibility
-    - LONG_PLAY: Shutdown system
+    GameManager handles BACK key when game is in progress (shows resign/draw menu).
+    This callback receives:
+    - BACK: When no game in progress, or after resign/draw (signals exit)
+    - HELP: Toggle game analysis widget visibility
+    - LONG_PLAY: Shutdown system (also sent by GameManager for 'exit' menu choice)
     """
-    global running, kill, game_analysis_widget, chess_board_widget, game_handler
+    global running, kill, game_analysis_widget
     
     log.info(f"Key event received: {key_id}")
     
     if key_id == board.Key.BACK:
-        # Check if a game is in progress (at least one move made)
-        if game_handler and game_handler.is_game_in_progress():
-            log.info("BACK pressed during game - showing resign/draw menu")
-            game_handler.show_back_menu(_handle_back_menu_result)
-        else:
-            log.info("BACK pressed - exiting Universal mode (no game in progress)")
-            _exit_universal("No game in progress")
+        # BACK passed through means exit (no game or after resign/draw)
+        log.info("BACK - exiting Universal mode")
+        _exit_universal("BACK pressed")
     
     elif key_id == board.Key.HELP:
         # Toggle game analysis widget visibility
@@ -1762,7 +1733,7 @@ def main():
     
     args = parser.parse_args()
     
-    global chess_board_widget, game_analysis_widget
+    global chess_board_widget, game_analysis_widget, analysis_engine
     
     # Initialize display and show splash screen
     log.info("Initializing display...")
@@ -1867,7 +1838,10 @@ def main():
     
     # Create GameHandler at startup (with standalone engine if configured)
     # This allows standalone play against engine when no app is connected
-    # Pass key_callback for handling BACK (exit) and HELP (toggle analysis)
+    # Key handling:
+    # - BACK during game: GameManager shows resign/draw menu
+    # - BACK with no game: Passed to key_callback for exit
+    # - HELP: Passed to key_callback to toggle analysis widget
     game_handler = GameHandler(
         sendMessage_callback=sendMessage,
         client_type=None,
@@ -1876,7 +1850,8 @@ def main():
         player_color=fallback_player_color,
         engine_elo=args.engine_elo,
         display_update_callback=update_display,
-        key_callback=key_callback
+        key_callback=key_callback,
+        display_restore_callback=_restore_game_display
     )
     log.info(f"[GameHandler] Created with standalone engine: {args.standalone_engine} @ {args.engine_elo}")
     

@@ -49,7 +49,7 @@ class Widget(ABC):
         """Get the scheduler for this widget."""
         return self._scheduler
     
-    def request_update(self, full: bool = False):
+    def request_update(self, full: bool = False, forced: bool = False):
         """Request a display update.
         
         This method should be called by widgets when their state changes
@@ -57,11 +57,12 @@ class Widget(ABC):
         1. Renders all widgets to the framebuffer
         2. Submits the complete framebuffer to the scheduler
         
-        If the widget is not visible, the request is ignored since hidden
-        widgets are not rendered and would cause unnecessary update cycles.
+        If the widget is not visible and forced is False, the request is ignored
+        since hidden widgets are not rendered and would cause unnecessary update cycles.
         
         Args:
             full: If True, force a full refresh instead of partial refresh.
+            forced: If True, ignore visibility check (used by show/hide to update display).
         
         Returns:
             Future: A Future that completes when the display refresh finishes.
@@ -71,8 +72,8 @@ class Widget(ABC):
             Widgets should NOT call the scheduler directly. The Manager must
             render all widgets first before submitting to ensure consistent state.
         """
-        # Ignore update requests from hidden widgets
-        if not self.visible:
+        # Ignore update requests from hidden widgets (unless forced)
+        if not self.visible and not forced:
             log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (widget is hidden)")
             return None
         
@@ -110,7 +111,8 @@ class Widget(ABC):
         if not self.visible:
             self.visible = True
             self._last_rendered = None  # Force re-render
-            self.request_update(full=False)
+            log.info(f"Widget.show(): {self.__class__.__name__} id={id(self)} now visible")
+            self.request_update(full=False, forced=True)
     
     def hide(self) -> None:
         """Hide the widget (make it invisible).
@@ -124,7 +126,8 @@ class Widget(ABC):
         if self.visible:
             self.visible = False
             self._last_rendered = None
-            self.request_update(full=False)
+            log.info(f"Widget.hide(): {self.__class__.__name__} id={id(self)} now hidden")
+            self.request_update(full=False, forced=True)
     
     def stop(self) -> None:
         """Stop the widget and perform cleanup tasks.
