@@ -407,7 +407,7 @@ class GameHandler:
         if not self._standalone_engine_name:
             return
         
-        base_path = pathlib.Path("/opt/DGTCentaurMods")
+        base_path = pathlib.Path(__file__).parent
         engine_path = base_path / "engines" / self._standalone_engine_name
         uci_file_path = str(engine_path) + ".uci"
         
