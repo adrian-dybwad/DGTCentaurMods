@@ -536,7 +536,8 @@ def eventsThread(keycallback, fieldcallback, tout):
                             controller._piece_listener = _listener
                     except Exception as e:
                         log.error(f"Error in piece detection thread: {e}")
-
+                        import traceback
+                        traceback.print_exc()
             try:
 
                 key_pressed = controller.get_and_reset_last_key()
@@ -577,6 +578,8 @@ def eventsThread(keycallback, fieldcallback, tout):
                         #shutdown()
             except Exception as e:
                 log.error(f"[board.events] error: {e}")
+                import traceback
+                traceback.print_exc()
             try:
                 # Sending 152 to the controller provides us with battery information
                 # Do this every 15 seconds and fill in the globals
@@ -595,6 +598,8 @@ def eventsThread(keycallback, fieldcallback, tout):
                     keycallback(key_pressed)
                 except Exception as e:
                     log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
+                    import traceback
+                    traceback.print_exc()
         else:
             # If pauseEvents() hold timeout in the thread
             to = time.time() + 100000
