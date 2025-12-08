@@ -246,8 +246,9 @@ class Chessnut:
             log.info("[Chessnut] Enable reporting command received - setting reporting_enabled=True")
             self.reporting_enabled = True
             log.info(f"[Chessnut] reporting_enabled is now: {self.reporting_enabled}")
-            # Send current position only - move history replay is deferred until
-            # first LED command, which indicates the game has actually started
+            # Send current position. Move history playback was attempted but
+            # doesn't work with third-party apps - the SDK interprets each
+            # position change as a move and responds with engine moves.
             self._send_fen_notification()
             return True
         
@@ -272,8 +273,6 @@ class Chessnut:
             payload_hex = ' '.join(f'{b:02x}' for b in payload) if payload else ''
             log.info(f"[Chessnut] LED control command received: {payload_hex}")
             self._handle_led_command(payload)
-            # LED command indicates the game has started - trigger move replay
-            self._trigger_move_replay()
             return True
         
         else:
@@ -478,6 +477,17 @@ class Chessnut:
         # Update last_fen to current position to prevent duplicate sends
         self.last_fen = self._get_board_fen()
         log.info(f"[Chessnut] Move history replay complete - app should have correct game state")
+    
+    def _send_starting_position(self):
+        """Send the starting position notification.
+        
+        Used during initial connection before game starts. We send the starting
+        position (not current position) so that when playback happens later,
+        the sequence is coherent: starting -> move1 -> move2 -> ... -> current
+        """
+        starting_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        log.info("[Chessnut] Sending starting position")
+        self._send_fen_direct(starting_fen)
     
     def _send_fen_direct(self, fen):
         """Send a FEN position notification without checking last_fen.
