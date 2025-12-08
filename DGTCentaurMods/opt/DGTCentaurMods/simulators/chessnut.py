@@ -1037,7 +1037,7 @@ Examples:
         mainloop.quit()
     
     gatt_manager.RegisterApplication(
-        app.get_path(), {},
+        app.get_path(), dbus.Dictionary({}, signature='sv'),
         reply_handler=register_app_cb,
         error_handler=register_app_error_cb
     )
@@ -1069,7 +1069,7 @@ Examples:
         mainloop.quit()
     
     ad_manager.RegisterAdvertisement(
-        adv.get_path(), {},
+        adv.get_path(), dbus.Dictionary({}, signature='sv'),
         reply_handler=register_ad_cb,
         error_handler=register_ad_error_cb
     )
