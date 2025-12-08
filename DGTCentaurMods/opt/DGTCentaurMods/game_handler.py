@@ -41,7 +41,7 @@ class GameHandler:
     
     def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False,
                  standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default",
-                 display_update_callback=None):
+                 display_update_callback=None, key_callback=None):
         """Initialize the GameHandler.
         
         Args:
@@ -57,11 +57,14 @@ class GameHandler:
                                    (e.g., "stockfish_pi", "maia", "ct800")
             player_color: Which color the human plays (chess.WHITE or chess.BLACK)
             engine_elo: ELO section name from .uci config file (e.g., "1350", "1700", "Default")
+            key_callback: Optional callback function(key) for external key handling.
+                         Called before forwarding keys to emulators.
         """
         self._sendMessage = sendMessage_callback
         self.compare_mode = compare_mode
         self._pending_response = None
         self._display_update_callback = display_update_callback
+        self._external_key_callback = key_callback
         
         # Store the hint but don't trust it - always verify from data
         self._client_type_hint = client_type
@@ -273,12 +276,19 @@ class GameHandler:
     def _manager_key_callback(self, key):
         """Handle key presses from the manager.
         
+        Calls external key callback first (if set), then forwards to emulators.
+        
         Args:
             key: Key that was pressed (board.Key enum value)
         """
         try:
             log.info(f"[GameHandler] _manager_key_callback: {key}")
             
+            # Call external key callback first (e.g., for BACK to exit, HELP to toggle analysis)
+            if self._external_key_callback is not None:
+                self._external_key_callback(key)
+            
+            # Forward to active emulator
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_key'):
                 self._millennium.handle_manager_key(key)
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_key'):

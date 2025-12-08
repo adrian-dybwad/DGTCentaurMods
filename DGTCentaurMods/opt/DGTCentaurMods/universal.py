@@ -1600,17 +1600,6 @@ def key_callback(key_id):
         board.shutdown()
 
 
-def field_callback(piece_event, field, time_in_seconds):
-    """Handle piece movement events from the board.
-    
-    This is called when pieces are lifted or placed on the board.
-    The GameHandler processes these through its own piece listener.
-    """
-    # Note: GameHandler already has its own piece listener registered
-    # This callback is here for completeness but may not be needed
-    pass
-
-
 def main():
     """Main entry point"""
     global server_sock, client_sock, shadow_target_sock
@@ -1685,10 +1674,6 @@ def main():
     else:
         fallback_player_color = chess.WHITE if args.player_color == "white" else chess.BLACK
     
-    # Subscribe to board events for key handling
-    board.subscribeEvents(key_callback, field_callback, timeout=100000)
-    log.info("Subscribed to board key events")
-    
     # Initialize chess board widget for e-paper display
     # Clear splash and show chess board
     board.display_manager.clear_widgets()
@@ -1751,6 +1736,7 @@ def main():
     
     # Create GameHandler at startup (with standalone engine if configured)
     # This allows standalone play against engine when no app is connected
+    # Pass key_callback for handling BACK (exit) and HELP (toggle analysis)
     game_handler = GameHandler(
         sendMessage_callback=sendMessage,
         client_type=None,
@@ -1758,7 +1744,8 @@ def main():
         standalone_engine_name=args.standalone_engine,
         player_color=fallback_player_color,
         engine_elo=args.engine_elo,
-        display_update_callback=update_display
+        display_update_callback=update_display,
+        key_callback=key_callback
     )
     log.info(f"[GameHandler] Created with standalone engine: {args.standalone_engine} @ {args.engine_elo}")
     
