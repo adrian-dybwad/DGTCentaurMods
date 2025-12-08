@@ -644,7 +644,7 @@ class TXCharacteristic(Characteristic):
         ble_connected = False
         ble_client_type = None
         game_handler.on_app_disconnected()
-        log.info("[GameHandler] App disconnected - fallback engine may resume")
+        log.info("[GameHandler] App disconnected - standalone engine may resume")
 
     def send_notification(self, data):
         """Send data to client via notification."""
@@ -811,7 +811,7 @@ class NordicTXCharacteristic(Characteristic):
         ble_connected = False
         ble_client_type = None
         game_handler.on_app_disconnected()
-        log.info("[GameHandler] App disconnected - fallback engine may resume")
+        log.info("[GameHandler] App disconnected - standalone engine may resume")
 
     def send_notification(self, data):
         """Send data to Pegasus client via notification."""
@@ -1047,7 +1047,7 @@ class ChessnutOperationRXCharacteristic(Characteristic):
         ble_connected = False
         ble_client_type = None
         game_handler.on_app_disconnected()
-        log.info("[GameHandler] App disconnected - fallback engine may resume")
+        log.info("[GameHandler] App disconnected - standalone engine may resume")
 
     def send_notification(self, data):
         """Send notification to client."""
@@ -1560,54 +1560,54 @@ def main():
                        help="Disable BLE (GATT) server")
     parser.add_argument("--no-rfcomm", action="store_true",
                        help="Disable RFCOMM server")
-    parser.add_argument("--fallback-engine", type=str, default=None,
+    parser.add_argument("--standalone-engine", type=str, default="stockfish_pi",
                        help="UCI engine for standalone play when no app connected (e.g., stockfish_pi, maia, ct800)")
-    parser.add_argument("--engine-elo", type=str, default="1500",
+    parser.add_argument("--engine-elo", type=str, default="Default",
                        help="ELO level from engine's .uci file (e.g., 1350, 1700, 2000, Default)")
     parser.add_argument("--player-color", type=str, default="white", choices=["white", "black", "random"],
-                       help="Which color the human plays in fallback engine mode")
+                       help="Which color the human plays in standalone engine mode")
     
     args = parser.parse_args()
     
     log.info("=" * 60)
     log.info("Universal Relay Starting")
     log.info("=" * 60)
-    log.info(f"Device name: {args.device_name}")
-    log.info(f"BLE: {'Disabled' if args.no_ble else 'Enabled'}")
-    log.info(f"RFCOMM: {'Disabled' if args.no_rfcomm else 'Enabled'}")
-    log.info(f"Relay mode: {'Enabled' if args.relay else 'Disabled'}")
+    log.info("")
+    log.info("Configuration:")
+    log.info(f"  Device name:       {args.device_name}")
+    log.info(f"  BLE:               {'Disabled' if args.no_ble else 'Enabled'}")
+    log.info(f"  RFCOMM:            {'Disabled' if args.no_rfcomm else 'Enabled'}")
+    log.info(f"  Relay mode:        {'Enabled' if args.relay else 'Disabled'}")
     if args.relay:
-        log.info(f"Shadow target: {args.shadow_target}")
-    if args.fallback_engine:
-        log.info(f"Fallback engine: {args.fallback_engine} @ {args.engine_elo} ELO")
-        log.info(f"Player color: {args.player_color}")
-    else:
-        log.info("Fallback engine: Disabled (no standalone play)")
+        log.info(f"  Shadow target:     {args.shadow_target}")
+    log.info("")
+    log.info("Standalone Engine:")
+    log.info(f"  Engine:            {args.standalone_engine}")
+    log.info(f"  ELO:               {args.engine_elo}")
+    log.info(f"  Player color:      {args.player_color}")
+    log.info("")
     log.info("=" * 60)
     
     relay_mode = args.relay
     shadow_target = args.shadow_target
     
-    # Determine player color for fallback engine
+    # Determine player color for standalone engine
     if args.player_color == "random":
         fallback_player_color = chess.WHITE if random.randint(0, 1) == 0 else chess.BLACK
     else:
         fallback_player_color = chess.WHITE if args.player_color == "white" else chess.BLACK
     
-    # Create GameHandler at startup (with fallback engine if configured)
+    # Create GameHandler at startup (with standalone engine if configured)
     # This allows standalone play against engine when no app is connected
     game_handler = GameHandler(
         sendMessage_callback=sendMessage,
         client_type=None,
         compare_mode=relay_mode,
-        fallback_engine_name=args.fallback_engine,
+        standalone_engine_name=args.standalone_engine,
         player_color=fallback_player_color,
         engine_elo=args.engine_elo
     )
-    if args.fallback_engine:
-        log.info(f"[GameHandler] Created with fallback engine: {args.fallback_engine} @ {args.engine_elo}")
-    else:
-        log.info("[GameHandler] Created without fallback engine")
+    log.info(f"[GameHandler] Created with standalone engine: {args.standalone_engine} @ {args.engine_elo}")
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
