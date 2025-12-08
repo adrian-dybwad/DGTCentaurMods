@@ -103,6 +103,7 @@ mainloop = None
 device_name = "Chessnut Air"
 move_history = []  # List of chess.Move objects to replay on connect
 playback_delay = 0.05  # Delay between position updates during playback (seconds)
+moves_replayed = False  # Track if we've already replayed the move history
 
 
 def log(msg):
@@ -295,24 +296,36 @@ class FENCharacteristic(Characteristic):
 
     @dbus.service.method(GATT_CHRC_IFACE)
     def StopNotify(self):
+        global moves_replayed
         log("FEN notifications disabled")
         self.notifying = False
         self._reporting_enabled = False
+        moves_replayed = False  # Reset so moves can be replayed on next connection
 
     def enable_reporting(self):
-        """Enable reporting and replay move history or send current position.
+        """Enable reporting and send current position.
         
-        If move_history is set, replays all moves so the app SDK can build
-        correct game state (turn, castling rights, en passant, move counters).
+        Note: Move history replay is deferred until the first LED command,
+        which indicates the app has actually started a game (not just connected).
         """
-        global move_history, playback_delay
-        
         self._reporting_enabled = True
+        # Just send current position - replay happens on first LED command
+        self.send_fen_notification()
+    
+    def trigger_move_replay(self):
+        """Trigger move history replay (called when game actually starts).
+        
+        This is called when we receive the first LED command, which indicates
+        the app has finished setup and is ready to display the board.
+        """
+        global move_history, moves_replayed
+        
+        if moves_replayed:
+            return  # Already replayed
         
         if move_history and chess:
+            moves_replayed = True
             self._replay_move_history()
-        else:
-            self.send_fen_notification()
 
     def _replay_move_history(self):
         """Replay move history to sync app state.
@@ -539,6 +552,9 @@ class OperationTXCharacteristic(Characteristic):
         
         elif cmd == CMD_LED_CONTROL:
             log(f"  -> LED control: {' '.join(f'{b:02x}' for b in payload)}")
+            # LED command indicates the game has started - trigger move replay
+            if self.fen_char:
+                self.fen_char.trigger_move_replay()
         
         elif cmd == CMD_ENABLE_REPORTING:
             log("  -> Enable reporting")
