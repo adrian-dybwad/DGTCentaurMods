@@ -404,6 +404,11 @@ class FENCharacteristic(Characteristic):
         notification.extend(position_bytes)
         notification.extend([uptime_lo, uptime_hi, 0x00, 0x00])
         
+        # Log the FEN and bytes being sent
+        piece_placement = fen.split()[0] if ' ' in fen else fen
+        log(f"TX [FEN] sending: {piece_placement}")
+        log(f"TX [FEN] bytes: {position_bytes.hex()}")
+        
         self.send_notification(notification)
 
     def _fen_to_chessnut_bytes(self, fen):
