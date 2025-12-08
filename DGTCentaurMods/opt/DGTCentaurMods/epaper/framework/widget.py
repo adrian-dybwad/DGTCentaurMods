@@ -25,6 +25,7 @@ class Widget(ABC):
         self.y = y
         self.width = width
         self.height = height
+        self.visible = True  # Whether the widget should be rendered by the Manager
         self._last_rendered: Optional[Image.Image] = None
         self._scheduler: Optional['Scheduler'] = None
         self._update_callback: Optional[Callable[[bool], object]] = None
@@ -56,28 +57,35 @@ class Widget(ABC):
         1. Renders all widgets to the framebuffer
         2. Submits the complete framebuffer to the scheduler
         
+        If the widget is not visible, the request is ignored since hidden
+        widgets are not rendered and would cause unnecessary update cycles.
+        
         Args:
             full: If True, force a full refresh instead of partial refresh.
         
         Returns:
             Future: A Future that completes when the display refresh finishes.
-            Returns None if update callback is not available.
+            Returns None if update callback is not available or widget is hidden.
         
         Note:
             Widgets should NOT call the scheduler directly. The Manager must
             render all widgets first before submitting to ensure consistent state.
         """
+        # Ignore update requests from hidden widgets
+        if not self.visible:
+            log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (widget is hidden)")
+            return None
+        
         if full:
-            try:
-                from DGTCentaurMods.board.logging import log
-            except ImportError:
-                import logging
-                log = logging.getLogger(__name__)
-            log.warning(f"Widget {self.__class__.__name__} requesting FULL refresh (will cause flashing)")
+            log.warning(f"Widget.request_update(): {self.__class__.__name__} requesting FULL refresh (will cause flashing)")
+        else:
+            log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} requesting partial update")
         
         if self._update_callback is not None:
             return self._update_callback(full)
+        
         # No callback available - cannot update without Manager
+        log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (no update callback)")
         return None
     
     def get_region(self) -> Region:
@@ -92,6 +100,31 @@ class Widget(ABC):
     def get_mask(self) -> Optional[Image.Image]:
         """Get a mask for transparent compositing. Returns None if not needed."""
         return None
+    
+    def show(self) -> None:
+        """Show the widget (make it visible).
+        
+        When visible, the widget will be rendered by the Manager.
+        Triggers a display update to reflect the change.
+        """
+        if not self.visible:
+            self.visible = True
+            self._last_rendered = None  # Force re-render
+            self.request_update(full=False)
+    
+    def hide(self) -> None:
+        """Hide the widget (make it invisible).
+        
+        When hidden, the widget will not be rendered by the Manager.
+        The widget remains in the display manager and continues any
+        background processing (e.g., analysis), but its region on the
+        display will be left for other widgets or background.
+        Triggers a display update to reflect the change.
+        """
+        if self.visible:
+            self.visible = False
+            self._last_rendered = None
+            self.request_update(full=False)
     
     def stop(self) -> None:
         """Stop the widget and perform cleanup tasks.

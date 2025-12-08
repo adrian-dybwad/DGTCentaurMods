@@ -330,7 +330,7 @@ class GameAnalysisWidget(Widget):
         # Return cached image if available
         if self._last_rendered is not None:
             return self._last_rendered
-        
+
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         

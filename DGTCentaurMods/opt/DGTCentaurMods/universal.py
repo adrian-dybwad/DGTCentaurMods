@@ -67,7 +67,7 @@ mainloop = None  # GLib mainloop for BLE
 chess_board_widget = None  # ChessBoardWidget for e-paper display
 game_analysis_widget = None  # GameAnalysisWidget for position evaluation
 analysis_engine = None  # UCI engine for position analysis (ct800)
-graphs_enabled = True  # Whether evaluation graphs are shown (default: on)
+# Note: game_analysis_widget.visible controls whether analysis is displayed (default: True)
 bluetooth_controller = None  # BluetoothController for RFCOMM pairing
 
 # Socket references
@@ -1698,10 +1698,10 @@ def key_callback(key_id):
     """Handle key press events from the board.
     
     - BACK: If game in progress, show resign/draw menu. Otherwise exit.
-    - HELP (?): Toggle evaluation graphs on/off
+    - HELP (?): Toggle game analysis widget visibility
     - LONG_PLAY: Shutdown system
     """
-    global running, kill, graphs_enabled, game_analysis_widget, chess_board_widget, game_handler
+    global running, kill, game_analysis_widget, chess_board_widget, game_handler
     
     log.info(f"Key event received: {key_id}")
     
@@ -1715,17 +1715,14 @@ def key_callback(key_id):
             _exit_universal("No game in progress")
     
     elif key_id == board.Key.HELP:
-        # Toggle evaluation graphs
-        graphs_enabled = not graphs_enabled
-        if graphs_enabled:
-            log.info("HELP pressed - showing evaluation graphs")
-            if game_analysis_widget:
-                game_analysis_widget.reset()
-        else:
-            log.info("HELP pressed - hiding evaluation graphs")
-            if game_analysis_widget:
-                game_analysis_widget.clear_history()
-                game_analysis_widget.set_score(0.0, "---")
+        # Toggle game analysis widget visibility
+        if game_analysis_widget:
+            if game_analysis_widget.visible:
+                log.info("HELP pressed - hiding game analysis widget")
+                game_analysis_widget.hide()
+            else:
+                log.info("HELP pressed - showing game analysis widget")
+                game_analysis_widget.show()
     
     elif key_id == board.Key.LONG_PLAY:
         log.info("LONG_PLAY pressed - shutting down")
@@ -1765,7 +1762,7 @@ def main():
     
     args = parser.parse_args()
     
-    global chess_board_widget, game_analysis_widget, graphs_enabled
+    global chess_board_widget, game_analysis_widget
     
     # Initialize display and show splash screen
     log.info("Initializing display...")
@@ -1845,18 +1842,18 @@ def main():
             future.result(timeout=5.0)
         except Exception as e:
             log.warning(f"Error displaying game analysis widget: {e}")
-    log.info("Game analysis widget initialized (graphs_enabled=True by default)")
+    log.info("Game analysis widget initialized (visible=True by default)")
     
     # Display update callback for GameHandler
     def update_display(fen):
         """Update the chess board widget with new position and trigger analysis."""
-        global graphs_enabled
         if chess_board_widget:
             try:
                 chess_board_widget.set_fen(fen)
                 
-                # Update analysis if graphs are enabled
-                if graphs_enabled and game_analysis_widget and analysis_engine:
+                # Always update analysis (even when widget is hidden) so history is collected
+                # The widget will show accumulated history when made visible again
+                if game_analysis_widget and analysis_engine:
                     try:
                         # Parse FEN to get board and turn
                         board_obj = chess.Board(fen)

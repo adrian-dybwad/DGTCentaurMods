@@ -77,6 +77,28 @@ class Manager:
 
         return self.update(full=False)
     
+    def remove_widget(self, widget: Widget) -> Future:
+        """Remove a widget from the display.
+        
+        Args:
+            widget: The widget to remove
+            
+        Returns:
+            Future that completes when the display is updated, or None if widget not found
+        """
+        if widget in self._widgets:
+            try:
+                widget.stop()
+            except Exception as e:
+                log.debug(f"Error stopping widget {widget.__class__.__name__} during remove: {e}")
+            
+            self._widgets.remove(widget)
+            log.debug(f"Manager.remove_widget() removed {widget.__class__.__name__}")
+            return self.update(full=False)
+        else:
+            log.debug(f"Manager.remove_widget() widget {widget.__class__.__name__} not found")
+            return None
+    
     def clear_widgets(self, addStatusBar: bool = True) -> Future:
         """Clear all widgets from the display."""
         log.debug(f"Manager.clear_widgets() called, clearing {len(self._widgets)} widgets")
@@ -126,11 +148,15 @@ class Manager:
         draw = ImageDraw.Draw(canvas)
         draw.rectangle((0, 0, self._epd.width, self._epd.height), fill=255)  # Fill with white
         
-        # Separate static and moving widgets
+        # Separate static and moving widgets, skipping invisible widgets
         static_widgets = []
         moving_widgets = []
         
         for widget in self._widgets:
+            # Skip invisible widgets entirely
+            if not widget.visible:
+                continue
+            
             if hasattr(widget, 'get_previous_region'):
                 # Moving widget (like ball)
                 prev_region = widget.get_previous_region()
@@ -144,7 +170,6 @@ class Manager:
         # Render static widgets
         for widget in static_widgets:
             widget_image = widget.render()
-            widget_name = widget.__class__.__name__
             canvas.paste(widget_image, (widget.x, widget.y))
         
         # Render moving widgets last (on top)
