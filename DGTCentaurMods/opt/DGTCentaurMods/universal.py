@@ -35,12 +35,14 @@ import threading
 import signal
 import subprocess
 import socket
+import random
 import psutil
 import bluetooth
 import dbus
 import dbus.service
 import dbus.mainloop.glib
 from gi.repository import GLib
+import chess
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.bluetooth_controller import BluetoothController
@@ -593,23 +595,11 @@ class TXCharacteristic(Characteristic):
         
         log.info("TX Characteristic ReadValue called by BLE client")
         
-        # If GameHandler is not initialized, treat ReadValue as a connection event
-        if game_handler is None:
-            log.info("ReadValue triggered before StartNotify - initializing connection")
+        # Treat ReadValue as a connection event
+        if not ble_connected:
+            log.info("ReadValue triggered - Millennium BLE client connecting")
             TXCharacteristic.tx_instance = self
-            
-            try:
-                game_handler = GameHandler(
-                    sendMessage_callback=sendMessage,
-                    client_type=GameHandler.CLIENT_MILLENNIUM,
-                    compare_mode=relay_mode
-                )
-                log.info(f"[GameHandler] Instantiated for BLE (ReadValue) with client_type=MILLENNIUM")
-            except Exception as e:
-                log.error(f"[GameHandler] Error instantiating: {e}")
-                import traceback
-                traceback.print_exc()
-            
+            game_handler.on_app_connected()
             ble_connected = True
         
         log.debug(f"TX ReadValue: {len(self._cached_value)} bytes")
@@ -634,21 +624,8 @@ class TXCharacteristic(Characteristic):
         self.notifying = True
         ble_client_type = 'millennium'
         
-        # Only create GameHandler instance if one doesn't exist yet
-        if game_handler is None:
-            try:
-                game_handler = GameHandler(
-                    sendMessage_callback=sendMessage,
-                    client_type=GameHandler.CLIENT_MILLENNIUM,
-                    compare_mode=relay_mode
-                )
-                log.info(f"[GameHandler] Instantiated for BLE with client_type=MILLENNIUM, compare_mode={relay_mode}")
-            except Exception as e:
-                log.error(f"[GameHandler] Error instantiating: {e}")
-                import traceback
-                traceback.print_exc()
-        else:
-            log.info("[GameHandler] Reusing existing instance for Millennium BLE notifications")
+        # Notify GameHandler that an app connected
+        game_handler.on_app_connected()
         
         ble_connected = True
         log.info("Millennium BLE notifications enabled successfully")
@@ -666,8 +643,8 @@ class TXCharacteristic(Characteristic):
         self.notifying = False
         ble_connected = False
         ble_client_type = None
-        game_handler = None
-        log.info("[GameHandler] Instance reset - ready for new connection")
+        game_handler.on_app_disconnected()
+        log.info("[GameHandler] App disconnected - fallback engine may resume")
 
     def send_notification(self, data):
         """Send data to client via notification."""
@@ -708,18 +685,14 @@ class RXCharacteristic(Characteristic):
             log.info(f"  Hex: {hex_str}")
             log.info(f"  ASCII: {ascii_str}")
             
-            # Ensure GameHandler instance exists for Millennium protocol
-            if game_handler is None:
-                log.info("[GameHandler] Creating instance on first RX data (Millennium)")
+            # Notify app connection on first RX data (Millennium)
+            if not ble_connected:
+                log.info("[GameHandler] First RX data from Millennium")
                 # Reset any stale Pegasus state
                 if NordicTXCharacteristic.nordic_tx_instance is not None:
                     NordicTXCharacteristic.nordic_tx_instance.notifying = False
                 ble_client_type = 'millennium'
-                game_handler = GameHandler(
-                    sendMessage_callback=sendMessage,
-                    client_type=GameHandler.CLIENT_MILLENNIUM,
-                    compare_mode=relay_mode
-                )
+                game_handler.on_app_connected()
             
             # Process through GameHandler
             for byte_val in bytes_data:
@@ -818,21 +791,8 @@ class NordicTXCharacteristic(Characteristic):
         self.notifying = True
         ble_client_type = 'pegasus'
         
-        # Only create GameHandler instance if one doesn't exist yet
-        if game_handler is None:
-            try:
-                game_handler = GameHandler(
-                    sendMessage_callback=sendMessage,
-                    client_type=GameHandler.CLIENT_PEGASUS,
-                    compare_mode=relay_mode
-                )
-                log.info(f"[GameHandler] Instantiated for Pegasus BLE with client_type=PEGASUS, compare_mode={relay_mode}")
-            except Exception as e:
-                log.error(f"[GameHandler] Error instantiating: {e}")
-                import traceback
-                traceback.print_exc()
-        else:
-            log.info("[GameHandler] Reusing existing instance for Pegasus BLE notifications")
+        # Notify GameHandler that an app connected
+        game_handler.on_app_connected()
         
         ble_connected = True
         log.info("Pegasus BLE notifications enabled successfully")
@@ -850,8 +810,8 @@ class NordicTXCharacteristic(Characteristic):
         self.notifying = False
         ble_connected = False
         ble_client_type = None
-        game_handler = None
-        log.info("[GameHandler] Instance reset - ready for new connection")
+        game_handler.on_app_disconnected()
+        log.info("[GameHandler] App disconnected - fallback engine may resume")
 
     def send_notification(self, data):
         """Send data to Pegasus client via notification."""
@@ -892,18 +852,14 @@ class NordicRXCharacteristic(Characteristic):
             log.info(f"  Hex: {hex_str}")
             log.info(f"  ASCII: {ascii_str}")
             
-            # Ensure GameHandler instance exists for Pegasus protocol
-            if game_handler is None:
-                log.info("[GameHandler] Creating instance on first RX data (Pegasus)")
+            # Notify app connection on first RX data (Pegasus)
+            if not ble_connected:
+                log.info("[GameHandler] First RX data from Pegasus")
                 # Reset any stale Millennium state
                 if TXCharacteristic.tx_instance is not None:
                     TXCharacteristic.tx_instance.notifying = False
                 ble_client_type = 'pegasus'
-                game_handler = GameHandler(
-                    sendMessage_callback=sendMessage,
-                    client_type=GameHandler.CLIENT_PEGASUS,
-                    compare_mode=relay_mode
-                )
+                game_handler.on_app_connected()
             
             # Process through GameHandler (Pegasus protocol)
             for byte_val in bytes_data:
@@ -1014,20 +970,16 @@ class ChessnutOperationTXCharacteristic(Characteristic):
             log.info(f"Chessnut OP TX RX: {len(bytes_data)} bytes")
             log.info(f"  Hex: {hex_str}")
             
-            # Ensure GameHandler instance exists for Chessnut protocol
-            if game_handler is None:
-                log.info("[GameHandler] Creating instance on first RX data (Chessnut)")
+            # Notify app connection on first RX data (Chessnut)
+            if not ble_connected:
+                log.info("[GameHandler] First RX data from Chessnut")
                 # Reset any stale Millennium/Pegasus state
                 if TXCharacteristic.tx_instance is not None:
                     TXCharacteristic.tx_instance.notifying = False
                 if NordicTXCharacteristic.nordic_tx_instance is not None:
                     NordicTXCharacteristic.nordic_tx_instance.notifying = False
                 ble_client_type = 'chessnut'
-                game_handler = GameHandler(
-                    sendMessage_callback=sendMessage,
-                    client_type=GameHandler.CLIENT_CHESSNUT,
-                    compare_mode=relay_mode
-                )
+                game_handler.on_app_connected()
             
             # Process through GameHandler (Chessnut protocol)
             for byte_val in bytes_data:
@@ -1075,22 +1027,8 @@ class ChessnutOperationRXCharacteristic(Characteristic):
         self.notifying = True
         ble_client_type = 'chessnut'
         
-        # Only create GameHandler instance if one doesn't exist yet
-        # (OP TX WriteValue may have already created it)
-        if game_handler is None:
-            try:
-                game_handler = GameHandler(
-                    sendMessage_callback=sendMessage,
-                    client_type=GameHandler.CLIENT_CHESSNUT,
-                    compare_mode=relay_mode
-                )
-                log.info(f"[GameHandler] Instantiated for Chessnut BLE with client_type=CHESSNUT, compare_mode={relay_mode}")
-            except Exception as e:
-                log.error(f"[GameHandler] Error instantiating: {e}")
-                import traceback
-                traceback.print_exc()
-        else:
-            log.info("[GameHandler] Reusing existing instance for Chessnut BLE notifications")
+        # Notify GameHandler that an app connected
+        game_handler.on_app_connected()
         
         ble_connected = True
         log.info("Chessnut BLE notifications enabled successfully")
@@ -1108,8 +1046,8 @@ class ChessnutOperationRXCharacteristic(Characteristic):
         self.notifying = False
         ble_connected = False
         ble_client_type = None
-        game_handler = None
-        log.info("[GameHandler] Instance reset - ready for new connection")
+        game_handler.on_app_disconnected()
+        log.info("[GameHandler] App disconnected - fallback engine may resume")
 
     def send_notification(self, data):
         """Send notification to client."""
@@ -1477,15 +1415,14 @@ def client_to_shadow_target():
                 if len(data) == 0:
                     log.info("RFCOMM client disconnected")
                     client_connected = False
-                    game_handler = None
+                    game_handler.on_app_disconnected()
                     break
                 
                 data_bytes = bytearray(data)
                 log.info(f"Client -> SHADOW TARGET: {' '.join(f'{b:02x}' for b in data_bytes)}")
                 
-                if game_handler is not None:
-                    for byte_val in data_bytes:
-                        game_handler.receive_data(byte_val)
+                for byte_val in data_bytes:
+                    game_handler.receive_data(byte_val)
                 
                 if shadow_target_sock is not None: 
                     shadow_target_sock.send(data)
@@ -1522,17 +1459,14 @@ def client_reader():
                 if len(data) == 0:
                     log.info("RFCOMM client disconnected")
                     client_connected = False
-                    game_handler = None
+                    game_handler.on_app_disconnected()
                     break
                 
                 data_bytes = bytearray(data)
                 log.info(f"Client -> Server: {' '.join(f'{b:02x}' for b in data_bytes)}")
                 
-                if game_handler is not None:
-                    for byte_val in data_bytes:
-                        game_handler.receive_data(byte_val)
-                else:
-                    log.warning("game_handler is None - data not processed")
+                for byte_val in data_bytes:
+                    game_handler.receive_data(byte_val)
                     
             except bluetooth.BluetoothError as e:
                 if running:
@@ -1560,7 +1494,10 @@ def cleanup():
         log.info("Cleaning up...")
         kill = 1
         running = False
-        game_handler = None
+        
+        # Clean up game handler and UCI engine
+        if game_handler is not None:
+            game_handler.cleanup()
         
         if client_sock:
             try:
@@ -1623,6 +1560,12 @@ def main():
                        help="Disable BLE (GATT) server")
     parser.add_argument("--no-rfcomm", action="store_true",
                        help="Disable RFCOMM server")
+    parser.add_argument("--fallback-engine", type=str, default=None,
+                       help="UCI engine for standalone play when no app connected (e.g., stockfish_pi, maia, ct800)")
+    parser.add_argument("--engine-elo", type=str, default="1500",
+                       help="ELO level from engine's .uci file (e.g., 1350, 1700, 2000, Default)")
+    parser.add_argument("--player-color", type=str, default="white", choices=["white", "black", "random"],
+                       help="Which color the human plays in fallback engine mode")
     
     args = parser.parse_args()
     
@@ -1635,10 +1578,36 @@ def main():
     log.info(f"Relay mode: {'Enabled' if args.relay else 'Disabled'}")
     if args.relay:
         log.info(f"Shadow target: {args.shadow_target}")
+    if args.fallback_engine:
+        log.info(f"Fallback engine: {args.fallback_engine} @ {args.engine_elo} ELO")
+        log.info(f"Player color: {args.player_color}")
+    else:
+        log.info("Fallback engine: Disabled (no standalone play)")
     log.info("=" * 60)
     
     relay_mode = args.relay
     shadow_target = args.shadow_target
+    
+    # Determine player color for fallback engine
+    if args.player_color == "random":
+        fallback_player_color = chess.WHITE if random.randint(0, 1) == 0 else chess.BLACK
+    else:
+        fallback_player_color = chess.WHITE if args.player_color == "white" else chess.BLACK
+    
+    # Create GameHandler at startup (with fallback engine if configured)
+    # This allows standalone play against engine when no app is connected
+    game_handler = GameHandler(
+        sendMessage_callback=sendMessage,
+        client_type=None,
+        compare_mode=relay_mode,
+        fallback_engine_name=args.fallback_engine,
+        player_color=fallback_player_color,
+        engine_elo=args.engine_elo
+    )
+    if args.fallback_engine:
+        log.info(f"[GameHandler] Created with fallback engine: {args.fallback_engine} @ {args.engine_elo}")
+    else:
+        log.info("[GameHandler] Created without fallback engine")
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -1957,12 +1926,9 @@ def main():
                 log.info("=" * 60)
                 log.info(f"Client address: {client_info}")
                 
-                game_handler = GameHandler(
-                    sendMessage_callback=sendMessage,
-                    client_type=None,
-                    compare_mode=relay_mode
-                )
-                log.info("[GameHandler] Instantiated for RFCOMM")
+                # Notify GameHandler that an app connected
+                game_handler.on_app_connected()
+                log.info("[GameHandler] RFCOMM app connected")
                 
             except bluetooth.BluetoothError:
                 time.sleep(0.1)

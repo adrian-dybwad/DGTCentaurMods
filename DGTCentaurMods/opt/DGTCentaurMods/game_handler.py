@@ -15,6 +15,12 @@ from DGTCentaurMods.emulators.pegasus import Pegasus
 from DGTCentaurMods.emulators.chessnut import Chessnut
 from DGTCentaurMods.game_manager import GameManager
 
+import chess
+import chess.engine
+import pathlib
+import os
+import configparser
+
 
 class GameHandler:
     """Game handler that supports multiple protocols (Millennium, Pegasus, Chessnut).
@@ -33,7 +39,8 @@ class GameHandler:
     CLIENT_PEGASUS = "pegasus"
     CLIENT_CHESSNUT = "chessnut"
     
-    def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False):
+    def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False,
+                 fallback_engine_name=None, player_color=chess.WHITE, engine_elo="Default"):
         """Initialize the GameHandler.
         
         Args:
@@ -45,6 +52,10 @@ class GameHandler:
                         - CLIENT_UNKNOWN or None: Auto-detect from incoming data (RFCOMM)
             compare_mode: If True, buffer emulator responses for comparison with
                          shadow host instead of sending directly. Used in relay mode.
+            fallback_engine_name: Name of UCI engine to use when no app connected
+                                 (e.g., "stockfish_pi", "maia", "ct800")
+            player_color: Which color the human plays (chess.WHITE or chess.BLACK)
+            engine_elo: ELO section name from .uci config file (e.g., "1350", "1700", "Default")
         """
         self._sendMessage = sendMessage_callback
         self.compare_mode = compare_mode
@@ -58,6 +69,13 @@ class GameHandler:
         self.is_millennium = False
         self.is_pegasus = False
         self.is_chessnut = False
+        
+        # UCI fallback engine settings (for standalone play without app)
+        self._fallback_engine = None
+        self._fallback_engine_name = fallback_engine_name
+        self._player_color = player_color
+        self._engine_elo = engine_elo
+        self._uci_options = {}
         
         # Game manager shared by all emulators
         self.manager = GameManager()
@@ -92,6 +110,10 @@ class GameHandler:
             manager=self.manager
         )
         log.info("[GameHandler] Created Chessnut emulator")
+        
+        # Initialize fallback UCI engine if configured
+        if fallback_engine_name:
+            self._initialize_fallback_engine()
         
         self.subscribe_manager()
     
@@ -199,6 +221,7 @@ class GameHandler:
         """Handle moves from the manager.
         
         Before protocol is confirmed, forwards to ALL emulators.
+        If no app connected, triggers fallback engine to play.
         
         Args:
             move: Chess move object
@@ -221,6 +244,9 @@ class GameHandler:
                     self._pegasus.handle_manager_move(move)
                 if self._chessnut and hasattr(self._chessnut, 'handle_manager_move'):
                     self._chessnut.handle_manager_move(move)
+                
+                # Check if fallback engine should play (no app connected)
+                self._check_fallback_engine_turn()
         except Exception as e:
             log.error(f"[GameHandler] Error in _manager_move_callback: {e}")
             import traceback
@@ -367,3 +393,175 @@ class GameHandler:
             log.error(f"[GameHandler] Failed to subscribe to game manager: {e}")
             import traceback
             traceback.print_exc()
+    
+    # =========================================================================
+    # UCI Fallback Engine Methods
+    # =========================================================================
+    
+    def _initialize_fallback_engine(self):
+        """Initialize the UCI fallback engine with ELO settings.
+        
+        The fallback engine plays when no chess app is connected, allowing
+        the board to be used standalone against a chess engine.
+        """
+        if not self._fallback_engine_name:
+            return
+        
+        base_path = pathlib.Path(__file__).parent
+        engine_path = base_path / "engines" / self._fallback_engine_name
+        uci_file_path = str(engine_path) + ".uci"
+        
+        if not engine_path.exists():
+            log.warning(f"[GameHandler] Fallback engine not found: {engine_path}")
+            return
+        
+        # Load UCI options from config file
+        self._load_uci_options(uci_file_path)
+        
+        try:
+            self._fallback_engine = chess.engine.SimpleEngine.popen_uci(str(engine_path))
+            log.info(f"[GameHandler] Fallback UCI engine initialized: {self._fallback_engine_name} @ {self._engine_elo}")
+            
+            # Apply UCI options (ELO settings)
+            if self._uci_options:
+                log.info(f"[GameHandler] Configuring engine with options: {self._uci_options}")
+                self._fallback_engine.configure(self._uci_options)
+                
+        except Exception as e:
+            log.error(f"[GameHandler] Failed to initialize fallback engine: {e}")
+            import traceback
+            traceback.print_exc()
+            self._fallback_engine = None
+    
+    def _load_uci_options(self, uci_file_path: str):
+        """Load UCI options from configuration file.
+        
+        Args:
+            uci_file_path: Path to the .uci config file (e.g., engines/stockfish_pi.uci)
+        """
+        if not os.path.exists(uci_file_path):
+            log.warning(f"[GameHandler] UCI file not found: {uci_file_path}, using defaults")
+            return
+        
+        config = configparser.ConfigParser()
+        config.optionxform = str  # Preserve case for UCI option names
+        config.read(uci_file_path)
+        
+        section = self._engine_elo
+        
+        if config.has_section(section):
+            log.info(f"[GameHandler] Loading UCI options from section: {section}")
+            for key, value in config.items(section):
+                self._uci_options[key] = value
+            
+            # Filter out non-UCI metadata fields
+            non_uci_fields = ['Description']
+            self._uci_options = {
+                k: v for k, v in self._uci_options.items()
+                if k not in non_uci_fields
+            }
+            log.info(f"[GameHandler] UCI options: {self._uci_options}")
+        else:
+            log.warning(f"[GameHandler] Section '{section}' not found in {uci_file_path}")
+            if config.has_section("DEFAULT"):
+                for key, value in config.items("DEFAULT"):
+                    if key != 'Description':
+                        self._uci_options[key] = value
+    
+    def is_app_connected(self) -> bool:
+        """Check if any chess app protocol has been detected.
+        
+        Returns:
+            True if a chess app is connected (Millennium, Pegasus, or Chessnut)
+        """
+        return self.is_millennium or self.is_pegasus or self.is_chessnut
+    
+    def _check_fallback_engine_turn(self):
+        """If no app connected and it's engine's turn, play a move.
+        
+        This enables standalone play against a chess engine when no app is connected.
+        """
+        if self.is_app_connected():
+            return  # App is connected, don't use fallback
+        
+        if not self._fallback_engine:
+            return  # No fallback engine configured
+        
+        # Get current board state from manager
+        board = self.manager.chess_board
+        
+        # Check if it's the engine's turn
+        engine_color = chess.BLACK if self._player_color == chess.WHITE else chess.WHITE
+        if board.turn != engine_color:
+            return  # Not engine's turn
+        
+        # Check if game is over
+        if board.is_game_over():
+            return
+        
+        log.info(f"[GameHandler] Fallback engine ({self._fallback_engine_name} @ {self._engine_elo}) playing")
+        
+        try:
+            # Re-apply UCI options before each move
+            if self._uci_options:
+                self._fallback_engine.configure(self._uci_options)
+            
+            # Get engine move with time limit
+            result = self._fallback_engine.play(board, chess.engine.Limit(time=5.0))
+            move = result.move
+            
+            if move:
+                log.info(f"[GameHandler] Fallback engine move: {move.uci()}")
+                # Use manager.computer_move to set up the forced move with LEDs
+                self.manager.computer_move(move.uci(), forced=True)
+        except Exception as e:
+            log.error(f"[GameHandler] Error getting fallback engine move: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def on_app_connected(self):
+        """Called when an app connects - pause fallback engine.
+        
+        The protocol detection flags will be set by receive_data() which will
+        naturally stop the fallback engine from playing.
+        """
+        log.info("[GameHandler] App connected - fallback engine paused")
+    
+    def on_app_disconnected(self):
+        """Called when app disconnects - resume fallback engine.
+        
+        Resets protocol detection flags so the fallback engine can resume playing.
+        """
+        log.info("[GameHandler] App disconnected - fallback engine may resume")
+        # Reset protocol detection flags
+        self.is_millennium = False
+        self.is_pegasus = False
+        self.is_chessnut = False
+        self.client_type = self.CLIENT_UNKNOWN
+        
+        # Recreate emulators for next connection
+        self._millennium = Millennium(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.manager
+        )
+        self._pegasus = Pegasus(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.manager
+        )
+        self._chessnut = Chessnut(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.manager
+        )
+        
+        # Check if engine should play now
+        self._check_fallback_engine_turn()
+    
+    def cleanup(self):
+        """Clean up resources including UCI engine."""
+        if self._fallback_engine:
+            try:
+                self._fallback_engine.quit()
+                log.info("[GameHandler] Fallback engine closed")
+            except Exception as e:
+                log.error(f"[GameHandler] Error closing fallback engine: {e}")
+            self._fallback_engine = None
