@@ -303,19 +303,18 @@ class FENCharacteristic(Characteristic):
         moves_replayed = False  # Reset so moves can be replayed on next connection
 
     def enable_reporting(self):
-        """Enable reporting and send starting position.
+        """Enable reporting and send current position.
         
-        Note: Move history replay is deferred until the first LED command,
-        which indicates the app has actually started a game (not just connected).
+        Note: Move history playback was attempted but doesn't work with
+        third-party apps - the SDK interprets each position change as a
+        move and responds with its own engine moves.
         
-        We send the STARTING position here (not the current/final position)
-        because when playback happens later, it will start from the starting
-        position. If we sent the final position here, the app would see a
-        confusing sequence of: final -> starting -> move1 -> move2 -> ...
+        Instead, we just send the current position. The app will start
+        from there but won't have correct game state (turn, castling, etc.).
+        This is a protocol limitation.
         """
         self._reporting_enabled = True
-        # Send starting position - replay happens on first LED command
-        self._send_starting_position()
+        self.send_fen_notification()
     
     def trigger_move_replay(self):
         """Trigger move history replay (called when game actually starts).
@@ -574,9 +573,6 @@ class OperationTXCharacteristic(Characteristic):
         
         elif cmd == CMD_LED_CONTROL:
             log(f"  -> LED control: {' '.join(f'{b:02x}' for b in payload)}")
-            # LED command indicates the game has started - trigger move replay
-            if self.fen_char:
-                self.fen_char.trigger_move_replay()
         
         elif cmd == CMD_ENABLE_REPORTING:
             log("  -> Enable reporting")
