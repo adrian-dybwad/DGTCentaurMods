@@ -15,7 +15,10 @@ from .status_bar import StatusBarWidget
 from .wifi_status import WiFiStatusWidget
 from .game_over import GameOverWidget
 from .menu_arrow import MenuArrowWidget
+from .icon_button import IconButtonWidget
+from .icon_menu import IconMenuWidget, IconMenuEntry
 
 __all__ = ['Manager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'BallWidget', 
            'ChessBoardWidget', 'GameAnalysisWidget', 'CheckerboardWidget', 'SplashScreen', 
-           'StatusBarWidget', 'WiFiStatusWidget', 'GameOverWidget', 'MenuArrowWidget']
+           'StatusBarWidget', 'WiFiStatusWidget', 'GameOverWidget', 'MenuArrowWidget',
+           'IconButtonWidget', 'IconMenuWidget', 'IconMenuEntry']

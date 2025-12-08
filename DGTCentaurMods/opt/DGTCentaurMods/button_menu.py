@@ -1,21 +1,18 @@
 """
-Button menu widget with large buttons and icons for e-paper display.
+Button menu for the DGT Centaur board.
 
-Provides a main menu with large, touch-friendly buttons for:
+Provides a main menu with large icon buttons for:
 - Centaur (original DGT software, if available)
 - Universal (BLE relay mode)
 - Settings
 
-Each button has an icon and label, designed for easy visibility
-on the small e-paper display.
+Uses the IconMenuWidget from the epaper framework for reusable
+menu functionality with keyboard navigation.
 """
 
-from PIL import Image, ImageDraw, ImageFont
-from DGTCentaurMods.epaper.framework.widget import Widget
+from DGTCentaurMods.epaper import IconMenuWidget, IconMenuEntry, SplashScreen
 from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
-from typing import Optional, Callable, List
-from dataclasses import dataclass
-import threading
+from typing import Optional, List
 import os
 
 try:
@@ -24,467 +21,17 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
-try:
-    from DGTCentaurMods.asset_manager import AssetManager
-except ImportError:
-    AssetManager = None
-
 
 # Display dimensions
 DISPLAY_WIDTH = 128
 DISPLAY_HEIGHT = 296
 
-# Button layout constants
-BUTTON_HEIGHT = 70  # Height per button
-BUTTON_MARGIN = 4   # Margin between buttons
-BUTTON_PADDING = 6  # Internal padding
-ICON_SIZE = 36      # Icon size in pixels
-LABEL_HEIGHT = 18   # Height reserved for label text
-
-
-@dataclass
-class ButtonConfig:
-    """Configuration for a menu button."""
-    key: str          # Unique identifier returned on selection
-    label: str        # Display text
-    icon_name: str    # Icon identifier for rendering
-    enabled: bool = True  # Whether button is enabled/visible
-
-
-class ButtonMenuWidget(Widget):
-    """Widget displaying large buttons with icons for menu selection.
-    
-    Displays a vertical list of large buttons, each with an icon and label.
-    Navigation uses UP/DOWN keys, selection with TICK, back with BACK.
-    
-    Attributes:
-        buttons: List of button configurations
-        selected_index: Currently highlighted button index
-    """
-    
-    def __init__(self, x: int, y: int, width: int, height: int,
-                 buttons: List[ButtonConfig],
-                 selected_index: int = 0,
-                 register_callback: Optional[Callable[['ButtonMenuWidget'], None]] = None,
-                 unregister_callback: Optional[Callable[[], None]] = None):
-        """Initialize button menu widget.
-        
-        Args:
-            x: X position of widget
-            y: Y position of widget (absolute screen position)
-            width: Widget width
-            height: Widget height
-            buttons: List of button configurations
-            selected_index: Initial selected button index
-            register_callback: Called with self when widget becomes active
-            unregister_callback: Called when widget becomes inactive
-        """
-        super().__init__(x, y, width, height)
-        self.buttons = [b for b in buttons if b.enabled]  # Filter disabled buttons
-        self.selected_index = min(selected_index, max(0, len(self.buttons) - 1))
-        self._register_callback = register_callback
-        self._unregister_callback = unregister_callback
-        
-        # Selection event handling
-        self._selection_event = threading.Event()
-        self._selection_result: Optional[str] = None
-        self._active = False
-        
-        # Load font
-        self._font = None
-        self._load_resources()
-        
-        log.info(f"ButtonMenuWidget: Created with {len(self.buttons)} buttons")
-    
-    def _load_resources(self):
-        """Load fonts for rendering."""
-        try:
-            if AssetManager:
-                self._font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
-            else:
-                self._font = ImageFont.load_default()
-        except Exception as e:
-            log.error(f"Failed to load font: {e}")
-            self._font = ImageFont.load_default()
-    
-    def _draw_icon(self, draw: ImageDraw.Draw, icon_name: str, 
-                   x: int, y: int, size: int, selected: bool):
-        """Draw an icon at the specified position.
-        
-        Icons are drawn using simple PIL drawing primitives for e-paper
-        compatibility and file independence.
-        
-        Args:
-            draw: ImageDraw object
-            icon_name: Icon identifier
-            x: X position (center of icon)
-            y: Y position (center of icon)
-            size: Icon size in pixels
-            selected: Whether this icon is in a selected button
-        """
-        half = size // 2
-        left = x - half
-        top = y - half
-        right = x + half
-        bottom = y + half
-        
-        # Line color (black for normal, white for selected)
-        line_color = 255 if selected else 0
-        
-        if icon_name == "centaur":
-            # Chess knight piece - classic knight silhouette
-            # Scale factor for the icon size
-            s = size / 36.0  # Base design is 36px
-            
-            # Knight head and neck profile (facing right)
-            knight_points = [
-                # Base
-                (left + int(4*s), bottom - int(2*s)),
-                (right - int(4*s), bottom - int(2*s)),
-                # Right side going up
-                (right - int(6*s), bottom - int(8*s)),
-                (right - int(4*s), bottom - int(14*s)),
-                # Back of head curve
-                (right - int(6*s), top + int(10*s)),
-                (right - int(8*s), top + int(6*s)),
-                # Top of head / ears
-                (right - int(10*s), top + int(4*s)),
-                (x, top + int(2*s)),
-                # Forehead
-                (left + int(10*s), top + int(4*s)),
-                # Nose/muzzle
-                (left + int(6*s), top + int(8*s)),
-                (left + int(4*s), top + int(12*s)),
-                (left + int(6*s), top + int(14*s)),
-                # Jaw line
-                (left + int(8*s), y + int(2*s)),
-                # Neck front
-                (left + int(6*s), bottom - int(10*s)),
-                (left + int(4*s), bottom - int(6*s)),
-            ]
-            draw.polygon(knight_points, outline=line_color, fill=line_color)
-            
-            # Eye (hollow circle for contrast)
-            eye_x = x + int(2*s)
-            eye_y = top + int(10*s)
-            eye_r = int(2*s)
-            # Draw eye in opposite color for visibility
-            eye_color = 0 if selected else 255
-            draw.ellipse([eye_x - eye_r, eye_y - eye_r, eye_x + eye_r, eye_y + eye_r], 
-                        fill=eye_color, outline=eye_color)
-            
-        elif icon_name == "universal":
-            # Chess pieces with Bluetooth symbol integrated
-            # Scale factor
-            s = size / 36.0
-            
-            # Left side: Small pawn silhouette
-            pawn_x = left + int(6*s)
-            pawn_bottom = bottom - int(4*s)
-            # Pawn base
-            draw.rectangle([pawn_x - int(4*s), pawn_bottom - int(3*s), 
-                           pawn_x + int(4*s), pawn_bottom], fill=line_color)
-            # Pawn body
-            draw.polygon([
-                (pawn_x - int(3*s), pawn_bottom - int(3*s)),
-                (pawn_x - int(2*s), pawn_bottom - int(10*s)),
-                (pawn_x + int(2*s), pawn_bottom - int(10*s)),
-                (pawn_x + int(3*s), pawn_bottom - int(3*s)),
-            ], fill=line_color)
-            # Pawn head
-            draw.ellipse([pawn_x - int(3*s), pawn_bottom - int(16*s),
-                         pawn_x + int(3*s), pawn_bottom - int(10*s)], fill=line_color)
-            
-            # Right side: Small rook silhouette
-            rook_x = right - int(6*s)
-            rook_bottom = bottom - int(4*s)
-            # Rook base
-            draw.rectangle([rook_x - int(4*s), rook_bottom - int(3*s),
-                           rook_x + int(4*s), rook_bottom], fill=line_color)
-            # Rook body
-            draw.rectangle([rook_x - int(3*s), rook_bottom - int(12*s),
-                           rook_x + int(3*s), rook_bottom - int(3*s)], fill=line_color)
-            # Rook battlements (top)
-            draw.rectangle([rook_x - int(4*s), rook_bottom - int(16*s),
-                           rook_x + int(4*s), rook_bottom - int(12*s)], fill=line_color)
-            # Battlement gaps
-            gap_color = 0 if selected else 255
-            draw.rectangle([rook_x - int(1*s), rook_bottom - int(16*s),
-                           rook_x + int(1*s), rook_bottom - int(13*s)], fill=gap_color)
-            
-            # Center: Bluetooth symbol
-            bt_x = x
-            bt_y = y - int(2*s)
-            bt_h = int(14*s)  # Total height of bluetooth symbol
-            bt_w = int(8*s)   # Width
-            
-            # Bluetooth vertical line
-            draw.line([(bt_x, bt_y - bt_h//2), (bt_x, bt_y + bt_h//2)], 
-                     fill=line_color, width=max(1, int(1.5*s)))
-            
-            # Top arrow pointing right then back
-            draw.line([(bt_x, bt_y - bt_h//2), (bt_x + bt_w//2, bt_y - bt_h//4)], 
-                     fill=line_color, width=max(1, int(1.5*s)))
-            draw.line([(bt_x + bt_w//2, bt_y - bt_h//4), (bt_x, bt_y)], 
-                     fill=line_color, width=max(1, int(1.5*s)))
-            
-            # Bottom arrow pointing right then back
-            draw.line([(bt_x, bt_y + bt_h//2), (bt_x + bt_w//2, bt_y + bt_h//4)], 
-                     fill=line_color, width=max(1, int(1.5*s)))
-            draw.line([(bt_x + bt_w//2, bt_y + bt_h//4), (bt_x, bt_y)], 
-                     fill=line_color, width=max(1, int(1.5*s)))
-            
-        elif icon_name == "settings":
-            # Gear/cog icon
-            import math
-            center_x = x
-            center_y = y
-            outer_r = half - 2
-            inner_r = half // 2
-            
-            # Draw outer circle
-            draw.ellipse([center_x - outer_r, center_y - outer_r, 
-                         center_x + outer_r, center_y + outer_r], 
-                        outline=line_color, width=2)
-            
-            # Draw inner circle
-            draw.ellipse([center_x - inner_r, center_y - inner_r,
-                         center_x + inner_r, center_y + inner_r],
-                        outline=line_color, width=2)
-            
-            # Draw gear teeth (8 teeth)
-            tooth_len = 6
-            for i in range(8):
-                angle = i * (360 / 8) * (math.pi / 180)
-                # Inner point
-                ix = center_x + int(outer_r * math.cos(angle))
-                iy = center_y + int(outer_r * math.sin(angle))
-                # Outer point
-                ox = center_x + int((outer_r + tooth_len) * math.cos(angle))
-                oy = center_y + int((outer_r + tooth_len) * math.sin(angle))
-                draw.line([(ix, iy), (ox, oy)], fill=line_color, width=2)
-        
-        else:
-            # Default: simple square placeholder
-            draw.rectangle([left + 4, top + 4, right - 4, bottom - 4], 
-                          outline=line_color, width=2)
-    
-    def render(self) -> Image.Image:
-        """Render the button menu.
-        
-        Returns:
-            PIL Image with rendered buttons
-        """
-        img = Image.new("1", (self.width, self.height), 255)  # White background
-        draw = ImageDraw.Draw(img)
-        
-        # Calculate button positions
-        total_buttons = len(self.buttons)
-        available_height = self.height - (BUTTON_MARGIN * (total_buttons + 1))
-        button_height = min(BUTTON_HEIGHT, available_height // total_buttons)
-        
-        for idx, button in enumerate(self.buttons):
-            is_selected = (idx == self.selected_index)
-            
-            # Calculate button bounds
-            button_y = BUTTON_MARGIN + idx * (button_height + BUTTON_MARGIN)
-            button_left = BUTTON_MARGIN
-            button_right = self.width - BUTTON_MARGIN
-            button_bottom = button_y + button_height
-            
-            # Draw button background
-            if is_selected:
-                # Selected: filled black rectangle with white text
-                draw.rectangle([button_left, button_y, button_right, button_bottom],
-                              fill=0, outline=0)
-            else:
-                # Unselected: white with black border
-                draw.rectangle([button_left, button_y, button_right, button_bottom],
-                              fill=255, outline=0, width=2)
-            
-            # Draw icon
-            icon_x = button_left + BUTTON_PADDING + ICON_SIZE // 2
-            icon_y = button_y + (button_height - LABEL_HEIGHT) // 2
-            self._draw_icon(draw, button.icon_name, icon_x, icon_y, ICON_SIZE, is_selected)
-            
-            # Draw label
-            text_x = icon_x + ICON_SIZE // 2 + BUTTON_PADDING
-            text_y = button_y + button_height - LABEL_HEIGHT - 4
-            text_color = 255 if is_selected else 0
-            draw.text((text_x, text_y), button.label, font=self._font, fill=text_color)
-        
-        return img
-    
-    def set_selection(self, index: int) -> None:
-        """Set the current selection index.
-        
-        Args:
-            index: New selection index
-        """
-        new_index = max(0, min(index, len(self.buttons) - 1))
-        if new_index != self.selected_index:
-            self.selected_index = new_index
-            self._last_rendered = None
-            self.request_update(full=False)
-    
-    def handle_key(self, key_id) -> bool:
-        """Handle key press events.
-        
-        Args:
-            key_id: Key identifier from board
-            
-        Returns:
-            True if key was handled, False otherwise
-        """
-        if not self._active:
-            return False
-        
-        # Import Key enum for comparison
-        try:
-            from DGTCentaurMods.board import board
-            Key = board.Key
-        except ImportError:
-            return False
-        
-        if key_id == Key.UP:
-            # Wrap around: if at top, go to bottom
-            if self.selected_index > 0:
-                self.set_selection(self.selected_index - 1)
-            else:
-                self.set_selection(len(self.buttons) - 1)
-            return True
-            
-        elif key_id == Key.DOWN:
-            # Wrap around: if at bottom, go to top
-            if self.selected_index < len(self.buttons) - 1:
-                self.set_selection(self.selected_index + 1)
-            else:
-                self.set_selection(0)
-            return True
-            
-        elif key_id == Key.TICK:
-            # Selection confirmed
-            if self.buttons:
-                self._selection_result = self.buttons[self.selected_index].key
-            else:
-                self._selection_result = "BACK"
-            self._selection_event.set()
-            return True
-            
-        elif key_id == Key.BACK:
-            self._selection_result = "BACK"
-            self._selection_event.set()
-            return True
-            
-        elif key_id == Key.HELP:
-            self._selection_result = "HELP"
-            self._selection_event.set()
-            return True
-        
-        return False
-    
-    def wait_for_selection(self, initial_index: int = 0) -> str:
-        """Block and wait for user selection via key presses.
-        
-        Args:
-            initial_index: Initial selection index
-            
-        Returns:
-            Selected button key, "BACK", or "HELP"
-        """
-        # Set initial selection
-        self.set_selection(initial_index)
-        
-        # Activate key handling
-        self._active = True
-        self._selection_result = None
-        self._selection_event.clear()
-        
-        # Register this widget as active
-        if self._register_callback:
-            try:
-                self._register_callback(self)
-                log.info(f"ButtonMenuWidget: Registered as active, initial_index={initial_index}")
-            except Exception as e:
-                log.error(f"Error registering button menu widget: {e}")
-        
-        try:
-            # Wait for selection event
-            log.info("ButtonMenuWidget: Waiting for selection...")
-            self._selection_event.wait()
-            result = self._selection_result or "BACK"
-            log.info(f"ButtonMenuWidget: Selection result='{result}'")
-            return result
-        finally:
-            self._active = False
-            if self._unregister_callback:
-                try:
-                    self._unregister_callback()
-                except Exception as e:
-                    log.error(f"Error unregistering button menu widget: {e}")
-    
-    def stop(self) -> None:
-        """Stop the widget and release any blocked waits."""
-        self._active = False
-        self._selection_result = "BACK"
-        self._selection_event.set()
-        super().stop()
-
-
-def create_main_menu_buttons(centaur_available: bool = True) -> List[ButtonConfig]:
-    """Create the standard main menu button configuration.
-    
-    Args:
-        centaur_available: Whether DGT Centaur software is available
-        
-    Returns:
-        List of ButtonConfig for main menu
-    """
-    buttons = []
-    
-    if centaur_available:
-        buttons.append(ButtonConfig(
-            key="Centaur",
-            label="Centaur",
-            icon_name="centaur",
-            enabled=True
-        ))
-    
-    buttons.append(ButtonConfig(
-        key="Universal",
-        label="Universal",
-        icon_name="universal",
-        enabled=True
-    ))
-    
-    buttons.append(ButtonConfig(
-        key="Settings",
-        label="Settings",
-        icon_name="settings",
-        enabled=True
-    ))
-    
-    return buttons
-
-
-def create_settings_buttons() -> List[ButtonConfig]:
-    """Create buttons for the settings submenu.
-    
-    Returns:
-        List of ButtonConfig for settings menu
-    """
-    return [
-        ButtonConfig(key="Sound", label="Sound", icon_name="settings", enabled=True),
-        ButtonConfig(key="Shutdown", label="Shutdown", icon_name="settings", enabled=True),
-        ButtonConfig(key="Reboot", label="Reboot", icon_name="settings", enabled=True),
-    ]
-
+# Path to original DGT Centaur software
+CENTAUR_SOFTWARE = "/home/pi/centaur/centaur"
 
 # Global references for menu management
-_active_menu_widget: Optional[ButtonMenuWidget] = None
+_active_menu_widget: Optional[IconMenuWidget] = None
 _display_manager = None
-
-CENTAUR_SOFTWARE = "/home/pi/centaur/centaur"
 
 
 def _key_callback(key_id):
@@ -510,22 +57,9 @@ def _field_callback(piece_event, field, time_in_seconds):
     pass
 
 
-def _register_menu(widget):
-    """Register a menu widget as active."""
-    global _active_menu_widget
-    _active_menu_widget = widget
-
-
-def _unregister_menu():
-    """Unregister the active menu widget."""
-    global _active_menu_widget
-    _active_menu_widget = None
-
-
 def _shutdown(message, reboot=False):
     """Shutdown the system with a message displayed on screen."""
     from DGTCentaurMods.board import board
-    from DGTCentaurMods.epaper import SplashScreen
     
     global _display_manager
     
@@ -541,52 +75,102 @@ def _shutdown(message, reboot=False):
     board.shutdown(reboot=reboot)
 
 
-def _show_button_menu(buttons: List[ButtonConfig], title: str = None) -> str:
-    """Display a button menu and wait for selection.
+def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEntry]:
+    """Create the standard main menu entry configuration.
     
     Args:
-        buttons: List of button configurations to display
-        title: Optional title (not currently used in ButtonMenuWidget)
+        centaur_available: Whether DGT Centaur software is available
+        
+    Returns:
+        List of IconMenuEntry for main menu
+    """
+    entries = []
+    
+    if centaur_available:
+        entries.append(IconMenuEntry(
+            key="Centaur",
+            label="Centaur",
+            icon_name="centaur",
+            enabled=True
+        ))
+    
+    entries.append(IconMenuEntry(
+        key="Universal",
+        label="Universal",
+        icon_name="universal",
+        enabled=True
+    ))
+    
+    entries.append(IconMenuEntry(
+        key="Settings",
+        label="Settings",
+        icon_name="settings",
+        enabled=True
+    ))
+    
+    return entries
+
+
+def create_settings_entries() -> List[IconMenuEntry]:
+    """Create entries for the settings submenu.
     
     Returns:
-        Selected button key, "BACK", or "HELP"
+        List of IconMenuEntry for settings menu
+    """
+    return [
+        IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
+        IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
+        IconMenuEntry(key="Reboot", label="Reboot", icon_name="reboot", enabled=True),
+    ]
+
+
+def _show_icon_menu(entries: List[IconMenuEntry]) -> str:
+    """Display an icon menu and wait for selection.
+    
+    Args:
+        entries: List of menu entry configurations to display
+    
+    Returns:
+        Selected entry key, "BACK", "HELP", or "SHUTDOWN"
     """
     global _display_manager, _active_menu_widget
     
     # Clear existing widgets and add fresh status bar
     _display_manager.clear_widgets()
     
-    # Create button menu widget
-    menu_widget = ButtonMenuWidget(
+    # Create menu widget
+    menu_widget = IconMenuWidget(
         x=0,
         y=STATUS_BAR_HEIGHT,
         width=DISPLAY_WIDTH,
         height=DISPLAY_HEIGHT - STATUS_BAR_HEIGHT,
-        buttons=buttons,
-        selected_index=0,
-        register_callback=_register_menu,
-        unregister_callback=_unregister_menu
+        entries=entries,
+        selected_index=0
     )
+    
+    # Register as active menu for key routing
+    _active_menu_widget = menu_widget
+    menu_widget.activate()
     
     # Add widget to display
     _display_manager.add_widget(menu_widget)
     
-    # Wait for selection using the widget's blocking method
-    result = menu_widget.wait_for_selection(initial_index=0)
-    
-    return result
+    try:
+        # Wait for selection using the widget's blocking method
+        result = menu_widget.wait_for_selection(initial_index=0)
+        return result
+    finally:
+        _active_menu_widget = None
 
 
 def _run_centaur():
     """Launch the original DGT Centaur software.
     
     This hands over control to the Centaur software and exits.
-    Same behavior as menu.py's Centaur option.
     """
     import sys
     import time
     from DGTCentaurMods.board import board
-    from DGTCentaurMods.epaper import SplashScreen
     
     global _display_manager
     
@@ -627,7 +211,7 @@ def _run_centaur():
 def _run_universal():
     """Run the Universal BLE relay script.
     
-    Runs universal.py as a subprocess, similar to how menu.py runs external scripts.
+    Runs universal.py as a subprocess.
     """
     import sys
     import pathlib
@@ -635,7 +219,6 @@ def _run_universal():
     import signal
     import time
     from DGTCentaurMods.board import board
-    from DGTCentaurMods.epaper import SplashScreen
     
     global _display_manager
     
@@ -730,19 +313,23 @@ def _handle_settings():
     global _display_manager
     
     while True:
-        buttons = create_settings_buttons()
-        result = _show_button_menu(buttons, "Settings")
+        entries = create_settings_entries()
+        result = _show_icon_menu(entries)
         
         if result == "BACK":
             return
         
+        if result == "SHUTDOWN":
+            _shutdown("     Shutdown")
+            return
+        
         if result == "Sound":
             # Sound toggle submenu
-            sound_buttons = [
-                ButtonConfig(key="On", label="On", icon_name="settings", enabled=True),
-                ButtonConfig(key="Off", label="Off", icon_name="settings", enabled=True),
+            sound_entries = [
+                IconMenuEntry(key="On", label="On", icon_name="sound", enabled=True),
+                IconMenuEntry(key="Off", label="Off", icon_name="cancel", enabled=True),
             ]
-            sound_result = _show_button_menu(sound_buttons, "Sound")
+            sound_result = _show_icon_menu(sound_entries)
             if sound_result == "On":
                 centaur.set_sound("on")
                 board.beep(board.SOUND_GENERAL)
@@ -768,7 +355,7 @@ if __name__ == "__main__":
     
     Usage: python -m DGTCentaurMods.button_menu
     
-    Displays the main menu with large buttons and handles:
+    Displays the main menu with large icon buttons and handles:
     - Centaur: Launches the original DGT Centaur software
     - Universal: Runs the BLE relay mode (universal.py)
     - Settings: Opens settings submenu (Sound, Shutdown, Reboot)
@@ -782,7 +369,6 @@ if __name__ == "__main__":
     import sys
     from DGTCentaurMods.board import board
     from DGTCentaurMods.board.sync_centaur import command
-    from DGTCentaurMods.epaper import SplashScreen
     
     # Initialize display
     promise = board.init_display()
@@ -797,7 +383,7 @@ if __name__ == "__main__":
     # Subscribe to board events
     board.subscribeEvents(_key_callback, _field_callback, timeout=900)
     
-    # Send initialization commands (same as menu.py)
+    # Send initialization commands
     board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)
     board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F4)
     board.sendCommand(command.DGT_BUS_SEND_96)
@@ -812,11 +398,11 @@ if __name__ == "__main__":
     
     try:
         while True:
-            # Create main menu buttons
-            buttons = create_main_menu_buttons(centaur_available=centaur_available)
+            # Create main menu entries
+            entries = create_main_menu_entries(centaur_available=centaur_available)
             
             # Show main menu and get selection
-            result = _show_button_menu(buttons, "Main Menu")
+            result = _show_icon_menu(entries)
             
             log.info(f"Main menu selection: {result}")
             
@@ -834,9 +420,12 @@ if __name__ == "__main__":
                 board.wait_for_key_up(accept=board.Key.TICK)
                 continue
             
-            if result == "Centaur":
+            if result == "SHUTDOWN":
+                _shutdown("     Shutdown")
+            
+            elif result == "Centaur":
                 _run_centaur()
-                # Note: _run_centaur() exits the process, so we won't reach here
+                # Note: _run_centaur() exits the process
             
             elif result == "Universal":
                 _run_universal()
