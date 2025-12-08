@@ -1612,35 +1612,107 @@ def signal_handler(signum, frame):
     cleanup_and_exit(f"Received signal {signum}")
 
 
-def key_callback(key_id):
-    """Handle key press events from the board.
+def _handle_back_menu_result(result: str):
+    """Handle the result from the back button menu.
     
-    - BACK: Exit universal mode and return to menu
-    - HELP (?): Toggle evaluation graphs on/off
-    - LONG_PLAY: Shutdown system
+    Args:
+        result: Menu selection - 'resign', 'draw', 'cancel', or 'exit'
     """
-    global running, kill, graphs_enabled, game_analysis_widget, chess_board_widget
+    global running, kill, game_handler, chess_board_widget, game_analysis_widget
     
-    log.info(f"Key event received: {key_id}")
+    log.info(f"Back menu result: {result}")
     
-    if key_id == board.Key.BACK:
-        log.info("BACK pressed - exiting Universal mode")
+    if result == "resign":
+        game_handler.handle_resign()
+        _exit_universal("Game resigned")
+    elif result == "draw":
+        game_handler.handle_draw()
+        _exit_universal("Game drawn")
+    elif result == "exit":
+        # Shutdown requested from menu
         running = False
         kill = 1
-        
-        # Show exiting splash screen immediately
-        try:
-            if board.display_manager:
-                board.display_manager.clear_widgets(addStatusBar=False)
-                splash = SplashScreen(message="    Exiting...")
-                future = board.display_manager.add_widget(splash)
+        board.shutdown()
+    else:
+        # Cancel - restore the game display
+        log.info("Back menu cancelled - restoring game display")
+        _restore_game_display()
+
+
+def _restore_game_display():
+    """Restore the game display widgets after menu is cancelled."""
+    global chess_board_widget, game_analysis_widget
+    
+    try:
+        if board.display_manager:
+            board.display_manager.clear_widgets(addStatusBar=True)
+            
+            # Re-add chess board widget
+            if chess_board_widget:
+                future = board.display_manager.add_widget(chess_board_widget)
                 if future:
                     try:
                         future.result(timeout=2.0)
                     except Exception:
                         pass
-        except Exception as e:
-            log.debug(f"Error showing exit splash: {e}")
+            
+            # Re-add game analysis widget
+            if game_analysis_widget:
+                future = board.display_manager.add_widget(game_analysis_widget)
+                if future:
+                    try:
+                        future.result(timeout=2.0)
+                    except Exception:
+                        pass
+    except Exception as e:
+        log.error(f"Error restoring game display: {e}")
+
+
+def _exit_universal(reason: str):
+    """Exit universal mode with cleanup.
+    
+    Args:
+        reason: Reason for exiting (for logging)
+    """
+    global running, kill
+    
+    running = False
+    kill = 1
+    
+    # Show exiting splash screen
+    try:
+        if board.display_manager:
+            board.display_manager.clear_widgets(addStatusBar=False)
+            splash = SplashScreen(message="    Exiting...")
+            future = board.display_manager.add_widget(splash)
+            if future:
+                try:
+                    future.result(timeout=2.0)
+                except Exception:
+                    pass
+    except Exception as e:
+        log.debug(f"Error showing exit splash: {e}")
+
+
+def key_callback(key_id):
+    """Handle key press events from the board.
+    
+    - BACK: If game in progress, show resign/draw menu. Otherwise exit.
+    - HELP (?): Toggle evaluation graphs on/off
+    - LONG_PLAY: Shutdown system
+    """
+    global running, kill, graphs_enabled, game_analysis_widget, chess_board_widget, game_handler
+    
+    log.info(f"Key event received: {key_id}")
+    
+    if key_id == board.Key.BACK:
+        # Check if a game is in progress (at least one move made)
+        if game_handler and game_handler.is_game_in_progress():
+            log.info("BACK pressed during game - showing resign/draw menu")
+            game_handler.show_back_menu(_handle_back_menu_result)
+        else:
+            log.info("BACK pressed - exiting Universal mode (no game in progress)")
+            _exit_universal("No game in progress")
     
     elif key_id == board.Key.HELP:
         # Toggle evaluation graphs
