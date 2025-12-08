@@ -1,8 +1,19 @@
 #!/usr/bin/env python3
-"""
-Chessnut Simulator - Chessnut Air BLE emulator
+# Chessnut Air BLE Simulator
+#
+# This file is part of the DGTCentaurUniversal project
+# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+#
+# This project started as a fork of DGTCentaur Mods by EdNekebno
+# ( https://github.com/EdNekebno/DGTCentaur )
+#
+# Licensed under the GNU General Public License v3.0 or later.
+# See LICENSE.md for details.
 
-Emulates a real Chessnut Air chess board for testing and development.
+"""
+Chessnut Air BLE Simulator
+
+Simulates a real Chessnut Air chess board for testing and development.
 Uses BLE (Bluetooth Low Energy) only - Chessnut Air does not support RFCOMM.
 
 BLE Service structure:

@@ -1,30 +1,20 @@
-# This script manages a chess game, passing events and moves back to the calling script with callbacks
+# Game Manager
+#
+# This file is part of the DGTCentaurUniversal project
+# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+#
+# This project started as a fork of DGTCentaur Mods by EdNekebno
+# ( https://github.com/EdNekebno/DGTCentaur )
+#
+# Licensed under the GNU General Public License v3.0 or later.
+# See LICENSE.md for details.
+#
+# This script manages a chess game, passing events and moves back to the calling script with callbacks.
 # The calling script is expected to manage the display using the centralized epaper service.
 # Calling script initialises with subscribeGame(eventCallback, moveCallback, keyCallback)
 # eventCallback feeds back events such as start of game, gameover
 # moveCallback feeds back the chess moves made on the board
 # keyCallback feeds back key presses from keys under the display
-
-# This file is part of the DGTCentaur Mods open source software
-# ( https://github.com/EdNekebno/DGTCentaur )
-#
-# DGTCentaur Mods is free software: you can redistribute
-# it and/or modify it under the terms of the GNU General Public
-# License as published by the Free Software Foundation, either
-# version 3 of the License, or (at your option) any later version.
-#
-# DGTCentaur Mods is distributed in the hope that it will
-# be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
-# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this file.  If not, see
-#
-# https://github.com/EdNekebno/DGTCentaur/blob/master/LICENSE.md
-#
-# This and any other notices must remain intact and unaltered in any
-# distribution, modification, variant, or derivative of this software.
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.db import models

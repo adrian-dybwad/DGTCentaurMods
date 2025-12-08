@@ -46,6 +46,15 @@ sudo chmod +x run.sh
 ./run.sh
 ```
 
+Bluetooth:
+Reset:
+sudo systemctl restart bluetooth
+
+Fully reset stack:
+sudo systemctl stop bluetooth
+sudo hciconfig hci0 down
+sudo hciconfig hci0 up
+sudo systemctl start bluetooth
 
 
 Day-to-day development loop

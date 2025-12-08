@@ -407,7 +407,7 @@ def reset_bluetooth():
     This clears all paired devices to start fresh. Useful when switching
     between different phone/tablet connections or troubleshooting pairing issues.
     """
-    import subprocess
+    from DGTCentaurMods.bluetooth_controller import BluetoothController
     
     clear_screen()
     write_text(0, "Resetting")
@@ -415,26 +415,13 @@ def reset_bluetooth():
     
     removed_count = 0
     
-    # Get list of paired devices
-    result = subprocess.run(
-        ['bluetoothctl', 'paired-devices'],
-        capture_output=True, text=True, timeout=10
-    )
+    controller = BluetoothController()
+    paired_devices = controller.get_paired_devices()
     
-    if result.returncode == 0 and result.stdout.strip():
-        for line in result.stdout.strip().split('\n'):
-            # Each line is like: "Device AA:BB:CC:DD:EE:FF DeviceName"
-            parts = line.split()
-            if len(parts) >= 2 and parts[0] == "Device":
-                device_addr = parts[1]
-                # Remove the device
-                remove_result = subprocess.run(
-                    ['bluetoothctl', 'remove', device_addr],
-                    capture_output=True, text=True, timeout=10
-                )
-                if remove_result.returncode == 0:
-                    removed_count += 1
-                    log.info(f"Removed paired device: {device_addr}")
+    for device in paired_devices:
+        if controller.remove_device(device['address']):
+            removed_count += 1
+            log.info(f"Removed paired device: {device['address']}")
     
     # Show result
     clear_screen()

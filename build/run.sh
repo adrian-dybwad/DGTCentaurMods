@@ -76,7 +76,8 @@
 #
 # ============================================================================
 
-# ./run.sh DGTCentaurMods.tools.universal_relay --device-name "MILLENNIUM CHESS" --shadow-target "Chessnut Air" --relay
+# ./run.sh DGTCentaurMods.universal --device-name "MILLENNIUM CHESS" --shadow-target "Chessnut Air" --relay
+# ./run.sh DGTCentaurMods.universal --device-name "MILLENNIUM CHESS" --shadow-target "MILLENNIUM CHESS" --relay
 
 # Always run from the project root
 cd "$(dirname "$0")" || exit 1

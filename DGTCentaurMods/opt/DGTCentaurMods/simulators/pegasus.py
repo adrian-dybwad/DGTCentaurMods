@@ -1,8 +1,19 @@
 #!/usr/bin/env python3
-"""
-Pegasus Simulator - DGT Pegasus emulator using BLE (Nordic UART Service)
+# DGT Pegasus BLE Simulator
+#
+# This file is part of the DGTCentaurUniversal project
+# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+#
+# This project started as a fork of DGTCentaur Mods by EdNekebno
+# ( https://github.com/EdNekebno/DGTCentaur )
+#
+# Licensed under the GNU General Public License v3.0 or later.
+# See LICENSE.md for details.
 
-Emulates a real DGT Pegasus chess board for testing and development.
+"""
+DGT Pegasus simulator using BLE (Nordic UART Service)
+
+Simulates a real DGT Pegasus chess board for testing and development.
 Uses the Nordic UART Service (NUS) for BLE communication.
 
 The real Pegasus board:

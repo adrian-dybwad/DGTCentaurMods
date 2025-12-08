@@ -1,3 +1,14 @@
+# Bluetooth Controller
+#
+# This file is part of the DGTCentaurUniversal project
+# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+#
+# This project started as a fork of DGTCentaur Mods by EdNekebno
+# ( https://github.com/EdNekebno/DGTCentaur )
+#
+# Licensed under the GNU General Public License v3.0 or later.
+# See LICENSE.md for details.
+
 """Bluetooth controller for discovery and pairing supporting GATT (BLE) and RFCOMM (Classic Bluetooth).
 
 This module provides industry-standard Bluetooth management following:
@@ -5,10 +16,6 @@ This module provides industry-standard Bluetooth management following:
 - BlueZ D-Bus API patterns
 - Security best practices (input validation, no shell injection)
 - Cross-platform compatibility (Android, iOS, Linux)
-
-Protocol Support:
-- RFCOMM (Classic Bluetooth): Serial-like communication for reliable data transfer
-- GATT/BLE: Managed via thirdparty/service.py and game/ble.py using D-Bus
 
 Usage:
     # Instance-based usage (recommended)
@@ -45,7 +52,6 @@ class BluetoothController:
     
     Protocol Support:
         - RFCOMM (Classic Bluetooth): For reliable serial-like communication
-        - GATT/BLE: Managed separately via thirdparty/service.py and game/ble.py
         
     Cross-Platform Compatibility:
         - Android: Full support for both RFCOMM and BLE
@@ -682,6 +688,57 @@ class BluetoothController:
         except (subprocess.SubprocessError, OSError) as e:
             log.error(f"Error getting paired devices: {e}")
             return paired_devices
+    
+    def get_known_devices(self) -> List[Dict[str, str]]:
+        """
+        Get list of all known devices (paired and previously seen).
+        
+        Returns:
+            List of known devices with 'address' and 'name' keys
+        """
+        known_devices = []
+        
+        try:
+            p = self._create_bluetoothctl_process()
+            p.stdin.write("devices\n")
+            p.stdin.flush()
+            
+            def process_device_line(line: str) -> bool:
+                """Process a line from devices output"""
+                device_info = self._parse_device_line(line)
+                if device_info:
+                    known_devices.append(device_info)
+                return True  # Continue reading
+            
+            self._read_bluetoothctl_output(p, timeout=5.0, line_processor=process_device_line)
+            BluetoothController._safe_terminate(p)
+            
+            log.debug(f"Found {len(known_devices)} known devices")
+            return known_devices
+            
+        except (subprocess.SubprocessError, OSError) as e:
+            log.error(f"Error getting known devices: {e}")
+            return known_devices
+    
+    def find_device_by_name(self, name: str) -> Optional[str]:
+        """
+        Find a device address by name (case-insensitive partial match).
+        
+        Args:
+            name: Device name to search for (partial match supported)
+            
+        Returns:
+            Device address if found, None otherwise
+        """
+        name_upper = name.upper()
+        
+        # First check known devices
+        for device in self.get_known_devices():
+            if device['name'] and name_upper in device['name'].upper():
+                log.info(f"Found {name} in known devices: {device['address']}")
+                return device['address']
+        
+        return None
     
     def remove_device(self, device_address: str) -> bool:
         """

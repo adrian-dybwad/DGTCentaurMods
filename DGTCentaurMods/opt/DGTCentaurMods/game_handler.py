@@ -1,35 +1,23 @@
-# Universal Game Handler
+# Game Handler
 #
-# This file is part of the DGTCentaur Mods open source software
+# This file is part of the DGTCentaurUniversal project
+# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+#
+# This project started as a fork of DGTCentaur Mods by EdNekebno
 # ( https://github.com/EdNekebno/DGTCentaur )
 #
-# DGTCentaur Mods is free software: you can redistribute
-# it and/or modify it under the terms of the GNU General Public
-# License as published by the Free Software Foundation, either
-# version 3 of the License, or (at your option) any later version.
-#
-# DGTCentaur Mods is distributed in the hope that it will
-# be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
-# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this file.  If not, see
-#
-# https://github.com/EdNekebno/DGTCentaur/blob/master/LICENSE.md
-#
-# This and any other notices must remain intact and unaltered in any
-# distribution, modification, variant, or derivative of this software.
+# Licensed under the GNU General Public License v3.0 or later.
+# See LICENSE.md for details.
 
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.games.millennium import Millennium
-from DGTCentaurMods.games.pegasus import Pegasus
-from DGTCentaurMods.games.chessnut import Chessnut
-from DGTCentaurMods.games.manager import GameManager
+from DGTCentaurMods.emulators.millennium import Millennium
+from DGTCentaurMods.emulators.pegasus import Pegasus
+from DGTCentaurMods.emulators.chessnut import Chessnut
+from DGTCentaurMods.game_manager import GameManager
 
 
-class Universal:
-    """Universal game handler that supports multiple protocols (Millennium, Pegasus, Chessnut).
+class GameHandler:
+    """Game handler that supports multiple protocols (Millennium, Pegasus, Chessnut).
     
     This class can operate in two modes:
     1. Known client type (BLE): Only creates the specific emulator for that protocol
@@ -46,7 +34,7 @@ class Universal:
     CLIENT_CHESSNUT = "chessnut"
     
     def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False):
-        """Initialize the Universal handler.
+        """Initialize the GameHandler.
         
         Args:
             sendMessage_callback: Callback function(data) for sending messages to client
@@ -82,28 +70,28 @@ class Universal:
         
         # Always create all emulators for auto-detection from actual data
         # The client_type hint from BLE service UUID is unreliable
-        log.info(f"[Universal] Creating emulators for auto-detection (hint: {client_type or 'none'})")
+        log.info(f"[GameHandler] Creating emulators for auto-detection (hint: {client_type or 'none'})")
         
         # Create Millennium emulator
         self._millennium = Millennium(
             sendMessage_callback=self._handle_emulator_response,
             manager=self.manager
         )
-        log.info("[Universal] Created Millennium emulator")
+        log.info("[GameHandler] Created Millennium emulator")
         
         # Create Pegasus emulator
         self._pegasus = Pegasus(
             sendMessage_callback=self._handle_emulator_response,
             manager=self.manager
         )
-        log.info("[Universal] Created Pegasus emulator")
+        log.info("[GameHandler] Created Pegasus emulator")
         
         # Create Chessnut emulator
         self._chessnut = Chessnut(
             sendMessage_callback=self._handle_emulator_response,
             manager=self.manager
         )
-        log.info("[Universal] Created Chessnut emulator")
+        log.info("[GameHandler] Created Chessnut emulator")
         
         self.subscribe_manager()
     
@@ -118,7 +106,7 @@ class Universal:
         """
         if self.compare_mode:
             self._pending_response = bytes(data) if data else None
-            log.debug(f"[Universal] Emulator response buffered ({len(data) if data else 0} bytes)")
+            log.debug(f"[GameHandler] Emulator response buffered ({len(data) if data else 0} bytes)")
         else:
             if self._sendMessage:
                 self._sendMessage(data)
@@ -149,18 +137,18 @@ class Universal:
         emulator_response = self.get_pending_response()
         
         if emulator_response is None:
-            log.debug("[Universal] No emulator response to compare (emulator may not have generated one)")
+            log.debug("[GameHandler] No emulator response to compare (emulator may not have generated one)")
             return (None, None)
         
         shadow_bytes = bytes(shadow_response) if shadow_response else b''
         match = emulator_response == shadow_bytes
         
         if not match:
-            log.warning("[Universal] Response MISMATCH between emulator and shadow host:")
+            log.warning("[GameHandler] Response MISMATCH between emulator and shadow host:")
             log.warning(f"  Shadow host: {shadow_bytes.hex() if shadow_bytes else '(empty)'}")
             log.warning(f"  Emulator:    {emulator_response.hex() if emulator_response else '(empty)'}")
         else:
-            log.debug(f"[Universal] Response match: {shadow_bytes.hex()}")
+            log.debug(f"[GameHandler] Response match: {shadow_bytes.hex()}")
         
         return (match, emulator_response)
     
@@ -178,24 +166,24 @@ class Universal:
             time_in_seconds: Time since game start
         """
         try:
-            log.debug(f"[Universal] _manager_event_callback: {event} piece_event={piece_event}, field={field}")
-            log.debug(f"[Universal] Flags: is_millennium={self.is_millennium}, is_pegasus={self.is_pegasus}, is_chessnut={self.is_chessnut}")
-            log.debug(f"[Universal] Emulators: _millennium={self._millennium is not None}, _pegasus={self._pegasus is not None}, _chessnut={self._chessnut is not None}")
+            log.debug(f"[GameHandler] _manager_event_callback: {event} piece_event={piece_event}, field={field}")
+            log.debug(f"[GameHandler] Flags: is_millennium={self.is_millennium}, is_pegasus={self.is_pegasus}, is_chessnut={self.is_chessnut}")
+            log.debug(f"[GameHandler] Emulators: _millennium={self._millennium is not None}, _pegasus={self._pegasus is not None}, _chessnut={self._chessnut is not None}")
             
             # If protocol is confirmed, only forward to the active emulator
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_event'):
-                log.debug("[Universal] Routing event to Millennium")
+                log.debug("[GameHandler] Routing event to Millennium")
                 self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_event'):
-                log.debug("[Universal] Routing event to Pegasus")
+                log.debug("[GameHandler] Routing event to Pegasus")
                 self._pegasus.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
-                log.debug("[Universal] Routing event to Chessnut")
+                log.debug("[GameHandler] Routing event to Chessnut")
                 self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
             else:
                 # Protocol not yet confirmed - forward to ALL emulators
                 # Each emulator will only act if it has reporting enabled
-                log.debug("[Universal] Protocol not confirmed, forwarding event to all emulators")
+                log.debug("[GameHandler] Protocol not confirmed, forwarding event to all emulators")
                 if self._millennium and hasattr(self._millennium, 'handle_manager_event'):
                     self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
                 if self._pegasus and hasattr(self._pegasus, 'handle_manager_event'):
@@ -203,7 +191,7 @@ class Universal:
                 if self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
                     self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
         except Exception as e:
-            log.error(f"[Universal] Error in _manager_event_callback: {e}")
+            log.error(f"[GameHandler] Error in _manager_event_callback: {e}")
             import traceback
             traceback.print_exc()
     
@@ -216,7 +204,7 @@ class Universal:
             move: Chess move object
         """
         try:
-            log.debug(f"[Universal] _manager_move_callback: {move}")
+            log.debug(f"[GameHandler] _manager_move_callback: {move}")
             
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_move'):
                 self._millennium.handle_manager_move(move)
@@ -226,7 +214,7 @@ class Universal:
                 self._chessnut.handle_manager_move(move)
             else:
                 # Protocol not yet confirmed - forward to ALL emulators
-                log.debug("[Universal] Protocol not confirmed, forwarding move to all emulators")
+                log.debug("[GameHandler] Protocol not confirmed, forwarding move to all emulators")
                 if self._millennium and hasattr(self._millennium, 'handle_manager_move'):
                     self._millennium.handle_manager_move(move)
                 if self._pegasus and hasattr(self._pegasus, 'handle_manager_move'):
@@ -234,7 +222,7 @@ class Universal:
                 if self._chessnut and hasattr(self._chessnut, 'handle_manager_move'):
                     self._chessnut.handle_manager_move(move)
         except Exception as e:
-            log.error(f"[Universal] Error in _manager_move_callback: {e}")
+            log.error(f"[GameHandler] Error in _manager_move_callback: {e}")
             import traceback
             traceback.print_exc()
     
@@ -245,7 +233,7 @@ class Universal:
             key: Key that was pressed (board.Key enum value)
         """
         try:
-            log.info(f"[Universal] _manager_key_callback: {key}")
+            log.info(f"[GameHandler] _manager_key_callback: {key}")
             
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_key'):
                 self._millennium.handle_manager_key(key)
@@ -254,14 +242,14 @@ class Universal:
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_key'):
                 self._chessnut.handle_manager_key(key)
         except Exception as e:
-            log.error(f"[Universal] Error in _manager_key_callback: {e}")
+            log.error(f"[GameHandler] Error in _manager_key_callback: {e}")
             import traceback
             traceback.print_exc()
     
     def _manager_takeback_callback(self):
         """Handle takeback requests from the manager."""
         try:
-            log.info("[Universal] _manager_takeback_callback")
+            log.info("[GameHandler] _manager_takeback_callback")
             
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_takeback'):
                 self._millennium.handle_manager_takeback()
@@ -270,7 +258,7 @@ class Universal:
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_takeback'):
                 self._chessnut.handle_manager_takeback()
         except Exception as e:
-            log.error(f"[Universal] Error in _manager_takeback_callback: {e}")
+            log.error(f"[GameHandler] Error in _manager_takeback_callback: {e}")
             import traceback
             traceback.print_exc()
 
@@ -329,7 +317,7 @@ class Universal:
             if emulator and emulator.parse_byte(byte_value):
                 hint_match = " (matches hint)" if self._client_type_hint == client_type else ""
                 hint_mismatch = f" (hint was {self._client_type_hint})" if self._client_type_hint and self._client_type_hint != client_type else ""
-                log.info(f"[Universal] {name} protocol detected via auto-detection{hint_match}{hint_mismatch}")
+                log.info(f"[GameHandler] {name} protocol detected via auto-detection{hint_match}{hint_mismatch}")
                 
                 self.client_type = client_type
                 
@@ -367,15 +355,15 @@ class Universal:
     def subscribe_manager(self):
         """Subscribe to the game manager with callbacks."""
         try:
-            log.info("[Universal] Subscribing to game manager")
+            log.info("[GameHandler] Subscribing to game manager")
             self.manager.subscribe_game(
                 self._manager_event_callback,
                 self._manager_move_callback,
                 self._manager_key_callback,
                 self._manager_takeback_callback
             )
-            log.info("[Universal] Successfully subscribed to game manager")
+            log.info("[GameHandler] Successfully subscribed to game manager")
         except Exception as e:
-            log.error(f"[Universal] Failed to subscribe to game manager: {e}")
+            log.error(f"[GameHandler] Failed to subscribe to game manager: {e}")
             import traceback
             traceback.print_exc()

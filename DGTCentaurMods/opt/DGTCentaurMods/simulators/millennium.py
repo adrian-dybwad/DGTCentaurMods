@@ -1,8 +1,19 @@
 #!/usr/bin/env python3
-"""
-Millennium Simulator - Millennium ChessLink emulator supporting BLE and RFCOMM
+# Millennium ChessLink BLE/RFCOMM Simulator
+#
+# This file is part of the DGTCentaurUniversal project
+# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+#
+# This project started as a fork of DGTCentaur Mods by EdNekebno
+# ( https://github.com/EdNekebno/DGTCentaur )
+#
+# Licensed under the GNU General Public License v3.0 or later.
+# See LICENSE.md for details.
 
-Emulates a real Millennium ChessLink board for testing and development.
+"""
+Millennium ChessLink simulator supporting BLE and RFCOMM
+
+Simulates a real Millennium ChessLink board for testing and development.
 Supports both:
 - BLE (Bluetooth Low Energy) GATT services - no pairing required
 - RFCOMM (Classic Bluetooth Serial Port Profile) - pairing required
@@ -973,7 +984,7 @@ def main():
             log("  Install with: pip install pybluez")
         else:
             # Stop any existing rfcomm service/process that might be using the channel
-            # (same approach as universal_relay.py)
+            # (same approach as universal.py)
             log("Stopping any existing rfcomm processes...")
             os.system('sudo service rfcomm stop 2>/dev/null')
             time.sleep(1)

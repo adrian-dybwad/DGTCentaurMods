@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
+# Universal Bluetooth Relay
+#
+# This file is part of the DGTCentaurUniversal project
+# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+#
+# This project started as a fork of DGTCentaur Mods by EdNekebno
+# ( https://github.com/EdNekebno/DGTCentaur )
+#
+# Licensed under the GNU General Public License v3.0 or later.
+# See LICENSE.md for details.
+
 """
-Bluetooth Classic SPP Relay with BLE Support
+Universal Bluetooth Relay with BLE and RFCOMM Support
 
 This relay connects to a target device via Bluetooth Classic SPP (RFCOMM)
 and relays data between that device and a client connected to this relay.
@@ -13,7 +24,7 @@ BLE Implementation:
 - Supports RFCOMM with pairing (Serial Port Profile)
 
 Usage:
-    python3 tools/universal_relay.py
+    python3 universal.py
 """
 
 import argparse
@@ -32,8 +43,8 @@ import dbus.mainloop.glib
 from gi.repository import GLib
 
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.board.bluetooth_controller import BluetoothController
-from DGTCentaurMods.games.universal import Universal
+from DGTCentaurMods.bluetooth_controller import BluetoothController
+from DGTCentaurMods.game_handler import GameHandler
 
 # Global state
 running = True
@@ -42,7 +53,7 @@ shadow_target_connected = False
 client_connected = False
 ble_connected = False
 ble_client_type = None  # Track which BLE client type is connected: 'millennium' or 'pegasus'
-universal = None  # Universal instance
+game_handler = None  # GameHandler instance
 _last_message = None  # Last message sent via sendMessage
 relay_mode = False  # Whether relay mode is enabled (connects to relay target)
 shadow_target = "MILLENNIUM CHESS"  # Default target device name (can be overridden via --shadow-target)
@@ -207,7 +218,7 @@ class NoInputNoOutputAgent(dbus.service.Object):
     without requiring user confirmation. For RFCOMM, pairing is handled separately.
     """
     
-    AGENT_PATH = "/org/bluez/universal_relay_agent"
+    AGENT_PATH = "/org/bluez/universal_agent"
     CAPABILITY = "NoInputNoOutput"
     
     def __init__(self, bus):
@@ -276,7 +287,7 @@ class Advertisement(dbus.service.Object):
     This uses BlueZ's ScanResponseManufacturerData property.
     """
     
-    PATH_BASE = '/org/bluez/universal_relay/advertisement'
+    PATH_BASE = '/org/bluez/universal/advertisement'
 
     def __init__(self, bus, index, name, service_uuids=None, scan_rsp_uuids=None, 
                  manufacturer_data=None, scan_rsp_manufacturer_data=None):
@@ -346,7 +357,7 @@ class Application(dbus.service.Object):
     """GATT Application container for services"""
     
     def __init__(self, bus):
-        self.path = '/org/bluez/universal_relay'
+        self.path = '/org/bluez/universal'
         self.services = []
         dbus.service.Object.__init__(self, bus, self.path)
 
@@ -374,7 +385,7 @@ class Application(dbus.service.Object):
 class Service(dbus.service.Object):
     """GATT Service base class"""
     
-    PATH_BASE = '/org/bluez/universal_relay/service'
+    PATH_BASE = '/org/bluez/universal/service'
 
     def __init__(self, bus, index, uuid, primary):
         self.path = self.PATH_BASE + str(index)
@@ -578,24 +589,24 @@ class TXCharacteristic(Characteristic):
         log.info(f"TX Characteristic created: {MILLENNIUM_UUIDS['tx']}")
 
     def ReadValue(self, options):
-        global ble_connected, universal, relay_mode
+        global ble_connected, game_handler, relay_mode
         
         log.info("TX Characteristic ReadValue called by BLE client")
         
-        # If Universal is not initialized, treat ReadValue as a connection event
-        if universal is None:
+        # If GameHandler is not initialized, treat ReadValue as a connection event
+        if game_handler is None:
             log.info("ReadValue triggered before StartNotify - initializing connection")
             TXCharacteristic.tx_instance = self
             
             try:
-                universal = Universal(
+                game_handler = GameHandler(
                     sendMessage_callback=sendMessage,
-                    client_type=Universal.CLIENT_MILLENNIUM,
+                    client_type=GameHandler.CLIENT_MILLENNIUM,
                     compare_mode=relay_mode
                 )
-                log.info(f"[Universal] Instantiated for BLE (ReadValue) with client_type=MILLENNIUM")
+                log.info(f"[GameHandler] Instantiated for BLE (ReadValue) with client_type=MILLENNIUM")
             except Exception as e:
-                log.error(f"[Universal] Error instantiating: {e}")
+                log.error(f"[GameHandler] Error instantiating: {e}")
                 import traceback
                 traceback.print_exc()
             
@@ -609,7 +620,7 @@ class TXCharacteristic(Characteristic):
         log.debug(f"TX WriteValue: {data.hex()}")
 
     def StartNotify(self):
-        global ble_connected, ble_client_type, universal, relay_mode
+        global ble_connected, ble_client_type, game_handler, relay_mode
         
         log.info("=" * 60)
         log.info("TX Characteristic StartNotify called - Millennium BLE client subscribing")
@@ -623,27 +634,27 @@ class TXCharacteristic(Characteristic):
         self.notifying = True
         ble_client_type = 'millennium'
         
-        # Only create Universal instance if one doesn't exist yet
-        if universal is None:
+        # Only create GameHandler instance if one doesn't exist yet
+        if game_handler is None:
             try:
-                universal = Universal(
+                game_handler = GameHandler(
                     sendMessage_callback=sendMessage,
-                    client_type=Universal.CLIENT_MILLENNIUM,
+                    client_type=GameHandler.CLIENT_MILLENNIUM,
                     compare_mode=relay_mode
                 )
-                log.info(f"[Universal] Instantiated for BLE with client_type=MILLENNIUM, compare_mode={relay_mode}")
+                log.info(f"[GameHandler] Instantiated for BLE with client_type=MILLENNIUM, compare_mode={relay_mode}")
             except Exception as e:
-                log.error(f"[Universal] Error instantiating: {e}")
+                log.error(f"[GameHandler] Error instantiating: {e}")
                 import traceback
                 traceback.print_exc()
         else:
-            log.info("[Universal] Reusing existing instance for Millennium BLE notifications")
+            log.info("[GameHandler] Reusing existing instance for Millennium BLE notifications")
         
         ble_connected = True
         log.info("Millennium BLE notifications enabled successfully")
 
     def StopNotify(self):
-        global ble_connected, ble_client_type, universal
+        global ble_connected, ble_client_type, game_handler
         
         if not self.notifying:
             return
@@ -655,8 +666,8 @@ class TXCharacteristic(Characteristic):
         self.notifying = False
         ble_connected = False
         ble_client_type = None
-        universal = None
-        log.info("[Universal] Instance reset - ready for new connection")
+        game_handler = None
+        log.info("[GameHandler] Instance reset - ready for new connection")
 
     def send_notification(self, data):
         """Send data to client via notification."""
@@ -683,7 +694,7 @@ class RXCharacteristic(Characteristic):
 
     def WriteValue(self, value, options):
         global kill, ble_connected, shadow_target_connected, shadow_target_sock
-        global relay_mode, shadow_target, universal
+        global relay_mode, shadow_target, game_handler
         
         if kill:
             return
@@ -697,23 +708,23 @@ class RXCharacteristic(Characteristic):
             log.info(f"  Hex: {hex_str}")
             log.info(f"  ASCII: {ascii_str}")
             
-            # Ensure Universal instance exists for Millennium protocol
-            if universal is None:
-                log.info("[Universal] Creating instance on first RX data (Millennium)")
+            # Ensure GameHandler instance exists for Millennium protocol
+            if game_handler is None:
+                log.info("[GameHandler] Creating instance on first RX data (Millennium)")
                 # Reset any stale Pegasus state
                 if NordicTXCharacteristic.nordic_tx_instance is not None:
                     NordicTXCharacteristic.nordic_tx_instance.notifying = False
                 ble_client_type = 'millennium'
-                universal = Universal(
+                game_handler = GameHandler(
                     sendMessage_callback=sendMessage,
-                    client_type=Universal.CLIENT_MILLENNIUM,
+                    client_type=GameHandler.CLIENT_MILLENNIUM,
                     compare_mode=relay_mode
                 )
             
-            # Process through Universal
+            # Process through GameHandler
             for byte_val in bytes_data:
-                universal.receive_data(byte_val)
-            log.debug(f"Processed {len(bytes_data)} bytes through universal parser")
+                game_handler.receive_data(byte_val)
+            log.debug(f"Processed {len(bytes_data)} bytes through game handler parser")
             
             # Forward to shadow target if in relay mode
             if relay_mode and shadow_target_connected and shadow_target_sock is not None:
@@ -793,7 +804,7 @@ class NordicTXCharacteristic(Characteristic):
         log.info(f"Nordic TX Characteristic created: {NORDIC_UUIDS['tx']}")
 
     def StartNotify(self):
-        global ble_connected, ble_client_type, universal, relay_mode
+        global ble_connected, ble_client_type, game_handler, relay_mode
         
         log.info("=" * 60)
         log.info("Nordic TX StartNotify called - Pegasus BLE client subscribing")
@@ -807,27 +818,27 @@ class NordicTXCharacteristic(Characteristic):
         self.notifying = True
         ble_client_type = 'pegasus'
         
-        # Only create Universal instance if one doesn't exist yet
-        if universal is None:
+        # Only create GameHandler instance if one doesn't exist yet
+        if game_handler is None:
             try:
-                universal = Universal(
+                game_handler = GameHandler(
                     sendMessage_callback=sendMessage,
-                    client_type=Universal.CLIENT_PEGASUS,
+                    client_type=GameHandler.CLIENT_PEGASUS,
                     compare_mode=relay_mode
                 )
-                log.info(f"[Universal] Instantiated for Pegasus BLE with client_type=PEGASUS, compare_mode={relay_mode}")
+                log.info(f"[GameHandler] Instantiated for Pegasus BLE with client_type=PEGASUS, compare_mode={relay_mode}")
             except Exception as e:
-                log.error(f"[Universal] Error instantiating: {e}")
+                log.error(f"[GameHandler] Error instantiating: {e}")
                 import traceback
                 traceback.print_exc()
         else:
-            log.info("[Universal] Reusing existing instance for Pegasus BLE notifications")
+            log.info("[GameHandler] Reusing existing instance for Pegasus BLE notifications")
         
         ble_connected = True
         log.info("Pegasus BLE notifications enabled successfully")
 
     def StopNotify(self):
-        global ble_connected, ble_client_type, universal
+        global ble_connected, ble_client_type, game_handler
         
         if not self.notifying:
             return
@@ -839,8 +850,8 @@ class NordicTXCharacteristic(Characteristic):
         self.notifying = False
         ble_connected = False
         ble_client_type = None
-        universal = None
-        log.info("[Universal] Instance reset - ready for new connection")
+        game_handler = None
+        log.info("[GameHandler] Instance reset - ready for new connection")
 
     def send_notification(self, data):
         """Send data to Pegasus client via notification."""
@@ -867,7 +878,7 @@ class NordicRXCharacteristic(Characteristic):
 
     def WriteValue(self, value, options):
         global kill, ble_connected, shadow_target_connected, shadow_target_sock
-        global relay_mode, shadow_target, universal
+        global relay_mode, shadow_target, game_handler
         
         if kill:
             return
@@ -881,23 +892,23 @@ class NordicRXCharacteristic(Characteristic):
             log.info(f"  Hex: {hex_str}")
             log.info(f"  ASCII: {ascii_str}")
             
-            # Ensure Universal instance exists for Pegasus protocol
-            if universal is None:
-                log.info("[Universal] Creating instance on first RX data (Pegasus)")
+            # Ensure GameHandler instance exists for Pegasus protocol
+            if game_handler is None:
+                log.info("[GameHandler] Creating instance on first RX data (Pegasus)")
                 # Reset any stale Millennium state
                 if TXCharacteristic.tx_instance is not None:
                     TXCharacteristic.tx_instance.notifying = False
                 ble_client_type = 'pegasus'
-                universal = Universal(
+                game_handler = GameHandler(
                     sendMessage_callback=sendMessage,
-                    client_type=Universal.CLIENT_PEGASUS,
+                    client_type=GameHandler.CLIENT_PEGASUS,
                     compare_mode=relay_mode
                 )
             
-            # Process through Universal (Pegasus protocol)
+            # Process through GameHandler (Pegasus protocol)
             for byte_val in bytes_data:
-                universal.receive_data(byte_val)
-            log.debug(f"Processed {len(bytes_data)} bytes through universal parser (Pegasus)")
+                game_handler.receive_data(byte_val)
+            log.debug(f"Processed {len(bytes_data)} bytes through game handler parser (Pegasus)")
             
             # Forward to shadow target if in relay mode
             if relay_mode and shadow_target_connected and shadow_target_sock is not None:
@@ -991,7 +1002,7 @@ class ChessnutOperationTXCharacteristic(Characteristic):
         log.info(f"Chessnut OP TX Characteristic created: {CHESSNUT_UUIDS['op_tx']}")
 
     def WriteValue(self, value, options):
-        global kill, ble_connected, universal, relay_mode
+        global kill, ble_connected, game_handler, relay_mode
         
         if kill:
             return
@@ -1003,25 +1014,25 @@ class ChessnutOperationTXCharacteristic(Characteristic):
             log.info(f"Chessnut OP TX RX: {len(bytes_data)} bytes")
             log.info(f"  Hex: {hex_str}")
             
-            # Ensure Universal instance exists for Chessnut protocol
-            if universal is None:
-                log.info("[Universal] Creating instance on first RX data (Chessnut)")
+            # Ensure GameHandler instance exists for Chessnut protocol
+            if game_handler is None:
+                log.info("[GameHandler] Creating instance on first RX data (Chessnut)")
                 # Reset any stale Millennium/Pegasus state
                 if TXCharacteristic.tx_instance is not None:
                     TXCharacteristic.tx_instance.notifying = False
                 if NordicTXCharacteristic.nordic_tx_instance is not None:
                     NordicTXCharacteristic.nordic_tx_instance.notifying = False
                 ble_client_type = 'chessnut'
-                universal = Universal(
+                game_handler = GameHandler(
                     sendMessage_callback=sendMessage,
-                    client_type=Universal.CLIENT_CHESSNUT,
+                    client_type=GameHandler.CLIENT_CHESSNUT,
                     compare_mode=relay_mode
                 )
             
-            # Process through Universal (Chessnut protocol)
+            # Process through GameHandler (Chessnut protocol)
             for byte_val in bytes_data:
-                universal.receive_data(byte_val)
-            log.debug(f"Processed {len(bytes_data)} bytes through universal parser (Chessnut)")
+                game_handler.receive_data(byte_val)
+            log.debug(f"Processed {len(bytes_data)} bytes through game handler parser (Chessnut)")
             
             ble_connected = True
             
@@ -1048,7 +1059,7 @@ class ChessnutOperationRXCharacteristic(Characteristic):
         log.info(f"Chessnut OP RX Characteristic created: {CHESSNUT_UUIDS['op_rx']}")
 
     def StartNotify(self):
-        global ble_connected, ble_client_type, universal, relay_mode
+        global ble_connected, ble_client_type, game_handler, relay_mode
         
         log.info("=" * 60)
         log.info("Chessnut OP RX StartNotify called - Chessnut BLE client subscribing")
@@ -1064,28 +1075,28 @@ class ChessnutOperationRXCharacteristic(Characteristic):
         self.notifying = True
         ble_client_type = 'chessnut'
         
-        # Only create Universal instance if one doesn't exist yet
+        # Only create GameHandler instance if one doesn't exist yet
         # (OP TX WriteValue may have already created it)
-        if universal is None:
+        if game_handler is None:
             try:
-                universal = Universal(
+                game_handler = GameHandler(
                     sendMessage_callback=sendMessage,
-                    client_type=Universal.CLIENT_CHESSNUT,
+                    client_type=GameHandler.CLIENT_CHESSNUT,
                     compare_mode=relay_mode
                 )
-                log.info(f"[Universal] Instantiated for Chessnut BLE with client_type=CHESSNUT, compare_mode={relay_mode}")
+                log.info(f"[GameHandler] Instantiated for Chessnut BLE with client_type=CHESSNUT, compare_mode={relay_mode}")
             except Exception as e:
-                log.error(f"[Universal] Error instantiating: {e}")
+                log.error(f"[GameHandler] Error instantiating: {e}")
                 import traceback
                 traceback.print_exc()
         else:
-            log.info("[Universal] Reusing existing instance for Chessnut BLE notifications")
+            log.info("[GameHandler] Reusing existing instance for Chessnut BLE notifications")
         
         ble_connected = True
         log.info("Chessnut BLE notifications enabled successfully")
 
     def StopNotify(self):
-        global ble_connected, ble_client_type, universal
+        global ble_connected, ble_client_type, game_handler
         
         if not self.notifying:
             return
@@ -1097,8 +1108,8 @@ class ChessnutOperationRXCharacteristic(Characteristic):
         self.notifying = False
         ble_connected = False
         ble_client_type = None
-        universal = None
-        log.info("[Universal] Instance reset - ready for new connection")
+        game_handler = None
+        log.info("[GameHandler] Instance reset - ready for new connection")
 
     def send_notification(self, data):
         """Send notification to client."""
@@ -1232,7 +1243,7 @@ class ChessnutOTAService(Service):
 
 
 # ============================================================================
-# sendMessage callback for Universal
+# sendMessage callback for GameHandler
 # ============================================================================
 
 def sendMessage(data, message_type=None):
@@ -1304,25 +1315,13 @@ def find_shadow_target_device(shadow_target="MILLENNIUM CHESS"):
     """Find the device by name."""
     log.info(f"Looking for {shadow_target} device...")
     
-    # First, try to find in paired devices using bluetoothctl
-    try:
-        result = subprocess.run(['bluetoothctl', 'devices'], 
-                              capture_output=True, timeout=5, text=True)
-        if result.returncode == 0:
-            for line in result.stdout.split('\n'):
-                if 'Device' in line:
-                    parts = line.strip().split(' ', 2)
-                    if len(parts) >= 3:
-                        addr = parts[1]
-                        name = parts[2]
-                        log.info(f"Paired device: {name} ({addr})")
-                        if name and shadow_target.upper() in name.upper():
-                            log.info(f"Found {shadow_target} in paired devices: {addr}")
-                            return addr
-    except Exception as e:
-        log.debug(f"Could not check paired devices: {e}")
+    # First, try to find in known devices using BluetoothController
+    controller = BluetoothController()
+    addr = controller.find_device_by_name(shadow_target)
+    if addr:
+        return addr
     
-    # If not found in paired devices, do a discovery scan
+    # If not found in known devices, do a discovery scan
     log.info(f"Scanning for {shadow_target} device...")
     devices = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True)
     
@@ -1414,7 +1413,7 @@ def connect_to_shadow_target(shadow_target="MILLENNIUM CHESS"):
 def shadow_target_to_client():
     """Relay data from SHADOW TARGET to client."""
     global running, shadow_target_sock, client_sock, shadow_target_connected, client_connected
-    global _last_message, shadow_target, universal
+    global _last_message, shadow_target, game_handler
     
     log.info(f"Starting SHADOW TARGET -> Client relay thread")
     try:
@@ -1429,8 +1428,8 @@ def shadow_target_to_client():
                     data_bytes = bytearray(data)
                     log.info(f"SHADOW TARGET -> Client: {' '.join(f'{b:02x}' for b in data_bytes)}")
                     
-                    if universal is not None and universal.compare_mode:
-                        match, emulator_response = universal.compare_with_shadow(bytes(data_bytes))
+                    if game_handler is not None and game_handler.compare_mode:
+                        match, emulator_response = game_handler.compare_with_shadow(bytes(data_bytes))
                         if match is False:
                             log.error("[Relay] MISMATCH: Emulator response differs from shadow host")
                         elif match is True:
@@ -1460,7 +1459,7 @@ def shadow_target_to_client():
 
 def client_to_shadow_target():
     """Relay data from client to SHADOW TARGET"""
-    global running, shadow_target_sock, client_sock, shadow_target_connected, client_connected, universal
+    global running, shadow_target_sock, client_sock, shadow_target_connected, client_connected, game_handler
     
     log.info("Starting Client -> SHADOW TARGET relay thread")
     try:
@@ -1478,15 +1477,15 @@ def client_to_shadow_target():
                 if len(data) == 0:
                     log.info("RFCOMM client disconnected")
                     client_connected = False
-                    universal = None
+                    game_handler = None
                     break
                 
                 data_bytes = bytearray(data)
                 log.info(f"Client -> SHADOW TARGET: {' '.join(f'{b:02x}' for b in data_bytes)}")
                 
-                if universal is not None:
+                if game_handler is not None:
                     for byte_val in data_bytes:
-                        universal.receive_data(byte_val)
+                        game_handler.receive_data(byte_val)
                 
                 if shadow_target_sock is not None: 
                     shadow_target_sock.send(data)
@@ -1509,7 +1508,7 @@ def client_to_shadow_target():
 
 def client_reader():
     """Read data from RFCOMM client in server-only mode."""
-    global running, client_sock, client_connected, universal
+    global running, client_sock, client_connected, game_handler
     
     log.info("Starting Client reader thread (server-only mode)")
     try:
@@ -1523,17 +1522,17 @@ def client_reader():
                 if len(data) == 0:
                     log.info("RFCOMM client disconnected")
                     client_connected = False
-                    universal = None
+                    game_handler = None
                     break
                 
                 data_bytes = bytearray(data)
                 log.info(f"Client -> Server: {' '.join(f'{b:02x}' for b in data_bytes)}")
                 
-                if universal is not None:
+                if game_handler is not None:
                     for byte_val in data_bytes:
-                        universal.receive_data(byte_val)
+                        game_handler.receive_data(byte_val)
                 else:
-                    log.warning("universal is None - data not processed")
+                    log.warning("game_handler is None - data not processed")
                     
             except bluetooth.BluetoothError as e:
                 if running:
@@ -1555,13 +1554,13 @@ def cleanup():
     """Clean up connections and resources"""
     global kill, running, shadow_target_sock, client_sock, server_sock
     global shadow_target_connected, client_connected, ble_app, mainloop
-    global universal
+    global game_handler
     
     try:
         log.info("Cleaning up...")
         kill = 1
         running = False
-        universal = None
+        game_handler = None
         
         if client_sock:
             try:
@@ -1607,7 +1606,7 @@ def main():
     global server_sock, client_sock, shadow_target_sock
     global shadow_target_connected, client_connected, running, kill
     global ble_app, mainloop, shadow_target_to_client_thread, shadow_target_to_client_thread_started
-    global relay_mode, shadow_target, universal
+    global relay_mode, shadow_target, game_handler
     
     parser = argparse.ArgumentParser(description="Bluetooth Classic SPP Relay with BLE")
     parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
@@ -1955,12 +1954,12 @@ def main():
                 log.info("=" * 60)
                 log.info(f"Client address: {client_info}")
                 
-                universal = Universal(
+                game_handler = GameHandler(
                     sendMessage_callback=sendMessage,
                     client_type=None,
                     compare_mode=relay_mode
                 )
-                log.info("[Universal] Instantiated for RFCOMM")
+                log.info("[GameHandler] Instantiated for RFCOMM")
                 
             except bluetooth.BluetoothError:
                 time.sleep(0.1)
