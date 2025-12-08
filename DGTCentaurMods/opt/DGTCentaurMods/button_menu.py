@@ -132,46 +132,111 @@ class ButtonMenuWidget(Widget):
         line_color = 255 if selected else 0
         
         if icon_name == "centaur":
-            # Chess knight icon - simplified horse head silhouette
-            # Head shape
-            points = [
-                (left + 4, bottom),           # Bottom left
-                (left + 4, top + size//3),    # Left side up
-                (left + 8, top + 4),          # Muzzle
-                (left + size//2, top + 2),    # Top of head
-                (right - 4, top + 6),         # Ear area
-                (right - 2, top + size//3),   # Right side
-                (right - 4, bottom),          # Bottom right
+            # Chess knight piece - classic knight silhouette
+            # Scale factor for the icon size
+            s = size / 36.0  # Base design is 36px
+            
+            # Knight head and neck profile (facing right)
+            knight_points = [
+                # Base
+                (left + int(4*s), bottom - int(2*s)),
+                (right - int(4*s), bottom - int(2*s)),
+                # Right side going up
+                (right - int(6*s), bottom - int(8*s)),
+                (right - int(4*s), bottom - int(14*s)),
+                # Back of head curve
+                (right - int(6*s), top + int(10*s)),
+                (right - int(8*s), top + int(6*s)),
+                # Top of head / ears
+                (right - int(10*s), top + int(4*s)),
+                (x, top + int(2*s)),
+                # Forehead
+                (left + int(10*s), top + int(4*s)),
+                # Nose/muzzle
+                (left + int(6*s), top + int(8*s)),
+                (left + int(4*s), top + int(12*s)),
+                (left + int(6*s), top + int(14*s)),
+                # Jaw line
+                (left + int(8*s), y + int(2*s)),
+                # Neck front
+                (left + int(6*s), bottom - int(10*s)),
+                (left + int(4*s), bottom - int(6*s)),
             ]
-            draw.polygon(points, outline=line_color, fill=None)
-            # Eye
-            draw.ellipse([x - 2, y - 6, x + 2, y - 2], outline=line_color)
-            # Mane lines
-            draw.line([(left + size//3, top + 4), (left + size//3, top + 14)], fill=line_color, width=1)
-            draw.line([(x, top + 2), (x, top + 12)], fill=line_color, width=1)
+            draw.polygon(knight_points, outline=line_color, fill=line_color)
+            
+            # Eye (hollow circle for contrast)
+            eye_x = x + int(2*s)
+            eye_y = top + int(10*s)
+            eye_r = int(2*s)
+            # Draw eye in opposite color for visibility
+            eye_color = 0 if selected else 255
+            draw.ellipse([eye_x - eye_r, eye_y - eye_r, eye_x + eye_r, eye_y + eye_r], 
+                        fill=eye_color, outline=eye_color)
             
         elif icon_name == "universal":
-            # Bluetooth-like connectivity icon
-            center_x = x
-            center_y = y
+            # Chess pieces with Bluetooth symbol integrated
+            # Scale factor
+            s = size / 36.0
             
-            # Central vertical line
-            draw.line([(center_x, top + 4), (center_x, bottom - 4)], fill=line_color, width=2)
+            # Left side: Small pawn silhouette
+            pawn_x = left + int(6*s)
+            pawn_bottom = bottom - int(4*s)
+            # Pawn base
+            draw.rectangle([pawn_x - int(4*s), pawn_bottom - int(3*s), 
+                           pawn_x + int(4*s), pawn_bottom], fill=line_color)
+            # Pawn body
+            draw.polygon([
+                (pawn_x - int(3*s), pawn_bottom - int(3*s)),
+                (pawn_x - int(2*s), pawn_bottom - int(10*s)),
+                (pawn_x + int(2*s), pawn_bottom - int(10*s)),
+                (pawn_x + int(3*s), pawn_bottom - int(3*s)),
+            ], fill=line_color)
+            # Pawn head
+            draw.ellipse([pawn_x - int(3*s), pawn_bottom - int(16*s),
+                         pawn_x + int(3*s), pawn_bottom - int(10*s)], fill=line_color)
             
-            # Top arrow (pointing right-up)
-            draw.line([(center_x, top + 4), (right - 6, y - 4)], fill=line_color, width=2)
-            draw.line([(right - 6, y - 4), (center_x, y)], fill=line_color, width=2)
+            # Right side: Small rook silhouette
+            rook_x = right - int(6*s)
+            rook_bottom = bottom - int(4*s)
+            # Rook base
+            draw.rectangle([rook_x - int(4*s), rook_bottom - int(3*s),
+                           rook_x + int(4*s), rook_bottom], fill=line_color)
+            # Rook body
+            draw.rectangle([rook_x - int(3*s), rook_bottom - int(12*s),
+                           rook_x + int(3*s), rook_bottom - int(3*s)], fill=line_color)
+            # Rook battlements (top)
+            draw.rectangle([rook_x - int(4*s), rook_bottom - int(16*s),
+                           rook_x + int(4*s), rook_bottom - int(12*s)], fill=line_color)
+            # Battlement gaps
+            gap_color = 0 if selected else 255
+            draw.rectangle([rook_x - int(1*s), rook_bottom - int(16*s),
+                           rook_x + int(1*s), rook_bottom - int(13*s)], fill=gap_color)
             
-            # Bottom arrow (pointing right-down)
-            draw.line([(center_x, bottom - 4), (right - 6, y + 4)], fill=line_color, width=2)
-            draw.line([(right - 6, y + 4), (center_x, y)], fill=line_color, width=2)
+            # Center: Bluetooth symbol
+            bt_x = x
+            bt_y = y - int(2*s)
+            bt_h = int(14*s)  # Total height of bluetooth symbol
+            bt_w = int(8*s)   # Width
             
-            # Radio waves on left
-            draw.arc([left, y - 8, left + 12, y + 8], 120, 240, fill=line_color, width=1)
-            draw.arc([left - 4, y - 12, left + 16, y + 12], 120, 240, fill=line_color, width=1)
+            # Bluetooth vertical line
+            draw.line([(bt_x, bt_y - bt_h//2), (bt_x, bt_y + bt_h//2)], 
+                     fill=line_color, width=max(1, int(1.5*s)))
+            
+            # Top arrow pointing right then back
+            draw.line([(bt_x, bt_y - bt_h//2), (bt_x + bt_w//2, bt_y - bt_h//4)], 
+                     fill=line_color, width=max(1, int(1.5*s)))
+            draw.line([(bt_x + bt_w//2, bt_y - bt_h//4), (bt_x, bt_y)], 
+                     fill=line_color, width=max(1, int(1.5*s)))
+            
+            # Bottom arrow pointing right then back
+            draw.line([(bt_x, bt_y + bt_h//2), (bt_x + bt_w//2, bt_y + bt_h//4)], 
+                     fill=line_color, width=max(1, int(1.5*s)))
+            draw.line([(bt_x + bt_w//2, bt_y + bt_h//4), (bt_x, bt_y)], 
+                     fill=line_color, width=max(1, int(1.5*s)))
             
         elif icon_name == "settings":
             # Gear/cog icon
+            import math
             center_x = x
             center_y = y
             outer_r = half - 2
@@ -188,7 +253,6 @@ class ButtonMenuWidget(Widget):
                         outline=line_color, width=2)
             
             # Draw gear teeth (8 teeth)
-            import math
             tooth_len = 6
             for i in range(8):
                 angle = i * (360 / 8) * (math.pi / 180)
