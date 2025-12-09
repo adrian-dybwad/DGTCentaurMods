@@ -25,6 +25,18 @@ BLE proxy for DGT Pegasus boards. Connects to a real Pegasus as a client and adv
 - **Requirements**: `pip install bleak pyobjc-framework-CoreBluetooth`
 - **Use case**: Analyze Pegasus protocol by intercepting app-to-board traffic
 
+## Firmware-based Proxies
+
+### firmware/millennium/
+nRF52840 USB Dongle firmware for Millennium ChessLink boards. Unlike the Python-based proxies above, this runs directly on the nRF52840 hardware, allowing full BLE MITM proxying with real-time USB serial output.
+
+- **Platform**: Any computer with USB (Mac, Linux, Windows)
+- **Hardware**: nRF52840 USB Dongle
+- **Framework**: Zephyr RTOS
+- **Use case**: True BLE MITM proxy for Millennium protocol analysis
+
+See [firmware/millennium/README.md](firmware/millennium/README.md) for build and usage instructions.
+
 ## Usage
 
 All proxies log bidirectional traffic for protocol reverse-engineering. Run the proxy, then connect your chess app to the proxy instead of the real board.
