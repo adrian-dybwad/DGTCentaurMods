@@ -1,4 +1,4 @@
-# Bluetooth Controller
+# RFCOMM Manager
 #
 # This file is part of the DGTCentaurUniversal project
 # ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
@@ -9,23 +9,28 @@
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE.md for details.
 
-"""Bluetooth controller for discovery and pairing supporting GATT (BLE) and RFCOMM (Classic Bluetooth).
+"""RFCOMM manager for Classic Bluetooth discovery and pairing.
 
-This module provides industry-standard Bluetooth management following:
-- Bluetooth Core Specification for pairing protocols
-- BlueZ D-Bus API patterns
-- Security best practices (input validation, no shell injection)
-- Cross-platform compatibility (Android, iOS, Linux)
+This module manages RFCOMM (Classic Bluetooth) connections, which require
+pairing before data can be exchanged. BLE GATT connections are handled
+separately by ble_manager.py.
+
+Features:
+- Enable/disable Bluetooth adapter
+- Device discovery for Classic Bluetooth
+- PIN-based pairing for RFCOMM connections
+- Device management (list, remove paired devices)
+- Discoverability control
 
 Usage:
     # Instance-based usage (recommended)
-    controller = BluetoothController(device_name="My Device")
-    controller.enable_bluetooth()
-    controller.start_pairing(timeout=60)
+    manager = RfcommManager(device_name="My Device")
+    manager.enable_bluetooth()
+    manager.start_pairing(timeout=60)
     
     # Context manager usage
-    with BluetoothController() as controller:
-        controller.start_pairing_thread()
+    with RfcommManager() as manager:
+        manager.start_pairing_thread()
         # Bluetooth automatically enabled and cleaned up
 """
 import time
@@ -40,13 +45,13 @@ import pathlib
 from DGTCentaurMods.board.logging import log
 
 
-class BluetoothController:
-    """Controller for Bluetooth discovery and pairing supporting GATT (BLE) and RFCOMM (Classic Bluetooth).
+class RfcommManager:
+    """Manager for RFCOMM (Classic Bluetooth) discovery and pairing.
     
-    This controller provides comprehensive Bluetooth management following industry standards:
+    This manager handles Classic Bluetooth connections that require pairing:
     - Enable/disable Bluetooth adapter
-    - Device discovery (supports both Classic Bluetooth and BLE)
-    - Pairing management for RFCOMM (Classic Bluetooth) connections
+    - Device discovery for Classic Bluetooth
+    - PIN-based pairing for RFCOMM connections
     - Device management (list, remove paired devices)
     - Discoverability control for extended pairing windows
     
@@ -87,7 +92,7 @@ class BluetoothController:
         Returns:
             True if valid format, False otherwise
         """
-        return BluetoothController.MAC_ADDRESS_REGEX.match(address) is not None
+        return RfcommManager.MAC_ADDRESS_REGEX.match(address) is not None
     
     @staticmethod
     def _find_bluetoothctl_path() -> str:
@@ -325,7 +330,7 @@ class BluetoothController:
         try:
             p = self._create_bluetoothctl_process()
             self._send_bluetoothctl_commands(p, ["power on", "discoverable on", "pairable on"])
-            BluetoothController._safe_terminate(p)
+            RfcommManager._safe_terminate(p)
             log.info("Bluetooth enabled and made discoverable")
         except (subprocess.SubprocessError, OSError) as e:
             log.error(f"Error enabling Bluetooth: {e}")
@@ -342,7 +347,7 @@ class BluetoothController:
         try:
             p = self._create_bluetoothctl_process()
             self._send_bluetoothctl_commands(p, ["power off"], wait_time=1.0)
-            BluetoothController._safe_terminate(p)
+            RfcommManager._safe_terminate(p)
             log.info("Bluetooth disabled")
         except (subprocess.SubprocessError, OSError) as e:
             log.error(f"Error disabling Bluetooth: {e}")
@@ -372,7 +377,7 @@ class BluetoothController:
         try:
             p = self._create_bluetoothctl_process()
             self._send_bluetoothctl_commands(p, ["power on", f"system-alias {name}"], wait_time=1.0)
-            BluetoothController._safe_terminate(p)
+            RfcommManager._safe_terminate(p)
             self.device_name = name
             log.info(f"Bluetooth device name set to: {name}")
         except (subprocess.SubprocessError, OSError, ValueError) as e:
@@ -408,7 +413,7 @@ class BluetoothController:
                 p, 
                 ["power on", f"system-alias {name}", "discoverable on", "pairable on"]
             )
-            BluetoothController._safe_terminate(p)
+            RfcommManager._safe_terminate(p)
         except (subprocess.SubprocessError, OSError, ValueError) as e:
             log.debug(f"Error keeping Bluetooth discoverable: {e}")
             # Don't raise - this is a maintenance function that may fail occasionally
@@ -416,7 +421,7 @@ class BluetoothController:
     @staticmethod
     def get_pin_conf_path() -> Optional[str]:
         """Find pin.conf file in standard locations"""
-        for path in BluetoothController.PIN_CONF_PATHS:
+        for path in RfcommManager.PIN_CONF_PATHS:
             if pathlib.Path(path).exists():
                 return path
         return None
@@ -464,7 +469,7 @@ class BluetoothController:
             p.stdin.write("scan off\n")
             p.stdin.flush()
             time.sleep(0.5)
-            BluetoothController._safe_terminate(p)
+            RfcommManager._safe_terminate(p)
             
             log.info(f"Discovered {len(discovered_devices)} devices")
             return discovered_devices
@@ -524,7 +529,7 @@ class BluetoothController:
             while running:
                 # Check timeout
                 if timeout > 0 and time.time() - start_time > timeout:
-                    BluetoothController._safe_terminate(p)
+                    RfcommManager._safe_terminate(p)
                     log.info("Pairing timeout")
                     return False
                 
@@ -680,7 +685,7 @@ class BluetoothController:
                 return True  # Continue reading
             
             self._read_bluetoothctl_output(p, timeout=5.0, line_processor=process_paired_line)
-            BluetoothController._safe_terminate(p)
+            RfcommManager._safe_terminate(p)
             
             log.debug(f"Found {len(paired_devices)} paired devices")
             return paired_devices
@@ -711,7 +716,7 @@ class BluetoothController:
                 return True  # Continue reading
             
             self._read_bluetoothctl_output(p, timeout=5.0, line_processor=process_device_line)
-            BluetoothController._safe_terminate(p)
+            RfcommManager._safe_terminate(p)
             
             log.debug(f"Found {len(known_devices)} known devices")
             return known_devices
@@ -760,7 +765,7 @@ class BluetoothController:
         try:
             p = self._create_bluetoothctl_process()
             self._send_bluetoothctl_commands(p, [f"remove {device_address}"], wait_time=2.0)
-            BluetoothController._safe_terminate(p)
+            RfcommManager._safe_terminate(p)
             
             log.info(f"Removed device: {device_address}")
             return True
@@ -805,7 +810,7 @@ class BluetoothController:
                 return True  # Continue reading
             
             self._read_bluetoothctl_output(p, timeout=3.0, line_processor=process_status_line)
-            BluetoothController._safe_terminate(p)
+            RfcommManager._safe_terminate(p)
             
             return status
             

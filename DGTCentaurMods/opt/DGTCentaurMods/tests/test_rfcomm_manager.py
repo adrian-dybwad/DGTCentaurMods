@@ -1,4 +1,4 @@
-"""Tests for bluetooth_controller.py"""
+"""Tests for rfcomm_manager.py"""
 from __future__ import annotations
 
 import unittest
@@ -8,8 +8,8 @@ import threading
 import time
 
 
-class TestBluetoothController(unittest.TestCase):
-    """Test cases for BluetoothController"""
+class TestRfcommManager(unittest.TestCase):
+    """Test cases for RfcommManager"""
     
     def setUp(self):
         """Set up test fixtures"""
@@ -20,7 +20,7 @@ class TestBluetoothController(unittest.TestCase):
     @patch('psutil.process_iter')
     def test_enable_bluetooth(self, mock_process_iter, mock_popen):
         """Test enabling Bluetooth and making device discoverable"""
-        from DGTCentaurMods.bluetooth_controller import BluetoothController
+        from DGTCentaurMods.rfcomm_manager import RfcommManager
         
         # Mock subprocess
         mock_proc = MagicMock()
@@ -31,7 +31,7 @@ class TestBluetoothController(unittest.TestCase):
         # Mock psutil for bt-agent check
         mock_process_iter.return_value = []
         
-        controller = BluetoothController()
+        controller = RfcommManager()
         controller.enable_bluetooth()
         
         # Verify bluetoothctl commands were sent
@@ -45,7 +45,7 @@ class TestBluetoothController(unittest.TestCase):
     @patch('psutil.process_iter')
     def test_start_discovery(self, mock_process_iter, mock_popen):
         """Test starting device discovery"""
-        from DGTCentaurMods.bluetooth_controller import BluetoothController
+        from DGTCentaurMods.rfcomm_manager import RfcommManager
         
         # Mock subprocess
         mock_proc = MagicMock()
@@ -57,7 +57,7 @@ class TestBluetoothController(unittest.TestCase):
         # Mock psutil
         mock_process_iter.return_value = []
         
-        controller = BluetoothController()
+        controller = RfcommManager()
         controller.start_discovery(timeout=5)
         
         # Verify scan on was called
@@ -70,7 +70,7 @@ class TestBluetoothController(unittest.TestCase):
     @patch('select.poll')
     def test_start_pairing_classic_bluetooth(self, mock_poll, mock_process_iter, mock_popen):
         """Test starting pairing for Classic Bluetooth"""
-        from DGTCentaurMods.bluetooth_controller import BluetoothController
+        from DGTCentaurMods.rfcomm_manager import RfcommManager
         
         # Mock subprocess for bluetoothctl
         mock_btctl_proc = MagicMock()
@@ -100,7 +100,7 @@ class TestBluetoothController(unittest.TestCase):
         # Mock psutil
         mock_process_iter.return_value = []
         
-        controller = BluetoothController()
+        controller = RfcommManager()
         result = controller.start_pairing(timeout=1)
         
         # Should return False due to timeout (no device detected)
@@ -110,7 +110,7 @@ class TestBluetoothController(unittest.TestCase):
     @patch('psutil.process_iter')
     def test_set_device_name(self, mock_process_iter, mock_popen):
         """Test setting Bluetooth device name"""
-        from DGTCentaurMods.bluetooth_controller import BluetoothController
+        from DGTCentaurMods.rfcomm_manager import RfcommManager
         
         # Mock subprocess
         mock_proc = MagicMock()
@@ -121,7 +121,7 @@ class TestBluetoothController(unittest.TestCase):
         # Mock psutil
         mock_process_iter.return_value = []
         
-        controller = BluetoothController()
+        controller = RfcommManager()
         controller.set_device_name("TEST DEVICE")
         
         # Verify system-alias command was sent
@@ -134,7 +134,7 @@ class TestBluetoothController(unittest.TestCase):
     @patch('psutil.process_iter')
     def test_get_paired_devices(self, mock_process_iter, mock_popen):
         """Test getting list of paired devices"""
-        from DGTCentaurMods.bluetooth_controller import BluetoothController
+        from DGTCentaurMods.rfcomm_manager import RfcommManager
         
         # Mock subprocess with output
         mock_proc = MagicMock()
@@ -152,7 +152,7 @@ class TestBluetoothController(unittest.TestCase):
         # Mock psutil
         mock_process_iter.return_value = []
         
-        controller = BluetoothController()
+        controller = RfcommManager()
         devices = controller.get_paired_devices()
         
         # Should return list of devices
@@ -162,7 +162,7 @@ class TestBluetoothController(unittest.TestCase):
     @patch('psutil.process_iter')
     def test_remove_device(self, mock_process_iter, mock_popen):
         """Test removing a paired device"""
-        from DGTCentaurMods.bluetooth_controller import BluetoothController
+        from DGTCentaurMods.rfcomm_manager import RfcommManager
         
         # Mock subprocess
         mock_proc = MagicMock()
@@ -173,7 +173,7 @@ class TestBluetoothController(unittest.TestCase):
         # Mock psutil
         mock_process_iter.return_value = []
         
-        controller = BluetoothController()
+        controller = RfcommManager()
         controller.remove_device("AA:BB:CC:DD:EE:FF")
         
         # Verify remove command was sent
@@ -186,7 +186,7 @@ class TestBluetoothController(unittest.TestCase):
     @patch('psutil.process_iter')
     def test_keep_discoverable(self, mock_process_iter, mock_popen):
         """Test keeping device discoverable"""
-        from DGTCentaurMods.bluetooth_controller import BluetoothController
+        from DGTCentaurMods.rfcomm_manager import RfcommManager
         
         # Mock subprocess
         mock_proc = MagicMock()
@@ -197,7 +197,7 @@ class TestBluetoothController(unittest.TestCase):
         # Mock psutil
         mock_process_iter.return_value = []
         
-        controller = BluetoothController()
+        controller = RfcommManager()
         controller.keep_discoverable("TEST DEVICE")
         
         # Verify discoverable commands were sent

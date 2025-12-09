@@ -41,7 +41,7 @@ class GameHandler:
     
     def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False,
                  standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default",
-                 display_update_callback=None, key_callback=None, display_restore_callback=None):
+                 display_update_callback=None, key_callback=None):
         """Initialize the GameHandler.
         
         Args:
@@ -60,14 +60,13 @@ class GameHandler:
             display_update_callback: Callback function(fen) for updating display with position
             key_callback: Optional callback function(key) for external key handling.
                          Called for keys not handled by GameManager (e.g., BACK when no game)
-            display_restore_callback: Callback function() to restore display after back menu cancel
         """
         self._sendMessage = sendMessage_callback
         self.compare_mode = compare_mode
         self._pending_response = None
         self._display_update_callback = display_update_callback
-        self._display_restore_callback = display_restore_callback
         self._external_key_callback = key_callback
+        self._external_event_callback = None  # Optional callback for game events
         
         # Store the hint but don't trust it - always verify from data
         self._client_type_hint = client_type
@@ -230,6 +229,13 @@ class GameHandler:
                 elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
                     # Turn events are triggered AFTER the player's move is confirmed
                     self._check_standalone_engine_turn()
+            
+            # Notify external event callback
+            if self._external_event_callback:
+                try:
+                    self._external_event_callback(event)
+                except Exception as e:
+                    log.debug(f"[GameHandler] Error in external event callback: {e}")
             
             # Update display with current position
             self._update_display()
@@ -430,8 +436,7 @@ class GameHandler:
                 self._manager_event_callback,
                 self._manager_move_callback,
                 self._manager_key_callback,
-                self._manager_takeback_callback,
-                self._display_restore_callback
+                self._manager_takeback_callback
             )
             log.info("[GameHandler] Successfully subscribed to game manager")
         except Exception as e:

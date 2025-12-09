@@ -407,7 +407,7 @@ def reset_bluetooth():
     This clears all paired devices to start fresh. Useful when switching
     between different phone/tablet connections or troubleshooting pairing issues.
     """
-    from DGTCentaurMods.bluetooth_controller import BluetoothController
+    from DGTCentaurMods.rfcomm_manager import RfcommManager
     
     clear_screen()
     write_text(0, "Resetting")
@@ -415,7 +415,7 @@ def reset_bluetooth():
     
     removed_count = 0
     
-    controller = BluetoothController()
+    controller = RfcommManager()
     paired_devices = controller.get_paired_devices()
     
     for device in paired_devices:

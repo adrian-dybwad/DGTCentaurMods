@@ -48,9 +48,12 @@ import pathlib
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board import board
-from DGTCentaurMods.epaper import ChessBoardWidget, GameAnalysisWidget, SplashScreen
-from DGTCentaurMods.bluetooth_controller import BluetoothController
+from DGTCentaurMods.epaper import SplashScreen
+from DGTCentaurMods.rfcomm_manager import RfcommManager
 from DGTCentaurMods.game_handler import GameHandler
+from DGTCentaurMods.display_manager import DisplayManager
+# TODO: Migrate to BleManager for cleaner architecture
+# from DGTCentaurMods.ble_manager import BleManager
 
 # Global state
 running = True
@@ -60,15 +63,12 @@ client_connected = False
 ble_connected = False
 ble_client_type = None  # Track which BLE client type is connected: 'millennium' or 'pegasus'
 game_handler = None  # GameHandler instance
+display_manager = None  # DisplayManager for game UI widgets
 _last_message = None  # Last message sent via sendMessage
 relay_mode = False  # Whether relay mode is enabled (connects to relay target)
 shadow_target = "MILLENNIUM CHESS"  # Default target device name (can be overridden via --shadow-target)
 mainloop = None  # GLib mainloop for BLE
-chess_board_widget = None  # ChessBoardWidget for e-paper display
-game_analysis_widget = None  # GameAnalysisWidget for position evaluation
-analysis_engine = None  # UCI engine for position analysis (ct800)
-# Note: game_analysis_widget.visible controls whether analysis is displayed (default: True)
-bluetooth_controller = None  # BluetoothController for RFCOMM pairing
+rfcomm_manager = None  # RfcommManager for RFCOMM pairing
 
 # Socket references
 shadow_target_sock = None
@@ -1262,8 +1262,8 @@ def find_shadow_target_device(shadow_target="MILLENNIUM CHESS"):
     """Find the device by name."""
     log.info(f"Looking for {shadow_target} device...")
     
-    # First, try to find in known devices using BluetoothController
-    controller = BluetoothController()
+    # First, try to find in known devices using RfcommManager
+    controller = RfcommManager()
     addr = controller.find_device_by_name(shadow_target)
     if addr:
         return addr
@@ -1509,7 +1509,7 @@ def cleanup_and_exit(reason: str = "Normal exit"):
     """
     global kill, running, shadow_target_sock, client_sock, server_sock
     global shadow_target_connected, client_connected, ble_app, mainloop
-    global game_handler, game_analysis_widget, bluetooth_controller, analysis_engine
+    global game_handler, display_manager, rfcomm_manager
     
     try:
         log.info(f"Exiting: {reason}")
@@ -1517,12 +1517,12 @@ def cleanup_and_exit(reason: str = "Normal exit"):
         running = False
         
         # Stop bluetooth controller pairing thread
-        if bluetooth_controller is not None:
+        if rfcomm_manager is not None:
             try:
-                bluetooth_controller.stop_pairing_thread()
+                rfcomm_manager.stop_pairing_thread()
                 log.debug("Bluetooth controller pairing thread stopped")
             except Exception as e:
-                log.debug(f"Error stopping bluetooth controller: {e}")
+                log.debug(f"Error stopping rfcomm_manager: {e}")
         
         # Clean up game handler (stops game manager thread and closes standalone engine)
         if game_handler is not None:
@@ -1531,20 +1531,13 @@ def cleanup_and_exit(reason: str = "Normal exit"):
             except Exception as e:
                 log.debug(f"Error cleaning up game handler: {e}")
         
-        # Close analysis engine
-        if analysis_engine is not None:
+        # Clean up display manager (analysis engine and widgets)
+        if display_manager is not None:
             try:
-                analysis_engine.quit()
-                log.debug("Analysis engine closed")
+                display_manager.cleanup()
+                log.debug("Display manager cleaned up")
             except Exception as e:
-                log.debug(f"Error closing analysis engine: {e}")
-        
-        # Clean up analysis widget
-        if game_analysis_widget is not None:
-            try:
-                game_analysis_widget._stop_analysis_worker()
-            except Exception as e:
-                log.debug(f"Error stopping analysis worker: {e}")
+                log.debug(f"Error cleaning up display manager: {e}")
         
         # Pause board events
         try:
@@ -1612,71 +1605,32 @@ def signal_handler(signum, frame):
     cleanup_and_exit(f"Received signal {signum}")
 
 
-def _restore_game_display():
-    """Restore the game display widgets after menu is cancelled."""
-    global chess_board_widget, game_analysis_widget
-    
-    try:
-        if board.display_manager:
-            board.display_manager.clear_widgets(addStatusBar=True)
-            
-            # Re-add chess board widget
-            if chess_board_widget:
-                future = board.display_manager.add_widget(chess_board_widget)
-                if future:
-                    try:
-                        future.result(timeout=2.0)
-                    except Exception:
-                        pass
-            
-            # Re-add game analysis widget
-            if game_analysis_widget:
-                future = board.display_manager.add_widget(game_analysis_widget)
-                if future:
-                    try:
-                        future.result(timeout=2.0)
-                    except Exception:
-                        pass
-    except Exception as e:
-        log.error(f"Error restoring game display: {e}")
-
-
 def _exit_universal(reason: str):
     """Exit universal mode with cleanup.
     
     Args:
         reason: Reason for exiting (for logging)
     """
-    global running, kill
+    global running, kill, display_manager
     
     running = False
     kill = 1
     
     # Show exiting splash screen
-    try:
-        if board.display_manager:
-            board.display_manager.clear_widgets(addStatusBar=False)
-            splash = SplashScreen(message="    Exiting...")
-            future = board.display_manager.add_widget(splash)
-            if future:
-                try:
-                    future.result(timeout=2.0)
-                except Exception:
-                    pass
-    except Exception as e:
-        log.debug(f"Error showing exit splash: {e}")
+    if display_manager:
+        display_manager.show_splash("    Exiting...")
 
 
 def key_callback(key_id):
     """Handle key press events from the board.
     
-    GameManager handles BACK key when game is in progress (shows resign/draw menu).
+    GameManager handles BACK key when game is in progress (notifies display controller).
     This callback receives:
     - BACK: When no game in progress, or after resign/draw (signals exit)
     - HELP: Toggle game analysis widget visibility
     - LONG_PLAY: Shutdown system (also sent by GameManager for 'exit' menu choice)
     """
-    global running, kill, game_analysis_widget
+    global running, kill, display_manager
     
     log.info(f"Key event received: {key_id}")
     
@@ -1687,13 +1641,8 @@ def key_callback(key_id):
     
     elif key_id == board.Key.HELP:
         # Toggle game analysis widget visibility
-        if game_analysis_widget:
-            if game_analysis_widget.visible:
-                log.info("HELP pressed - hiding game analysis widget")
-                game_analysis_widget.hide()
-            else:
-                log.info("HELP pressed - showing game analysis widget")
-                game_analysis_widget.show()
+        if display_manager:
+            display_manager.toggle_analysis()
     
     elif key_id == board.Key.LONG_PLAY:
         log.info("LONG_PLAY pressed - shutting down")
@@ -1733,7 +1682,7 @@ def main():
     
     args = parser.parse_args()
     
-    global chess_board_widget, game_analysis_widget, analysis_engine
+    global display_manager, game_handler
     
     # Initialize display and show splash screen
     log.info("Initializing display...")
@@ -1776,72 +1725,46 @@ def main():
     else:
         fallback_player_color = chess.WHITE if args.player_color == "white" else chess.BLACK
     
-    # Initialize chess board widget for e-paper display
-    # Clear splash and show chess board
-    board.display_manager.clear_widgets()
+    # Get analysis engine path
+    base_path = pathlib.Path(__file__).parent
+    analysis_engine_path = str((base_path / "engines/ct800").resolve())
     
-    # Create chess board widget at y=16 (below status bar)
-    # Start with initial position
-    STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-    chess_board_widget = ChessBoardWidget(0, 16, STARTING_FEN)
-    future = board.display_manager.add_widget(chess_board_widget)
-    if future:
-        try:
-            future.result(timeout=5.0)
-        except Exception as e:
-            log.warning(f"Error displaying chess board widget: {e}")
-    log.info("Chess board widget initialized")
-    
-    # Initialize analysis engine for evaluation (use ct800 like UCI does)
-    global analysis_engine
-    try:
-        base_path = pathlib.Path(__file__).parent
-        analysis_engine_path = str((base_path / "engines/ct800").resolve())
-        analysis_engine = chess.engine.SimpleEngine.popen_uci(analysis_engine_path, timeout=None)
-        log.info(f"Analysis engine initialized: {analysis_engine_path}")
-    except Exception as e:
-        log.warning(f"Could not initialize analysis engine: {e}")
-        analysis_engine = None
-    
-    # Create game analysis widget at bottom (y=144, which is 16+128)
-    # Determine bottom color based on board orientation
-    bottom_color = "black" if chess_board_widget.flip else "white"
-    game_analysis_widget = GameAnalysisWidget(0, 144, 128, 80, bottom_color=bottom_color, analysis_engine=analysis_engine)
-    future = board.display_manager.add_widget(game_analysis_widget)
-    if future:
-        try:
-            future.result(timeout=5.0)
-        except Exception as e:
-            log.warning(f"Error displaying game analysis widget: {e}")
-    log.info("Game analysis widget initialized (visible=True by default)")
+    # Create DisplayManager - handles all game widgets (chess board, analysis)
+    display_manager = DisplayManager(
+        flip_board=False,
+        show_analysis=True,
+        analysis_engine_path=analysis_engine_path,
+        on_exit=lambda: _exit_universal("Menu exit")
+    )
+    log.info("DisplayManager initialized")
     
     # Display update callback for GameHandler
     def update_display(fen):
-        """Update the chess board widget with new position and trigger analysis."""
-        if chess_board_widget:
+        """Update display manager with new position."""
+        if display_manager:
+            display_manager.update_position(fen)
+            # Trigger analysis
             try:
-                chess_board_widget.set_fen(fen)
-                
-                # Always update analysis (even when widget is hidden) so history is collected
-                # The widget will show accumulated history when made visible again
-                if game_analysis_widget and analysis_engine:
-                    try:
-                        # Parse FEN to get board and turn
-                        board_obj = chess.Board(fen)
-                        current_turn_str = "white" if board_obj.turn == chess.WHITE else "black"
-                        # Use short time limit for responsive analysis
-                        game_analysis_widget.analyze_position(board_obj, current_turn_str, is_first_move=False, time_limit=0.3)
-                    except Exception as e:
-                        log.debug(f"Error updating analysis: {e}")
+                board_obj = chess.Board(fen)
+                current_turn = "white" if board_obj.turn == chess.WHITE else "black"
+                display_manager.analyze_position(board_obj, current_turn)
             except Exception as e:
-                log.error(f"Error updating chess board widget: {e}")
+                log.debug(f"Error triggering analysis: {e}")
+    
+    # Back menu result handler
+    def _on_back_menu_result(result: str):
+        """Handle result from back menu (resign/draw/cancel/exit)."""
+        if result == "resign":
+            game_handler.manager.handle_resign()
+            _exit_universal("Resigned")
+        elif result == "draw":
+            game_handler.manager.handle_draw()
+            _exit_universal("Draw")
+        elif result == "exit":
+            board.shutdown()
+        # cancel is handled by DisplayManager (restores display)
     
     # Create GameHandler at startup (with standalone engine if configured)
-    # This allows standalone play against engine when no app is connected
-    # Key handling:
-    # - BACK during game: GameManager shows resign/draw menu
-    # - BACK with no game: Passed to key_callback for exit
-    # - HELP: Passed to key_callback to toggle analysis widget
     game_handler = GameHandler(
         sendMessage_callback=sendMessage,
         client_type=None,
@@ -1850,10 +1773,20 @@ def main():
         player_color=fallback_player_color,
         engine_elo=args.engine_elo,
         display_update_callback=update_display,
-        key_callback=key_callback,
-        display_restore_callback=_restore_game_display
+        key_callback=key_callback
     )
     log.info(f"[GameHandler] Created with standalone engine: {args.standalone_engine} @ {args.engine_elo}")
+    
+    # Wire up GameManager callbacks to DisplayManager
+    game_handler.manager.on_promotion_needed = display_manager.show_promotion_menu
+    game_handler.manager.on_back_pressed = lambda: display_manager.show_back_menu(_on_back_menu_result)
+    
+    # Wire up event callback to reset analysis on new game
+    from DGTCentaurMods.game_manager import EVENT_NEW_GAME
+    def _on_game_event(event):
+        if event == EVENT_NEW_GAME:
+            display_manager.reset_analysis()
+    game_handler._external_event_callback = _on_game_event
     
     # Check for early exit (BACK pressed during setup)
     if kill:
@@ -2089,7 +2022,7 @@ def main():
         cleanup_and_exit("BACK pressed during BLE setup")
     
     # Setup RFCOMM if enabled
-    global bluetooth_controller
+    global rfcomm_manager
     if not args.no_rfcomm:
         # Check for early exit before starting RFCOMM setup
         if kill:
@@ -2108,15 +2041,15 @@ def main():
         
         time.sleep(0.5)
         
-        # Check again before creating BluetoothController
+        # Check again before creating RfcommManager
         if kill:
-            cleanup_and_exit("BACK pressed before BluetoothController creation")
+            cleanup_and_exit("BACK pressed before RfcommManager creation")
         
-        # Create Bluetooth controller for pairing
-        bluetooth_controller = BluetoothController(device_name=args.device_name)
-        bluetooth_controller.enable_bluetooth()
-        bluetooth_controller.set_device_name(args.device_name)
-        bluetooth_controller.start_pairing_thread()
+        # Create RFCOMM manager for pairing
+        rfcomm_manager = RfcommManager(device_name=args.device_name)
+        rfcomm_manager.enable_bluetooth()
+        rfcomm_manager.set_device_name(args.device_name)
+        rfcomm_manager.start_pairing_thread()
         
         time.sleep(1)
         
