@@ -108,7 +108,9 @@ class ClockManager:
         
         if not showing_promotion:
             time_string = self.format_time(self.white_time_seconds, self.black_time_seconds)
-            widgets.write_text(self.display_line, time_string)
+            # TODO: Replace with proper clock widget display
+            # The old widgets.write_text() no longer exists
+            log.debug(f"[ClockManager] Time: {time_string}")
     
     def start(self, current_turn_getter, is_starting_position_getter, showing_promotion_getter):
         """Start the clock thread."""
@@ -131,7 +133,8 @@ class ClockManager:
         
         # Initial display
         time_string = self.format_time(self.white_time_seconds, self.black_time_seconds)
-        widgets.write_text(self.display_line, time_string)
+        # TODO: Replace with proper clock widget display
+        log.debug(f"[ClockManager] Initial time: {time_string}")
     
     def stop(self):
         """Stop the clock thread."""
@@ -340,7 +343,19 @@ class GameManager:
             self.event_callback(termination)
     
     def _handle_promotion(self, target_square: int, piece_name: str, is_forced: bool) -> str:
-        """Handle pawn promotion by prompting user for piece choice."""
+        """Handle pawn promotion by prompting user for piece choice.
+        
+        Shows an IconMenuWidget with Queen, Rook, Bishop, Knight options.
+        Uses chess piece icons appropriate for the promoting color.
+        
+        Args:
+            target_square: The target square index (0-63)
+            piece_name: The piece name ('P' for white pawn, 'p' for black pawn)
+            is_forced: Whether this is a forced/computer move (skip menu if True)
+            
+        Returns:
+            Promotion piece letter ('q', 'r', 'b', 'n') or empty string if not a promotion
+        """
         is_white_promotion = (target_square // BOARD_WIDTH) == PROMOTION_ROW_WHITE and piece_name == "P"
         is_black_promotion = (target_square // BOARD_WIDTH) == PROMOTION_ROW_BLACK and piece_name == "p"
         
@@ -349,28 +364,77 @@ class GameManager:
         
         board.beep(board.SOUND_GENERAL)
         if not is_forced:
-            screen_backup = service.snapshot()
             self.is_showing_promotion = True
-            widgets.promotion_options(PROMOTION_DISPLAY_LINE)
-            promotion_choice = self._wait_for_promotion_choice()
+            promotion_choice = self._show_promotion_menu(is_white_promotion)
             self.is_showing_promotion = False
-            service.blit(screen_backup, 0, 0)
             return promotion_choice
         return ""
     
-    def _wait_for_promotion_choice(self) -> str:
-        """Wait for user to select promotion piece via button press."""
-        key = board.wait_for_key_up(timeout=60)
-        if key == board.Key.BACK:
-            return "n"  # Knight
-        elif key == board.Key.TICK:
-            return "b"  # Bishop
-        elif key == board.Key.UP:
-            return "q"  # Queen
-        elif key == board.Key.DOWN:
-            return "r"  # Rook
-        else:
-            return "q"  # Default to queen on timeout/other
+    def _show_promotion_menu(self, is_white: bool) -> str:
+        """Show promotion piece selection menu using IconMenuWidget.
+        
+        Args:
+            is_white: True if white is promoting, False if black
+            
+        Returns:
+            Promotion piece letter ('q', 'r', 'b', 'n')
+        """
+        # Create promotion menu entries with chess piece icons
+        # Icon format: piece letter + 'w' or 'b' for color (e.g., 'Qw' for white queen)
+        color_suffix = "w" if is_white else "b"
+        
+        entries = [
+            IconMenuEntry(key="q", label="Queen", icon_name=f"Q{color_suffix}"),
+            IconMenuEntry(key="r", label="Rook", icon_name=f"R{color_suffix}"),
+            IconMenuEntry(key="b", label="Bishop", icon_name=f"B{color_suffix}"),
+            IconMenuEntry(key="n", label="Knight", icon_name=f"N{color_suffix}"),
+        ]
+        
+        # Selection event for synchronization
+        selection_event = threading.Event()
+        selected_piece = ["q"]  # Default to queen, use list for closure mutability
+        
+        def on_select(entry_key: str):
+            selected_piece[0] = entry_key
+            selection_event.set()
+        
+        # Create and display the menu (full screen)
+        promotion_menu = IconMenuWidget(
+            x=0, y=0, width=128, height=296,
+            entries=entries,
+            on_select=on_select
+        )
+        promotion_menu.activate()
+        
+        # Save current widgets and show promotion menu
+        if board.display_manager:
+            board.display_manager.clear_widgets(addStatusBar=False)
+            future = board.display_manager.add_widget(promotion_menu)
+            if future:
+                try:
+                    future.result(timeout=2.0)
+                except Exception:
+                    pass
+        
+        # Route key events to the menu while waiting
+        original_key_callback = self.key_callback
+        self.key_callback = lambda key: promotion_menu.handle_key(key)
+        
+        # Wait for selection (with timeout)
+        selection_event.wait(timeout=60.0)
+        
+        # Restore key callback
+        self.key_callback = original_key_callback
+        
+        # Deactivate menu
+        promotion_menu.deactivate()
+        
+        # Restore display (caller should handle this via display_restore callback)
+        if self.on_display_restore:
+            self.on_display_restore()
+        
+        log.info(f"[GameManager] Promotion selected: {selected_piece[0]}")
+        return selected_piece[0]
     
     def _check_takeback(self) -> bool:
         """Check if a takeback is in progress by comparing board states.

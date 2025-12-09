@@ -171,6 +171,14 @@ class IconButtonWidget(Widget):
             self._draw_power_icon(draw, x, y, size, line_color)
         elif icon_name == "reboot":
             self._draw_reboot_icon(draw, x, y, size, line_color)
+        elif icon_name in ("Qw", "Qb"):
+            self._draw_queen_icon(draw, x, y, size, line_color, selected, icon_name == "Qw")
+        elif icon_name in ("Rw", "Rb"):
+            self._draw_rook_icon(draw, x, y, size, line_color, selected, icon_name == "Rw")
+        elif icon_name in ("Bw", "Bb"):
+            self._draw_bishop_icon(draw, x, y, size, line_color, selected, icon_name == "Bw")
+        elif icon_name in ("Nw", "Nb"):
+            self._draw_knight_piece_icon(draw, x, y, size, line_color, selected, icon_name == "Nw")
         else:
             # Default: simple square placeholder
             draw.rectangle([left + 4, top + 4, right - 4, bottom - 4],
@@ -411,3 +419,123 @@ class IconButtonWidget(Widget):
             (arrow_x + 6, arrow_y + 2),
             (arrow_x + 2, arrow_y + 6),
         ], fill=line_color)
+    
+    def _draw_queen_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                         size: int, line_color: int, selected: bool, is_white: bool):
+        """Draw a queen chess piece icon.
+        
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line color (0=black, 255=white)
+            selected: Whether button is selected
+            is_white: Whether to draw white piece (filled) or black piece (outline)
+        """
+        half = size // 2
+        s = size / 36.0  # Scale factor
+        
+        # Base
+        base_top = y + half - int(6*s)
+        draw.rectangle([x - int(10*s), base_top, x + int(10*s), y + half - int(2*s)],
+                      fill=line_color, outline=line_color)
+        
+        # Body (trapezoid)
+        body_points = [
+            (x - int(8*s), base_top),
+            (x - int(6*s), y - int(4*s)),
+            (x + int(6*s), y - int(4*s)),
+            (x + int(8*s), base_top),
+        ]
+        draw.polygon(body_points, fill=line_color, outline=line_color)
+        
+        # Crown points (5 spikes)
+        crown_base = y - int(4*s)
+        crown_top = y - half + int(2*s)
+        for i in range(5):
+            spike_x = x + int((i - 2) * 4 * s)
+            draw.polygon([
+                (spike_x - int(2*s), crown_base),
+                (spike_x, crown_top),
+                (spike_x + int(2*s), crown_base),
+            ], fill=line_color, outline=line_color)
+            # Small circle on top of each spike
+            draw.ellipse([spike_x - int(2*s), crown_top - int(2*s),
+                         spike_x + int(2*s), crown_top + int(2*s)],
+                        fill=line_color, outline=line_color)
+    
+    def _draw_rook_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                        size: int, line_color: int, selected: bool, is_white: bool):
+        """Draw a rook chess piece icon."""
+        half = size // 2
+        s = size / 36.0
+        
+        # Base
+        base_top = y + half - int(6*s)
+        draw.rectangle([x - int(10*s), base_top, x + int(10*s), y + half - int(2*s)],
+                      fill=line_color, outline=line_color)
+        
+        # Body
+        draw.rectangle([x - int(7*s), y - int(4*s), x + int(7*s), base_top],
+                      fill=line_color, outline=line_color)
+        
+        # Battlements (top)
+        battlement_base = y - int(4*s)
+        battlement_top = y - half + int(2*s)
+        draw.rectangle([x - int(9*s), battlement_base, x + int(9*s), battlement_top + int(4*s)],
+                      fill=line_color, outline=line_color)
+        
+        # Cut out the gaps in battlements
+        gap_color = 0 if selected else 255
+        for i in [-1, 1]:
+            gap_x = x + int(i * 4 * s)
+            draw.rectangle([gap_x - int(2*s), battlement_top,
+                           gap_x + int(2*s), battlement_top + int(4*s)],
+                          fill=gap_color, outline=gap_color)
+    
+    def _draw_bishop_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                          size: int, line_color: int, selected: bool, is_white: bool):
+        """Draw a bishop chess piece icon."""
+        half = size // 2
+        s = size / 36.0
+        
+        # Base
+        base_top = y + half - int(6*s)
+        draw.rectangle([x - int(8*s), base_top, x + int(8*s), y + half - int(2*s)],
+                      fill=line_color, outline=line_color)
+        
+        # Body (tapered)
+        body_points = [
+            (x - int(6*s), base_top),
+            (x - int(4*s), y),
+            (x, y - int(8*s)),
+            (x + int(4*s), y),
+            (x + int(6*s), base_top),
+        ]
+        draw.polygon(body_points, fill=line_color, outline=line_color)
+        
+        # Mitre top (pointed hat)
+        draw.polygon([
+            (x - int(4*s), y - int(8*s)),
+            (x, y - half + int(2*s)),
+            (x + int(4*s), y - int(8*s)),
+        ], fill=line_color, outline=line_color)
+        
+        # Small ball on top
+        draw.ellipse([x - int(2*s), y - half, x + int(2*s), y - half + int(4*s)],
+                    fill=line_color, outline=line_color)
+        
+        # Diagonal slit on mitre
+        slit_color = 0 if selected else 255
+        draw.line([(x - int(2*s), y - int(6*s)), (x + int(2*s), y - int(10*s))],
+                 fill=slit_color, width=max(1, int(1.5*s)))
+    
+    def _draw_knight_piece_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                                size: int, line_color: int, selected: bool, is_white: bool):
+        """Draw a knight chess piece icon (for promotion menu).
+        
+        Similar to _draw_knight_icon but designed for promotion context.
+        """
+        # Reuse the existing knight icon drawing
+        self._draw_knight_icon(draw, x, y, size, line_color, selected)
