@@ -473,9 +473,12 @@ def _return_to_menu(reason: str):
     Args:
         reason: Reason for returning to menu (for logging)
     """
-    global app_state, game_handler, display_manager
+    global app_state, game_handler, display_manager, _pending_piece_events
     
     log.info(f"[App] Returning to MENU: {reason}")
+    
+    # Clear any stale pending piece events from previous game
+    _pending_piece_events.clear()
     
     # Clean up game handler
     if game_handler is not None:
@@ -1355,8 +1358,9 @@ def key_callback(key_id):
                 _return_to_menu("BACK pressed")
 
 
-# Pending piece event for menu -> game transition
-_pending_piece_event = None
+# Pending piece events for menu -> game transition
+# Queue of (piece_event, field, time_in_seconds) tuples
+_pending_piece_events = []
 
 def field_callback(piece_event, field, time_in_seconds):
     """Handle field events (piece lift/place) from the board.
@@ -1371,8 +1375,8 @@ def field_callback(piece_event, field, time_in_seconds):
         field: Board field index (0-63)
         time_in_seconds: Event timestamp
     """
-    global app_state, game_handler, _active_keyboard_widget, _active_menu_widget, _pending_piece_event
-    
+    global app_state, game_handler, _active_keyboard_widget, _active_menu_widget, _pending_piece_events
+
     # Priority 1: Active keyboard gets field events
     if _active_keyboard_widget is not None:
         # Convert piece_event to presence: 1 = place = present, 0 = lift = not present
@@ -1380,12 +1384,15 @@ def field_callback(piece_event, field, time_in_seconds):
         _active_keyboard_widget.handle_field_event(field, piece_present)
         return
     
-    # Priority 2: Menu mode - piece lift starts game
+    # Priority 2: Menu mode - piece events queued for game mode
     if app_state == AppState.MENU and _active_menu_widget is not None:
-        # Store the piece event to forward after game mode starts
-        _pending_piece_event = (piece_event, field, time_in_seconds)
-        log.info(f"[App] Piece event in menu - starting game (field={field}, event={piece_event})")
-        _active_menu_widget.cancel_selection("PIECE_MOVED")
+        # Queue the piece event to forward after game mode starts
+        # Multiple events may arrive before game mode is ready (e.g., LIFT then PLACE)
+        _pending_piece_events.append((piece_event, field, time_in_seconds))
+        log.info(f"[App] Piece event in menu - queued for game (field={field}, event={piece_event}, queue_size={len(_pending_piece_events)})")
+        # Only trigger game start on first event (avoid multiple cancel calls)
+        if len(_pending_piece_events) == 1:
+            _active_menu_widget.cancel_selection("PIECE_MOVED")
         return
     
     # Priority 3: Game mode
@@ -1402,7 +1409,7 @@ def main():
     """
     global server_sock, client_sock, client_connected, running, kill
     global mainloop, relay_mode, game_handler, relay_manager, app_state, _args
-    global _pending_piece_event
+    global _pending_piece_events
     
     parser = argparse.ArgumentParser(description="DGT Centaur Universal")
     parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
@@ -1697,14 +1704,16 @@ def main():
                     # Start game mode
                     _start_game_mode()
                     
-                    # If triggered by piece move, forward the pending piece event
+                    # If triggered by piece move, forward all pending piece events
                     # GameManager queues events if not ready and replays them when ready
-                    if result == "PIECE_MOVED" and _pending_piece_event is not None:
-                        pe, field, ts = _pending_piece_event
-                        _pending_piece_event = None
-                        log.info(f"[App] Forwarding pending piece event: field={field}, event={pe}")
-                        if game_handler:
-                            game_handler.receive_field(pe, field, ts)
+                    if result == "PIECE_MOVED" and _pending_piece_events:
+                        pending = _pending_piece_events.copy()
+                        _pending_piece_events.clear()
+                        log.info(f"[App] Forwarding {len(pending)} pending piece events")
+                        for pe, field, ts in pending:
+                            log.info(f"[App] Forwarding piece event: field={field}, event={pe}")
+                            if game_handler:
+                                game_handler.receive_field(pe, field, ts)
                     
                     # Notify GameHandler if client is already connected
                     if (ble_manager and ble_manager.connected) or client_connected:
