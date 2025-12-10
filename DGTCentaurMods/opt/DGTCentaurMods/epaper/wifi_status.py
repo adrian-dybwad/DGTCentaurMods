@@ -1,13 +1,20 @@
 """
 WiFi status indicator widget.
+
+Displays WiFi signal strength in the status bar using the same icon style
+as the WiFi menu icons. Shows:
+- Signal strength (1-3 bars) when connected
+- Cross overlay when WiFi is disabled
+- No signal bars when not connected but enabled
 """
 
 from PIL import Image, ImageDraw
 from .framework.widget import Widget
 import threading
-import time
+import subprocess
+import re
 import os
-from typing import Optional
+from typing import Optional, Tuple
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -21,12 +28,24 @@ except ImportError:
     network = None
 
 
+# WiFi state constants
+WIFI_DISABLED = 0
+WIFI_DISCONNECTED = 1
+WIFI_CONNECTED = 2
+
+
 class WiFiStatusWidget(Widget):
-    """WiFi status indicator widget showing connection state."""
+    """WiFi status indicator widget showing connection state and signal strength.
+    
+    Uses the same icon style as the WiFi menu icons:
+    - Concentric arcs showing signal strength (1-3 based on signal %)
+    - Cross overlay when WiFi is disabled
+    """
     
     def __init__(self, x: int, y: int):
         super().__init__(x, y, 16, 16)
-        self._last_connected_state: Optional[bool] = None
+        self._last_state: Optional[int] = None  # WIFI_DISABLED, WIFI_DISCONNECTED, WIFI_CONNECTED
+        self._last_signal_strength: int = 0  # 0-3 (0 = no signal, 1-3 = weak/medium/strong)
         self._running = False
         self._thread: Optional[threading.Thread] = None
         # Path to dhcpcd hook notification file
@@ -81,18 +100,16 @@ class WiFiStatusWidget(Widget):
                     except Exception as e:
                         log.debug(f"Error checking hook notification file: {e}")
                 
-                # Check WiFi connection state
-                is_connected = self._is_connected()
+                # Get WiFi state and signal strength
+                state, signal_strength = self._get_wifi_status()
                 
-                # Update if state changed or hook notified
-                if is_connected != self._last_connected_state or hook_notified:
-                    if is_connected != self._last_connected_state:
-                        self._last_rendered = None
-                        self.request_update(full=False)
-                        self._last_connected_state = is_connected
-                        log.debug(f"WiFi status changed: connected={is_connected}")
-                    else:
-                        log.debug(f"WiFi status did not change: connected={is_connected}")
+                # Update if state or signal changed or hook notified
+                if state != self._last_state or signal_strength != self._last_signal_strength or hook_notified:
+                    self._last_rendered = None
+                    self._last_state = state
+                    self._last_signal_strength = signal_strength
+                    self.request_update(full=False)
+                    log.debug(f"WiFi status changed: state={state}, signal={signal_strength}")
                 
                 # Sleep for 10 seconds, but check _running every second
                 # This allows the thread to stop quickly when requested
@@ -111,41 +128,138 @@ class WiFiStatusWidget(Widget):
                     self._stop_event.clear()
         log.debug(f"WiFiStatusWidget._update_loop(): Widget id={id(self)} thread {thread_id} exiting")
     
-    def _is_connected(self) -> bool:
-        """Check if WiFi is connected."""
+    def _is_wifi_enabled(self) -> bool:
+        """Check if WiFi is enabled (not blocked by rfkill)."""
+        try:
+            result = subprocess.run(['rfkill', 'list', 'wifi'],
+                                   capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                # Check for "Soft blocked: yes" or "Hard blocked: yes"
+                return 'blocked: yes' not in result.stdout.lower()
+        except Exception as e:
+            log.debug(f"Error checking WiFi enabled state: {e}")
+        return True  # Assume enabled if check fails
+    
+    def _get_signal_strength(self) -> int:
+        """Get current WiFi signal strength as percentage (0-100).
+        
+        Uses iwconfig to get the Link Quality.
+        
+        Returns:
+            Signal strength percentage, or 0 if not available
+        """
+        try:
+            result = subprocess.run(['iwconfig', 'wlan0'],
+                                   capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                # Parse "Link Quality=XX/70" from output
+                match = re.search(r'Link Quality[=:](\d+)/(\d+)', result.stdout)
+                if match:
+                    quality = int(match.group(1))
+                    max_quality = int(match.group(2))
+                    if max_quality > 0:
+                        return int((quality / max_quality) * 100)
+                
+                # Alternative: parse "Signal level=-XX dBm"
+                match = re.search(r'Signal level[=:](-?\d+)\s*dBm', result.stdout)
+                if match:
+                    dbm = int(match.group(1))
+                    # Convert dBm to percentage (rough approximation)
+                    # -30 dBm = 100%, -90 dBm = 0%
+                    return max(0, min(100, (dbm + 90) * 100 // 60))
+        except Exception as e:
+            log.debug(f"Error getting signal strength: {e}")
+        return 0
+    
+    def _get_wifi_status(self) -> Tuple[int, int]:
+        """Get WiFi connection state and signal strength.
+        
+        Returns:
+            Tuple of (state, signal_strength) where:
+            - state: WIFI_DISABLED, WIFI_DISCONNECTED, or WIFI_CONNECTED
+            - signal_strength: 0-3 (0 = no signal, 1-3 = weak/medium/strong)
+        """
+        # Check if WiFi is enabled
+        if not self._is_wifi_enabled():
+            return WIFI_DISABLED, 0
+        
+        # Check if connected
         try:
             if network is None:
-                return False
+                return WIFI_DISCONNECTED, 0
             result = network.check_network()
-            return result is not False and result is not None
-        except Exception as e:
-            log.debug(f"Error checking WiFi status: {e}")
-            return False
+            is_connected = result is not False and result is not None
+        except Exception:
+            is_connected = False
+        
+        if not is_connected:
+            return WIFI_DISCONNECTED, 0
+        
+        # Get signal strength
+        signal_pct = self._get_signal_strength()
+        
+        # Convert percentage to 1-3 strength
+        if signal_pct >= 70:
+            strength = 3
+        elif signal_pct >= 40:
+            strength = 2
+        else:
+            strength = 1
+        
+        return WIFI_CONNECTED, strength
+    
+    def _draw_wifi_signal_icon(self, draw: ImageDraw.Draw, strength: int = 3):
+        """Draw a WiFi signal icon with variable strength.
+        
+        Uses the same style as icon_button.py but scaled for 16x16 status bar.
+        
+        Args:
+            draw: ImageDraw object
+            strength: Signal strength 1-3 (1=weak, 2=medium, 3=strong)
+        """
+        # Center point and base position (bottom center of icon)
+        cx = 8
+        base_y = 13
+        
+        # Arc radii for 16x16 icon
+        radii = [3, 6, 9]
+        
+        for i, radius in enumerate(radii):
+            # Determine line width based on active/inactive
+            if i < strength:
+                # Active arc - thicker line
+                width = 2
+            else:
+                # Inactive arc - thin line
+                width = 1
+            
+            draw.arc([cx - radius, base_y - radius, cx + radius, base_y + radius],
+                    start=225, end=315, fill=0, width=width)
+        
+        # Small dot at the bottom center (always drawn)
+        draw.ellipse([cx - 1, base_y - 1, cx + 1, base_y + 1], fill=0)
+    
+    def _draw_disabled_cross(self, draw: ImageDraw.Draw):
+        """Draw a cross overlay to indicate WiFi is disabled."""
+        # Draw diagonal cross over the icon
+        draw.line([2, 2, 14, 14], fill=0, width=2)
+        draw.line([14, 2, 2, 14], fill=0, width=2)
     
     def render(self) -> Image.Image:
-        """Render WiFi status icon."""
+        """Render WiFi status icon with signal strength or disabled indicator."""
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
-        if self._last_connected_state:
-            # Draw connected WiFi icon (3 curved lines)
-            # Top arc (signal strength 3/3)
-            draw.arc([2, 2, 14, 14], start=45, end=135, fill=0, width=1)
-            # Middle arc (signal strength 2/3)
-            draw.arc([4, 4, 12, 12], start=45, end=135, fill=0, width=1)
-            # Bottom arc (signal strength 1/3)
-            draw.arc([6, 6, 10, 10], start=45, end=135, fill=0, width=1)
-            # Dot in center
-            draw.ellipse([7, 7, 9, 9], fill=0)
+        if self._last_state == WIFI_DISABLED:
+            # Draw WiFi icon with cross overlay
+            self._draw_wifi_signal_icon(draw, strength=0)
+            self._draw_disabled_cross(draw)
+        elif self._last_state == WIFI_CONNECTED:
+            # Draw WiFi icon with signal strength
+            self._draw_wifi_signal_icon(draw, strength=self._last_signal_strength)
         else:
-            # Draw disconnected WiFi icon (X with curved lines)
-            # Top arc (faded)
-            draw.arc([2, 2, 14, 14], start=45, end=135, fill=0, width=1)
-            # Middle arc (faded)
-            draw.arc([4, 4, 12, 12], start=45, end=135, fill=0, width=1)
-            # X mark
-            draw.line([2, 2, 14, 14], fill=0, width=1)
-            draw.line([14, 2, 2, 14], fill=0, width=1)
+            # Disconnected but enabled - show empty arcs
+            self._draw_wifi_signal_icon(draw, strength=0)
         
         return img
 
