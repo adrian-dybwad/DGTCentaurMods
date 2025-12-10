@@ -299,13 +299,14 @@ def create_settings_entries() -> List[IconMenuEntry]:
     """Create entries for the settings submenu.
     
     Uses current values from _game_settings for engine, elo, and color labels.
+    Multi-line labels are used to show the setting name and current value.
 
     Returns:
         List of IconMenuEntry for settings menu
     """
-    engine_label = f"Engine: {_game_settings['engine']}"
-    elo_label = f"ELO: {_game_settings['elo']}"
-    color_label = f"Color: {_game_settings['player_color'].capitalize()}"
+    engine_label = f"Engine\n{_game_settings['engine']}"
+    elo_label = f"ELO\n{_game_settings['elo']}"
+    color_label = f"Color\n{_game_settings['player_color'].capitalize()}"
     
     return [
         IconMenuEntry(key="Engine", label=engine_label, icon_name="engine", enabled=True),
