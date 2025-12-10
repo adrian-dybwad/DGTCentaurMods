@@ -313,6 +313,18 @@ def create_settings_entries() -> List[IconMenuEntry]:
         IconMenuEntry(key="ELO", label=elo_label, icon_name="elo", enabled=True),
         IconMenuEntry(key="Color", label=color_label, icon_name="color", enabled=True),
         IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
+        IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True),
+        IconMenuEntry(key="System", label="System", icon_name="system", enabled=True),
+    ]
+
+
+def create_system_entries() -> List[IconMenuEntry]:
+    """Create entries for the system submenu (shutdown, reboot).
+
+    Returns:
+        List of IconMenuEntry for system menu
+    """
+    return [
         IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
         IconMenuEntry(key="Reboot", label="Reboot", icon_name="reboot", enabled=True),
     ]
@@ -580,18 +592,71 @@ def _handle_settings():
             elif sound_result == "Off":
                 centaur.set_sound("off")
         
-        elif result == "Shutdown":
-            _shutdown("     Shutdown")
+        elif result == "WiFi":
+            _handle_wifi_settings()
         
-        elif result == "Reboot":
-            # LED cascade pattern for reboot
-            try:
-                for i in range(0, 8):
-                    board.led(i, repeat=0)
-                    time.sleep(0.2)
-            except Exception:
-                pass
-            _shutdown("     Rebooting", reboot=True)
+        elif result == "System":
+            _handle_system_menu()
+
+
+def _handle_wifi_settings():
+    """Handle WiFi settings submenu.
+    
+    Shows WiFi status and allows enabling/disabling WiFi.
+    """
+    # Check current WiFi status
+    try:
+        import subprocess
+        result = subprocess.run(['iwgetid', '-r'], capture_output=True, text=True, timeout=5)
+        current_ssid = result.stdout.strip() if result.returncode == 0 else None
+    except Exception:
+        current_ssid = None
+    
+    if current_ssid:
+        status_label = f"WiFi\nConnected: {current_ssid}"
+    else:
+        status_label = "WiFi\nNot connected"
+    
+    wifi_entries = [
+        IconMenuEntry(key="Status", label=status_label, icon_name="wifi", enabled=False),
+        IconMenuEntry(key="Enable", label="Enable", icon_name="wifi", enabled=True),
+        IconMenuEntry(key="Disable", label="Disable", icon_name="cancel", enabled=True),
+    ]
+    
+    wifi_result = _show_menu(wifi_entries)
+    if wifi_result == "Enable":
+        try:
+            import subprocess
+            subprocess.run(['sudo', 'rfkill', 'unblock', 'wifi'], timeout=5)
+            board.beep(board.SOUND_GENERAL)
+            log.info("[Settings] WiFi enabled")
+        except Exception as e:
+            log.error(f"[Settings] Failed to enable WiFi: {e}")
+    elif wifi_result == "Disable":
+        try:
+            import subprocess
+            subprocess.run(['sudo', 'rfkill', 'block', 'wifi'], timeout=5)
+            log.info("[Settings] WiFi disabled")
+        except Exception as e:
+            log.error(f"[Settings] Failed to disable WiFi: {e}")
+
+
+def _handle_system_menu():
+    """Handle system submenu (shutdown, reboot)."""
+    system_entries = create_system_entries()
+    system_result = _show_menu(system_entries)
+    
+    if system_result == "Shutdown":
+        _shutdown("     Shutdown")
+    elif system_result == "Reboot":
+        # LED cascade pattern for reboot
+        try:
+            for i in range(0, 8):
+                board.led(i, repeat=0)
+                time.sleep(0.2)
+        except Exception:
+            pass
+        _shutdown("     Rebooting", reboot=True)
 
 
 def _shutdown(message: str, reboot: bool = False):
