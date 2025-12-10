@@ -1520,54 +1520,61 @@ def main():
         ble_thread.start()
         log.info("BLE mainloop thread started")
     
-    # Setup RFCOMM if enabled
+    # Setup RFCOMM if enabled (runs asynchronously to improve startup time)
     global rfcomm_manager
     if not args.no_rfcomm:
-        startup_splash.set_message("RFCOMM")
-        # Kill any existing rfcomm processes
-        os.system('sudo service rfcomm stop 2>/dev/null')
-        time.sleep(0.5)
-        
-        for p in psutil.process_iter(attrs=['pid', 'name']):
-            if str(p.info["name"]) == "rfcomm":
-                try:
-                    p.kill()
-                except:
-                    pass
-        
-        time.sleep(0.3)
-        
-        # Create RFCOMM manager for pairing
-        rfcomm_manager = RfcommManager(device_name=args.device_name)
-        rfcomm_manager.enable_bluetooth()
-        rfcomm_manager.set_device_name(args.device_name)
-        rfcomm_manager.start_pairing_thread()
-        
-        time.sleep(0.5)
-        
-        # Initialize server socket
-        startup_splash.set_message("RFCOMM socket")
-        log.info("Setting up RFCOMM server socket...")
-        server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-        server_sock.bind(("", args.port if args.port else bluetooth.PORT_ANY))
-        server_sock.settimeout(0.5)
-        server_sock.listen(1)
-        port = server_sock.getsockname()[1]
-        uuid = "94f39d29-7d6d-437d-973b-fba39e49d4ee"
-        
-        try:
-            bluetooth.advertise_service(server_sock, args.device_name, service_id=uuid,
-                                      service_classes=[uuid, bluetooth.SERIAL_PORT_CLASS],
-                                      profiles=[bluetooth.SERIAL_PORT_PROFILE])
-            log.info(f"RFCOMM service '{args.device_name}' advertised on channel {port}")
-        except Exception as e:
-            log.error(f"Failed to advertise RFCOMM service: {e}")
-        
-        # Start RFCOMM accept thread (runs in background, triggers game mode on connect)
-        def rfcomm_accept_thread():
-            """Accept RFCOMM connections in background."""
-            global client_sock, client_connected, app_state, _active_menu_widget
+        def rfcomm_setup_and_accept():
+            """Initialize RFCOMM and accept connections in background thread.
             
+            Runs all RFCOMM setup (bluetoothctl commands, socket creation) in background
+            to avoid blocking startup. Once setup is complete, accepts connections.
+            """
+            global rfcomm_manager, server_sock, client_sock, client_connected
+            global app_state, _active_menu_widget
+            
+            log.info("[RFCOMM] Starting background initialization...")
+            
+            # Kill any existing rfcomm processes
+            os.system('sudo service rfcomm stop 2>/dev/null')
+            time.sleep(0.5)
+            
+            for p in psutil.process_iter(attrs=['pid', 'name']):
+                if str(p.info["name"]) == "rfcomm":
+                    try:
+                        p.kill()
+                    except:
+                        pass
+            
+            time.sleep(0.3)
+            
+            # Create RFCOMM manager for pairing
+            rfcomm_manager = RfcommManager(device_name=args.device_name)
+            rfcomm_manager.enable_bluetooth()
+            rfcomm_manager.set_device_name(args.device_name)
+            rfcomm_manager.start_pairing_thread()
+            
+            time.sleep(0.5)
+            
+            # Initialize server socket
+            log.info("[RFCOMM] Setting up server socket...")
+            server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+            server_sock.bind(("", args.port if args.port else bluetooth.PORT_ANY))
+            server_sock.settimeout(0.5)
+            server_sock.listen(1)
+            port = server_sock.getsockname()[1]
+            uuid = "94f39d29-7d6d-437d-973b-fba39e49d4ee"
+            
+            try:
+                bluetooth.advertise_service(server_sock, args.device_name, service_id=uuid,
+                                          service_classes=[uuid, bluetooth.SERIAL_PORT_CLASS],
+                                          profiles=[bluetooth.SERIAL_PORT_PROFILE])
+                log.info(f"[RFCOMM] Service '{args.device_name}' advertised on channel {port}")
+            except Exception as e:
+                log.error(f"[RFCOMM] Failed to advertise service: {e}")
+            
+            log.info("[RFCOMM] Initialization complete, accepting connections...")
+            
+            # Accept connections loop
             while running and not kill:
                 try:
                     sock, client_info = server_sock.accept()
@@ -1600,9 +1607,10 @@ def main():
                         log.error(f"[RFCOMM] Error accepting connection: {e}")
                     time.sleep(0.1)
         
-        rfcomm_thread = threading.Thread(target=rfcomm_accept_thread, daemon=True)
+        # Start RFCOMM setup in background thread (doesn't block startup)
+        rfcomm_thread = threading.Thread(target=rfcomm_setup_and_accept, daemon=True)
         rfcomm_thread.start()
-        log.info("RFCOMM accept thread started")
+        log.info("[RFCOMM] Background thread started")
     
     # Connect to shadow target if relay mode
     if relay_mode:
@@ -1662,7 +1670,7 @@ def main():
     if not args.no_ble:
         log.info("  BLE: Ready for GATT connections")
     if not args.no_rfcomm:
-        log.info(f"  RFCOMM: Listening on channel {port}")
+        log.info("  RFCOMM: Initializing in background...")
     log.info("")
     
     # Show ready message before menu

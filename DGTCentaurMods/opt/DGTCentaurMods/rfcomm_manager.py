@@ -172,7 +172,8 @@ class RfcommManager:
         Args:
             process: bluetoothctl subprocess
             commands: List of command strings to send
-            wait_time: Seconds to wait after sending commands
+            wait_time: Seconds to wait after sending commands (default 2.0s ensures
+                      commands complete on slower hardware like Pi Zero)
             
         Raises:
             ValueError: If commands contain invalid characters
