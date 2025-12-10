@@ -1355,20 +1355,23 @@ def key_callback(key_id):
                 _return_to_menu("BACK pressed")
 
 
+# Pending piece event for menu -> game transition
+_pending_piece_event = None
+
 def field_callback(piece_event, field, time_in_seconds):
     """Handle field events (piece lift/place) from the board.
     
     Routes field events based on priority:
     1. Active keyboard widget (for text input like WiFi password)
-    2. Game mode: Forward to game_handler -> game_manager for piece detection
-    3. Menu/Settings: Field events ignored (no piece input needed)
+    2. Menu mode with piece lift: Start game mode (piece move starts game)
+    3. Game mode: Forward to game_handler -> game_manager for piece detection
     
     Args:
         piece_event: 0 = lift, 1 = place
         field: Board field index (0-63)
         time_in_seconds: Event timestamp
     """
-    global app_state, game_handler, _active_keyboard_widget
+    global app_state, game_handler, _active_keyboard_widget, _active_menu_widget, _pending_piece_event
     
     # Priority 1: Active keyboard gets field events
     if _active_keyboard_widget is not None:
@@ -1377,7 +1380,15 @@ def field_callback(piece_event, field, time_in_seconds):
         _active_keyboard_widget.handle_field_event(field, piece_present)
         return
     
-    # Priority 2: Game mode
+    # Priority 2: Menu mode - piece lift starts game
+    if app_state == AppState.MENU and _active_menu_widget is not None:
+        # Store the piece event to forward after game mode starts
+        _pending_piece_event = (piece_event, field, time_in_seconds)
+        log.info(f"[App] Piece event in menu - starting game (field={field}, event={piece_event})")
+        _active_menu_widget.cancel_selection("PIECE_MOVED")
+        return
+    
+    # Priority 3: Game mode
     if app_state == AppState.GAME:
         if game_handler:
             game_handler.receive_field(piece_event, field, time_in_seconds)
@@ -1391,6 +1402,7 @@ def main():
     """
     global server_sock, client_sock, client_connected, running, kill
     global mainloop, relay_mode, game_handler, relay_manager, app_state, _args
+    global _pending_piece_event
     
     parser = argparse.ArgumentParser(description="DGT Centaur Universal")
     parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
@@ -1681,9 +1693,17 @@ def main():
                     _run_centaur()
                     # Note: _run_centaur() exits the process
                 
-                elif result == "Universal" or result == "CLIENT_CONNECTED":
+                elif result == "Universal" or result == "CLIENT_CONNECTED" or result == "PIECE_MOVED":
                     # Start game mode
                     _start_game_mode()
+                    
+                    # If triggered by piece move, forward the pending piece event
+                    if result == "PIECE_MOVED" and _pending_piece_event is not None:
+                        pe, field, ts = _pending_piece_event
+                        _pending_piece_event = None
+                        log.info(f"[App] Forwarding pending piece event: field={field}, event={pe}")
+                        if game_handler:
+                            game_handler.receive_field(pe, field, ts)
                     
                     # Notify GameHandler if client is already connected
                     if (ble_manager and ble_manager.connected) or client_connected:
