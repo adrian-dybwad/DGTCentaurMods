@@ -666,5 +666,6 @@ class GameHandler:
                 self._standalone_engine.quit()
                 log.info("[GameHandler] Standalone engine closed")
             except Exception as e:
-                log.error(f"[GameHandler] Error closing standalone engine: {e}")
+                # "event loop dead" is expected during signal-based shutdown
+                log.debug(f"[GameHandler] Error closing standalone engine: {e}")
             self._standalone_engine = None

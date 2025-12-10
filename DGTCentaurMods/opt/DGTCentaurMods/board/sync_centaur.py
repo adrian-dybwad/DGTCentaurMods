@@ -236,16 +236,23 @@ class SyncCentaur:
                 self.ser.open()
         
     def _listener_thread(self):
-        """Continuously listen for data on the serial port"""
+        """Continuously listen for data on the serial port."""
         log.info("Listening for serial data...")
         while self.listener_running:
             try:
+                # Check if serial port is still valid
+                if self.ser is None or not self.ser.is_open:
+                    break
                 byte = self.ser.read(1)
                 if not byte:
                     continue
                 self.processResponse(byte[0])
+            except (OSError, TypeError, AttributeError):
+                # Expected during shutdown when serial port is closed
+                break
             except Exception as e:
-                log.error(f"Listener error: {e}")
+                if self.listener_running:
+                    log.error(f"Listener error: {e}")
     
     def processResponse(self, byte):
         """
@@ -564,6 +571,12 @@ class SyncCentaur:
                         pass  # Not in deque (shouldn't happen, but safe)
                 
                 try:
+                    # Check if serial port is still valid before executing
+                    if self.ser is None or not self.ser.is_open:
+                        if result_queue is not None:
+                            result_queue.put(('error', Exception("Serial port closed")))
+                        break  # Exit processor loop
+                    
                     # For blocking requests (request_response), create internal queue for waiter mechanism
                     # For non-blocking requests (sendCommand), pass None to skip waiter
                     if result_queue is not None:
@@ -574,10 +587,13 @@ class SyncCentaur:
                     else:
                         # For non-blocking (sendCommand), pass None to skip waiter
                         payload = self._execute_request(command_name, data, timeout, None)
+                except (OSError, AttributeError):
+                    # Expected during shutdown when serial port is closed
+                    break
                 except Exception as e:
                     if result_queue is not None:
                         result_queue.put(('error', e))
-                    else:
+                    elif self.listener_running:
                         log.error(f"Error executing queued command {command_name}: {e}")
             except queue.Empty:
                 continue
