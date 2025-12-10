@@ -516,7 +516,7 @@ def _handle_settings():
             return
         
         if result == "SHUTDOWN":
-            _shutdown("     Shutdown")
+            _shutdown("Shutdown")
             return
         
         if result == "Engine":
@@ -648,7 +648,7 @@ def _scan_wifi_networks() -> List[dict]:
     try:
         # Show scanning message
         board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(message="  Scanning..."))
+        promise = board.display_manager.add_widget(SplashScreen(message="Scanning..."))
         if promise:
             try:
                 promise.result(timeout=5.0)
@@ -745,7 +745,7 @@ def _connect_to_wifi(ssid: str, password: str = None) -> bool:
     try:
         # Show connecting message
         board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(message="  Connecting..."))
+        promise = board.display_manager.add_widget(SplashScreen(message="Connecting..."))
         if promise:
             try:
                 promise.result(timeout=5.0)
@@ -880,7 +880,7 @@ def _handle_wifi_scan():
     if not networks:
         # Show no networks found message
         board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(message="No networks\n    found"))
+        promise = board.display_manager.add_widget(SplashScreen(message="No networks found"))
         if promise:
             try:
                 promise.result(timeout=2.0)
@@ -946,7 +946,7 @@ def _handle_system_menu():
     system_result = _show_menu(system_entries)
     
     if system_result == "Shutdown":
-        _shutdown("     Shutdown")
+        _shutdown("Shutdown")
     elif system_result == "Reboot":
         # LED cascade pattern for reboot
         try:
@@ -955,7 +955,7 @@ def _handle_system_menu():
                 time.sleep(0.2)
         except Exception:
             pass
-        _shutdown("     Rebooting", reboot=True)
+        _shutdown("Rebooting", reboot=True)
 
 
 def _shutdown(message: str, reboot: bool = False):
@@ -983,7 +983,7 @@ def _run_centaur():
     """
     # Show loading screen
     board.display_manager.clear_widgets(addStatusBar=False)
-    promise = board.display_manager.add_widget(SplashScreen(message="     Loading"))
+    promise = board.display_manager.add_widget(SplashScreen(message="Loading"))
     if promise:
         try:
             promise.result(timeout=10.0)
@@ -1432,6 +1432,16 @@ def main():
         except Exception as e:
             log.warning(f"Error initializing display: {e}")
     
+    # Show loading splash screen immediately - keep reference to update it
+    board.display_manager.clear_widgets(addStatusBar=False)
+    startup_splash = SplashScreen(message="Starting...")
+    promise = board.display_manager.add_widget(startup_splash)
+    if promise:
+        try:
+            promise.result(timeout=5.0)
+        except Exception:
+            pass
+    
     log.info("=" * 60)
     log.info("DGT Centaur Universal Starting")
     log.info("=" * 60)
@@ -1447,6 +1457,7 @@ def main():
     log.info("=" * 60)
     
     # Subscribe to board events - universal.py is the single subscriber and routes events
+    startup_splash.set_message("Board events")
     board.subscribeEvents(key_callback, field_callback, timeout=900)
     
     # Register signal handlers
@@ -1456,6 +1467,7 @@ def main():
     # Setup BLE if enabled
     global ble_manager
     if not args.no_ble:
+        startup_splash.set_message("Bluetooth LE")
         log.info("Initializing BLE manager...")
         ble_manager = BleManager(
             device_name=args.device_name,
@@ -1488,6 +1500,7 @@ def main():
     # Setup RFCOMM if enabled
     global rfcomm_manager
     if not args.no_rfcomm:
+        startup_splash.set_message("RFCOMM")
         # Kill any existing rfcomm processes
         os.system('sudo service rfcomm stop 2>/dev/null')
         time.sleep(0.5)
@@ -1510,6 +1523,7 @@ def main():
         time.sleep(0.5)
         
         # Initialize server socket
+        startup_splash.set_message("RFCOMM socket")
         log.info("Setting up RFCOMM server socket...")
         server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
         server_sock.bind(("", args.port if args.port else bluetooth.PORT_ANY))
@@ -1569,6 +1583,7 @@ def main():
     
     # Connect to shadow target if relay mode
     if relay_mode:
+        startup_splash.set_message("Relay mode")
         log.info("=" * 60)
         log.info(f"RELAY MODE - Connecting to {shadow_target_name}")
         log.info("=" * 60)
@@ -1627,6 +1642,10 @@ def main():
         log.info(f"  RFCOMM: Listening on channel {port}")
     log.info("")
     
+    # Show ready message before menu
+    startup_splash.set_message("Ready")
+    time.sleep(0.3)
+    
     # Check if Centaur software is available
     centaur_available = os.path.exists(CENTAUR_SOFTWARE)
     
@@ -1645,7 +1664,7 @@ def main():
                     # Show idle screen and wait for TICK
                     board.beep(board.SOUND_POWER_OFF)
                     board.display_manager.clear_widgets()
-                    promise = board.display_manager.add_widget(SplashScreen(message="   Press [OK]"))
+                    promise = board.display_manager.add_widget(SplashScreen(message="Press [OK]"))
                     if promise:
                         try:
                             promise.result(timeout=10.0)
@@ -1656,7 +1675,7 @@ def main():
                     continue
                 
                 elif result == "SHUTDOWN":
-                    _shutdown("     Shutdown")
+                    _shutdown("Shutdown")
                 
                 elif result == "Centaur":
                     _run_centaur()

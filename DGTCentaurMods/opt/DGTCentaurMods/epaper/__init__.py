@@ -5,7 +5,7 @@ ePaper display framework.
 from .framework import Manager, Widget
 from .clock import ClockWidget
 from .battery import BatteryWidget
-from .text import TextWidget
+from .text import TextWidget, Justify
 from .ball import BallWidget
 from .chess_board import ChessBoardWidget
 from .game_analysis import GameAnalysisWidget
@@ -19,7 +19,7 @@ from .icon_button import IconButtonWidget
 from .icon_menu import IconMenuWidget, IconMenuEntry
 from .keyboard import KeyboardWidget
 
-__all__ = ['Manager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'BallWidget', 
+__all__ = ['Manager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'Justify', 'BallWidget', 
            'ChessBoardWidget', 'GameAnalysisWidget', 'CheckerboardWidget', 'SplashScreen', 
            'StatusBarWidget', 'WiFiStatusWidget', 'GameOverWidget', 'MenuArrowWidget',
            'IconButtonWidget', 'IconMenuWidget', 'IconMenuEntry', 'KeyboardWidget']

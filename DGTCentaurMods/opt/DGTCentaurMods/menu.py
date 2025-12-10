@@ -274,7 +274,7 @@ def doMenu(menu_or_key, title_or_key=None, description=None):
     except KeyboardInterrupt:
         log.info(">>> doMenu: KeyboardInterrupt caught")
         board.display_manager.clear_widgets()
-        board.display_manager.add_widget(SplashScreen(message="   Shutdown"))
+        board.display_manager.add_widget(SplashScreen(message="Shutdown"))
         return "SHUTDOWN"
 
 def changedCallback(piece_event, field, time_in_seconds):
@@ -291,7 +291,7 @@ threading.Timer(300, update.main).start()
 def show_welcome():
     global idle
     
-    splash_screen = SplashScreen(message="   Press [✓]")
+    splash_screen = SplashScreen(message="Press [OK]")
     board.display_manager.add_widget(splash_screen)
     
     idle = True
@@ -353,7 +353,7 @@ def run_external_script(script_rel_path: str, *args: str, start_key_polling: boo
     # Register signal handler for graceful shutdown
     original_handler = signal.signal(signal.SIGINT, signal_handler)
     try:
-        splash_screen = SplashScreen(message="     Loading")
+        splash_screen = SplashScreen(message="Loading")
         promise = board.display_manager.add_widget(splash_screen)
         if promise:
             try:

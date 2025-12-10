@@ -4,6 +4,7 @@ Text display widget.
 
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget
+from enum import Enum
 import os
 import sys
 
@@ -17,12 +18,19 @@ except ImportError:
         AssetManager = None
 
 
+class Justify(Enum):
+    """Text justification options."""
+    LEFT = "left"
+    CENTER = "center"
+    RIGHT = "right"
+
+
 class TextWidget(Widget):
-    """Text display widget with configurable background dithering and text wrapping."""
+    """Text display widget with configurable background dithering, text wrapping, and justification."""
     
     def __init__(self, x: int, y: int, width: int, height: int, text: str = "", 
                  background: int = 0, font_size: int = 12, font_path: str = None,
-                 wrapText: bool = False):
+                 wrapText: bool = False, justify: Justify = Justify.LEFT):
         """
         Initialize text widget.
         
@@ -42,6 +50,7 @@ class TextWidget(Widget):
             font_size: Font size in points
             font_path: Optional path to font file (defaults to Font.ttc if None)
             wrapText: If True, wrap text to fit within widget width and height
+            justify: Text justification (Justify.LEFT, Justify.CENTER, or Justify.RIGHT)
         """
         super().__init__(x, y, width, height)
         self.text = text
@@ -49,6 +58,7 @@ class TextWidget(Widget):
         self.font_size = font_size
         self.font_path = font_path
         self.wrapText = wrapText
+        self.justify = justify
         self._font = self._load_font()
     
     def _load_font(self):
@@ -109,6 +119,52 @@ class TextWidget(Widget):
             self.background = background
             self._last_rendered = None
             self.request_update(full=False)
+    
+    def set_justify(self, justify: Justify) -> None:
+        """Set text justification."""
+        if self.justify != justify:
+            self.justify = justify
+            self._last_rendered = None
+            self.request_update(full=False)
+    
+    def _get_text_width(self, text: str, draw: ImageDraw.Draw) -> int:
+        """Get the width of text in pixels.
+        
+        Args:
+            text: Text to measure
+            draw: ImageDraw object for measuring
+            
+        Returns:
+            Width in pixels
+        """
+        try:
+            bbox = draw.textbbox((0, 0), text, font=self._font)
+            return bbox[2] - bbox[0]
+        except AttributeError:
+            # Fallback for older PIL versions
+            return int(draw.textlength(text, font=self._font))
+    
+    def _get_x_position(self, text: str, draw: ImageDraw.Draw) -> int:
+        """Calculate x position based on justification.
+        
+        Args:
+            text: Text to position
+            draw: ImageDraw object for measuring
+            
+        Returns:
+            X position in pixels
+        """
+        if self.justify == Justify.LEFT:
+            return 0
+        
+        text_width = self._get_text_width(text, draw)
+        
+        if self.justify == Justify.CENTER:
+            return (self.width - text_width) // 2
+        elif self.justify == Justify.RIGHT:
+            return self.width - text_width
+        
+        return 0
     
     def _create_dither_pattern(self) -> Image.Image:
         """Create dither pattern based on background level."""
@@ -184,7 +240,7 @@ class TextWidget(Widget):
         return lines
     
     def render(self) -> Image.Image:
-        """Render text with background."""
+        """Render text with background and justification."""
         img = self._create_dither_pattern()
         draw = ImageDraw.Draw(img)
         
@@ -207,9 +263,11 @@ class TextWidget(Widget):
                 # Stop if line would exceed widget height
                 if y_pos + line_height > self.height:
                     break
-                draw.text((0, y_pos - 1), line, font=self._font, fill=text_fill)
+                x_pos = self._get_x_position(line, draw)
+                draw.text((x_pos, y_pos - 1), line, font=self._font, fill=text_fill)
         else:
-            # Single line text (original behavior)
-            draw.text((0, -1), self.text, font=self._font, fill=text_fill)
+            # Single line text with justification
+            x_pos = self._get_x_position(self.text, draw)
+            draw.text((x_pos, -1), self.text, font=self._font, fill=text_fill)
         
         return img
