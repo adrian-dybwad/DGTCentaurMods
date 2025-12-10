@@ -863,24 +863,40 @@ class SyncCentaur:
                     return
     
     def cleanup(self, leds_off: bool = True):
-        """Idempotent cleanup coordinator"""
+        """Idempotent cleanup coordinator.
+        
+        Order of cleanup is important:
+        1. Signal listener to stop (set flag)
+        2. Turn off LEDs (while serial still works)
+        3. Close serial port (unblocks listener thread read)
+        4. Join listener thread (should exit quickly now)
+        5. Clear waiters
+        """
         if getattr(self, "_closed", False):
             return
-        self._cleanup_listener()
+        
+        # Signal listener to stop
+        self.listener_running = False
+        
         if leds_off:
             self._cleanup_leds()
-        self._cleanup_waiters()
+        
+        # Close serial port first - this unblocks ser.read() in listener thread
         self._cleanup_serial()
+        
+        # Now join listener thread (should exit quickly since serial is closed)
+        self._cleanup_listener()
+        
+        self._cleanup_waiters()
         self._closed = True
         log.info("SyncCentaur cleaned up")
     
     def _cleanup_listener(self):
-        """Stop and join listener thread"""
+        """Join listener thread (should exit quickly since serial is closed)."""
         try:
-            self.listener_running = False
             t = getattr(self, "listener_thread", None)
             if t and t.is_alive():
-                t.join(timeout=5.0)
+                t.join(timeout=1.0)  # Short timeout since serial is already closed
         except Exception:
             pass
     
