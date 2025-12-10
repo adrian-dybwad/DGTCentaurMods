@@ -1333,7 +1333,12 @@ def key_callback(key_id):
                 return
     
     elif app_state == AppState.GAME:
-        # Handle app-level keys first
+        # Priority: DisplayManager menu (resign/draw, promotion) > app keys > game
+        if display_manager and display_manager.is_menu_active():
+            display_manager.handle_key(key_id)
+            return
+        
+        # Handle app-level keys
         if key_id == board.Key.HELP:
             # Toggle game analysis widget visibility
             if display_manager:
