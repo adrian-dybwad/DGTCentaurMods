@@ -245,6 +245,12 @@ class GameManager:
         self.should_stop = False
         self.game_thread = None
         self._stop_event = threading.Event()
+        
+        # Ready state and event queue for synchronization
+        # Events received before ready are queued and replayed when ready
+        self._is_ready = False
+        self._pending_field_events = []
+        self._ready_lock = threading.Lock()
     
     def _is_starting_position(self, board_state) -> bool:
         """Check if the board is in the starting position."""
@@ -979,7 +985,22 @@ class GameManager:
             self._update_game_result(result_string, termination, "_execute_move")
     
     def receive_field(self, piece_event: int, field: int, time_in_seconds: float):
-        """Handle field events (piece lift/place)."""
+        """Handle field events (piece lift/place).
+        
+        If the game thread is not yet ready, events are queued and will be
+        replayed when the thread becomes ready.
+        """
+        # Queue events if not ready
+        with self._ready_lock:
+            if not self._is_ready:
+                log.info(f"[GameManager.receive_field] Not ready, queuing event: piece_event={piece_event}, field={field}")
+                self._pending_field_events.append((piece_event, field, time_in_seconds))
+                return
+        
+        self._process_field_event(piece_event, field, time_in_seconds)
+    
+    def _process_field_event(self, piece_event: int, field: int, time_in_seconds: float):
+        """Process a field event (internal implementation)."""
         field_name = chess.square_name(field)
         
         # For LIFT events, get piece color from the field
@@ -1250,6 +1271,17 @@ class GameManager:
         # Events are routed from the app coordinator (universal.py) through
         # GameHandler.receive_key() and GameHandler.receive_field() methods.
         
+        # Mark as ready and replay any queued events
+        with self._ready_lock:
+            self._is_ready = True
+            pending_events = list(self._pending_field_events)
+            self._pending_field_events.clear()
+        
+        if pending_events:
+            log.info(f"[GameManager._game_thread] Replaying {len(pending_events)} queued field events")
+            for piece_event, field, time_in_seconds in pending_events:
+                self._process_field_event(piece_event, field, time_in_seconds)
+        
         try:
             while not self.should_stop:
                 # Use interruptible sleep to allow quick thread termination
@@ -1424,6 +1456,11 @@ class GameManager:
         board.ledsOff()
         self.clock_manager.stop()
         
+        # Reset ready state
+        with self._ready_lock:
+            self._is_ready = False
+            self._pending_field_events.clear()
+
         # Wait for game thread to finish (it will clean up the database session)
         if self.game_thread is not None:
             self.game_thread.join(timeout=1.0)

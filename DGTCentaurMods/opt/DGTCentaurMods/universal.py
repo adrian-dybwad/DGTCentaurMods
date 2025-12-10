@@ -1698,6 +1698,7 @@ def main():
                     _start_game_mode()
                     
                     # If triggered by piece move, forward the pending piece event
+                    # GameManager queues events if not ready and replays them when ready
                     if result == "PIECE_MOVED" and _pending_piece_event is not None:
                         pe, field, ts = _pending_piece_event
                         _pending_piece_event = None
