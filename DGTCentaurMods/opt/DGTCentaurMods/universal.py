@@ -1385,15 +1385,19 @@ def field_callback(piece_event, field, time_in_seconds):
         return
     
     # Priority 2: Menu mode - piece events queued for game mode
-    if app_state == AppState.MENU and _active_menu_widget is not None:
-        # Queue the piece event to forward after game mode starts
-        # Multiple events may arrive before game mode is ready (e.g., LIFT then PLACE)
-        _pending_piece_events.append((piece_event, field, time_in_seconds))
-        log.info(f"[App] Piece event in menu - queued for game (field={field}, event={piece_event}, queue_size={len(_pending_piece_events)})")
-        # Only trigger game start on first event (avoid multiple cancel calls)
-        if len(_pending_piece_events) == 1:
-            _active_menu_widget.cancel_selection("PIECE_MOVED")
-        return
+    # Queue events if:
+    # - Menu is active (first event triggers game start), OR
+    # - Game start is pending (events already queued, waiting for main thread to start game)
+    if app_state == AppState.MENU:
+        if _active_menu_widget is not None or len(_pending_piece_events) > 0:
+            # Queue the piece event to forward after game mode starts
+            # Multiple events may arrive before game mode is ready (e.g., LIFT then PLACE)
+            _pending_piece_events.append((piece_event, field, time_in_seconds))
+            log.info(f"[App] Piece event in menu - queued for game (field={field}, event={piece_event}, queue_size={len(_pending_piece_events)})")
+            # Only trigger game start on first event (avoid multiple cancel calls)
+            if len(_pending_piece_events) == 1 and _active_menu_widget is not None:
+                _active_menu_widget.cancel_selection("PIECE_MOVED")
+            return
     
     # Priority 3: Game mode
     if app_state == AppState.GAME:
