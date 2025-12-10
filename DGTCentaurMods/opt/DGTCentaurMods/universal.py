@@ -40,6 +40,7 @@ from gi.repository import GLib
 import chess
 import chess.engine
 import pathlib
+from PIL import Image, ImageDraw, ImageFont
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board import board
@@ -599,46 +600,404 @@ def _handle_settings():
             _handle_system_menu()
 
 
+def _get_current_wifi_status() -> tuple:
+    """Get current WiFi connection status.
+    
+    Returns:
+        Tuple of (ssid, ip_address) or (None, None) if not connected
+    """
+    import subprocess
+    
+    try:
+        result = subprocess.run(['iwgetid', '-r'], capture_output=True, text=True, timeout=5)
+        ssid = result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else None
+    except Exception:
+        ssid = None
+    
+    ip_address = None
+    if ssid:
+        try:
+            result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=5)
+            ips = result.stdout.strip().split()
+            ip_address = ips[0] if ips else None
+        except Exception:
+            pass
+    
+    return ssid, ip_address
+
+
+def _scan_wifi_networks() -> List[dict]:
+    """Scan for available WiFi networks.
+    
+    Returns:
+        List of dicts with 'ssid' and 'signal' keys, sorted by signal strength
+    """
+    import subprocess
+    
+    networks = []
+    
+    try:
+        # Show scanning message
+        board.display_manager.clear_widgets(addStatusBar=False)
+        promise = board.display_manager.add_widget(SplashScreen(message="  Scanning..."))
+        if promise:
+            try:
+                promise.result(timeout=5.0)
+            except Exception:
+                pass
+        
+        # Use nmcli to scan for networks
+        result = subprocess.run(
+            ['sudo', 'nmcli', '-t', '-f', 'SSID,SIGNAL,SECURITY', 'device', 'wifi', 'list', '--rescan', 'yes'],
+            capture_output=True, text=True, timeout=30
+        )
+        
+        if result.returncode == 0:
+            seen_ssids = set()
+            for line in result.stdout.strip().split('\n'):
+                if not line:
+                    continue
+                parts = line.split(':')
+                if len(parts) >= 2:
+                    ssid = parts[0].strip()
+                    if ssid and ssid not in seen_ssids:
+                        seen_ssids.add(ssid)
+                        try:
+                            signal = int(parts[1]) if parts[1] else 0
+                        except ValueError:
+                            signal = 0
+                        security = parts[2] if len(parts) > 2 else ""
+                        networks.append({
+                            'ssid': ssid,
+                            'signal': signal,
+                            'security': security
+                        })
+            
+            # Sort by signal strength (strongest first)
+            networks.sort(key=lambda x: x['signal'], reverse=True)
+            
+    except subprocess.TimeoutExpired:
+        log.error("[WiFi] Network scan timed out")
+    except Exception as e:
+        log.error(f"[WiFi] Error scanning networks: {e}")
+    
+    return networks
+
+
+def _connect_to_wifi(ssid: str, password: str = None) -> bool:
+    """Connect to a WiFi network.
+    
+    Args:
+        ssid: Network SSID to connect to
+        password: Network password (None for open networks)
+    
+    Returns:
+        True if connection successful, False otherwise
+    """
+    import subprocess
+    
+    try:
+        # Show connecting message
+        board.display_manager.clear_widgets(addStatusBar=False)
+        promise = board.display_manager.add_widget(SplashScreen(message="  Connecting..."))
+        if promise:
+            try:
+                promise.result(timeout=5.0)
+            except Exception:
+                pass
+        
+        if password:
+            result = subprocess.run(
+                ['sudo', 'nmcli', 'device', 'wifi', 'connect', ssid, 'password', password],
+                capture_output=True, text=True, timeout=30
+            )
+        else:
+            result = subprocess.run(
+                ['sudo', 'nmcli', 'device', 'wifi', 'connect', ssid],
+                capture_output=True, text=True, timeout=30
+            )
+        
+        if result.returncode == 0:
+            log.info(f"[WiFi] Connected to {ssid}")
+            board.beep(board.SOUND_GENERAL)
+            return True
+        else:
+            log.error(f"[WiFi] Failed to connect: {result.stderr}")
+            board.beep(board.SOUND_WRONG)
+            return False
+            
+    except subprocess.TimeoutExpired:
+        log.error("[WiFi] Connection timed out")
+        board.beep(board.SOUND_WRONG)
+        return False
+    except Exception as e:
+        log.error(f"[WiFi] Error connecting: {e}")
+        board.beep(board.SOUND_WRONG)
+        return False
+
+
+def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
+    """Get WiFi password using board piece placement.
+    
+    Uses the chess board as a virtual keyboard - placing pieces on squares
+    selects characters. UP/DOWN changes character pages.
+    
+    Args:
+        ssid: SSID to display in the title
+    
+    Returns:
+        Password string or None if cancelled
+    """
+    # Character mapping for board squares
+    # Page 1: lowercase + numbers
+    # Page 2: uppercase + symbols
+    chars_page1 = "abcdefgh" + "ijklmnop" + "qrstuvwx" + "yz012345" + "6789!@#$" + "%^&*()-_" + "=+[]{}|;" + "':\",./<>"
+    chars_page2 = "ABCDEFGH" + "IJKLMNOP" + "QRSTUVWX" + "YZ      " + "        " + "        " + "        " + "        "
+    
+    current_page = 1
+    password = ""
+    
+    def render_keyboard():
+        """Render the virtual keyboard display."""
+        img = Image.new("1", (128, 296), 255)
+        draw = ImageDraw.Draw(img)
+        
+        try:
+            from DGTCentaurMods.asset_manager import AssetManager
+            font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
+            font_small = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 11)
+        except Exception:
+            font = ImageFont.load_default()
+            font_small = font
+        
+        # Title
+        draw.text((4, 2), f"WiFi: {ssid[:12]}", font=font_small, fill=0)
+        
+        # Password display
+        draw.rectangle([2, 18, 126, 38], outline=0, fill=255)
+        display_pwd = password[-14:] if len(password) > 14 else password
+        draw.text((4, 20), display_pwd + "_", font=font, fill=0)
+        
+        # Page indicator
+        page_text = f"Page {current_page}/2 (UP/DOWN)"
+        draw.text((4, 42), page_text, font=font_small, fill=0)
+        
+        # Character grid (8x8)
+        chars = chars_page1 if current_page == 1 else chars_page2
+        y_start = 58
+        cell_w = 16
+        cell_h = 20
+        
+        for row in range(8):
+            for col in range(8):
+                idx = row * 8 + col
+                char = chars[idx] if idx < len(chars) else " "
+                cx = col * cell_w
+                cy = y_start + row * cell_h
+                
+                # Draw cell border
+                draw.rectangle([cx, cy, cx + cell_w - 1, cy + cell_h - 1], outline=0)
+                
+                # Draw character
+                if char != " ":
+                    draw.text((cx + 3, cy + 2), char, font=font, fill=0)
+        
+        # Instructions
+        draw.text((2, 220), "Place piece: add char", font=font_small, fill=0)
+        draw.text((2, 234), "BACK: delete", font=font_small, fill=0)
+        draw.text((2, 248), "TICK: confirm", font=font_small, fill=0)
+        draw.text((2, 262), "PLAY: cancel", font=font_small, fill=0)
+        
+        # Blit to display
+        board.display_manager.clear_widgets(addStatusBar=False)
+        from DGTCentaurMods.epaper import SplashScreen
+        # Create a custom widget that displays our image
+        _display_image(img)
+    
+    def _display_image(img):
+        """Display an image on the e-paper."""
+        try:
+            promise = board.display(img)
+            if promise:
+                promise.result(timeout=5.0)
+        except Exception as e:
+            log.error(f"[WiFi] Error displaying keyboard: {e}")
+    
+    # Event handling
+    password_event = threading.Event()
+    password_result = {'value': None, 'action': None}
+    
+    def password_key_callback(key_id):
+        nonlocal current_page, password
+        
+        if key_id == board.Key.BACK:
+            if password:
+                password = password[:-1]
+                board.beep(board.SOUND_GENERAL)
+                render_keyboard()
+            else:
+                # Cancel if password is empty
+                password_result['action'] = 'cancel'
+                password_event.set()
+        elif key_id == board.Key.TICK:
+            password_result['value'] = password
+            password_result['action'] = 'confirm'
+            board.beep(board.SOUND_GENERAL)
+            password_event.set()
+        elif key_id == board.Key.UP:
+            if current_page > 1:
+                current_page -= 1
+                board.beep(board.SOUND_GENERAL)
+                render_keyboard()
+        elif key_id == board.Key.DOWN:
+            if current_page < 2:
+                current_page += 1
+                board.beep(board.SOUND_GENERAL)
+                render_keyboard()
+        elif key_id == board.Key.PLAY:
+            password_result['action'] = 'cancel'
+            password_event.set()
+    
+    def password_field_callback(field_index):
+        nonlocal password
+        chars = chars_page1 if current_page == 1 else chars_page2
+        if 0 <= field_index < len(chars):
+            char = chars[field_index]
+            if char != " ":
+                password += char
+                board.beep(board.SOUND_GENERAL)
+                render_keyboard()
+    
+    # Subscribe to events
+    original_key_callback = board._key_callback if hasattr(board, '_key_callback') else None
+    
+    try:
+        board.subscribeEvents(password_key_callback, password_field_callback)
+        render_keyboard()
+        
+        # Wait for confirmation or cancel
+        password_event.wait(timeout=300)  # 5 minute timeout
+        
+        if password_result['action'] == 'confirm':
+            return password_result['value']
+        else:
+            return None
+            
+    finally:
+        # Restore original callback
+        if original_key_callback:
+            board.subscribeEvents(original_key_callback)
+
+
 def _handle_wifi_settings():
     """Handle WiFi settings submenu.
     
-    Shows WiFi status and allows enabling/disabling WiFi.
+    Shows WiFi status, allows scanning for networks, and connecting.
     """
-    # Check current WiFi status
-    try:
-        import subprocess
-        result = subprocess.run(['iwgetid', '-r'], capture_output=True, text=True, timeout=5)
-        current_ssid = result.stdout.strip() if result.returncode == 0 else None
-    except Exception:
-        current_ssid = None
+    while True:
+        # Get current status
+        current_ssid, ip_address = _get_current_wifi_status()
+        
+        if current_ssid:
+            status_label = f"Status\n{current_ssid}"
+            if ip_address:
+                status_label = f"Connected\n{ip_address}"
+        else:
+            status_label = "Status\nNot connected"
+        
+        wifi_entries = [
+            IconMenuEntry(key="Status", label=status_label, icon_name="wifi", enabled=False),
+            IconMenuEntry(key="Scan", label="Scan\nNetworks", icon_name="wifi", enabled=True),
+            IconMenuEntry(key="Enable", label="Enable", icon_name="wifi", enabled=True),
+            IconMenuEntry(key="Disable", label="Disable", icon_name="cancel", enabled=True),
+        ]
+        
+        wifi_result = _show_menu(wifi_entries)
+        
+        if wifi_result in ["BACK", "SHUTDOWN", "HELP"]:
+            return
+        
+        if wifi_result == "Scan":
+            _handle_wifi_scan()
+        elif wifi_result == "Enable":
+            try:
+                import subprocess
+                subprocess.run(['sudo', 'rfkill', 'unblock', 'wifi'], timeout=5)
+                board.beep(board.SOUND_GENERAL)
+                log.info("[Settings] WiFi enabled")
+            except Exception as e:
+                log.error(f"[Settings] Failed to enable WiFi: {e}")
+        elif wifi_result == "Disable":
+            try:
+                import subprocess
+                subprocess.run(['sudo', 'rfkill', 'block', 'wifi'], timeout=5)
+                log.info("[Settings] WiFi disabled")
+            except Exception as e:
+                log.error(f"[Settings] Failed to disable WiFi: {e}")
+
+
+def _handle_wifi_scan():
+    """Handle WiFi network scanning and selection."""
+    networks = _scan_wifi_networks()
     
-    if current_ssid:
-        status_label = f"WiFi\nConnected: {current_ssid}"
+    if not networks:
+        # Show no networks found message
+        board.display_manager.clear_widgets(addStatusBar=False)
+        promise = board.display_manager.add_widget(SplashScreen(message="No networks\n    found"))
+        if promise:
+            try:
+                promise.result(timeout=2.0)
+            except Exception:
+                pass
+        time.sleep(2)
+        return
+    
+    # Create menu entries for networks
+    network_entries = []
+    for net in networks[:10]:  # Limit to 10 networks
+        # Signal strength indicator
+        signal = net['signal']
+        if signal >= 70:
+            signal_str = "***"
+        elif signal >= 40:
+            signal_str = "**"
+        else:
+            signal_str = "*"
+        
+        # Truncate SSID if too long
+        ssid_display = net['ssid'][:12] if len(net['ssid']) > 12 else net['ssid']
+        label = f"{ssid_display}\n{signal_str} {signal}%"
+        
+        network_entries.append(
+            IconMenuEntry(key=net['ssid'], label=label, icon_name="wifi", enabled=True)
+        )
+    
+    network_result = _show_menu(network_entries)
+    
+    if network_result in ["BACK", "SHUTDOWN", "HELP"]:
+        return
+    
+    # User selected a network - find it in the list
+    selected_network = None
+    for net in networks:
+        if net['ssid'] == network_result:
+            selected_network = net
+            break
+    
+    if not selected_network:
+        return
+    
+    # Check if network needs password
+    needs_password = selected_network.get('security', '') != ''
+    
+    if needs_password:
+        # Get password using board input
+        password = _get_wifi_password_from_board(selected_network['ssid'])
+        if password is None:
+            return
+        _connect_to_wifi(selected_network['ssid'], password)
     else:
-        status_label = "WiFi\nNot connected"
-    
-    wifi_entries = [
-        IconMenuEntry(key="Status", label=status_label, icon_name="wifi", enabled=False),
-        IconMenuEntry(key="Enable", label="Enable", icon_name="wifi", enabled=True),
-        IconMenuEntry(key="Disable", label="Disable", icon_name="cancel", enabled=True),
-    ]
-    
-    wifi_result = _show_menu(wifi_entries)
-    if wifi_result == "Enable":
-        try:
-            import subprocess
-            subprocess.run(['sudo', 'rfkill', 'unblock', 'wifi'], timeout=5)
-            board.beep(board.SOUND_GENERAL)
-            log.info("[Settings] WiFi enabled")
-        except Exception as e:
-            log.error(f"[Settings] Failed to enable WiFi: {e}")
-    elif wifi_result == "Disable":
-        try:
-            import subprocess
-            subprocess.run(['sudo', 'rfkill', 'block', 'wifi'], timeout=5)
-            log.info("[Settings] WiFi disabled")
-        except Exception as e:
-            log.error(f"[Settings] Failed to disable WiFi: {e}")
+        _connect_to_wifi(selected_network['ssid'])
 
 
 def _handle_system_menu():
