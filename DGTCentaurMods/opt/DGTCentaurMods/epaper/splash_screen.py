@@ -27,7 +27,13 @@ class SplashScreen(Widget):
     
     The message can be updated after creation using set_message().
     Text is automatically centered horizontally using TextWidget with Justify.CENTER.
+    Supports multi-line text with wrapping.
     """
+    
+    # Text area configuration
+    TEXT_MARGIN = 4  # Margin on each side
+    TEXT_Y = 170  # Y position for text (allows room for 2 lines below logo)
+    TEXT_HEIGHT = 44  # Height for 2 lines of text at font size 18
     
     def __init__(self, message: str = "Press [OK]"):
         super().__init__(0, STATUS_BAR_HEIGHT, 128, 296 - STATUS_BAR_HEIGHT)  # Full screen widget
@@ -35,10 +41,13 @@ class SplashScreen(Widget):
         self._logo = None
         self._load_resources()
         
-        # Create a TextWidget for the message with centered justification
+        # Calculate text widget dimensions with margins for centering
+        text_width = self.width - (self.TEXT_MARGIN * 2)
+        
+        # Create a TextWidget for the message with centered justification and wrapping
         self._text_widget = TextWidget(
-            x=0, y=180, width=self.width, height=24,
-            text=message, font_size=18, justify=Justify.CENTER
+            x=0, y=0, width=text_width, height=self.TEXT_HEIGHT,
+            text=message, font_size=18, justify=Justify.CENTER, wrapText=True
         )
     
     def set_message(self, message: str):
@@ -66,8 +75,8 @@ class SplashScreen(Widget):
         # Draw logo
         img.paste(self._logo, (0, 0))
         
-        # Render text widget and paste at position
+        # Render text widget and paste centered horizontally
         text_img = self._text_widget.render()
-        img.paste(text_img, (0, 180))
+        img.paste(text_img, (self.TEXT_MARGIN, self.TEXT_Y))
         
         return img
