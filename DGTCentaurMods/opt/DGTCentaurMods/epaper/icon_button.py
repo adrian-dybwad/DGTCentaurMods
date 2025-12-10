@@ -208,6 +208,12 @@ class IconButtonWidget(Widget):
             self._draw_random_icon(draw, x, y, size, line_color)
         elif icon_name == "wifi":
             self._draw_wifi_icon(draw, x, y, size, line_color)
+        elif icon_name == "wifi_strong":
+            self._draw_wifi_signal_icon(draw, x, y, size, line_color, strength=3)
+        elif icon_name == "wifi_medium":
+            self._draw_wifi_signal_icon(draw, x, y, size, line_color, strength=2)
+        elif icon_name == "wifi_weak":
+            self._draw_wifi_signal_icon(draw, x, y, size, line_color, strength=1)
         elif icon_name == "system":
             self._draw_system_icon(draw, x, y, size, line_color)
         else:
@@ -721,17 +727,41 @@ class IconButtonWidget(Widget):
     def _draw_wifi_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                         size: int, line_color: int):
         """Draw a WiFi signal icon (concentric arcs)."""
+        self._draw_wifi_signal_icon(draw, x, y, size, line_color, strength=3)
+    
+    def _draw_wifi_signal_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                               size: int, line_color: int, strength: int = 3):
+        """Draw a WiFi signal icon with variable strength.
+        
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line color
+            strength: Signal strength 1-3 (1=weak, 2=medium, 3=strong)
+        """
         s = size / 36.0  # Scale factor
         
         # Draw concentric arcs from bottom center
         base_y = y + int(10*s)
         
-        # Three arcs of increasing size
-        for i, radius in enumerate([int(6*s), int(12*s), int(18*s)]):
-            draw.arc([x - radius, base_y - radius, x + radius, base_y + radius],
-                    start=225, end=315, fill=line_color, width=max(1, int(2*s)))
+        # Arc radii - draw all three but only fill based on strength
+        radii = [int(6*s), int(12*s), int(18*s)]
         
-        # Small dot at the bottom center
+        for i, radius in enumerate(radii):
+            # Determine if this arc should be filled or just outlined
+            if i < strength:
+                # Active arc - full line
+                width = max(1, int(3*s))
+            else:
+                # Inactive arc - thin dashed appearance (just outline)
+                width = max(1, int(1*s))
+            
+            draw.arc([x - radius, base_y - radius, x + radius, base_y + radius],
+                    start=225, end=315, fill=line_color, width=width)
+        
+        # Small dot at the bottom center (always drawn)
         dot_r = int(3*s)
         draw.ellipse([x - dot_r, base_y - dot_r, x + dot_r, base_y + dot_r],
                     fill=line_color)

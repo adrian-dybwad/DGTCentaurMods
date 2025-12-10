@@ -17,8 +17,9 @@ from .game_over import GameOverWidget
 from .menu_arrow import MenuArrowWidget
 from .icon_button import IconButtonWidget
 from .icon_menu import IconMenuWidget, IconMenuEntry
+from .keyboard import KeyboardWidget
 
 __all__ = ['Manager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'BallWidget', 
            'ChessBoardWidget', 'GameAnalysisWidget', 'CheckerboardWidget', 'SplashScreen', 
            'StatusBarWidget', 'WiFiStatusWidget', 'GameOverWidget', 'MenuArrowWidget',
-           'IconButtonWidget', 'IconMenuWidget', 'IconMenuEntry']
+           'IconButtonWidget', 'IconMenuWidget', 'IconMenuEntry', 'KeyboardWidget']

@@ -739,8 +739,8 @@ def _connect_to_wifi(ssid: str, password: str = None) -> bool:
 def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
     """Get WiFi password using board piece placement.
     
-    Uses the chess board as a virtual keyboard - placing pieces on squares
-    selects characters. UP/DOWN changes character pages.
+    Uses the KeyboardWidget which displays a virtual keyboard on the e-paper.
+    Lifting and placing pieces on squares types the corresponding character.
     
     Args:
         ssid: SSID to display in the title
@@ -748,145 +748,64 @@ def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
     Returns:
         Password string or None if cancelled
     """
-    # Character mapping for board squares
-    # Page 1: lowercase + numbers
-    # Page 2: uppercase + symbols
-    chars_page1 = "abcdefgh" + "ijklmnop" + "qrstuvwx" + "yz012345" + "6789!@#$" + "%^&*()-_" + "=+[]{}|;" + "':\",./<>"
-    chars_page2 = "ABCDEFGH" + "IJKLMNOP" + "QRSTUVWX" + "YZ      " + "        " + "        " + "        " + "        "
+    from DGTCentaurMods.epaper import KeyboardWidget
     
-    current_page = 1
-    password = ""
+    # Create keyboard widget
+    title = f"WiFi: {ssid[:10]}"
+    keyboard = KeyboardWidget(title=title, max_length=64)
     
-    def render_keyboard():
-        """Render the virtual keyboard display."""
-        img = Image.new("1", (128, 296), 255)
-        draw = ImageDraw.Draw(img)
-        
-        try:
-            from DGTCentaurMods.asset_manager import AssetManager
-            font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 14)
-            font_small = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 11)
-        except Exception:
-            font = ImageFont.load_default()
-            font_small = font
-        
-        # Title
-        draw.text((4, 2), f"WiFi: {ssid[:12]}", font=font_small, fill=0)
-        
-        # Password display
-        draw.rectangle([2, 18, 126, 38], outline=0, fill=255)
-        display_pwd = password[-14:] if len(password) > 14 else password
-        draw.text((4, 20), display_pwd + "_", font=font, fill=0)
-        
-        # Page indicator
-        page_text = f"Page {current_page}/2 (UP/DOWN)"
-        draw.text((4, 42), page_text, font=font_small, fill=0)
-        
-        # Character grid (8x8)
-        chars = chars_page1 if current_page == 1 else chars_page2
-        y_start = 58
-        cell_w = 16
-        cell_h = 20
-        
-        for row in range(8):
-            for col in range(8):
-                idx = row * 8 + col
-                char = chars[idx] if idx < len(chars) else " "
-                cx = col * cell_w
-                cy = y_start + row * cell_h
-                
-                # Draw cell border
-                draw.rectangle([cx, cy, cx + cell_w - 1, cy + cell_h - 1], outline=0)
-                
-                # Draw character
-                if char != " ":
-                    draw.text((cx + 3, cy + 2), char, font=font, fill=0)
-        
-        # Instructions
-        draw.text((2, 220), "Place piece: add char", font=font_small, fill=0)
-        draw.text((2, 234), "BACK: delete", font=font_small, fill=0)
-        draw.text((2, 248), "TICK: confirm", font=font_small, fill=0)
-        draw.text((2, 262), "PLAY: cancel", font=font_small, fill=0)
-        
-        # Blit to display
-        board.display_manager.clear_widgets(addStatusBar=False)
-        from DGTCentaurMods.epaper import SplashScreen
-        # Create a custom widget that displays our image
-        _display_image(img)
+    # Get current board state
+    try:
+        board_state = board.getBoardState()
+        if board_state and len(board_state) == 64:
+            # Convert to boolean array (True if piece present)
+            keyboard.set_board_state([bool(s) for s in board_state])
+    except Exception as e:
+        log.warning(f"[WiFi] Could not get board state: {e}")
     
-    def _display_image(img):
-        """Display an image on the e-paper."""
-        try:
-            promise = board.display(img)
-            if promise:
-                promise.result(timeout=5.0)
-        except Exception as e:
-            log.error(f"[WiFi] Error displaying keyboard: {e}")
+    # Store original callbacks
+    original_key_callback = getattr(board, '_key_callback', None)
+    original_field_callback = getattr(board, '_field_callback', None)
     
-    # Event handling
-    password_event = threading.Event()
-    password_result = {'value': None, 'action': None}
+    def keyboard_key_callback(key_id):
+        """Route key events to keyboard widget."""
+        keyboard.handle_key(key_id)
     
-    def password_key_callback(key_id):
-        nonlocal current_page, password
+    def keyboard_field_callback(field_index, piece_event=None, **kwargs):
+        """Route field events to keyboard widget.
         
-        if key_id == board.Key.BACK:
-            if password:
-                password = password[:-1]
-                board.beep(board.SOUND_GENERAL)
-                render_keyboard()
-            else:
-                # Cancel if password is empty
-                password_result['action'] = 'cancel'
-                password_event.set()
-        elif key_id == board.Key.TICK:
-            password_result['value'] = password
-            password_result['action'] = 'confirm'
-            board.beep(board.SOUND_GENERAL)
-            password_event.set()
-        elif key_id == board.Key.UP:
-            if current_page > 1:
-                current_page -= 1
-                board.beep(board.SOUND_GENERAL)
-                render_keyboard()
-        elif key_id == board.Key.DOWN:
-            if current_page < 2:
-                current_page += 1
-                board.beep(board.SOUND_GENERAL)
-                render_keyboard()
-        elif key_id == board.Key.PLAY:
-            password_result['action'] = 'cancel'
-            password_event.set()
-    
-    def password_field_callback(field_index):
-        nonlocal password
-        chars = chars_page1 if current_page == 1 else chars_page2
-        if 0 <= field_index < len(chars):
-            char = chars[field_index]
-            if char != " ":
-                password += char
-                board.beep(board.SOUND_GENERAL)
-                render_keyboard()
-    
-    # Subscribe to events
-    original_key_callback = board._key_callback if hasattr(board, '_key_callback') else None
+        Detects lift-and-place pattern: piece present means it was placed.
+        """
+        # Determine if piece is now present
+        # piece_event: 1 = piece placed, 0 = piece removed
+        piece_present = piece_event == 1 if piece_event is not None else True
+        keyboard.handle_field_event(field_index, piece_present)
     
     try:
-        board.subscribeEvents(password_key_callback, password_field_callback)
-        render_keyboard()
+        # Subscribe keyboard callbacks
+        board.subscribeEvents(keyboard_key_callback, keyboard_field_callback)
         
-        # Wait for confirmation or cancel
-        password_event.wait(timeout=300)  # 5 minute timeout
+        # Add keyboard widget to display
+        board.display_manager.clear_widgets(addStatusBar=False)
+        promise = board.display_manager.add_widget(keyboard)
+        if promise:
+            try:
+                promise.result(timeout=5.0)
+            except Exception:
+                pass
         
-        if password_result['action'] == 'confirm':
-            return password_result['value']
-        else:
-            return None
-            
+        # Wait for user input
+        result = keyboard.wait_for_input(timeout=300)  # 5 minute timeout
+        
+        return result
+        
     finally:
-        # Restore original callback
-        if original_key_callback:
-            board.subscribeEvents(original_key_callback)
+        # Restore original callbacks
+        if original_key_callback or original_field_callback:
+            board.subscribeEvents(
+                original_key_callback or (lambda k: None),
+                original_field_callback or (lambda f, **kw: None)
+            )
 
 
 def _handle_wifi_settings():
@@ -939,7 +858,7 @@ def _handle_wifi_settings():
 def _handle_wifi_scan():
     """Handle WiFi network scanning and selection."""
     networks = _scan_wifi_networks()
-    
+
     if not networks:
         # Show no networks found message
         board.display_manager.clear_widgets(addStatusBar=False)
@@ -951,27 +870,27 @@ def _handle_wifi_scan():
                 pass
         time.sleep(2)
         return
-    
+
     # Create menu entries for networks
     network_entries = []
     for net in networks[:10]:  # Limit to 10 networks
-        # Signal strength indicator
+        # Signal strength determines icon
         signal = net['signal']
         if signal >= 70:
-            signal_str = "***"
+            icon_name = "wifi_strong"
         elif signal >= 40:
-            signal_str = "**"
+            icon_name = "wifi_medium"
         else:
-            signal_str = "*"
-        
+            icon_name = "wifi_weak"
+
         # Truncate SSID if too long
-        ssid_display = net['ssid'][:12] if len(net['ssid']) > 12 else net['ssid']
-        label = f"{ssid_display}\n{signal_str} {signal}%"
-        
+        ssid_display = net['ssid'][:14] if len(net['ssid']) > 14 else net['ssid']
+        label = f"{ssid_display}\n{signal}%"
+
         network_entries.append(
-            IconMenuEntry(key=net['ssid'], label=label, icon_name="wifi", enabled=True)
+            IconMenuEntry(key=net['ssid'], label=label, icon_name=icon_name, enabled=True)
         )
-    
+
     network_result = _show_menu(network_entries)
     
     if network_result in ["BACK", "SHUTDOWN", "HELP"]:
