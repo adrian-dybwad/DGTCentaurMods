@@ -638,6 +638,7 @@ def _scan_wifi_networks() -> List[dict]:
         List of dicts with 'ssid' and 'signal' keys, sorted by signal strength
     """
     import subprocess
+    import re
     
     networks = []
     
@@ -651,40 +652,77 @@ def _scan_wifi_networks() -> List[dict]:
             except Exception:
                 pass
         
-        # Use nmcli to scan for networks
+        # Use iwlist for scanning - more reliable than nmcli
         result = subprocess.run(
-            ['sudo', 'nmcli', '-t', '-f', 'SSID,SIGNAL,SECURITY', 'device', 'wifi', 'list', '--rescan', 'yes'],
+            ['sudo', 'iwlist', 'wlan0', 'scan'],
             capture_output=True, text=True, timeout=30
         )
         
+        log.debug(f"[WiFi] iwlist return code: {result.returncode}")
+        if result.stderr:
+            log.debug(f"[WiFi] iwlist stderr: {result.stderr}")
+        
         if result.returncode == 0:
             seen_ssids = set()
-            for line in result.stdout.strip().split('\n'):
-                if not line:
-                    continue
-                parts = line.split(':')
-                if len(parts) >= 2:
-                    ssid = parts[0].strip()
-                    if ssid and ssid not in seen_ssids:
-                        seen_ssids.add(ssid)
-                        try:
-                            signal = int(parts[1]) if parts[1] else 0
-                        except ValueError:
-                            signal = 0
-                        security = parts[2] if len(parts) > 2 else ""
+            current_ssid = None
+            current_signal = 0
+            current_security = ""
+            
+            for line in result.stdout.split('\n'):
+                line = line.strip()
+                
+                # New cell - save previous if exists
+                if line.startswith('Cell '):
+                    if current_ssid and current_ssid not in seen_ssids:
+                        seen_ssids.add(current_ssid)
                         networks.append({
-                            'ssid': ssid,
-                            'signal': signal,
-                            'security': security
+                            'ssid': current_ssid,
+                            'signal': current_signal,
+                            'security': current_security
                         })
+                    current_ssid = None
+                    current_signal = 0
+                    current_security = ""
+                
+                # Extract SSID
+                if 'ESSID:' in line:
+                    match = re.search(r'ESSID:"([^"]*)"', line)
+                    if match:
+                        current_ssid = match.group(1)
+                
+                # Extract signal quality
+                if 'Quality=' in line:
+                    match = re.search(r'Quality=(\d+)/(\d+)', line)
+                    if match:
+                        quality = int(match.group(1))
+                        max_quality = int(match.group(2))
+                        current_signal = int((quality / max_quality) * 100)
+                
+                # Extract encryption
+                if 'Encryption key:on' in line:
+                    current_security = "WPA"
+            
+            # Don't forget the last network
+            if current_ssid and current_ssid not in seen_ssids:
+                seen_ssids.add(current_ssid)
+                networks.append({
+                    'ssid': current_ssid,
+                    'signal': current_signal,
+                    'security': current_security
+                })
             
             # Sort by signal strength (strongest first)
             networks.sort(key=lambda x: x['signal'], reverse=True)
+            log.info(f"[WiFi] Found {len(networks)} networks")
+        else:
+            log.error(f"[WiFi] iwlist failed: {result.stderr}")
             
     except subprocess.TimeoutExpired:
         log.error("[WiFi] Network scan timed out")
     except Exception as e:
         log.error(f"[WiFi] Error scanning networks: {e}")
+        import traceback
+        log.error(traceback.format_exc())
     
     return networks
 
