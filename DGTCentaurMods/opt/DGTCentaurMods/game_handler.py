@@ -41,7 +41,7 @@ class GameHandler:
     
     def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False,
                  standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default",
-                 display_update_callback=None, key_callback=None):
+                 display_update_callback=None):
         """Initialize the GameHandler.
         
         Args:
@@ -58,14 +58,11 @@ class GameHandler:
             player_color: Which color the human plays (chess.WHITE or chess.BLACK)
             engine_elo: ELO section name from .uci config file (e.g., "1350", "1700", "Default")
             display_update_callback: Callback function(fen) for updating display with position
-            key_callback: Optional callback function(key) for external key handling.
-                         Called for keys not handled by GameManager (e.g., BACK when no game)
         """
         self._sendMessage = sendMessage_callback
         self.compare_mode = compare_mode
         self._pending_response = None
         self._display_update_callback = display_update_callback
-        self._external_key_callback = key_callback
         self._external_event_callback = None  # Optional callback for game events
         
         # Store the hint but don't trust it - always verify from data
@@ -85,7 +82,7 @@ class GameHandler:
         self._uci_options = {}
         
         # Game manager shared by all emulators
-        self.manager = GameManager()
+        self.game_manager = GameManager()
         
         # Emulator instances - always create all emulators for auto-detection
         # The hint from BLE characteristic is unreliable as apps may connect to any service
@@ -100,21 +97,21 @@ class GameHandler:
         # Create Millennium emulator
         self._millennium = Millennium(
             sendMessage_callback=self._handle_emulator_response,
-            manager=self.manager
+            manager=self.game_manager
         )
         log.info("[GameHandler] Created Millennium emulator")
         
         # Create Pegasus emulator
         self._pegasus = Pegasus(
             sendMessage_callback=self._handle_emulator_response,
-            manager=self.manager
+            manager=self.game_manager
         )
         log.info("[GameHandler] Created Pegasus emulator")
         
         # Create Chessnut emulator
         self._chessnut = Chessnut(
             sendMessage_callback=self._handle_emulator_response,
-            manager=self.manager
+            manager=self.game_manager
         )
         log.info("[GameHandler] Created Chessnut emulator")
         
@@ -283,19 +280,15 @@ class GameHandler:
             traceback.print_exc()
     
     def _manager_key_callback(self, key):
-        """Handle key presses from the manager.
+        """Handle key presses forwarded from GameManager.
         
-        Calls external key callback first (if set), then forwards to emulators.
+        Forwards key events to active emulators that need to know about them.
         
         Args:
             key: Key that was pressed (board.Key enum value)
         """
         try:
-            log.info(f"[GameHandler] _manager_key_callback: {key}")
-            
-            # Call external key callback first (e.g., for BACK to exit, HELP to toggle analysis)
-            if self._external_key_callback is not None:
-                self._external_key_callback(key)
+            log.debug(f"[GameHandler] _manager_key_callback: {key}")
             
             # Forward to active emulator
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_key'):
@@ -324,6 +317,32 @@ class GameHandler:
             log.error(f"[GameHandler] Error in _manager_takeback_callback: {e}")
             import traceback
             traceback.print_exc()
+
+    def receive_key(self, key_id):
+        """Receive a key event from the app coordinator and forward to GameManager.
+        
+        This is called by universal.py when it receives key events from the board.
+        The event is forwarded to GameManager which handles game-related key logic.
+        
+        Args:
+            key_id: Key identifier (board.Key enum value)
+        """
+        if self.game_manager:
+            self.game_manager.receive_key(key_id)
+    
+    def receive_field(self, piece_event: int, field: int, time_in_seconds: float):
+        """Receive a field event from the app coordinator and forward to GameManager.
+        
+        This is called by universal.py when it receives field events from the board.
+        The event is forwarded to GameManager which handles piece detection logic.
+        
+        Args:
+            piece_event: 0 = lift, 1 = place
+            field: Board field index (0-63)
+            time_in_seconds: Event timestamp
+        """
+        if self.game_manager:
+            self.game_manager.receive_field(piece_event, field, time_in_seconds)
 
     def receive_data(self, byte_value):
         """Receive one byte of data and route to appropriate emulator.
@@ -421,9 +440,9 @@ class GameHandler:
         Calls the display update callback if one was provided during initialization.
         The callback receives the current FEN string from the game manager.
         """
-        if self._display_update_callback and self.manager:
+        if self._display_update_callback and self.game_manager:
             try:
-                fen = self.manager.chess_board.fen()
+                fen = self.game_manager.chess_board.fen()
                 self._display_update_callback(fen)
             except Exception as e:
                 log.error(f"[GameHandler] Error updating display: {e}")
@@ -432,7 +451,7 @@ class GameHandler:
         """Subscribe to the game manager with callbacks."""
         try:
             log.info("[GameHandler] Subscribing to game manager")
-            self.manager.subscribe_game(
+            self.game_manager.subscribe_game(
                 self._manager_event_callback,
                 self._manager_move_callback,
                 self._manager_key_callback,
@@ -558,7 +577,7 @@ class GameHandler:
             return  # No standalone engine configured
         
         # Get current board state from manager
-        chess_board = self.manager.chess_board
+        chess_board = self.game_manager.chess_board
         
         # Check if it's the engine's turn
         engine_color = chess.BLACK if self._player_color == chess.WHITE else chess.WHITE
@@ -584,7 +603,7 @@ class GameHandler:
                 log.info(f"[GameHandler] Standalone engine move: {move.uci()}")
                 # Use manager.computer_move to set up the forced move with LEDs
                 # This lights up the from/to squares and waits for player to execute the move
-                self.manager.computer_move(move.uci(), forced=True)
+                self.game_manager.computer_move(move.uci(), forced=True)
                 log.info(f"[GameHandler] Waiting for player to execute move {move.uci()} on board")
         except Exception as e:
             log.error(f"[GameHandler] Error getting standalone engine move: {e}")
@@ -614,15 +633,15 @@ class GameHandler:
         # Recreate emulators for next connection
         self._millennium = Millennium(
             sendMessage_callback=self._handle_emulator_response,
-            manager=self.manager
+            manager=self.game_manager
         )
         self._pegasus = Pegasus(
             sendMessage_callback=self._handle_emulator_response,
-            manager=self.manager
+            manager=self.game_manager
         )
         self._chessnut = Chessnut(
             sendMessage_callback=self._handle_emulator_response,
-            manager=self.manager
+            manager=self.game_manager
         )
         
         # Check if engine should play now
@@ -634,9 +653,9 @@ class GameHandler:
         Properly stops the game manager thread and closes the UCI engine.
         """
         # Unsubscribe from game manager first (stops game thread)
-        if self.manager:
+        if self.game_manager:
             try:
-                self.manager.unsubscribe_game()
+                self.game_manager.unsubscribe_game()
                 log.info("[GameHandler] Unsubscribed from game manager")
             except Exception as e:
                 log.error(f"[GameHandler] Error unsubscribing from game manager: {e}")

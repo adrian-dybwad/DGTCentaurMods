@@ -428,16 +428,17 @@ def _start_game_mode():
     def _on_back_menu_result(result: str):
         """Handle result from back menu (resign/draw/cancel/exit)."""
         if result == "resign":
-            game_handler.manager.handle_resign()
+            game_handler.game_manager.handle_resign()
             _return_to_menu("Resigned")
         elif result == "draw":
-            game_handler.manager.handle_draw()
+            game_handler.game_manager.handle_draw()
             _return_to_menu("Draw")
         elif result == "exit":
             board.shutdown()
         # cancel is handled by DisplayManager (restores display)
 
     # Create GameHandler with user-configured settings
+    # Note: Key and field events are routed through universal.py's callbacks
     game_handler = GameHandler(
         sendMessage_callback=sendMessage,
         client_type=None,
@@ -445,14 +446,13 @@ def _start_game_mode():
         standalone_engine_name=engine_name,
         player_color=player_color,
         engine_elo=engine_elo,
-        display_update_callback=update_display,
-        key_callback=key_callback
+        display_update_callback=update_display
     )
     log.info(f"[App] GameHandler created: engine={engine_name}, elo={engine_elo}, color={player_color_setting}")
     
     # Wire up GameManager callbacks to DisplayManager
-    game_handler.manager.on_promotion_needed = display_manager.show_promotion_menu
-    game_handler.manager.on_back_pressed = lambda: display_manager.show_back_menu(_on_back_menu_result)
+    game_handler.game_manager.on_promotion_needed = display_manager.show_promotion_menu
+    game_handler.game_manager.on_back_pressed = lambda: display_manager.show_back_menu(_on_back_menu_result)
     
     # Wire up event callback to reset analysis on new game
     from DGTCentaurMods.game_manager import EVENT_NEW_GAME
@@ -1299,15 +1299,42 @@ def key_callback(key_id):
                 return
     
     elif app_state == AppState.GAME:
-        if key_id == board.Key.BACK:
-            # BACK passed through from GameManager means return to menu
-            log.info("[App] BACK - returning to menu")
-            _return_to_menu("BACK pressed")
-        
-        elif key_id == board.Key.HELP:
+        # Handle app-level keys first
+        if key_id == board.Key.HELP:
             # Toggle game analysis widget visibility
             if display_manager:
                 display_manager.toggle_analysis()
+            return
+        
+        # Forward other keys to game_handler -> game_manager
+        if game_handler:
+            game_handler.receive_key(key_id)
+            
+            # Check if GameManager wants us to exit (BACK with no game in progress)
+            if key_id == board.Key.BACK and not game_handler.game_manager.is_game_in_progress():
+                log.info("[App] BACK with no game - returning to menu")
+                _return_to_menu("BACK pressed")
+
+
+def field_callback(piece_event, field, time_in_seconds):
+    """Handle field events (piece lift/place) from the board.
+    
+    Routes field events based on app state:
+    - MENU/SETTINGS: Field events are ignored (no piece input needed)
+    - GAME: Forward to game_handler -> game_manager for piece detection
+    
+    In the future, this can also route to a keyboard widget for text input.
+    
+    Args:
+        piece_event: 0 = lift, 1 = place
+        field: Board field index (0-63)
+        time_in_seconds: Event timestamp
+    """
+    global app_state, game_handler
+    
+    if app_state == AppState.GAME:
+        if game_handler:
+            game_handler.receive_field(piece_event, field, time_in_seconds)
 
 
 def main():
@@ -1373,8 +1400,8 @@ def main():
     log.info("")
     log.info("=" * 60)
     
-    # Subscribe to board events with key callback
-    board.subscribeEvents(key_callback, lambda *a: None, timeout=900)
+    # Subscribe to board events - universal.py is the single subscriber and routes events
+    board.subscribeEvents(key_callback, field_callback, timeout=900)
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)

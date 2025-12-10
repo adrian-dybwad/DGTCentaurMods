@@ -978,7 +978,7 @@ class GameManager:
             termination = str(outcome.termination)
             self._update_game_result(result_string, termination, "_execute_move")
     
-    def _field_callback(self, piece_event: int, field: int, time_in_seconds: float):
+    def receive_field(self, piece_event: int, field: int, time_in_seconds: float):
         """Handle field events (piece lift/place)."""
         field_name = chess.square_name(field)
         
@@ -999,7 +999,7 @@ class GameManager:
                 # Fallback to destination square if no stored color (shouldn't normally happen)
                 piece_color = self.chess_board.color_at(field)
         
-        log.info(f"[GameManager._field_callback] piece_event={piece_event} field={field} fieldname={field_name} "
+        log.info(f"[GameManager.receive_field] piece_event={piece_event} field={field} fieldname={field_name} "
                  f"color_at={'White' if piece_color else 'Black'} time_in_seconds={time_in_seconds}")
         
         # Check for takeback FIRST, before any other processing including correction mode
@@ -1011,7 +1011,7 @@ class GameManager:
                 # Takeback was successful, reset move state and return
                 # Exit correction mode if active since takeback resolved the issue
                 if self.correction_mode.is_active:
-                    log.info("[GameManager._field_callback] Takeback detected during correction mode, exiting correction mode")
+                    log.info("[GameManager.receive_field] Takeback detected during correction mode, exiting correction mode")
                     self._exit_correction_mode()
                 self.move_state.reset()
                 board.ledsOff()
@@ -1028,7 +1028,7 @@ class GameManager:
         if is_place:
             current_state = board.getChessState()
             if self._is_starting_position(current_state):
-                log.warning("[GameManager._field_callback] Starting position detected - abandoning current game")
+                log.warning("[GameManager.receive_field] Starting position detected - abandoning current game")
                 self._reset_game()
                 return
         
@@ -1040,7 +1040,7 @@ class GameManager:
         elif is_place:
             self._handle_piece_place(field, piece_color)
     
-    def _key_callback(self, key_pressed):
+    def receive_key(self, key_pressed):
         """Handle key press events.
         
         GameManager handles game-related key logic:
@@ -1244,27 +1244,11 @@ class GameManager:
         log.info(f"[GameManager._game_thread] Database engine and session created in thread {thread_id}")
         
         board.ledsOff()
-        log.info("[GameManager._game_thread] Subscribing to events")
+        log.info("[GameManager._game_thread] Ready to receive events from app coordinator")
         
-        try:
-            board.subscribeEvents(self._key_callback, self._field_callback)
-        except Exception as e:
-            log.error(f"[GameManager._game_thread] Error subscribing to events: {e}")
-            log.error(f"[GameManager._game_thread] Error: {sys.exc_info()[1]}")
-            # Clean up session and engine before returning
-            if self.database_session is not None:
-                try:
-                    self.database_session.close()
-                    self.database_session = None
-                except Exception:
-                    self.database_session = None
-            if self.database_engine is not None:
-                try:
-                    self.database_engine.dispose()
-                    self.database_engine = None
-                except Exception:
-                    self.database_engine = None
-            return
+        # Note: GameManager no longer subscribes to board events directly.
+        # Events are routed from the app coordinator (universal.py) through
+        # GameHandler.receive_key() and GameHandler.receive_field() methods.
         
         try:
             while not self.should_stop:
