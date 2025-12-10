@@ -2,8 +2,8 @@
 Keyboard widget for e-paper display using chess board pieces as input.
 
 This widget displays a virtual keyboard on the e-paper where each board square
-corresponds to a character. Lifting and placing a piece on a square types that
-character.
+corresponds to a character. Placing a piece on a square types that character.
+The user lifts any piece and places it on the desired character square.
 
 Usage:
     keyboard = KeyboardWidget(title="WiFi Password")
@@ -44,7 +44,7 @@ class KeyboardWidget(Widget):
         Page 2: A-Z, additional symbols
     
     Controls:
-        - Lift+place piece: Type character at that square
+        - Place piece on square: Type character at that square
         - UP: Previous page
         - DOWN: Next page  
         - BACK: Delete last character (or cancel if empty)
@@ -105,9 +105,6 @@ class KeyboardWidget(Widget):
         self._input_complete = threading.Event()
         self._result: Optional[str] = None
         self._cancelled = False
-        
-        # Board state tracking - track which squares have pieces
-        self._board_state = [False] * 64  # True if piece present
         
         # Load fonts
         self._font = None
@@ -236,8 +233,9 @@ class KeyboardWidget(Widget):
     def handle_field_event(self, field: int, piece_present: bool) -> bool:
         """Handle piece placement/removal events.
         
-        A character is typed when a piece is placed on a square that
-        previously had a piece (lift and place pattern).
+        A character is typed when a piece is placed on any square.
+        The user lifts a piece from anywhere and places it on the character
+        square they want to type.
         
         Args:
             field: Board field index (0-63)
@@ -249,12 +247,8 @@ class KeyboardWidget(Widget):
         if field < 0 or field >= 64:
             return False
         
-        was_present = self._board_state[field]
-        self._board_state[field] = piece_present
-        
         # Type character on piece placement (not removal)
-        # Only if there was previously a piece there (lift-place pattern)
-        if piece_present and was_present:
+        if piece_present:
             char = self._field_to_char(field)
             if char and len(self.text) < self.max_length:
                 self.text += char
@@ -267,15 +261,6 @@ class KeyboardWidget(Widget):
                 return True
         
         return False
-    
-    def set_board_state(self, state: list):
-        """Set the current board state.
-        
-        Args:
-            state: List of 64 booleans indicating piece presence
-        """
-        if len(state) == 64:
-            self._board_state = list(state)
     
     def wait_for_input(self, timeout: float = 300.0) -> Optional[str]:
         """Wait for user to complete input.
@@ -364,7 +349,7 @@ class KeyboardWidget(Widget):
         
         # Instructions at bottom
         inst_y = grid_y + 8 * cell_h + 2
-        draw.text((2, inst_y), "Lift+place: type", font=self._font_tiny, fill=0)
+        draw.text((2, inst_y), "Place piece: type", font=self._font_tiny, fill=0)
         draw.text((2, inst_y + 11), "BACK:del TICK:ok", font=self._font_tiny, fill=0)
         draw.text((2, inst_y + 22), "PLAY: cancel", font=self._font_tiny, fill=0)
         
