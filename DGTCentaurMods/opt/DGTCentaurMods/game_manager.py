@@ -567,8 +567,8 @@ class GameManager:
                 to_idx = missing_squares[col_ind[0]]
             
             board.ledsOff()
-            # Use faster flashing (speed=1) for correction guidance to distinguish from normal moves
-            board.ledFromTo(from_idx, to_idx, speed=1, repeat=0)
+            # Use faster flashing (speed=10) for correction guidance to distinguish from normal moves (default speed=3)
+            board.ledFromTo(from_idx, to_idx, speed=10, repeat=0)
             log.warning(f"[GameManager._provide_correction_guidance] Guiding piece from {chess.square_name(from_idx)} to {chess.square_name(to_idx)}")
         else:
             # Only pieces missing or only extra pieces
