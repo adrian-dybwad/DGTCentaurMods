@@ -100,6 +100,10 @@ class IconButtonWidget(Widget):
     def render(self) -> Image.Image:
         """Render the button with icon and label.
         
+        Multi-line labels are supported. For multi-line text, the label is
+        positioned at the top of the button (after the icon). For single-line
+        text, it remains at the bottom.
+        
         Returns:
             PIL Image with rendered button
         """
@@ -121,9 +125,20 @@ class IconButtonWidget(Widget):
         
         # Draw label
         text_x = icon_x + self.icon_size // 2 + self.padding
-        text_y = self.height - self.label_height - 4
         text_color = 255 if self.selected else 0
-        draw.text((text_x, text_y), self.label, font=self._font, fill=text_color)
+        
+        # Check for multi-line text
+        lines = self.label.split('\n')
+        if len(lines) > 1:
+            # Multi-line: position at top of button
+            text_y = self.padding + 2
+            for line in lines:
+                draw.text((text_x, text_y), line, font=self._font, fill=text_color)
+                text_y += 16  # Line height
+        else:
+            # Single line: position at bottom
+            text_y = self.height - self.label_height - 4
+            draw.text((text_x, text_y), self.label, font=self._font, fill=text_color)
         
         return img
     
