@@ -93,6 +93,167 @@ client_sock = None
 # Args (stored globally after parsing for access in callbacks)
 _args = None
 
+# Game settings (user-configurable via settings menu)
+# These are loaded from centaur.ini on startup and saved when changed
+_game_settings = {
+    'engine': 'stockfish_pi',  # Default engine
+    'elo': 'Default',          # Default ELO level
+    'player_color': 'white',   # white, black, or random
+}
+
+# Settings section name in centaur.ini
+SETTINGS_SECTION = 'game'
+
+# Cached engine data
+_available_engines: List[str] = []
+_engine_elo_levels: dict = {}  # engine_name -> list of ELO levels
+
+
+# ============================================================================
+# Settings Persistence
+# ============================================================================
+
+def _load_game_settings():
+    """Load game settings from centaur.ini.
+    
+    Reads engine, elo, and player_color from the [game] section.
+    Uses defaults if not present.
+    """
+    global _game_settings
+    
+    try:
+        from DGTCentaurMods.board.settings import Settings
+        
+        _game_settings['engine'] = Settings.read(SETTINGS_SECTION, 'engine', 'stockfish_pi')
+        _game_settings['elo'] = Settings.read(SETTINGS_SECTION, 'elo', 'Default')
+        _game_settings['player_color'] = Settings.read(SETTINGS_SECTION, 'player_color', 'white')
+        
+        log.info(f"[Settings] Loaded: engine={_game_settings['engine']}, "
+                 f"elo={_game_settings['elo']}, color={_game_settings['player_color']}")
+    except Exception as e:
+        log.warning(f"[Settings] Error loading game settings: {e}, using defaults")
+
+
+def _save_game_setting(key: str, value: str):
+    """Save a single game setting to centaur.ini.
+    
+    Args:
+        key: Setting key (engine, elo, player_color)
+        value: Setting value
+    """
+    global _game_settings
+    
+    try:
+        from DGTCentaurMods.board.settings import Settings
+        
+        _game_settings[key] = value
+        Settings.write(SETTINGS_SECTION, key, value)
+        log.debug(f"[Settings] Saved {key}={value}")
+    except Exception as e:
+        log.warning(f"[Settings] Error saving {key}={value}: {e}")
+
+
+# ============================================================================
+# Engine/Settings Helpers
+# ============================================================================
+
+def _load_available_engines() -> List[str]:
+    """Load list of available engines from .uci files.
+    
+    Returns:
+        List of engine names (without .uci extension)
+    """
+    global _available_engines, _engine_elo_levels
+    
+    if _available_engines:
+        return _available_engines
+    
+    engines_dir = pathlib.Path("/opt/DGTCentaurMods/engines")
+    uci_dir = pathlib.Path("/opt/DGTCentaurMods/config/engines")
+    
+    # Fallback to development paths
+    if not uci_dir.exists():
+        base_path = pathlib.Path(__file__).parent
+        uci_dir = base_path / "defaults" / "engines"
+    
+    if not uci_dir.exists():
+        log.warning(f"[Settings] UCI config directory not found: {uci_dir}")
+        return ['stockfish_pi']  # Default fallback
+    
+    engines = []
+    for uci_file in uci_dir.glob("*.uci"):
+        engine_name = uci_file.stem
+        engines.append(engine_name)
+        
+        # Also load ELO levels for this engine
+        _load_engine_elo_levels(engine_name, uci_file)
+    
+    _available_engines = sorted(engines)
+    log.info(f"[Settings] Found {len(_available_engines)} engines: {_available_engines}")
+    return _available_engines
+
+
+def _load_engine_elo_levels(engine_name: str, uci_path: pathlib.Path) -> List[str]:
+    """Load ELO levels from an engine's .uci file.
+    
+    Args:
+        engine_name: Name of the engine
+        uci_path: Path to the .uci file
+        
+    Returns:
+        List of ELO level names (section headers from .uci file)
+    """
+    global _engine_elo_levels
+    
+    if engine_name in _engine_elo_levels:
+        return _engine_elo_levels[engine_name]
+    
+    levels = ['Default']  # Always include Default
+    
+    try:
+        import configparser
+        config = configparser.ConfigParser()
+        config.read(str(uci_path))
+        
+        for section in config.sections():
+            if section != 'DEFAULT':
+                levels.append(section)
+        
+        _engine_elo_levels[engine_name] = levels
+        log.debug(f"[Settings] Engine {engine_name} ELO levels: {levels}")
+    except Exception as e:
+        log.warning(f"[Settings] Error loading ELO levels from {uci_path}: {e}")
+        _engine_elo_levels[engine_name] = ['Default']
+    
+    return _engine_elo_levels[engine_name]
+
+
+def _get_engine_elo_levels(engine_name: str) -> List[str]:
+    """Get ELO levels for an engine.
+    
+    Args:
+        engine_name: Name of the engine
+        
+    Returns:
+        List of ELO level names
+    """
+    global _engine_elo_levels
+    
+    if engine_name in _engine_elo_levels:
+        return _engine_elo_levels[engine_name]
+    
+    # Try to load from .uci file
+    uci_dir = pathlib.Path("/opt/DGTCentaurMods/config/engines")
+    if not uci_dir.exists():
+        base_path = pathlib.Path(__file__).parent
+        uci_dir = base_path / "defaults" / "engines"
+    
+    uci_path = uci_dir / f"{engine_name}.uci"
+    if uci_path.exists():
+        return _load_engine_elo_levels(engine_name, uci_path)
+    
+    return ['Default']
+
 
 # ============================================================================
 # Menu Functions
@@ -141,6 +302,9 @@ def create_settings_entries() -> List[IconMenuEntry]:
         List of IconMenuEntry for settings menu
     """
     return [
+        IconMenuEntry(key="Engine", label="Engine", icon_name="engine", enabled=True),
+        IconMenuEntry(key="ELO", label="ELO", icon_name="elo", enabled=True),
+        IconMenuEntry(key="Color", label="Color", icon_name="color", enabled=True),
         IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
         IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
         IconMenuEntry(key="Reboot", label="Reboot", icon_name="reboot", enabled=True),
@@ -188,24 +352,31 @@ def _show_menu(entries: List[IconMenuEntry]) -> str:
 
 def _start_game_mode():
     """Transition from menu to game mode.
-    
+
     Initializes game handler and display manager, shows chess widgets.
+    Uses settings from _game_settings (configurable via Settings menu).
     """
-    global app_state, game_handler, display_manager, _args
-    
+    global app_state, game_handler, display_manager, _game_settings
+
     log.info("[App] Transitioning to GAME mode")
     app_state = AppState.GAME
     
+    # Get current game settings
+    engine_name = _game_settings['engine']
+    engine_elo = _game_settings['elo']
+    player_color_setting = _game_settings['player_color']
+
     # Determine player color for standalone engine
-    if _args.player_color == "random":
-        fallback_player_color = chess.WHITE if random.randint(0, 1) == 0 else chess.BLACK
+    if player_color_setting == "random":
+        player_color = chess.WHITE if random.randint(0, 1) == 0 else chess.BLACK
+        log.info(f"[App] Random color selected: {'white' if player_color == chess.WHITE else 'black'}")
     else:
-        fallback_player_color = chess.WHITE if _args.player_color == "white" else chess.BLACK
-    
+        player_color = chess.WHITE if player_color_setting == "white" else chess.BLACK
+
     # Get analysis engine path
     base_path = pathlib.Path(__file__).parent
     analysis_engine_path = str((base_path / "engines/ct800").resolve())
-    
+
     # Create DisplayManager - handles all game widgets (chess board, analysis)
     display_manager = DisplayManager(
         flip_board=False,
@@ -214,7 +385,7 @@ def _start_game_mode():
         on_exit=lambda: _return_to_menu("Menu exit")
     )
     log.info("[App] DisplayManager initialized")
-    
+
     # Display update callback for GameHandler
     def update_display(fen):
         """Update display manager with new position."""
@@ -227,7 +398,7 @@ def _start_game_mode():
                 display_manager.analyze_position(board_obj, current_turn)
             except Exception as e:
                 log.debug(f"Error triggering analysis: {e}")
-    
+
     # Back menu result handler
     def _on_back_menu_result(result: str):
         """Handle result from back menu (resign/draw/cancel/exit)."""
@@ -240,19 +411,19 @@ def _start_game_mode():
         elif result == "exit":
             board.shutdown()
         # cancel is handled by DisplayManager (restores display)
-    
-    # Create GameHandler
+
+    # Create GameHandler with user-configured settings
     game_handler = GameHandler(
         sendMessage_callback=sendMessage,
         client_type=None,
         compare_mode=relay_mode,
-        standalone_engine_name=_args.standalone_engine,
-        player_color=fallback_player_color,
-        engine_elo=_args.engine_elo,
+        standalone_engine_name=engine_name,
+        player_color=player_color,
+        engine_elo=engine_elo,
         display_update_callback=update_display,
         key_callback=key_callback
     )
-    log.info(f"[App] GameHandler created with standalone engine: {_args.standalone_engine} @ {_args.engine_elo}")
+    log.info(f"[App] GameHandler created: engine={engine_name}, elo={engine_elo}, color={player_color_setting}")
     
     # Wire up GameManager callbacks to DisplayManager
     game_handler.manager.on_promotion_needed = display_manager.show_promotion_menu
@@ -301,8 +472,9 @@ def _handle_settings():
     """Handle the Settings submenu.
     
     Displays settings options and handles their selection.
+    Includes game settings (Engine, ELO, Color) and system settings (Sound, Shutdown, Reboot).
     """
-    global app_state
+    global app_state, _game_settings
     from DGTCentaurMods.board import centaur
     
     app_state = AppState.SETTINGS
@@ -319,7 +491,76 @@ def _handle_settings():
             _shutdown("     Shutdown")
             return
         
-        if result == "Sound":
+        if result == "Engine":
+            # Engine selection submenu
+            engines = _load_available_engines()
+            engine_entries = []
+            for engine in engines:
+                # Mark current selection
+                label = f"* {engine}" if engine == _game_settings['engine'] else engine
+                engine_entries.append(
+                    IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
+                )
+            
+            engine_result = _show_menu(engine_entries)
+            if engine_result not in ["BACK", "SHUTDOWN", "HELP"]:
+                old_engine = _game_settings['engine']
+                _save_game_setting('engine', engine_result)
+                log.info(f"[Settings] Engine changed: {old_engine} -> {engine_result}")
+                # Reset ELO to Default when engine changes
+                _save_game_setting('elo', 'Default')
+                board.beep(board.SOUND_GENERAL)
+        
+        elif result == "ELO":
+            # ELO selection submenu (depends on selected engine)
+            current_engine = _game_settings['engine']
+            elo_levels = _get_engine_elo_levels(current_engine)
+            elo_entries = []
+            for elo in elo_levels:
+                # Mark current selection
+                label = f"* {elo}" if elo == _game_settings['elo'] else elo
+                elo_entries.append(
+                    IconMenuEntry(key=elo, label=label, icon_name="elo", enabled=True)
+                )
+            
+            elo_result = _show_menu(elo_entries)
+            if elo_result not in ["BACK", "SHUTDOWN", "HELP"]:
+                old_elo = _game_settings['elo']
+                _save_game_setting('elo', elo_result)
+                log.info(f"[Settings] ELO changed: {old_elo} -> {elo_result}")
+                board.beep(board.SOUND_GENERAL)
+        
+        elif result == "Color":
+            # Player color selection submenu
+            color_entries = [
+                IconMenuEntry(
+                    key="white",
+                    label="* White" if _game_settings['player_color'] == 'white' else "White",
+                    icon_name="white_piece",
+                    enabled=True
+                ),
+                IconMenuEntry(
+                    key="black",
+                    label="* Black" if _game_settings['player_color'] == 'black' else "Black",
+                    icon_name="black_piece",
+                    enabled=True
+                ),
+                IconMenuEntry(
+                    key="random",
+                    label="* Random" if _game_settings['player_color'] == 'random' else "Random",
+                    icon_name="random",
+                    enabled=True
+                ),
+            ]
+            
+            color_result = _show_menu(color_entries)
+            if color_result in ["white", "black", "random"]:
+                old_color = _game_settings['player_color']
+                _save_game_setting('player_color', color_result)
+                log.info(f"[Settings] Player color changed: {old_color} -> {color_result}")
+                board.beep(board.SOUND_GENERAL)
+        
+        elif result == "Sound":
             # Sound toggle submenu
             sound_entries = [
                 IconMenuEntry(key="On", label="On", icon_name="sound", enabled=True),
@@ -759,10 +1000,13 @@ def main():
     
     args = parser.parse_args()
     _args = args  # Store globally for access in callbacks
-    
+
     relay_mode = args.relay
     shadow_target_name = args.shadow_target
     
+    # Load game settings from centaur.ini
+    _load_game_settings()
+
     # Initialize display
     log.info("Initializing display...")
     promise = board.init_display()

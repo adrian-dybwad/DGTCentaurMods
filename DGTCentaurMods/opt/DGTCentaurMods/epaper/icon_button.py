@@ -179,6 +179,18 @@ class IconButtonWidget(Widget):
             self._draw_bishop_icon(draw, x, y, size, line_color, selected, icon_name == "Bw")
         elif icon_name in ("Nw", "Nb"):
             self._draw_knight_piece_icon(draw, x, y, size, line_color, selected, icon_name == "Nw")
+        elif icon_name == "engine":
+            self._draw_engine_icon(draw, x, y, size, line_color)
+        elif icon_name == "elo":
+            self._draw_elo_icon(draw, x, y, size, line_color)
+        elif icon_name == "color":
+            self._draw_color_icon(draw, x, y, size, line_color)
+        elif icon_name == "white_piece":
+            self._draw_king_icon(draw, x, y, size, line_color, is_white=True)
+        elif icon_name == "black_piece":
+            self._draw_king_icon(draw, x, y, size, line_color, is_white=False)
+        elif icon_name == "random":
+            self._draw_random_icon(draw, x, y, size, line_color)
         else:
             # Default: simple square placeholder
             draw.rectangle([left + 4, top + 4, right - 4, bottom - 4],
@@ -539,3 +551,150 @@ class IconButtonWidget(Widget):
         """
         # Reuse the existing knight icon drawing
         self._draw_knight_icon(draw, x, y, size, line_color, selected)
+    
+    def _draw_engine_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                          size: int, line_color: int):
+        """Draw an engine/CPU icon (circuit-like design)."""
+        half = size // 2
+        s = size / 36.0  # Scale factor
+        
+        # Central rectangle (chip body)
+        chip_half = int(10*s)
+        draw.rectangle([x - chip_half, y - chip_half, x + chip_half, y + chip_half],
+                      outline=line_color, width=max(1, int(2*s)))
+        
+        # Pins on each side
+        pin_len = int(4*s)
+        pin_width = max(1, int(2*s))
+        for offset in [-int(5*s), int(5*s)]:
+            # Top pins
+            draw.line([(x + offset, y - chip_half), (x + offset, y - chip_half - pin_len)],
+                     fill=line_color, width=pin_width)
+            # Bottom pins
+            draw.line([(x + offset, y + chip_half), (x + offset, y + chip_half + pin_len)],
+                     fill=line_color, width=pin_width)
+            # Left pins
+            draw.line([(x - chip_half, y + offset), (x - chip_half - pin_len, y + offset)],
+                     fill=line_color, width=pin_width)
+            # Right pins
+            draw.line([(x + chip_half, y + offset), (x + chip_half + pin_len, y + offset)],
+                     fill=line_color, width=pin_width)
+    
+    def _draw_elo_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                       size: int, line_color: int):
+        """Draw an ELO/rating icon (chart/graph style)."""
+        half = size // 2
+        s = size / 36.0  # Scale factor
+        
+        # Draw bar chart style
+        bar_width = int(6*s)
+        gap = int(3*s)
+        
+        # Three bars of increasing height
+        heights = [int(8*s), int(14*s), int(20*s)]
+        start_x = x - int(12*s)
+        base_y = y + int(10*s)
+        
+        for i, h in enumerate(heights):
+            bx = start_x + i * (bar_width + gap)
+            draw.rectangle([bx, base_y - h, bx + bar_width, base_y],
+                          fill=line_color, outline=line_color)
+        
+        # Baseline
+        draw.line([(x - half + int(2*s), base_y), (x + half - int(2*s), base_y)],
+                 fill=line_color, width=max(1, int(2*s)))
+    
+    def _draw_color_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                         size: int, line_color: int):
+        """Draw a color selection icon (half white, half black circle)."""
+        half = size // 2
+        s = size / 36.0  # Scale factor
+        radius = int(14*s)
+        
+        # Draw circle outline
+        draw.ellipse([x - radius, y - radius, x + radius, y + radius],
+                    outline=line_color, width=max(1, int(2*s)))
+        
+        # Fill right half (simulate with arc/pie)
+        # Draw a vertical line and fill the right semicircle
+        draw.pieslice([x - radius, y - radius, x + radius, y + radius],
+                     start=-90, end=90, fill=line_color)
+    
+    def _draw_king_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                        size: int, line_color: int, is_white: bool):
+        """Draw a chess king icon.
+        
+        Args:
+            is_white: If True, draw hollow (white piece), if False, draw filled (black piece)
+        """
+        half = size // 2
+        s = size / 36.0  # Scale factor
+        
+        # Cross on top
+        cross_width = max(1, int(2*s))
+        cross_half = int(4*s)
+        cross_top = y - half + int(2*s)
+        
+        # Vertical part of cross
+        draw.line([(x, cross_top), (x, cross_top + int(8*s))],
+                 fill=line_color, width=cross_width)
+        # Horizontal part of cross
+        draw.line([(x - cross_half, cross_top + int(3*s)), (x + cross_half, cross_top + int(3*s))],
+                 fill=line_color, width=cross_width)
+        
+        # Crown body (bell shape)
+        crown_top = y - int(6*s)
+        crown_bottom = y + int(8*s)
+        crown_width_top = int(6*s)
+        crown_width_bottom = int(10*s)
+        
+        if is_white:
+            # Hollow crown
+            draw.polygon([
+                (x - crown_width_top, crown_top),
+                (x + crown_width_top, crown_top),
+                (x + crown_width_bottom, crown_bottom),
+                (x - crown_width_bottom, crown_bottom),
+            ], outline=line_color)
+        else:
+            # Filled crown
+            draw.polygon([
+                (x - crown_width_top, crown_top),
+                (x + crown_width_top, crown_top),
+                (x + crown_width_bottom, crown_bottom),
+                (x - crown_width_bottom, crown_bottom),
+            ], fill=line_color)
+        
+        # Base
+        base_y = y + int(10*s)
+        base_half = int(12*s)
+        draw.rectangle([x - base_half, base_y, x + base_half, base_y + int(4*s)],
+                      fill=line_color if not is_white else None,
+                      outline=line_color, width=max(1, int(1.5*s)))
+    
+    def _draw_random_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                          size: int, line_color: int):
+        """Draw a random/dice icon."""
+        half = size // 2
+        s = size / 36.0  # Scale factor
+        
+        # Dice outline (slightly rotated rectangle effect via diamond)
+        dice_half = int(12*s)
+        draw.rectangle([x - dice_half, y - dice_half, x + dice_half, y + dice_half],
+                      outline=line_color, width=max(1, int(2*s)))
+        
+        # Dice dots (6 pattern)
+        dot_radius = int(2*s)
+        dot_positions = [
+            (-int(5*s), -int(5*s)),  # top-left
+            (int(5*s), -int(5*s)),   # top-right
+            (-int(5*s), 0),          # middle-left
+            (int(5*s), 0),           # middle-right
+            (-int(5*s), int(5*s)),   # bottom-left
+            (int(5*s), int(5*s)),    # bottom-right
+        ]
+        
+        for dx, dy in dot_positions:
+            draw.ellipse([x + dx - dot_radius, y + dy - dot_radius,
+                         x + dx + dot_radius, y + dy + dot_radius],
+                        fill=line_color)
