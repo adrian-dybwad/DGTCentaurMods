@@ -1,5 +1,8 @@
 """
 Splash screen widget displayed on startup.
+
+Displays a modified DGT Centaur logo with "UNIVERSAL" replacing "MODS",
+and an updateable message below.
 """
 
 from PIL import Image, ImageDraw, ImageFont
@@ -25,20 +28,26 @@ except ImportError:
 class SplashScreen(Widget):
     """Splash screen widget with logo and updateable centered message.
     
+    The logo is cropped to remove the "MODS" text, and "UNIVERSAL" is drawn
+    dynamically in a smaller font to fit the width.
+    
     The message can be updated after creation using set_message().
     Text is automatically centered horizontally using TextWidget with Justify.CENTER.
     Supports multi-line text with wrapping.
     """
     
-    # Text area configuration
+    # Layout configuration
+    LOGO_CROP_HEIGHT = 130  # Crop logo to this height to remove "MODS" text
+    UNIVERSAL_Y = 132  # Y position for "UNIVERSAL" text
     TEXT_MARGIN = 4  # Margin on each side
-    TEXT_Y = 170  # Y position for text (allows room for 2 lines below logo)
+    TEXT_Y = 170  # Y position for message text (allows room for 2 lines below logo)
     TEXT_HEIGHT = 44  # Height for 2 lines of text at font size 18
     
     def __init__(self, message: str = "Press [OK]"):
         super().__init__(0, STATUS_BAR_HEIGHT, 128, 296 - STATUS_BAR_HEIGHT)  # Full screen widget
         self.message = message
         self._logo = None
+        self._font = None
         self._load_resources()
         
         # Calculate text widget dimensions with margins for centering
@@ -61,21 +70,40 @@ class SplashScreen(Widget):
         self.request_update(full=False)
 
     def _load_resources(self):
-        """Load logo image."""
+        """Load logo image and font."""
+        # Load logo and crop to remove "MODS" text
         try:
-            self._logo = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
+            full_logo = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
+            # Crop to remove the "MODS" text at the bottom
+            self._logo = full_logo.crop((0, 0, full_logo.width, self.LOGO_CROP_HEIGHT))
         except Exception as e:
             log.error(f"Failed to load splash screen logo: {e}")
-            self._logo = Image.new("1", (128, 128), 255)
+            self._logo = Image.new("1", (128, self.LOGO_CROP_HEIGHT), 255)
+        
+        # Load font for "UNIVERSAL" text
+        try:
+            font_path = AssetManager.get_resource_path("Font.ttc")
+            self._font = ImageFont.truetype(font_path, 16)
+        except Exception as e:
+            log.debug(f"Failed to load font, using default: {e}")
+            self._font = ImageFont.load_default()
     
     def render(self) -> Image.Image:
-        """Render the splash screen with logo and centered text."""
+        """Render the splash screen with logo, UNIVERSAL text, and message."""
         img = Image.new("1", (self.width, self.height), 255)
+        draw = ImageDraw.Draw(img)
         
-        # Draw logo
+        # Draw cropped logo (without "MODS")
         img.paste(self._logo, (0, 0))
         
-        # Render text widget and paste centered horizontally
+        # Draw "UNIVERSAL" text centered
+        universal_text = "UNIVERSAL"
+        bbox = draw.textbbox((0, 0), universal_text, font=self._font)
+        text_width = bbox[2] - bbox[0]
+        x = (self.width - text_width) // 2
+        draw.text((x, self.UNIVERSAL_Y), universal_text, font=self._font, fill=0)
+        
+        # Render message widget and paste centered horizontally
         text_img = self._text_widget.render()
         img.paste(text_img, (self.TEXT_MARGIN, self.TEXT_Y))
         
