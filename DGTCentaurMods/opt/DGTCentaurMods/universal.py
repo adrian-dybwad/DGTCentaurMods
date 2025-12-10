@@ -48,31 +48,26 @@ from DGTCentaurMods.board import board
 from DGTCentaurMods.epaper import SplashScreen
 from DGTCentaurMods.rfcomm_manager import RfcommManager
 from DGTCentaurMods.ble_manager import BleManager
+from DGTCentaurMods.relay_manager import RelayManager
 from DGTCentaurMods.game_handler import GameHandler
 from DGTCentaurMods.display_manager import DisplayManager
 
 # Global state
 running = True
 kill = 0
-shadow_target_connected = False
 client_connected = False
 game_handler = None  # GameHandler instance
 display_manager = None  # DisplayManager for game UI widgets
 _last_message = None  # Last message sent via sendMessage
 relay_mode = False  # Whether relay mode is enabled (connects to relay target)
-shadow_target = "MILLENNIUM CHESS"  # Default target device name (can be overridden via --shadow-target)
 mainloop = None  # GLib mainloop for BLE
 rfcomm_manager = None  # RfcommManager for RFCOMM pairing
 ble_manager = None  # BleManager for BLE GATT services
+relay_manager = None  # RelayManager for shadow target connections
 
 # Socket references
-shadow_target_sock = None
 server_sock = None
 client_sock = None
-
-# Thread references
-shadow_target_to_client_thread = None
-shadow_target_to_client_thread_started = False
 
 # ============================================================================
 # BLE Callbacks for BleManager
@@ -87,7 +82,7 @@ def _on_ble_data_received(data: bytes, client_type: str):
         data: Raw bytes received from BLE client
         client_type: Type of client ('millennium', 'pegasus', 'chessnut')
     """
-    global game_handler, relay_mode, shadow_target_sock, shadow_target_connected
+    global game_handler, relay_mode, relay_manager
     
     hex_str = ' '.join(f'{b:02x}' for b in data)
     log.info(f"[BLE RX] {client_type}: {len(data)} bytes - {hex_str}")
@@ -98,13 +93,8 @@ def _on_ble_data_received(data: bytes, client_type: str):
             game_handler.receive_data(byte_val)
     
     # Forward to shadow target if in relay mode
-    if relay_mode and shadow_target_connected and shadow_target_sock is not None:
-        try:
-            log.info(f"[BLE -> Shadow] Forwarding {len(data)} bytes")
-            shadow_target_sock.send(bytes(data))
-        except Exception as e:
-            log.error(f"[BLE -> Shadow] Error: {e}")
-            shadow_target_connected = False
+    if relay_mode and relay_manager is not None and relay_manager.connected:
+        relay_manager.send_to_target(data)
 
 
 def _on_ble_connected(client_type: str):
@@ -176,209 +166,17 @@ def sendMessage(data, message_type=None):
 
 
 # ============================================================================
-# Bluetooth Classic SPP Functions
+# RFCOMM Client Reader
 # ============================================================================
 
-def find_shadow_target_device(shadow_target="MILLENNIUM CHESS"):
-    """Find the device by name."""
-    log.info(f"Looking for {shadow_target} device...")
-    
-    # First, try to find in known devices using RfcommManager
-    controller = RfcommManager()
-    addr = controller.find_device_by_name(shadow_target)
-    if addr:
-        return addr
-    
-    # If not found in known devices, do a discovery scan
-    log.info(f"Scanning for {shadow_target} device...")
-    devices = bluetooth.discover_devices(duration=8, lookup_names=True, flush_cache=True)
-    
-    for addr, name in devices:
-        log.info(f"Found device: {name} ({addr})")
-        if name and shadow_target.upper() in name.upper():
-            log.info(f"Found {shadow_target} at address: {addr}")
-            return addr
-    
-    log.warning(f"{shadow_target} device not found in scan")
-    return None
-
-
-def find_shadow_target_service(device_addr):
-    """Find the RFCOMM service on the SHADOW TARGET device"""
-    log.info(f"Discovering services on {device_addr}...")
-    
-    services = bluetooth.find_service(address=device_addr)
-    
-    for service in services:
-        log.info(f"Service: {service.get('name', 'Unknown')} - "
-                 f"Protocol: {service.get('protocol', 'Unknown')} - "
-                 f"Port: {service.get('port', 'Unknown')}")
-        
-        if service.get('protocol') == 'RFCOMM':
-            port = service.get('port')
-            if port is not None:
-                log.info(f"Found RFCOMM service on port {port}")
-                return port
-    
-    log.warning(f"No RFCOMM service found on {device_addr}")
-    return None
-
-
-def connect_to_shadow_target(shadow_target="MILLENNIUM CHESS"):
-    """Connect to the target device."""
-    global shadow_target_sock, shadow_target_connected
-    global shadow_target_to_client_thread, shadow_target_to_client_thread_started
-    
-    try:
-        device_addr = find_shadow_target_device(shadow_target=shadow_target)
-        if not device_addr:
-            log.error(f"Could not find SHADOW TARGET '{shadow_target}'")
-            return False
-        
-        port = find_shadow_target_service(device_addr)
-        if port is None:
-            log.info("Trying common RFCOMM ports...")
-            for common_port in [1, 2, 3, 4, 5]:
-                try:
-                    log.info(f"Attempting connection on port {common_port}...")
-                    sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-                    sock.connect((device_addr, common_port))
-                    shadow_target_sock = sock
-                    shadow_target_connected = True
-                    log.info(f"Connected to {device_addr} on port {common_port}")
-                    if not shadow_target_to_client_thread_started:
-                        shadow_target_to_client_thread = threading.Thread(target=shadow_target_to_client, daemon=True)
-                        shadow_target_to_client_thread.start()
-                        shadow_target_to_client_thread_started = True
-                    return True
-                except Exception as e:
-                    log.debug(f"Failed on port {common_port}: {e}")
-                    try:
-                        sock.close()
-                    except:
-                        pass
-            log.error(f"Could not connect to {device_addr} on any common port")
-            return False
-        
-        log.info(f"Connecting to {device_addr}:{port}...")
-        shadow_target_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-        shadow_target_sock.connect((device_addr, port))
-        shadow_target_connected = True
-        log.info(f"Connected to SHADOW TARGET successfully")
-        if not shadow_target_to_client_thread_started:
-            shadow_target_to_client_thread = threading.Thread(target=shadow_target_to_client, daemon=True)
-            shadow_target_to_client_thread.start()
-            shadow_target_to_client_thread_started = True
-        return True
-        
-    except Exception as e:
-        log.error(f"Error connecting to SHADOW TARGET: {e}")
-        import traceback
-        log.error(traceback.format_exc())
-        return False
-
-
-def shadow_target_to_client():
-    """Relay data from SHADOW TARGET to client."""
-    global running, shadow_target_sock, client_sock, shadow_target_connected, client_connected
-    global _last_message, shadow_target, game_handler
-    
-    log.info(f"Starting SHADOW TARGET -> Client relay thread")
-    try:
-        while running and not kill:
-            try:
-                if not shadow_target_connected or shadow_target_sock is None:
-                    time.sleep(0.1)
-                    continue
-                
-                data = shadow_target_sock.recv(1024)
-                if len(data) > 0:
-                    data_bytes = bytearray(data)
-                    log.info(f"SHADOW TARGET -> Client: {' '.join(f'{b:02x}' for b in data_bytes)}")
-                    
-                    if game_handler is not None and game_handler.compare_mode:
-                        match, emulator_response = game_handler.compare_with_shadow(bytes(data_bytes))
-                        if match is False:
-                            log.error("[Relay] MISMATCH: Emulator response differs from shadow host")
-                        elif match is True:
-                            log.info("[Relay] MATCH: Emulator response matches shadow host")
-                    
-                    if client_connected and client_sock is not None:
-                        client_sock.send(data)
-                    
-                    # Send via BLE if connected
-                    if ble_manager is not None and ble_manager.connected:
-                        ble_manager.send_notification(bytes(data_bytes))
-
-            except bluetooth.BluetoothError as e:
-                if running:
-                    log.error(f"Bluetooth error in relay: {e}")
-                shadow_target_connected = False
-                break
-            except Exception as e:
-                if running:
-                    log.error(f"Error in relay: {e}")
-                break
-    except Exception as e:
-        log.error(f"Relay thread error: {e}")
-    finally:
-        log.info("SHADOW TARGET -> Client relay thread stopped")
-        shadow_target_connected = False
-
-
-def client_to_shadow_target():
-    """Relay data from client to SHADOW TARGET"""
-    global running, shadow_target_sock, client_sock, shadow_target_connected, client_connected, game_handler
-    
-    log.info("Starting Client -> SHADOW TARGET relay thread")
-    try:
-        while running and not kill:
-            try:
-                if not client_connected or client_sock is None:
-                    time.sleep(0.1)
-                    continue
-                
-                if not shadow_target_connected or shadow_target_sock is None:
-                    time.sleep(0.1)
-                    continue
-                
-                data = client_sock.recv(1024)
-                if len(data) == 0:
-                    log.info("RFCOMM client disconnected")
-                    client_connected = False
-                    game_handler.on_app_disconnected()
-                    break
-                
-                data_bytes = bytearray(data)
-                log.info(f"Client -> SHADOW TARGET: {' '.join(f'{b:02x}' for b in data_bytes)}")
-                
-                for byte_val in data_bytes:
-                    game_handler.receive_data(byte_val)
-                
-                if shadow_target_sock is not None: 
-                    shadow_target_sock.send(data)
-                    
-            except bluetooth.BluetoothError as e:
-                if running:
-                    log.error(f"Bluetooth error: {e}")
-                client_connected = False
-                break
-            except Exception as e:
-                if running:
-                    log.error(f"Error: {e}")
-                break
-    except Exception as e:
-        log.error(f"Thread error: {e}")
-    finally:
-        log.info("Client -> SHADOW TARGET relay thread stopped")
-        client_connected = False
-
-
 def client_reader():
-    """Read data from RFCOMM client in server-only mode."""
-    global running, client_sock, client_connected, game_handler
+    """Read data from RFCOMM client.
     
-    log.info("Starting Client reader thread (server-only mode)")
+    Processes data through GameHandler and optionally forwards to relay target.
+    """
+    global running, client_sock, client_connected, game_handler, relay_mode, relay_manager
+    
+    log.info("Starting Client reader thread")
     try:
         while running and not kill:
             try:
@@ -394,10 +192,15 @@ def client_reader():
                     break
                 
                 data_bytes = bytearray(data)
-                log.info(f"Client -> Server: {' '.join(f'{b:02x}' for b in data_bytes)}")
+                log.info(f"[RFCOMM RX] {' '.join(f'{b:02x}' for b in data_bytes)}")
                 
+                # Process through GameHandler
                 for byte_val in data_bytes:
                     game_handler.receive_data(byte_val)
+                
+                # Forward to shadow target if in relay mode
+                if relay_mode and relay_manager is not None and relay_manager.connected:
+                    relay_manager.send_to_target(bytes(data_bytes))
                     
             except bluetooth.BluetoothError as e:
                 if running:
@@ -420,31 +223,39 @@ def cleanup_and_exit(reason: str = "Normal exit"):
     
     Properly stops all threads and closes all resources before exiting.
     This includes:
-    - Bluetooth controller pairing thread
+    - RFCOMM manager pairing thread
+    - Relay manager (shadow target connection)
     - Game handler and its game manager thread
-    - Analysis engine
+    - Display manager (analysis engine and widgets)
     - Board events and serial connection
     - Sockets and BLE mainloop
     
     Args:
         reason: Description of why the exit is happening (logged for debugging)
     """
-    global kill, running, shadow_target_sock, client_sock, server_sock
-    global shadow_target_connected, client_connected, mainloop
-    global game_handler, display_manager, rfcomm_manager, ble_manager
+    global kill, running, client_sock, server_sock, client_connected, mainloop
+    global game_handler, display_manager, rfcomm_manager, ble_manager, relay_manager
     
     try:
         log.info(f"Exiting: {reason}")
         kill = 1
         running = False
         
-        # Stop bluetooth controller pairing thread
+        # Stop RFCOMM manager pairing thread
         if rfcomm_manager is not None:
             try:
                 rfcomm_manager.stop_pairing_thread()
-                log.debug("Bluetooth controller pairing thread stopped")
+                log.debug("RFCOMM manager pairing thread stopped")
             except Exception as e:
                 log.debug(f"Error stopping rfcomm_manager: {e}")
+        
+        # Stop relay manager (shadow target connection)
+        if relay_manager is not None:
+            try:
+                relay_manager.stop()
+                log.debug("Relay manager stopped")
+            except Exception as e:
+                log.debug(f"Error stopping relay_manager: {e}")
         
         # Clean up game handler (stops game manager thread and closes standalone engine)
         if game_handler is not None:
@@ -479,12 +290,6 @@ def cleanup_and_exit(reason: str = "Normal exit"):
             except:
                 pass
         
-        if shadow_target_sock:
-            try:
-                shadow_target_sock.close()
-            except:
-                pass
-        
         if server_sock:
             try:
                 server_sock.close()
@@ -505,7 +310,6 @@ def cleanup_and_exit(reason: str = "Normal exit"):
             except:
                 pass
         
-        shadow_target_connected = False
         client_connected = False
         
         log.info("Cleanup completed")
@@ -583,10 +387,8 @@ def key_callback(key_id):
 
 def main():
     """Main entry point"""
-    global server_sock, client_sock, shadow_target_sock
-    global shadow_target_connected, client_connected, running, kill
-    global mainloop, shadow_target_to_client_thread, shadow_target_to_client_thread_started
-    global relay_mode, shadow_target, game_handler
+    global server_sock, client_sock, client_connected, running, kill
+    global mainloop, relay_mode, game_handler, relay_manager
     
     parser = argparse.ArgumentParser(description="Bluetooth Classic SPP Relay with BLE")
     parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
@@ -647,7 +449,7 @@ def main():
     log.info("=" * 60)
     
     relay_mode = args.relay
-    shadow_target = args.shadow_target
+    shadow_target_name = args.shadow_target
     
     # Determine player color for standalone engine
     if args.player_color == "random":
@@ -823,15 +625,48 @@ def main():
     # Connect to shadow target if relay mode
     if relay_mode:
         log.info("=" * 60)
-        log.info(f"RELAY MODE - Connecting to {shadow_target}")
+        log.info(f"RELAY MODE - Connecting to {shadow_target_name}")
         log.info("=" * 60)
+        
+        # Callback for data received from shadow target
+        def _on_shadow_data(data: bytes):
+            """Handle data received from shadow target."""
+            # Compare with emulator if in compare mode
+            if game_handler is not None and game_handler.compare_mode:
+                match, emulator_response = game_handler.compare_with_shadow(data)
+                if match is False:
+                    log.error("[Relay] MISMATCH: Emulator response differs from shadow host")
+                elif match is True:
+                    log.info("[Relay] MATCH: Emulator response matches shadow host")
+            
+            # Forward to RFCOMM client if connected
+            if client_connected and client_sock is not None:
+                try:
+                    client_sock.send(data)
+                except Exception as e:
+                    log.error(f"[Relay] Error sending to RFCOMM client: {e}")
+            
+            # Forward to BLE client if connected
+            if ble_manager is not None and ble_manager.connected:
+                ble_manager.send_notification(data)
+        
+        def _on_shadow_disconnected():
+            """Handle shadow target disconnection."""
+            log.warning("[Relay] Shadow target disconnected")
+        
+        # Create and start relay manager
+        relay_manager = RelayManager(
+            target_name=shadow_target_name,
+            on_data_from_target=_on_shadow_data,
+            on_disconnected=_on_shadow_disconnected
+        )
         
         def connect_shadow():
             time.sleep(1)
-            if connect_to_shadow_target(shadow_target=shadow_target):
-                log.info(f"{shadow_target} connection established")
+            if relay_manager.connect():
+                log.info(f"[Relay] {shadow_target_name} connection established")
             else:
-                log.error(f"Failed to connect to {shadow_target}")
+                log.error(f"[Relay] Failed to connect to {shadow_target_name}")
                 global kill
                 kill = 1
         
@@ -874,25 +709,20 @@ def main():
                 time.sleep(0.1)
     
     # Wait for shadow target connection if relay mode
-    if relay_mode:
+    if relay_mode and relay_manager is not None:
         max_wait = 30
         wait_time = 0
-        while not shadow_target_connected and wait_time < max_wait and not kill:
+        while not relay_manager.connected and wait_time < max_wait and not kill:
             time.sleep(0.5)
             wait_time += 0.5
         
-        if not shadow_target_connected:
+        if not relay_manager.connected:
             cleanup_and_exit("Shadow target connection timeout")
     
-    # Start appropriate relay/reader threads
-    if relay_mode:
-        if connected and client_sock is not None:
-            client_to_shadow_target_thread = threading.Thread(target=client_to_shadow_target, daemon=True)
-            client_to_shadow_target_thread.start()
-    else:
-        if connected and client_sock is not None:
-            client_reader_thread = threading.Thread(target=client_reader, daemon=True)
-            client_reader_thread.start()
+    # Start client reader thread (handles both relay and non-relay modes)
+    if connected and client_sock is not None:
+        client_reader_thread = threading.Thread(target=client_reader, daemon=True)
+        client_reader_thread.start()
     
     # Main loop
     exit_reason = "BACK pressed"
