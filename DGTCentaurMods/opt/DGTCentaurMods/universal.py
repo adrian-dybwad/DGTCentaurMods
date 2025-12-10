@@ -44,7 +44,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board import board
-from DGTCentaurMods.epaper import SplashScreen, IconMenuWidget, IconMenuEntry
+from DGTCentaurMods.epaper import SplashScreen, IconMenuWidget, IconMenuEntry, KeyboardWidget
 from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
 from DGTCentaurMods.rfcomm_manager import RfcommManager
 from DGTCentaurMods.ble_manager import BleManager
@@ -86,6 +86,9 @@ relay_manager = None  # RelayManager for shadow target connections
 # Menu state
 _active_menu_widget: Optional[IconMenuWidget] = None
 _menu_selection_event = None  # Threading event for menu selection
+
+# Keyboard state (for WiFi password entry etc.)
+_active_keyboard_widget = None
 
 # Socket references
 server_sock = None
@@ -780,20 +783,45 @@ def _connect_to_wifi(ssid: str, password: str = None) -> bool:
 
 
 def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
-    """Get WiFi password using board input.
-    
-    TODO: Implement keyboard widget integration for password entry.
-    For now, returns None (password entry not implemented).
-    
+    """Get WiFi password using board piece input.
+
+    Displays a keyboard widget on the e-paper where each board square
+    corresponds to a character. Lifting and placing a piece on a square
+    types that character.
+
     Args:
         ssid: SSID to display in the title
-    
+
     Returns:
         Password string or None if cancelled
     """
-    # TODO: Implement proper keyboard widget for password entry
-    log.warning("[WiFi] Password entry not yet implemented")
-    return None
+    global _active_keyboard_widget
+    
+    log.info(f"[WiFi] Opening keyboard for password entry: {ssid}")
+    
+    # Clear display and show keyboard widget
+    board.display_manager.clear_widgets(addStatusBar=False)
+    
+    # Create keyboard widget
+    keyboard = KeyboardWidget(title=f"Password: {ssid[:10]}", max_length=64)
+    _active_keyboard_widget = keyboard
+    
+    # Add widget to display
+    promise = board.display_manager.add_widget(keyboard)
+    if promise:
+        try:
+            promise.result(timeout=2.0)
+        except Exception:
+            pass
+    
+    # Wait for user input (blocking)
+    try:
+        result = keyboard.wait_for_input(timeout=300.0)
+        log.info(f"[WiFi] Keyboard input complete, got {'password' if result else 'cancelled'}")
+        return result
+    finally:
+        # Clear keyboard widget reference
+        _active_keyboard_widget = None
 
 
 def _handle_wifi_settings():
@@ -1278,7 +1306,7 @@ def key_callback(key_id):
     - HELP: Toggle game analysis widget visibility (game mode only)
     - LONG_PLAY: Shutdown system
     """
-    global running, kill, display_manager, app_state, _active_menu_widget
+    global running, kill, display_manager, app_state, _active_menu_widget, _active_keyboard_widget
     
     log.info(f"[App] Key event received: {key_id}, app_state={app_state}")
     
@@ -1289,6 +1317,12 @@ def key_callback(key_id):
         kill = 1
         board.shutdown()
         return
+    
+    # Priority 1: Active keyboard widget gets key events
+    if _active_keyboard_widget is not None:
+        handled = _active_keyboard_widget.handle_key(key_id)
+        if handled:
+            return
     
     # Route based on app state
     if app_state == AppState.MENU or app_state == AppState.SETTINGS:
@@ -1319,19 +1353,26 @@ def key_callback(key_id):
 def field_callback(piece_event, field, time_in_seconds):
     """Handle field events (piece lift/place) from the board.
     
-    Routes field events based on app state:
-    - MENU/SETTINGS: Field events are ignored (no piece input needed)
-    - GAME: Forward to game_handler -> game_manager for piece detection
-    
-    In the future, this can also route to a keyboard widget for text input.
+    Routes field events based on priority:
+    1. Active keyboard widget (for text input like WiFi password)
+    2. Game mode: Forward to game_handler -> game_manager for piece detection
+    3. Menu/Settings: Field events ignored (no piece input needed)
     
     Args:
         piece_event: 0 = lift, 1 = place
         field: Board field index (0-63)
         time_in_seconds: Event timestamp
     """
-    global app_state, game_handler
+    global app_state, game_handler, _active_keyboard_widget
     
+    # Priority 1: Active keyboard gets field events
+    if _active_keyboard_widget is not None:
+        # Convert piece_event to presence: 1 = place = present, 0 = lift = not present
+        piece_present = (piece_event == 1)
+        _active_keyboard_widget.handle_field_event(field, piece_present)
+        return
+    
+    # Priority 2: Game mode
     if app_state == AppState.GAME:
         if game_handler:
             game_handler.receive_field(piece_event, field, time_in_seconds)
