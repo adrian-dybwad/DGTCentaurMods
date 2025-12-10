@@ -33,8 +33,6 @@ import os
 import time
 import threading
 import signal
-import subprocess
-import socket
 import random
 import psutil
 import bluetooth
@@ -45,17 +43,36 @@ import pathlib
 
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.board import board
-from DGTCentaurMods.epaper import SplashScreen
+from DGTCentaurMods.epaper import SplashScreen, IconMenuWidget, IconMenuEntry
+from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
 from DGTCentaurMods.rfcomm_manager import RfcommManager
 from DGTCentaurMods.ble_manager import BleManager
 from DGTCentaurMods.relay_manager import RelayManager
 from DGTCentaurMods.game_handler import GameHandler
 from DGTCentaurMods.display_manager import DisplayManager
+from enum import Enum, auto
+from typing import Optional, List
+
+# App States
+class AppState(Enum):
+    MENU = auto()      # Showing main menu
+    GAME = auto()      # In game/chess mode
+    SETTINGS = auto()  # In settings submenu
+
+
+# Display dimensions
+DISPLAY_WIDTH = 128
+DISPLAY_HEIGHT = 296
+
+# Path to original DGT Centaur software
+CENTAUR_SOFTWARE = "/home/pi/centaur/centaur"
+
 
 # Global state
 running = True
 kill = 0
 client_connected = False
+app_state = AppState.MENU  # Current application state
 game_handler = None  # GameHandler instance
 display_manager = None  # DisplayManager for game UI widgets
 _last_message = None  # Last message sent via sendMessage
@@ -65,9 +82,326 @@ rfcomm_manager = None  # RfcommManager for RFCOMM pairing
 ble_manager = None  # BleManager for BLE GATT services
 relay_manager = None  # RelayManager for shadow target connections
 
+# Menu state
+_active_menu_widget: Optional[IconMenuWidget] = None
+_menu_selection_event = None  # Threading event for menu selection
+
 # Socket references
 server_sock = None
 client_sock = None
+
+# Args (stored globally after parsing for access in callbacks)
+_args = None
+
+
+# ============================================================================
+# Menu Functions
+# ============================================================================
+
+def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEntry]:
+    """Create the standard main menu entry configuration.
+    
+    Args:
+        centaur_available: Whether DGT Centaur software is available
+        
+    Returns:
+        List of IconMenuEntry for main menu
+    """
+    entries = []
+    
+    if centaur_available:
+        entries.append(IconMenuEntry(
+            key="Centaur",
+            label="Centaur",
+            icon_name="centaur",
+            enabled=True
+        ))
+    
+    entries.append(IconMenuEntry(
+        key="Universal",
+        label="Universal",
+        icon_name="universal",
+        enabled=True
+    ))
+    
+    entries.append(IconMenuEntry(
+        key="Settings",
+        label="Settings",
+        icon_name="settings",
+        enabled=True
+    ))
+    
+    return entries
+
+
+def create_settings_entries() -> List[IconMenuEntry]:
+    """Create entries for the settings submenu.
+    
+    Returns:
+        List of IconMenuEntry for settings menu
+    """
+    return [
+        IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
+        IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
+        IconMenuEntry(key="Reboot", label="Reboot", icon_name="reboot", enabled=True),
+    ]
+
+
+def _show_menu(entries: List[IconMenuEntry]) -> str:
+    """Display a menu and wait for selection.
+    
+    Args:
+        entries: List of menu entry configurations to display
+    
+    Returns:
+        Selected entry key, "BACK", "HELP", or "SHUTDOWN"
+    """
+    global _active_menu_widget
+    
+    # Clear existing widgets and add status bar
+    board.display_manager.clear_widgets()
+    
+    # Create menu widget
+    menu_widget = IconMenuWidget(
+        x=0,
+        y=STATUS_BAR_HEIGHT,
+        width=DISPLAY_WIDTH,
+        height=DISPLAY_HEIGHT - STATUS_BAR_HEIGHT,
+        entries=entries,
+        selected_index=0
+    )
+    
+    # Register as active menu for key routing
+    _active_menu_widget = menu_widget
+    menu_widget.activate()
+    
+    # Add widget to display
+    board.display_manager.add_widget(menu_widget)
+    
+    try:
+        # Wait for selection using the widget's blocking method
+        result = menu_widget.wait_for_selection(initial_index=0)
+        return result
+    finally:
+        _active_menu_widget = None
+
+
+def _start_game_mode():
+    """Transition from menu to game mode.
+    
+    Initializes game handler and display manager, shows chess widgets.
+    """
+    global app_state, game_handler, display_manager, _args
+    
+    log.info("[App] Transitioning to GAME mode")
+    app_state = AppState.GAME
+    
+    # Determine player color for standalone engine
+    if _args.player_color == "random":
+        fallback_player_color = chess.WHITE if random.randint(0, 1) == 0 else chess.BLACK
+    else:
+        fallback_player_color = chess.WHITE if _args.player_color == "white" else chess.BLACK
+    
+    # Get analysis engine path
+    base_path = pathlib.Path(__file__).parent
+    analysis_engine_path = str((base_path / "engines/ct800").resolve())
+    
+    # Create DisplayManager - handles all game widgets (chess board, analysis)
+    display_manager = DisplayManager(
+        flip_board=False,
+        show_analysis=True,
+        analysis_engine_path=analysis_engine_path,
+        on_exit=lambda: _return_to_menu("Menu exit")
+    )
+    log.info("[App] DisplayManager initialized")
+    
+    # Display update callback for GameHandler
+    def update_display(fen):
+        """Update display manager with new position."""
+        if display_manager:
+            display_manager.update_position(fen)
+            # Trigger analysis
+            try:
+                board_obj = chess.Board(fen)
+                current_turn = "white" if board_obj.turn == chess.WHITE else "black"
+                display_manager.analyze_position(board_obj, current_turn)
+            except Exception as e:
+                log.debug(f"Error triggering analysis: {e}")
+    
+    # Back menu result handler
+    def _on_back_menu_result(result: str):
+        """Handle result from back menu (resign/draw/cancel/exit)."""
+        if result == "resign":
+            game_handler.manager.handle_resign()
+            _return_to_menu("Resigned")
+        elif result == "draw":
+            game_handler.manager.handle_draw()
+            _return_to_menu("Draw")
+        elif result == "exit":
+            board.shutdown()
+        # cancel is handled by DisplayManager (restores display)
+    
+    # Create GameHandler
+    game_handler = GameHandler(
+        sendMessage_callback=sendMessage,
+        client_type=None,
+        compare_mode=relay_mode,
+        standalone_engine_name=_args.standalone_engine,
+        player_color=fallback_player_color,
+        engine_elo=_args.engine_elo,
+        display_update_callback=update_display,
+        key_callback=key_callback
+    )
+    log.info(f"[App] GameHandler created with standalone engine: {_args.standalone_engine} @ {_args.engine_elo}")
+    
+    # Wire up GameManager callbacks to DisplayManager
+    game_handler.manager.on_promotion_needed = display_manager.show_promotion_menu
+    game_handler.manager.on_back_pressed = lambda: display_manager.show_back_menu(_on_back_menu_result)
+    
+    # Wire up event callback to reset analysis on new game
+    from DGTCentaurMods.game_manager import EVENT_NEW_GAME
+    def _on_game_event(event):
+        if event == EVENT_NEW_GAME:
+            display_manager.reset_analysis()
+    game_handler._external_event_callback = _on_game_event
+
+
+def _return_to_menu(reason: str):
+    """Return from game mode to menu mode.
+    
+    Cleans up game handler and display manager, shows main menu.
+    
+    Args:
+        reason: Reason for returning to menu (for logging)
+    """
+    global app_state, game_handler, display_manager
+    
+    log.info(f"[App] Returning to MENU: {reason}")
+    
+    # Clean up game handler
+    if game_handler is not None:
+        try:
+            game_handler.cleanup()
+        except Exception as e:
+            log.debug(f"Error cleaning up game handler: {e}")
+        game_handler = None
+    
+    # Clean up display manager
+    if display_manager is not None:
+        try:
+            display_manager.cleanup()
+        except Exception as e:
+            log.debug(f"Error cleaning up display manager: {e}")
+        display_manager = None
+    
+    app_state = AppState.MENU
+
+
+def _handle_settings():
+    """Handle the Settings submenu.
+    
+    Displays settings options and handles their selection.
+    """
+    global app_state
+    from DGTCentaurMods.board import centaur
+    
+    app_state = AppState.SETTINGS
+    
+    while app_state == AppState.SETTINGS:
+        entries = create_settings_entries()
+        result = _show_menu(entries)
+        
+        if result == "BACK":
+            app_state = AppState.MENU
+            return
+        
+        if result == "SHUTDOWN":
+            _shutdown("     Shutdown")
+            return
+        
+        if result == "Sound":
+            # Sound toggle submenu
+            sound_entries = [
+                IconMenuEntry(key="On", label="On", icon_name="sound", enabled=True),
+                IconMenuEntry(key="Off", label="Off", icon_name="cancel", enabled=True),
+            ]
+            sound_result = _show_menu(sound_entries)
+            if sound_result == "On":
+                centaur.set_sound("on")
+                board.beep(board.SOUND_GENERAL)
+            elif sound_result == "Off":
+                centaur.set_sound("off")
+        
+        elif result == "Shutdown":
+            _shutdown("     Shutdown")
+        
+        elif result == "Reboot":
+            # LED cascade pattern for reboot
+            try:
+                for i in range(0, 8):
+                    board.led(i, repeat=0)
+                    time.sleep(0.2)
+            except Exception:
+                pass
+            _shutdown("     Rebooting", reboot=True)
+
+
+def _shutdown(message: str, reboot: bool = False):
+    """Shutdown the system with a message displayed on screen.
+    
+    Args:
+        message: Message to display on shutdown splash
+        reboot: If True, reboot instead of shutdown
+    """
+    board.display_manager.clear_widgets(addStatusBar=False)
+    promise = board.display_manager.add_widget(SplashScreen(message=message))
+    if promise:
+        try:
+            promise.result(timeout=10.0)
+        except Exception:
+            pass
+    
+    board.shutdown(reboot=reboot)
+
+
+def _run_centaur():
+    """Launch the original DGT Centaur software.
+    
+    This hands over control to the Centaur software and exits.
+    """
+    # Show loading screen
+    board.display_manager.clear_widgets(addStatusBar=False)
+    promise = board.display_manager.add_widget(SplashScreen(message="     Loading"))
+    if promise:
+        try:
+            promise.result(timeout=10.0)
+        except Exception:
+            pass
+    
+    # Pause events and cleanup
+    board.pauseEvents()
+    board.cleanup(leds_off=True)
+    time.sleep(1)
+    
+    if os.path.exists(CENTAUR_SOFTWARE):
+        # Ensure file is executable
+        try:
+            os.chmod(CENTAUR_SOFTWARE, 0o755)
+        except Exception as e:
+            log.warning(f"Could not set execute permissions on centaur: {e}")
+        
+        # Change to centaur directory and run
+        os.chdir("/home/pi/centaur")
+        os.system("sudo ./centaur")
+    else:
+        log.error(f"Centaur executable not found at {CENTAUR_SOFTWARE}")
+        return False
+    
+    # Once Centaur starts, we cannot return - stop the service and exit
+    time.sleep(3)
+    os.system("sudo systemctl stop DGTCentaurMods.service")
+    sys.exit()
+
 
 # ============================================================================
 # BLE Callbacks for BleManager
@@ -100,14 +434,23 @@ def _on_ble_data_received(data: bytes, client_type: str):
 def _on_ble_connected(client_type: str):
     """Handle BLE client connection.
     
+    If in menu mode, auto-transitions to game mode by cancelling the menu.
     Notifies GameHandler that an app has connected.
     
     Args:
         client_type: Type of client ('millennium', 'pegasus', 'chessnut')
     """
-    global game_handler
+    global game_handler, app_state, _active_menu_widget
     
     log.info(f"[BLE] Client connected: {client_type}")
+    
+    # Auto-transition to game mode if currently in menu
+    if app_state == AppState.MENU and _active_menu_widget is not None:
+        log.info("[BLE] Client connected while in menu - cancelling menu to start game")
+        # Cancel the menu selection with a special result that triggers game mode
+        _active_menu_widget.cancel_selection("CLIENT_CONNECTED")
+        return  # GameHandler will be notified after game mode starts
+    
     if game_handler:
         game_handler.on_app_connected()
 
@@ -339,58 +682,60 @@ def signal_handler(signum, frame):
     cleanup_and_exit(f"Received signal {signum}")
 
 
-def _exit_universal(reason: str):
-    """Exit universal mode with cleanup.
-    
-    Args:
-        reason: Reason for exiting (for logging)
-    """
-    global running, kill, display_manager
-    
-    running = False
-    kill = 1
-    
-    # Show exiting splash screen
-    if display_manager:
-        display_manager.show_splash("    Exiting...")
-
-
 def key_callback(key_id):
     """Handle key press events from the board.
     
-    GameManager handles BACK key when game is in progress (notifies display controller).
+    Behavior depends on current app state:
+    - MENU: Keys are routed to the active menu widget
+    - GAME: GameManager handles most keys, this receives passthrough
+    
     This callback receives:
-    - BACK: When no game in progress, or after resign/draw (signals exit)
-    - HELP: Toggle game analysis widget visibility
-    - LONG_PLAY: Shutdown system (also sent by GameManager for 'exit' menu choice)
+    - BACK: In game mode (no game or after resign/draw), returns to menu
+    - HELP: Toggle game analysis widget visibility (game mode only)
+    - LONG_PLAY: Shutdown system
     """
-    global running, kill, display_manager
+    global running, kill, display_manager, app_state, _active_menu_widget
     
-    log.info(f"Key event received: {key_id}")
+    log.info(f"[App] Key event received: {key_id}, app_state={app_state}")
     
-    if key_id == board.Key.BACK:
-        # BACK passed through means exit (no game or after resign/draw)
-        log.info("BACK - exiting Universal mode")
-        _exit_universal("BACK pressed")
-    
-    elif key_id == board.Key.HELP:
-        # Toggle game analysis widget visibility
-        if display_manager:
-            display_manager.toggle_analysis()
-    
-    elif key_id == board.Key.LONG_PLAY:
-        log.info("LONG_PLAY pressed - shutting down")
+    # Always handle LONG_PLAY for shutdown
+    if key_id == board.Key.LONG_PLAY:
+        log.info("[App] LONG_PLAY pressed - shutting down")
         running = False
         kill = 1
         board.shutdown()
+        return
+    
+    # Route based on app state
+    if app_state == AppState.MENU or app_state == AppState.SETTINGS:
+        # Route to active menu widget
+        if _active_menu_widget is not None:
+            handled = _active_menu_widget.handle_key(key_id)
+            if handled:
+                return
+    
+    elif app_state == AppState.GAME:
+        if key_id == board.Key.BACK:
+            # BACK passed through from GameManager means return to menu
+            log.info("[App] BACK - returning to menu")
+            _return_to_menu("BACK pressed")
+        
+        elif key_id == board.Key.HELP:
+            # Toggle game analysis widget visibility
+            if display_manager:
+                display_manager.toggle_analysis()
 
 
 def main():
-    """Main entry point"""
-    global server_sock, client_sock, client_connected, running, kill
-    global mainloop, relay_mode, game_handler, relay_manager
+    """Main entry point.
     
-    parser = argparse.ArgumentParser(description="Bluetooth Classic SPP Relay with BLE")
+    Initializes the app, shows the main menu, and handles menu selections.
+    BLE/RFCOMM connections can trigger auto-transition to game mode.
+    """
+    global server_sock, client_sock, client_connected, running, kill
+    global mainloop, relay_mode, game_handler, relay_manager, app_state, _args
+    
+    parser = argparse.ArgumentParser(description="DGT Centaur Universal")
     parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
                        help="Local name for BLE advertisement")
     parser.add_argument("--shadow-target", type=str, default="MILLENNIUM CHESS",
@@ -413,10 +758,12 @@ def main():
                        help="Which color the human plays in standalone engine mode")
     
     args = parser.parse_args()
+    _args = args  # Store globally for access in callbacks
     
-    global display_manager, game_handler
+    relay_mode = args.relay
+    shadow_target_name = args.shadow_target
     
-    # Initialize display and show splash screen
+    # Initialize display
     log.info("Initializing display...")
     promise = board.init_display()
     if promise:
@@ -426,7 +773,7 @@ def main():
             log.warning(f"Error initializing display: {e}")
     
     log.info("=" * 60)
-    log.info("Universal Starting")
+    log.info("DGT Centaur Universal Starting")
     log.info("=" * 60)
     log.info("")
     log.info("Configuration:")
@@ -437,98 +784,16 @@ def main():
     if args.relay:
         log.info(f"  Shadow target:     {args.shadow_target}")
     log.info("")
-    log.info("Standalone Engine:")
-    log.info(f"  Engine:            {args.standalone_engine}")
-    log.info(f"  ELO:               {args.engine_elo}")
-    log.info(f"  Player color:      {args.player_color}")
-    log.info("")
-    log.info("Controls:")
-    log.info("  BACK:              Exit to menu")
-    log.info("  HELP (?):          Toggle evaluation")
-    log.info("")
     log.info("=" * 60)
     
-    relay_mode = args.relay
-    shadow_target_name = args.shadow_target
-    
-    # Determine player color for standalone engine
-    if args.player_color == "random":
-        fallback_player_color = chess.WHITE if random.randint(0, 1) == 0 else chess.BLACK
-    else:
-        fallback_player_color = chess.WHITE if args.player_color == "white" else chess.BLACK
-    
-    # Get analysis engine path
-    base_path = pathlib.Path(__file__).parent
-    analysis_engine_path = str((base_path / "engines/ct800").resolve())
-    
-    # Create DisplayManager - handles all game widgets (chess board, analysis)
-    display_manager = DisplayManager(
-        flip_board=False,
-        show_analysis=True,
-        analysis_engine_path=analysis_engine_path,
-        on_exit=lambda: _exit_universal("Menu exit")
-    )
-    log.info("DisplayManager initialized")
-    
-    # Display update callback for GameHandler
-    def update_display(fen):
-        """Update display manager with new position."""
-        if display_manager:
-            display_manager.update_position(fen)
-            # Trigger analysis
-            try:
-                board_obj = chess.Board(fen)
-                current_turn = "white" if board_obj.turn == chess.WHITE else "black"
-                display_manager.analyze_position(board_obj, current_turn)
-            except Exception as e:
-                log.debug(f"Error triggering analysis: {e}")
-    
-    # Back menu result handler
-    def _on_back_menu_result(result: str):
-        """Handle result from back menu (resign/draw/cancel/exit)."""
-        if result == "resign":
-            game_handler.manager.handle_resign()
-            _exit_universal("Resigned")
-        elif result == "draw":
-            game_handler.manager.handle_draw()
-            _exit_universal("Draw")
-        elif result == "exit":
-            board.shutdown()
-        # cancel is handled by DisplayManager (restores display)
-    
-    # Create GameHandler at startup (with standalone engine if configured)
-    game_handler = GameHandler(
-        sendMessage_callback=sendMessage,
-        client_type=None,
-        compare_mode=relay_mode,
-        standalone_engine_name=args.standalone_engine,
-        player_color=fallback_player_color,
-        engine_elo=args.engine_elo,
-        display_update_callback=update_display,
-        key_callback=key_callback
-    )
-    log.info(f"[GameHandler] Created with standalone engine: {args.standalone_engine} @ {args.engine_elo}")
-    
-    # Wire up GameManager callbacks to DisplayManager
-    game_handler.manager.on_promotion_needed = display_manager.show_promotion_menu
-    game_handler.manager.on_back_pressed = lambda: display_manager.show_back_menu(_on_back_menu_result)
-    
-    # Wire up event callback to reset analysis on new game
-    from DGTCentaurMods.game_manager import EVENT_NEW_GAME
-    def _on_game_event(event):
-        if event == EVENT_NEW_GAME:
-            display_manager.reset_analysis()
-    game_handler._external_event_callback = _on_game_event
-    
-    # Check for early exit (BACK pressed during setup)
-    if kill:
-        cleanup_and_exit("BACK pressed during setup")
+    # Subscribe to board events with key callback
+    board.subscribeEvents(key_callback, lambda *a: None, timeout=900)
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Setup BLE if enabled using BleManager
+    # Setup BLE if enabled
     global ble_manager
     if not args.no_ble:
         log.info("Initializing BLE manager...")
@@ -548,21 +813,24 @@ def main():
             sys.exit(1)
         
         log.info("BLE manager started successfully")
-    
-    # Check for early exit (BACK pressed during BLE setup)
-    if kill:
-        cleanup_and_exit("BACK pressed during BLE setup")
+        
+        # Start GLib mainloop in background thread
+        def ble_mainloop():
+            try:
+                mainloop.run()
+            except Exception as e:
+                log.error(f"Error in BLE mainloop: {e}")
+        
+        ble_thread = threading.Thread(target=ble_mainloop, daemon=True)
+        ble_thread.start()
+        log.info("BLE mainloop thread started")
     
     # Setup RFCOMM if enabled
     global rfcomm_manager
     if not args.no_rfcomm:
-        # Check for early exit before starting RFCOMM setup
-        if kill:
-            cleanup_and_exit("BACK pressed before RFCOMM setup")
-        
         # Kill any existing rfcomm processes
         os.system('sudo service rfcomm stop 2>/dev/null')
-        time.sleep(1)
+        time.sleep(0.5)
         
         for p in psutil.process_iter(attrs=['pid', 'name']):
             if str(p.info["name"]) == "rfcomm":
@@ -571,11 +839,7 @@ def main():
                 except:
                     pass
         
-        time.sleep(0.5)
-        
-        # Check again before creating RfcommManager
-        if kill:
-            cleanup_and_exit("BACK pressed before RfcommManager creation")
+        time.sleep(0.3)
         
         # Create RFCOMM manager for pairing
         rfcomm_manager = RfcommManager(device_name=args.device_name)
@@ -583,11 +847,7 @@ def main():
         rfcomm_manager.set_device_name(args.device_name)
         rfcomm_manager.start_pairing_thread()
         
-        time.sleep(1)
-        
-        # Check again before socket setup
-        if kill:
-            cleanup_and_exit("BACK pressed before RFCOMM socket setup")
+        time.sleep(0.5)
         
         # Initialize server socket
         log.info("Setting up RFCOMM server socket...")
@@ -605,22 +865,47 @@ def main():
             log.info(f"RFCOMM service '{args.device_name}' advertised on channel {port}")
         except Exception as e:
             log.error(f"Failed to advertise RFCOMM service: {e}")
-    
-    # Start GLib mainloop in a thread for BLE
-    def ble_mainloop():
-        try:
-            mainloop.run()
-        except Exception as e:
-            log.error(f"Error in BLE mainloop: {e}")
-    
-    if not args.no_ble:
-        ble_thread = threading.Thread(target=ble_mainloop, daemon=True)
-        ble_thread.start()
-        log.info("BLE mainloop thread started")
-    
-    # Check for early exit (BACK pressed during RFCOMM setup)
-    if kill:
-        cleanup_and_exit("BACK pressed during RFCOMM setup")
+        
+        # Start RFCOMM accept thread (runs in background, triggers game mode on connect)
+        def rfcomm_accept_thread():
+            """Accept RFCOMM connections in background."""
+            global client_sock, client_connected, app_state, _active_menu_widget
+            
+            while running and not kill:
+                try:
+                    sock, client_info = server_sock.accept()
+                    client_sock = sock
+                    client_connected = True
+                    log.info("=" * 60)
+                    log.info("RFCOMM CLIENT CONNECTED")
+                    log.info("=" * 60)
+                    log.info(f"Client address: {client_info}")
+                    
+                    # Auto-transition to game mode if in menu
+                    if app_state == AppState.MENU and _active_menu_widget is not None:
+                        log.info("[RFCOMM] Client connected while in menu - transitioning to game")
+                        _active_menu_widget.cancel_selection("CLIENT_CONNECTED")
+                    elif game_handler:
+                        game_handler.on_app_connected()
+                    
+                    # Start client reader thread
+                    reader_thread = threading.Thread(target=client_reader, daemon=True)
+                    reader_thread.start()
+                    
+                    # Wait for client to disconnect before accepting new connection
+                    while client_connected and running and not kill:
+                        time.sleep(0.5)
+                    
+                except bluetooth.BluetoothError:
+                    time.sleep(0.1)
+                except Exception as e:
+                    if running:
+                        log.error(f"[RFCOMM] Error accepting connection: {e}")
+                    time.sleep(0.1)
+        
+        rfcomm_thread = threading.Thread(target=rfcomm_accept_thread, daemon=True)
+        rfcomm_thread.start()
+        log.info("RFCOMM accept thread started")
     
     # Connect to shadow target if relay mode
     if relay_mode:
@@ -674,7 +959,7 @@ def main():
         shadow_thread.start()
     
     log.info("")
-    log.info("Waiting for connections...")
+    log.info("Ready for connections and user input")
     log.info(f"Device name: {args.device_name}")
     if not args.no_ble:
         log.info("  BLE: Ready for GATT connections")
@@ -682,59 +967,72 @@ def main():
         log.info(f"  RFCOMM: Listening on channel {port}")
     log.info("")
     
-    # Wait for RFCOMM client connection (BLE is handled via callbacks)
-    connected = False
-    ble_is_connected = ble_manager.connected if ble_manager else False
-    if not args.no_rfcomm:
-        while not connected and not ble_is_connected and not kill:
-            ble_is_connected = ble_manager.connected if ble_manager else False
-            try:
-                client_sock, client_info = server_sock.accept()
-                connected = True
-                client_connected = True
-                log.info("=" * 60)
-                log.info("RFCOMM CLIENT CONNECTED")
-                log.info("=" * 60)
-                log.info(f"Client address: {client_info}")
-                
-                # Notify GameHandler that an app connected
-                game_handler.on_app_connected()
-                log.info("[GameHandler] RFCOMM app connected")
-                
-            except bluetooth.BluetoothError:
-                time.sleep(0.1)
-            except Exception as e:
-                if running:
-                    log.error(f"Error accepting connection: {e}")
-                time.sleep(0.1)
+    # Check if Centaur software is available
+    centaur_available = os.path.exists(CENTAUR_SOFTWARE)
     
-    # Wait for shadow target connection if relay mode
-    if relay_mode and relay_manager is not None:
-        max_wait = 30
-        wait_time = 0
-        while not relay_manager.connected and wait_time < max_wait and not kill:
-            time.sleep(0.5)
-            wait_time += 0.5
-        
-        if not relay_manager.connected:
-            cleanup_and_exit("Shadow target connection timeout")
-    
-    # Start client reader thread (handles both relay and non-relay modes)
-    if connected and client_sock is not None:
-        client_reader_thread = threading.Thread(target=client_reader, daemon=True)
-        client_reader_thread.start()
-    
-    # Main loop
-    exit_reason = "BACK pressed"
+    # Main application loop - menu based
+    app_state = AppState.MENU
     try:
         while running and not kill:
-            time.sleep(1)
+            if app_state == AppState.MENU:
+                # Show main menu
+                entries = create_main_menu_entries(centaur_available=centaur_available)
+                result = _show_menu(entries)
+                
+                log.info(f"[App] Main menu selection: {result}")
+                
+                if result == "BACK":
+                    # Show idle screen and wait for TICK
+                    board.beep(board.SOUND_POWER_OFF)
+                    board.display_manager.clear_widgets()
+                    promise = board.display_manager.add_widget(SplashScreen(message="   Press [OK]"))
+                    if promise:
+                        try:
+                            promise.result(timeout=10.0)
+                        except Exception:
+                            pass
+                    # Wait for TICK to return to menu
+                    board.wait_for_key_up(accept=board.Key.TICK)
+                    continue
+                
+                elif result == "SHUTDOWN":
+                    _shutdown("     Shutdown")
+                
+                elif result == "Centaur":
+                    _run_centaur()
+                    # Note: _run_centaur() exits the process
+                
+                elif result == "Universal" or result == "CLIENT_CONNECTED":
+                    # Start game mode
+                    _start_game_mode()
+                    
+                    # Notify GameHandler if client is already connected
+                    if (ble_manager and ble_manager.connected) or client_connected:
+                        if game_handler:
+                            game_handler.on_app_connected()
+                
+                elif result == "Settings":
+                    _handle_settings()
+                    # After settings, continue to main menu
+                
+                elif result == "HELP":
+                    # Could show about/help screen here
+                    pass
+            
+            elif app_state == AppState.GAME:
+                # Stay in game mode - key_callback handles exit via _return_to_menu
+                time.sleep(0.5)
+            
+            elif app_state == AppState.SETTINGS:
+                # Settings handled by _handle_settings loop
+                time.sleep(0.1)
+                
     except KeyboardInterrupt:
-        exit_reason = "Keyboard interrupt"
+        log.info("[App] Interrupted by Ctrl+C")
     except Exception as e:
-        exit_reason = f"Error in main loop: {e}"
-    
-    cleanup_and_exit(exit_reason)
+        log.error(f"[App] Error in main loop: {e}")
+    finally:
+        cleanup_and_exit("Main loop ended")
 
 
 if __name__ == "__main__":

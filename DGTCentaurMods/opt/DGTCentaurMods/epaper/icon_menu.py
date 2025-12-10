@@ -290,6 +290,19 @@ class IconMenuWidget(Widget):
         finally:
             self.deactivate()
     
+    def cancel_selection(self, result: str = "CANCELLED") -> None:
+        """Cancel the current selection wait with a custom result.
+        
+        This is useful for external events (like BLE connection) that need
+        to interrupt the menu and trigger a specific action.
+        
+        Args:
+            result: The result to return from wait_for_selection
+        """
+        self._active = False
+        self._selection_result = result
+        self._selection_event.set()
+    
     def stop(self) -> None:
         """Stop the widget and release any blocked waits."""
         self._active = False
