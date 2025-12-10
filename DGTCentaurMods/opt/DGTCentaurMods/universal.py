@@ -85,6 +85,7 @@ relay_manager = None  # RelayManager for shadow target connections
 
 # Menu state
 _active_menu_widget: Optional[IconMenuWidget] = None
+_active_keyboard_widget = None  # KeyboardWidget when active for WiFi password entry
 _menu_selection_event = None  # Threading event for menu selection
 
 # Socket references
@@ -791,6 +792,8 @@ def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
     Returns:
         Password string or None if cancelled
     """
+    global _active_keyboard_widget
+    
     from DGTCentaurMods.epaper import KeyboardWidget
     
     # Create keyboard widget
@@ -805,37 +808,10 @@ def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
             keyboard.set_board_state([bool(s) for s in board_state])
     except Exception as e:
         log.warning(f"[WiFi] Could not get board state: {e}")
-    
-    def keyboard_key_callback(key_id):
-        """Route key events to keyboard widget."""
-        log.debug(f"[Keyboard] Key event: {key_id}")
-        keyboard.handle_key(key_id)
-
-    def keyboard_field_callback(piece_event, field, time_in_seconds):
-        """Route field events to keyboard widget.
-        
-        Args:
-            piece_event: 0 = lift, 1 = place
-            field: Board field index (0-63)
-            time_in_seconds: Time of event
-        """
-        log.debug(f"[Keyboard] Field event: piece_event={piece_event}, field={field}")
-        # piece_event: 1 = piece placed, 0 = piece removed
-        piece_present = piece_event == 1
-        keyboard.handle_field_event(field, piece_present)
 
     try:
-        # Pause existing events and clear the piece listener so we can register a new one
-        board.pauseEvents()
-        try:
-            from DGTCentaurMods.board.sync_centaur import controller
-            controller._piece_listener = None
-            log.debug("[Keyboard] Cleared existing piece listener")
-        except Exception as e:
-            log.warning(f"[Keyboard] Could not clear piece listener: {e}")
-        
-        # Subscribe keyboard callbacks
-        board.subscribeEvents(keyboard_key_callback, keyboard_field_callback)
+        # Register keyboard as active widget for key/field routing
+        _active_keyboard_widget = keyboard
         
         # Add keyboard widget to display
         board.display_manager.clear_widgets(addStatusBar=False)
@@ -852,8 +828,8 @@ def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
         return result
         
     finally:
-        # Pause events - caller will resubscribe as needed
-        board.pauseEvents()
+        # Clear active keyboard
+        _active_keyboard_widget = None
 
 
 def _handle_wifi_settings():
@@ -1338,7 +1314,7 @@ def key_callback(key_id):
     - HELP: Toggle game analysis widget visibility (game mode only)
     - LONG_PLAY: Shutdown system
     """
-    global running, kill, display_manager, app_state, _active_menu_widget
+    global running, kill, display_manager, app_state, _active_menu_widget, _active_keyboard_widget
     
     log.info(f"[App] Key event received: {key_id}, app_state={app_state}")
     
@@ -1349,6 +1325,12 @@ def key_callback(key_id):
         kill = 1
         board.shutdown()
         return
+    
+    # Route to active keyboard widget if present (WiFi password entry)
+    if _active_keyboard_widget is not None:
+        handled = _active_keyboard_widget.handle_key(key_id)
+        if handled:
+            return
     
     # Route based on app state
     if app_state == AppState.MENU or app_state == AppState.SETTINGS:
@@ -1368,6 +1350,26 @@ def key_callback(key_id):
             # Toggle game analysis widget visibility
             if display_manager:
                 display_manager.toggle_analysis()
+
+
+def field_callback(piece_event, field, time_in_seconds):
+    """Handle field events from the board (piece lift/place).
+    
+    Routes field events to the active keyboard widget if present.
+    Otherwise, field events are typically handled by GameManager directly.
+    
+    Args:
+        piece_event: 0 = lift, 1 = place
+        field: Board field index (0-63)
+        time_in_seconds: Event timestamp
+    """
+    global _active_keyboard_widget
+    
+    # Route to active keyboard widget if present (WiFi password entry)
+    if _active_keyboard_widget is not None:
+        log.debug(f"[App] Field event routed to keyboard: piece_event={piece_event}, field={field}")
+        piece_present = piece_event == 1
+        _active_keyboard_widget.handle_field_event(field, piece_present)
 
 
 def main():
@@ -1433,8 +1435,8 @@ def main():
     log.info("")
     log.info("=" * 60)
     
-    # Subscribe to board events with key callback
-    board.subscribeEvents(key_callback, lambda *a: None, timeout=900)
+    # Subscribe to board events with key and field callbacks
+    board.subscribeEvents(key_callback, field_callback, timeout=900)
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
