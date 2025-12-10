@@ -1403,6 +1403,10 @@ def field_callback(piece_event, field, time_in_seconds):
     if app_state == AppState.GAME:
         if game_handler:
             game_handler.receive_field(piece_event, field, time_in_seconds)
+        else:
+            # Game handler not yet created - queue event for when it's ready
+            _pending_piece_events.append((piece_event, field, time_in_seconds))
+            log.info(f"[App] Game handler not ready, queuing event (field={field}, event={piece_event}, queue_size={len(_pending_piece_events)})")
 
 
 def main():
@@ -1716,16 +1720,14 @@ def main():
                     # Start game mode
                     _start_game_mode()
                     
-                    # If triggered by piece move, forward all pending piece events
+                    # Forward all pending piece events (may have accumulated during _start_game_mode)
                     # GameManager queues events if not ready and replays them when ready
-                    if result == "PIECE_MOVED" and _pending_piece_events:
-                        pending = _pending_piece_events.copy()
-                        _pending_piece_events.clear()
-                        log.info(f"[App] Forwarding {len(pending)} pending piece events")
-                        for pe, field, ts in pending:
-                            log.info(f"[App] Forwarding piece event: field={field}, event={pe}")
-                            if game_handler:
-                                game_handler.receive_field(pe, field, ts)
+                    # Keep forwarding until queue is empty (events may arrive during forwarding)
+                    while _pending_piece_events:
+                        pe, field, ts = _pending_piece_events.pop(0)
+                        log.info(f"[App] Forwarding piece event: field={field}, event={pe}")
+                        if game_handler:
+                            game_handler.receive_field(pe, field, ts)
                     
                     # Notify GameHandler if client is already connected
                     if (ble_manager and ble_manager.connected) or client_connected:
