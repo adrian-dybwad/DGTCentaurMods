@@ -33,7 +33,12 @@ class Manager:
         log.warning(f"Manager.__init__() completed - Manager id: {id(self)}, EPD id: {id(self._epd)}")
     
     def initialize(self) -> Future:
-        """Initialize the display."""
+        """Initialize the display.
+        
+        The status bar is not added by default during initialization.
+        The caller is responsible for adding it when appropriate (e.g., when showing a menu).
+        This prevents the status bar from briefly appearing before a splash screen is shown.
+        """
         if self._initialized:
             return
         
@@ -50,7 +55,7 @@ class Manager:
             self._framebuffer.flush_all()
             
             self._initialized = True
-            return self.clear_widgets()
+            return self.clear_widgets(addStatusBar=False)
 
         except Exception as e:
             raise RuntimeError(f"Failed to initialize display: {e}") from e
