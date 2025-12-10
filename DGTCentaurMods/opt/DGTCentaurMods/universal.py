@@ -333,18 +333,18 @@ def create_system_entries() -> List[IconMenuEntry]:
 
 def _show_menu(entries: List[IconMenuEntry]) -> str:
     """Display a menu and wait for selection.
-    
+
     Args:
         entries: List of menu entry configurations to display
-    
+
     Returns:
         Selected entry key, "BACK", "HELP", or "SHUTDOWN"
     """
     global _active_menu_widget
-    
+
     # Clear existing widgets and add status bar
     board.display_manager.clear_widgets()
-    
+
     # Create menu widget
     menu_widget = IconMenuWidget(
         x=0,
@@ -354,14 +354,19 @@ def _show_menu(entries: List[IconMenuEntry]) -> str:
         entries=entries,
         selected_index=0
     )
-    
+
     # Register as active menu for key routing
     _active_menu_widget = menu_widget
     menu_widget.activate()
-    
-    # Add widget to display
-    board.display_manager.add_widget(menu_widget)
-    
+
+    # Add widget to display and wait for render
+    promise = board.display_manager.add_widget(menu_widget)
+    if promise:
+        try:
+            promise.result(timeout=5.0)
+        except Exception as e:
+            log.warning(f"[Menu] Error waiting for menu render: {e}")
+
     try:
         # Wait for selection using the widget's blocking method
         result = menu_widget.wait_for_selection(initial_index=0)
@@ -857,7 +862,9 @@ def _handle_wifi_settings():
 
 def _handle_wifi_scan():
     """Handle WiFi network scanning and selection."""
+    log.info("[WiFi] Starting network scan...")
     networks = _scan_wifi_networks()
+    log.info(f"[WiFi] Scan complete, found {len(networks)} networks")
 
     if not networks:
         # Show no networks found message
@@ -890,8 +897,11 @@ def _handle_wifi_scan():
         network_entries.append(
             IconMenuEntry(key=net['ssid'], label=label, icon_name=icon_name, enabled=True)
         )
+        log.debug(f"[WiFi] Added network entry: {net['ssid']} ({signal}%)")
 
+    log.info(f"[WiFi] Showing menu with {len(network_entries)} entries")
     network_result = _show_menu(network_entries)
+    log.info(f"[WiFi] Menu result: {network_result}")
     
     if network_result in ["BACK", "SHUTDOWN", "HELP"]:
         return
