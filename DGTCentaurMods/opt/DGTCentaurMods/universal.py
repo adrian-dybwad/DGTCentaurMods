@@ -35,6 +35,56 @@ import threading
 import signal
 import random
 import psutil
+from enum import Enum, auto
+from typing import Optional, List
+
+# Initialize display FIRST, before board module is imported
+# This allows showing a splash screen while the board initializes
+from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.epaper import Manager, SplashScreen, IconMenuWidget, IconMenuEntry, KeyboardWidget
+from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
+
+# Initialize display immediately
+_early_display_manager: Optional[Manager] = None
+_startup_splash: Optional[SplashScreen] = None
+
+def _init_display_early():
+    """Initialize display and show splash screen before board initialization."""
+    global _early_display_manager, _startup_splash
+    try:
+        _early_display_manager = Manager()
+        promise = _early_display_manager.initialize()
+        if promise:
+            promise.result(timeout=10.0)
+        
+        # Show splash screen immediately
+        _early_display_manager.clear_widgets(addStatusBar=False)
+        _startup_splash = SplashScreen(message="Starting...")
+        promise = _early_display_manager.add_widget(_startup_splash)
+        if promise:
+            promise.result(timeout=5.0)
+    except Exception as e:
+        log.warning(f"Early display initialization failed: {e}")
+
+# Initialize display before importing board
+_init_display_early()
+
+# Update splash - loading board module (which triggers SyncCentaur initialization)
+if _startup_splash:
+    _startup_splash.set_message("Board init...")
+
+# Now import board module - this triggers SyncCentaur initialization and waits for ready
+from DGTCentaurMods.board import board
+
+# Transfer the early display manager to board module so it's available globally
+if _early_display_manager is not None:
+    board.display_manager = _early_display_manager
+
+# Board is now ready - update splash
+if _startup_splash:
+    _startup_splash.set_message("Loading...")
+
+# Continue with remaining imports
 import bluetooth
 from gi.repository import GLib
 import chess
@@ -42,17 +92,15 @@ import chess.engine
 import pathlib
 from PIL import Image, ImageDraw, ImageFont
 
-from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.board import board
-from DGTCentaurMods.epaper import SplashScreen, IconMenuWidget, IconMenuEntry, KeyboardWidget
-from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
 from DGTCentaurMods.rfcomm_manager import RfcommManager
 from DGTCentaurMods.ble_manager import BleManager
 from DGTCentaurMods.relay_manager import RelayManager
 from DGTCentaurMods.game_handler import GameHandler
 from DGTCentaurMods.display_manager import DisplayManager
-from enum import Enum, auto
-from typing import Optional, List
+
+# All imports complete
+if _startup_splash:
+    _startup_splash.set_message("Initializing...")
 
 # App States
 class AppState(Enum):
@@ -1464,24 +1512,30 @@ def main():
     # Load game settings from centaur.ini
     _load_game_settings()
 
-    # Initialize display
-    log.info("Initializing display...")
-    promise = board.init_display()
-    if promise:
-        try:
-            promise.result(timeout=10.0)
-        except Exception as e:
-            log.warning(f"Error initializing display: {e}")
+    # Display is already initialized at module load time - use the early splash screen
+    # The _startup_splash was created before board module was imported
+    startup_splash = _startup_splash
     
-    # Show loading splash screen immediately - keep reference to update it
-    board.display_manager.clear_widgets(addStatusBar=False)
-    startup_splash = SplashScreen(message="Starting...")
-    promise = board.display_manager.add_widget(startup_splash)
-    if promise:
-        try:
-            promise.result(timeout=5.0)
-        except Exception:
-            pass
+    # Ensure display manager is available (was transferred from _early_display_manager)
+    if board.display_manager is None:
+        log.warning("Display manager not available, attempting late initialization...")
+        promise = board.init_display()
+        if promise:
+            try:
+                promise.result(timeout=10.0)
+            except Exception as e:
+                log.warning(f"Error initializing display: {e}")
+        
+        # Create splash screen if early init didn't work
+        if startup_splash is None:
+            board.display_manager.clear_widgets(addStatusBar=False)
+            startup_splash = SplashScreen(message="Starting...")
+            promise = board.display_manager.add_widget(startup_splash)
+            if promise:
+                try:
+                    promise.result(timeout=5.0)
+                except Exception:
+                    pass
     
     log.info("=" * 60)
     log.info("DGT Centaur Universal Starting")
@@ -1498,7 +1552,8 @@ def main():
     log.info("=" * 60)
     
     # Subscribe to board events - universal.py is the single subscriber and routes events
-    startup_splash.set_message("Board events")
+    if startup_splash:
+        startup_splash.set_message("Board events")
     board.subscribeEvents(key_callback, field_callback, timeout=900)
     
     # Register signal handlers
@@ -1508,7 +1563,8 @@ def main():
     # Setup BLE if enabled
     global ble_manager
     if not args.no_ble:
-        startup_splash.set_message("Bluetooth LE")
+        if startup_splash:
+            startup_splash.set_message("Bluetooth LE")
         log.info("Initializing BLE manager...")
         ble_manager = BleManager(
             device_name=args.device_name,
@@ -1632,7 +1688,8 @@ def main():
     
     # Connect to shadow target if relay mode
     if relay_mode:
-        startup_splash.set_message("Relay mode")
+        if startup_splash:
+            startup_splash.set_message("Relay mode")
         log.info("=" * 60)
         log.info(f"RELAY MODE - Connecting to {shadow_target_name}")
         log.info("=" * 60)
@@ -1692,8 +1749,9 @@ def main():
     log.info("")
     
     # Show ready message before menu
-    startup_splash.set_message("Ready")
-    time.sleep(0.3)
+    if startup_splash:
+        startup_splash.set_message("Ready")
+        time.sleep(0.3)
     
     # Check if Centaur software is available
     centaur_available = os.path.exists(CENTAUR_SOFTWARE)
