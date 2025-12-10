@@ -1199,6 +1199,14 @@ def cleanup_and_exit(reason: str = "Normal exit"):
         kill = 1
         running = False
         
+        # Show exiting splash screen
+        try:
+            board.display_manager.clear_widgets(addStatusBar=False)
+            exit_splash = SplashScreen(message="Exiting...")
+            board.display_manager.add_widget(exit_splash)
+        except Exception as e:
+            log.debug(f"Error showing exit splash: {e}")
+        
         # Stop RFCOMM manager pairing thread
         if rfcomm_manager is not None:
             try:
@@ -1221,6 +1229,12 @@ def cleanup_and_exit(reason: str = "Normal exit"):
                 game_handler.cleanup()
             except Exception as e:
                 log.debug(f"Error cleaning up game handler: {e}")
+        
+        # Clear splash screen message before cleanup
+        try:
+            exit_splash.set_message("")
+        except Exception:
+            pass
         
         # Clean up display manager (analysis engine and widgets)
         if display_manager is not None:
