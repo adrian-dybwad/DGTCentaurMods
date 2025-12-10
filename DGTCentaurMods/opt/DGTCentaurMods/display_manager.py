@@ -116,26 +116,51 @@ class DisplayManager:
         self._original_key_callback = None
         self._key_callback = None
         
-        # Initialize analysis engine
-        if analysis_engine_path:
-            self._init_analysis_engine(analysis_engine_path)
+        # Store engine path for async initialization
+        self._analysis_engine_path = analysis_engine_path
+        self._engine_init_thread = None
         
-        # Initialize widgets
+        # Initialize widgets first (fast, non-blocking)
         self._init_widgets()
+        
+        # Initialize analysis engine asynchronously (slow, done in background)
+        if analysis_engine_path:
+            self._init_analysis_engine_async(analysis_engine_path)
     
-    def _init_analysis_engine(self, engine_path: str):
-        """Initialize the UCI analysis engine.
+    def _init_analysis_engine_async(self, engine_path: str):
+        """Initialize the UCI analysis engine asynchronously.
+        
+        Starts engine initialization in a background thread to avoid blocking
+        game startup. The analysis widget will work without an engine until
+        initialization completes.
         
         Args:
             engine_path: Path to the UCI engine executable
         """
-        try:
-            resolved_path = str(pathlib.Path(engine_path).resolve())
-            self.analysis_engine = chess.engine.SimpleEngine.popen_uci(resolved_path, timeout=None)
-            log.info(f"[DisplayManager] Analysis engine initialized: {resolved_path}")
-        except Exception as e:
-            log.warning(f"[DisplayManager] Could not initialize analysis engine: {e}")
-            self.analysis_engine = None
+        def _init_engine():
+            try:
+                resolved_path = str(pathlib.Path(engine_path).resolve())
+                log.info(f"[DisplayManager] Starting analysis engine initialization: {resolved_path}")
+                engine = chess.engine.SimpleEngine.popen_uci(resolved_path, timeout=None)
+                
+                # Set the engine on both DisplayManager and the analysis widget
+                # The worker thread is already running and will start processing
+                # queued positions once the engine is set
+                self.analysis_engine = engine
+                if self.analysis_widget:
+                    self.analysis_widget.analysis_engine = engine
+                
+                log.info(f"[DisplayManager] Analysis engine ready: {resolved_path}")
+            except Exception as e:
+                log.warning(f"[DisplayManager] Could not initialize analysis engine: {e}")
+                self.analysis_engine = None
+        
+        self._engine_init_thread = threading.Thread(
+            target=_init_engine,
+            name="analysis-engine-init",
+            daemon=True
+        )
+        self._engine_init_thread.start()
     
     def _init_widgets(self):
         """Create and add widgets to the display manager."""
@@ -466,6 +491,13 @@ class DisplayManager:
     def cleanup(self):
         """Clean up resources (analysis engine, widgets)."""
         log.info("[DisplayManager] Cleaning up")
+        
+        # Wait for engine init thread if still running (brief wait)
+        if self._engine_init_thread is not None and self._engine_init_thread.is_alive():
+            try:
+                self._engine_init_thread.join(timeout=1.0)
+            except Exception:
+                pass
         
         # Stop analysis widget worker
         if self.analysis_widget:

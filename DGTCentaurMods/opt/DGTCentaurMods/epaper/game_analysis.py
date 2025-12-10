@@ -25,11 +25,11 @@ class GameAnalysisWidget(Widget):
         self.analysis_engine = analysis_engine  # chess.engine.SimpleEngine for analysis
         
         # Analysis queue and worker thread
-        self._analysis_queue = queue.Queue(maxsize=50)  # Queue for analysis requests
-        self._current_position_fen = None  # Track current position FEN to skip stale requests
+        # Queue holds analysis requests until worker processes them
+        # All positions are analyzed in order to ensure complete history graph
+        self._analysis_queue = queue.Queue(maxsize=50)
         self._analysis_worker_thread = None
         self._analysis_worker_stop = threading.Event()
-        self._analysis_lock = threading.Lock()  # Lock for position tracking
         self._start_analysis_worker()
     
     def _load_font(self):
@@ -88,10 +88,18 @@ class GameAnalysisWidget(Widget):
             self.request_update(full=False)
     
     def clear_history(self) -> None:
-        """Clear score history."""
+        """Clear score history and pending analysis queue."""
         self.score_history = []
-        with self._analysis_lock:
-            self._current_position_fen = None
+        # Clear the analysis queue to avoid analyzing positions from previous game
+        try:
+            while not self._analysis_queue.empty():
+                try:
+                    self._analysis_queue.get_nowait()
+                    self._analysis_queue.task_done()
+                except queue.Empty:
+                    break
+        except Exception:
+            pass
         self._last_rendered = None
         # Trigger update if scheduler is available
         self.request_update(full=False)
@@ -133,8 +141,13 @@ class GameAnalysisWidget(Widget):
         return self.score_history.copy()
     
     def _start_analysis_worker(self):
-        """Start the worker thread for processing analysis requests."""
-        if self.analysis_engine is None:
+        """Start the worker thread for processing analysis requests.
+        
+        Can be called multiple times - only starts if worker is not already running.
+        The worker handles the case where the engine is not yet available by waiting.
+        """
+        # Don't start if already running
+        if self._analysis_worker_thread is not None and self._analysis_worker_thread.is_alive():
             return
         
         self._analysis_worker_stop.clear()
@@ -146,7 +159,12 @@ class GameAnalysisWidget(Widget):
         self._analysis_worker_thread.start()
     
     def _analysis_worker(self):
-        """Worker thread that processes analysis requests sequentially."""
+        """Worker thread that processes analysis requests sequentially.
+        
+        All queued positions are analyzed in order to ensure the history graph
+        is complete. Even if moves come in quickly, each position is analyzed
+        so the evaluation history shows the full game progression.
+        """
         import logging
         log = logging.getLogger(__name__)
         
@@ -158,27 +176,27 @@ class GameAnalysisWidget(Widget):
                 except queue.Empty:
                     continue
                 
+                # Wait for engine to be available (in case of async initialization)
+                if self.analysis_engine is None:
+                    # Put request back and wait
+                    try:
+                        self._analysis_queue.put_nowait(request)
+                    except queue.Full:
+                        pass
+                    self._analysis_queue.task_done()
+                    # Brief sleep to avoid busy loop while waiting for engine
+                    import time
+                    time.sleep(0.2)
+                    continue
+                
                 # Unpack request
                 board_copy, position_fen, current_turn, is_first_move, time_limit = request
                 
-                # Check if this position is still current (skip stale requests)
-                with self._analysis_lock:
-                    if position_fen != self._current_position_fen:
-                        log.debug(f"Skipping stale analysis request for FEN: {position_fen[:30]}...")
-                        self._analysis_queue.task_done()
-                        continue
-                
-                # Perform analysis
+                # Analyze every position to ensure complete history graph
+                # (don't skip "stale" positions - each move should be in the history)
                 try:
                     import chess.engine
                     info = self.analysis_engine.analyse(board_copy, chess.engine.Limit(time=time_limit))
-                    
-                    # Double-check position is still current before updating
-                    with self._analysis_lock:
-                        if position_fen != self._current_position_fen:
-                            log.debug(f"Skipping stale analysis result for FEN: {position_fen[:30]}...")
-                            self._analysis_queue.task_done()
-                            continue
                     
                     # Update widget with analysis result
                     self.update_from_analysis(info, current_turn, is_first_move)
@@ -202,6 +220,11 @@ class GameAnalysisWidget(Widget):
         analyzed and the graph is complete. Stale requests (for positions that
         have changed) are automatically skipped.
         
+        If the analysis engine is not yet ready (async initialization in progress),
+        positions are still queued and will be processed once the engine and worker
+        are available. This ensures a complete history graph even if moves are made
+        before the engine finishes starting.
+        
         Sequence:
         1. Update turn indicator immediately (fast operation)
         2. Queue analysis request (non-blocking)
@@ -213,14 +236,14 @@ class GameAnalysisWidget(Widget):
             is_first_move: Whether this is the first move (skip adding to history)
             time_limit: Time limit for analysis in seconds (default 0.5)
         """
-        if self.analysis_engine is None or board is None:
+        if board is None:
             return
         
         # Step 1: Update turn indicator immediately (fast operation)
         # This allows the turn circle to update before the slow analysis completes
         self.set_turn(current_turn)
         
-        # Get FEN of current position to track it
+        # Get FEN of current position
         try:
             if hasattr(board, 'fen'):
                 position_fen = board.fen()
@@ -236,10 +259,6 @@ class GameAnalysisWidget(Widget):
             log.warning(f"Could not get FEN from board: {e}, skipping analysis")
             return
         
-        # Update current position FEN (this marks all previous requests as stale)
-        with self._analysis_lock:
-            self._current_position_fen = position_fen
-        
         # Step 2: Create a copy of the board for analysis (thread-safe)
         # This ensures the board state doesn't change during analysis
         try:
@@ -251,6 +270,7 @@ class GameAnalysisWidget(Widget):
             return
         
         # Step 3: Queue analysis request (non-blocking)
+        # All positions are queued and analyzed in order to ensure complete history
         try:
             self._analysis_queue.put_nowait((board_copy, position_fen, current_turn, is_first_move, time_limit))
         except queue.Full:
