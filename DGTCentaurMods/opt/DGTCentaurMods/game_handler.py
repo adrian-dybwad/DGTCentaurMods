@@ -20,6 +20,7 @@ import chess.engine
 import pathlib
 import os
 import configparser
+import threading
 
 
 class GameHandler:
@@ -80,6 +81,7 @@ class GameHandler:
         self._player_color = player_color
         self._engine_elo = engine_elo
         self._uci_options = {}
+        self._engine_init_thread = None  # Thread for async engine initialization
         
         # Game manager shared by all emulators
         self.game_manager = GameManager()
@@ -468,10 +470,13 @@ class GameHandler:
     # =========================================================================
     
     def _initialize_standalone_engine(self):
-        """Initialize the UCI standalone engine with ELO settings.
+        """Initialize the UCI standalone engine asynchronously.
         
         The standalone engine plays when no chess app is connected, allowing
         the board to be used standalone against a chess engine.
+        
+        Engine initialization is done in a background thread to avoid blocking
+        game startup. The engine will be available shortly after the game starts.
         """
         if not self._standalone_engine_name:
             return
@@ -485,23 +490,36 @@ class GameHandler:
             log.error(f"[GameHandler] Standalone play will not be available")
             return
         
-        # Load UCI options from config file
+        # Load UCI options from config file (fast, can be done sync)
         self._load_uci_options(uci_file_path)
         
-        try:
-            self._standalone_engine = chess.engine.SimpleEngine.popen_uci(str(engine_path))
-            log.info(f"[GameHandler] Standalone UCI engine initialized: {self._standalone_engine_name} @ {self._engine_elo}")
-            
-            # Apply UCI options (ELO settings)
-            if self._uci_options:
-                log.info(f"[GameHandler] Configuring engine with options: {self._uci_options}")
-                self._standalone_engine.configure(self._uci_options)
+        def _init_engine():
+            """Background thread for engine initialization."""
+            try:
+                log.info(f"[GameHandler] Starting standalone engine initialization: {self._standalone_engine_name}")
+                engine = chess.engine.SimpleEngine.popen_uci(str(engine_path))
                 
-        except Exception as e:
-            log.error(f"[GameHandler] Failed to initialize standalone engine: {e}")
-            import traceback
-            traceback.print_exc()
-            self._standalone_engine = None
+                # Apply UCI options (ELO settings)
+                if self._uci_options:
+                    log.info(f"[GameHandler] Configuring engine with options: {self._uci_options}")
+                    engine.configure(self._uci_options)
+                
+                self._standalone_engine = engine
+                log.info(f"[GameHandler] Standalone UCI engine ready: {self._standalone_engine_name} @ {self._engine_elo}")
+                    
+            except Exception as e:
+                log.error(f"[GameHandler] Failed to initialize standalone engine: {e}")
+                import traceback
+                traceback.print_exc()
+                self._standalone_engine = None
+        
+        # Start engine initialization in background
+        self._engine_init_thread = threading.Thread(
+            target=_init_engine,
+            name="standalone-engine-init",
+            daemon=True
+        )
+        self._engine_init_thread.start()
     
     def _load_uci_options(self, uci_file_path: str):
         """Load UCI options from configuration file.
@@ -649,9 +667,16 @@ class GameHandler:
     
     def cleanup(self):
         """Clean up resources including UCI engine and game manager.
-        
+
         Properly stops the game manager thread and closes the UCI engine.
         """
+        # Wait for engine init thread if still running (brief wait)
+        if self._engine_init_thread is not None and self._engine_init_thread.is_alive():
+            try:
+                self._engine_init_thread.join(timeout=1.0)
+            except Exception:
+                pass
+        
         # Unsubscribe from game manager first (stops game thread)
         if self.game_manager:
             try:
@@ -659,7 +684,7 @@ class GameHandler:
                 log.info("[GameHandler] Unsubscribed from game manager")
             except Exception as e:
                 log.error(f"[GameHandler] Error unsubscribing from game manager: {e}")
-        
+
         # Close standalone engine
         if self._standalone_engine:
             try:
