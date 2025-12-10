@@ -825,6 +825,15 @@ def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
         keyboard.handle_field_event(field, piece_present)
 
     try:
+        # Pause existing events and clear the piece listener so we can register a new one
+        board.pauseEvents()
+        try:
+            from DGTCentaurMods.board.sync_centaur import controller
+            controller._piece_listener = None
+            log.debug("[Keyboard] Cleared existing piece listener")
+        except Exception as e:
+            log.warning(f"[Keyboard] Could not clear piece listener: {e}")
+        
         # Subscribe keyboard callbacks
         board.subscribeEvents(keyboard_key_callback, keyboard_field_callback)
         
