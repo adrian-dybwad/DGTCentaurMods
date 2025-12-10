@@ -70,9 +70,75 @@ command_name = command
 
 # Get the config
 dev = Settings.read('system', 'developer', 'False')
-#controller = AsyncCentaur(developer_mode=False)
-controller = SyncCentaur(developer_mode=False)
-# Various setup
+
+# Board initialization with retry logic
+# If the board fails to initialize, we retry up to MAX_INIT_RETRIES times
+MAX_INIT_RETRIES = 3
+INIT_TIMEOUT_SECONDS = 10  # Shorter timeout per attempt for faster retry
+
+controller = None
+
+# Import init callback module for status updates during initialization
+from DGTCentaurMods.board import init_callback
+
+
+def _create_controller():
+    """Create a new SyncCentaur controller instance."""
+    return SyncCentaur(developer_mode=False)
+
+
+def _init_board_with_retry():
+    """Initialize the board controller with retry logic.
+    
+    If the board fails to initialize within the timeout, the controller is
+    cleaned up and a new one is created. This handles cases where the board
+    communication hangs during discovery.
+    
+    Returns:
+        SyncCentaur: The initialized controller
+    """
+    global controller
+    
+    for attempt in range(1, MAX_INIT_RETRIES + 1):
+        log.info(f"[board] Initializing board controller (attempt {attempt}/{MAX_INIT_RETRIES})...")
+        
+        # Update status callback if provided
+        if attempt == 1:
+            init_callback.notify("Board init...")
+        else:
+            init_callback.notify(f"Board retry {attempt}...")
+        
+        # Create new controller if needed
+        if controller is None:
+            controller = _create_controller()
+        
+        # Wait for board to become ready with timeout
+        ready = controller.wait_ready(timeout=INIT_TIMEOUT_SECONDS)
+        
+        if ready:
+            log.info(f"[board] Board initialized successfully on attempt {attempt}")
+            return controller
+        
+        # Initialization failed - cleanup and retry
+        log.warning(f"[board] Board initialization timed out on attempt {attempt}/{MAX_INIT_RETRIES}")
+        
+        if attempt < MAX_INIT_RETRIES:
+            log.info("[board] Cleaning up and retrying...")
+            try:
+                controller.cleanup(leds_off=False)
+            except Exception as e:
+                log.debug(f"[board] Error during cleanup: {e}")
+            controller = None
+            time.sleep(0.5)  # Brief pause before retry
+    
+    # All retries exhausted - log error but continue with last controller
+    log.error(f"[board] Board initialization failed after {MAX_INIT_RETRIES} attempts")
+    log.warning("[board] Continuing with potentially uninitialized board - functionality may be limited")
+    return controller
+
+
+# Initialize the controller with retry logic
+controller = _init_board_with_retry()
 
 # But the address might not be that :( Here we send an initial 0x4d to ask the board to provide its address
 
@@ -85,6 +151,10 @@ def _extract_and_store_board_meta():
     
     if board_meta_properties is not None:
         # Already extracted
+        return
+    
+    if controller is None or not controller.ready:
+        log.warning("[board._extract_and_store_board_meta] Controller not ready, skipping metadata extraction")
         return
     
     _board_meta = controller.request_response(command.DGT_SEND_TRADEMARK)
@@ -130,8 +200,6 @@ def _extract_and_store_board_meta():
                 board_meta_properties[part] = ""
     
     log.debug(f"[board._extract_and_store_board_meta] Extracted {len(board_meta_properties)} properties")
-
-controller.wait_ready()
 
 def cleanup(leds_off: bool = True):
     controller.cleanup(leds_off=True)

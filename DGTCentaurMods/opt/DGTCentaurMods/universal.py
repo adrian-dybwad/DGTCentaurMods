@@ -69,9 +69,17 @@ def _init_display_early():
 # Initialize display before importing board
 _init_display_early()
 
-# Update splash - loading board module (which triggers SyncCentaur initialization)
-if _startup_splash:
-    _startup_splash.set_message("Board init...")
+# Set up board init status callback before importing board module
+# This allows the splash screen to update during board initialization retries
+def _board_init_status_callback(message: str):
+    """Callback for board initialization status updates."""
+    if _startup_splash:
+        _startup_splash.set_message(message)
+
+# Set the callback in the init_callback module BEFORE importing board
+# This module is imported by board.py and doesn't trigger board initialization
+from DGTCentaurMods.board import init_callback
+init_callback.set_callback(_board_init_status_callback)
 
 # Now import board module - this triggers SyncCentaur initialization and waits for ready
 from DGTCentaurMods.board import board
