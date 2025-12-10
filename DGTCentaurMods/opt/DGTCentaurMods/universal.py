@@ -806,24 +806,24 @@ def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
     except Exception as e:
         log.warning(f"[WiFi] Could not get board state: {e}")
     
-    # Store original callbacks
-    original_key_callback = getattr(board, '_key_callback', None)
-    original_field_callback = getattr(board, '_field_callback', None)
-    
     def keyboard_key_callback(key_id):
         """Route key events to keyboard widget."""
+        log.debug(f"[Keyboard] Key event: {key_id}")
         keyboard.handle_key(key_id)
-    
-    def keyboard_field_callback(field_index, piece_event=None, **kwargs):
+
+    def keyboard_field_callback(piece_event, field, time_in_seconds):
         """Route field events to keyboard widget.
         
-        Detects lift-and-place pattern: piece present means it was placed.
+        Args:
+            piece_event: 0 = lift, 1 = place
+            field: Board field index (0-63)
+            time_in_seconds: Time of event
         """
-        # Determine if piece is now present
+        log.debug(f"[Keyboard] Field event: piece_event={piece_event}, field={field}")
         # piece_event: 1 = piece placed, 0 = piece removed
-        piece_present = piece_event == 1 if piece_event is not None else True
-        keyboard.handle_field_event(field_index, piece_present)
-    
+        piece_present = piece_event == 1
+        keyboard.handle_field_event(field, piece_present)
+
     try:
         # Subscribe keyboard callbacks
         board.subscribeEvents(keyboard_key_callback, keyboard_field_callback)
@@ -843,12 +843,8 @@ def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
         return result
         
     finally:
-        # Restore original callbacks
-        if original_key_callback or original_field_callback:
-            board.subscribeEvents(
-                original_key_callback or (lambda k: None),
-                original_field_callback or (lambda f, **kw: None)
-            )
+        # Pause events - caller will resubscribe as needed
+        board.pauseEvents()
 
 
 def _handle_wifi_settings():
