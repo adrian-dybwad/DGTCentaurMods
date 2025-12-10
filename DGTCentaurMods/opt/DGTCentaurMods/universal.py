@@ -298,13 +298,19 @@ def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEnt
 def create_settings_entries() -> List[IconMenuEntry]:
     """Create entries for the settings submenu.
     
+    Uses current values from _game_settings for engine, elo, and color labels.
+
     Returns:
         List of IconMenuEntry for settings menu
     """
+    engine_label = f"Engine: {_game_settings['engine']}"
+    elo_label = f"ELO: {_game_settings['elo']}"
+    color_label = f"Color: {_game_settings['player_color'].capitalize()}"
+    
     return [
-        IconMenuEntry(key="Engine", label="Engine", icon_name="engine", enabled=True),
-        IconMenuEntry(key="ELO", label="ELO", icon_name="elo", enabled=True),
-        IconMenuEntry(key="Color", label="Color", icon_name="color", enabled=True),
+        IconMenuEntry(key="Engine", label=engine_label, icon_name="engine", enabled=True),
+        IconMenuEntry(key="ELO", label=elo_label, icon_name="elo", enabled=True),
+        IconMenuEntry(key="Color", label=color_label, icon_name="color", enabled=True),
         IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
         IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
         IconMenuEntry(key="Reboot", label="Reboot", icon_name="reboot", enabled=True),
