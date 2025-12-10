@@ -206,6 +206,10 @@ class IconButtonWidget(Widget):
             self._draw_king_icon(draw, x, y, size, line_color, is_white=False)
         elif icon_name == "random":
             self._draw_random_icon(draw, x, y, size, line_color)
+        elif icon_name == "wifi":
+            self._draw_wifi_icon(draw, x, y, size, line_color)
+        elif icon_name == "system":
+            self._draw_system_icon(draw, x, y, size, line_color)
         else:
             # Default: simple square placeholder
             draw.rectangle([left + 4, top + 4, right - 4, bottom - 4],
@@ -713,3 +717,46 @@ class IconButtonWidget(Widget):
             draw.ellipse([x + dx - dot_radius, y + dy - dot_radius,
                          x + dx + dot_radius, y + dy + dot_radius],
                         fill=line_color)
+    
+    def _draw_wifi_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                        size: int, line_color: int):
+        """Draw a WiFi signal icon (concentric arcs)."""
+        s = size / 36.0  # Scale factor
+        
+        # Draw concentric arcs from bottom center
+        base_y = y + int(10*s)
+        
+        # Three arcs of increasing size
+        for i, radius in enumerate([int(6*s), int(12*s), int(18*s)]):
+            draw.arc([x - radius, base_y - radius, x + radius, base_y + radius],
+                    start=225, end=315, fill=line_color, width=max(1, int(2*s)))
+        
+        # Small dot at the bottom center
+        dot_r = int(3*s)
+        draw.ellipse([x - dot_r, base_y - dot_r, x + dot_r, base_y + dot_r],
+                    fill=line_color)
+    
+    def _draw_system_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                          size: int, line_color: int):
+        """Draw a system/wrench icon."""
+        half = size // 2
+        s = size / 36.0  # Scale factor
+        
+        # Draw a wrench shape
+        # Handle (diagonal rectangle)
+        handle_width = int(4*s)
+        draw.line([(x - int(10*s), y + int(10*s)), (x + int(4*s), y - int(4*s))],
+                 fill=line_color, width=handle_width)
+        
+        # Wrench head (circular part with opening)
+        head_x = x + int(6*s)
+        head_y = y - int(6*s)
+        head_r = int(8*s)
+        draw.arc([head_x - head_r, head_y - head_r, head_x + head_r, head_y + head_r],
+                start=45, end=315, fill=line_color, width=max(1, int(3*s)))
+        
+        # Opening of wrench
+        draw.line([(head_x, head_y - head_r), (head_x + int(6*s), head_y - int(10*s))],
+                 fill=line_color, width=max(1, int(2*s)))
+        draw.line([(head_x + head_r, head_y), (head_x + int(10*s), head_y + int(6*s))],
+                 fill=line_color, width=max(1, int(2*s)))
