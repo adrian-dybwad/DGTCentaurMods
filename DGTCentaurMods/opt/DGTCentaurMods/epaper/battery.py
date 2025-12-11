@@ -6,8 +6,6 @@ The widget manages its own state by polling the board controller every 5 seconds
 
 from PIL import Image, ImageDraw
 from .framework.widget import Widget
-import os
-import sys
 import threading
 import time
 
@@ -16,12 +14,6 @@ try:
 except ImportError:
     import logging
     log = logging.getLogger(__name__)
-
-try:
-    from DGTCentaurMods.asset_manager import AssetManager
-except ImportError:
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from asset_manager import AssetManager
 
 # Polling interval for battery status (seconds)
 BATTERY_POLL_INTERVAL = 5
@@ -38,7 +30,6 @@ class BatteryWidget(Widget):
         super().__init__(x, y, 16, 16)
         self.level = level
         self.charger_connected = charger_connected
-        self._use_bitmap_icons = True
         self._poll_thread = None
         self._stop_event = threading.Event()
     
@@ -130,56 +121,77 @@ class BatteryWidget(Widget):
             self._last_rendered = None
             self.request_update(full=False)
     
-    def _get_battery_icon(self) -> Image.Image:
-        """Get battery icon bitmap based on current battery state."""
-        if not self._use_bitmap_icons:
-            return self._render_drawn_battery()
+    def render(self) -> Image.Image:
+        """Render battery indicator with level bars and charging flash icon.
         
-        try:
-            batterylevel = self.level if self.level is not None else 10
-            chargerconnected = self.charger_connected
-            
-            indicator = "battery1"
-            if batterylevel >= 18:
-                indicator = "battery4"
-            elif batterylevel >= 12:
-                indicator = "battery3"
-            elif batterylevel >= 6:
-                indicator = "battery2"
-            
-            if chargerconnected:
-                indicator = "batteryc"
-                if batterylevel == 20:
-                    indicator = "batterycf"
-            
-            path = AssetManager.get_resource_path(f"{indicator}.bmp")
-            return Image.open(path)
-        except Exception as e:
-            log.error(f"Failed to load battery icon: {e}")
-            return Image.new("1", (16, 16), 255)
-    
-    def _render_drawn_battery(self) -> Image.Image:
-        """Render battery using drawing (fallback method)."""
+        When charging, displays a lightning bolt overlay. The bolt is drawn with
+        XOR effect - white over black level bars and black over white background,
+        ensuring visibility at any charge level.
+        """
+        # Widget is 16x16, battery icon is approximately 14x10
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
-        # Convert level from 0-20 to 0-100 for display
-        level_percent = (self.level / 20.0 * 100) if self.level is not None else 75
+        batterylevel = self.level if self.level is not None else 10
         
-        # Battery outline
-        draw.rectangle([2, 4, 26, 12], outline=0, width=1)
-        draw.rectangle([26, 6, 28, 10], fill=0)
+        # Battery dimensions (fits in 16x16 with some padding)
+        # Main body: 12 pixels wide, 10 pixels tall
+        body_left = 1
+        body_top = 3
+        body_right = 12
+        body_bottom = 12
         
-        # Battery level
-        fill_width = int((level_percent / 100) * 22)
+        # Battery terminal (small nub on right)
+        term_left = body_right
+        term_top = 5
+        term_right = 14
+        term_bottom = 10
+        
+        # Draw battery outline
+        draw.rectangle([body_left, body_top, body_right, body_bottom], outline=0, width=1)
+        draw.rectangle([term_left, term_top, term_right, term_bottom], fill=0)
+        
+        # Calculate fill width based on level (0-20)
+        inner_left = body_left + 1
+        inner_top = body_top + 1
+        inner_right = body_right - 1
+        inner_bottom = body_bottom - 1
+        inner_width = inner_right - inner_left
+        
+        fill_width = int((batterylevel / 20.0) * inner_width)
+        
+        # Draw level bars
         if fill_width > 0:
-            draw.rectangle([3, 5, 3 + fill_width, 11], fill=0)
+            draw.rectangle([inner_left, inner_top, inner_left + fill_width, inner_bottom], fill=0)
+        
+        # Draw charging lightning bolt if connected
+        if self.charger_connected:
+            # Create a mask for the lightning bolt shape
+            bolt_mask = Image.new("1", (self.width, self.height), 0)
+            bolt_draw = ImageDraw.Draw(bolt_mask)
+            
+            # Lightning bolt polygon - classic zigzag shape
+            # Centered in battery body, sized to fit
+            cx = (body_left + body_right) // 2  # center x
+            
+            # Bolt shape: top triangle pointing down-left, bottom triangle pointing down-right
+            bolt_polygon = [
+                (cx + 2, body_top + 1),    # top right
+                (cx - 1, body_top + 4),    # middle left point
+                (cx + 0, body_top + 4),    # middle center
+                (cx + 1, body_top + 4),    # middle right of center bar
+                (cx - 2, body_bottom - 1), # bottom left
+                (cx + 1, body_top + 5),    # lower middle right
+                (cx + 0, body_top + 5),    # lower middle center
+            ]
+            
+            bolt_draw.polygon(bolt_polygon, fill=1)
+            
+            # XOR the bolt onto the image
+            for y in range(self.height):
+                for x in range(self.width):
+                    if bolt_mask.getpixel((x, y)) == 1:
+                        current = img.getpixel((x, y))
+                        img.putpixel((x, y), 255 if current == 0 else 0)
         
         return img
-    
-    def render(self) -> Image.Image:
-        """Render battery indicator."""
-        if self._use_bitmap_icons:
-            return self._get_battery_icon()
-        else:
-            return self._render_drawn_battery()
