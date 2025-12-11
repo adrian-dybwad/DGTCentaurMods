@@ -170,25 +170,30 @@ class BatteryWidget(Widget):
         
         # Draw charging lightning bolt if connected
         if self.charger_connected:
-            # Lightning bolt polygon - classic zigzag shape
-            # Centered in battery body
-            cx = (body_left + body_right) // 2  # center x = 12
-            cy = (body_top + body_bottom) // 2  # center y = 6
+            # Lightning bolt - draw as two triangles forming classic zigzag
+            # Centered in battery body (inner area)
+            cx = (inner_left + inner_right) // 2  # center of fill area
+            cy = (inner_top + inner_bottom) // 2  # vertical center
             
-            # Larger bolt shape for bigger battery
-            bolt_polygon = [
-                (cx + 3, body_top + 1),     # top right
-                (cx - 2, cy),               # middle left
-                (cx + 1, cy),               # middle right  
-                (cx - 3, body_bottom - 1),  # bottom left
-                (cx + 2, cy + 1),           # lower middle right
-                (cx - 1, cy + 1),           # lower middle left
-            ]
-            
-            # Draw bolt with XOR effect
+            # Create bolt mask
             bolt_mask = Image.new("1", (self.width, self.height), 0)
             bolt_draw = ImageDraw.Draw(bolt_mask)
-            bolt_draw.polygon(bolt_polygon, fill=1)
+            
+            # Top triangle: points down-left from top-right
+            top_triangle = [
+                (cx + 4, inner_top),        # top right corner
+                (cx - 2, cy),               # middle left point
+                (cx + 1, cy),               # middle right 
+            ]
+            bolt_draw.polygon(top_triangle, fill=1)
+            
+            # Bottom triangle: points down from middle-right to bottom-left
+            bottom_triangle = [
+                (cx + 2, cy - 1),           # upper right
+                (cx - 4, inner_bottom),     # bottom left point
+                (cx - 1, cy - 1),           # upper left
+            ]
+            bolt_draw.polygon(bottom_triangle, fill=1)
             
             # XOR the bolt onto the image - inverts color where bolt is drawn
             for y in range(self.height):
