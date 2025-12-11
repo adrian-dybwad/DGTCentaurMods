@@ -785,7 +785,7 @@ def _scan_wifi_networks() -> List[dict]:
         log.error(f"[WiFi] Error scanning networks: {e}")
         import traceback
         log.error(traceback.format_exc())
-    
+
     return networks
 
 
