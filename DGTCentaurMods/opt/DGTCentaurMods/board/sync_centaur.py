@@ -532,12 +532,6 @@ class SyncCentaur:
                 # Poll for piece events
                 self.sendCommand(command.DGT_BUS_SEND_CHANGES)
 
-                # Clear any key events from the board
-                disgarded_key = self.get_and_reset_last_key()
-                while disgarded_key is not None:
-                    log.debug(f"Discarded key event: {disgarded_key}")
-                    disgarded_key = self.get_and_reset_last_key()
-                
                 # Reset failure counter on success
                 consecutive_failures = 0
                 
@@ -870,6 +864,12 @@ class SyncCentaur:
                     # Flush and events from the board
                     self._send_command(command.DGT_BUS_POLL_KEYS)
                     self._send_command(command.DGT_BUS_SEND_CHANGES)
+                    # Clear any key events from the board
+                    disgarded_key = self.get_and_reset_last_key()
+                    while disgarded_key is not None:
+                        log.debug(f"Discarded key event: {disgarded_key}")
+                        disgarded_key = self.get_and_reset_last_key()
+
                     self.ready = True
                     if DGT_NOTIFY_EVENTS is not None:
                         self.sendCommand(DGT_NOTIFY_EVENTS)
