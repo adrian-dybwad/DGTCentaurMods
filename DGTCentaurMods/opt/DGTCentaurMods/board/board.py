@@ -701,6 +701,18 @@ def eventsThread(keycallback, fieldcallback, tout):
             if chargerconnected == 1:
                 to = time.monotonic() + 100000
                 hold_timeout = True
+                # Cancel inactivity countdown if shown (charger connected)
+                if inactivity_countdown_shown and inactivity_countdown_splash is not None:
+                    log.info('[board.events] Inactivity countdown cancelled by charger connection')
+                    try:
+                        future = display_manager.remove_widget(inactivity_countdown_splash)
+                        if future:
+                            future.result(timeout=5.0)
+                    except Exception as e:
+                        log.error(f'[board.events] Error removing inactivity countdown: {e}')
+                    inactivity_countdown_shown = False
+                    inactivity_countdown_splash = None
+                    inactivity_last_displayed_seconds = None
             if chargerconnected == 0 and hold_timeout:
                 to = time.monotonic() + tout
                 hold_timeout = False
