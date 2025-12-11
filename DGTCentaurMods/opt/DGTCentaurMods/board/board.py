@@ -366,7 +366,7 @@ def shutdown(reboot=False, reason="unspecified"):
     try:
         if display_manager is not None:
             # U+25B6 is the play triangle, U+23F8 is pause
-            shutdown_splash = SplashScreen(message="Press [\u25b6]!")
+            shutdown_splash = SplashScreen(message="Press [\u25b6]")
             display_manager.add_widget(shutdown_splash)
     except Exception as e:
         log.debug(f"Failed to show shutdown splash: {e}")
