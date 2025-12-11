@@ -419,15 +419,16 @@ class SyncCentaur:
         """Route packet to appropriate handler based on type"""
         try:
             payload = self._extract_payload(packet)
-            if len(payload) > 0:
+            # Handle key poll responses even when empty (to clear _discard_stale_keys)
+            if packet[0] == DGT_BUS_POLL_KEYS_RESP:
+                if DGT_NOTIFY_EVENTS is None:
+                    self.handle_key_payload(payload)
+            elif len(payload) > 0:
                 if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
                     self.handle_board_payload(payload)
                 elif packet[0] == DGT_PIECE_EVENT_RESP:
                     if DGT_NOTIFY_EVENTS is None:
                         self.handle_board_payload(payload)
-                elif packet[0] == DGT_BUS_POLL_KEYS_RESP:
-                    if DGT_NOTIFY_EVENTS is None:
-                        self.handle_key_payload(payload)
                 elif packet[0] == DGT_BUS_SEND_STATE_RESP:
                     log.debug(f"Unsolicited board state packet (0x83) - no active waiter")
                 else:
@@ -487,33 +488,44 @@ class SyncCentaur:
         Discards stale key events when _discard_stale_keys is True. This flag is set
         during discovery and cleared when a key poll response contains no key events,
         indicating the board's key buffer has been drained.
+        
+        When draining stale events, immediately sends another poll command to speed up
+        the drain process instead of waiting for the next polling cycle.
         """
         try:
+            # Empty payload means no key events - clear the stale flag
+            if len(payload) == 0:
+                if self._discard_stale_keys:
+                    log.debug("Key buffer drained (empty payload), enabling key event processing")
+                    self._discard_stale_keys = False
+                return
+            
             log.debug(f"[P{self.packet_count:03d}] handle_key_payload: {' '.join(f'{b:02x}' for b in payload)}")
-            if len(payload) > 0:
-                hex_row = ' '.join(f'{b:02x}' for b in payload)
-                log.debug(f"[P{self.packet_count:03d}] {hex_row}")
-                idx, code_val, is_down = self._find_key_event_in_payload(payload)
-                if idx is not None:
-                    self._draw_key_event_from_payload(payload, idx, code_val, is_down)
-                    if not is_down:
-                        # Discard stale key events until flag is cleared
-                        if self._discard_stale_keys:
-                            log.debug(f"Discarding stale key event: code=0x{code_val:02x}")
-                            return
-                        
-                        key = Key(code_val)
-                        log.debug(f"key name: {key.name} value: {key.value}")
-                        self._last_key = key
-                        try:
-                            self.key_up_queue.put_nowait(key)
-                        except queue.Full:
-                            pass
-                else:
-                    # No key event in payload - this means the key buffer is empty
+            hex_row = ' '.join(f'{b:02x}' for b in payload)
+            log.debug(f"[P{self.packet_count:03d}] {hex_row}")
+            idx, code_val, is_down = self._find_key_event_in_payload(payload)
+            if idx is not None:
+                self._draw_key_event_from_payload(payload, idx, code_val, is_down)
+                if not is_down:
+                    # Discard stale key events until flag is cleared
                     if self._discard_stale_keys:
-                        log.debug("Key buffer drained, enabling key event processing")
-                        self._discard_stale_keys = False
+                        log.debug(f"Discarding stale key event: code=0x{code_val:02x}")
+                        # Immediately poll again to drain faster
+                        self._send_command(command.DGT_BUS_POLL_KEYS)
+                        return
+                    
+                    key = Key(code_val)
+                    log.debug(f"key name: {key.name} value: {key.value}")
+                    self._last_key = key
+                    try:
+                        self.key_up_queue.put_nowait(key)
+                    except queue.Full:
+                        pass
+            else:
+                # No key event found in non-empty payload - this means the key buffer is empty
+                if self._discard_stale_keys:
+                    log.debug("Key buffer drained, enabling key event processing")
+                    self._discard_stale_keys = False
         except Exception as e:
             log.error(f"Error: {e}")
     
