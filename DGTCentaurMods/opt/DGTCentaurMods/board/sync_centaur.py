@@ -485,8 +485,11 @@ class SyncCentaur:
         """Handle key press events.
         
         Discards key events that arrive before _ready_timestamp is set or within
-        0.5 seconds after discovery completes. This prevents stale key events
+        1.0 seconds after discovery completes. This prevents stale key events
         (queued on the board before initialization) from being processed as real events.
+        
+        The 1.0 second window accounts for the time needed to flush all stale events
+        from the board's buffer after initialization.
         """
         try:
             log.debug(f"[P{self.packet_count:03d}] handle_key_payload: {' '.join(f'{b:02x}' for b in payload)}")
@@ -502,7 +505,7 @@ class SyncCentaur:
                             log.debug(f"Discarding key event (before ready): code=0x{code_val:02x}")
                             return
                         elapsed = time.time() - self._ready_timestamp
-                        if elapsed < 0.5:
+                        if elapsed < 1.0:
                             log.debug(f"Discarding stale key event (elapsed={elapsed:.3f}s): code=0x{code_val:02x}")
                             return
                         
