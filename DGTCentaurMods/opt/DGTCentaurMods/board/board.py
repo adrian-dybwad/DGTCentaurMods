@@ -309,7 +309,7 @@ def shutdown_countdown(countdown_seconds: int = 5) -> bool:
         # Update display
         try:
             if countdown_splash is not None:
-                countdown_splash.set_message(f"Shutdown in {remaining}...\nAny key cancels")
+                countdown_splash.set_message(f"Shutdown in\n{remaining}. Cancel?")
         except Exception as e:
             log.debug(f"Failed to update countdown: {e}")
         
