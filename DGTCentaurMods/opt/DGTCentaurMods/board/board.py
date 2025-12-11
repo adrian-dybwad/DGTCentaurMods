@@ -278,6 +278,9 @@ def shutdown_countdown(countdown_seconds: int = 5) -> bool:
     Shows a splash screen counting down from countdown_seconds to 0.
     User can press BACK button to cancel the shutdown.
     
+    Clears all existing widgets to ensure immediate display update.
+    If cancelled, caller is responsible for restoring the UI.
+    
     Args:
         countdown_seconds: Number of seconds to count down (default 5)
     
@@ -291,9 +294,12 @@ def shutdown_countdown(countdown_seconds: int = 5) -> bool:
     beep(SOUND_POWER_OFF)
     
     # Create countdown splash screen
+    # Clear existing widgets first to avoid overlap and ensure immediate display
     countdown_splash = None
     try:
         if display_manager is not None:
+            # Clear all widgets (stops menu, etc.) to take over the screen
+            display_manager.clear_widgets(addStatusBar=False)
             # U+25C0 is left-pointing triangle for BACK button
             countdown_splash = SplashScreen(message=f"Shutting down in {countdown_seconds}...\nPress [\u25c0] to cancel")
             display_manager.add_widget(countdown_splash)
@@ -320,7 +326,7 @@ def shutdown_countdown(countdown_seconds: int = 5) -> bool:
             if key == Key.BACK:
                 log.info("[board.shutdown_countdown] Cancelled by user (BACK pressed)")
                 beep(SOUND_GENERAL)
-                # Remove countdown splash
+                # Remove countdown splash - caller will restore UI
                 try:
                     if display_manager is not None and countdown_splash is not None:
                         display_manager.remove_widget(countdown_splash)
