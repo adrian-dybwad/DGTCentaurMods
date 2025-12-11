@@ -521,11 +521,12 @@ class SyncCentaur:
             if idx is not None:
                 self._draw_key_event_from_payload(payload, idx, code_val, is_down)
                 
-                # Discard stale key events until flag is cleared (only for key-up)
-                if not is_down and self._discard_stale_keys:
-                    log.debug(f"Discarding stale key event: code=0x{code_val:02x}")
-                    # Immediately poll again to drain faster
-                    self._send_command(command.DGT_BUS_POLL_KEYS)
+                # Discard ALL stale key events (both key-down and key-up) until flag is cleared
+                if self._discard_stale_keys:
+                    log.debug(f"Discarding stale key event: code=0x{code_val:02x} {'DOWN' if is_down else 'UP'}")
+                    # Only poll again on key-up to drain faster (key-down will be followed by key-up)
+                    if not is_down:
+                        self._send_command(command.DGT_BUS_POLL_KEYS)
                     return
                 
                 # Queue both key-down and key-up events
