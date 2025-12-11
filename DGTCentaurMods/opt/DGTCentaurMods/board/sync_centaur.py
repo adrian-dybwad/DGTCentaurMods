@@ -862,12 +862,13 @@ class SyncCentaur:
             else:
                 if self.addr1 == packet[3] and self.addr2 == packet[4]:
                     # Flush and events from the board
-                    self._send_command(command.DGT_BUS_POLL_KEYS)
                     self._send_command(command.DGT_BUS_SEND_CHANGES)
                     # Clear any key events from the board
+                    self._send_command(command.DGT_BUS_POLL_KEYS)
                     disgarded_key = self.get_and_reset_last_key()
                     while disgarded_key is not None:
                         log.debug(f"Discarded key event: {disgarded_key}")
+                        self._send_command(command.DGT_BUS_POLL_KEYS)
                         disgarded_key = self.get_and_reset_last_key()
 
                     self.ready = True
