@@ -271,7 +271,7 @@ def sendCustomLedArray(data: bytes):
     """
     controller.sendCommand(command.LED_CMD, data)
 
-def shutdown_countdown(countdown_seconds: int = 5) -> bool:
+def shutdown_countdown(countdown_seconds: int = 3) -> bool:
     """
     Display a shutdown countdown with option to cancel.
     
@@ -296,7 +296,7 @@ def shutdown_countdown(countdown_seconds: int = 5) -> bool:
     try:
         if display_manager is not None:
             # U+25C0 is left-pointing triangle for BACK button
-            countdown_splash = SplashScreen(message=f"Shutdown in\n{countdown_seconds}. Cancel?")
+            countdown_splash = SplashScreen(message=f"Shutdown in\n  {countdown_seconds}...")
             display_manager.add_widget(countdown_splash)
     except Exception as e:
         log.debug(f"Failed to show countdown splash: {e}")
@@ -310,7 +310,7 @@ def shutdown_countdown(countdown_seconds: int = 5) -> bool:
         # Update display
         try:
             if countdown_splash is not None:
-                countdown_splash.set_message(f"Shutdown in\n{remaining}. Release?")
+                countdown_splash.set_message(f"Shutdown in\n  {remaining}...")
         except Exception as e:
             log.debug(f"Failed to update countdown: {e}")
         
@@ -701,7 +701,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 if key_pressed == Key.PLAY_DOWN:
                     beep(SOUND_GENERAL)
                     log.info('[board.events] PLAY_DOWN detected, starting shutdown countdown')
-                    if shutdown_countdown(countdown_seconds=5):
+                    if shutdown_countdown():
                         # Countdown completed without release - proceed with shutdown
                         shutdown(reason="PLAY button held during countdown")
                     else:
