@@ -87,6 +87,34 @@ def _create_controller():
     return SyncCentaur(developer_mode=False)
 
 
+def _flush_stale_events(ctrl):
+    """Clear any buffered key and piece events from before initialization.
+    
+    The board accumulates events (key presses, piece movements) even before
+    the software starts processing them. For example, the user pressing PLAY
+    to wake the board gets buffered. If not cleared, these stale events could
+    trigger unintended actions like immediate shutdown (if a PLAY press is
+    misinterpreted as a long-press).
+    
+    Args:
+        ctrl: SyncCentaur controller instance
+    """
+    log.info("[board] Flushing stale events after initialization...")
+    
+    try:
+        # DGT_BUS_POLL_KEYS reads and clears buffered key events
+        ctrl.sendCommand(command.DGT_BUS_POLL_KEYS)
+        # DGT_BUS_SEND_CHANGES reads and clears buffered piece events
+        ctrl.sendCommand(command.DGT_BUS_SEND_CHANGES)
+    except Exception as e:
+        log.debug(f"[board] Error flushing stale events: {e}")
+    
+    # Clear any key that was parsed from the poll
+    ctrl.get_and_reset_last_key()
+    
+    log.info("[board] Stale event flush complete")
+
+
 def _init_board_with_retry():
     """Initialize the board controller with retry logic.
     
@@ -117,6 +145,13 @@ def _init_board_with_retry():
         
         if ready:
             log.info(f"[board] Board initialized successfully on attempt {attempt}")
+            
+            # Clear any buffered events from before initialization.
+            # The board may have accumulated key presses and piece events while
+            # waiting to be initialized (e.g., user pressing PLAY to wake board).
+            # These stale events could cause unexpected behavior like immediate shutdown.
+            _flush_stale_events(controller)
+            
             return controller
         
         # Initialization failed - cleanup and retry
