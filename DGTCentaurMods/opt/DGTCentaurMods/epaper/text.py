@@ -212,31 +212,50 @@ class TextWidget(Widget):
         """
         Wrap text to fit within max_width using the widget's font.
         
+        Respects explicit newlines in the text - each newline starts a new line.
+        Then wraps long lines to fit within max_width.
+        
         Args:
-            text: Text to wrap
+            text: Text to wrap (may contain \\n for explicit line breaks)
             max_width: Maximum width in pixels
             
         Returns:
             List of wrapped text lines
         """
-        words = text.split()
-        if not words:
+        if not text:
             return []
         
-        lines = []
-        current = words[0]
         temp_image = Image.new("1", (1, 1), 255)
         temp_draw = ImageDraw.Draw(temp_image)
         
-        for word in words[1:]:
-            candidate = f"{current} {word}"
-            if temp_draw.textlength(candidate, font=self._font) <= max_width:
-                current = candidate
-            else:
-                lines.append(current)
-                current = word
+        lines = []
         
-        lines.append(current)
+        # First split by explicit newlines
+        paragraphs = text.split('\n')
+        
+        for paragraph in paragraphs:
+            # Handle empty paragraphs (consecutive newlines)
+            if not paragraph.strip():
+                lines.append("")
+                continue
+            
+            # Wrap this paragraph
+            words = paragraph.split()
+            if not words:
+                lines.append("")
+                continue
+            
+            current = words[0]
+            for word in words[1:]:
+                candidate = f"{current} {word}"
+                if temp_draw.textlength(candidate, font=self._font) <= max_width:
+                    current = candidate
+                else:
+                    lines.append(current)
+                    current = word
+            
+            lines.append(current)
+        
         return lines
     
     def render(self) -> Image.Image:
