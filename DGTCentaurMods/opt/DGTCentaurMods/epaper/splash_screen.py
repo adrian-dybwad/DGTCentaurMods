@@ -67,9 +67,13 @@ class SplashScreen(Widget):
     def set_message(self, message: str):
         """Update the splash screen message and trigger a re-render.
         
+        Only requests a display update if the message actually changes.
+        
         Args:
             message: New message to display (will be centered)
         """
+        if message == self.message:
+            return
         self.message = message
         self._text_widget.text = message
         self.request_update(full=False)
