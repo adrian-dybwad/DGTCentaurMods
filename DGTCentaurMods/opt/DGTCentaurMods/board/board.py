@@ -281,9 +281,20 @@ def shutdown(reboot=False):
     Visual feedback:
     - Update install: All LEDs solid
     - Normal shutdown: Sequential LED cascade h8→h1
+    - Splash screen with "Press advancement button to start" message
     """
 
     beep(SOUND_POWER_OFF)
+    
+    # Display shutdown splash screen
+    try:
+        if display_manager is not None:
+            # U+25B6 is the play triangle, U+23F8 is pause
+            shutdown_splash = SplashScreen(message="Press [\u25b6\u23f8] to start")
+            display_manager.add_widget(shutdown_splash)
+    except Exception as e:
+        log.debug(f"Failed to show shutdown splash: {e}")
+    
     # Pause events and cleanup board
     pauseEvents()
     cleanup(leds_off=False)  # LEDs handled by shutdown()
@@ -554,114 +565,119 @@ def temp():
     return ""
 
 def eventsThread(keycallback, fieldcallback, tout):
-    # This monitors the board for events
-    # keypresses and pieces lifted/placed down
+    """Monitor the board for keypresses and piece lift/place events.
+    
+    Uses monotonic time for timeout tracking to avoid issues with system clock
+    adjustments (e.g., NTP sync on Raspberry Pi startup that can jump the clock
+    forward and trigger premature shutdown).
+    
+    Long-press PLAY (hold for 1 second) triggers immediate shutdown.
+    """
     global eventsrunning
-    global standby
     global batterylevel
     global batterylastchecked
     global chargerconnected
-    standby = False
+    
+    LONG_PRESS_DURATION = 3.0  # seconds to hold PLAY for shutdown
+    
     hold_timeout = False
     events_paused = False
-    to = time.time() + tout
+    to = time.monotonic() + tout
     log.debug('Timeout at %s seconds', str(tout))
-    while time.time() < to:
-        loopstart = time.time()
+    
+    while time.monotonic() < to:
+        loopstart = time.monotonic()
         if eventsrunning == 1:
             # Hold and restart timeout on charger attached
             if chargerconnected == 1:
-                to = time.time() + 100000
+                to = time.monotonic() + 100000
                 hold_timeout = True
             if chargerconnected == 0 and hold_timeout:
-                to = time.time() + tout
+                to = time.monotonic() + tout
                 hold_timeout = False
 
             # Reset timeout on unPauseEvents
             if events_paused:
-                to = time.time() + tout
+                to = time.monotonic() + tout
                 events_paused = False
 
             key_pressed = None
-            if not standby:
-                #Hold fields activity on standby
-                if fieldcallback != None:
-                    try:
-                        # Prefer push model via asyncserial piece listeners
-                        if controller._piece_listener == None:
-                            def _listener(piece_event, field_hex, time_in_seconds):
-                                nonlocal to
-                                try:
-                                    #Rotate the field here. The callback to boardmanager should always have a proper square index
-                                    field = rotateFieldHex(field_hex)
-                                    log.info(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
-                                    fieldcallback(piece_event, field, time_in_seconds)
-                                    to = time.time() + tout
-                                except Exception as e:
-                                    log.error(f"[board.events.push] error: {e}")
-                                    import traceback
-                                    traceback.print_exc()
-                            controller._piece_listener = _listener
-                    except Exception as e:
-                        log.error(f"Error in piece detection thread: {e}")
-                        import traceback
-                        traceback.print_exc()
+            
+            # Register piece listener if not already registered
+            if fieldcallback is not None:
+                try:
+                    if controller._piece_listener is None:
+                        def _listener(piece_event, field_hex, time_in_seconds):
+                            nonlocal to
+                            try:
+                                field = rotateFieldHex(field_hex)
+                                log.info(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
+                                fieldcallback(piece_event, field, time_in_seconds)
+                                to = time.monotonic() + tout
+                            except Exception as e:
+                                log.error(f"[board.events.push] error: {e}")
+                                import traceback
+                                traceback.print_exc()
+                        controller._piece_listener = _listener
+                except Exception as e:
+                    log.error(f"Error in piece detection thread: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
             try:
-
                 key_pressed = controller.get_and_reset_last_key()
 
+                # Long-press PLAY for immediate shutdown
                 if key_pressed == Key.PLAY:
-                    breaktime = time.time() + 0.5
                     beep(SOUND_GENERAL)
-                    while time.time() < breaktime:
-                        key_pressed = controller.get_and_reset_last_key()
-                        if key_pressed == Key.PLAY:
-                            log.debug('Play btn pressed. Stanby is: %s', standby)
-                            if standby == False:
-                                log.debug('Calling standbyScreen()')
-                                widgets.standby_screen(True)
-                                standby = True
-                                print("----------------------------------------")
-                                print("Starting shutdown countdown")
-                                print("----------------------------------------")
-                                sd = threading.Timer(600,shutdown)
-                                sd.start()
-                                to = time.time() + 100000
-                                break
-                            else:
-                                widgets.standby_screen(False)
-                                print("----------------------------------------")
-                                print("Shutdown countdown interrupted")
-                                print("----------------------------------------")
-                                sd.cancel()
-                                standby = False
-                                to = time.time() + tout
-                                break
+                    press_start = time.monotonic()
+                    shutdown_triggered = False
+                    
+                    # Wait for either release or long-press threshold
+                    while time.monotonic() - press_start < LONG_PRESS_DURATION:
+                        time.sleep(0.05)
+                        check_key = controller.get_and_reset_last_key()
+                        if check_key == Key.PLAY:
+                            # Button released (got another press event), treat as short press
                             break
                     else:
+                        # Long press threshold reached - shutdown
+                        log.info('[board.events] Long-press PLAY detected, initiating shutdown')
                         beep(SOUND_POWER_OFF)
-                        print("----------------------------------------")
-                        print("Starting shutdown DISABLED")
-                        print("----------------------------------------")
-                        #shutdown()
+                        shutdown()
+                        shutdown_triggered = True
+                    
+                    if not shutdown_triggered:
+                        # Short press - pass to callback
+                        to = time.monotonic() + tout
+                        log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
+                        try:
+                            keycallback(key_pressed)
+                        except Exception as e:
+                            log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
+                            import traceback
+                            traceback.print_exc()
+                    key_pressed = None  # Already handled
+                    
             except Exception as e:
                 log.error(f"[board.events] error: {e}")
                 import traceback
                 traceback.print_exc()
+            
             try:
-                # Sending 152 to the controller provides us with battery information
-                # Do this every 15 seconds and fill in the globals
                 if time.time() - batterylastchecked > 15:
-                    # Every 15 seconds check the battery details
                     batterylastchecked = time.time()
                     getBatteryLevel()
-            except:
-                pass
+            except Exception as e:
+                log.error(f"[board.events] getBatteryLevel error: {e}")
+                import traceback
+                traceback.print_exc()
+            
             time.sleep(0.05)
-            if standby != True and key_pressed is not None:
-                to = time.time() + tout
+            
+            if key_pressed is not None:
+                to = time.monotonic() + tout
                 log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
-                # Bridge callbacks: two-arg expects (id, name), one-arg expects (id)
                 try:
                     keycallback(key_pressed)
                 except Exception as e:
@@ -670,18 +686,15 @@ def eventsThread(keycallback, fieldcallback, tout):
                     traceback.print_exc()
         else:
             # If pauseEvents() hold timeout in the thread
-            to = time.time() + 100000
+            to = time.monotonic() + 100000
             events_paused = True
 
-        if time.time() - loopstart > 30:
-            to = time.time() + tout
+        if time.monotonic() - loopstart > 30:
+            to = time.monotonic() + tout
         time.sleep(0.05)
     else:
         # Timeout reached, while loop breaks. Shutdown.
-        print("----------------------------------------")
-        print("Timeout. Shutting down board DISABLED")
-        print("----------------------------------------")
-        log.debug('Timeout. Shutting down board')
+        log.info('Inactivity timeout reached, shutting down board')
         shutdown()
 
 
