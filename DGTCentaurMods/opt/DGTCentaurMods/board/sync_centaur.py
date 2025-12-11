@@ -463,6 +463,8 @@ class SyncCentaur:
                                             log.error("[SyncCentaur] callback queue full, dropping piece event")
                                     else:
                                         self._piece_listener(*args)
+                                else:
+                                    log.debug(f"No piece listener registered to handle event {piece_event} {field_hex} {time_in_seconds} {time_str}")
                             except Exception as e:
                                 log.error(f"Error processing piece event: {e}")
                                 import traceback
@@ -529,6 +531,10 @@ class SyncCentaur:
                 self.sendCommand(command.DGT_BUS_POLL_KEYS)
                 # Poll for piece events
                 self.sendCommand(command.DGT_BUS_SEND_CHANGES)
+
+                # Clear any key events from the board
+                while self.get_and_reset_last_key() is not None:
+                    pass
                 
                 # Reset failure counter on success
                 consecutive_failures = 0
