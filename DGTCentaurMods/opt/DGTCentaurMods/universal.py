@@ -379,12 +379,20 @@ def create_settings_entries() -> List[IconMenuEntry]:
 
 
 def create_system_entries() -> List[IconMenuEntry]:
-    """Create entries for the system submenu (shutdown, reboot).
+    """Create entries for the system submenu (shutdown, reboot, inactivity timeout).
 
     Returns:
         List of IconMenuEntry for system menu
     """
+    # Get current inactivity timeout for display
+    timeout = board.get_inactivity_timeout()
+    if timeout == 0:
+        timeout_label = "Sleep Timer\nDisabled"
+    else:
+        timeout_label = f"Sleep Timer\n{timeout // 60} min"
+    
     return [
+        IconMenuEntry(key="Inactivity", label=timeout_label, icon_name="timer", enabled=True),
         IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
         IconMenuEntry(key="Reboot", label="Reboot", icon_name="reboot", enabled=True),
     ]
@@ -1000,21 +1008,65 @@ def _handle_wifi_scan():
 
 
 def _handle_system_menu():
-    """Handle system submenu (shutdown, reboot)."""
-    system_entries = create_system_entries()
-    system_result = _show_menu(system_entries)
+    """Handle system submenu (shutdown, reboot, inactivity timeout)."""
+    while True:
+        system_entries = create_system_entries()
+        system_result = _show_menu(system_entries)
+        
+        if system_result == "Inactivity":
+            _handle_inactivity_timeout()
+            # Loop back to system menu after changing timeout
+        elif system_result == "Shutdown":
+            _shutdown("Shutdown")
+            return
+        elif system_result == "Reboot":
+            # LED cascade pattern for reboot
+            try:
+                for i in range(0, 8):
+                    board.led(i, repeat=0)
+                    time.sleep(0.2)
+            except Exception:
+                pass
+            _shutdown("Rebooting", reboot=True)
+            return
+        else:
+            # BACK or other - exit system menu
+            return
+
+
+def _handle_inactivity_timeout():
+    """Handle inactivity timeout setting submenu."""
+    # Available timeout options in minutes (0 = disabled)
+    timeout_options = [
+        (0, "Disabled"),
+        (5, "5 min"),
+        (10, "10 min"),
+        (15, "15 min"),
+        (30, "30 min"),
+        (60, "1 hour"),
+    ]
     
-    if system_result == "Shutdown":
-        _shutdown("Shutdown")
-    elif system_result == "Reboot":
-        # LED cascade pattern for reboot
+    current_timeout = board.get_inactivity_timeout()
+    
+    entries = []
+    for minutes, label in timeout_options:
+        seconds = minutes * 60
+        # Mark current selection
+        if seconds == current_timeout:
+            display_label = f"[{label}]"
+        else:
+            display_label = label
+        entries.append(IconMenuEntry(key=str(seconds), label=display_label, icon_name="timer", enabled=True))
+    
+    result = _show_menu(entries)
+    
+    if result not in ("BACK", "HELP", "SHUTDOWN"):
         try:
-            for i in range(0, 8):
-                board.led(i, repeat=0)
-                time.sleep(0.2)
-        except Exception:
+            new_timeout = int(result)
+            board.set_inactivity_timeout(new_timeout)
+            log.info(f"[Settings] Inactivity timeout set to {new_timeout}s")
+        except ValueError:
             pass
-        _shutdown("Rebooting", reboot=True)
 
 
 def _shutdown(message: str, reboot: bool = False):

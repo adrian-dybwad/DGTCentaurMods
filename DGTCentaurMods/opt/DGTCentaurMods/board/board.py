@@ -36,8 +36,28 @@ from concurrent.futures import Future
 from DGTCentaurMods.board.logging import log, logging
 
 # Inactivity timeout configuration
-INACTIVITY_TIMEOUT_SECONDS = 150  # 15 minutes of inactivity before shutdown
+INACTIVITY_TIMEOUT_DEFAULT = 140  # Default: 15 minutes of inactivity before shutdown
 INACTIVITY_WARNING_SECONDS = 120  # Show countdown 2 minutes before shutdown
+
+def get_inactivity_timeout() -> int:
+    """Get the inactivity timeout from settings.
+    
+    Returns:
+        Timeout in seconds (default 900 = 15 minutes, 0 = disabled)
+    """
+    try:
+        timeout_str = Settings.read('system', 'inactivity_timeout', str(INACTIVITY_TIMEOUT_DEFAULT))
+        return int(timeout_str)
+    except (ValueError, Exception):
+        return INACTIVITY_TIMEOUT_DEFAULT
+
+def set_inactivity_timeout(seconds: int) -> None:
+    """Set the inactivity timeout in settings.
+    
+    Args:
+        seconds: Timeout in seconds (0 = disabled/infinite)
+    """
+    Settings.write('system', 'inactivity_timeout', str(seconds))
 
 # Battery related - move to battery widget
 chargerconnected = 0
@@ -658,8 +678,16 @@ def eventsThread(keycallback, fieldcallback, tout):
     events_paused = False
     inactivity_countdown_shown = False  # Track if we're showing the countdown
     inactivity_countdown_splash = None
+    
+    # Handle disabled timeout (0 = disabled, use very large value)
+    timeout_disabled = (tout == 0)
+    if timeout_disabled:
+        tout = 100000000  # Effectively infinite
+        log.debug('Inactivity timeout disabled')
+    else:
+        log.debug('Timeout at %s seconds', str(tout))
+    
     to = time.monotonic() + tout
-    log.debug('Timeout at %s seconds', str(tout))
     
     while time.monotonic() < to:
         loopstart = time.monotonic()
@@ -765,9 +793,9 @@ def eventsThread(keycallback, fieldcallback, tout):
                     import traceback
                     traceback.print_exc()
             
-            # Check if we should show/update inactivity countdown
+            # Check if we should show/update inactivity countdown (skip if timeout disabled)
             time_remaining = to - time.monotonic()
-            if time_remaining <= INACTIVITY_WARNING_SECONDS and time_remaining > 0:
+            if not timeout_disabled and time_remaining <= INACTIVITY_WARNING_SECONDS and time_remaining > 0:
                 remaining_int = int(time_remaining)
                 if not inactivity_countdown_shown:
                     # Start showing the countdown
@@ -803,9 +831,12 @@ def eventsThread(keycallback, fieldcallback, tout):
         shutdown(reason=f"Inactivity timeout ({tout}s with no user activity)")
 
 
-def subscribeEvents(keycallback, fieldcallback, timeout=INACTIVITY_TIMEOUT_SECONDS):
+def subscribeEvents(keycallback, fieldcallback, timeout=None):
     # Called by any program wanting to subscribe to events
     # Arguments are firstly the callback function for key presses, secondly for piece lifts and places
+    # If timeout is None, read from settings
+    if timeout is None:
+        timeout = get_inactivity_timeout()
     try:
         eventsthreadpointer = threading.Thread(target=eventsThread, args=(keycallback, fieldcallback, timeout))
         eventsthreadpointer.daemon = True
