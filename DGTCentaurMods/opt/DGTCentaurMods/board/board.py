@@ -678,6 +678,7 @@ def eventsThread(keycallback, fieldcallback, tout):
     events_paused = False
     inactivity_countdown_shown = False  # Track if we're showing the countdown
     inactivity_countdown_splash = None
+    inactivity_last_displayed_seconds = None  # Track last displayed value to avoid redundant updates
     
     # Handle disabled timeout (0 = disabled, use very large value)
     timeout_disabled = (tout == 0)
@@ -712,7 +713,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                 try:
                     if controller._piece_listener is None:
                         def _listener(piece_event, field_hex, time_in_seconds):
-                            nonlocal to, inactivity_countdown_shown, inactivity_countdown_splash
+                            nonlocal to, inactivity_countdown_shown, inactivity_countdown_splash, inactivity_last_displayed_seconds
                             try:
                                 field = rotateFieldHex(field_hex)
                                 log.info(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
@@ -730,6 +731,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                         log.error(f'[board.events] Error removing inactivity countdown: {e}')
                                     inactivity_countdown_shown = False
                                     inactivity_countdown_splash = None
+                                    inactivity_last_displayed_seconds = None
                             except Exception as e:
                                 log.error(f"[board.events.push] error: {e}")
                                 import traceback
@@ -790,6 +792,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                         log.error(f'[board.events] Error removing inactivity countdown: {e}')
                     inactivity_countdown_shown = False
                     inactivity_countdown_splash = None
+                    inactivity_last_displayed_seconds = None
                 
                 log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
                 try:
@@ -812,15 +815,17 @@ def eventsThread(keycallback, fieldcallback, tout):
                         )
                         display_manager.add_widget(inactivity_countdown_splash)
                         inactivity_countdown_shown = True
+                        inactivity_last_displayed_seconds = remaining_int
                     except Exception as e:
                         log.error(f"[board.events] Failed to show inactivity countdown: {e}")
-                else:
-                    # Update the countdown display
+                elif remaining_int != inactivity_last_displayed_seconds:
+                    # Update only when displayed seconds value changes
                     try:
                         if inactivity_countdown_splash is not None:
                             inactivity_countdown_splash.set_message(
                                 f"Inactivity\nShutdown in {remaining_int}..."
                             )
+                            inactivity_last_displayed_seconds = remaining_int
                     except Exception:
                         pass
         else:
