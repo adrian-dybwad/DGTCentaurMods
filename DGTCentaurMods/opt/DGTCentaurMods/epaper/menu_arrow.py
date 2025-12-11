@@ -150,7 +150,7 @@ class MenuArrowWidget(Widget):
         
         elif key_id == board.Key.LONG_PLAY:
             # Shutdown
-            board.shutdown()
+            board.shutdown(reason="LONG_PLAY from MenuArrowWidget")
             return True  # Handled
         
         return False  # Not handled

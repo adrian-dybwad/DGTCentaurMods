@@ -493,7 +493,7 @@ def _start_game_mode():
             game_handler.game_manager.handle_draw()
             _return_to_menu("Draw")
         elif result == "exit":
-            board.shutdown()
+            board.shutdown(reason="User selected 'exit' from game menu")
         # cancel is handled by DisplayManager (restores display)
 
     # Create GameHandler with user-configured settings
@@ -1032,7 +1032,8 @@ def _shutdown(message: str, reboot: bool = False):
         except Exception:
             pass
     
-    board.shutdown(reboot=reboot)
+    reason = f"User selected '{message}' from menu"
+    board.shutdown(reboot=reboot, reason=reason)
 
 
 def _run_centaur():
@@ -1385,10 +1386,10 @@ def key_callback(key_id):
     
     # Always handle LONG_PLAY for shutdown
     if key_id == board.Key.LONG_PLAY:
-        log.info("[App] LONG_PLAY pressed - shutting down")
+        log.info("[App] LONG_PLAY key event received")
         running = False
         kill = 1
-        board.shutdown()
+        board.shutdown(reason="LONG_PLAY key event from universal.py")
         return
     
     # Priority 1: Active keyboard widget gets key events

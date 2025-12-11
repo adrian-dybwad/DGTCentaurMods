@@ -589,7 +589,8 @@ def shutdown(message, reboot=False):
     board.display_manager.clear_widgets(addStatusBar=False)
     promise = board.display_manager.add_widget(SplashScreen(message=message))
     promise.result(timeout=10.0)
-    board.shutdown(reboot=reboot)
+    reason = f"Menu shutdown: {message}"
+    board.shutdown(reboot=reboot, reason=reason)
 
 # Handle the menu structure
 # Only run menu loop if menu.py is executed directly (not when imported)

@@ -271,9 +271,13 @@ def sendCustomLedArray(data: bytes):
     """
     controller.sendCommand(command.LED_CMD, data)
 
-def shutdown(reboot=False):
+def shutdown(reboot=False, reason="unspecified"):
     """
     Shutdown the Raspberry Pi with proper cleanup and visual feedback.
+    
+    Args:
+        reboot: If True, reboot instead of poweroff.
+        reason: Human-readable reason for shutdown (for logging).
     
     If a pending update exists, installs it instead of shutting down.
     Otherwise performs clean shutdown with LED cascade pattern.
@@ -283,6 +287,9 @@ def shutdown(reboot=False):
     - Normal shutdown: Sequential LED cascade h8→h1
     - Splash screen with "Press advancement button to start" message
     """
+    log.info("=" * 60)
+    log.info(f"SHUTDOWN INITIATED - Reason: {reason}")
+    log.info("=" * 60)
 
     beep(SOUND_POWER_OFF)
     
@@ -585,6 +592,13 @@ def eventsThread(keycallback, fieldcallback, tout):
     to = time.monotonic() + tout
     log.debug('Timeout at %s seconds', str(tout))
     
+    # Clear any buffered key events from before eventsThread started.
+    # The user may have pressed PLAY to wake the board, which gets buffered
+    # and would be misinterpreted as a long-press triggering immediate shutdown.
+    discarded = controller.get_and_reset_last_key()
+    if discarded is not None:
+        log.debug(f'Discarded buffered key event: {discarded}')
+    
     while time.monotonic() < to:
         loopstart = time.monotonic()
         if eventsrunning == 1:
@@ -642,9 +656,9 @@ def eventsThread(keycallback, fieldcallback, tout):
                             break
                     else:
                         # Long press threshold reached - shutdown
-                        log.info('[board.events] Long-press PLAY detected, initiating shutdown')
+                        log.info(f'[board.events] Long-press PLAY detected (held for {LONG_PRESS_DURATION}s)')
                         beep(SOUND_POWER_OFF)
-                        shutdown()
+                        shutdown(reason=f"Long-press PLAY button (held {LONG_PRESS_DURATION}s)")
                         shutdown_triggered = True
                     
                     if not shutdown_triggered:
@@ -694,8 +708,8 @@ def eventsThread(keycallback, fieldcallback, tout):
         time.sleep(0.05)
     else:
         # Timeout reached, while loop breaks. Shutdown.
-        log.info('Inactivity timeout reached, shutting down board')
-        shutdown()
+        log.info(f'[board.events] Inactivity timeout reached ({tout}s with no activity)')
+        shutdown(reason=f"Inactivity timeout ({tout}s with no user activity)")
 
 
 def subscribeEvents(keycallback, fieldcallback, timeout=100000):
