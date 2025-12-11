@@ -87,31 +87,6 @@ def _create_controller():
     return SyncCentaur(developer_mode=False)
 
 
-def _flush_stale_events(ctrl):
-    """Clear any buffered key and piece events from before initialization.
-    
-    The board accumulates events (key presses, piece movements) even before
-    the software starts processing them. For example, the user pressing PLAY
-    to wake the board gets buffered. If not cleared, these stale events could
-    trigger unintended actions like immediate shutdown (if a PLAY press is
-    misinterpreted as a long-press).
-    
-    Args:
-        ctrl: SyncCentaur controller instance
-    """
-    log.info("[board] Flushing stale events after initialization...")
-    
-    try:
-        # DGT_BUS_POLL_KEYS reads and clears buffered key events
-        ctrl.request_response(command.DGT_BUS_POLL_KEYS)
-        # DGT_BUS_SEND_CHANGES reads and clears buffered piece events
-        ctrl.request_response(command.DGT_BUS_SEND_CHANGES)
-    except Exception as e:
-        log.debug(f"[board] Error flushing stale events: {e}")
-    
-    log.info("[board] Stale event flush complete")
-
-
 def _init_board_with_retry():
     """Initialize the board controller with retry logic.
     
@@ -142,13 +117,6 @@ def _init_board_with_retry():
         
         if ready:
             log.info(f"[board] Board initialized successfully on attempt {attempt}")
-            
-            # Clear any buffered events from before initialization.
-            # The board may have accumulated key presses and piece events while
-            # waiting to be initialized (e.g., user pressing PLAY to wake board).
-            # These stale events could cause unexpected behavior like immediate shutdown.
-            _flush_stale_events(controller)
-            
             return controller
         
         # Initialization failed - cleanup and retry
@@ -623,13 +591,6 @@ def eventsThread(keycallback, fieldcallback, tout):
     events_paused = False
     to = time.monotonic() + tout
     log.debug('Timeout at %s seconds', str(tout))
-    
-    # Clear any buffered key events from before eventsThread started.
-    # The user may have pressed PLAY to wake the board, which gets buffered
-    # and would be misinterpreted as a long-press triggering immediate shutdown.
-    discarded = controller.get_and_reset_last_key()
-    if discarded is not None:
-        log.debug(f'Discarded buffered key event: {discarded}')
     
     while time.monotonic() < to:
         loopstart = time.monotonic()

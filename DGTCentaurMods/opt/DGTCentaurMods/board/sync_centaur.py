@@ -195,11 +195,6 @@ class SyncCentaur:
         self._request_processor_thread = threading.Thread(target=self._request_processor, daemon=True)
         self._request_processor_thread.start()
         
-        # Start key polling thread only if DGT_NOTIFY_EVENTS is None
-        if DGT_NOTIFY_EVENTS is None:
-            self._polling_thread = threading.Thread(target=self._polling_worker, name="polling", daemon=True)
-            self._polling_thread.start()
-        
         # THEN send discovery commands
         self._discover_board_address()
     
@@ -864,10 +859,19 @@ class SyncCentaur:
                 self.addr2 = packet[4]
             else:
                 if self.addr1 == packet[3] and self.addr2 == packet[4]:
+                    # Flush and events from the board
+                    self._send_command(command.DGT_BUS_POLL_KEYS)
+                    self._send_command(command.DGT_BUS_SEND_CHANGES)
                     self.ready = True
                     if DGT_NOTIFY_EVENTS is not None:
                         self.sendCommand(DGT_NOTIFY_EVENTS)
+                    else:
+                        # Start key polling thread
+                        self._polling_thread = threading.Thread(target=self._polling_worker, name="polling", daemon=True)
+                        self._polling_thread.start()
+        
                     log.debug(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
+
                     self.ledsOff()
                     self.beep(command.SOUND_POWER_ON)
                 else:
