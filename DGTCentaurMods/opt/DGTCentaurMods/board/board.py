@@ -302,24 +302,23 @@ def shutdown_countdown(countdown_seconds: int = 5) -> bool:
         log.debug(f"Failed to show countdown splash: {e}")
     
     # Clear any pending key events before starting countdown
-    while controller.get_next_key(timeout=0.0) is not None:
-        pass
+    controller.get_and_reset_last_key()
     
-    # Countdown loop - check for BACK button each iteration
+    # Countdown loop - any key press cancels
     for remaining in range(countdown_seconds, 0, -1):
         # Update display
         try:
             if countdown_splash is not None:
-                countdown_splash.set_message(f"Shutting down in {remaining}...\nPress [\u25c0] to cancel")
+                countdown_splash.set_message(f"Shutdown in {remaining}...\nAny key cancels")
         except Exception as e:
             log.debug(f"Failed to update countdown: {e}")
         
-        # Wait 1 second, checking for BACK button every 100ms
+        # Wait 1 second, checking for any key every 100ms
         for _ in range(10):
             time.sleep(0.1)
-            key = controller.get_next_key(timeout=0.0)
-            if key == Key.BACK:
-                log.info("[board.shutdown_countdown] Cancelled by user (BACK pressed)")
+            key = controller.get_and_reset_last_key()
+            if key is not None:
+                log.info(f"[board.shutdown_countdown] Cancelled by user ({key.name} pressed)")
                 beep(SOUND_GENERAL)
                 # Remove modal widget to restore normal widget rendering
                 try:
