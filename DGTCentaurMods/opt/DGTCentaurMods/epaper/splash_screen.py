@@ -45,8 +45,8 @@ class SplashScreen(Widget):
     LOGO_CROP_HEIGHT = 130  # Crop logo to this height to remove "MODS" text
     UNIVERSAL_Y = 132  # Y position for "UNIVERSAL" text
     TEXT_MARGIN = 4  # Margin on each side
-    TEXT_Y = 170  # Y position for message text (allows room for 2 lines below logo)
-    TEXT_HEIGHT = 44  # Height for 2 lines of text at font size 18
+    TEXT_Y = 170  # Y position for message text (below logo)
+    TEXT_HEIGHT = 88  # Height for 4 lines of text at font size 18
     
     def __init__(self, message: str = "Press [OK]"):
         super().__init__(0, STATUS_BAR_HEIGHT, 128, 296 - STATUS_BAR_HEIGHT)  # Full screen widget
