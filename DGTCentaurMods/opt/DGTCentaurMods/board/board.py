@@ -682,7 +682,7 @@ def eventsThread(keycallback, fieldcallback, tout):
         print("Timeout. Shutting down board DISABLED")
         print("----------------------------------------")
         log.debug('Timeout. Shutting down board')
-        #shutdown()
+        shutdown()
 
 
 def subscribeEvents(keycallback, fieldcallback, timeout=100000):
