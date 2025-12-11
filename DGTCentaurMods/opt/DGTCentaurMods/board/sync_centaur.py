@@ -141,6 +141,7 @@ class SyncCentaur:
         # Key event handling
         self.key_up_queue = queue.Queue(maxsize=128)
         self._last_key = None
+        self._ready_timestamp = None  # Set when discovery completes, used to discard stale key events
         
         # Single waiter for blocking request_response
         self._waiter_lock = threading.Lock()
@@ -185,6 +186,7 @@ class SyncCentaur:
         self._closed = False
         self.listener_running = True
         self.ready = False
+        self._ready_timestamp = None  # Reset for re-initialization
         self._initialize()
         
         # Start listener thread FIRST so it's ready to capture responses
@@ -480,7 +482,12 @@ class SyncCentaur:
             log.error(f"Error: {e}")
     
     def handle_key_payload(self, payload: bytes):
-        """Handle key press events"""
+        """Handle key press events.
+        
+        Discards key events that arrive before _ready_timestamp is set or within
+        0.5 seconds after discovery completes. This prevents stale key events
+        (queued on the board before initialization) from being processed as real events.
+        """
         try:
             log.debug(f"[P{self.packet_count:03d}] handle_key_payload: {' '.join(f'{b:02x}' for b in payload)}")
             if len(payload) > 0:
@@ -490,6 +497,15 @@ class SyncCentaur:
                 if idx is not None:
                     self._draw_key_event_from_payload(payload, idx, code_val, is_down)
                     if not is_down:
+                        # Discard stale key events from before/during initialization
+                        if self._ready_timestamp is None:
+                            log.debug(f"Discarding key event (before ready): code=0x{code_val:02x}")
+                            return
+                        elapsed = time.time() - self._ready_timestamp
+                        if elapsed < 0.5:
+                            log.debug(f"Discarding stale key event (elapsed={elapsed:.3f}s): code=0x{code_val:02x}")
+                            return
+                        
                         key = Key(code_val)
                         log.debug(f"key name: {key.name} value: {key.value}")
                         self._last_key = key
@@ -861,16 +877,14 @@ class SyncCentaur:
                 self.addr2 = packet[4]
             else:
                 if self.addr1 == packet[3] and self.addr2 == packet[4]:
-                    # Flush events from the board
+                    # Flush events from the board - responses will arrive after we return
+                    # and be discarded by handle_key_payload() based on _ready_timestamp
                     self._send_command(command.DGT_BUS_POLL_KEYS)
                     self._send_command(command.DGT_BUS_SEND_CHANGES)
-                    # Clear any queued key events
-                    while not self.key_up_queue.empty():
-                        try:
-                            discarded = self.key_up_queue.get_nowait()
-                            log.debug(f"Discarded queued key event: {discarded}")
-                        except queue.Empty:
-                            break
+                    
+                    # Set ready timestamp - key events within 0.5s of this will be discarded
+                    # This handles stale events that arrive after the flush commands
+                    self._ready_timestamp = time.time()
                     self._last_key = None
 
                     self.ready = True
