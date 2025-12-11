@@ -862,14 +862,12 @@ class SyncCentaur:
             else:
                 if self.addr1 == packet[3] and self.addr2 == packet[4]:
                     # Flush and events from the board
-                    self._send_command(command.DGT_BUS_SEND_CHANGES)
+                    log.debug(f"Discovery: Flushing events from the board")
+                    discarded_piece_events = self.request_response(command.DGT_BUS_SEND_CHANGES)
+                    log.debug(f"Discovery: Discarded {len(discarded_piece_events)} piece events ({' '.join(f'{b:02x}' for b in discarded_piece_events)})")
                     # Clear any key events from the board
-                    self._send_command(command.DGT_BUS_POLL_KEYS)
-                    disgarded_key = self.get_and_reset_last_key()
-                    while disgarded_key is not None:
-                        log.debug(f"Discarded key event: {disgarded_key}")
-                        self._send_command(command.DGT_BUS_POLL_KEYS)
-                        disgarded_key = self.get_and_reset_last_key()
+                    discarded_key_events = self.request_response(command.DGT_BUS_POLL_KEYS)
+                    log.debug(f"Discovery: Discarded {len(discarded_key_events)} key events ({' '.join(f'{b:02x}' for b in discarded_key_events)})")
 
                     self.ready = True
                     if DGT_NOTIFY_EVENTS is not None:
