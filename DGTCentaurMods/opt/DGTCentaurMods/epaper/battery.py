@@ -1,11 +1,15 @@
 """
 Battery level indicator widget.
+
+The widget manages its own state by polling the board controller every 5 seconds.
 """
 
 from PIL import Image, ImageDraw
 from .framework.widget import Widget
 import os
 import sys
+import threading
+import time
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -19,15 +23,98 @@ except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from asset_manager import AssetManager
 
+# Polling interval for battery status (seconds)
+BATTERY_POLL_INTERVAL = 5
+
 
 class BatteryWidget(Widget):
-    """Battery level indicator using bitmap icons."""
+    """Battery level indicator using bitmap icons.
+    
+    Manages its own state by polling the board controller every 5 seconds.
+    Automatically starts polling when added to display and stops when removed.
+    """
     
     def __init__(self, x: int, y: int, level: int = None, charger_connected: bool = False):
         super().__init__(x, y, 16, 16)
         self.level = level
         self.charger_connected = charger_connected
         self._use_bitmap_icons = True
+        self._poll_thread = None
+        self._stop_event = threading.Event()
+    
+    def start(self) -> None:
+        """Start the battery polling thread."""
+        if self._poll_thread is None or not self._poll_thread.is_alive():
+            self._stop_event.clear()
+            self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+            self._poll_thread.start()
+            log.debug("BatteryWidget polling thread started")
+    
+    def stop(self) -> None:
+        """Stop the battery polling thread."""
+        self._stop_event.set()
+        if self._poll_thread is not None:
+            self._poll_thread.join(timeout=1.0)
+            self._poll_thread = None
+            log.debug("BatteryWidget polling thread stopped")
+    
+    def _poll_loop(self) -> None:
+        """Background thread that polls battery status every 5 seconds."""
+        while not self._stop_event.is_set():
+            try:
+                self._fetch_battery_status()
+            except Exception as e:
+                log.debug(f"Error in battery poll loop: {e}")
+            
+            # Wait for next poll interval, but check stop event frequently
+            for _ in range(BATTERY_POLL_INTERVAL * 10):
+                if self._stop_event.is_set():
+                    return
+                time.sleep(0.1)
+    
+    def _fetch_battery_status(self) -> None:
+        """Fetch battery status directly from the board controller.
+        
+        Requests battery info from the controller and updates widget state.
+        Also updates board.chargerconnected and board.batterylevel globals
+        for use by eventsThread (timeout hold on charger).
+        Only requests a display update if values have changed.
+        """
+        try:
+            from DGTCentaurMods.board.sync_centaur import command
+            from DGTCentaurMods.board import board
+            
+            controller = board.controller
+            if controller is None:
+                return
+            
+            resp = controller.request_response(command.DGT_SEND_BATTERY_INFO)
+            if resp is None or len(resp) == 0:
+                return
+            
+            val = resp[0]
+            new_level = val & 0x1F
+            new_charger = ((val >> 5) & 0x07) in (1, 2)
+            
+            # Update board globals for eventsThread timeout hold logic
+            board.batterylevel = new_level
+            board.chargerconnected = 1 if new_charger else 0
+            
+            changed = False
+            if self.level != new_level:
+                self.level = new_level
+                changed = True
+            if self.charger_connected != new_charger:
+                self.charger_connected = new_charger
+                changed = True
+            
+            if changed:
+                log.debug(f"Battery status changed: level={self.level}, charger={self.charger_connected}")
+                self._last_rendered = None
+                self.request_update(full=False)
+                
+        except Exception as e:
+            log.debug(f"Error fetching battery status: {e}")
     
     def set_level(self, level: int) -> None:
         """Set battery level (0-20, where 20 is fully charged)."""
@@ -43,30 +130,14 @@ class BatteryWidget(Widget):
             self._last_rendered = None
             self.request_update(full=False)
     
-    def update_from_board(self) -> None:
-        """Update battery level and charger status from board."""
-        try:
-            from DGTCentaurMods.board import board
-            self.level = board.batterylevel
-            self.charger_connected = board.chargerconnected > 0
-        except Exception as e:
-            log.debug(f"Error reading battery status from board: {e}")
-    
     def _get_battery_icon(self) -> Image.Image:
         """Get battery icon bitmap based on current battery state."""
         if not self._use_bitmap_icons:
-            # Fallback to drawn battery
             return self._render_drawn_battery()
         
         try:
-            from DGTCentaurMods.board import board
-            # Use board state if available, otherwise use widget state
-            if board is not None:
-                batterylevel = board.batterylevel
-                chargerconnected = board.chargerconnected > 0
-            else:
-                batterylevel = self.level if self.level is not None else 10
-                chargerconnected = self.charger_connected
+            batterylevel = self.level if self.level is not None else 10
+            chargerconnected = self.charger_connected
             
             indicator = "battery1"
             if batterylevel >= 18:

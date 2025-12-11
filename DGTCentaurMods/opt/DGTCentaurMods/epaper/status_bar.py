@@ -33,6 +33,8 @@ class StatusBarWidget(Widget):
                                          show_seconds=False)
         self._wifi_widget = WiFiStatusWidget(80, 0)
         self._battery_widget = BatteryWidget(98, 1)
+        # Start battery widget polling thread
+        self._battery_widget.start()
     
     def set_scheduler(self, scheduler) -> None:
         """Set scheduler and propagate to child widgets."""
@@ -96,9 +98,7 @@ class StatusBarWidget(Widget):
         wifi_icon = self._wifi_widget.render()
         img.paste(wifi_icon, (80, 0))
         
-        # Draw battery icon using BatteryWidget
-        # Update battery widget from board state before rendering
-        self._battery_widget.update_from_board()
+        # Draw battery icon using BatteryWidget (polls its own state)
         battery_icon = self._battery_widget.render()
         img.paste(battery_icon, (98, 1))
         

@@ -59,10 +59,10 @@ def set_inactivity_timeout(seconds: int) -> None:
     """
     Settings.write('system', 'inactivity_timeout', str(seconds))
 
-# Battery related - move to battery widget
+# Battery/charger state - updated by BatteryWidget polling thread
+# chargerconnected is used by eventsThread to hold timeout when charging
 chargerconnected = 0
 batterylevel = -1
-batterylastchecked = 0
 
 # Board meta properties (extracted from DGT_SEND_TRADEMARK response)
 board_meta_properties: Optional[dict] = None
@@ -600,12 +600,18 @@ def printChessState(state = None, loglevel = logging.INFO):
     log.log(loglevel, line)
 
 def getBatteryLevel():
-    # batterylevel: a number 0 - 20 representing battery level of the board
-    # 20 is fully charged. The board dies somewhere around a low of 1
-    # Sending the board a packet starting with 152 gives battery info
-    global batterylevel, chargerconnected, batterylastchecked
+    """Get battery level and charger status from the board.
+    
+    Returns:
+        Tuple of (batterylevel, chargerconnected) where:
+        - batterylevel: 0-20 (20 is fully charged, board dies around 1)
+        - chargerconnected: 1 if charging, 0 otherwise
+    
+    Note: BatteryWidget now polls this automatically every 5 seconds.
+    This function is kept for backward compatibility with emulators.
+    """
+    global batterylevel, chargerconnected
     resp = controller.request_response(command.DGT_SEND_BATTERY_INFO)
-    batterylastchecked = time.time()
     val = resp[0]
     batterylevel = val & 0x1F
     chargerconnected = 1 if ((val >> 5) & 0x07) in (1, 2) else 0    
@@ -670,8 +676,6 @@ def eventsThread(keycallback, fieldcallback, tout):
     Long-press PLAY (hold for 1 second) triggers immediate shutdown.
     """
     global eventsrunning
-    global batterylevel
-    global batterylastchecked
     global chargerconnected
     
     hold_timeout = False
@@ -764,15 +768,6 @@ def eventsThread(keycallback, fieldcallback, tout):
                     
             except Exception as e:
                 log.error(f"[board.events] error: {e}")
-                import traceback
-                traceback.print_exc()
-            
-            try:
-                if time.time() - batterylastchecked > 15:
-                    batterylastchecked = time.time()
-                    getBatteryLevel()
-            except Exception as e:
-                log.error(f"[board.events] getBatteryLevel error: {e}")
                 import traceback
                 traceback.print_exc()
             
