@@ -533,8 +533,10 @@ class SyncCentaur:
                 self.sendCommand(command.DGT_BUS_SEND_CHANGES)
 
                 # Clear any key events from the board
-                while self.get_and_reset_last_key() is not None:
-                    pass
+                disgarded_key = self.get_and_reset_last_key()
+                while disgarded_key is not None:
+                    log.debug(f"Discarded key event: {disgarded_key}")
+                    disgarded_key = self.get_and_reset_last_key()
                 
                 # Reset failure counter on success
                 consecutive_failures = 0
