@@ -331,12 +331,8 @@ def shutdown_countdown(countdown_seconds: int = 3) -> bool:
                 return False
     
     log.info("[board.shutdown_countdown] Countdown complete, proceeding with shutdown")
-    # Remove countdown splash so shutdown splash can be displayed
-    try:
-        if display_manager is not None and countdown_splash is not None:
-            display_manager.remove_widget(countdown_splash)
-    except Exception:
-        pass
+    # Don't remove countdown splash here - shutdown() will add its own modal splash
+    # which automatically replaces this one, avoiding a flash of the previous UI
     return True
 
 
