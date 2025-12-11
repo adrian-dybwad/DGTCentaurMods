@@ -181,17 +181,17 @@ class BatteryWidget(Widget):
             
             # Top triangle: points down-left from top-right
             top_triangle = [
-                (cx + 4, inner_top),        # top right corner
-                (cx - 2, cy),               # middle left point
-                (cx + 1, cy),               # middle right 
+                (cx + 5, inner_top),        # top right corner
+                (cx - 3, cy),               # middle left point
+                (cx + 2, cy),               # middle right 
             ]
             bolt_draw.polygon(top_triangle, fill=1)
             
             # Bottom triangle: points down from middle-right to bottom-left
             bottom_triangle = [
-                (cx + 2, cy - 1),           # upper right
-                (cx - 4, inner_bottom),     # bottom left point
-                (cx - 1, cy - 1),           # upper left
+                (cx + 3, cy - 1),           # upper right
+                (cx - 5, inner_bottom),     # bottom left point
+                (cx - 2, cy - 1),           # upper left
             ]
             bolt_draw.polygon(bottom_triangle, fill=1)
             
