@@ -296,7 +296,7 @@ def shutdown_countdown(countdown_seconds: int = 5) -> bool:
     try:
         if display_manager is not None:
             # U+25C0 is left-pointing triangle for BACK button
-            countdown_splash = SplashScreen(message=f"Shutdown in\n{remaining}. Cancel?")
+            countdown_splash = SplashScreen(message=f"Shutdown in\n{countdown_seconds}. Cancel?")
             display_manager.add_widget(countdown_splash)
     except Exception as e:
         log.debug(f"Failed to show countdown splash: {e}")
@@ -358,7 +358,7 @@ def shutdown(reboot=False, reason="unspecified"):
     try:
         if display_manager is not None:
             # U+25B6 is the play triangle, U+23F8 is pause
-            shutdown_splash = SplashScreen(message="Press [\u25b6\u23f8] to start")
+            shutdown_splash = SplashScreen(message="Press [\u25b6] to start")
             display_manager.add_widget(shutdown_splash)
     except Exception as e:
         log.debug(f"Failed to show shutdown splash: {e}")
