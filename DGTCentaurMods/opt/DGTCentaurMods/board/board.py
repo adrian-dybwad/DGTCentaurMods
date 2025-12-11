@@ -296,7 +296,7 @@ def shutdown_countdown(countdown_seconds: int = 3) -> bool:
     try:
         if display_manager is not None:
             # U+25C0 is left-pointing triangle for BACK button
-            countdown_splash = SplashScreen(message=f"Shutdown in\n  {countdown_seconds}...")
+            countdown_splash = SplashScreen(message=f"Shutdown in\n  {countdown_seconds}")
             display_manager.add_widget(countdown_splash)
     except Exception as e:
         log.debug(f"Failed to show countdown splash: {e}")
@@ -310,7 +310,7 @@ def shutdown_countdown(countdown_seconds: int = 3) -> bool:
         # Update display
         try:
             if countdown_splash is not None:
-                countdown_splash.set_message(f"Shutdown in\n  {remaining}...")
+                countdown_splash.set_message(f"Shutdown in\n  {remaining}")
         except Exception as e:
             log.debug(f"Failed to update countdown: {e}")
         
@@ -331,6 +331,12 @@ def shutdown_countdown(countdown_seconds: int = 3) -> bool:
                 return False
     
     log.info("[board.shutdown_countdown] Countdown complete, proceeding with shutdown")
+    # Remove countdown splash so shutdown splash can be displayed
+    try:
+        if display_manager is not None and countdown_splash is not None:
+            display_manager.remove_widget(countdown_splash)
+    except Exception:
+        pass
     return True
 
 

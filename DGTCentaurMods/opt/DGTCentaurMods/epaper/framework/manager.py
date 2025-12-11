@@ -68,8 +68,23 @@ class Manager:
         If the widget has is_modal=True, it takes over the display and all other
         widgets are ignored until this widget is removed.
         
+        If adding a modal widget when another modal is already present, the previous
+        modal is automatically removed and a warning is logged.
+        
         The widget should call request_update() when it's ready to be displayed.
         """
+        # If adding a modal widget, check for and remove any existing modal
+        if widget.is_modal:
+            for existing in self._widgets:
+                if existing.is_modal:
+                    log.warning(f"Manager.add_widget() replacing existing modal {existing.__class__.__name__} with {widget.__class__.__name__}")
+                    try:
+                        existing.stop()
+                    except Exception as e:
+                        log.debug(f"Error stopping replaced modal widget: {e}")
+                    self._widgets.remove(existing)
+                    break  # Only one modal should exist
+        
         # Check for overlaps (skip if modal since it intentionally covers everything)
         if not widget.is_modal:
             new_region = widget.get_region()
