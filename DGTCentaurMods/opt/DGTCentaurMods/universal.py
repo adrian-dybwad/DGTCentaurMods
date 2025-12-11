@@ -1563,7 +1563,7 @@ def main():
     # Subscribe to board events - universal.py is the single subscriber and routes events
     if startup_splash:
         startup_splash.set_message("Board events")
-    board.subscribeEvents(key_callback, field_callback, timeout=900)
+    board.subscribeEvents(key_callback, field_callback)  # Uses INACTIVITY_TIMEOUT_SECONDS default
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)

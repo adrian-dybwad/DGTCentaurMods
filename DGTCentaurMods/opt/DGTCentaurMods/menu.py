@@ -603,7 +603,7 @@ if __name__ == "__main__":
             promise.result(timeout=10.0)
         except Exception as e:
             log.warning(f"Error initializing display: {e}")
-    board.subscribeEvents(keyPressed, changedCallback, timeout=900)
+    board.subscribeEvents(keyPressed, changedCallback)  # Uses INACTIVITY_TIMEOUT_SECONDS default
     board._events_initialized = True  # Mark as initialized to prevent re-initialization
     board.printChessState()
     resp = board.sendCommand(command.DGT_BUS_SEND_SNAPSHOT_F0)

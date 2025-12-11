@@ -35,6 +35,10 @@ from concurrent.futures import Future
 
 from DGTCentaurMods.board.logging import log, logging
 
+# Inactivity timeout configuration
+INACTIVITY_TIMEOUT_SECONDS = 900  # 15 minutes of inactivity before shutdown
+INACTIVITY_WARNING_SECONDS = 120  # Show countdown 2 minutes before shutdown
+
 # Battery related - move to battery widget
 chargerconnected = 0
 batterylevel = -1
@@ -650,10 +654,10 @@ def eventsThread(keycallback, fieldcallback, tout):
     global batterylastchecked
     global chargerconnected
     
-    LONG_PRESS_DURATION = 3.0  # seconds to hold PLAY for shutdown
-    
     hold_timeout = False
     events_paused = False
+    inactivity_countdown_shown = False  # Track if we're showing the countdown
+    inactivity_countdown_splash = None
     to = time.monotonic() + tout
     log.debug('Timeout at %s seconds', str(tout))
     
@@ -680,12 +684,21 @@ def eventsThread(keycallback, fieldcallback, tout):
                 try:
                     if controller._piece_listener is None:
                         def _listener(piece_event, field_hex, time_in_seconds):
-                            nonlocal to
+                            nonlocal to, inactivity_countdown_shown, inactivity_countdown_splash
                             try:
                                 field = rotateFieldHex(field_hex)
                                 log.info(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
                                 fieldcallback(piece_event, field, time_in_seconds)
                                 to = time.monotonic() + tout
+                                # Cancel inactivity countdown if shown
+                                if inactivity_countdown_shown and inactivity_countdown_splash is not None:
+                                    log.info('[board.events] Inactivity countdown cancelled by piece activity')
+                                    try:
+                                        display_manager.remove_widget(inactivity_countdown_splash)
+                                    except Exception:
+                                        pass
+                                    inactivity_countdown_shown = False
+                                    inactivity_countdown_splash = None
                             except Exception as e:
                                 log.error(f"[board.events.push] error: {e}")
                                 import traceback
@@ -734,6 +747,16 @@ def eventsThread(keycallback, fieldcallback, tout):
             
             if key_pressed is not None:
                 to = time.monotonic() + tout
+                # Cancel inactivity countdown if shown
+                if inactivity_countdown_shown and inactivity_countdown_splash is not None:
+                    log.info('[board.events] Inactivity countdown cancelled by user activity')
+                    try:
+                        display_manager.remove_widget(inactivity_countdown_splash)
+                    except Exception:
+                        pass
+                    inactivity_countdown_shown = False
+                    inactivity_countdown_splash = None
+                
                 log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
                 try:
                     keycallback(key_pressed)
@@ -741,6 +764,31 @@ def eventsThread(keycallback, fieldcallback, tout):
                     log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
                     import traceback
                     traceback.print_exc()
+            
+            # Check if we should show/update inactivity countdown
+            time_remaining = to - time.monotonic()
+            if time_remaining <= INACTIVITY_WARNING_SECONDS and time_remaining > 0:
+                remaining_int = int(time_remaining)
+                if not inactivity_countdown_shown:
+                    # Start showing the countdown
+                    log.info(f'[board.events] Showing inactivity countdown ({remaining_int}s remaining)')
+                    try:
+                        inactivity_countdown_splash = SplashScreen(
+                            message=f"Shutting down in\n{remaining_int} seconds..."
+                        )
+                        display_manager.add_widget(inactivity_countdown_splash)
+                        inactivity_countdown_shown = True
+                    except Exception as e:
+                        log.error(f"[board.events] Failed to show inactivity countdown: {e}")
+                else:
+                    # Update the countdown display
+                    try:
+                        if inactivity_countdown_splash is not None:
+                            inactivity_countdown_splash.set_message(
+                                f"Shutting down in\n{remaining_int} seconds..."
+                            )
+                    except Exception:
+                        pass
         else:
             # If pauseEvents() hold timeout in the thread
             to = time.monotonic() + 100000
@@ -755,7 +803,7 @@ def eventsThread(keycallback, fieldcallback, tout):
         shutdown(reason=f"Inactivity timeout ({tout}s with no user activity)")
 
 
-def subscribeEvents(keycallback, fieldcallback, timeout=100000):
+def subscribeEvents(keycallback, fieldcallback, timeout=INACTIVITY_TIMEOUT_SECONDS):
     # Called by any program wanting to subscribe to events
     # Arguments are firstly the callback function for key presses, secondly for piece lifts and places
     try:
