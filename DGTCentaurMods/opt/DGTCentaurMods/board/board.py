@@ -722,9 +722,12 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 if inactivity_countdown_shown and inactivity_countdown_splash is not None:
                                     log.info('[board.events] Inactivity countdown cancelled by piece activity')
                                     try:
-                                        display_manager.remove_widget(inactivity_countdown_splash)
-                                    except Exception:
-                                        pass
+                                        future = display_manager.remove_widget(inactivity_countdown_splash)
+                                        if future:
+                                            future.result(timeout=5.0)
+                                            log.info('[board.events] Inactivity countdown removed and display updated')
+                                    except Exception as e:
+                                        log.error(f'[board.events] Error removing inactivity countdown: {e}')
                                     inactivity_countdown_shown = False
                                     inactivity_countdown_splash = None
                             except Exception as e:
@@ -777,11 +780,14 @@ def eventsThread(keycallback, fieldcallback, tout):
                 to = time.monotonic() + tout
                 # Cancel inactivity countdown if shown
                 if inactivity_countdown_shown and inactivity_countdown_splash is not None:
-                    log.info('[board.events] Inactivity countdown cancelled by user activity')
+                    log.info('[board.events] Inactivity countdown cancelled by key press')
                     try:
-                        display_manager.remove_widget(inactivity_countdown_splash)
-                    except Exception:
-                        pass
+                        future = display_manager.remove_widget(inactivity_countdown_splash)
+                        if future:
+                            future.result(timeout=5.0)
+                            log.info('[board.events] Inactivity countdown removed and display updated')
+                    except Exception as e:
+                        log.error(f'[board.events] Error removing inactivity countdown: {e}')
                     inactivity_countdown_shown = False
                     inactivity_countdown_splash = None
                 
