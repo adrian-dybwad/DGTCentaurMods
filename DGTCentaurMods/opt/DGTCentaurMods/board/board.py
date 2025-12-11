@@ -301,24 +301,26 @@ def shutdown_countdown(countdown_seconds: int = 5) -> bool:
     except Exception as e:
         log.debug(f"Failed to show countdown splash: {e}")
     
-    # Clear any pending key events before starting countdown
-    controller.get_and_reset_last_key()
+    # Drain any pending key events before starting countdown
+    while controller.get_next_key(timeout=0.0) is not None:
+        pass
     
-    # Countdown loop - any key press cancels
+    # Countdown loop - releasing PLAY button (PLAY key-up) cancels
     for remaining in range(countdown_seconds, 0, -1):
         # Update display
         try:
             if countdown_splash is not None:
-                countdown_splash.set_message(f"Shutdown in\n{remaining}. Cancel?")
+                countdown_splash.set_message(f"Shutdown in\n{remaining}. Release?")
         except Exception as e:
             log.debug(f"Failed to update countdown: {e}")
         
-        # Wait 1 second, checking for any key every 100ms
+        # Wait 1 second, checking for PLAY release every 100ms
         for _ in range(10):
             time.sleep(0.1)
-            key = controller.get_and_reset_last_key()
-            if key is not None:
-                log.info(f"[board.shutdown_countdown] Cancelled by user ({key.name} pressed)")
+            key = controller.get_next_key(timeout=0.0)
+            if key == Key.PLAY:
+                # PLAY key-up means button was released - cancel shutdown
+                log.info("[board.shutdown_countdown] Cancelled (PLAY released)")
                 beep(SOUND_GENERAL)
                 # Remove modal widget to restore normal widget rendering
                 try:
@@ -693,43 +695,24 @@ def eventsThread(keycallback, fieldcallback, tout):
                     traceback.print_exc()
             
             try:
-                key_pressed = controller.get_and_reset_last_key()
+                key_pressed = controller.get_next_key(timeout=0.0)
 
-                # Long-press PLAY for immediate shutdown
-                if key_pressed == Key.PLAY:
+                # PLAY_DOWN starts shutdown countdown, releasing cancels
+                if key_pressed == Key.PLAY_DOWN:
                     beep(SOUND_GENERAL)
-                    press_start = time.monotonic()
-                    long_press_handled = False
-                    
-                    # Wait for either release or long-press threshold
-                    while time.monotonic() - press_start < LONG_PRESS_DURATION:
-                        time.sleep(0.05)
-                        check_key = controller.get_and_reset_last_key()
-                        if check_key == Key.PLAY:
-                            # Button released (got another press event), treat as short press
-                            break
+                    log.info('[board.events] PLAY_DOWN detected, starting shutdown countdown')
+                    if shutdown_countdown(countdown_seconds=5):
+                        # Countdown completed without release - proceed with shutdown
+                        shutdown(reason="PLAY button held during countdown")
                     else:
-                        # Long press threshold reached - show countdown with cancel option
-                        log.info(f'[board.events] Long-press PLAY detected (held for {LONG_PRESS_DURATION}s)')
-                        long_press_handled = True
-                        if shutdown_countdown(countdown_seconds=5):
-                            # User did not cancel - proceed with shutdown
-                            shutdown(reason=f"Long-press PLAY button (held {LONG_PRESS_DURATION}s)")
-                        else:
-                            # User cancelled - don't send PLAY key, just continue
-                            log.info('[board.events] Shutdown cancelled, resuming normal operation')
-                    
-                    if not long_press_handled:
-                        # Short press - pass to callback
-                        to = time.monotonic() + tout
-                        log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
-                        try:
-                            keycallback(key_pressed)
-                        except Exception as e:
-                            log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
-                            import traceback
-                            traceback.print_exc()
+                        # User released button - cancelled
+                        log.info('[board.events] Shutdown cancelled (button released)')
                     key_pressed = None  # Already handled
+                
+                # Ignore other key-down events - only key-up events go to callback
+                elif key_pressed is not None and key_pressed.value >= 0x80:
+                    # This is a _DOWN event (has KEY_DOWN_OFFSET), ignore it
+                    key_pressed = None
                     
             except Exception as e:
                 log.error(f"[board.events] error: {e}")

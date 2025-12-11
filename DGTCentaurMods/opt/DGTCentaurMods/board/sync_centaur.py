@@ -96,9 +96,20 @@ DGT_BUTTON_CODES = {
 }
 
 from enum import IntEnum
+
+# Key codes: base codes for key-up events, base + 0x80 for key-down events
+# This allows a single queue to carry both event types
+KEY_DOWN_OFFSET = 0x80
+
 KEY_NAME_BY_CODE = dict(DGT_BUTTON_CODES)
 KEY_CODE_BY_NAME = {v: k for k, v in KEY_NAME_BY_CODE.items()}
-Key = IntEnum('Key', {name: code for name, code in KEY_CODE_BY_NAME.items()})
+
+# Create Key enum with both key-up and key-down variants
+# Key-up: BACK=0x01, PLAY=0x04, etc.
+# Key-down: BACK_DOWN=0x81, PLAY_DOWN=0x84, etc.
+_key_members = {name: code for name, code in KEY_CODE_BY_NAME.items()}
+_key_members.update({f"{name}_DOWN": code + KEY_DOWN_OFFSET for name, code in KEY_CODE_BY_NAME.items()})
+Key = IntEnum('Key', _key_members)
 
 
 __all__ = ['SyncCentaur', 'DGT_BUS_SEND_CHANGES', 'DGT_SEND_BATTERY_INFO', 'DGT_BUTTON_CODES', 'command', 'DGT_BUS_SEND_STATE_RESP', 'DGT_BUS_SEND_CHANGES_RESP', 'DGT_BUS_POLL_KEYS_RESP']
@@ -483,7 +494,10 @@ class SyncCentaur:
             log.error(f"Error: {e}")
     
     def handle_key_payload(self, payload: bytes):
-        """Handle key press events.
+        """Handle key press events (both key-down and key-up).
+        
+        Both key-down and key-up events are queued. Key-down events use codes
+        with KEY_DOWN_OFFSET added (e.g., PLAY_DOWN = 0x84 vs PLAY = 0x04).
         
         Discards stale key events when _discard_stale_keys is True. This flag is set
         during discovery and cleared when a key poll response contains no key events,
@@ -506,21 +520,28 @@ class SyncCentaur:
             idx, code_val, is_down = self._find_key_event_in_payload(payload)
             if idx is not None:
                 self._draw_key_event_from_payload(payload, idx, code_val, is_down)
+                
+                # Discard stale key events until flag is cleared (only for key-up)
+                if not is_down and self._discard_stale_keys:
+                    log.debug(f"Discarding stale key event: code=0x{code_val:02x}")
+                    # Immediately poll again to drain faster
+                    self._send_command(command.DGT_BUS_POLL_KEYS)
+                    return
+                
+                # Queue both key-down and key-up events
+                # Key-down uses code + KEY_DOWN_OFFSET, key-up uses base code
+                key_code = code_val + KEY_DOWN_OFFSET if is_down else code_val
+                key = Key(key_code)
+                log.debug(f"key name: {key.name} value: {key.value}")
+                
+                # Only update _last_key for key-up events (backwards compatibility)
                 if not is_down:
-                    # Discard stale key events until flag is cleared
-                    if self._discard_stale_keys:
-                        log.debug(f"Discarding stale key event: code=0x{code_val:02x}")
-                        # Immediately poll again to drain faster
-                        self._send_command(command.DGT_BUS_POLL_KEYS)
-                        return
-                    
-                    key = Key(code_val)
-                    log.debug(f"key name: {key.name} value: {key.value}")
                     self._last_key = key
-                    try:
-                        self.key_up_queue.put_nowait(key)
-                    except queue.Full:
-                        pass
+                
+                try:
+                    self.key_up_queue.put_nowait(key)
+                except queue.Full:
+                    pass
             else:
                 # No key event found in non-empty payload - this means the key buffer is empty
                 if self._discard_stale_keys:
