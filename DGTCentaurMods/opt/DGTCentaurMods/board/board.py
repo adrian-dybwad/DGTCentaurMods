@@ -780,9 +780,9 @@ def eventsThread(keycallback, fieldcallback, tout):
             
             if key_pressed is not None:
                 to = time.monotonic() + tout
-                # Cancel inactivity countdown if shown
+                # Cancel inactivity countdown if shown - consume the key (don't pass to callback)
                 if inactivity_countdown_shown and inactivity_countdown_splash is not None:
-                    log.info('[board.events] Inactivity countdown cancelled by key press')
+                    log.info('[board.events] Inactivity countdown cancelled by key press (key consumed)')
                     try:
                         future = display_manager.remove_widget(inactivity_countdown_splash)
                         if future:
@@ -793,14 +793,15 @@ def eventsThread(keycallback, fieldcallback, tout):
                     inactivity_countdown_shown = False
                     inactivity_countdown_splash = None
                     inactivity_last_displayed_seconds = None
-                
-                log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
-                try:
-                    keycallback(key_pressed)
-                except Exception as e:
-                    log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
-                    import traceback
-                    traceback.print_exc()
+                else:
+                    # Only forward key to callback if it wasn't used to cancel countdown
+                    log.info(f"[board.events] btn{key_pressed} pressed, sending to keycallback")
+                    try:
+                        keycallback(key_pressed)
+                    except Exception as e:
+                        log.error(f"[board.events] keycallback error: {sys.exc_info()[1]}")
+                        import traceback
+                        traceback.print_exc()
             
             # Check if we should show/update inactivity countdown (skip if timeout disabled)
             time_remaining = to - time.monotonic()
