@@ -103,14 +103,11 @@ def _flush_stale_events(ctrl):
     
     try:
         # DGT_BUS_POLL_KEYS reads and clears buffered key events
-        ctrl.sendCommand(command.DGT_BUS_POLL_KEYS)
+        ctrl.request_response(command.DGT_BUS_POLL_KEYS)
         # DGT_BUS_SEND_CHANGES reads and clears buffered piece events
-        ctrl.sendCommand(command.DGT_BUS_SEND_CHANGES)
+        ctrl.request_response(command.DGT_BUS_SEND_CHANGES)
     except Exception as e:
         log.debug(f"[board] Error flushing stale events: {e}")
-    
-    # Clear any key that was parsed from the poll
-    ctrl.get_and_reset_last_key()
     
     log.info("[board] Stale event flush complete")
 
