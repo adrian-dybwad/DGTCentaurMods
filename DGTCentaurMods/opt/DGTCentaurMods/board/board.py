@@ -271,6 +271,67 @@ def sendCustomLedArray(data: bytes):
     """
     controller.sendCommand(command.LED_CMD, data)
 
+def shutdown_countdown(countdown_seconds: int = 5) -> bool:
+    """
+    Display a shutdown countdown with option to cancel.
+    
+    Shows a splash screen counting down from countdown_seconds to 0.
+    User can press BACK button to cancel the shutdown.
+    
+    Args:
+        countdown_seconds: Number of seconds to count down (default 5)
+    
+    Returns:
+        True if countdown completed (proceed with shutdown)
+        False if user cancelled (pressed BACK)
+    """
+    global display_manager
+    
+    log.info(f"[board.shutdown_countdown] Starting {countdown_seconds}s countdown")
+    beep(SOUND_POWER_OFF)
+    
+    # Create countdown splash screen
+    countdown_splash = None
+    try:
+        if display_manager is not None:
+            # U+25C0 is left-pointing triangle for BACK button
+            countdown_splash = SplashScreen(message=f"Shutting down in {countdown_seconds}...\nPress [\u25c0] to cancel")
+            display_manager.add_widget(countdown_splash)
+    except Exception as e:
+        log.debug(f"Failed to show countdown splash: {e}")
+    
+    # Clear any pending key events before starting countdown
+    while controller.get_next_key(timeout=0.0) is not None:
+        pass
+    
+    # Countdown loop - check for BACK button each iteration
+    for remaining in range(countdown_seconds, 0, -1):
+        # Update display
+        try:
+            if countdown_splash is not None:
+                countdown_splash.set_message(f"Shutting down in {remaining}...\nPress [\u25c0] to cancel")
+        except Exception as e:
+            log.debug(f"Failed to update countdown: {e}")
+        
+        # Wait 1 second, checking for BACK button every 100ms
+        for _ in range(10):
+            time.sleep(0.1)
+            key = controller.get_next_key(timeout=0.0)
+            if key == Key.BACK:
+                log.info("[board.shutdown_countdown] Cancelled by user (BACK pressed)")
+                beep(SOUND_GENERAL)
+                # Remove countdown splash
+                try:
+                    if display_manager is not None and countdown_splash is not None:
+                        display_manager.remove_widget(countdown_splash)
+                except Exception:
+                    pass
+                return False
+    
+    log.info("[board.shutdown_countdown] Countdown complete, proceeding with shutdown")
+    return True
+
+
 def shutdown(reboot=False, reason="unspecified"):
     """
     Shutdown the Raspberry Pi with proper cleanup and visual feedback.
@@ -648,11 +709,13 @@ def eventsThread(keycallback, fieldcallback, tout):
                             # Button released (got another press event), treat as short press
                             break
                     else:
-                        # Long press threshold reached - shutdown
+                        # Long press threshold reached - show countdown with cancel option
                         log.info(f'[board.events] Long-press PLAY detected (held for {LONG_PRESS_DURATION}s)')
-                        beep(SOUND_POWER_OFF)
-                        shutdown(reason=f"Long-press PLAY button (held {LONG_PRESS_DURATION}s)")
-                        shutdown_triggered = True
+                        if shutdown_countdown(countdown_seconds=5):
+                            # User did not cancel - proceed with shutdown
+                            shutdown(reason=f"Long-press PLAY button (held {LONG_PRESS_DURATION}s)")
+                            shutdown_triggered = True
+                        # If cancelled, shutdown_triggered stays False and we continue normally
                     
                     if not shutdown_triggered:
                         # Short press - pass to callback
