@@ -27,7 +27,8 @@ class BatteryWidget(Widget):
     """
     
     def __init__(self, x: int, y: int, level: int = None, charger_connected: bool = False):
-        super().__init__(x, y, 16, 16)
+        # 30 pixels wide (x=98 to x=128), 14 pixels tall (with 1px margin top/bottom)
+        super().__init__(x, y, 30, 14)
         self.level = level
         self.charger_connected = charger_connected
         self._poll_thread = None
@@ -124,70 +125,72 @@ class BatteryWidget(Widget):
     def render(self) -> Image.Image:
         """Render battery indicator with level bars and charging flash icon.
         
-        When charging, displays a lightning bolt overlay. The bolt is drawn with
-        XOR effect - white over black level bars and black over white background,
-        ensuring visibility at any charge level.
+        Widget is 30x14 pixels. Battery body uses most of the width with a
+        terminal nub on the right.
+        
+        When charging, displays a lightning bolt overlay with XOR effect -
+        white over black level bars and black over white background.
         """
-        # Widget is 16x16, battery icon is approximately 14x10
+        # Widget is 30x14
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
         batterylevel = self.level if self.level is not None else 10
         
-        # Battery dimensions (fits in 16x16 with some padding)
-        # Main body: 12 pixels wide, 10 pixels tall
-        body_left = 1
-        body_top = 3
-        body_right = 12
+        # Battery dimensions - use available space
+        # Main body: 25 pixels wide, 12 pixels tall (centered vertically)
+        body_left = 0
+        body_top = 1
+        body_right = 24
         body_bottom = 12
         
-        # Battery terminal (small nub on right)
+        # Battery terminal (nub on right)
         term_left = body_right
-        term_top = 5
-        term_right = 14
-        term_bottom = 10
+        term_top = 4
+        term_right = 28
+        term_bottom = 9
         
         # Draw battery outline
         draw.rectangle([body_left, body_top, body_right, body_bottom], outline=0, width=1)
         draw.rectangle([term_left, term_top, term_right, term_bottom], fill=0)
         
         # Calculate fill width based on level (0-20)
-        inner_left = body_left + 1
-        inner_top = body_top + 1
-        inner_right = body_right - 1
-        inner_bottom = body_bottom - 1
+        inner_left = body_left + 2
+        inner_top = body_top + 2
+        inner_right = body_right - 2
+        inner_bottom = body_bottom - 2
         inner_width = inner_right - inner_left
         
         fill_width = int((batterylevel / 20.0) * inner_width)
+        fill_right = inner_left + fill_width
         
         # Draw level bars
         if fill_width > 0:
-            draw.rectangle([inner_left, inner_top, inner_left + fill_width, inner_bottom], fill=0)
+            draw.rectangle([inner_left, inner_top, fill_right, inner_bottom], fill=0)
         
         # Draw charging lightning bolt if connected
         if self.charger_connected:
-            # Create a mask for the lightning bolt shape
-            bolt_mask = Image.new("1", (self.width, self.height), 0)
-            bolt_draw = ImageDraw.Draw(bolt_mask)
-            
             # Lightning bolt polygon - classic zigzag shape
-            # Centered in battery body, sized to fit
-            cx = (body_left + body_right) // 2  # center x
+            # Centered in battery body
+            cx = (body_left + body_right) // 2  # center x = 12
+            cy = (body_top + body_bottom) // 2  # center y = 6
             
-            # Bolt shape: top triangle pointing down-left, bottom triangle pointing down-right
+            # Larger bolt shape for bigger battery
             bolt_polygon = [
-                (cx + 2, body_top + 1),    # top right
-                (cx - 1, body_top + 4),    # middle left point
-                (cx + 0, body_top + 4),    # middle center
-                (cx + 1, body_top + 4),    # middle right of center bar
-                (cx - 2, body_bottom - 1), # bottom left
-                (cx + 1, body_top + 5),    # lower middle right
-                (cx + 0, body_top + 5),    # lower middle center
+                (cx + 3, body_top + 1),     # top right
+                (cx - 2, cy),               # middle left
+                (cx + 1, cy),               # middle right  
+                (cx - 3, body_bottom - 1),  # bottom left
+                (cx + 2, cy + 1),           # lower middle right
+                (cx - 1, cy + 1),           # lower middle left
             ]
             
+            # Draw bolt with XOR effect
+            bolt_mask = Image.new("1", (self.width, self.height), 0)
+            bolt_draw = ImageDraw.Draw(bolt_mask)
             bolt_draw.polygon(bolt_polygon, fill=1)
             
-            # XOR the bolt onto the image
+            # XOR the bolt onto the image - inverts color where bolt is drawn
             for y in range(self.height):
                 for x in range(self.width):
                     if bolt_mask.getpixel((x, y)) == 1:

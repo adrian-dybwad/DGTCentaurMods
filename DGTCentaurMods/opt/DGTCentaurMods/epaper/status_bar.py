@@ -32,7 +32,7 @@ class StatusBarWidget(Widget):
                                          font_size=14, font_path=font_path,
                                          show_seconds=False)
         self._wifi_widget = WiFiStatusWidget(80, 0)
-        self._battery_widget = BatteryWidget(98, 1)
+        self._battery_widget = BatteryWidget(98, 1)  # 30x14, ends at x=128
         # Start battery widget polling thread
         self._battery_widget.start()
     
