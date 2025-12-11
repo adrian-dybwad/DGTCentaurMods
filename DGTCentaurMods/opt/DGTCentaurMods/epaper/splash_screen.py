@@ -34,7 +34,12 @@ class SplashScreen(Widget):
     The message can be updated after creation using set_message().
     Text is automatically centered horizontally using TextWidget with Justify.CENTER.
     Supports multi-line text with wrapping.
+    
+    This is a modal widget - when present, only this widget is rendered.
     """
+    
+    # SplashScreen is modal - when present, only it is rendered
+    is_modal = True
     
     # Layout configuration
     LOGO_CROP_HEIGHT = 130  # Crop logo to this height to remove "MODS" text

@@ -62,23 +62,30 @@ class Manager:
 
         return None
     
-    def add_widget(self, widget: Widget) -> None:
+    def add_widget(self, widget: Widget) -> Future:
         """Add a widget to the display.
+        
+        If the widget has is_modal=True, it takes over the display and all other
+        widgets are ignored until this widget is removed.
         
         The widget should call request_update() when it's ready to be displayed.
         """
-        # Check for overlaps
-        new_region = widget.get_region()
-        for existing in self._widgets:
-            if new_region.intersects(existing.get_region()):
-                import warnings
-                warnings.warn(f"Widget at {new_region} overlaps with widget at {existing.get_region()}")
+        # Check for overlaps (skip if modal since it intentionally covers everything)
+        if not widget.is_modal:
+            new_region = widget.get_region()
+            for existing in self._widgets:
+                if new_region.intersects(existing.get_region()):
+                    import warnings
+                    warnings.warn(f"Widget at {new_region} overlaps with widget at {existing.get_region()}")
         
         # Pass scheduler and update callback to widget so it can trigger updates
         widget.set_scheduler(self._scheduler)
         widget.set_update_callback(self.update)
         
         self._widgets.append(widget)
+        
+        if widget.is_modal:
+            log.debug(f"Manager.add_widget() added modal widget {widget.__class__.__name__}")
 
         return self.update(full=False)
     
@@ -98,7 +105,12 @@ class Manager:
                 log.debug(f"Error stopping widget {widget.__class__.__name__} during remove: {e}")
             
             self._widgets.remove(widget)
-            log.debug(f"Manager.remove_widget() removed {widget.__class__.__name__}")
+            
+            if widget.is_modal:
+                log.debug(f"Manager.remove_widget() removed modal widget {widget.__class__.__name__}")
+            else:
+                log.debug(f"Manager.remove_widget() removed {widget.__class__.__name__}")
+            
             return self.update(full=False)
         else:
             log.debug(f"Manager.remove_widget() widget {widget.__class__.__name__} not found")
@@ -131,6 +143,9 @@ class Manager:
     def update(self, full: bool = False) -> Future:
         """Update the display with current widget states.
         
+        If any widget has is_modal=True, only that widget is rendered.
+        Otherwise, all visible widgets are rendered.
+        
         Args:
             full: If True, force a full refresh instead of partial refresh.
         
@@ -153,7 +168,17 @@ class Manager:
         draw = ImageDraw.Draw(canvas)
         draw.rectangle((0, 0, self._epd.width, self._epd.height), fill=255)  # Fill with white
         
-        # Separate static and moving widgets, skipping invisible widgets
+        # Check for modal widget - if present, render only it
+        for widget in self._widgets:
+            if widget.is_modal and widget.visible:
+                widget_image = widget.render()
+                canvas.paste(widget_image, (widget.x, widget.y))
+                
+                # Capture snapshot and submit refresh
+                snapshot = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
+                return self._scheduler.submit(full=full, image=snapshot)
+        
+        # Normal rendering: separate static and moving widgets, skipping invisible widgets
         static_widgets = []
         moving_widgets = []
         

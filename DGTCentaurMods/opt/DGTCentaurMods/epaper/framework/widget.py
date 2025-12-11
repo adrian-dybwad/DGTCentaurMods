@@ -20,6 +20,10 @@ except ImportError:
 class Widget(ABC):
     """Base class for all display widgets."""
     
+    # Class-level flag indicating if this widget type is modal.
+    # When a modal widget is present, only it is rendered.
+    is_modal: bool = False
+    
     def __init__(self, x: int, y: int, width: int, height: int):
         self.x = x
         self.y = y
