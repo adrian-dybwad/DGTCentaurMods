@@ -1092,29 +1092,36 @@ def _handle_positions_menu() -> bool:
         # Build position entries for selected category
         position_entries = []
         for name, fen in positions[category].items():
-            # Format name for display - wrap text at word boundaries
+            # Format name for display - wrap text at word boundaries only if needed
             display_name = name.replace('_', ' ').title()
             
-            # Wrap text at ~9 characters per line to fit in available space
-            # Available width after icon is ~72px, font size 12 = ~7px/char
-            max_line_width = 9
-            wrapped_lines = []
-            words = display_name.split()
-            current_line = ""
-            
-            for word in words:
-                if not current_line:
-                    current_line = word
-                elif len(current_line) + 1 + len(word) <= max_line_width:
-                    current_line += " " + word
-                else:
+            # Only wrap if text is too long to fit on one line
+            # Available width after icon is ~72px, font size 12 = ~6px/char = ~12 chars
+            # Use 11 as threshold to be safe
+            if len(display_name) <= 11:
+                # Short enough to fit on one line
+                wrapped_text = display_name
+                num_lines = 1
+            else:
+                # Need to wrap - use ~10 chars per line
+                max_line_width = 10
+                wrapped_lines = []
+                words = display_name.split()
+                current_line = ""
+                
+                for word in words:
+                    if not current_line:
+                        current_line = word
+                    elif len(current_line) + 1 + len(word) <= max_line_width:
+                        current_line += " " + word
+                    else:
+                        wrapped_lines.append(current_line)
+                        current_line = word
+                if current_line:
                     wrapped_lines.append(current_line)
-                    current_line = word
-            if current_line:
-                wrapped_lines.append(current_line)
-            
-            wrapped_text = '\n'.join(wrapped_lines)
-            num_lines = len(wrapped_lines)
+                
+                wrapped_text = '\n'.join(wrapped_lines)
+                num_lines = len(wrapped_lines)
             
             # Adjust height ratio based on number of lines
             # 1 line = 1.0, 2 lines = 1.5, 3+ lines = 2.0
