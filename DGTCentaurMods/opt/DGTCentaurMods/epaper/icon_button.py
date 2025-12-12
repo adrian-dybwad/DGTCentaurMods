@@ -42,6 +42,7 @@ class IconButtonWidget(Widget):
                  label_height: int = 18,
                  margin: int = 4,
                  padding: int = 2,
+                 icon_margin: int = 2,
                  selected_shade: int = 12,
                  background_shade: int = 0):
         """Initialize icon button widget.
@@ -57,8 +58,9 @@ class IconButtonWidget(Widget):
             selected: Initial selection state
             icon_size: Icon size in pixels (default 36)
             label_height: Height reserved for label text (default 18)
-            margin: Space outside the button border (default 2)
-            padding: Space inside the button border (default 4)
+            margin: Space outside the button border (default 4)
+            padding: Space inside the button border (default 2)
+            icon_margin: Space between icon and label text (default 2)
             selected_shade: Dithered shade for selected state 0-16 (default 12 = ~75% black)
             background_shade: Dithered background shade 0-16 (default 0 = white)
         """
@@ -71,6 +73,7 @@ class IconButtonWidget(Widget):
         self.label_height = label_height
         self.margin = margin
         self.padding = padding
+        self.icon_margin = icon_margin
         self.selected_shade = max(0, min(16, selected_shade))
         
         # Load font
@@ -167,8 +170,8 @@ class IconButtonWidget(Widget):
         icon_y = content_top + content_height // 2
         self._draw_icon(draw, self.icon_name, icon_x, icon_y, self.icon_size, self.selected)
         
-        # Draw label
-        text_x = content_left + self.icon_size + self.padding
+        # Draw label (icon_margin is space between icon and text)
+        text_x = content_left + self.icon_size + self.icon_margin
         text_color = 255 if self.selected else 0
         
         # Check for multi-line text
