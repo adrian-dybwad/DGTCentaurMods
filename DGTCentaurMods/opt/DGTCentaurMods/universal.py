@@ -1095,8 +1095,9 @@ def _handle_positions_menu() -> bool:
             # Format name for display - wrap text at word boundaries
             display_name = name.replace('_', ' ').title()
             
-            # Wrap text at ~12 characters per line for readability
-            max_line_width = 12
+            # Wrap text at ~9 characters per line to fit in available space
+            # Available width after icon is ~72px, font size 12 = ~7px/char
+            max_line_width = 9
             wrapped_lines = []
             words = display_name.split()
             current_line = ""
@@ -1129,7 +1130,7 @@ def _handle_positions_menu() -> bool:
                 label=wrapped_text,
                 icon_name="positions",
                 enabled=True,
-                font_size=14,
+                font_size=12,
                 height_ratio=height_ratio
             ))
         
