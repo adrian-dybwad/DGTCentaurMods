@@ -361,10 +361,15 @@ class IconMenuWidget(Widget):
         """Activate the menu for key handling.
         
         Call this before using handle_key() in callback mode.
+        
+        Note: Does not clear selection state if a result is already pending.
+        This handles the race condition where cancel_selection() is called
+        before wait_for_selection() starts waiting.
         """
         self._active = True
-        self._selection_result = None
-        self._selection_event.clear()
+        # Only clear if there's no pending result (handles race with cancel_selection)
+        if self._selection_result is None:
+            self._selection_event.clear()
     
     def deactivate(self) -> None:
         """Deactivate the menu from key handling."""

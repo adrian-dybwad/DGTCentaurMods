@@ -742,8 +742,10 @@ def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
     )
 
     # Register as active menu for key routing
+    # Note: Don't call activate() here - wait_for_selection() will do it
+    # This avoids a race condition where cancel_selection could be called
+    # between activate() and wait_for_selection(), with the event getting cleared
     _active_menu_widget = menu_widget
-    menu_widget.activate()
 
     # Add widget to display and wait for render
     promise = board.display_manager.add_widget(menu_widget)
@@ -755,6 +757,7 @@ def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
 
     try:
         # Wait for selection using the widget's blocking method
+        # This calls activate() internally, which sets up the event
         result = menu_widget.wait_for_selection(initial_index=initial_index)
         return result
     finally:
@@ -2139,10 +2142,13 @@ def field_callback(piece_event, field, time_in_seconds):
             # Queue the piece event to forward after game mode starts
             # Multiple events may arrive before game mode is ready (e.g., LIFT then PLACE)
             _pending_piece_events.append((piece_event, field, time_in_seconds))
-            log.info(f"[App] Piece event in menu - queued for game (field={field}, event={piece_event}, queue_size={len(_pending_piece_events)})")
+            log.info(f"[App] Piece event in menu - queued for game (field={field}, event={piece_event}, queue_size={len(_pending_piece_events)}, menu_active={_active_menu_widget is not None})")
             # Only trigger game start on first event (avoid multiple cancel calls)
             if len(_pending_piece_events) == 1 and _active_menu_widget is not None:
+                log.info("[App] Cancelling menu selection with PIECE_MOVED")
                 _active_menu_widget.cancel_selection("PIECE_MOVED")
+            elif _active_menu_widget is None:
+                log.info("[App] Menu widget is None, events will be processed on next menu loop iteration")
             return
     
     # Priority 3: Game mode
@@ -2462,6 +2468,21 @@ def main():
     try:
         while running and not kill:
             if app_state == AppState.MENU:
+                # Check for pending piece events before showing menu
+                # These may have been queued while in a submenu
+                if _pending_piece_events:
+                    log.info(f"[App] Pending piece events detected ({len(_pending_piece_events)}) - starting game mode")
+                    _start_game_mode()
+                    while _pending_piece_events:
+                        pe, field, ts = _pending_piece_events.pop(0)
+                        log.info(f"[App] Forwarding piece event: field={field}, event={pe}")
+                        if game_handler:
+                            game_handler.receive_field(pe, field, ts)
+                    if (ble_manager and ble_manager.connected) or client_connected:
+                        if game_handler:
+                            game_handler.on_app_connected()
+                    continue  # Re-check app_state (now should be GAME)
+                
                 # Show main menu
                 entries = create_main_menu_entries(centaur_available=centaur_available)
                 result = _show_menu(entries, initial_index=main_menu_last_selected)
