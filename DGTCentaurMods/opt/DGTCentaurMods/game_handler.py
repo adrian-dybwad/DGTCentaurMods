@@ -42,7 +42,7 @@ class GameHandler:
     
     def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False,
                  standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default",
-                 display_update_callback=None):
+                 display_update_callback=None, save_to_database=True):
         """Initialize the GameHandler.
         
         Args:
@@ -59,6 +59,8 @@ class GameHandler:
             player_color: Which color the human plays (chess.WHITE or chess.BLACK)
             engine_elo: ELO section name from .uci config file (e.g., "1350", "1700", "Default")
             display_update_callback: Callback function(fen) for updating display with position
+            save_to_database: If True, save game moves to database. If False, disable database
+                             (for position/practice games that shouldn't be saved)
         """
         self._sendMessage = sendMessage_callback
         self.compare_mode = compare_mode
@@ -84,7 +86,7 @@ class GameHandler:
         self._engine_init_thread = None  # Thread for async engine initialization
         
         # Game manager shared by all emulators
-        self.game_manager = GameManager()
+        self.game_manager = GameManager(save_to_database=save_to_database)
         
         # Emulator instances - always create all emulators for auto-detection
         # The hint from BLE characteristic is unreliable as apps may connect to any service

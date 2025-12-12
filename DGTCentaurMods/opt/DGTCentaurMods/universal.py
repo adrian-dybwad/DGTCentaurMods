@@ -421,6 +421,9 @@ def _start_from_position(fen: str, position_name: str) -> bool:
     Sets up the game with the given FEN position and enters correction mode
     to guide the user in setting up the physical board.
     
+    Position games are practice/testing and are NOT saved to the database.
+    Back button returns directly to menu without resign prompt.
+    
     Args:
         fen: FEN string of the position to load
         position_name: Display name of the position (for logging)
@@ -444,8 +447,8 @@ def _start_from_position(fen: str, position_name: str) -> bool:
             log.error(f"[Positions] Invalid FEN: {e}")
             return False
         
-        # Start game mode (this initializes game_handler)
-        _start_game_mode()
+        # Start game mode with position game flag (disables DB, changes back behavior)
+        _start_game_mode(starting_fen=fen, is_position_game=True)
         
         if game_handler is None or game_handler.game_manager is None:
             log.error("[Positions] Failed to start game mode")
@@ -455,9 +458,6 @@ def _start_from_position(fen: str, position_name: str) -> bool:
         
         # Set the board to the loaded position
         gm.chess_board.set_fen(fen)
-        
-        # Reset game_db_id to -1 so a new game record is created on first move
-        gm.game_db_id = -1
         
         log.info(f"[Positions] Position loaded: {gm.chess_board.fen()}")
         
@@ -748,16 +748,26 @@ def _show_menu(entries: List[IconMenuEntry]) -> str:
         _active_menu_widget = None
 
 
-def _start_game_mode():
+def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     """Transition from menu to game mode.
 
     Initializes game handler and display manager, shows chess widgets.
     Uses settings from _game_settings (configurable via Settings menu).
+    
+    Args:
+        starting_fen: FEN string for initial position. If None, uses standard starting position.
+        is_position_game: If True, this is a practice position game:
+                         - Database saving is disabled
+                         - Back button returns directly to menu (no resign prompt)
     """
     global app_state, game_handler, display_manager, _game_settings
 
-    log.info("[App] Transitioning to GAME mode")
+    log.info(f"[App] Transitioning to GAME mode (position_game={is_position_game})")
     app_state = AppState.GAME
+    
+    # Determine if we should save to database
+    # Position games are practice and should not be saved
+    save_to_database = not is_position_game
     
     # Get current game settings
     engine_name = _game_settings['engine']
@@ -809,6 +819,12 @@ def _start_game_mode():
         elif result == "exit":
             board.shutdown(reason="User selected 'exit' from game menu")
         # cancel is handled by DisplayManager (restores display)
+    
+    # For position games, back button returns directly without resign prompt
+    def _on_position_game_back():
+        """Handle back press for position games - return directly to menu."""
+        log.info("[App] Position game back pressed - returning to menu")
+        _return_to_menu("Position game ended")
 
     # Create GameHandler with user-configured settings
     # Note: Key and field events are routed through universal.py's callbacks
@@ -819,13 +835,19 @@ def _start_game_mode():
         standalone_engine_name=engine_name,
         player_color=player_color,
         engine_elo=engine_elo,
-        display_update_callback=update_display
+        display_update_callback=update_display,
+        save_to_database=save_to_database
     )
-    log.info(f"[App] GameHandler created: engine={engine_name}, elo={engine_elo}, color={player_color_setting}")
+    log.info(f"[App] GameHandler created: engine={engine_name}, elo={engine_elo}, color={player_color_setting}, save_to_db={save_to_database}")
     
     # Wire up GameManager callbacks to DisplayManager
     game_handler.game_manager.on_promotion_needed = display_manager.show_promotion_menu
-    game_handler.game_manager.on_back_pressed = lambda: display_manager.show_back_menu(_on_back_menu_result)
+    
+    # For position games, skip the resign/draw menu and return directly
+    if is_position_game:
+        game_handler.game_manager.on_back_pressed = _on_position_game_back
+    else:
+        game_handler.game_manager.on_back_pressed = lambda: display_manager.show_back_menu(_on_back_menu_result)
     
     # Wire up event callback to reset analysis on new game
     from DGTCentaurMods.game_manager import EVENT_NEW_GAME

@@ -203,13 +203,22 @@ class GameManager:
     When there's a mismatch, correction mode guides the user to fix the physical board.
     """
     
-    def __init__(self):
+    def __init__(self, save_to_database: bool = True):
+        """Initialize GameManager.
+        
+        Args:
+            save_to_database: If True, game moves are saved to the database.
+                             If False, database operations are disabled (for position games).
+        """
         # Logical chess board - this is the AUTHORITY for game state
         # Physical board must conform to this state
         self.chess_board = chess.Board()
         self.clock_manager = ClockManager()
         self.move_state = MoveState()
         self.correction_mode = CorrectionMode()
+        
+        # Database control
+        self.save_to_database = save_to_database
         
         # Callbacks
         self.event_callback = None
@@ -970,10 +979,16 @@ class GameManager:
             log.warning(f"[GameManager._execute_move] Error validating physical board state: {e}")
         
         self.move_state.reset()
-        board.ledsOff()
         
-        board.beep(board.SOUND_GENERAL)
-        board.led(target_square)
+        # Only show normal move confirmation LEDs if NOT in correction mode
+        # Correction mode has its own LED guidance that should not be overwritten
+        if not self.correction_mode.is_active:
+            board.ledsOff()
+            board.beep(board.SOUND_GENERAL)
+            board.led(target_square)
+        else:
+            # In correction mode - still beep to acknowledge move was registered
+            board.beep(board.SOUND_GENERAL)
         
         # Check game outcome
         outcome = self.chess_board.outcome(claim_draw=True)
@@ -1249,21 +1264,26 @@ class GameManager:
         # We create a new engine here instead of using models.engine because the global engine's
         # connection pool was created in a different thread (module import time)
         thread_id = threading.get_ident()
-        database_uri = paths.get_database_uri()
-        # Configure SQLite with check_same_thread=False to allow connections created in this thread
-        # to be used throughout the thread's lifetime. This is safe because we create and use
-        # the engine entirely within this thread.
-        if database_uri.startswith('sqlite'):
-            self.database_engine = create_engine(
-                database_uri,
-                connect_args={"check_same_thread": False},
-                pool_pre_ping=True  # Verify connections before using
-            )
+        
+        # Only create database session if save_to_database is enabled
+        if self.save_to_database:
+            database_uri = paths.get_database_uri()
+            # Configure SQLite with check_same_thread=False to allow connections created in this thread
+            # to be used throughout the thread's lifetime. This is safe because we create and use
+            # the engine entirely within this thread.
+            if database_uri.startswith('sqlite'):
+                self.database_engine = create_engine(
+                    database_uri,
+                    connect_args={"check_same_thread": False},
+                    pool_pre_ping=True  # Verify connections before using
+                )
+            else:
+                self.database_engine = create_engine(database_uri, pool_pre_ping=True)
+            Session = sessionmaker(bind=self.database_engine)
+            self.database_session = Session()
+            log.info(f"[GameManager._game_thread] Database engine and session created in thread {thread_id}")
         else:
-            self.database_engine = create_engine(database_uri, pool_pre_ping=True)
-        Session = sessionmaker(bind=self.database_engine)
-        self.database_session = Session()
-        log.info(f"[GameManager._game_thread] Database engine and session created in thread {thread_id}")
+            log.info(f"[GameManager._game_thread] Database disabled for this game (position mode) in thread {thread_id}")
         
         board.ledsOff()
         log.info("[GameManager._game_thread] Ready to receive events from app coordinator")
