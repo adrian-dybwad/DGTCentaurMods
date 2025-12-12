@@ -87,54 +87,49 @@ class SplashScreen(Widget):
         self.request_update(full=False)
 
     def _load_resources(self):
-        """Load logo image and font."""
-        # Load logo and crop to remove "MODS" text
+        """Load knight logo image and fonts."""
+        # Load the knight logo bitmap
         try:
-            full_logo = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
-            # Crop to remove the "MODS" text at the bottom
-            cropped = full_logo.crop((0, 0, full_logo.width, self.LOGO_CROP_HEIGHT))
-            # Convert to 1-bit for consistent processing
-            self._logo = cropped.convert("1")
-            # Create mask where non-white pixels are opaque (white in mask)
-            # and white pixels are transparent (black in mask)
-            self._logo_mask = Image.new("1", self._logo.size, 0)
-            logo_pixels = self._logo.load()
-            mask_pixels = self._logo_mask.load()
-            for y in range(self._logo.height):
-                for x in range(self._logo.width):
-                    # If pixel is not white (i.e., it's part of the logo), make it opaque in mask
-                    if logo_pixels[x, y] == 0:  # Black pixel in logo
-                        mask_pixels[x, y] = 255  # Opaque in mask
+            logo_path = AssetManager.get_resource_path("knight_logo.bmp")
+            full_logo = Image.open(logo_path)
+            # Resize to target size
+            self._logo = full_logo.resize(
+                (self.LOGO_SIZE, self.LOGO_SIZE), 
+                Image.Resampling.LANCZOS
+            )
+            # Ensure it's in mode '1'
+            if self._logo.mode != '1':
+                self._logo = self._logo.convert('1')
         except Exception as e:
-            log.error(f"Failed to load splash screen logo: {e}")
-            self._logo = Image.new("1", (128, self.LOGO_CROP_HEIGHT), 255)
-            self._logo_mask = None
+            log.error(f"Failed to load knight logo: {e}")
+            # Create a simple placeholder
+            self._logo = Image.new("1", (self.LOGO_SIZE, self.LOGO_SIZE), 255)
         
-        # Load font for "UNIVERSAL" text
+        # Load fonts for "UNIVERSAL" text
         try:
             font_path = AssetManager.get_resource_path("Font.ttc")
             self._font = ImageFont.truetype(font_path, 16)
+            self._font_large = ImageFont.truetype(font_path, 24)
         except Exception as e:
             log.debug(f"Failed to load font, using default: {e}")
             self._font = ImageFont.load_default()
+            self._font_large = self._font
     
     def render(self) -> Image.Image:
-        """Render the splash screen with logo, UNIVERSAL text, and message."""
+        """Render the splash screen with knight logo, UNIVERSAL text, and message."""
         img = self.create_background_image()
         draw = ImageDraw.Draw(img)
         
-        # Draw cropped logo with transparency (white pixels are transparent)
-        if self._logo_mask:
-            img.paste(self._logo, (0, 0), self._logo_mask)
-        else:
-            img.paste(self._logo, (0, 0))
+        # Draw knight logo centered horizontally
+        logo_x = (self.width - self.LOGO_SIZE) // 2
+        img.paste(self._logo, (logo_x, self.LOGO_Y))
         
-        # Draw "UNIVERSAL" text centered
+        # Draw "UNIVERSAL" text centered with larger font
         universal_text = "UNIVERSAL"
-        bbox = draw.textbbox((0, 0), universal_text, font=self._font)
+        bbox = draw.textbbox((0, 0), universal_text, font=self._font_large)
         text_width = bbox[2] - bbox[0]
         x = (self.width - text_width) // 2
-        draw.text((x, self.UNIVERSAL_Y), universal_text, font=self._font, fill=0)
+        draw.text((x, self.UNIVERSAL_Y), universal_text, font=self._font_large, fill=0)
         
         # Render message widget and paste with mask for transparency
         text_img = self._text_widget.render()
