@@ -36,7 +36,7 @@ from concurrent.futures import Future
 from DGTCentaurMods.board.logging import log, logging
 
 # Inactivity timeout configuration
-INACTIVITY_TIMEOUT_DEFAULT = 600  # Default: 15 minutes of inactivity before shutdown
+INACTIVITY_TIMEOUT_DEFAULT = 900  # Default: 15 minutes of inactivity before shutdown
 INACTIVITY_WARNING_SECONDS = 120  # Show countdown 2 minutes before shutdown
 
 def get_inactivity_timeout() -> int:
@@ -836,7 +836,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                         log.info('[board.events] Long press (1s) detected, triggering full screen refresh')
                         if display_manager:
                             try:
-                                display_manager.request_update(full=True)
+                                display_manager.update(full=True)
                             except Exception as e:
                                 log.error(f'[board.events] Error triggering full refresh: {e}')
                         
