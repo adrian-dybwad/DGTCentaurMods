@@ -825,11 +825,18 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             board.shutdown(reason="User selected 'exit' from game menu")
         # cancel is handled by DisplayManager (restores display)
     
-    # For position games, back button returns directly without resign prompt
+    # For position games, back button returns to positions menu
     def _on_position_game_back():
-        """Handle back press for position games - return directly to menu."""
-        log.info("[App] Position game back pressed - returning to menu")
-        _return_to_menu("Position game ended")
+        """Handle back press for position games - return to positions menu."""
+        global app_state
+        log.info("[App] Position game back pressed - returning to positions menu")
+        _cleanup_game()
+        app_state = AppState.SETTINGS
+        # Go back to positions menu - if user backs out, they'll be in settings
+        position_result = _handle_positions_menu()
+        if not position_result:
+            # User backed out of positions menu, show settings
+            _handle_settings()
 
     # Create GameHandler with user-configured settings
     # Note: Key and field events are routed through universal.py's callbacks
@@ -862,17 +869,12 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     game_handler._external_event_callback = _on_game_event
 
 
-def _return_to_menu(reason: str):
-    """Return from game mode to menu mode.
+def _cleanup_game():
+    """Clean up game handler and display manager.
     
-    Cleans up game handler and display manager, shows main menu.
-    
-    Args:
-        reason: Reason for returning to menu (for logging)
+    Used when exiting a game, whether returning to menu or positions menu.
     """
-    global app_state, game_handler, display_manager, _pending_piece_events
-    
-    log.info(f"[App] Returning to MENU: {reason}")
+    global game_handler, display_manager, _pending_piece_events
     
     # Clear any stale pending piece events from previous game
     _pending_piece_events.clear()
@@ -892,7 +894,20 @@ def _return_to_menu(reason: str):
         except Exception as e:
             log.debug(f"Error cleaning up display manager: {e}")
         display_manager = None
+
+
+def _return_to_menu(reason: str):
+    """Return from game mode to menu mode.
     
+    Cleans up game handler and display manager, shows main menu.
+    
+    Args:
+        reason: Reason for returning to menu (for logging)
+    """
+    global app_state
+    
+    log.info(f"[App] Returning to MENU: {reason}")
+    _cleanup_game()
     app_state = AppState.MENU
 
 
