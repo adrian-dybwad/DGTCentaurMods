@@ -92,10 +92,14 @@ class SplashScreen(Widget):
         try:
             logo_path = AssetManager.get_resource_path("knight_logo.bmp")
             full_logo = Image.open(logo_path)
-            # Resize to target size
+            # Resize to target size (use LANCZOS for older Pillow compatibility)
+            try:
+                resample = Image.Resampling.LANCZOS
+            except AttributeError:
+                resample = Image.LANCZOS  # Pillow < 9.1.0
             self._logo = full_logo.resize(
                 (self.LOGO_SIZE, self.LOGO_SIZE), 
-                Image.Resampling.LANCZOS
+                resample
             )
             # Ensure it's in mode '1'
             if self._logo.mode != '1':

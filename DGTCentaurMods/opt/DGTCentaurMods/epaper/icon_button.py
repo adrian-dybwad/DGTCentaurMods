@@ -535,9 +535,13 @@ class IconButtonWidget(Widget):
             
             logo = Image.open(logo_path)
             
-            # Resize to target size
+            # Resize to target size (use LANCZOS for older Pillow compatibility)
             if logo.size[0] != size or logo.size[1] != size:
-                logo = logo.resize((size, size), Image.Resampling.LANCZOS)
+                try:
+                    resample = Image.Resampling.LANCZOS
+                except AttributeError:
+                    resample = Image.LANCZOS  # Pillow < 9.1.0
+                logo = logo.resize((size, size), resample)
             
             # Ensure it's in mode '1' (1-bit)
             if logo.mode != '1':
