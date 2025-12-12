@@ -103,4 +103,30 @@ class StatusBarWidget(Widget):
         img.paste(battery_icon, (98, 1))
         
         return img
+    
+    def get_mask(self) -> Image.Image:
+        """Get mask for transparent background.
+        
+        Creates a mask where content (text, icons) is opaque (255)
+        and background is transparent (0).
+        
+        Returns:
+            Mask image where 255=opaque, 0=transparent
+        """
+        # Render the content first
+        content = self.render()
+        
+        # Create mask: black pixels in content become opaque (255) in mask
+        # white pixels in content become transparent (0) in mask
+        mask = Image.new("1", (self.width, self.height), 0)
+        content_pixels = content.load()
+        mask_pixels = mask.load()
+        
+        for y in range(self.height):
+            for x in range(self.width):
+                # If pixel is black (content), make it opaque in mask
+                if content_pixels[x, y] == 0:
+                    mask_pixels[x, y] = 255
+        
+        return mask
 
