@@ -1546,7 +1546,18 @@ class GameManager:
             except Exception as e:
                 log.warning(f"[GameManager._execute_move] Error validating physical board state: {e}")
         
+        # Preserve castling tracking state if a potential rook-first castling is in progress
+        # This allows the king to be moved after the rook to complete the castling
+        preserve_castling_rook_source = self.move_state.castling_rook_source
+        preserve_castling_rook_placed = self.move_state.castling_rook_placed
+        
         self.move_state.reset()
+        
+        # Restore castling tracking state if it was set (for late castling detection)
+        if preserve_castling_rook_placed:
+            self.move_state.castling_rook_source = preserve_castling_rook_source
+            self.move_state.castling_rook_placed = preserve_castling_rook_placed
+            log.debug(f"[GameManager._execute_move] Preserved castling tracking state: rook_source={chess.square_name(preserve_castling_rook_source)}, rook_placed={preserve_castling_rook_placed}")
         
         # Only show normal move confirmation LEDs if NOT in correction mode
         # Correction mode has its own LED guidance that should not be overwritten
