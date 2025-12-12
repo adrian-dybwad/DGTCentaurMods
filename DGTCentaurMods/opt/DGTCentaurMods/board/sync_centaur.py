@@ -169,6 +169,11 @@ class SyncCentaur:
         self._request_processor_thread = None
         self._last_command = None
         
+        # Low-priority queue for validation commands (e.g., DGT_BUS_SEND_STATE for getChessState)
+        # These yield to the main queue - only processed when main queue is empty
+        # This ensures polling commands are never delayed by validation requests
+        self._low_priority_queue = queue.Queue(maxsize=10)
+        
         # Track last n commands for special command deduplication
         # n = number of special commands (DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS)
         self._special_commands = {"DGT_BUS_SEND_CHANGES", "DGT_BUS_POLL_KEYS"}
@@ -606,10 +611,29 @@ class SyncCentaur:
                     time.sleep(0.1)
     
     def _request_processor(self):
-        """Process requests from FIFO queue"""
+        """Process requests from FIFO queue with priority support.
+        
+        Main queue (polling, normal commands) has priority over low-priority queue
+        (validation commands like getChessState). Low-priority requests are only
+        processed when the main queue is empty, ensuring polling is never delayed.
+        """
         while self.listener_running:
             try:
-                request = self._request_queue.get(timeout=5.0)
+                # Try main queue first (non-blocking check)
+                request = None
+                try:
+                    request = self._request_queue.get_nowait()
+                except queue.Empty:
+                    # Main queue empty - check low-priority queue
+                    try:
+                        request = self._low_priority_queue.get_nowait()
+                    except queue.Empty:
+                        # Both queues empty - wait briefly on main queue
+                        try:
+                            request = self._request_queue.get(timeout=0.05)
+                        except queue.Empty:
+                            continue
+                
                 if request is None:
                     continue
                 
@@ -649,8 +673,6 @@ class SyncCentaur:
                         result_queue.put(('error', e))
                     elif self.listener_running:
                         log.error(f"Error executing queued command {command_name}: {e}")
-            except queue.Empty:
-                continue
             except Exception as e:
                 log.error(f"Request processor error: {e}")
     
@@ -751,6 +773,44 @@ class SyncCentaur:
                 raise result
         except queue.Empty:
             log.error(f"Request queue timeout for {command_name}")
+            return None
+    
+    def request_response_low_priority(self, command_name: str, data: Optional[bytes]=None, timeout=10.0):
+        """
+        Send a command and wait for response using the low-priority queue.
+        
+        Low-priority requests yield to the main queue - they are only processed
+        when the main queue (polling commands) is empty. Use this for validation
+        commands like DGT_BUS_SEND_STATE that should not delay piece event detection.
+        
+        Args:
+            command_name: command name to send
+            data: optional payload bytes
+            timeout: seconds to wait for response
+            
+        Returns:
+            bytes: payload of response or None on timeout/queue full
+        """
+        if not isinstance(command_name, str):
+            raise TypeError("request_response_low_priority requires a command name (str)")
+        
+        # Queue the request in low-priority queue
+        result_queue = queue.Queue(maxsize=1)
+        try:
+            self._low_priority_queue.put_nowait((command_name, data, timeout, result_queue))
+        except queue.Full:
+            log.debug(f"[SyncCentaur.request_response_low_priority] Low-priority queue full, skipping {command_name}")
+            return None
+        
+        # Wait for result
+        try:
+            status, result = result_queue.get(timeout=timeout + 5.0)
+            if status == 'success':
+                return result
+            else:
+                raise result
+        except queue.Empty:
+            log.debug(f"[SyncCentaur.request_response_low_priority] Timeout for {command_name}")
             return None
     
     def wait_for_key_up(self, timeout=None, accept=None):

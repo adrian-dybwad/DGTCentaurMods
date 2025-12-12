@@ -520,6 +520,56 @@ def getBoardState(max_retries=2, retry_delay=0.1):
             log.error(f"[board.getBoardState] All {max_retries + 1} attempts failed (timeout or checksum failure)")
     return None
 
+def getBoardStateLowPriority():
+    """
+    Get the current board state using the low-priority queue.
+    
+    This version yields to polling commands - it's only processed when the
+    main serial queue is empty. Use this for validation that should not
+    delay piece event detection.
+    
+    Returns:
+        bytes: Raw board state data (64 bytes) or None if skipped/timeout
+    """
+    return controller.request_response_low_priority(command.DGT_BUS_SEND_STATE)
+
+
+def getChessStateLowPriority():
+    """
+    Get the current chess board state using the low-priority queue.
+    
+    This version yields to polling commands - it's only processed when the
+    main serial queue is empty. Use this for validation that should not
+    delay piece event detection.
+    
+    Returns:
+        list: 64-element list with 1 for occupied squares, 0 for empty, or None if skipped
+    """
+    board_data_raw = getBoardStateLowPriority()
+    if board_data_raw is None:
+        return None
+    
+    try:
+        board_data = list[int](board_data_raw)
+    except (TypeError, ValueError) as e:
+        log.error(f"[board.getChessStateLowPriority] Failed to convert board data to list: {e}")
+        return None
+    
+    if len(board_data) != 64:
+        log.error(f"[board.getChessStateLowPriority] Invalid board data length: {len(board_data)}")
+        return None
+    
+    chess_state = [0] * 64
+    for i in range(64):
+        raw_row = i // 8
+        col = i % 8
+        chess_row = 7 - raw_row
+        chess_idx = chess_row * 8 + col
+        chess_state[chess_idx] = 1 if board_data[i] != 0 else 0
+    
+    return chess_state
+
+
 def getMetaProperty(key: str):
     """
     Get a meta property value by key from the board metadata.

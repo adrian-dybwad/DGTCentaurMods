@@ -592,15 +592,16 @@ class GameManager:
             else:
                 log.debug("[GameManager._check_takeback] No forced move to restore after takeback")
             
-            # Verify board is correct after takeback
-            current = board.getChessState()
-            expected_state = self._chess_board_to_state(self.chess_board)
-            
-            if expected_state is not None and not self._validate_board_state(current, expected_state):
-                log.info("[GameManager._check_takeback] Board state incorrect after takeback, entering correction mode")
-                self._enter_correction_mode()
-                # Provide correction guidance using logical state
-                self._provide_correction_guidance(current, expected_state)
+            # Post-takeback validation uses low-priority queue to avoid blocking polling.
+            # If the queue is busy, validation is skipped - the takeback was already
+            # validated by comparing current state to previous state before executing it.
+            current = board.getChessStateLowPriority()
+            if current is not None:
+                expected_state = self._chess_board_to_state(self.chess_board)
+                if expected_state is not None and not self._validate_board_state(current, expected_state):
+                    log.info("[GameManager._check_takeback] Board state incorrect after takeback, entering correction mode")
+                    self._enter_correction_mode()
+                    self._provide_correction_guidance(current, expected_state)
             
             return True
         
@@ -1377,9 +1378,11 @@ class GameManager:
     def _execute_move(self, target_square: int):
         """Execute a move from source to target square.
         
-        Critical path is optimized for speed - only move validation and chess engine push
-        are synchronous. All I/O operations (board serial, database, FEN log, callbacks)
-        are performed asynchronously via a queue to ensure correct ordering.
+        Critical path is optimized for speed:
+        1. Move validation and chess engine push are synchronous
+        2. Board feedback (beep + LED) is sent immediately after push for minimum latency
+        3. All other I/O operations (database, FEN log, callbacks) are performed
+           asynchronously via a queue to ensure correct ordering
         
         Prevents moves from being executed after the game has ended.
         If the game is already over, logs a warning and returns early.
@@ -1445,6 +1448,12 @@ class GameManager:
             self.move_state.reset()
             return
         
+        # IMMEDIATE FEEDBACK: Beep and LED are sent synchronously here for minimum latency
+        # These bypass the serial queue via _send_immediate() in sync_centaur
+        board.ledsOff()
+        board.beep(board.SOUND_GENERAL)
+        board.led(target_square)
+        
         # Capture state needed for async operations
         fen_after_move = str(self.chess_board.fen())
         late_castling_in_progress = self.move_state.late_castling_in_progress
@@ -1474,8 +1483,9 @@ class GameManager:
         if not game_ended:
             self._switch_turn_with_event()
         
-        # ASYNC: All I/O operations run in background thread with queue for ordering
-        # Queue ensures: board feedback → database → FEN log → callbacks → validation
+        # ASYNC: Remaining I/O operations run in background thread with queue for ordering
+        # Board feedback (beep + LED) was already sent immediately above
+        # Queue ensures: database → FEN log → callbacks → validation
         self._enqueue_post_move_tasks(
             target_square=target_square,
             move_uci=move_uci,
@@ -1497,22 +1507,23 @@ class GameManager:
         All tasks are executed sequentially in a background thread to ensure
         proper ordering while not blocking the main game loop.
         
+        Note: Board feedback (beep + LED) is sent IMMEDIATELY in _execute_move
+        before this method is called, ensuring minimum latency for user feedback.
+        
         Task order:
-        1. Board feedback (LEDs + beep) - immediate user feedback
-        2. Database operations - persist the move
-        3. FEN log write
-        4. Move callback (display update, emulator forwarding)
-        5. Physical board validation
-        6. Game end handling (if applicable)
+        1. Database operations - persist the move
+        2. FEN log write
+        3. Move callback (display update, emulator forwarding)
+        4. Physical board validation (low priority - yields to polling commands)
+        5. Game end handling (if applicable)
+        
+        Physical board validation uses getChessStateLowPriority() which yields
+        to polling commands. If the board is busy with piece detection, validation
+        is skipped - which is acceptable since moves are validated logically.
         """
         def execute_tasks():
             try:
-                # 1. Board feedback (LEDs + beep) - highest priority for user experience
-                board.ledsOff()
-                board.beep(board.SOUND_GENERAL)
-                board.led(target_square)
-                
-                # 2. Database operations
+                # 1. Database operations
                 if self.database_session is not None:
                     try:
                         # Create new game if first move
@@ -1557,31 +1568,34 @@ class GameManager:
                         except Exception:
                             pass
                 
-                # 3. FEN log
+                # 2. FEN log
                 paths.write_fen_log(fen_after_move)
                 
-                # 4. Move callback (updates display, forwards to emulators)
+                # 3. Move callback (updates display, forwards to emulators)
                 if self.move_callback is not None:
                     try:
                         self.move_callback(move_uci)
                     except Exception as e:
                         log.error(f"[GameManager.async] Error in move callback: {e}")
                 
-                # 5. Physical board validation
+                # 4. Physical board validation (low priority - yields to polling)
+                # Uses low-priority queue so validation doesn't delay piece event detection.
+                # If the queue is busy with polling, validation is skipped - which is fine
+                # since the chess engine already validates moves logically.
                 if not late_castling_in_progress:
                     try:
-                        current_physical_state = board.getChessState()
-                        expected_logical_state = self._chess_board_to_state(self.chess_board)
-                        
-                        if current_physical_state is not None and expected_logical_state is not None:
-                            if not self._validate_board_state(current_physical_state, expected_logical_state):
-                                log.warning(f"[GameManager.async] Physical board mismatch after {move_uci}, entering correction mode")
-                                self._enter_correction_mode()
-                                self._provide_correction_guidance(current_physical_state, expected_logical_state)
+                        current_physical_state = board.getChessStateLowPriority()
+                        if current_physical_state is not None:
+                            expected_logical_state = self._chess_board_to_state(self.chess_board)
+                            if expected_logical_state is not None:
+                                if not self._validate_board_state(current_physical_state, expected_logical_state):
+                                    log.warning(f"[GameManager.async] Physical board mismatch after {move_uci}, entering correction mode")
+                                    self._enter_correction_mode()
+                                    self._provide_correction_guidance(current_physical_state, expected_logical_state)
                     except Exception as e:
-                        log.warning(f"[GameManager.async] Error validating physical board: {e}")
+                        log.debug(f"[GameManager.async] Error validating physical board: {e}")
                 
-                # 6. Game end handling
+                # 5. Game end handling
                 if game_ended:
                     board.beep(board.SOUND_GENERAL)
                     self._update_game_result(result_string, termination, "_execute_move")
@@ -1638,7 +1652,11 @@ class GameManager:
         if not self.move_state.late_castling_in_progress:
             # Check for takeback FIRST, before any other processing including correction mode
             # Takeback detection must work regardless of correction mode state
-            if is_place and len(self.chess_board.move_stack) > 0:
+            # 
+            # Optimization: Only check for takeback when no move is in progress (orphan PLACE).
+            # If player has lifted a piece (source_square >= 0), they're making a move, not taking back.
+            # This avoids a blocking getChessState() call on every normal move.
+            if is_place and len(self.chess_board.move_stack) > 0 and self.move_state.source_square < 0:
                 is_takeback = self._check_takeback()
                 if is_takeback:
                     # Takeback was successful, reset move state and return
@@ -1655,10 +1673,12 @@ class GameManager:
                 self._handle_field_event_in_correction_mode(piece_event, field, time_in_seconds)
                 return
         
-        # Check for starting position when piece is placed
-        # Starting position detection is the mechanism to abandon a game in progress
-        # This allows players to reset and start fresh at any time
-        if is_place:
+        # Starting position detection: Only check when there's no active move in progress
+        # (i.e., orphan PLACE event). During normal play (LIFT followed by PLACE), skip
+        # this check to avoid blocking the serial queue with getChessState().
+        # This allows players to reset by setting up the starting position, but only
+        # detects it when pieces are being moved without a prior LIFT.
+        if is_place and self.move_state.source_square < 0 and self.move_state.opponent_source_square < 0:
             current_state = board.getChessState()
             if self._is_starting_position(current_state):
                 log.warning("[GameManager.receive_field] Starting position detected - abandoning current game")
