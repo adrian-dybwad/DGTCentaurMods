@@ -81,7 +81,7 @@ class SplashScreen(Widget):
         if message == self.message:
             return
         self.message = message
-        self._text_widget.text = message
+        self._text_widget.set_text(message)
         self.request_update(full=False)
 
     def _load_resources(self):

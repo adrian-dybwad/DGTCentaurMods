@@ -159,6 +159,7 @@ class TextWidget(Widget):
         if self.justify != justify:
             self.justify = justify
             self._last_rendered = None
+            self._mask = None  # Invalidate mask cache
             self.request_update(full=False)
     
     def _get_text_width(self, text: str, draw: ImageDraw.Draw) -> int:
