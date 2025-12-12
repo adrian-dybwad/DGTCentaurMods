@@ -124,7 +124,7 @@ class IconButtonWidget(Widget):
         text, it remains at the bottom.
         
         Layout:
-            - margin: space outside the border (between widget edge and border)
+            - margin: transparent space outside the border
             - border: 2px black line
             - padding: space inside the border (between border and content)
         
@@ -140,26 +140,35 @@ class IconButtonWidget(Widget):
         border_right = self.width - 1 - self.margin
         border_bottom = self.height - 1 - self.margin
         
-        # Content area starts after margin + border (2px) + padding
+        # Content area bounds (inside border and padding)
         content_left = self.margin + 2 + self.padding
         content_top = self.margin + 2 + self.padding
+        content_right = self.width - self.margin - 2 - self.padding
+        content_bottom = self.height - self.margin - 2 - self.padding
+        content_height = content_bottom - content_top
         
-        # Draw button background
+        # Draw button background (only inside border area, not margin)
         if self.selected:
-            # Selected: dark grey dithered background (configurable shade)
-            self._apply_dither_pattern(img, self.selected_shade)
+            # Selected: dark grey dithered background inside border only
+            # First fill the border area, then apply dither
+            for y in range(border_top, border_bottom + 1):
+                for x in range(border_left, border_right + 1):
+                    pattern = DITHER_PATTERNS.get(self.selected_shade, DITHER_PATTERNS[0])
+                    if pattern[y % 8][x % 8] == 1:
+                        img.putpixel((x, y), 0)
+            # Draw border outline
             draw.rectangle([border_left, border_top, border_right, border_bottom], fill=None, outline=0)
         else:
-            # Unselected: white with black border
+            # Unselected: white fill with black border
             draw.rectangle([border_left, border_top, border_right, border_bottom], fill=255, outline=0, width=2)
         
-        # Draw icon (positioned inside content area)
+        # Draw icon (centered vertically in content area)
         icon_x = content_left + self.icon_size // 2
-        icon_y = (self.height - self.label_height) // 2
+        icon_y = content_top + content_height // 2
         self._draw_icon(draw, self.icon_name, icon_x, icon_y, self.icon_size, self.selected)
         
         # Draw label
-        text_x = icon_x + self.icon_size // 2 + self.padding
+        text_x = content_left + self.icon_size + self.padding
         text_color = 255 if self.selected else 0
         
         # Check for multi-line text
@@ -171,11 +180,29 @@ class IconButtonWidget(Widget):
                 draw.text((text_x, text_y), line, font=self._font, fill=text_color)
                 text_y += 16  # Line height
         else:
-            # Single line: position at bottom
-            text_y = self.height - self.label_height - self.margin - 2
+            # Single line: center vertically in content area
+            text_y = content_top + (content_height - self.label_height) // 2
             draw.text((text_x, text_y), self.label, font=self._font, fill=text_color)
         
         return img
+    
+    def get_mask(self):
+        """Get mask for transparent margin.
+        
+        Returns a mask where the margin area is transparent (black in mask)
+        and the button area is opaque (white in mask).
+        """
+        mask = Image.new("1", (self.width, self.height), 0)  # Start all transparent
+        draw = ImageDraw.Draw(mask)
+        
+        # Make the button area (inside margin) opaque
+        border_left = self.margin
+        border_top = self.margin
+        border_right = self.width - 1 - self.margin
+        border_bottom = self.height - 1 - self.margin
+        draw.rectangle([border_left, border_top, border_right, border_bottom], fill=255)
+        
+        return mask
     
     def _draw_icon(self, draw: ImageDraw.Draw, icon_name: str,
                    x: int, y: int, size: int, selected: bool):

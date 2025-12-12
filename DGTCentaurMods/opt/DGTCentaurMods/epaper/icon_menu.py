@@ -32,11 +32,6 @@ def _get_board():
     return _board_module
 
 
-# Default layout constants
-BUTTON_MARGIN = 4
-BUTTON_HEIGHT = 70
-
-
 @dataclass
 class IconMenuEntry:
     """Configuration for a menu entry.
@@ -73,8 +68,8 @@ class IconMenuWidget(Widget):
                  selected_index: int = 0,
                  on_select: Optional[Callable[[str], None]] = None,
                  on_back: Optional[Callable[[], None]] = None,
-                 button_height: int = BUTTON_HEIGHT,
-                 button_margin: int = BUTTON_MARGIN,
+                 button_height: int = 70,
+                 button_margin: int = 4,
                  background_shade: int = 2):
         """Initialize icon menu widget.
         
@@ -87,8 +82,8 @@ class IconMenuWidget(Widget):
             selected_index: Initial selected entry index
             on_select: Optional callback(key) when entry is selected with TICK
             on_back: Optional callback() when BACK is pressed
-            button_height: Height of each button
-            button_margin: Margin between buttons
+            button_height: Height of each button (default 70)
+            button_margin: Margin around buttons, passed to each button (default 4)
             background_shade: Dithered background shade 0-16 (default 2 = ~12.5% grey)
         """
         super().__init__(x, y, width, height, background_shade=background_shade)
@@ -117,30 +112,35 @@ class IconMenuWidget(Widget):
         log.info(f"IconMenuWidget: Created with {len(self.entries)} entries")
     
     def _create_buttons(self) -> None:
-        """Create IconButtonWidget instances for each entry."""
+        """Create IconButtonWidget instances for each entry.
+        
+        Buttons are placed directly adjacent to each other. Each button
+        has its own transparent margin (set to button_margin), so the
+        visual spacing between buttons is automatic.
+        """
         self._buttons = []
         
-        # Calculate actual button height
         total_entries = len(self.entries)
         if total_entries == 0:
             return
         
-        available_height = self.height - (self.button_margin * (total_entries + 1))
-        actual_button_height = min(self.button_height, available_height // total_entries)
-        button_width = self.width - (self.button_margin * 2)
+        # Buttons fill the full width and are stacked vertically
+        actual_button_height = min(self.button_height, self.height // total_entries)
         
         for idx, entry in enumerate(self.entries):
-            button_y = self.button_margin + idx * (actual_button_height + self.button_margin)
+            # Place buttons directly adjacent (they have their own internal margins)
+            button_y = idx * actual_button_height
             
             button = IconButtonWidget(
-                x=self.button_margin,
+                x=0,
                 y=button_y,
-                width=button_width,
+                width=self.width,
                 height=actual_button_height,
                 key=entry.key,
                 label=entry.label,
                 icon_name=entry.icon_name,
-                selected=(idx == self.selected_index)
+                selected=(idx == self.selected_index),
+                margin=self.button_margin
             )
             self._buttons.append(button)
     
@@ -181,10 +181,14 @@ class IconMenuWidget(Widget):
         """
         img = self.create_background_image()
         
-        # Render each button and paste to image
+        # Render each button with mask for transparent margins
         for button in self._buttons:
             button_img = button.render()
-            img.paste(button_img, (button.x, button.y))
+            button_mask = button.get_mask()
+            if button_mask:
+                img.paste(button_img, (button.x, button.y), button_mask)
+            else:
+                img.paste(button_img, (button.x, button.y))
         
         return img
     
