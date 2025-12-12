@@ -513,11 +513,10 @@ class IconButtonWidget(Widget):
     
     def _draw_universal_logo(self, draw: ImageDraw.Draw, x: int, y: int,
                              size: int, line_color: int, selected: bool):
-        """Draw the Universal/PLAY logo - a high-fidelity knight from python-chess.
+        """Draw the Universal/PLAY logo using pre-rendered knight bitmap.
         
-        This is a larger, more detailed version of the knight specifically for
-        the main PLAY button. Extracted from python-chess SVG with high bezier
-        sampling for smooth curves.
+        Uses a high-quality bitmap rendered from the python-chess knight SVG
+        for crisp rendering at any size.
         
         Args:
             draw: ImageDraw object
@@ -527,99 +526,40 @@ class IconButtonWidget(Widget):
             line_color: Stroke/fill color (0=black, 255=white)
             selected: Whether button is selected (inverts colors)
         """
-        # Scale factor: SVG viewBox is 45x45
-        s = size / 45.0
-        # Offset to center the icon
-        ox = x - size // 2
-        oy = y - size // 2
-        
-        def pt(px: float, py: float) -> tuple:
-            """Transform SVG coordinate to screen coordinate."""
-            return (ox + int(px * s), oy + int(py * s))
-        
-        # Fill color depends on selection state
-        fill_color = line_color if selected else (255 if line_color == 0 else 0)
-        
-        # Body polygon points (sampled from bezier curves)
-        # Path: M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18
-        body_coords = [
-            (22.0, 10.0), (24.0, 10.3), (26.0, 10.7), (27.7, 11.4),
-            (29.4, 12.2), (30.9, 13.3), (32.3, 14.6), (33.6, 16.1),
-            (34.7, 17.9), (35.6, 20.0), (36.4, 22.4), (37.1, 25.0),
-            (37.5, 28.0), (37.9, 31.3), (38.0, 35.0), (38.0, 39.0),
-            (15.0, 39.0), (15.1, 37.3), (15.5, 35.9), (16.0, 34.8),
-            (16.7, 33.7), (17.5, 32.8), (18.4, 31.9), (19.3, 31.0),
-            (20.2, 30.1), (21.0, 29.1), (21.8, 27.9), (22.5, 26.5),
-            (22.9, 24.9), (23.2, 23.0), (23.2, 20.7), (23.0, 18.0),
-        ]
-        body_points = [pt(c[0], c[1]) for c in body_coords]
-        
-        # Head polygon points (sampled from complex bezier path)
-        head_coords = [
-            (24.00, 18.00), (23.87, 19.16), (23.25, 20.40), (22.28, 21.70),
-            (21.06, 22.98), (19.71, 24.20), (18.34, 25.32), (17.06, 26.26),
-            (16.00, 27.00), (15.01, 27.76), (14.26, 28.52), (13.67, 29.23),
-            (13.19, 29.88), (12.75, 30.41), (12.28, 30.80), (11.72, 31.01),
-            (11.00, 31.00), (10.74, 30.45), (10.85, 29.80), (11.14, 29.13),
-            (11.40, 28.55), (11.42, 28.14), (11.00, 28.00), (10.66, 28.09),
-            (10.56, 28.35), (10.57, 28.71), (10.57, 29.14), (10.42, 29.58),
-            (10.00, 30.00), (9.54, 30.03), (8.95, 30.08), (8.29, 30.05),
-            (7.62, 29.88), (7.00, 29.46), (6.48, 28.73), (6.13, 27.61),
-            (6.00, 26.00), (6.26, 24.91), (6.94, 23.28), (7.90, 21.32),
-            (9.00, 19.25), (10.10, 17.27), (11.06, 15.59), (11.74, 14.43),
-            (12.00, 14.00), (12.14, 13.85), (12.49, 13.45), (12.96, 12.85),
-            (13.43, 12.12), (13.81, 11.31), (14.00, 10.50), (13.71, 10.00),
-            (13.55, 9.50), (13.48, 9.00), (13.47, 8.50), (13.49, 8.00),
-            (13.50, 7.50), (14.07, 7.34), (14.72, 7.70), (15.38, 8.38),
-            (15.94, 9.13), (16.35, 9.75), (16.50, 10.00), (18.50, 10.00),
-            (18.57, 9.85), (18.77, 9.45), (19.11, 8.88), (19.59, 8.23),
-            (20.22, 7.57), (21.00, 7.00), (21.42, 7.22), (21.70, 7.78),
-            (21.88, 8.50), (21.96, 9.22), (22.00, 9.78), (22.00, 10.00),
-        ]
-        head_points = [pt(c[0], c[1]) for c in head_coords]
-        
-        # Draw body (filled with outline)
-        draw.polygon(body_points, fill=fill_color, outline=line_color)
-        
-        # Draw head (filled with outline)
-        draw.polygon(head_points, fill=fill_color, outline=line_color)
-        
-        # Eye: small filled circle inside the head shape
-        # Position adjusted to be clearly inside the visible head area
-        eye_color = line_color
-        eye_r = max(2, int(2.0 * s))  # Make it visible
-        eye_center = pt(12, 24)  # Inside the head at the cheek area
-        draw.ellipse([eye_center[0] - eye_r, eye_center[1] - eye_r,
-                     eye_center[0] + eye_r, eye_center[1] + eye_r],
-                    fill=eye_color, outline=eye_color)
-        
-        # Nostril: small circle on the muzzle/nose area
-        nostril_center = pt(10, 28)  # On the lower muzzle
-        nostril_r = max(1, int(1.5 * s))
-        draw.ellipse([nostril_center[0] - nostril_r, nostril_center[1] - nostril_r,
-                     nostril_center[0] + nostril_r, nostril_center[1] + nostril_r],
-                    fill=eye_color, outline=eye_color)
-        
-        # Mane texture: add curved lines along the neck/mane area
-        # The mane runs from the ears down the back of the neck
-        mane_color = line_color
-        stroke_width = max(1, int(1.5 * s))
-        
-        # Mane strokes - curved lines suggesting hair flowing down
-        mane_strokes = [
-            # Each stroke is a series of points forming a curved line
-            [(21.5, 11), (20.5, 13), (19.5, 16), (19.0, 19)],
-            [(20.0, 12), (18.5, 15), (17.5, 18), (17.0, 21)],
-            [(18.0, 14), (16.5, 17), (15.5, 20), (15.0, 23)],
-            [(16.5, 17), (15.0, 20), (14.0, 23), (13.5, 26)],
-        ]
-        
-        for stroke in mane_strokes:
-            stroke_pts = [pt(p[0], p[1]) for p in stroke]
-            # Draw as connected line segments
-            for i in range(len(stroke_pts) - 1):
-                draw.line([stroke_pts[i], stroke_pts[i + 1]], 
-                         fill=mane_color, width=stroke_width)
+        try:
+            # Load the pre-rendered knight bitmap
+            if AssetManager:
+                logo_path = AssetManager.get_resource_path("knight_logo.bmp")
+            else:
+                logo_path = "resources/knight_logo.bmp"
+            
+            logo = Image.open(logo_path)
+            
+            # Resize to target size
+            if logo.size[0] != size or logo.size[1] != size:
+                logo = logo.resize((size, size), Image.Resampling.LANCZOS)
+            
+            # Ensure it's in mode '1' (1-bit)
+            if logo.mode != '1':
+                logo = logo.convert('1')
+            
+            # If selected, invert the image
+            if selected:
+                logo = Image.eval(logo, lambda p: 255 - p)
+            
+            # Calculate position (centered)
+            paste_x = x - size // 2
+            paste_y = y - size // 2
+            
+            # Get the underlying image from the draw object and paste
+            # We need to access the image that the draw object is drawing on
+            target_img = draw._image
+            target_img.paste(logo, (paste_x, paste_y))
+            
+        except Exception as e:
+            # Fallback to simple knight icon if bitmap not available
+            log.warning(f"Could not load knight_logo.bmp: {e}, using fallback")
+            self._draw_knight_icon(draw, x, y, size, line_color, selected)
     
     def _draw_gear_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                         size: int, line_color: int):
