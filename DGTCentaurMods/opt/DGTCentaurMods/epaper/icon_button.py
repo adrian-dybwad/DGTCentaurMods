@@ -42,7 +42,7 @@ class IconButtonWidget(Widget):
                  label_height: int = 18,
                  margin: int = 4,
                  padding: int = 2,
-                 icon_margin: int = 2,
+                 icon_margin: int = 4,
                  border_width: int = 2,
                  selected_shade: int = 12,
                  background_shade: int = 0):
@@ -61,7 +61,7 @@ class IconButtonWidget(Widget):
             label_height: Height reserved for label text (default 18)
             margin: Space outside the button border (default 4)
             padding: Space inside the button border (default 2)
-            icon_margin: Space around the icon on all sides (default 2)
+            icon_margin: Space around the icon on all sides (default 4)
             border_width: Width of the button border in pixels (default 2)
             selected_shade: Dithered shade for selected state 0-16 (default 12 = ~75% black)
             background_shade: Dithered background shade 0-16 (default 0 = white)
