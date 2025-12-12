@@ -36,7 +36,7 @@ from concurrent.futures import Future
 from DGTCentaurMods.board.logging import log, logging
 
 # Inactivity timeout configuration
-INACTIVITY_TIMEOUT_DEFAULT = 140  # Default: 15 minutes of inactivity before shutdown
+INACTIVITY_TIMEOUT_DEFAULT = 600  # Default: 15 minutes of inactivity before shutdown
 INACTIVITY_WARNING_SECONDS = 120  # Show countdown 2 minutes before shutdown
 
 def get_inactivity_timeout() -> int:
