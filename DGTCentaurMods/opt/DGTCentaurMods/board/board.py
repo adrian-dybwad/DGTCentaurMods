@@ -740,10 +740,20 @@ def eventsThread(keycallback, fieldcallback, tout):
     inactivity_countdown_splash = None
     inactivity_last_displayed_seconds = None  # Track last displayed value to avoid redundant updates
     
-    # Handle disabled timeout (0 = disabled, use very large value)
-    timeout_disabled = (tout == 0)
+    def get_current_timeout():
+        """Get current timeout from settings, returning effective value.
+        
+        Returns tuple of (effective_timeout, is_disabled).
+        When disabled (0), returns a very large value.
+        """
+        current = get_inactivity_timeout()
+        if current == 0:
+            return (100000000, True)  # Effectively infinite
+        return (current, False)
+    
+    # Get initial timeout from settings (ignore passed parameter, always read from settings)
+    tout, timeout_disabled = get_current_timeout()
     if timeout_disabled:
-        tout = 100000000  # Effectively infinite
         log.debug('Inactivity timeout disabled')
     else:
         log.debug('Timeout at %s seconds', str(tout))
@@ -770,11 +780,15 @@ def eventsThread(keycallback, fieldcallback, tout):
                     inactivity_countdown_splash = None
                     inactivity_last_displayed_seconds = None
             if chargerconnected == 0 and hold_timeout:
+                # Re-read timeout from settings in case it changed
+                tout, timeout_disabled = get_current_timeout()
                 to = time.monotonic() + tout
                 hold_timeout = False
 
             # Reset timeout on unPauseEvents
             if events_paused:
+                # Re-read timeout from settings in case it changed
+                tout, timeout_disabled = get_current_timeout()
                 to = time.monotonic() + tout
                 events_paused = False
 
@@ -785,11 +799,13 @@ def eventsThread(keycallback, fieldcallback, tout):
                 try:
                     if controller._piece_listener is None:
                         def _listener(piece_event, field_hex, time_in_seconds):
-                            nonlocal to, inactivity_countdown_shown, inactivity_countdown_splash, inactivity_last_displayed_seconds
+                            nonlocal to, tout, timeout_disabled, inactivity_countdown_shown, inactivity_countdown_splash, inactivity_last_displayed_seconds
                             try:
                                 field = rotateFieldHex(field_hex)
                                 log.info(f"[board.events.push] piece_event={piece_event==0 and 'LIFT' or 'PLACE'} ({piece_event}) field={field} field_hex={field_hex} time_in_seconds={time_in_seconds}")
                                 fieldcallback(piece_event, field, time_in_seconds)
+                                # Re-read timeout from settings in case it changed
+                                tout, timeout_disabled = get_current_timeout()
                                 to = time.monotonic() + tout
                                 # Cancel inactivity countdown if shown
                                 if inactivity_countdown_shown and inactivity_countdown_splash is not None:
@@ -869,6 +885,8 @@ def eventsThread(keycallback, fieldcallback, tout):
             time.sleep(0.05)
             
             if key_pressed is not None:
+                # Re-read timeout from settings in case it changed
+                tout, timeout_disabled = get_current_timeout()
                 to = time.monotonic() + tout
                 # Cancel inactivity countdown if shown - consume the key (don't pass to callback)
                 if inactivity_countdown_shown and inactivity_countdown_splash is not None:

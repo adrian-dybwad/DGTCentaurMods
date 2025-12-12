@@ -1674,9 +1674,9 @@ def _handle_inactivity_timeout():
     entries = []
     for minutes, label in timeout_options:
         seconds = minutes * 60
-        # Mark current selection
+        # Mark current selection with checkmark
         if seconds == current_timeout:
-            display_label = f"[{label}]"
+            display_label = f"\u2713 {label}"  # Unicode checkmark
         else:
             display_label = label
         entries.append(IconMenuEntry(key=str(seconds), label=display_label, icon_name="timer", enabled=True))
