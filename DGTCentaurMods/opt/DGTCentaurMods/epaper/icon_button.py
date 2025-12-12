@@ -1045,6 +1045,9 @@ class IconButtonWidget(Widget):
                                size: int, line_color: int, strength: int = 3):
         """Draw a WiFi signal icon with variable strength.
         
+        Only draws the arcs corresponding to the signal strength level.
+        Weak (1) = innermost arc only, Medium (2) = inner + middle, Strong (3) = all three.
+        
         Args:
             draw: ImageDraw object
             x: X center position
@@ -1058,23 +1061,18 @@ class IconButtonWidget(Widget):
         # Draw concentric arcs from bottom center
         base_y = y + int(10*s)
         
-        # Arc radii - draw all three but only fill based on strength
+        # Arc radii - only draw arcs up to the strength level
         radii = [int(6*s), int(12*s), int(18*s)]
+        width = max(2, int(3*s))
         
         for i, radius in enumerate(radii):
-            # Determine if this arc should be filled or just outlined
+            # Only draw arcs up to the strength level
             if i < strength:
-                # Active arc - full line
-                width = max(1, int(3*s))
-            else:
-                # Inactive arc - thin dashed appearance (just outline)
-                width = max(1, int(1*s))
-            
-            draw.arc([x - radius, base_y - radius, x + radius, base_y + radius],
-                    start=225, end=315, fill=line_color, width=width)
+                draw.arc([x - radius, base_y - radius, x + radius, base_y + radius],
+                        start=225, end=315, fill=line_color, width=width)
         
         # Small dot at the bottom center (always drawn)
-        dot_r = int(3*s)
+        dot_r = max(2, int(3*s))
         draw.ellipse([x - dot_r, base_y - dot_r, x + dot_r, base_y + dot_r],
                     fill=line_color)
     
