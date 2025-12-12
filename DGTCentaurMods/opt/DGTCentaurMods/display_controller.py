@@ -321,9 +321,11 @@ class DisplayController:
         
         if is_two_player:
             # In 2-player mode, show separate resign options for each side
+            # White flag (white fill, black border) for white resigns
+            # Black flag (black fill, white border) for black resigns
             entries = [
-                _IconMenuEntry(key="resign_white", label="White\nResigns", icon_name="resign"),
-                _IconMenuEntry(key="resign_black", label="Black\nResigns", icon_name="resign"),
+                _IconMenuEntry(key="resign_white", label="White\nResigns", icon_name="resign_white"),
+                _IconMenuEntry(key="resign_black", label="Black\nResigns", icon_name="resign_black"),
                 _IconMenuEntry(key="draw", label="Draw", icon_name="draw"),
                 _IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel"),
             ]
@@ -412,9 +414,11 @@ class DisplayController:
         log.info(f"[DisplayController] Showing kings-in-center menu (two_player={is_two_player})")
         
         if is_two_player:
+            # White flag (white fill, black border) for white resigns
+            # Black flag (black fill, white border) for black resigns
             entries = [
-                _IconMenuEntry(key="resign_white", label="White\nResigns", icon_name="resign"),
-                _IconMenuEntry(key="resign_black", label="Black\nResigns", icon_name="resign"),
+                _IconMenuEntry(key="resign_white", label="White\nResigns", icon_name="resign_white"),
+                _IconMenuEntry(key="resign_black", label="Black\nResigns", icon_name="resign_black"),
                 _IconMenuEntry(key="draw", label="Draw", icon_name="draw"),
                 _IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel"),
             ]

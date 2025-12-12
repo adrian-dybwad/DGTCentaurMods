@@ -369,6 +369,10 @@ class IconButtonWidget(Widget):
             self._draw_gear_icon(draw, x, y, size, line_color)
         elif icon_name == "resign":
             self._draw_resign_icon(draw, x, y, size, line_color)
+        elif icon_name == "resign_white":
+            self._draw_resign_flag_icon(draw, x, y, size, line_color, selected, is_white_flag=True)
+        elif icon_name == "resign_black":
+            self._draw_resign_flag_icon(draw, x, y, size, line_color, selected, is_white_flag=False)
         elif icon_name == "draw":
             self._draw_draw_icon(draw, x, y, size, line_color)
         elif icon_name == "cancel":
@@ -656,6 +660,54 @@ class IconButtonWidget(Widget):
             (flag_right, flag_bottom - 4),
             (pole_x, flag_bottom),
         ], fill=line_color, outline=line_color)
+    
+    def _draw_resign_flag_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                               size: int, line_color: int, selected: bool,
+                               is_white_flag: bool):
+        """Draw a colored flag (resign) icon for white/black resignation.
+        
+        Args:
+            draw: ImageDraw object
+            x: X position (center of icon)
+            y: Y position (center of icon)
+            size: Icon size in pixels
+            line_color: Color for the pole (based on selected state)
+            selected: Whether this icon is in a selected button
+            is_white_flag: If True, draw white flag with black border;
+                          if False, draw black flag with white border
+        """
+        half = size // 2
+        left = x - half
+        top = y - half
+        bottom = y + half
+        
+        # Flag pole - uses line_color (inverts with selection)
+        pole_x = left + 4
+        draw.line([(pole_x, top + 2), (pole_x, bottom - 2)], fill=line_color, width=2)
+        
+        # Flag colors: white flag = white fill, black border
+        #              black flag = black fill, white border
+        if is_white_flag:
+            flag_fill = 255  # White
+            flag_border = 0   # Black border
+        else:
+            flag_fill = 0     # Black
+            flag_border = 255 # White border
+        
+        # Flag (wavy shape)
+        flag_top = top + 4
+        flag_bottom = y
+        flag_right = x + half - 4
+        flag_points = [
+            (pole_x, flag_top),
+            (flag_right, flag_top + 4),
+            (flag_right - 4, (flag_top + flag_bottom) // 2),
+            (flag_right, flag_bottom - 4),
+            (pole_x, flag_bottom),
+        ]
+        
+        # Draw flag with fill and contrasting border
+        draw.polygon(flag_points, fill=flag_fill, outline=flag_border)
     
     def _draw_draw_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                         size: int, line_color: int):

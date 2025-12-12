@@ -338,12 +338,6 @@ class GameManager:
         self.on_back_pressed = None
         self.on_kings_in_center = None
         
-        # Kings-in-center gesture tracking (resign/draw)
-        # Track lifted kings and placed pieces on center squares
-        self._white_king_lifted = False
-        self._black_king_lifted = False
-        self._center_pieces_placed = set()  # Set of center squares with pieces placed
-        
         # Thread control
         self.should_stop = False
         self.game_thread = None
@@ -655,6 +649,46 @@ class GameManager:
                     board.ledFromTo(from_sq, to_sq, repeat=0)
                     log.info(f"[GameManager._exit_correction_mode] Restored forced move LEDs: {self.move_state.computer_move_uci}")
     
+    def _check_kings_in_center_from_state(self, missing_squares: list, extra_squares: list) -> bool:
+        """Check if the misplaced piece state indicates a kings-in-center gesture.
+        
+        The gesture is detected when:
+        1. Both king squares (where kings should be) are in missing_squares
+        2. At least 2 center squares (d4, d5, e4, e5) are in extra_squares
+        
+        Args:
+            missing_squares: List of squares that should have pieces but don't
+            extra_squares: List of squares that have pieces but shouldn't
+            
+        Returns:
+            True if kings-in-center gesture detected, False otherwise
+        """
+        # Find where kings should be according to logical board
+        white_king_square = self.chess_board.king(chess.WHITE)
+        black_king_square = self.chess_board.king(chess.BLACK)
+        
+        if white_king_square is None or black_king_square is None:
+            return False
+        
+        # Check if both king squares are missing pieces
+        white_king_missing = white_king_square in missing_squares
+        black_king_missing = black_king_square in missing_squares
+        
+        if not (white_king_missing and black_king_missing):
+            return False
+        
+        # Check if at least 2 center squares have extra pieces
+        center_extras = [sq for sq in extra_squares if sq in CENTER_SQUARES]
+        
+        if len(center_extras) >= 2:
+            log.debug(f"[GameManager] Kings-in-center detected: "
+                     f"white_king={chess.square_name(white_king_square)} missing, "
+                     f"black_king={chess.square_name(black_king_square)} missing, "
+                     f"center_extras={[chess.square_name(sq) for sq in center_extras]}")
+            return True
+        
+        return False
+    
     def _provide_correction_guidance(self, current_state, expected_state):
         """Provide LED guidance to correct misplaced pieces using Hungarian algorithm."""
         if current_state is None or expected_state is None:
@@ -684,6 +718,17 @@ class GameManager:
         
         if len(missing_squares) == 0 and len(extra_squares) == 0:
             board.ledsOff()
+            return
+        
+        # Check for kings-in-center gesture (resign/draw)
+        # Detect when both kings are missing from expected squares and pieces are on center squares
+        if self._check_kings_in_center_from_state(missing_squares, extra_squares):
+            log.info("[GameManager._provide_correction_guidance] Kings-in-center gesture detected")
+            self._exit_correction_mode()
+            board.ledsOff()
+            self.move_state.reset()
+            if self.on_kings_in_center:
+                self.on_kings_in_center()
             return
         
         log.warning(f"[GameManager._provide_correction_guidance] Found {len(extra_squares)} wrong pieces, {len(missing_squares)} missing pieces")
@@ -771,14 +816,7 @@ class GameManager:
         
         If a rook move was executed and the king is subsequently lifted from its
         starting square, this may be a late castling attempt.
-        
-        Also tracks king lifts for the kings-in-center resign/draw gesture.
         """
-        # Track king lifts for kings-in-center gesture
-        self._track_kings_center_lift(field, piece_color)
-        # Track if piece lifted from center (may cancel gesture)
-        self._handle_kings_center_cancel(field)
-        
         is_current_player_piece = (self.chess_board.turn == chess.WHITE) == (piece_color == True)
         
         # Check if this is a late castling attempt
@@ -903,36 +941,7 @@ class GameManager:
         When rook is moved first:
         1. Rook placement on castling destination is tracked (not treated as illegal)
         2. When king is subsequently placed on its castling destination, the move is executed
-        
-        Also tracks placements for the kings-in-center resign/draw gesture.
         """
-        
-        # Check for kings-in-center gesture (resign/draw)
-        # This must be checked before other logic to detect the gesture
-        gesture_complete = self._track_kings_center_place(field)
-        
-        if gesture_complete:
-            # Both kings are in center - trigger resign/draw menu
-            log.info("[GameManager._handle_piece_place] Kings-in-center gesture complete, triggering menu")
-            self._reset_kings_center_tracking()
-            # Exit correction mode if active and turn off LEDs
-            if self.correction_mode.is_active:
-                self._exit_correction_mode()
-            board.ledsOff()
-            # Reset move state to clean slate
-            self.move_state.reset()
-            if self.on_kings_in_center:
-                self.on_kings_in_center()
-            return
-        
-        # If both kings have been lifted and a piece was just placed on a center square,
-        # suppress normal move processing - wait for the gesture to complete
-        # This prevents correction mode from interfering with the gesture
-        if self._white_king_lifted and self._black_king_lifted and field in CENTER_SQUARES:
-            log.info(f"[GameManager._handle_piece_place] Kings-in-center gesture in progress, "
-                    f"waiting for second king (center_count={len(self._center_pieces_placed)})")
-            return
-        
         # PRIORITY: Check for late castling completion FIRST, before any other validation
         # This prevents brief flashes of "misplaced piece" mode during the castling sequence
         if self.move_state.late_castling_in_progress:
@@ -1501,9 +1510,6 @@ class GameManager:
         board.beep(board.SOUND_GENERAL)
         board.led(target_square)
         
-        # Reset kings-in-center tracking after successful move
-        self._reset_kings_center_tracking()
-        
         # Capture state needed for async operations
         fen_after_move = str(self.chess_board.fen())
         late_castling_in_progress = self.move_state.late_castling_in_progress
@@ -1823,81 +1829,6 @@ class GameManager:
         # Play sound and turn off LEDs
         board.beep(board.SOUND_GENERAL)
         board.ledsOff()
-    
-    def _reset_kings_center_tracking(self):
-        """Reset the kings-in-center gesture tracking state."""
-        self._white_king_lifted = False
-        self._black_king_lifted = False
-        self._center_pieces_placed.clear()
-    
-    def _track_kings_center_lift(self, field: int, piece_color) -> None:
-        """Track king lifts for the kings-in-center resign/draw gesture.
-        
-        Called when a piece is lifted. Tracks if a king is lifted from its
-        current logical position.
-        
-        Args:
-            field: The square the piece was lifted from
-            piece_color: The color of the piece lifted
-        """
-        piece = self.chess_board.piece_at(field)
-        if piece is not None and piece.piece_type == chess.KING:
-            if piece.color == chess.WHITE:
-                self._white_king_lifted = True
-                log.debug(f"[GameManager] White king lifted from {chess.square_name(field)}")
-            else:
-                self._black_king_lifted = True
-                log.debug(f"[GameManager] Black king lifted from {chess.square_name(field)}")
-    
-    def _track_kings_center_place(self, field: int) -> bool:
-        """Track piece placements for the kings-in-center resign/draw gesture.
-        
-        Called when a piece is placed. Tracks placements on center squares
-        and checks if the gesture is complete.
-        
-        Args:
-            field: The square the piece was placed on
-            
-        Returns:
-            True if both kings are now in center (gesture complete), False otherwise
-        """
-        # Track placements on center squares
-        if field in CENTER_SQUARES:
-            self._center_pieces_placed.add(field)
-            log.debug(f"[GameManager] Piece placed on center square {chess.square_name(field)}, "
-                     f"center_count={len(self._center_pieces_placed)}, "
-                     f"white_lifted={self._white_king_lifted}, black_lifted={self._black_king_lifted}")
-            
-            # Check if gesture is complete:
-            # - Both kings have been lifted
-            # - At least 2 pieces placed on center squares
-            if (self._white_king_lifted and self._black_king_lifted and 
-                len(self._center_pieces_placed) >= 2):
-                log.info("[GameManager] Kings-in-center gesture detected")
-                return True
-        else:
-            # Piece placed outside center
-            # If both kings were lifted (gesture in progress) but piece placed outside center,
-            # this cancels the gesture - they're making a normal move or returning pieces
-            if self._white_king_lifted and self._black_king_lifted and len(self._center_pieces_placed) > 0:
-                log.info(f"[GameManager] Kings-in-center gesture cancelled - piece placed on {chess.square_name(field)} (outside center)")
-                self._reset_kings_center_tracking()
-        
-        return False
-    
-    def _handle_kings_center_cancel(self, field: int) -> None:
-        """Handle cancellation of kings-in-center gesture when piece lifted from center.
-        
-        If a piece is lifted from a center square that was part of the gesture,
-        remove it from tracking.
-        
-        Args:
-            field: The square the piece was lifted from
-        """
-        if field in self._center_pieces_placed:
-            self._center_pieces_placed.discard(field)
-            log.debug(f"[GameManager] Piece lifted from center {chess.square_name(field)}, "
-                     f"remaining center_count={len(self._center_pieces_placed)}")
     
     def _reset_game(self):
         """Abandon current game and reset to starting position.
