@@ -152,12 +152,12 @@ class IconMenuWidget(Widget):
         """
         new_index = max(0, min(index, len(self.entries) - 1))
         if new_index != self.selected_index:
-            # Update button states
+            # Update button states using setter methods
             if self._buttons:
                 if self.selected_index < len(self._buttons):
-                    self._buttons[self.selected_index].selected = False
+                    self._buttons[self.selected_index].set_selected(False)
                 if new_index < len(self._buttons):
-                    self._buttons[new_index].selected = True
+                    self._buttons[new_index].set_selected(True)
             
             self.selected_index = new_index
             self._last_rendered = None

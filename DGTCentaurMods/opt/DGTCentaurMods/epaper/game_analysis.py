@@ -47,6 +47,14 @@ class GameAnalysisWidget(Widget):
                     pass
         return ImageFont.load_default()
     
+    def set_analysis_engine(self, engine) -> None:
+        """Set the analysis engine used for position evaluation.
+        
+        Args:
+            engine: chess.engine.SimpleEngine instance or None
+        """
+        self.analysis_engine = engine
+    
     def set_score(self, score_value: float, score_text: str = None) -> None:
         """Set evaluation score."""
         old_score_text = self.score_text

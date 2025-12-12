@@ -192,6 +192,17 @@ class ChessBoardWidget(Widget):
             # Trigger update if scheduler is available
             self.request_update(full=False)
     
+    def set_flip(self, flip: bool) -> None:
+        """Set board flip state (whether to render from black's perspective).
+        
+        Args:
+            flip: True to flip board (black at bottom), False for white at bottom
+        """
+        if self.flip != flip:
+            self.flip = flip
+            self._last_rendered = None
+            self.request_update(full=False)
+    
     def set_max_square_index(self, max_index: int) -> None:
         """Set maximum square index to render (0-64). Used for incremental rendering."""
         max_index = max(0, min(64, max_index))

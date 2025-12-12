@@ -148,7 +148,7 @@ class DisplayManager:
                 # queued positions once the engine is set
                 self.analysis_engine = engine
                 if self.analysis_widget:
-                    self.analysis_widget.analysis_engine = engine
+                    self.analysis_widget.set_analysis_engine(engine)
                 
                 log.info(f"[DisplayManager] Analysis engine ready: {resolved_path}")
             except Exception as e:
@@ -176,7 +176,7 @@ class DisplayManager:
         # Create chess board widget at y=16 (below status bar)
         self.chess_board_widget = _ChessBoardWidget(0, 16, STARTING_FEN)
         if self._flip_board:
-            self.chess_board_widget.flip = True
+            self.chess_board_widget.set_flip(True)
         
         future = board.display_manager.add_widget(self.chess_board_widget)
         if future:
@@ -195,7 +195,7 @@ class DisplayManager:
         )
         
         if not self._show_analysis:
-            self.analysis_widget.visible = False
+            self.analysis_widget.hide()
         
         future = board.display_manager.add_widget(self.analysis_widget)
         if future:
