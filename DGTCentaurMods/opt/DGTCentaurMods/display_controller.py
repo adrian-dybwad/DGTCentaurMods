@@ -305,30 +305,40 @@ class DisplayController:
         log.info(f"[DisplayController] Promotion selected: {selected_piece[0]}")
         return selected_piece[0]
     
-    def show_back_menu(self, on_result: callable):
+    def show_back_menu(self, on_result: callable, is_two_player: bool = False):
         """Show the back button menu (resign/draw/cancel).
         
         Non-blocking - calls on_result when user makes a selection.
         
         Args:
             on_result: Callback function(result: str) with result:
-                      'resign', 'draw', 'cancel', or 'exit'
+                      'resign', 'resign_white', 'resign_black', 'draw', 'cancel', or 'exit'
+            is_two_player: If True, show separate resign options for white and black
         """
         board = _get_board()
         
-        log.info("[DisplayController] Showing back menu")
+        log.info(f"[DisplayController] Showing back menu (two_player={is_two_player})")
         
-        entries = [
-            _IconMenuEntry(key="resign", label="Resign", icon_name="resign"),
-            _IconMenuEntry(key="draw", label="Draw", icon_name="draw"),
-            _IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel"),
-        ]
+        if is_two_player:
+            # In 2-player mode, show separate resign options for each side
+            entries = [
+                _IconMenuEntry(key="resign_white", label="White\nResigns", icon_name="resign"),
+                _IconMenuEntry(key="resign_black", label="Black\nResigns", icon_name="resign"),
+                _IconMenuEntry(key="draw", label="Draw", icon_name="draw"),
+                _IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel"),
+            ]
+        else:
+            entries = [
+                _IconMenuEntry(key="resign", label="Resign", icon_name="resign"),
+                _IconMenuEntry(key="draw", label="Draw", icon_name="draw"),
+                _IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel"),
+            ]
         
-        # Create menu
+        # Create menu - default to Cancel (last item)
         back_menu = _IconMenuWidget(
             x=0, y=0, width=128, height=296,
             entries=entries,
-            selected_index=2  # Default to Cancel
+            selected_index=len(entries) - 1  # Default to Cancel (last item)
         )
         
         self._menu_result_callback = on_result

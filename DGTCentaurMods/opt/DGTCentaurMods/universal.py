@@ -843,10 +843,20 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
 
     # Back menu result handler
     def _on_back_menu_result(result: str):
-        """Handle result from back menu (resign/draw/cancel/exit)."""
+        """Handle result from back menu (resign/draw/cancel/exit).
+        
+        In 2-player mode, result can be 'resign_white' or 'resign_black' to
+        indicate which side is resigning.
+        """
         if result == "resign":
             game_handler.game_manager.handle_resign()
             _return_to_menu("Resigned")
+        elif result == "resign_white":
+            game_handler.game_manager.handle_resign(chess.WHITE)
+            _return_to_menu("White Resigned")
+        elif result == "resign_black":
+            game_handler.game_manager.handle_resign(chess.BLACK)
+            _return_to_menu("Black Resigned")
         elif result == "draw":
             game_handler.game_manager.handle_draw()
             _return_to_menu("Draw")
@@ -905,7 +915,11 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     if is_position_game:
         game_handler.game_manager.on_back_pressed = _on_position_game_back
     else:
-        game_handler.game_manager.on_back_pressed = lambda: display_manager.show_back_menu(_on_back_menu_result)
+        # In 2-player mode, show separate resign options for white and black
+        game_handler.game_manager.on_back_pressed = lambda: display_manager.show_back_menu(
+            _on_back_menu_result, 
+            is_two_player=game_handler.is_two_player_mode
+        )
     
     # Wire up event callback to handle game events
     from DGTCentaurMods.game_manager import EVENT_NEW_GAME

@@ -131,6 +131,9 @@ class GameHandler:
         )
         log.info("[GameHandler] Created Chessnut emulator")
         
+        # Track 2-player mode (no engine opponent)
+        self._is_two_player_mode = standalone_engine_name is None
+        
         # Initialize standalone UCI engine if configured
         if standalone_engine_name:
             self._initialize_standalone_engine()
@@ -154,6 +157,15 @@ class GameHandler:
         else:
             if self._sendMessage:
                 self._sendMessage(data)
+    
+    @property
+    def is_two_player_mode(self) -> bool:
+        """Check if the game is in 2-player mode (no engine opponent).
+        
+        Returns:
+            True if 2-player mode (human vs human), False if engine is playing
+        """
+        return self._is_two_player_mode
     
     def get_pending_response(self):
         """Get and clear the pending emulator response.
