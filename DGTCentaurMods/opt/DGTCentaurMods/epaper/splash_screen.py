@@ -104,10 +104,22 @@ class SplashScreen(Widget):
             # Ensure it's in mode '1'
             if self._logo.mode != '1':
                 self._logo = self._logo.convert('1')
+            
+            # Create mask where black pixels (knight) are opaque, white is transparent
+            # In mode '1': 0=black, 255=white
+            # For mask: 255=opaque, 0=transparent
+            self._logo_mask = Image.new("1", self._logo.size, 0)
+            logo_pixels = self._logo.load()
+            mask_pixels = self._logo_mask.load()
+            for y in range(self._logo.height):
+                for x in range(self._logo.width):
+                    if logo_pixels[x, y] == 0:  # Black pixel in logo
+                        mask_pixels[x, y] = 255  # Opaque in mask
         except Exception as e:
             log.error(f"Failed to load knight logo: {e}")
             # Create a simple placeholder
             self._logo = Image.new("1", (self.LOGO_SIZE, self.LOGO_SIZE), 255)
+            self._logo_mask = None
         
         # Load fonts for "UNIVERSAL" text
         try:
@@ -124,9 +136,12 @@ class SplashScreen(Widget):
         img = self.create_background_image()
         draw = ImageDraw.Draw(img)
         
-        # Draw knight logo centered horizontally
+        # Draw knight logo centered horizontally with transparency
         logo_x = (self.width - self.LOGO_SIZE) // 2
-        img.paste(self._logo, (logo_x, self.LOGO_Y))
+        if self._logo_mask:
+            img.paste(self._logo, (logo_x, self.LOGO_Y), self._logo_mask)
+        else:
+            img.paste(self._logo, (logo_x, self.LOGO_Y))
         
         # Draw "UNIVERSAL" text centered with larger font
         universal_text = "UNIVERSAL"

@@ -547,7 +547,18 @@ class IconButtonWidget(Widget):
             if logo.mode != '1':
                 logo = logo.convert('1')
             
-            # If selected, invert the image
+            # Create mask where black pixels are opaque, white is transparent
+            # In mode '1': 0=black, 255=white
+            # For mask: 255=opaque, 0=transparent
+            mask = Image.new("1", logo.size, 0)
+            logo_pixels = logo.load()
+            mask_pixels = mask.load()
+            for py in range(logo.height):
+                for px in range(logo.width):
+                    if logo_pixels[px, py] == 0:  # Black pixel
+                        mask_pixels[px, py] = 255  # Opaque
+            
+            # If selected, invert the logo (but keep mask the same)
             if selected:
                 logo = Image.eval(logo, lambda p: 255 - p)
             
@@ -555,10 +566,9 @@ class IconButtonWidget(Widget):
             paste_x = x - size // 2
             paste_y = y - size // 2
             
-            # Get the underlying image from the draw object and paste
-            # We need to access the image that the draw object is drawing on
+            # Get the underlying image from the draw object and paste with mask
             target_img = draw._image
-            target_img.paste(logo, (paste_x, paste_y))
+            target_img.paste(logo, (paste_x, paste_y), mask)
             
         except Exception as e:
             # Fallback to simple knight icon if bitmap not available
