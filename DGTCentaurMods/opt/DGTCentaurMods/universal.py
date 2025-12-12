@@ -1070,7 +1070,8 @@ def _handle_positions_menu() -> bool:
             label=f"{display_name}\n({count})",
             icon_name="positions",
             enabled=True,
-            font_size=14
+            font_size=14,
+            height_ratio=1.5  # Taller buttons for two lines of text
         ))
     
     category_result = _show_menu(category_entries)
@@ -1085,17 +1086,31 @@ def _handle_positions_menu() -> bool:
     
     position_entries = []
     for name, fen in positions[category].items():
-        # Format name for display
+        # Format name for display - allow two lines of text
         display_name = name.replace('_', ' ').title()
-        # Truncate if too long
-        if len(display_name) > 16:
-            display_name = display_name[:14] + ".."
+        # Allow longer names with wrapping instead of truncation
+        # Insert line break at a reasonable point for long names
+        if len(display_name) > 14:
+            # Try to break at a space near the middle
+            words = display_name.split()
+            if len(words) >= 2:
+                # Find best split point
+                mid = len(display_name) // 2
+                best_pos = 0
+                current_pos = 0
+                for i, word in enumerate(words[:-1]):
+                    current_pos += len(word) + 1  # +1 for space
+                    if abs(current_pos - mid) < abs(best_pos - mid):
+                        best_pos = current_pos
+                if best_pos > 0:
+                    display_name = display_name[:best_pos-1] + '\n' + display_name[best_pos:]
         position_entries.append(IconMenuEntry(
             key=name,
             label=display_name,
             icon_name="positions",
             enabled=True,
-            font_size=13
+            font_size=14,
+            height_ratio=1.5  # Taller buttons for two lines of text
         ))
     
     position_result = _show_menu(position_entries)
