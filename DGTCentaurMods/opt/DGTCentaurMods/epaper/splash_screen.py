@@ -90,10 +90,23 @@ class SplashScreen(Widget):
         try:
             full_logo = Image.open(AssetManager.get_resource_path("logo_mods_screen.jpg"))
             # Crop to remove the "MODS" text at the bottom
-            self._logo = full_logo.crop((0, 0, full_logo.width, self.LOGO_CROP_HEIGHT))
+            cropped = full_logo.crop((0, 0, full_logo.width, self.LOGO_CROP_HEIGHT))
+            # Convert to 1-bit for consistent processing
+            self._logo = cropped.convert("1")
+            # Create mask where non-white pixels are opaque (white in mask)
+            # and white pixels are transparent (black in mask)
+            self._logo_mask = Image.new("1", self._logo.size, 0)
+            logo_pixels = self._logo.load()
+            mask_pixels = self._logo_mask.load()
+            for y in range(self._logo.height):
+                for x in range(self._logo.width):
+                    # If pixel is not white (i.e., it's part of the logo), make it opaque in mask
+                    if logo_pixels[x, y] == 0:  # Black pixel in logo
+                        mask_pixels[x, y] = 255  # Opaque in mask
         except Exception as e:
             log.error(f"Failed to load splash screen logo: {e}")
             self._logo = Image.new("1", (128, self.LOGO_CROP_HEIGHT), 255)
+            self._logo_mask = None
         
         # Load font for "UNIVERSAL" text
         try:
@@ -108,8 +121,11 @@ class SplashScreen(Widget):
         img = self.create_background_image()
         draw = ImageDraw.Draw(img)
         
-        # Draw cropped logo (without "MODS")
-        img.paste(self._logo, (0, 0))
+        # Draw cropped logo with transparency (white pixels are transparent)
+        if self._logo_mask:
+            img.paste(self._logo, (0, 0), self._logo_mask)
+        else:
+            img.paste(self._logo, (0, 0))
         
         # Draw "UNIVERSAL" text centered
         universal_text = "UNIVERSAL"
