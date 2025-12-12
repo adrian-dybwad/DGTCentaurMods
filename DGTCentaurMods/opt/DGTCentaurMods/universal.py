@@ -344,7 +344,7 @@ def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEnt
         icon_name="universal",
         enabled=True,
         height_ratio=2.0,
-        icon_size=56,
+        icon_size=72,
         layout="vertical",
         font_size=20  # Larger text for prominent button
     ))

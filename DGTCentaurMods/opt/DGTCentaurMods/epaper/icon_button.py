@@ -492,26 +492,56 @@ class IconButtonWidget(Widget):
         """Draw a gear/cog icon.
         
         All drawing stays within the icon bounds (x-half to x+half, y-half to y+half).
+        Uses proper proportions with a solid gear body and rectangular teeth.
         """
+        s = size / 36.0  # Scale factor
         half = size // 2
-        # Teeth extend to edge, so shrink outer circle to leave room for teeth
-        tooth_len = max(3, half // 6)  # Scale tooth length with size
-        outer_r = half - tooth_len - 1  # Leave room for teeth within bounds
-        inner_r = outer_r // 2
         
-        draw.ellipse([x - outer_r, y - outer_r, x + outer_r, y + outer_r],
-                    outline=line_color, width=2)
-        draw.ellipse([x - inner_r, y - inner_r, x + inner_r, y + inner_r],
-                    outline=line_color, width=2)
+        # Gear body - solid circle with smaller hole
+        body_r = int(10 * s)  # Main gear body radius
+        hole_r = int(4 * s)   # Center hole radius
         
-        # Gear teeth - extend from outer circle to edge of icon bounds
-        for i in range(8):
-            angle = i * (360 / 8) * (math.pi / 180)
-            ix = x + int(outer_r * math.cos(angle))
-            iy = y + int(outer_r * math.sin(angle))
-            ox = x + int((half - 1) * math.cos(angle))
-            oy = y + int((half - 1) * math.sin(angle))
-            draw.line([(ix, iy), (ox, oy)], fill=line_color, width=2)
+        # Draw solid gear body
+        draw.ellipse([x - body_r, y - body_r, x + body_r, y + body_r],
+                    fill=line_color, outline=line_color)
+        
+        # Draw teeth as rectangles extending from body
+        num_teeth = 8
+        tooth_width = max(2, int(4 * s))
+        tooth_height = max(2, int(5 * s))
+        
+        for i in range(num_teeth):
+            angle = i * (360 / num_teeth) * (math.pi / 180)
+            # Tooth center position at edge of body
+            tooth_cx = x + int((body_r + tooth_height // 2) * math.cos(angle))
+            tooth_cy = y + int((body_r + tooth_height // 2) * math.sin(angle))
+            
+            # Draw tooth as a small rectangle (approximated with polygon for rotation)
+            # Calculate perpendicular direction for tooth width
+            perp_angle = angle + math.pi / 2
+            hw = tooth_width // 2
+            hh = tooth_height // 2
+            
+            # Four corners of rotated rectangle
+            cos_a, sin_a = math.cos(angle), math.sin(angle)
+            cos_p, sin_p = math.cos(perp_angle), math.sin(perp_angle)
+            
+            tooth_points = [
+                (tooth_cx + int(-hh * cos_a + hw * cos_p), 
+                 tooth_cy + int(-hh * sin_a + hw * sin_p)),
+                (tooth_cx + int(hh * cos_a + hw * cos_p), 
+                 tooth_cy + int(hh * sin_a + hw * sin_p)),
+                (tooth_cx + int(hh * cos_a - hw * cos_p), 
+                 tooth_cy + int(hh * sin_a - hw * sin_p)),
+                (tooth_cx + int(-hh * cos_a - hw * cos_p), 
+                 tooth_cy + int(-hh * sin_a - hw * sin_p)),
+            ]
+            draw.polygon(tooth_points, fill=line_color, outline=line_color)
+        
+        # Draw center hole (contrasting color)
+        hole_color = 255 if line_color == 0 else 0
+        draw.ellipse([x - hole_r, y - hole_r, x + hole_r, y + hole_r],
+                    fill=hole_color, outline=hole_color)
     
     def _draw_resign_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                           size: int, line_color: int):
