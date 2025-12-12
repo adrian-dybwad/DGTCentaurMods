@@ -787,9 +787,16 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     engine_name = _game_settings['engine']
     engine_elo = _game_settings['elo']
     player_color_setting = _game_settings['player_color']
+    
+    # Check if this is 2-player mode (no engine opponent)
+    is_two_player = player_color_setting == "2player"
 
     # Determine player color for standalone engine
-    if player_color_setting == "random":
+    if is_two_player:
+        # In 2-player mode, human plays both sides, no engine opponent
+        player_color = chess.WHITE  # Doesn't matter, engine won't play
+        log.info("[App] 2-player mode: no engine opponent")
+    elif player_color_setting == "random":
         player_color = chess.WHITE if random.randint(0, 1) == 0 else chess.BLACK
         log.info(f"[App] Random color selected: {'white' if player_color == chess.WHITE else 'black'}")
     else:
@@ -850,17 +857,18 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
 
     # Create GameHandler with user-configured settings
     # Note: Key and field events are routed through universal.py's callbacks
+    # In 2-player mode, don't pass an engine name so no engine opponent is used
     game_handler = GameHandler(
         sendMessage_callback=sendMessage,
         client_type=None,
         compare_mode=relay_mode,
-        standalone_engine_name=engine_name,
+        standalone_engine_name=None if is_two_player else engine_name,
         player_color=player_color,
         engine_elo=engine_elo,
         display_update_callback=update_display,
         save_to_database=save_to_database
     )
-    log.info(f"[App] GameHandler created: engine={engine_name}, elo={engine_elo}, color={player_color_setting}, save_to_db={save_to_database}")
+    log.info(f"[App] GameHandler created: engine={None if is_two_player else engine_name}, elo={engine_elo}, color={player_color_setting}, save_to_db={save_to_database}")
     
     # Wire up GameManager callbacks to DisplayManager
     game_handler.game_manager.on_promotion_needed = display_manager.show_promotion_menu
@@ -1033,10 +1041,16 @@ def _handle_settings():
                     icon_name="random",
                     enabled=True
                 ),
+                IconMenuEntry(
+                    key="2player",
+                    label="* 2 Player" if _game_settings['player_color'] == '2player' else "2 Player",
+                    icon_name="universal_logo",
+                    enabled=True
+                ),
             ]
             
             color_result = _show_menu(color_entries)
-            if color_result in ["white", "black", "random"]:
+            if color_result in ["white", "black", "random", "2player"]:
                 old_color = _game_settings['player_color']
                 _save_game_setting('player_color', color_result)
                 log.info(f"[Settings] Player color changed: {old_color} -> {color_result}")
