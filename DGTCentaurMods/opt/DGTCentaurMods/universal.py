@@ -929,10 +929,34 @@ def _handle_wifi_settings():
             status_label = "Status\nNot connected"
         
         wifi_entries = [
-            IconMenuEntry(key="Status", label=status_label, icon_name="wifi", enabled=False),
-            IconMenuEntry(key="Scan", label="Scan\nNetworks", icon_name="wifi", enabled=True),
-            IconMenuEntry(key="Enable", label="Enable", icon_name="wifi", enabled=True),
-            IconMenuEntry(key="Disable", label="Disable", icon_name="cancel", enabled=True),
+            IconMenuEntry(
+                key="Scan", 
+                label="Scan Networks", 
+                icon_name="wifi", 
+                enabled=True,
+                height_ratio=2.0,
+                icon_size=48,
+                layout="vertical",
+                font_size=18
+            ),
+            IconMenuEntry(
+                key="Enable", 
+                label="Enable", 
+                icon_name="wifi", 
+                enabled=True,
+                height_ratio=0.67,
+                layout="horizontal",
+                font_size=14
+            ),
+            IconMenuEntry(
+                key="Disable", 
+                label="Disable", 
+                icon_name="cancel", 
+                enabled=True,
+                height_ratio=0.67,
+                layout="horizontal",
+                font_size=14
+            ),
         ]
         
         wifi_result = _show_menu(wifi_entries)
@@ -994,7 +1018,7 @@ def _handle_wifi_scan():
         label = f"{ssid_display}\n{signal}%"
 
         network_entries.append(
-            IconMenuEntry(key=net['ssid'], label=label, icon_name=icon_name, enabled=True)
+            IconMenuEntry(key=net['ssid'], label=label, icon_name=icon_name, enabled=True, font_size=14)
         )
         log.debug(f"[WiFi] Added network entry: {net['ssid']} ({signal}%)")
 
