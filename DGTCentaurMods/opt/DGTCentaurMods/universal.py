@@ -346,7 +346,8 @@ def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEnt
         height_ratio=2.0,
         icon_size=72,
         layout="vertical",
-        font_size=32  # Larger text for prominent button
+        font_size=32,  # Larger text for prominent button
+        bold=True
     ))
     
     # Settings in middle - standard height, horizontal layout

@@ -45,6 +45,7 @@ class IconMenuEntry:
         icon_size: Custom icon size in pixels (None uses default based on button height)
         layout: Button layout - 'horizontal' (icon left) or 'vertical' (icon top centered)
         font_size: Font size in pixels (default 16)
+        bold: Whether to render text in bold (default False)
     """
     key: str
     label: str
@@ -54,6 +55,7 @@ class IconMenuEntry:
     icon_size: int = None
     layout: str = "horizontal"
     font_size: int = 16
+    bold: bool = False
 
 
 class IconMenuWidget(Widget):
@@ -215,7 +217,8 @@ class IconMenuWidget(Widget):
                 margin=self.button_margin,
                 icon_size=icon_size,
                 layout=entry.layout,
-                font_size=entry.font_size
+                font_size=entry.font_size,
+                bold=entry.bold
             )
             self._buttons.append(button)
             current_y += button_height
@@ -417,12 +420,12 @@ class IconMenuWidget(Widget):
 
 def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
     """Helper to create IconMenuEntry list from config dictionaries.
-    
+
     Args:
-        entries_config: List of dicts with 'key', 'label', 'icon_name', 
+        entries_config: List of dicts with 'key', 'label', 'icon_name',
                        and optional 'enabled', 'height_ratio', 'icon_size',
-                       'layout', 'font_size'
-        
+                       'layout', 'font_size', 'bold'
+
     Returns:
         List of IconMenuEntry objects
     """
@@ -435,7 +438,8 @@ def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
             height_ratio=e.get('height_ratio', 1.0),
             icon_size=e.get('icon_size', None),
             layout=e.get('layout', 'horizontal'),
-            font_size=e.get('font_size', 16)
+            font_size=e.get('font_size', 16),
+            bold=e.get('bold', False)
         )
         for e in entries_config
     ]

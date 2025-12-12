@@ -52,7 +52,8 @@ class IconButtonWidget(Widget):
                  selected_shade: int = 12,
                  background_shade: int = 0,
                  layout: str = "horizontal",
-                 font_size: int = 16):
+                 font_size: int = 16,
+                 bold: bool = False):
         """Initialize icon button widget.
         
         Args:
@@ -75,6 +76,7 @@ class IconButtonWidget(Widget):
             layout: Layout mode - 'horizontal' (icon left, text right) or 
                    'vertical' (icon top centered, text bottom centered)
             font_size: Font size in pixels (default 16)
+            bold: Whether to render text in bold (simulated via multi-draw)
         """
         super().__init__(x, y, width, height, background_shade=background_shade)
         self.key = key
@@ -90,6 +92,7 @@ class IconButtonWidget(Widget):
         self.selected_shade = max(0, min(16, selected_shade))
         self.layout = layout
         self.font_size = font_size
+        self.bold = bold
         
         # Load font
         self._font = None
@@ -108,6 +111,25 @@ class IconButtonWidget(Widget):
         except Exception as e:
             log.error(f"Failed to load font: {e}")
             self._font = ImageFont.load_default()
+    
+    def _draw_text(self, draw: ImageDraw.Draw, xy: tuple, text: str, fill: int):
+        """Draw text with optional bold effect.
+        
+        Simulates bold by drawing text multiple times with 1-pixel offsets.
+        
+        Args:
+            draw: ImageDraw object
+            xy: (x, y) position for text
+            text: Text string to draw
+            fill: Color value (0 or 255)
+        """
+        x, y = xy
+        if self.bold:
+            # Draw text multiple times with slight offsets to simulate bold
+            draw.text((x, y), text, font=self._font, fill=fill)
+            draw.text((x + 1, y), text, font=self._font, fill=fill)
+        else:
+            draw.text((x, y), text, font=self._font, fill=fill)
     
     def set_selected(self, selected: bool) -> None:
         """Set the selection state.
@@ -250,7 +272,7 @@ class IconButtonWidget(Widget):
             text_width = bbox[2] - bbox[0]
             text_x = content_left + (content_width - text_width) // 2
             text_y = text_start_y + i * line_height
-            draw.text((text_x, text_y), line, font=self._font, fill=text_color)
+            self._draw_text(draw, (text_x, text_y), line, text_color)
     
     def _render_horizontal_layout(self, draw: ImageDraw.Draw,
                                    inside_left: int, inside_top: int,
@@ -288,12 +310,12 @@ class IconButtonWidget(Widget):
             total_text_height = len(lines) * line_height
             text_y = content_top + (content_height - total_text_height) // 2
             for line in lines:
-                draw.text((text_x, text_y), line, font=self._font, fill=text_color)
+                self._draw_text(draw, (text_x, text_y), line, text_color)
                 text_y += line_height
         else:
             # Single line: center vertically in content area
             text_y = content_top + (content_height - self.label_height) // 2
-            draw.text((text_x, text_y), self.label, font=self._font, fill=text_color)
+            self._draw_text(draw, (text_x, text_y), self.label, text_color)
     
     def get_mask(self):
         """Get mask for transparent margin.
