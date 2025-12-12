@@ -17,113 +17,46 @@ except ImportError:
     log = logging.getLogger(__name__)
 
 
-# Dither patterns for different gray levels (0=white, 16=black)
-# Each pattern is a 4x4 matrix of 0s (white) and 1s (black)
-# Based on ordered dithering (Bayer matrix)
-DITHER_PATTERNS = {
-    0: [  # White (0%)
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-    ],
-    1: [  # 6.25%
-        [1, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 0, 0],
-    ],
-    2: [  # 12.5%
-        [1, 0, 0, 0],
-        [0, 0, 0, 0],
-        [0, 0, 1, 0],
-        [0, 0, 0, 0],
-    ],
-    3: [  # 18.75%
-        [1, 0, 1, 0],
-        [0, 0, 0, 0],
-        [0, 0, 1, 0],
-        [0, 0, 0, 0],
-    ],
-    4: [  # 25%
-        [1, 0, 1, 0],
-        [0, 0, 0, 0],
-        [1, 0, 1, 0],
-        [0, 0, 0, 0],
-    ],
-    5: [  # 31.25%
-        [1, 0, 1, 0],
-        [0, 1, 0, 0],
-        [1, 0, 1, 0],
-        [0, 0, 0, 0],
-    ],
-    6: [  # 37.5%
-        [1, 0, 1, 0],
-        [0, 1, 0, 0],
-        [1, 0, 1, 0],
-        [0, 0, 0, 1],
-    ],
-    7: [  # 43.75%
-        [1, 0, 1, 0],
-        [0, 1, 0, 1],
-        [1, 0, 1, 0],
-        [0, 0, 0, 1],
-    ],
-    8: [  # 50%
-        [1, 0, 1, 0],
-        [0, 1, 0, 1],
-        [1, 0, 1, 0],
-        [0, 1, 0, 1],
-    ],
-    9: [  # 56.25%
-        [1, 0, 1, 0],
-        [0, 1, 0, 1],
-        [1, 0, 1, 0],
-        [1, 1, 0, 1],
-    ],
-    10: [  # 62.5%
-        [1, 0, 1, 0],
-        [0, 1, 0, 1],
-        [1, 1, 1, 0],
-        [1, 1, 0, 1],
-    ],
-    11: [  # 68.75%
-        [1, 0, 1, 0],
-        [0, 1, 1, 1],
-        [1, 1, 1, 0],
-        [1, 1, 0, 1],
-    ],
-    12: [  # 75%
-        [1, 0, 1, 0],
-        [0, 1, 1, 1],
-        [1, 0, 1, 1],
-        [1, 1, 1, 1],
-    ],
-    13: [  # 81.25%
-        [1, 0, 1, 1],
-        [1, 1, 1, 1],
-        [1, 0, 1, 1],
-        [1, 1, 1, 1],
-    ],
-    14: [  # 87.5%
-        [1, 1, 1, 1],
-        [1, 1, 1, 1],
-        [1, 0, 1, 1],
-        [1, 1, 1, 1],
-    ],
-    15: [  # 93.75%
-        [1, 1, 1, 1],
-        [1, 1, 1, 1],
-        [1, 1, 1, 1],
-        [1, 1, 0, 1],
-    ],
-    16: [  # Black (100%)
-        [1, 1, 1, 1],
-        [1, 1, 1, 1],
-        [1, 1, 1, 1],
-        [1, 1, 1, 1],
-    ],
-}
+# 8x8 Bayer matrix for ordered dithering threshold values (0-63)
+# This provides smoother gradients than 4x4 and less obvious tiling patterns
+_BAYER_8x8 = [
+    [ 0, 32,  8, 40,  2, 34, 10, 42],
+    [48, 16, 56, 24, 50, 18, 58, 26],
+    [12, 44,  4, 36, 14, 46,  6, 38],
+    [60, 28, 52, 20, 62, 30, 54, 22],
+    [ 3, 35, 11, 43,  1, 33,  9, 41],
+    [51, 19, 59, 27, 49, 17, 57, 25],
+    [15, 47,  7, 39, 13, 45,  5, 37],
+    [63, 31, 55, 23, 61, 29, 53, 21],
+]
+
+
+def _generate_dither_pattern(shade: int) -> list:
+    """Generate an 8x8 dither pattern for a given shade level.
+    
+    Args:
+        shade: Shade level 0-16 (0=white, 16=black)
+        
+    Returns:
+        8x8 list of 0s (white) and 1s (black)
+    """
+    # Map shade 0-16 to threshold 0-64
+    # shade 0 = threshold 0 (all white)
+    # shade 16 = threshold 64 (all black)
+    threshold = shade * 4  # 0, 4, 8, 12, ... 64
+    
+    pattern = []
+    for row in _BAYER_8x8:
+        pattern_row = []
+        for val in row:
+            # Pixel is black if Bayer value is less than threshold
+            pattern_row.append(1 if val < threshold else 0)
+        pattern.append(pattern_row)
+    return pattern
+
+
+# Pre-generate patterns for shade levels 0-16
+DITHER_PATTERNS = {shade: _generate_dither_pattern(shade) for shade in range(17)}
 
 
 class Widget(ABC):
@@ -235,6 +168,9 @@ class Widget(ABC):
         Image.new("1", (self.width, self.height), 255) to get a dithered
         background based on background_shade.
         
+        Uses an 8x8 Bayer matrix for ordered dithering, which provides
+        smoother gradients and less obvious tiling than 4x4 patterns.
+        
         Returns:
             A new 1-bit image with the dithered background pattern applied.
         """
@@ -246,9 +182,9 @@ class Widget(ABC):
         pattern = DITHER_PATTERNS.get(self._background_shade, DITHER_PATTERNS[0])
         pixels = img.load()
         for y in range(self.height):
-            pattern_row = pattern[y % 4]
+            pattern_row = pattern[y % 8]
             for x in range(self.width):
-                if pattern_row[x % 4] == 1:
+                if pattern_row[x % 8] == 1:
                     pixels[x, y] = 0  # Black pixel
         
         return img

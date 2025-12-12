@@ -100,15 +100,15 @@ class MenuWidget(Widget):
         
         All positions are relative to the MenuWidget's position (self.x, self.y).
         """
-        # Create title widget if present
+        # Create title widget if present (transparent to inherit menu background)
         if self.title:
             title_text = f"[ {self.title} ]"
             # Title is positioned above body_top, relative to widget
             title_top = self.body_top - TITLE_HEIGHT
             self._title_widget = TextWidget(0, title_top, self.width, TITLE_HEIGHT, title_text,
-                                           background=3, font_size=18)
+                                           font_size=18)
         
-        # Create entry widgets
+        # Create entry widgets (transparent to inherit menu background)
         text_x = self.arrow_width + 4
         text_width = self.width - text_x
         self._entry_widgets = []
@@ -116,7 +116,7 @@ class MenuWidget(Widget):
             # Position relative to widget
             top = self.body_top + (idx * self.row_height)
             entry_widget = TextWidget(text_x, top, text_width, self.row_height, entry.label,
-                                     background=0, font_size=16)
+                                     font_size=16)
             self._entry_widgets.append(entry_widget)
         
         # Create arrow widget
@@ -177,30 +177,35 @@ class MenuWidget(Widget):
         """Render the complete menu including title, entries, arrow, and description."""
         img = self.create_background_image()
         
+        # Helper to paste widget with mask support for transparency
+        def paste_widget(widget):
+            widget_img = widget.render()
+            mask = widget.get_mask()
+            if mask:
+                img.paste(widget_img, (widget.x, widget.y), mask)
+            else:
+                img.paste(widget_img, (widget.x, widget.y))
+        
         # Render title widget if present (positions are already relative to widget)
         if self._title_widget:
-            title_img = self._title_widget.render()
-            img.paste(title_img, (self._title_widget.x, self._title_widget.y))
+            paste_widget(self._title_widget)
         
         # Render entry widgets (positions are already relative to widget)
         for entry_widget in self._entry_widgets:
-            entry_img = entry_widget.render()
-            img.paste(entry_img, (entry_widget.x, entry_widget.y))
+            paste_widget(entry_widget)
         
         # Render arrow widget (positions are already relative to widget)
         if self._arrow_widget:
-            arrow_img = self._arrow_widget.render()
-            img.paste(arrow_img, (self._arrow_widget.x, self._arrow_widget.y))
+            paste_widget(self._arrow_widget)
         
-        # Create description widget
+        # Create description widget (transparent by default)
         desc_top = self.body_top + (len(self.entries) * self.row_height) + DESCRIPTION_GAP
         desc_width = self.width - 10  # Leave 5px margin on each side
         initial_desc = self._get_description_for_index(self.selected_index)
         if initial_desc:
             _description_widget = TextWidget(5, desc_top, desc_width, 150, initial_desc,
-                                                  background=0, font_size=14, wrapText=True)
-            desc_img = _description_widget.render()
-            img.paste(desc_img, (_description_widget.x, _description_widget.y))
+                                                  font_size=14, wrapText=True)
+            paste_widget(_description_widget)
         
         return img
     

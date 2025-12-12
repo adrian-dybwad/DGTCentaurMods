@@ -29,8 +29,9 @@ class TextWidget(Widget):
     """Text display widget with configurable background dithering, text wrapping, and justification."""
     
     def __init__(self, x: int, y: int, width: int, height: int, text: str = "", 
-                 background: int = 0, font_size: int = 12, font_path: str = None,
-                 wrapText: bool = False, justify: Justify = Justify.LEFT):
+                 background: int = -1, font_size: int = 12, font_path: str = None,
+                 wrapText: bool = False, justify: Justify = Justify.LEFT,
+                 transparent: bool = True):
         """
         Initialize text widget.
         
@@ -40,7 +41,8 @@ class TextWidget(Widget):
             width: Widget width
             height: Widget height
             text: Text to display
-            background: Background dithering level (0-5)
+            background: Background dithering level (-1 to 5)
+                -1 = transparent (default, inherits parent background)
                 0 = no background (white)
                 1 = very light dither (~17% black)
                 2 = light dither (~33% black)
@@ -51,15 +53,23 @@ class TextWidget(Widget):
             font_path: Optional path to font file (defaults to Font.ttc if None)
             wrapText: If True, wrap text to fit within widget width and height
             justify: Text justification (Justify.LEFT, Justify.CENTER, or Justify.RIGHT)
+            transparent: If True (default), background is transparent and text appears
+                        over parent widget's pixels. Overrides background=-1.
         """
         super().__init__(x, y, width, height)
         self.text = text
-        self.background = max(0, min(5, background))  # Clamp to 0-5
+        self.transparent = transparent
+        # If transparent is True, force background to -1
+        if transparent:
+            self.background = -1
+        else:
+            self.background = max(-1, min(5, background))
         self.font_size = font_size
         self.font_path = font_path
         self.wrapText = wrapText
         self.justify = justify
         self._font = self._load_font()
+        self._mask = None  # Cached mask image
     
     def _load_font(self):
         """Load font with Font.ttc as default."""
@@ -103,6 +113,7 @@ class TextWidget(Widget):
         if self.text != text:
             self.text = text
             self._last_rendered = None
+            self._mask = None  # Invalidate mask cache
             self.request_update(full=False)
     
     def set_wrap_text(self, wrapText: bool) -> None:
@@ -110,14 +121,37 @@ class TextWidget(Widget):
         if self.wrapText != wrapText:
             self.wrapText = wrapText
             self._last_rendered = None
+            self._mask = None  # Invalidate mask cache
             self.request_update(full=False)
     
     def set_background(self, background: int) -> None:
-        """Set background dithering level (0-5)."""
-        background = max(0, min(5, background))
+        """Set background dithering level (-1 to 5).
+        
+        Args:
+            background: -1 for transparent, 0-5 for dithered backgrounds
+        """
+        background = max(-1, min(5, background))
         if self.background != background:
             self.background = background
+            self.transparent = (background == -1)
             self._last_rendered = None
+            self._mask = None
+            self.request_update(full=False)
+    
+    def set_transparent(self, transparent: bool) -> None:
+        """Set whether the background is transparent.
+        
+        Args:
+            transparent: If True, background is transparent (inherits parent)
+        """
+        if self.transparent != transparent:
+            self.transparent = transparent
+            if transparent:
+                self.background = -1
+            elif self.background == -1:
+                self.background = 0  # Default to white if was transparent
+            self._last_rendered = None
+            self._mask = None
             self.request_update(full=False)
     
     def set_justify(self, justify: Justify) -> None:
@@ -167,11 +201,15 @@ class TextWidget(Widget):
         return 0
     
     def _create_dither_pattern(self) -> Image.Image:
-        """Create dither pattern based on background level."""
+        """Create dither pattern based on background level.
+        
+        For transparent backgrounds (-1), returns a white image since
+        the actual compositing is handled via get_mask().
+        """
         pattern = Image.new("1", (self.width, self.height), 255)
         
-        if self.background == 0:
-            # No background - all white
+        if self.background <= 0:
+            # Transparent (-1) or white (0) - all white
             return pattern
         elif self.background == 5:
             # Solid black
@@ -207,6 +245,52 @@ class TextWidget(Widget):
                     draw.point((x, y), fill=0)
         
         return pattern
+    
+    def get_mask(self):
+        """Get mask for transparent compositing.
+        
+        For transparent TextWidgets, returns a mask where text pixels are
+        white (opaque) and background pixels are black (transparent).
+        This allows the parent widget's background to show through.
+        
+        Returns:
+            Image mask if transparent, None otherwise
+        """
+        if not self.transparent:
+            return None
+        
+        # Create mask where text is white (opaque) and background is black (transparent)
+        # We render the text to determine which pixels should be opaque
+        if self._mask is None:
+            self._mask = self._create_text_mask()
+        return self._mask
+    
+    def _create_text_mask(self) -> Image.Image:
+        """Create a mask image for transparent text compositing.
+        
+        Returns:
+            1-bit image where white=opaque (text), black=transparent (background)
+        """
+        # Start with all black (transparent)
+        mask = Image.new("1", (self.width, self.height), 0)
+        draw = ImageDraw.Draw(mask)
+        
+        if self.wrapText:
+            wrapped_lines = self._wrap_text(self.text, self.width)
+            line_height = self.font_size + 2
+            max_lines = max(1, self.height // line_height)
+            for idx, line in enumerate(wrapped_lines[:max_lines]):
+                y_pos = idx * line_height
+                if y_pos + line_height > self.height:
+                    break
+                x_pos = self._get_x_position(line, draw)
+                # Draw text in white (opaque) on mask
+                draw.text((x_pos, y_pos - 1), line, font=self._font, fill=255)
+        else:
+            x_pos = self._get_x_position(self.text, draw)
+            draw.text((x_pos, -1), self.text, font=self._font, fill=255)
+        
+        return mask
     
     def _wrap_text(self, text: str, max_width: int) -> list:
         """
@@ -259,12 +343,16 @@ class TextWidget(Widget):
         return lines
     
     def render(self) -> Image.Image:
-        """Render text with background and justification."""
+        """Render text with background and justification.
+        
+        For transparent backgrounds, the text is rendered as black on white.
+        The actual transparency is handled by get_mask() during compositing.
+        """
         img = self._create_dither_pattern()
         draw = ImageDraw.Draw(img)
         
         # Determine text color based on background
-        # For backgrounds 0-2, use black text; for 3-5, use white text
+        # For transparent (-1) or backgrounds 0-2, use black text; for 3-5, use white text
         text_fill = 0 if self.background < 3 else 255
         
         if self.wrapText:

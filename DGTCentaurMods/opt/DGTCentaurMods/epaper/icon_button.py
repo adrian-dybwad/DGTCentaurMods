@@ -105,6 +105,8 @@ class IconButtonWidget(Widget):
     def _apply_dither_pattern(self, img: Image.Image, shade: int) -> None:
         """Apply a dither pattern to an image.
         
+        Uses an 8x8 Bayer matrix for smoother gradients.
+        
         Args:
             img: Image to modify in place
             shade: Shade level 0-16 (0=white, 16=black)
@@ -112,9 +114,9 @@ class IconButtonWidget(Widget):
         pattern = DITHER_PATTERNS.get(shade, DITHER_PATTERNS[0])
         pixels = img.load()
         for y in range(img.height):
-            pattern_row = pattern[y % 4]
+            pattern_row = pattern[y % 8]
             for x in range(img.width):
-                if pattern_row[x % 4] == 1:
+                if pattern_row[x % 8] == 1:
                     pixels[x, y] = 0  # Black pixel
     
     def render(self) -> Image.Image:

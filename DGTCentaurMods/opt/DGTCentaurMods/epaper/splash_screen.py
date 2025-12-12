@@ -118,8 +118,12 @@ class SplashScreen(Widget):
         x = (self.width - text_width) // 2
         draw.text((x, self.UNIVERSAL_Y), universal_text, font=self._font, fill=0)
         
-        # Render message widget and paste centered horizontally
+        # Render message widget and paste with mask for transparency
         text_img = self._text_widget.render()
-        img.paste(text_img, (self.TEXT_MARGIN, self.TEXT_Y))
+        text_mask = self._text_widget.get_mask()
+        if text_mask:
+            img.paste(text_img, (self.TEXT_MARGIN, self.TEXT_Y), text_mask)
+        else:
+            img.paste(text_img, (self.TEXT_MARGIN, self.TEXT_Y))
         
         return img
