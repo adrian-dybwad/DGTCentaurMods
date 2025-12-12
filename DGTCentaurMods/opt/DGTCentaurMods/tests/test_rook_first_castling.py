@@ -76,6 +76,7 @@ class MockMoveState:
         # Castling state for rook-first ordering
         self.castling_rook_source = INVALID_SQUARE
         self.castling_rook_placed = False
+        self.late_castling_in_progress = False
     
     def reset(self):
         """Reset all move state variables."""
@@ -87,6 +88,7 @@ class MockMoveState:
         self.source_piece_color = None
         self.castling_rook_source = INVALID_SQUARE
         self.castling_rook_placed = False
+        self.late_castling_in_progress = False
     
     def is_rook_castling_square(self, square: int) -> bool:
         """Check if a square is a rook's starting position for castling."""
@@ -266,17 +268,19 @@ class TestMoveStateCastling(unittest.TestCase):
     def test_reset_clears_castling_state(self):
         """Test that reset() clears castling tracking state.
         
-        Expected: After reset, castling_rook_source is INVALID_SQUARE 
-        and castling_rook_placed is False.
+        Expected: After reset, castling_rook_source is INVALID_SQUARE,
+        castling_rook_placed is False, and late_castling_in_progress is False.
         Failure indicates: Reset is incomplete.
         """
         self.move_state.castling_rook_source = H1
         self.move_state.castling_rook_placed = True
+        self.move_state.late_castling_in_progress = True
         
         self.move_state.reset()
         
         self.assertEqual(self.move_state.castling_rook_source, INVALID_SQUARE)
         self.assertFalse(self.move_state.castling_rook_placed)
+        self.assertFalse(self.move_state.late_castling_in_progress)
 
 
 class TestCastlingConstants(unittest.TestCase):

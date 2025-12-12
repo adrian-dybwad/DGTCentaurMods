@@ -186,6 +186,7 @@ class MoveState:
         # Castling state for rook-first ordering
         self.castling_rook_source = INVALID_SQUARE  # Where rook was lifted from
         self.castling_rook_placed = False  # True if rook has been placed in castling position
+        self.late_castling_in_progress = False  # True when king is lifted for late castling
     
     def reset(self):
         """Reset all move state variables."""
@@ -197,6 +198,7 @@ class MoveState:
         self.source_piece_color = None
         self.castling_rook_source = INVALID_SQUARE
         self.castling_rook_placed = False
+        self.late_castling_in_progress = False
     
     def is_rook_castling_square(self, square: int) -> bool:
         """Check if a square is a rook's starting position for castling."""
@@ -744,6 +746,7 @@ class GameManager:
                 # Track this as a potential late castling
                 self.move_state.source_square = field
                 self.move_state.source_piece_color = piece_color
+                self.move_state.late_castling_in_progress = True  # Suppress board validation
                 # Set legal destinations to include only the castling destination
                 king_dest = None
                 if self.move_state.castling_rook_source == MoveState.WHITE_KINGSIDE_ROOK:
@@ -1492,20 +1495,22 @@ class GameManager:
         
         # Validate physical board matches logical board after move
         # If there's a mismatch, enter correction mode to guide user
-        try:
-            current_physical_state = board.getChessState()
-            expected_logical_state = self._chess_board_to_state(self.chess_board)
-            
-            if current_physical_state is not None and expected_logical_state is not None:
-                if not self._validate_board_state(current_physical_state, expected_logical_state):
-                    log.warning(f"[GameManager._execute_move] Physical board does not match logical board after move {move_uci}, entering correction mode")
-                    self._enter_correction_mode()
-                    self._provide_correction_guidance(current_physical_state, expected_logical_state)
-            else:
-                # Can't validate - log warning but continue
-                log.warning(f"[GameManager._execute_move] Could not validate physical board state (current={current_physical_state is not None}, expected={expected_logical_state is not None})")
-        except Exception as e:
-            log.warning(f"[GameManager._execute_move] Error validating physical board state: {e}")
+        # Skip validation if late castling is in progress (board will be fixed when castling completes)
+        if not self.move_state.late_castling_in_progress:
+            try:
+                current_physical_state = board.getChessState()
+                expected_logical_state = self._chess_board_to_state(self.chess_board)
+                
+                if current_physical_state is not None and expected_logical_state is not None:
+                    if not self._validate_board_state(current_physical_state, expected_logical_state):
+                        log.warning(f"[GameManager._execute_move] Physical board does not match logical board after move {move_uci}, entering correction mode")
+                        self._enter_correction_mode()
+                        self._provide_correction_guidance(current_physical_state, expected_logical_state)
+                else:
+                    # Can't validate - log warning but continue
+                    log.warning(f"[GameManager._execute_move] Could not validate physical board state (current={current_physical_state is not None}, expected={expected_logical_state is not None})")
+            except Exception as e:
+                log.warning(f"[GameManager._execute_move] Error validating physical board state: {e}")
         
         self.move_state.reset()
         
@@ -1568,25 +1573,29 @@ class GameManager:
         log.info(f"[GameManager.receive_field] piece_event={piece_event} field={field} fieldname={field_name} "
                  f"color_at={'White' if piece_color else 'Black'} time_in_seconds={time_in_seconds}")
         
-        # Check for takeback FIRST, before any other processing including correction mode
-        # Takeback detection must work regardless of correction mode state
         is_place = (piece_event == 1)
-        if is_place and len(self.chess_board.move_stack) > 0:
-            is_takeback = self._check_takeback()
-            if is_takeback:
-                # Takeback was successful, reset move state and return
-                # Exit correction mode if active since takeback resolved the issue
-                if self.correction_mode.is_active:
-                    log.info("[GameManager.receive_field] Takeback detected during correction mode, exiting correction mode")
-                    self._exit_correction_mode()
-                self.move_state.reset()
-                board.ledsOff()
-                return
         
-        # Handle correction mode (only if takeback was not detected)
-        if self.correction_mode.is_active:
-            self._handle_field_event_in_correction_mode(piece_event, field, time_in_seconds)
-            return
+        # Skip takeback and correction mode checks if late castling is in progress
+        # During late castling, the board is intentionally in a transitional state
+        if not self.move_state.late_castling_in_progress:
+            # Check for takeback FIRST, before any other processing including correction mode
+            # Takeback detection must work regardless of correction mode state
+            if is_place and len(self.chess_board.move_stack) > 0:
+                is_takeback = self._check_takeback()
+                if is_takeback:
+                    # Takeback was successful, reset move state and return
+                    # Exit correction mode if active since takeback resolved the issue
+                    if self.correction_mode.is_active:
+                        log.info("[GameManager.receive_field] Takeback detected during correction mode, exiting correction mode")
+                        self._exit_correction_mode()
+                    self.move_state.reset()
+                    board.ledsOff()
+                    return
+            
+            # Handle correction mode (only if takeback was not detected)
+            if self.correction_mode.is_active:
+                self._handle_field_event_in_correction_mode(piece_event, field, time_in_seconds)
+                return
         
         # Check for starting position when piece is placed
         # Starting position detection is the mechanism to abandon a game in progress
