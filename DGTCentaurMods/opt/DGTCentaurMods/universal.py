@@ -1049,6 +1049,9 @@ def _handle_positions_menu() -> bool:
     Shows categories of predefined positions, then positions within that category.
     Loads the selected position and starts a game.
     
+    Uses nested loops so that pressing BACK from position details returns to
+    the category menu, and pressing BACK from category menu exits entirely.
+    
     Returns:
         True if a position was loaded (caller should exit settings), False otherwise
     """
@@ -1059,7 +1062,7 @@ def _handle_positions_menu() -> bool:
         board.beep(board.SOUND_WRONG_MOVE)
         return False
     
-    # Show category menu
+    # Build category entries once
     category_entries = []
     for category in positions.keys():
         # Capitalize category name for display
@@ -1074,59 +1077,78 @@ def _handle_positions_menu() -> bool:
             height_ratio=1.5  # Taller buttons for two lines of text
         ))
     
-    category_result = _show_menu(category_entries)
-    
-    if category_result in ["BACK", "SHUTDOWN", "HELP"]:
-        return False
-    
-    # Show positions in selected category
-    category = category_result
-    if category not in positions:
-        return False
-    
-    position_entries = []
-    for name, fen in positions[category].items():
-        # Format name for display - allow two lines of text
-        display_name = name.replace('_', ' ').title()
-        # Allow longer names with wrapping instead of truncation
-        # Insert line break at a reasonable point for long names
-        if len(display_name) > 14:
-            # Try to break at a space near the middle
-            words = display_name.split()
-            if len(words) >= 2:
-                # Find best split point
-                mid = len(display_name) // 2
-                best_pos = 0
-                current_pos = 0
-                for i, word in enumerate(words[:-1]):
-                    current_pos += len(word) + 1  # +1 for space
-                    if abs(current_pos - mid) < abs(best_pos - mid):
-                        best_pos = current_pos
-                if best_pos > 0:
-                    display_name = display_name[:best_pos-1] + '\n' + display_name[best_pos:]
-        position_entries.append(IconMenuEntry(
-            key=name,
-            label=display_name,
-            icon_name="positions",
-            enabled=True,
-            font_size=14,
-            height_ratio=1.5  # Taller buttons for two lines of text
-        ))
-    
-    position_result = _show_menu(position_entries)
-    
-    if position_result in ["BACK", "SHUTDOWN", "HELP"]:
-        return False
-    
-    # Load the selected position
-    if position_result in positions[category]:
-        fen = positions[category][position_result]
-        display_name = position_result.replace('_', ' ').title()
+    # Outer loop for category menu - pressing BACK here exits positions menu
+    while True:
+        category_result = _show_menu(category_entries)
         
-        if _start_from_position(fen, display_name):
-            return True
-    
-    return False
+        if category_result in ["BACK", "SHUTDOWN", "HELP"]:
+            return False
+        
+        # Show positions in selected category
+        category = category_result
+        if category not in positions:
+            continue
+        
+        # Build position entries for selected category
+        position_entries = []
+        for name, fen in positions[category].items():
+            # Format name for display - wrap text at word boundaries
+            display_name = name.replace('_', ' ').title()
+            
+            # Wrap text at ~12 characters per line for readability
+            max_line_width = 12
+            wrapped_lines = []
+            words = display_name.split()
+            current_line = ""
+            
+            for word in words:
+                if not current_line:
+                    current_line = word
+                elif len(current_line) + 1 + len(word) <= max_line_width:
+                    current_line += " " + word
+                else:
+                    wrapped_lines.append(current_line)
+                    current_line = word
+            if current_line:
+                wrapped_lines.append(current_line)
+            
+            wrapped_text = '\n'.join(wrapped_lines)
+            num_lines = len(wrapped_lines)
+            
+            # Adjust height ratio based on number of lines
+            # 1 line = 1.0, 2 lines = 1.5, 3+ lines = 2.0
+            if num_lines <= 1:
+                height_ratio = 1.0
+            elif num_lines == 2:
+                height_ratio = 1.5
+            else:
+                height_ratio = 2.0
+            
+            position_entries.append(IconMenuEntry(
+                key=name,
+                label=wrapped_text,
+                icon_name="positions",
+                enabled=True,
+                font_size=14,
+                height_ratio=height_ratio
+            ))
+        
+        # Inner loop for position details - pressing BACK returns to category menu
+        position_result = _show_menu(position_entries)
+        
+        if position_result in ["BACK", "HELP"]:
+            # Go back to category menu (continue outer loop)
+            continue
+        elif position_result == "SHUTDOWN":
+            return False
+        
+        # Load the selected position
+        if position_result in positions[category]:
+            fen = positions[category][position_result]
+            display_name = position_result.replace('_', ' ').title()
+            
+            if _start_from_position(fen, display_name):
+                return True
 
 
 def _get_current_wifi_status() -> tuple:
