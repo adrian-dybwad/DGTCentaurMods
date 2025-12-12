@@ -1139,9 +1139,9 @@ def _run_centaur():
     
     This hands over control to the Centaur software and exits.
     """
-    # Show loading screen
+    # Show loading screen (full screen, no status bar)
     board.display_manager.clear_widgets(addStatusBar=False)
-    promise = board.display_manager.add_widget(SplashScreen(message="Loading"))
+    promise = board.display_manager.add_widget(SplashScreen(message="Loading", leave_room_for_status_bar=False))
     if promise:
         try:
             promise.result(timeout=10.0)

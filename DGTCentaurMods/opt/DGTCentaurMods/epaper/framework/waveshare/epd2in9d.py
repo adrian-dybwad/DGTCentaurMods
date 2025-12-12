@@ -260,8 +260,8 @@ class EPD:
 
         self.send_data(0)
         self.send_data(0)
-        self.send_data(int(self.height / 256))
-        self.send_data(self.height % 256 - 1)
+        self.send_data((self.height - 1) >> 8)      # High byte of (height - 1)
+        self.send_data((self.height - 1) & 0xFF)    # Low byte of (height - 1)
         self.send_data(0x28)
         
         # Send old/previous content to 0x10
