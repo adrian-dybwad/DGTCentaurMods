@@ -598,6 +598,10 @@ class GameManager:
         Validates physical board against logical board (self.chess_board).
         The logical board is the authority - physical board must conform to it.
         """
+        # Small delay to let the board sensor settle after piece movement
+        # This ensures getChessState() returns the updated state, not stale data
+        time.sleep(0.05)
+        
         current_physical_state = board.getChessState()
         
         # Check if board is in starting position (new game detection)
