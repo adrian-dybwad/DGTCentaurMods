@@ -54,10 +54,6 @@ class Manager:
             self._scheduler.start()
             time.sleep(0.1)
             
-            # Initial full refresh
-            #self._epd.Clear()
-            self._framebuffer.flush_all()
-            
             # Set default background for visual depth
             self.set_background(shade=background_shade)
             

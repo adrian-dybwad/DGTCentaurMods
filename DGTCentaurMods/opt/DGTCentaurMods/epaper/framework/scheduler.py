@@ -8,7 +8,6 @@ import time
 from typing import Optional
 from concurrent.futures import Future
 from PIL import Image
-from .regions import Region, merge_regions, expand_to_byte_alignment
 from .framebuffer import FrameBuffer
 from .waveshare.epd2in9d import EPD
 from .waveshare import epdconfig
@@ -172,7 +171,6 @@ class Scheduler:
             
             buf = self._epd.getbuffer(full_image)
             self._epd.display(buf)
-            self._framebuffer.flush_all()
             self._partial_refresh_count = 0
         except Exception as e:
             # Don't log errors during shutdown (SPI may be closed)
@@ -211,22 +209,10 @@ class Scheduler:
                 self._in_partial_mode = True
                 log.debug(f"Scheduler._execute_partial_refresh_single(): Transition complete, _in_partial_mode is now True")
             
-            # If image was provided, use it directly (captured at render time)
-            # Otherwise, check for dirty regions and take snapshot from framebuffer
+            # Use provided image or take snapshot from framebuffer
             if image is not None:
-                # Use the provided image - this is the exact state when Manager.update() was called
                 display_image = image
             else:
-                # Fallback: check for dirty regions and take snapshot from framebuffer
-                dirty_regions = self._framebuffer.compute_dirty_regions()
-                
-                if not dirty_regions:
-                    # No dirty regions, mark as no-op
-                    if not future.done():
-                        future.set_result("no-op")
-                    return
-                
-                # Get snapshot from framebuffer
                 display_image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
             
             # Final check before continuing (SPI might be closed during shutdown)
@@ -235,13 +221,9 @@ class Scheduler:
                     future.set_result("shutdown")
                 return
             
-            # Get buffer from image
+            # Get buffer from image and display
             buf = self._epd.getbuffer(display_image)
-            
             self._epd.DisplayPartial(buf)
-            
-            # Flush entire framebuffer since DisplayPartial refreshes full screen
-            self._framebuffer.flush_all()
             
             self._partial_refresh_count += 1
         except Exception as e:
