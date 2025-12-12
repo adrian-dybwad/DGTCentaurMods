@@ -1521,7 +1521,14 @@ class GameManager:
         
         paths.write_fen_log(self.chess_board.fen())
         
-        # Always call move callback FIRST to update display with logical board state
+        # Provide immediate audio/visual feedback BEFORE physical board validation
+        # This ensures the player gets instant confirmation that the move was accepted.
+        # Physical board validation (which requires blocking serial I/O) happens afterward.
+        board.ledsOff()
+        board.beep(board.SOUND_GENERAL)
+        board.led(target_square)
+        
+        # Always call move callback to update display with logical board state
         # The display must always reflect self.chess_board (the authority), not the physical board
         if self.move_callback is not None:
             try:
@@ -1561,16 +1568,6 @@ class GameManager:
         if preserve_castling_rook_placed:
             self.move_state.castling_rook_source = preserve_castling_rook_source
             self.move_state.castling_rook_placed = preserve_castling_rook_placed
-        
-        # Only show normal move confirmation LEDs if NOT in correction mode
-        # Correction mode has its own LED guidance that should not be overwritten
-        if not self.correction_mode.is_active:
-            board.ledsOff()
-            board.beep(board.SOUND_GENERAL)
-            board.led(target_square)
-        else:
-            # In correction mode - still beep to acknowledge move was registered
-            board.beep(board.SOUND_GENERAL)
         
         # Check game outcome
         outcome = self.chess_board.outcome(claim_draw=True)
