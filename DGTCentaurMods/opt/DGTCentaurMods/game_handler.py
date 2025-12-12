@@ -84,6 +84,7 @@ class GameHandler:
         self._engine_elo = engine_elo
         self._uci_options = {}
         self._engine_init_thread = None  # Thread for async engine initialization
+        self._engine_thinking = False  # Flag to prevent duplicate engine thinking threads
         
         # Game manager shared by all emulators
         self.game_manager = GameManager(save_to_database=save_to_database)
@@ -585,10 +586,13 @@ class GameHandler:
             log.error(f"[GameHandler] Error resetting engine state: {e}")
     
     def _check_standalone_engine_turn(self):
-        """If no app connected and it's engine's turn, play a move.
+        """If no app connected and it's engine's turn, start engine thinking in background.
         
         This enables standalone play against a chess engine when no app is connected.
         The engine move is displayed via LEDs and the player must execute it on the board.
+        
+        Engine thinking is done in a separate thread to avoid blocking the event callback queue.
+        This ensures piece events (like removing captured pawns) are processed immediately.
         """
         if self.is_app_connected():
             return  # App is connected, don't use standalone engine
@@ -608,27 +612,44 @@ class GameHandler:
         if chess_board.is_game_over():
             return
         
-        log.info(f"[GameHandler] Standalone engine ({self._standalone_engine_name} @ {self._engine_elo}) thinking...")
+        # Check if engine is already thinking (avoid duplicate threads)
+        if hasattr(self, '_engine_thinking') and self._engine_thinking:
+            return
         
-        try:
-            # Re-apply UCI options before each move
-            if self._uci_options:
-                self._standalone_engine.configure(self._uci_options)
-            
-            # Get engine move with time limit
-            result = self._standalone_engine.play(chess_board, chess.engine.Limit(time=5.0))
-            move = result.move
-            
-            if move:
-                log.info(f"[GameHandler] Standalone engine move: {move.uci()}")
-                # Use manager.computer_move to set up the forced move with LEDs
-                # This lights up the from/to squares and waits for player to execute the move
-                self.game_manager.computer_move(move.uci(), forced=True)
-                log.info(f"[GameHandler] Waiting for player to execute move {move.uci()} on board")
-        except Exception as e:
-            log.error(f"[GameHandler] Error getting standalone engine move: {e}")
-            import traceback
-            traceback.print_exc()
+        # Start engine thinking in background thread
+        self._engine_thinking = True
+        
+        def _engine_think():
+            """Background thread for engine thinking."""
+            try:
+                log.info(f"[GameHandler] Standalone engine ({self._standalone_engine_name} @ {self._engine_elo}) thinking...")
+                
+                # Re-apply UCI options before each move
+                if self._uci_options:
+                    self._standalone_engine.configure(self._uci_options)
+                
+                # Copy the board to avoid race conditions
+                board_copy = chess_board.copy()
+                
+                # Get engine move with time limit
+                result = self._standalone_engine.play(board_copy, chess.engine.Limit(time=5.0))
+                move = result.move
+                
+                if move:
+                    log.info(f"[GameHandler] Standalone engine move: {move.uci()}")
+                    # Use manager.computer_move to set up the forced move with LEDs
+                    # This lights up the from/to squares and waits for player to execute the move
+                    self.game_manager.computer_move(move.uci(), forced=True)
+                    log.info(f"[GameHandler] Waiting for player to execute move {move.uci()} on board")
+            except Exception as e:
+                log.error(f"[GameHandler] Error getting standalone engine move: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                self._engine_thinking = False
+        
+        thread = threading.Thread(target=_engine_think, daemon=True)
+        thread.start()
     
     def on_app_connected(self):
         """Called when an app connects - pause standalone engine.
