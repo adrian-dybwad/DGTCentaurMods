@@ -81,7 +81,7 @@ class EPaperDemo:
         """Initialize the ePaper display."""
         print("Initializing ePaper display...")
         self.display = Manager()
-        self.display.init()
+        self.display.initialize()
         print("Display initialized successfully")
     
     def setup_widgets_all(self):
