@@ -814,6 +814,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     analysis_engine_path = str((base_path / "engines/ct800").resolve())
 
     # Create DisplayManager - handles all game widgets (chess board, analysis)
+    # Analysis runs in a background thread so it doesn't block move processing
     display_manager = DisplayManager(
         flip_board=False,
         show_analysis=True,
@@ -825,10 +826,14 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
 
     # Display update callback for GameHandler
     def update_display(fen):
-        """Update display manager with new position."""
+        """Update display manager with new position.
+        
+        Analysis is triggered but runs in a background thread, so it doesn't
+        block move validation or recording.
+        """
         if display_manager:
             display_manager.update_position(fen)
-            # Trigger analysis
+            # Trigger analysis (runs asynchronously in background thread)
             try:
                 board_obj = chess.Board(fen)
                 current_turn = "white" if board_obj.turn == chess.WHITE else "black"
