@@ -561,6 +561,16 @@ class DisplayManager:
         wait_thread = threading.Thread(target=wait_for_result, daemon=True)
         wait_thread.start()
     
+    def cancel_kings_center_menu(self):
+        """Cancel the kings-in-center menu if active (e.g., when pieces are returned to position).
+        
+        This is called by GameManager when the board state is corrected while
+        the menu is showing.
+        """
+        if self._menu_active and self._current_menu:
+            log.info("[DisplayManager] Cancelling kings-in-center menu - pieces returned to position")
+            self._current_menu.cancel_selection("cancel")
+    
     def handle_key(self, key):
         """Route key events to active menu or external callback.
         

@@ -851,6 +851,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         In 2-player mode, result can be 'resign_white' or 'resign_black' to
         indicate which side is resigning.
         """
+        # Reset the kings-in-center menu flag (in case this was triggered by that menu)
+        game_handler.game_manager._kings_in_center_menu_active = False
+        
         if result == "resign":
             game_handler.game_manager.handle_resign()
             _return_to_menu("Resigned")
@@ -931,6 +934,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             _on_back_menu_result,
             is_two_player=game_handler.is_two_player_mode
         )
+        # Cancel callback when pieces are returned to position
+        game_handler.game_manager.on_kings_in_center_cancel = display_manager.cancel_kings_center_menu
     
     # Wire up event callback to handle game events
     from DGTCentaurMods.game_manager import EVENT_NEW_GAME

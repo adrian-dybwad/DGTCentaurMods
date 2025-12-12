@@ -334,9 +334,12 @@ class GameManager:
         # on_promotion_needed(is_white: bool) -> str: Called when promotion piece selection needed
         # on_back_pressed() -> None: Called when BACK pressed during game (show resign/draw menu)
         # on_kings_in_center() -> None: Called when both kings detected in center squares
+        # on_kings_in_center_cancel() -> None: Called when kings-in-center gesture is cancelled (pieces returned)
         self.on_promotion_needed = None
         self.on_back_pressed = None
         self.on_kings_in_center = None
+        self.on_kings_in_center_cancel = None
+        self._kings_in_center_menu_active = False  # Track if the menu is showing
         
         # Thread control
         self.should_stop = False
@@ -718,6 +721,12 @@ class GameManager:
         
         if len(missing_squares) == 0 and len(extra_squares) == 0:
             board.ledsOff()
+            # If kings-in-center menu is active and board is now correct, cancel the menu
+            if self._kings_in_center_menu_active:
+                log.info("[GameManager._provide_correction_guidance] Board corrected while kings-in-center menu active - cancelling menu")
+                self._kings_in_center_menu_active = False
+                if self.on_kings_in_center_cancel:
+                    self.on_kings_in_center_cancel()
             return
         
         # Check for kings-in-center gesture (resign/draw)
@@ -727,6 +736,7 @@ class GameManager:
             self._exit_correction_mode()
             board.ledsOff()
             self.move_state.reset()
+            self._kings_in_center_menu_active = True
             if self.on_kings_in_center:
                 self.on_kings_in_center()
             return
