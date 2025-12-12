@@ -420,12 +420,12 @@ class IconMenuWidget(Widget):
 
 def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
     """Helper to create IconMenuEntry list from config dictionaries.
-
+    
     Args:
         entries_config: List of dicts with 'key', 'label', 'icon_name',
                        and optional 'enabled', 'height_ratio', 'icon_size',
                        'layout', 'font_size', 'bold'
-
+        
     Returns:
         List of IconMenuEntry objects
     """
