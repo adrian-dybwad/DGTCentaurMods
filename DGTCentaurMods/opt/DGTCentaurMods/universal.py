@@ -142,6 +142,7 @@ relay_manager = None  # RelayManager for shadow target connections
 # Menu state
 _active_menu_widget: Optional[IconMenuWidget] = None
 _menu_selection_event = None  # Threading event for menu selection
+_return_to_positions_menu = False  # Flag to signal return to positions menu from game
 
 # Keyboard state (for WiFi password entry etc.)
 _active_keyboard_widget = None
@@ -827,16 +828,17 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     # For position games, back button returns to positions menu
     def _on_position_game_back():
-        """Handle back press for position games - return to positions menu."""
-        global app_state
-        log.info("[App] Position game back pressed - returning to positions menu")
+        """Handle back press for position games - signal return to positions menu.
+        
+        We can't call _handle_positions_menu() directly here because we're inside
+        the key callback chain and _show_menu() would block waiting for key events
+        from the same callback thread. Instead, set a flag and let the main loop handle it.
+        """
+        global app_state, _return_to_positions_menu
+        log.info("[App] Position game back pressed - signaling return to positions menu")
         _cleanup_game()
+        _return_to_positions_menu = True
         app_state = AppState.SETTINGS
-        # Go back to positions menu - if user backs out, they'll be in settings
-        position_result = _handle_positions_menu()
-        if not position_result:
-            # User backed out of positions menu, show settings
-            _handle_settings()
 
     # Create GameHandler with user-configured settings
     # Note: Key and field events are routed through universal.py's callbacks
@@ -1988,7 +1990,7 @@ def main():
     """
     global server_sock, client_sock, client_connected, running, kill
     global mainloop, relay_mode, game_handler, relay_manager, app_state, _args
-    global _pending_piece_events
+    global _pending_piece_events, _return_to_positions_menu
     
     parser = argparse.ArgumentParser(description="DGT Centaur Universal")
     parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
@@ -2343,8 +2345,16 @@ def main():
                 time.sleep(0.5)
             
             elif app_state == AppState.SETTINGS:
-                # Settings handled by _handle_settings loop
-                time.sleep(0.1)
+                # Check if we need to return to positions menu (from position game back)
+                if _return_to_positions_menu:
+                    _return_to_positions_menu = False
+                    position_result = _handle_positions_menu()
+                    if not position_result:
+                        # User backed out of positions menu, show settings
+                        _handle_settings()
+                else:
+                    # Settings handled by _handle_settings loop
+                    time.sleep(0.1)
                 
     except KeyboardInterrupt:
         log.info("[App] Interrupted by Ctrl+C")
