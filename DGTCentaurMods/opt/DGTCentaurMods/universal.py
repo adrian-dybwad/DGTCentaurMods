@@ -1005,7 +1005,7 @@ def _handle_wifi_scan():
     # Create menu entries for networks
     network_entries = []
     for net in networks[:10]:  # Limit to 10 networks
-        # Signal strength determines icon
+        # Signal strength determines icon (icon indicates strength visually)
         signal = net['signal']
         if signal >= 70:
             icon_name = "wifi_strong"
@@ -1014,12 +1014,11 @@ def _handle_wifi_scan():
         else:
             icon_name = "wifi_weak"
 
-        # Truncate SSID if too long
-        ssid_display = net['ssid'][:14] if len(net['ssid']) > 14 else net['ssid']
-        label = f"{ssid_display}\n{signal}%"
+        # Truncate SSID if too long - no signal text, icon shows strength
+        ssid_display = net['ssid'][:18] if len(net['ssid']) > 18 else net['ssid']
 
         network_entries.append(
-            IconMenuEntry(key=net['ssid'], label=label, icon_name=icon_name, enabled=True, font_size=14)
+            IconMenuEntry(key=net['ssid'], label=ssid_display, icon_name=icon_name, enabled=True, font_size=14)
         )
         log.debug(f"[WiFi] Added network entry: {net['ssid']} ({signal}%)")
 
