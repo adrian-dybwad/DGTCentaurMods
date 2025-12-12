@@ -60,7 +60,8 @@ class MenuWidget(Widget):
             register_callback: Optional callback to register this widget as active (called with self)
             unregister_callback: Optional callback to unregister this widget (called with no args)
         """
-        super().__init__(x, y, width, height)
+        # Use light grey dithered background (shade 2 = ~12.5% grey)
+        super().__init__(x, y, width, height, background_shade=2)
         self.title = title or ""
         self.entries: List[MenuEntry] = list(entries)
         self.description = (description or "").strip()
@@ -173,7 +174,7 @@ class MenuWidget(Widget):
     
     def render(self) -> Image.Image:
         """Render the complete menu including title, entries, arrow, and description."""
-        img = Image.new("1", (self.width, self.height), 255)  # White background
+        img = self.create_background_image()
         
         # Render title widget if present (positions are already relative to widget)
         if self._title_widget:

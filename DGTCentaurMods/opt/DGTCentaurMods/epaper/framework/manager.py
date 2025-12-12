@@ -28,6 +28,7 @@ class Manager:
         self._framebuffer = FrameBuffer(self._epd.width, self._epd.height)
         self._scheduler = Scheduler(self._framebuffer, self._epd)
         self._widgets: List[Widget] = []
+        self._background = None  # Optional BackgroundWidget for dithered backgrounds
         self._initialized = False
         self._shutting_down = False
         log.warning(f"Manager.__init__() completed - Manager id: {id(self)}, EPD id: {id(self._epd)}")
@@ -72,6 +73,11 @@ class Manager:
         modal is automatically removed and a warning is logged.
         
         The widget should call request_update() when it's ready to be displayed.
+        
+        Args:
+            widget: The widget to add
+            index: Optional position in the widget stack. If None, widget is added
+                   at the end (top of z-order). Use 0 to add at bottom.
         """
         # If adding a modal widget, check for and remove any existing modal
         if widget.is_modal:
@@ -103,6 +109,64 @@ class Manager:
             log.debug(f"Manager.add_widget() added modal widget {widget.__class__.__name__}")
 
         return self.update(full=False)
+    
+    def add_widget_at(self, widget: Widget, index: int) -> Future:
+        """Add a widget at a specific position in the z-order stack.
+        
+        Widgets are rendered in order, so index 0 is at the bottom (rendered first,
+        may be obscured by others) and higher indices are on top.
+        
+        Args:
+            widget: The widget to add
+            index: Position in the stack. Clamped to valid range.
+        
+        Returns:
+            Future that completes when the display is updated
+        """
+        # If adding a modal widget, check for and remove any existing modal
+        if widget.is_modal:
+            for existing in self._widgets:
+                if existing.is_modal:
+                    log.warning(f"Manager.add_widget_at() replacing existing modal {existing.__class__.__name__} with {widget.__class__.__name__}")
+                    try:
+                        existing.stop()
+                    except Exception as e:
+                        log.debug(f"Error stopping replaced modal widget: {e}")
+                    self._widgets.remove(existing)
+                    break
+        
+        # Pass scheduler and update callback to widget
+        widget.set_scheduler(self._scheduler)
+        widget.set_update_callback(self.update)
+        
+        # Clamp index to valid range and insert
+        index = max(0, min(index, len(self._widgets)))
+        self._widgets.insert(index, widget)
+        
+        if widget.is_modal:
+            log.debug(f"Manager.add_widget_at() added modal widget {widget.__class__.__name__} at index {index}")
+
+        return self.update(full=False)
+    
+    def set_background(self, shade: int = 0) -> None:
+        """Set the background shade level using dithering.
+        
+        Creates or updates a BackgroundWidget that renders a dithered pattern
+        to simulate grayscale on the 1-bit display.
+        
+        Args:
+            shade: Grayscale level 0-16 (0=white, 8=50% gray, 16=black)
+        """
+        from ..background import BackgroundWidget
+        
+        if self._background is None:
+            self._background = BackgroundWidget(self._epd.width, self._epd.height, shade)
+        else:
+            self._background.set_shade(shade)
+    
+    def clear_background(self) -> None:
+        """Clear the background (revert to plain white)."""
+        self._background = None
     
     def remove_widget(self, widget: Widget) -> Future:
         """Remove a widget from the display.
@@ -176,49 +240,31 @@ class Manager:
             future.set_result("not-initialized")
             return future
         
-        # Get canvas and clear it to white - start fresh for each update
-        # The e-paper driver handles its own state, so we just create the complete image
+        # Get canvas and render background
         canvas = self._framebuffer.get_canvas()
-        from PIL import ImageDraw
-        draw = ImageDraw.Draw(canvas)
-        draw.rectangle((0, 0, self._epd.width, self._epd.height), fill=255)  # Fill with white
+        if self._background is not None:
+            # Use dithered background
+            bg_image = self._background.render()
+            canvas.paste(bg_image, (0, 0))
+        else:
+            # Plain white background
+            from PIL import ImageDraw
+            draw = ImageDraw.Draw(canvas)
+            draw.rectangle((0, 0, self._epd.width, self._epd.height), fill=255)
         
-        # Check for modal widget - if present, render only it
+        # Find if there's a modal widget
+        modal_widget = None
         for widget in self._widgets:
             if widget.is_modal and widget.visible:
-                widget_image = widget.render()
-                canvas.paste(widget_image, (widget.x, widget.y))
-                
-                # Capture snapshot and submit refresh
-                snapshot = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
-                return self._scheduler.submit(full=full, image=snapshot)
+                modal_widget = widget
+                break
         
-        # Normal rendering: separate static and moving widgets, skipping invisible widgets
-        static_widgets = []
-        moving_widgets = []
-        
+        # Render all visible non-modal widgets in z-order (first = bottom, last = top)
         for widget in self._widgets:
-            # Skip invisible widgets entirely
             if not widget.visible:
                 continue
-            
-            if hasattr(widget, 'get_previous_region'):
-                # Moving widget (like ball)
-                prev_region = widget.get_previous_region()
-                if prev_region.x1 != widget.x or prev_region.y1 != widget.y:
-                    moving_widgets.append(widget)
-                else:
-                    static_widgets.append(widget)
-            else:
-                static_widgets.append(widget)
-        
-        # Render static widgets
-        for widget in static_widgets:
-            widget_image = widget.render()
-            canvas.paste(widget_image, (widget.x, widget.y))
-        
-        # Render moving widgets last (on top)
-        for widget in moving_widgets:
+            if widget.is_modal:
+                continue  # Modal rendered last, on top
             widget_image = widget.render()
             mask = widget.get_mask()
             if mask:
@@ -226,13 +272,37 @@ class Manager:
             else:
                 canvas.paste(widget_image, (widget.x, widget.y))
         
+        # Render modal widget last (on top of everything)
+        if modal_widget:
+            widget_image = modal_widget.render()
+            mask = modal_widget.get_mask()
+            if mask:
+                canvas.paste(widget_image, (modal_widget.x, modal_widget.y), mask)
+            else:
+                canvas.paste(widget_image, (modal_widget.x, modal_widget.y))
+        
         # CRITICAL: Capture snapshot of framebuffer state at this exact moment
         # This ensures each update request carries its own image state, so rapid
         # updates display all intermediate states, not just the final one
         snapshot = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
         
+        # Write to file for web server (separate process)
+        self._write_epaper_jpg(snapshot)
+        
         # Submit refresh with the captured snapshot and return Future
         return self._scheduler.submit(full=full, image=snapshot)
+    
+    def _write_epaper_jpg(self, image: Image.Image) -> None:
+        """Write the display image to a file for the web server.
+        
+        The web server runs in a separate process and reads this file.
+        Writes are done in a try/except to avoid blocking display updates.
+        """
+        try:
+            from DGTCentaurMods.config import paths
+            paths.write_epaper_static_jpg(image)
+        except Exception as e:
+            log.debug(f"Failed to write epaper.jpg: {e}")
     
     def shutdown(self) -> None:
         """Shutdown the display."""
