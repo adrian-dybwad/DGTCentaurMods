@@ -363,6 +363,8 @@ class IconButtonWidget(Widget):
             self._draw_knight_icon(draw, x, y, size, line_color, selected, face_right=True)
         elif icon_name == "universal":
             self._draw_universal_icon(draw, x, y, size, line_color, selected)
+        elif icon_name == "universal_logo":
+            self._draw_universal_logo(draw, x, y, size, line_color, selected)
         elif icon_name == "settings":
             self._draw_gear_icon(draw, x, y, size, line_color)
         elif icon_name == "resign":
@@ -508,6 +510,107 @@ class IconButtonWidget(Widget):
         """
         # Delegate to the knight icon drawing
         self._draw_knight_icon(draw, x, y, size, line_color, selected)
+    
+    def _draw_universal_logo(self, draw: ImageDraw.Draw, x: int, y: int,
+                             size: int, line_color: int, selected: bool):
+        """Draw the Universal/PLAY logo - a high-fidelity knight from python-chess.
+        
+        This is a larger, more detailed version of the knight specifically for
+        the main PLAY button. Extracted from python-chess SVG with high bezier
+        sampling for smooth curves.
+        
+        Args:
+            draw: ImageDraw object
+            x: Center X position
+            y: Center Y position
+            size: Icon size (width/height)
+            line_color: Stroke/fill color (0=black, 255=white)
+            selected: Whether button is selected (inverts colors)
+        """
+        # Scale factor: SVG viewBox is 45x45
+        s = size / 45.0
+        # Offset to center the icon
+        ox = x - size // 2
+        oy = y - size // 2
+        
+        def pt(px: float, py: float) -> tuple:
+            """Transform SVG coordinate to screen coordinate."""
+            return (ox + int(px * s), oy + int(py * s))
+        
+        # Fill color depends on selection state
+        fill_color = line_color if selected else (255 if line_color == 0 else 0)
+        
+        # Body polygon points (sampled from bezier curves)
+        # Path: M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18
+        body_coords = [
+            (22.0, 10.0), (24.0, 10.3), (26.0, 10.7), (27.7, 11.4),
+            (29.4, 12.2), (30.9, 13.3), (32.3, 14.6), (33.6, 16.1),
+            (34.7, 17.9), (35.6, 20.0), (36.4, 22.4), (37.1, 25.0),
+            (37.5, 28.0), (37.9, 31.3), (38.0, 35.0), (38.0, 39.0),
+            (15.0, 39.0), (15.1, 37.3), (15.5, 35.9), (16.0, 34.8),
+            (16.7, 33.7), (17.5, 32.8), (18.4, 31.9), (19.3, 31.0),
+            (20.2, 30.1), (21.0, 29.1), (21.8, 27.9), (22.5, 26.5),
+            (22.9, 24.9), (23.2, 23.0), (23.2, 20.7), (23.0, 18.0),
+        ]
+        body_points = [pt(c[0], c[1]) for c in body_coords]
+        
+        # Head polygon points (sampled from complex bezier path)
+        head_coords = [
+            (24.00, 18.00), (23.87, 19.16), (23.25, 20.40), (22.28, 21.70),
+            (21.06, 22.98), (19.71, 24.20), (18.34, 25.32), (17.06, 26.26),
+            (16.00, 27.00), (15.01, 27.76), (14.26, 28.52), (13.67, 29.23),
+            (13.19, 29.88), (12.75, 30.41), (12.28, 30.80), (11.72, 31.01),
+            (11.00, 31.00), (10.74, 30.45), (10.85, 29.80), (11.14, 29.13),
+            (11.40, 28.55), (11.42, 28.14), (11.00, 28.00), (10.66, 28.09),
+            (10.56, 28.35), (10.57, 28.71), (10.57, 29.14), (10.42, 29.58),
+            (10.00, 30.00), (9.54, 30.03), (8.95, 30.08), (8.29, 30.05),
+            (7.62, 29.88), (7.00, 29.46), (6.48, 28.73), (6.13, 27.61),
+            (6.00, 26.00), (6.26, 24.91), (6.94, 23.28), (7.90, 21.32),
+            (9.00, 19.25), (10.10, 17.27), (11.06, 15.59), (11.74, 14.43),
+            (12.00, 14.00), (12.14, 13.85), (12.49, 13.45), (12.96, 12.85),
+            (13.43, 12.12), (13.81, 11.31), (14.00, 10.50), (13.71, 10.00),
+            (13.55, 9.50), (13.48, 9.00), (13.47, 8.50), (13.49, 8.00),
+            (13.50, 7.50), (14.07, 7.34), (14.72, 7.70), (15.38, 8.38),
+            (15.94, 9.13), (16.35, 9.75), (16.50, 10.00), (18.50, 10.00),
+            (18.57, 9.85), (18.77, 9.45), (19.11, 8.88), (19.59, 8.23),
+            (20.22, 7.57), (21.00, 7.00), (21.42, 7.22), (21.70, 7.78),
+            (21.88, 8.50), (21.96, 9.22), (22.00, 9.78), (22.00, 10.00),
+        ]
+        head_points = [pt(c[0], c[1]) for c in head_coords]
+        
+        # Draw body (filled with outline)
+        draw.polygon(body_points, fill=fill_color, outline=line_color)
+        
+        # Draw head (filled with outline)
+        draw.polygon(head_points, fill=fill_color, outline=line_color)
+        
+        # Eye: small filled circle at (9, 25.5), radius 0.5
+        eye_color = line_color
+        eye_r = max(1, int(1.5 * s))  # Slightly larger for visibility
+        eye_center = pt(9, 25.5)
+        draw.ellipse([eye_center[0] - eye_r, eye_center[1] - eye_r,
+                     eye_center[0] + eye_r, eye_center[1] + eye_r],
+                    fill=eye_color, outline=eye_color)
+        
+        # Nostril: small ellipse at approximately (14.5, 15.5)
+        # Original is rotated 30 degrees, but we'll approximate with a small filled ellipse
+        nostril_center = pt(14.5, 15.5)
+        nostril_rx = max(1, int(1.0 * s))
+        nostril_ry = max(1, int(2.0 * s))
+        # Draw rotated ellipse approximation using a small polygon
+        nostril_angle = math.radians(30)
+        nostril_points = []
+        for i in range(12):
+            angle = i * (2 * math.pi / 12)
+            # Ellipse point before rotation
+            ex = nostril_rx * math.cos(angle)
+            ey = nostril_ry * math.sin(angle)
+            # Rotate by 30 degrees
+            rx = ex * math.cos(nostril_angle) - ey * math.sin(nostril_angle)
+            ry = ex * math.sin(nostril_angle) + ey * math.cos(nostril_angle)
+            nostril_points.append((nostril_center[0] + int(rx), 
+                                   nostril_center[1] + int(ry)))
+        draw.polygon(nostril_points, fill=eye_color, outline=eye_color)
     
     def _draw_gear_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                         size: int, line_color: int):

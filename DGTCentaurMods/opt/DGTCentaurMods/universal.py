@@ -341,10 +341,10 @@ def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEnt
     entries.append(IconMenuEntry(
         key="Universal",
         label="PLAY",
-        icon_name="universal",
+        icon_name="universal_logo",
         enabled=True,
         height_ratio=2.0,
-        icon_size=72,
+        icon_size=80,
         layout="vertical",
         font_size=32,  # Larger text for prominent button
         bold=True
