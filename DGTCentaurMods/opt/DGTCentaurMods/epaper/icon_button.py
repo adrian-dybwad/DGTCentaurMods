@@ -302,40 +302,75 @@ class IconButtonWidget(Widget):
     
     def _draw_knight_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                           size: int, line_color: int, selected: bool):
-        """Draw a chess knight icon."""
+        """Draw a chess knight icon.
+        
+        Uses path coordinates derived from python-chess (GPL-3.0+) SVG assets.
+        The original SVG viewBox is 45x45, scaled to fit the icon size.
+        Points are sampled from the bezier curves in the original SVG paths.
+        """
         half = size // 2
-        left = x - half
-        top = y - half
-        right = x + half
-        bottom = y + half
-        s = size / 36.0  # Scale factor
+        s = size / 45.0  # Scale factor (python-chess uses 45x45 viewBox)
         
-        # Knight head and neck profile
-        knight_points = [
-            (left + int(4*s), bottom - int(2*s)),
-            (right - int(4*s), bottom - int(2*s)),
-            (right - int(6*s), bottom - int(8*s)),
-            (right - int(4*s), bottom - int(14*s)),
-            (right - int(6*s), top + int(10*s)),
-            (right - int(8*s), top + int(6*s)),
-            (right - int(10*s), top + int(4*s)),
-            (x, top + int(2*s)),
-            (left + int(10*s), top + int(4*s)),
-            (left + int(6*s), top + int(8*s)),
-            (left + int(4*s), top + int(12*s)),
-            (left + int(6*s), top + int(14*s)),
-            (left + int(8*s), y + int(2*s)),
-            (left + int(6*s), bottom - int(10*s)),
-            (left + int(4*s), bottom - int(6*s)),
+        # Offset to center the 45x45 coordinate system in our icon area
+        ox = x - half
+        oy = y - half
+        
+        def pt(px: float, py: float) -> tuple:
+            """Convert python-chess SVG coordinate to icon coordinate."""
+            return (ox + int(px * s), oy + int(py * s))
+        
+        # Body polygon - sampled from bezier curve:
+        # M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18
+        body_points = [
+            pt(22.0, 10.0), pt(24.8, 10.7), pt(27.7, 11.4), pt(30.0, 12.7),
+            pt(32.3, 14.6), pt(34.0, 17.0), pt(35.6, 20.0), pt(36.7, 23.6),
+            pt(37.5, 28.0), pt(37.9, 33.2), pt(38.0, 39.0), pt(15.0, 39.0),
+            pt(15.3, 36.6), pt(16.0, 34.7), pt(17.1, 33.2), pt(18.3, 31.8),
+            pt(19.8, 30.6), pt(21.2, 29.0), pt(22.2, 27.2), pt(22.9, 24.8),
+            pt(23.3, 21.9), pt(23.2, 18.5),
         ]
-        draw.polygon(knight_points, outline=line_color, fill=line_color)
         
-        # Eye (hollow circle for contrast)
-        eye_x = x + int(2*s)
-        eye_y = top + int(10*s)
-        eye_r = int(2*s)
+        # Head polygon - sampled from bezier curve:
+        # M 24,18 C 24.38,20.91 18.45,25.37 16,27 C 13,29 13.18,31.34 11,31
+        # C 9.958,30.06 12.41,27.96 11,28 C 10,28 11.19,29.23 10,30
+        # C 9,30 5.997,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5
+        # C 13.27,9.506 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10
+        # L 18.5,10 C 18.5,10 19.28,8.008 21,7 C 22,7 22,10 22,10
+        head_points = [
+            pt(24.0, 18.0), pt(24.3, 19.5), pt(23.7, 21.1), pt(22.5, 22.5),
+            pt(20.9, 23.9), pt(18.8, 25.3), pt(16.0, 27.0), pt(14.4, 28.0),
+            pt(12.9, 29.3), pt(11.7, 30.5), pt(11.0, 31.0), pt(10.6, 30.5),
+            pt(11.0, 29.4), pt(11.3, 28.3), pt(11.0, 28.0), pt(10.6, 28.0),
+            pt(10.6, 28.8), pt(10.3, 29.5), pt(10.0, 30.0), pt(9.2, 30.2),
+            pt(7.5, 29.7), pt(6.2, 28.1), pt(6.0, 26.0), pt(6.0, 25.0),
+            pt(7.0, 22.5), pt(8.5, 19.5), pt(10.2, 16.8), pt(11.5, 15.0),
+            pt(12.0, 14.0), pt(12.0, 14.0), pt(12.5, 13.0), pt(13.2, 12.0),
+            pt(13.7, 11.2), pt(14.0, 10.5), pt(13.8, 10.0), pt(13.6, 9.3),
+            pt(13.5, 8.5), pt(13.5, 7.5), pt(14.0, 7.2), pt(15.0, 8.0),
+            pt(16.0, 9.2), pt(16.5, 10.0), pt(18.5, 10.0), pt(18.5, 10.0),
+            pt(19.0, 9.2), pt(19.8, 8.3), pt(21.0, 7.0), pt(21.3, 7.0),
+            pt(21.7, 7.5), pt(22.0, 8.5), pt(22.0, 10.0),
+        ]
+        
+        # Draw the main body shape
+        draw.polygon(body_points, fill=line_color, outline=line_color)
+        # Draw the head on top
+        draw.polygon(head_points, fill=line_color, outline=line_color)
+        
+        # Eye - small filled circle (contrasting color)
+        # Original SVG: ellipse at (9, 25.5) with radius 0.5
+        eye_x, eye_y = pt(9, 25.5)
+        eye_r = max(1, int(1.5 * s))
         eye_color = 0 if selected else 255
         draw.ellipse([eye_x - eye_r, eye_y - eye_r, eye_x + eye_r, eye_y + eye_r],
+                    fill=eye_color, outline=eye_color)
+        
+        # Nostril - small ellipse (contrasting color)
+        # Original SVG: rotated ellipse near (14.5, 15.5)
+        nostril_x, nostril_y = pt(14, 16)
+        nostril_r = max(1, int(1.2 * s))
+        draw.ellipse([nostril_x - nostril_r, nostril_y - nostril_r,
+                     nostril_x + nostril_r, nostril_y + nostril_r],
                     fill=eye_color, outline=eye_color)
     
     def _draw_universal_icon(self, draw: ImageDraw.Draw, x: int, y: int,
