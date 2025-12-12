@@ -712,16 +712,21 @@ def create_system_entries() -> List[IconMenuEntry]:
     ]
 
 
-def _show_menu(entries: List[IconMenuEntry]) -> str:
+def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
     """Display a menu and wait for selection.
 
     Args:
         entries: List of menu entry configurations to display
+        initial_index: Index of the entry to select initially (for returning to parent menus)
 
     Returns:
         Selected entry key, "BACK", "HELP", or "SHUTDOWN"
     """
     global _active_menu_widget
+
+    # Clamp initial_index to valid range
+    if initial_index < 0 or initial_index >= len(entries):
+        initial_index = 0
 
     # Clear existing widgets and add status bar
     board.display_manager.clear_widgets()
@@ -733,7 +738,7 @@ def _show_menu(entries: List[IconMenuEntry]) -> str:
         width=DISPLAY_WIDTH,
         height=DISPLAY_HEIGHT - STATUS_BAR_HEIGHT,
         entries=entries,
-        selected_index=0
+        selected_index=initial_index
     )
 
     # Register as active menu for key routing
@@ -750,7 +755,7 @@ def _show_menu(entries: List[IconMenuEntry]) -> str:
 
     try:
         # Wait for selection using the widget's blocking method
-        result = menu_widget.wait_for_selection(initial_index=0)
+        result = menu_widget.wait_for_selection(initial_index=initial_index)
         return result
     finally:
         _active_menu_widget = None
@@ -925,6 +930,22 @@ def _return_to_menu(reason: str):
     app_state = AppState.MENU
 
 
+def _find_entry_index(entries: List[IconMenuEntry], key: str) -> int:
+    """Find the index of an entry by its key.
+    
+    Args:
+        entries: List of menu entries
+        key: The key to find
+        
+    Returns:
+        Index of the entry with matching key, or 0 if not found.
+    """
+    for i, entry in enumerate(entries):
+        if entry.key == key:
+            return i
+    return 0
+
+
 def _handle_settings():
     """Handle the Settings submenu.
     
@@ -935,10 +956,14 @@ def _handle_settings():
     from DGTCentaurMods.board import centaur
     
     app_state = AppState.SETTINGS
+    last_selected = 0  # Track last selected index for returning from submenus
     
     while app_state == AppState.SETTINGS:
         entries = create_settings_entries()
-        result = _show_menu(entries)
+        result = _show_menu(entries, initial_index=last_selected)
+        
+        # Update last_selected for when we return from a submenu
+        last_selected = _find_entry_index(entries, result)
         
         if result == "BACK":
             app_state = AppState.MENU
@@ -1077,12 +1102,18 @@ def _handle_positions_menu() -> bool:
             height_ratio=1.5  # Taller buttons for two lines of text
         ))
     
+    # Track last selected category for returning from position list
+    last_category_index = 0
+    
     # Outer loop for category menu - pressing BACK here exits positions menu
     while True:
-        category_result = _show_menu(category_entries)
+        category_result = _show_menu(category_entries, initial_index=last_category_index)
         
         if category_result in ["BACK", "SHUTDOWN", "HELP"]:
             return False
+        
+        # Update last_category_index for when we return from position list
+        last_category_index = _find_entry_index(category_entries, category_result)
         
         # Show positions in selected category
         category = category_result
@@ -1146,6 +1177,7 @@ def _handle_positions_menu() -> bool:
         
         if position_result in ["BACK", "HELP"]:
             # Go back to category menu (continue outer loop)
+            # last_category_index already set, so category will be pre-selected
             continue
         elif position_result == "SHUTDOWN":
             return False
@@ -1377,25 +1409,27 @@ def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
 
 def _handle_wifi_settings():
     """Handle WiFi settings submenu.
-    
+
     Shows WiFi status, allows scanning for networks, and connecting.
     """
+    last_selected = 0  # Track last selected index for returning from submenus
+    
     while True:
         # Get current status
         current_ssid, ip_address = _get_current_wifi_status()
-        
+
         if current_ssid:
             status_label = f"Status\n{current_ssid}"
             if ip_address:
                 status_label = f"Connected\n{ip_address}"
         else:
             status_label = "Status\nNot connected"
-        
+
         wifi_entries = [
             IconMenuEntry(
-                key="Scan", 
-                label="Scan", 
-                icon_name="wifi", 
+                key="Scan",
+                label="Scan",
+                icon_name="wifi",
                 enabled=True,
                 height_ratio=2.0,
                 icon_size=48,
@@ -1403,30 +1437,33 @@ def _handle_wifi_settings():
                 font_size=24
             ),
             IconMenuEntry(
-                key="Enable", 
-                label="Enable", 
-                icon_name="wifi", 
+                key="Enable",
+                label="Enable",
+                icon_name="wifi",
                 enabled=True,
                 height_ratio=0.67,
                 layout="horizontal",
                 font_size=14
             ),
             IconMenuEntry(
-                key="Disable", 
-                label="Disable", 
-                icon_name="cancel", 
+                key="Disable",
+                label="Disable",
+                icon_name="cancel",
                 enabled=True,
                 height_ratio=0.67,
                 layout="horizontal",
                 font_size=14
             ),
         ]
+
+        wifi_result = _show_menu(wifi_entries, initial_index=last_selected)
         
-        wifi_result = _show_menu(wifi_entries)
-        
+        # Update last_selected for when we return from a submenu
+        last_selected = _find_entry_index(wifi_entries, wifi_result)
+
         if wifi_result in ["BACK", "SHUTDOWN", "HELP"]:
             return
-        
+
         if wifi_result == "Scan":
             _handle_wifi_scan()
         elif wifi_result == "Enable":
@@ -1516,10 +1553,15 @@ def _handle_wifi_scan():
 
 def _handle_system_menu():
     """Handle system submenu (shutdown, reboot, inactivity timeout)."""
+    last_selected = 0  # Track last selected index for returning from submenus
+    
     while True:
         system_entries = create_system_entries()
-        system_result = _show_menu(system_entries)
+        system_result = _show_menu(system_entries, initial_index=last_selected)
         
+        # Update last_selected for when we return from a submenu
+        last_selected = _find_entry_index(system_entries, system_result)
+
         if system_result == "Inactivity":
             _handle_inactivity_timeout()
             # Loop back to system menu after changing timeout
@@ -2341,12 +2383,17 @@ def main():
     
     # Check if Centaur software is available
     centaur_available = os.path.exists(CENTAUR_SOFTWARE)
+    main_menu_last_selected = 0  # Track last selected index for returning from submenus
+    
     try:
         while running and not kill:
             if app_state == AppState.MENU:
                 # Show main menu
                 entries = create_main_menu_entries(centaur_available=centaur_available)
-                result = _show_menu(entries)
+                result = _show_menu(entries, initial_index=main_menu_last_selected)
+                
+                # Update last_selected for when we return from a submenu
+                main_menu_last_selected = _find_entry_index(entries, result)
                 
                 log.info(f"[App] Main menu selection: {result}")
                 
