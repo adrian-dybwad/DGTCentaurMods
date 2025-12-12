@@ -329,7 +329,7 @@ def _resume_game(game_data: dict) -> bool:
         
         # Update the display to show the current position
         if game_handler:
-            game_handler.update_display()
+            game_handler._update_display()
         
         return True
         
