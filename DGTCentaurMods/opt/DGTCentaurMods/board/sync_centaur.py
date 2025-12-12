@@ -158,6 +158,10 @@ class SyncCentaur:
         self._waiter_lock = threading.Lock()
         self._response_waiter = None  # dict with keys: expected_type:int, queue:Queue
         
+        # Serial write lock for thread-safe immediate sends
+        # Commands without expected responses (beep, LED) can bypass the queue
+        self._serial_write_lock = threading.Lock()
+        
         # Request queue for FIFO serialization
         # Limit queue size to prevent unbounded memory growth
         # Increased size to handle polling commands during high load
@@ -169,6 +173,10 @@ class SyncCentaur:
         # n = number of special commands (DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS)
         self._special_commands = {"DGT_BUS_SEND_CHANGES", "DGT_BUS_POLL_KEYS"}
         self._last_n_commands = deque(maxlen=len(self._special_commands))  # Track last 2 commands
+        
+        # Fire-and-forget commands that don't need responses - can be sent immediately
+        self._immediate_commands = {"SOUND_GENERAL", "SOUND_FACTORY", "SOUND_POWER_OFF", 
+                                    "SOUND_POWER_ON", "SOUND_WRONG", "SOUND_WRONG_MOVE", "LED_CMD"}
         
         # polling thread
         self._polling_thread = None
@@ -817,13 +825,20 @@ class SyncCentaur:
         tosend = self.buildPacket(spec.cmd, eff_data)
         if command_name != command.DGT_BUS_SEND_CHANGES and command_name != command.DGT_BUS_POLL_KEYS:
             log.debug(f"_send_command: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
-        self.ser.write(tosend)
+        
+        # Thread-safe serial write
+        with self._serial_write_lock:
+            self.ser.write(tosend)
+        
         if DGT_NOTIFY_EVENTS is not None and self.ready and spec.expected_resp_type is None and command_name != DGT_NOTIFY_EVENTS:
             self.sendCommand(DGT_NOTIFY_EVENTS)
     
     def sendCommand(self, command_name: str, data: Optional[bytes] = None, timeout: float = 10.0):
         """
-        Queue a command to be sent asynchronously without waiting for a response.
+        Send a command asynchronously without waiting for a response.
+        
+        Fire-and-forget commands (beep, LED) are sent immediately via serial.
+        Commands that need responses are queued for the request processor.
         
         Args:
             command_name: command name in COMMANDS (e.g., "LED_CMD")
@@ -831,10 +846,16 @@ class SyncCentaur:
             timeout: timeout for the command execution (used internally, not returned to caller)
         """
         if not isinstance(command_name, str):
-            raise TypeError("sendCommand2 requires a command name (str), e.g. command.LED_CMD")
+            raise TypeError("sendCommand requires a command name (str), e.g. command.LED_CMD")
         spec = CMD_BY_NAME.get(command_name)
         if not spec:
             raise KeyError(f"Unknown command name: {command_name}")
+        
+        # Fire-and-forget commands (no expected response) - send immediately
+        # This bypasses the queue for minimum latency (beep, LED)
+        if command_name in self._immediate_commands:
+            self._send_immediate(command_name, data)
+            return
         
         # For special commands, check if they already exist in the last n places in the queue
         # where n is the number of special commands (2: DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS)
@@ -852,6 +873,29 @@ class SyncCentaur:
             self._last_n_commands.append(command_name)
         except queue.Full:
             log.error(f"Request queue full, cannot queue command {command_name}")
+    
+    def _send_immediate(self, command_name: str, data: Optional[bytes] = None):
+        """Send a fire-and-forget command immediately via serial, bypassing the queue.
+        
+        Used for commands that don't expect responses (beep, LED) to minimize latency.
+        Thread-safe via serial write lock.
+        
+        Args:
+            command_name: command name in COMMANDS
+            data: optional payload bytes
+        """
+        spec = CMD_BY_NAME.get(command_name)
+        if not spec:
+            raise KeyError(f"Unknown command name: {command_name}")
+        
+        eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
+        tosend = self.buildPacket(spec.cmd, eff_data)
+        
+        log.debug(f"_send_immediate: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
+        
+        with self._serial_write_lock:
+            if self.ser is not None and self.ser.is_open:
+                self.ser.write(tosend)
     
     def buildPacket(self, command, data):
         """Build a complete packet with command, addresses, data, and checksum"""
