@@ -46,7 +46,9 @@ class IconButtonWidget(Widget):
                  selected: bool = False,
                  icon_size: int = DEFAULT_ICON_SIZE,
                  label_height: int = DEFAULT_LABEL_HEIGHT,
-                 padding: int = DEFAULT_PADDING):
+                 padding: int = DEFAULT_PADDING,
+                 selected_shade: int = 12,
+                 background_shade: int = 0):
         """Initialize icon button widget.
         
         Args:
@@ -61,8 +63,10 @@ class IconButtonWidget(Widget):
             icon_size: Icon size in pixels
             label_height: Height reserved for label text
             padding: Internal padding
+            selected_shade: Dithered shade for selected state 0-16 (default 12 = ~75% black)
+            background_shade: Dithered background shade 0-16 (default 0 = white)
         """
-        super().__init__(x, y, width, height)
+        super().__init__(x, y, width, height, background_shade=background_shade)
         self.key = key
         self.label = label
         self.icon_name = icon_name
@@ -70,6 +74,7 @@ class IconButtonWidget(Widget):
         self.icon_size = icon_size
         self.label_height = label_height
         self.padding = padding
+        self.selected_shade = max(0, min(16, selected_shade))
         
         # Load font
         self._font = None
@@ -127,8 +132,8 @@ class IconButtonWidget(Widget):
         
         # Draw button background
         if self.selected:
-            # Selected: dark grey dithered background (shade 14 = ~87.5% black)
-            self._apply_dither_pattern(img, 14)
+            # Selected: dark grey dithered background (configurable shade, default 14 = ~87.5% black)
+            self._apply_dither_pattern(img, self.selected_shade)
             draw.rectangle([0, 0, self.width - 1, self.height - 1], fill=None, outline=0)
         else:
             # Unselected: white with black border

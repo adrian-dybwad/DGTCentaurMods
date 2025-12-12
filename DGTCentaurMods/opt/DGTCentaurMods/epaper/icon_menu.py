@@ -74,7 +74,8 @@ class IconMenuWidget(Widget):
                  on_select: Optional[Callable[[str], None]] = None,
                  on_back: Optional[Callable[[], None]] = None,
                  button_height: int = BUTTON_HEIGHT,
-                 button_margin: int = BUTTON_MARGIN):
+                 button_margin: int = BUTTON_MARGIN,
+                 background_shade: int = 2):
         """Initialize icon menu widget.
         
         Args:
@@ -88,9 +89,9 @@ class IconMenuWidget(Widget):
             on_back: Optional callback() when BACK is pressed
             button_height: Height of each button
             button_margin: Margin between buttons
+            background_shade: Dithered background shade 0-16 (default 2 = ~12.5% grey)
         """
-        # Use shade 2 (~12.5% grey), one up from splash screen's shade 1
-        super().__init__(x, y, width, height, background_shade=2)
+        super().__init__(x, y, width, height, background_shade=background_shade)
         
         # Filter disabled entries
         self.entries = [e for e in entries if e.enabled]

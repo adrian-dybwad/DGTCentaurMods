@@ -44,7 +44,8 @@ class MenuWidget(Widget):
                  description: Optional[str] = None,
                  selected_index: int = 0,
                  register_callback: Optional[Callable[['MenuWidget'], None]] = None,
-                 unregister_callback: Optional[Callable[[], None]] = None):
+                 unregister_callback: Optional[Callable[[], None]] = None,
+                 background_shade: int = 2):
         """
         Initialize menu widget.
         
@@ -59,9 +60,9 @@ class MenuWidget(Widget):
             selected_index: Initial selected index
             register_callback: Optional callback to register this widget as active (called with self)
             unregister_callback: Optional callback to unregister this widget (called with no args)
+            background_shade: Dithered background shade 0-16 (default 2 = ~12.5% grey)
         """
-        # Use light grey dithered background (shade 2 = ~12.5% grey)
-        super().__init__(x, y, width, height, background_shade=2)
+        super().__init__(x, y, width, height, background_shade=background_shade)
         self.title = title or ""
         self.entries: List[MenuEntry] = list(entries)
         self.description = (description or "").strip()
