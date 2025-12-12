@@ -283,6 +283,8 @@ def _resume_game(game_data: dict) -> bool:
     """Resume an incomplete game.
     
     Sets up the GameManager with the saved game state and starts game mode.
+    Checks if physical board matches the resumed position and enters correction
+    mode if not. If it's the engine's turn, triggers the engine to move.
     
     Args:
         game_data: Dictionary from _get_incomplete_game()
@@ -294,6 +296,7 @@ def _resume_game(game_data: dict) -> bool:
     
     try:
         import chess
+        from DGTCentaurMods.game_manager import EVENT_WHITE_TURN, EVENT_BLACK_TURN
         
         log.info(f"[Resume] Resuming game {game_data['id']}...")
         
@@ -330,6 +333,28 @@ def _resume_game(game_data: dict) -> bool:
         # Update the display to show the current position
         if game_handler:
             game_handler._update_display()
+        
+        # Check if physical board matches the resumed position
+        current_physical_state = board.getChessState()
+        expected_logical_state = gm._chess_board_to_state(gm.chess_board)
+        
+        if current_physical_state is not None and expected_logical_state is not None:
+            if not gm._validate_board_state(current_physical_state, expected_logical_state):
+                log.warning("[Resume] Physical board does not match resumed position, entering correction mode")
+                gm._enter_correction_mode()
+                gm._provide_correction_guidance(current_physical_state, expected_logical_state)
+            else:
+                log.info("[Resume] Physical board matches resumed position")
+                # Board is correct - trigger turn event to prompt engine if it's engine's turn
+                if gm.event_callback is not None:
+                    if gm.chess_board.turn == chess.WHITE:
+                        log.info("[Resume] Triggering WHITE turn event")
+                        gm.event_callback(EVENT_WHITE_TURN)
+                    else:
+                        log.info("[Resume] Triggering BLACK turn event")
+                        gm.event_callback(EVENT_BLACK_TURN)
+        else:
+            log.warning("[Resume] Could not validate physical board state")
         
         return True
         
