@@ -42,7 +42,8 @@ class GameHandler:
     
     def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False,
                  standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default",
-                 display_update_callback=None, save_to_database=True):
+                 display_update_callback=None, save_to_database=True,
+                 hand_brain_mode: bool = False, brain_hint_callback=None):
         """Initialize the GameHandler.
         
         Args:
@@ -61,6 +62,11 @@ class GameHandler:
             display_update_callback: Callback function(fen) for updating display with position
             save_to_database: If True, save game moves to database. If False, disable database
                              (for position/practice games that shouldn't be saved)
+            hand_brain_mode: If True, provide brain hints (piece type suggestions) when it's
+                            the player's turn. Engine still plays opponent moves.
+            brain_hint_callback: Callback function(piece_symbol, squares) called with brain hint.
+                                piece_symbol is the suggested piece type (K,Q,R,B,N,P).
+                                squares is a list of square indices containing that piece type.
         """
         self._sendMessage = sendMessage_callback
         self.compare_mode = compare_mode
@@ -85,6 +91,11 @@ class GameHandler:
         self._uci_options = {}
         self._engine_init_thread = None  # Thread for async engine initialization
         self._engine_thinking = False  # Flag to prevent duplicate engine thinking threads
+        
+        # Hand+Brain mode settings
+        self._hand_brain_mode = hand_brain_mode
+        self._brain_hint_callback = brain_hint_callback
+        self._brain_thinking = False  # Flag to prevent duplicate brain thinking threads
         
         # Game manager shared by all emulators
         self.game_manager = GameManager(save_to_database=save_to_database)
@@ -231,6 +242,8 @@ class GameHandler:
                 elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
                     # Turn events are triggered AFTER the player's move is confirmed
                     self._check_standalone_engine_turn()
+                    # In Hand+Brain mode, provide brain hint when it's the player's turn
+                    self._check_brain_hint()
             
             # Notify external event callback
             if self._external_event_callback:
@@ -651,6 +664,95 @@ class GameHandler:
         thread = threading.Thread(target=_engine_think, daemon=True)
         thread.start()
     
+    def _check_brain_hint(self):
+        """Generate brain hint for Hand+Brain mode when it's the player's turn.
+        
+        In Hand+Brain mode, the engine suggests which piece type to move by analyzing
+        the position and extracting the piece type from the best move. The player then
+        chooses which specific piece of that type to move and where.
+        
+        Uses the standalone engine for analysis. If no engine is available or it's
+        not the player's turn, does nothing.
+        """
+        if not self._hand_brain_mode:
+            return  # Not in Hand+Brain mode
+        
+        if not self._brain_hint_callback:
+            return  # No callback to report hints
+        
+        if not self._standalone_engine:
+            return  # No engine for analysis
+        
+        # Get current board state
+        chess_board = self.game_manager.chess_board
+        
+        # Check if it's the player's turn
+        if chess_board.turn != self._player_color:
+            # Clear hint when it's engine's turn
+            try:
+                self._brain_hint_callback("", [])
+            except Exception:
+                pass
+            return
+        
+        # Check if game is over
+        if chess_board.is_game_over():
+            return
+        
+        # Check if brain is already thinking (avoid duplicate threads)
+        if hasattr(self, '_brain_thinking') and self._brain_thinking:
+            return
+        
+        # Start brain thinking in background thread
+        self._brain_thinking = True
+        
+        def _brain_think():
+            """Background thread for brain hint generation."""
+            try:
+                log.info("[GameHandler] Brain analyzing position for piece hint...")
+                
+                # Copy the board to avoid race conditions
+                board_copy = chess_board.copy()
+                
+                # Get best move from engine
+                result = self._standalone_engine.play(board_copy, chess.engine.Limit(time=2.0))
+                move = result.move
+                
+                if move:
+                    # Extract source square and piece type
+                    source_square = move.from_square
+                    piece = board_copy.piece_at(source_square)
+                    
+                    if piece:
+                        piece_symbol = piece.symbol().upper()
+                        piece_type = piece.piece_type
+                        piece_color = piece.color
+                        
+                        # Find all squares with same piece type and color
+                        squares_with_piece = []
+                        for sq in range(64):
+                            p = board_copy.piece_at(sq)
+                            if p and p.piece_type == piece_type and p.color == piece_color:
+                                squares_with_piece.append(sq)
+                        
+                        log.info(f"[GameHandler] Brain says: {piece_symbol} (squares: {squares_with_piece})")
+                        
+                        # Call the callback with piece symbol and squares
+                        try:
+                            self._brain_hint_callback(piece_symbol, squares_with_piece)
+                        except Exception as e:
+                            log.warning(f"[GameHandler] Error in brain hint callback: {e}")
+                        
+            except Exception as e:
+                log.error(f"[GameHandler] Error generating brain hint: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                self._brain_thinking = False
+        
+        thread = threading.Thread(target=_brain_think, daemon=True, name="brain-hint")
+        thread.start()
+
     def on_app_connected(self):
         """Called when an app connects - pause standalone engine.
         

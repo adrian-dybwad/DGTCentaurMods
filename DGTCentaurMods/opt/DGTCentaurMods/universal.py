@@ -790,12 +790,19 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     # Check if this is 2-player mode (no engine opponent)
     is_two_player = player_color_setting == "2player"
+    
+    # Check if this is Hand+Brain mode (engine provides piece hints, plays opponent)
+    is_hand_brain = player_color_setting == "handbrain"
 
     # Determine player color for standalone engine
     if is_two_player:
         # In 2-player mode, human plays both sides, no engine opponent
         player_color = chess.WHITE  # Doesn't matter, engine won't play
         log.info("[App] 2-player mode: no engine opponent")
+    elif is_hand_brain:
+        # In Hand+Brain mode, human plays white by default, engine plays black
+        player_color = chess.WHITE
+        log.info("[App] Hand+Brain mode: engine provides hints and plays black")
     elif player_color_setting == "random":
         player_color = chess.WHITE if random.randint(0, 1) == 0 else chess.BLACK
         log.info(f"[App] Random color selected: {'white' if player_color == chess.WHITE else 'black'}")
@@ -811,7 +818,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         flip_board=False,
         show_analysis=True,
         analysis_engine_path=analysis_engine_path,
-        on_exit=lambda: _return_to_menu("Menu exit")
+        on_exit=lambda: _return_to_menu("Menu exit"),
+        hand_brain_mode=is_hand_brain
     )
     log.info("[App] DisplayManager initialized")
 
@@ -855,6 +863,19 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         _return_to_positions_menu = True
         app_state = AppState.SETTINGS
 
+    # Brain hint callback for Hand+Brain mode
+    def _on_brain_hint(piece_symbol: str, squares: list):
+        """Handle brain hint from engine analysis.
+        
+        Updates the display with the suggested piece type and lights up
+        squares containing that piece type.
+        """
+        if display_manager:
+            display_manager.set_brain_hint(piece_symbol)
+        # Light up squares with the suggested piece type
+        if squares:
+            board.ledArray(squares, repeat=20)
+    
     # Create GameHandler with user-configured settings
     # Note: Key and field events are routed through universal.py's callbacks
     # In 2-player mode, don't pass an engine name so no engine opponent is used
@@ -866,9 +887,11 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         player_color=player_color,
         engine_elo=engine_elo,
         display_update_callback=update_display,
-        save_to_database=save_to_database
+        save_to_database=save_to_database,
+        hand_brain_mode=is_hand_brain,
+        brain_hint_callback=_on_brain_hint if is_hand_brain else None
     )
-    log.info(f"[App] GameHandler created: engine={None if is_two_player else engine_name}, elo={engine_elo}, color={player_color_setting}, save_to_db={save_to_database}")
+    log.info(f"[App] GameHandler created: engine={None if is_two_player else engine_name}, elo={engine_elo}, color={player_color_setting}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
     
     # Wire up GameManager callbacks to DisplayManager
     game_handler.game_manager.on_promotion_needed = display_manager.show_promotion_menu
@@ -1047,10 +1070,16 @@ def _handle_settings():
                     icon_name="universal_logo",
                     enabled=True
                 ),
+                IconMenuEntry(
+                    key="handbrain",
+                    label="* Hand+Brain" if _game_settings['player_color'] == 'handbrain' else "Hand+Brain",
+                    icon_name="engine",
+                    enabled=True
+                ),
             ]
             
             color_result = _show_menu(color_entries)
-            if color_result in ["white", "black", "random", "2player"]:
+            if color_result in ["white", "black", "random", "2player", "handbrain"]:
                 old_color = _game_settings['player_color']
                 _save_game_setting('player_color', color_result)
                 log.info(f"[Settings] Player color changed: {old_color} -> {color_result}")

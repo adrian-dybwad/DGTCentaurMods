@@ -35,6 +35,7 @@ _GameAnalysisWidget = None
 _IconMenuWidget = None
 _IconMenuEntry = None
 _SplashScreen = None
+_BrainHintWidget = None
 
 
 def _get_board():
@@ -49,20 +50,21 @@ def _get_board():
 def _load_widgets():
     """Lazily load widget classes."""
     global _widgets_loaded, _ChessBoardWidget, _GameAnalysisWidget
-    global _IconMenuWidget, _IconMenuEntry, _SplashScreen
+    global _IconMenuWidget, _IconMenuEntry, _SplashScreen, _BrainHintWidget
     
     if _widgets_loaded:
         return
     
     from DGTCentaurMods.epaper import (
         ChessBoardWidget, GameAnalysisWidget, 
-        IconMenuWidget, IconMenuEntry, SplashScreen
+        IconMenuWidget, IconMenuEntry, SplashScreen, BrainHintWidget
     )
     _ChessBoardWidget = ChessBoardWidget
     _GameAnalysisWidget = GameAnalysisWidget
     _IconMenuWidget = IconMenuWidget
     _IconMenuEntry = IconMenuEntry
     _SplashScreen = SplashScreen
+    _BrainHintWidget = BrainHintWidget
     _widgets_loaded = True
 
 
@@ -87,7 +89,8 @@ class DisplayManager:
     """
     
     def __init__(self, flip_board: bool = False, show_analysis: bool = True,
-                 analysis_engine_path: str = None, on_exit: callable = None):
+                 analysis_engine_path: str = None, on_exit: callable = None,
+                 hand_brain_mode: bool = False):
         """Initialize the display controller.
         
         Args:
@@ -95,17 +98,20 @@ class DisplayManager:
             show_analysis: If True, show analysis widget (default visible)
             analysis_engine_path: Path to UCI engine for analysis (e.g., ct800)
             on_exit: Callback function() when user requests exit via back menu
+            hand_brain_mode: If True, show brain hint widget for Hand+Brain variant
         """
         _load_widgets()
         
         self._flip_board = flip_board
         self._show_analysis = show_analysis
         self._on_exit = on_exit
+        self._hand_brain_mode = hand_brain_mode
         
         # Widgets
         self.chess_board_widget = None
         self.analysis_widget = None
         self.analysis_engine = None
+        self.brain_hint_widget = None
         
         # Menu state
         self._menu_active = False
@@ -204,6 +210,17 @@ class DisplayManager:
             except Exception as e:
                 log.warning(f"[DisplayManager] Error displaying analysis widget: {e}")
         log.info(f"[DisplayManager] Analysis widget initialized (visible={self._show_analysis})")
+        
+        # Create brain hint widget for Hand+Brain mode (y=224, below analysis)
+        if self._hand_brain_mode:
+            self.brain_hint_widget = _BrainHintWidget(0, 224, 128, 72)
+            future = board.display_manager.add_widget(self.brain_hint_widget)
+            if future:
+                try:
+                    future.result(timeout=5.0)
+                except Exception as e:
+                    log.warning(f"[DisplayManager] Error displaying brain hint widget: {e}")
+            log.info("[DisplayManager] Brain hint widget initialized")
     
     def set_key_callback(self, callback: callable):
         """Set the key callback for routing keys during normal play.
@@ -263,6 +280,23 @@ class DisplayManager:
                 self.analysis_widget.reset()
             except Exception as e:
                 log.warning(f"[DisplayManager] Error resetting analysis: {e}")
+        # Also clear brain hint on reset
+        if self.brain_hint_widget:
+            self.brain_hint_widget.clear()
+    
+    def set_brain_hint(self, piece_symbol: str) -> None:
+        """Set the brain hint piece type for Hand+Brain mode.
+        
+        Args:
+            piece_symbol: Piece symbol (K, Q, R, B, N, P) or empty to clear
+        """
+        if self.brain_hint_widget:
+            self.brain_hint_widget.set_piece(piece_symbol)
+    
+    def clear_brain_hint(self) -> None:
+        """Clear the brain hint display."""
+        if self.brain_hint_widget:
+            self.brain_hint_widget.clear()
     
     def show_promotion_menu(self, is_white: bool) -> str:
         """Show promotion piece selection menu.
@@ -457,6 +491,15 @@ class DisplayManager:
                 # Re-add analysis widget
                 if self.analysis_widget:
                     future = board.display_manager.add_widget(self.analysis_widget)
+                    if future:
+                        try:
+                            future.result(timeout=2.0)
+                        except Exception:
+                            pass
+                
+                # Re-add brain hint widget if in Hand+Brain mode
+                if self.brain_hint_widget:
+                    future = board.display_manager.add_widget(self.brain_hint_widget)
                     if future:
                         try:
                             future.result(timeout=2.0)
