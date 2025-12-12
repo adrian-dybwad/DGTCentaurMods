@@ -22,12 +22,6 @@ except ImportError:
     AssetManager = None
 
 
-# Default layout constants
-DEFAULT_ICON_SIZE = 36
-DEFAULT_LABEL_HEIGHT = 18
-DEFAULT_PADDING = 6
-
-
 class IconButtonWidget(Widget):
     """Widget displaying a single button with icon and label.
     
@@ -44,9 +38,10 @@ class IconButtonWidget(Widget):
     def __init__(self, x: int, y: int, width: int, height: int,
                  key: str, label: str, icon_name: str,
                  selected: bool = False,
-                 icon_size: int = DEFAULT_ICON_SIZE,
-                 label_height: int = DEFAULT_LABEL_HEIGHT,
-                 padding: int = DEFAULT_PADDING,
+                 icon_size: int = 36,
+                 label_height: int = 18,
+                 margin: int = 4,
+                 padding: int = 2,
                  selected_shade: int = 12,
                  background_shade: int = 0):
         """Initialize icon button widget.
@@ -60,9 +55,10 @@ class IconButtonWidget(Widget):
             label: Display text
             icon_name: Icon identifier for rendering
             selected: Initial selection state
-            icon_size: Icon size in pixels
-            label_height: Height reserved for label text
-            padding: Internal padding
+            icon_size: Icon size in pixels (default 36)
+            label_height: Height reserved for label text (default 18)
+            margin: Space outside the button border (default 2)
+            padding: Space inside the button border (default 4)
             selected_shade: Dithered shade for selected state 0-16 (default 12 = ~75% black)
             background_shade: Dithered background shade 0-16 (default 0 = white)
         """
@@ -73,6 +69,7 @@ class IconButtonWidget(Widget):
         self.selected = selected
         self.icon_size = icon_size
         self.label_height = label_height
+        self.margin = margin
         self.padding = padding
         self.selected_shade = max(0, min(16, selected_shade))
         
@@ -126,23 +123,38 @@ class IconButtonWidget(Widget):
         positioned at the top of the button (after the icon). For single-line
         text, it remains at the bottom.
         
+        Layout:
+            - margin: space outside the border (between widget edge and border)
+            - border: 2px black line
+            - padding: space inside the border (between border and content)
+        
         Returns:
             PIL Image with rendered button
         """
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
+        # Calculate border rectangle (inset by margin)
+        border_left = self.margin
+        border_top = self.margin
+        border_right = self.width - 1 - self.margin
+        border_bottom = self.height - 1 - self.margin
+        
+        # Content area starts after margin + border (2px) + padding
+        content_left = self.margin + 2 + self.padding
+        content_top = self.margin + 2 + self.padding
+        
         # Draw button background
         if self.selected:
-            # Selected: dark grey dithered background (configurable shade, default 14 = ~87.5% black)
+            # Selected: dark grey dithered background (configurable shade)
             self._apply_dither_pattern(img, self.selected_shade)
-            draw.rectangle([0, 0, self.width - 1, self.height - 1], fill=None, outline=0)
+            draw.rectangle([border_left, border_top, border_right, border_bottom], fill=None, outline=0)
         else:
             # Unselected: white with black border
-            draw.rectangle([0, 0, self.width - 1, self.height - 1], fill=255, outline=0, width=2)
+            draw.rectangle([border_left, border_top, border_right, border_bottom], fill=255, outline=0, width=2)
         
-        # Draw icon
-        icon_x = self.padding + self.icon_size // 2
+        # Draw icon (positioned inside content area)
+        icon_x = content_left + self.icon_size // 2
         icon_y = (self.height - self.label_height) // 2
         self._draw_icon(draw, self.icon_name, icon_x, icon_y, self.icon_size, self.selected)
         
@@ -153,14 +165,14 @@ class IconButtonWidget(Widget):
         # Check for multi-line text
         lines = self.label.split('\n')
         if len(lines) > 1:
-            # Multi-line: position at top of button
-            text_y = self.padding + 2
+            # Multi-line: position at top of content area
+            text_y = content_top
             for line in lines:
                 draw.text((text_x, text_y), line, font=self._font, fill=text_color)
                 text_y += 16  # Line height
         else:
             # Single line: position at bottom
-            text_y = self.height - self.label_height - 4
+            text_y = self.height - self.label_height - self.margin - 2
             draw.text((text_x, text_y), self.label, font=self._font, fill=text_color)
         
         return img
