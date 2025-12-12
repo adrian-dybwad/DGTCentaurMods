@@ -1084,6 +1084,10 @@ def _handle_settings():
                 _save_game_setting('player_color', color_result)
                 log.info(f"[Settings] Player color changed: {old_color} -> {color_result}")
                 board.beep(board.SOUND_GENERAL)
+                # Start game immediately after selecting color/game type
+                app_state = AppState.MENU
+                _start_game_mode()
+                return  # Exit settings to enter game mode
         
         elif result == "Sound":
             # Sound toggle submenu
