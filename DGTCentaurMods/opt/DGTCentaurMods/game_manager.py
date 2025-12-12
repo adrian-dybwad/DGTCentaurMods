@@ -22,6 +22,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import func, select, create_engine
 from scipy.optimize import linear_sum_assignment
 import threading
+import queue
 import time
 import chess
 import sys
@@ -341,6 +342,42 @@ class GameManager:
         self._is_ready = False
         self._pending_field_events = []
         self._ready_lock = threading.Lock()
+        
+        # Async task queue for post-move operations
+        # Ensures all I/O operations (board serial, database, callbacks) execute in order
+        self._task_queue = queue.Queue()
+        self._task_worker_thread = None
+        self._start_task_worker()
+    
+    def _start_task_worker(self):
+        """Start the background worker thread for async task processing.
+        
+        The worker processes tasks from the queue sequentially, ensuring
+        proper ordering of I/O operations across multiple rapid moves.
+        """
+        def worker():
+            while not self._stop_event.is_set():
+                try:
+                    # Wait for task with timeout to allow checking stop event
+                    try:
+                        task = self._task_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
+                    
+                    # Execute the task
+                    try:
+                        task()
+                    except Exception as e:
+                        log.error(f"[GameManager._task_worker] Error executing task: {e}")
+                    finally:
+                        self._task_queue.task_done()
+                        
+                except Exception as e:
+                    log.error(f"[GameManager._task_worker] Unexpected error in worker loop: {e}")
+        
+        self._task_worker_thread = threading.Thread(target=worker, daemon=True, name="GameManager-TaskWorker")
+        self._task_worker_thread.start()
+        log.debug("[GameManager] Task worker thread started")
     
     def _is_starting_position(self, board_state) -> bool:
         """Check if the board is in the starting position."""
@@ -1340,6 +1377,10 @@ class GameManager:
     def _execute_move(self, target_square: int):
         """Execute a move from source to target square.
         
+        Critical path is optimized for speed - only move validation and chess engine push
+        are synchronous. All I/O operations (board serial, database, FEN log, callbacks)
+        are performed asynchronously via a queue to ensure correct ordering.
+        
         Prevents moves from being executed after the game has ended.
         If the game is already over, logs a warning and returns early.
         """
@@ -1379,11 +1420,7 @@ class GameManager:
             promotion_suffix = self._handle_promotion(target_square, piece_name, self.move_state.is_forced_move)
             move_uci = from_name + to_name + promotion_suffix
         
-        # Atomic operation: Add to database first, then push to chess engine
-        # If chess engine push fails, rollback database to maintain consistency
-        # This ensures database and chess engine state are always synchronized
-        
-        # Validate move UCI format first (before any database operations)
+        # Validate move UCI format (fast, no I/O)
         try:
             move = chess.Move.from_uci(move_uci)
         except ValueError as e:
@@ -1393,172 +1430,36 @@ class GameManager:
             self.move_state.reset()
             return
         
-        # Atomic operation: Add to database first, then push to chess engine
-        # If chess engine push fails, rollback database to maintain consistency
-        # This ensures database and chess engine state are always synchronized
+        # Capture FEN before move for database (needed for initial position record)
+        fen_before_move = str(self.chess_board.fen())
+        is_first_move = self.game_db_id < 0
         
-        # Step 0: Create new game in database if this is the first move (game_db_id == -1)
-        # This is part of the atomic transaction - if chess engine push fails, game creation is rolled back
-        new_game_created = False
-        if self.database_session is not None and self.game_db_id < 0:
-            try:
-                log.info("[GameManager._execute_move] First move detected - creating new game in database (will commit after chess engine push succeeds)")
-                game = models.Game(
-                    source=self.source_file,
-                    event=self.game_info['event'],
-                    site=self.game_info['site'],
-                    round=self.game_info['round'],
-                    white=self.game_info['white'],
-                    black=self.game_info['black']
-                )
-                self.database_session.add(game)
-                # Flush to get the game ID, but don't commit yet
-                self.database_session.flush()
-                
-                # Get the game ID from the flushed object
-                # The game object should now have an ID assigned
-                if hasattr(game, 'id') and game.id is not None:
-                    self.game_db_id = game.id
-                    new_game_created = True
-                    log.info(f"[GameManager._execute_move] New game created in database (id={self.game_db_id}), will commit after chess engine push succeeds")
-                    
-                    # Create initial game move entry for starting position (before this move)
-                    initial_move = models.GameMove(
-                        gameid=self.game_db_id,
-                        move='',
-                        fen=str(self.chess_board.fen())  # FEN before this move
-                    )
-                    self.database_session.add(initial_move)
-                    # Don't commit yet - wait for chess engine push
-                else:
-                    log.error(f"[GameManager._execute_move] Failed to get game ID after creating new game")
-                    # Rollback the game creation attempt
-                    self.database_session.rollback()
-            except Exception as db_error:
-                log.error(f"[GameManager._execute_move] Error creating new game in database: {db_error}")
-                # Rollback any partial game creation
-                try:
-                    self.database_session.rollback()
-                except Exception:
-                    pass
-                # Continue - game can proceed without database entry
-        
-        # Step 1: Add move to database (but don't commit yet)
-        # Use a flag to track if we need to rollback
-        database_move_added = False
-        game_move = None
-        if self.database_session is not None and self.game_db_id >= 0:
-            try:
-                # Create move object but don't commit - we'll commit after chess engine push succeeds
-                game_move = models.GameMove(
-                    gameid=self.game_db_id,
-                    move=move_uci,
-                    fen=None  # Will be set after chess engine push succeeds
-                )
-                self.database_session.add(game_move)
-                database_move_added = True
-                # Flush to ensure the object is in the session, but don't commit yet
-                self.database_session.flush()
-            except Exception as db_error:
-                # Database add failed - log but continue to try chess engine push
-                # If chess engine push succeeds, we'll have inconsistent state, but that's better than
-                # blocking the move entirely
-                log.error(f"[GameManager._execute_move] Failed to add move to database: {db_error}")
-                database_move_added = False
-                game_move = None
-        elif self.database_session is not None and self.game_db_id < 0:
-            log.warning(f"[GameManager._execute_move] Skipping database write: game not initialized (game_db_id={self.game_db_id}). Move: {move_uci}")
-        
-        # Step 2: Push to chess engine (this is the critical operation)
-        # If this fails, we'll rollback the database (including new game creation if this was first move)
+        # CRITICAL PATH: Push move to chess engine
+        # This is the only truly critical operation - must succeed before any feedback
         try:
             self.chess_board.push(move)
         except (ValueError, AssertionError) as e:
-            # Chess engine push failed - rollback database (game creation and/or move)
-            if new_game_created or database_move_added:
-                try:
-                    self.database_session.rollback()
-                    # Reset game_db_id if we created a new game
-                    if new_game_created:
-                        self.game_db_id = -1
-                    log.warning(f"[GameManager._execute_move] Chess engine push failed, rolled back database (game creation and/or move). Move: {move_uci}, Error: {e}")
-                except Exception as rollback_error:
-                    log.error(f"[GameManager._execute_move] Failed to rollback database after chess engine push failure: {rollback_error}")
-            
             log.error(f"[GameManager._execute_move] Illegal move or chess engine push failed: {move_uci}. Error: {e}")
             board.beep(board.SOUND_WRONG_MOVE)
             board.ledsOff()
             self.move_state.reset()
             return
         
-        # Step 3: Chess engine push succeeded - now commit database with final FEN
-        # This commits both the new game (if first move) and the move
-        if new_game_created or (database_move_added and game_move is not None):
-            try:
-                # Update FEN now that we know the move succeeded
-                if game_move is not None:
-                    game_move.fen = str(self.chess_board.fen())
-                
-                # Commit everything: new game (if first move) and move
-                self.database_session.commit()
-                if new_game_created:
-                    log.info(f"[GameManager._execute_move] New game (id={self.game_db_id}) and first move {move_uci} committed to database after successful chess engine push")
-                else:
-                    log.debug(f"[GameManager._execute_move] Move {move_uci} committed to database after successful chess engine push")
-            except Exception as commit_error:
-                # Database commit failed - this is bad but chess engine already has the move
-                # Log error but continue - chess engine state is authoritative
-                log.error(f"[GameManager._execute_move] Database commit failed after chess engine push succeeded: {commit_error}")
-                log.error(f"[GameManager._execute_move] WARNING: Database and chess engine are now out of sync for move {move_uci}")
-                # Reset game_db_id if we created a new game but commit failed
-                if new_game_created:
-                    self.game_db_id = -1
-                # Try to rollback to prevent partial state
-                try:
-                    self.database_session.rollback()
-                except Exception:
-                    pass
+        # Capture state needed for async operations
+        fen_after_move = str(self.chess_board.fen())
+        late_castling_in_progress = self.move_state.late_castling_in_progress
         
-        paths.write_fen_log(self.chess_board.fen())
-        
-        # Provide immediate audio/visual feedback BEFORE physical board validation
-        # This ensures the player gets instant confirmation that the move was accepted.
-        # Physical board validation (which requires blocking serial I/O) happens afterward.
-        board.ledsOff()
-        board.beep(board.SOUND_GENERAL)
-        board.led(target_square)
-        
-        # Always call move callback to update display with logical board state
-        # The display must always reflect self.chess_board (the authority), not the physical board
-        if self.move_callback is not None:
-            try:
-                self.move_callback(move_uci)
-            except Exception as e:
-                log.error(f"[GameManager._execute_move] Error in move callback: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        # Validate physical board matches logical board after move
-        # If there's a mismatch, enter correction mode to guide user
-        # Skip validation if late castling is in progress (board will be fixed when castling completes)
-        if not self.move_state.late_castling_in_progress:
-            try:
-                current_physical_state = board.getChessState()
-                expected_logical_state = self._chess_board_to_state(self.chess_board)
-                
-                if current_physical_state is not None and expected_logical_state is not None:
-                    if not self._validate_board_state(current_physical_state, expected_logical_state):
-                        log.warning(f"[GameManager._execute_move] Physical board does not match logical board after move {move_uci}, entering correction mode")
-                        self._enter_correction_mode()
-                        self._provide_correction_guidance(current_physical_state, expected_logical_state)
-                else:
-                    # Can't validate - log warning but continue
-                    log.warning(f"[GameManager._execute_move] Could not validate physical board state (current={current_physical_state is not None}, expected={expected_logical_state is not None})")
-            except Exception as e:
-                log.warning(f"[GameManager._execute_move] Error validating physical board state: {e}")
+        # Check game outcome (fast, no I/O)
+        game_ended = False
+        result_string = None
+        termination = None
+        outcome = self.chess_board.outcome(claim_draw=True)
+        if outcome is not None:
+            game_ended = True
+            result_string = str(self.chess_board.result())
+            termination = str(outcome.termination)
         
         # Preserve castling tracking state if a potential rook-first castling is in progress
-        # This allows the king to be moved after the rook to complete the castling
         preserve_castling_rook_source = self.move_state.castling_rook_source
         preserve_castling_rook_placed = self.move_state.castling_rook_placed
         
@@ -1569,15 +1470,127 @@ class GameManager:
             self.move_state.castling_rook_source = preserve_castling_rook_source
             self.move_state.castling_rook_placed = preserve_castling_rook_placed
         
-        # Check game outcome
-        outcome = self.chess_board.outcome(claim_draw=True)
-        if outcome is None:
+        # Switch turn event (fast, no I/O - just sets internal state)
+        if not game_ended:
             self._switch_turn_with_event()
-        else:
-            board.beep(board.SOUND_GENERAL)
-            result_string = str(self.chess_board.result())
-            termination = str(outcome.termination)
-            self._update_game_result(result_string, termination, "_execute_move")
+        
+        # ASYNC: All I/O operations run in background thread with queue for ordering
+        # Queue ensures: board feedback → database → FEN log → callbacks → validation
+        self._enqueue_post_move_tasks(
+            target_square=target_square,
+            move_uci=move_uci,
+            fen_before_move=fen_before_move,
+            fen_after_move=fen_after_move,
+            is_first_move=is_first_move,
+            late_castling_in_progress=late_castling_in_progress,
+            game_ended=game_ended,
+            result_string=result_string,
+            termination=termination
+        )
+    
+    def _enqueue_post_move_tasks(self, target_square: int, move_uci: str,
+                                  fen_before_move: str, fen_after_move: str,
+                                  is_first_move: bool, late_castling_in_progress: bool,
+                                  game_ended: bool, result_string: str, termination: str):
+        """Queue post-move tasks for async execution in order.
+        
+        All tasks are executed sequentially in a background thread to ensure
+        proper ordering while not blocking the main game loop.
+        
+        Task order:
+        1. Board feedback (LEDs + beep) - immediate user feedback
+        2. Database operations - persist the move
+        3. FEN log write
+        4. Move callback (display update, emulator forwarding)
+        5. Physical board validation
+        6. Game end handling (if applicable)
+        """
+        def execute_tasks():
+            try:
+                # 1. Board feedback (LEDs + beep) - highest priority for user experience
+                board.ledsOff()
+                board.beep(board.SOUND_GENERAL)
+                board.led(target_square)
+                
+                # 2. Database operations
+                if self.database_session is not None:
+                    try:
+                        # Create new game if first move
+                        if is_first_move:
+                            game = models.Game(
+                                source=self.source_file,
+                                event=self.game_info['event'],
+                                site=self.game_info['site'],
+                                round=self.game_info['round'],
+                                white=self.game_info['white'],
+                                black=self.game_info['black']
+                            )
+                            self.database_session.add(game)
+                            self.database_session.flush()
+                            
+                            if hasattr(game, 'id') and game.id is not None:
+                                self.game_db_id = game.id
+                                log.info(f"[GameManager.async] New game created (id={self.game_db_id})")
+                                
+                                # Initial position record
+                                initial_move = models.GameMove(
+                                    gameid=self.game_db_id,
+                                    move='',
+                                    fen=fen_before_move
+                                )
+                                self.database_session.add(initial_move)
+                        
+                        # Add this move
+                        if self.game_db_id >= 0:
+                            game_move = models.GameMove(
+                                gameid=self.game_db_id,
+                                move=move_uci,
+                                fen=fen_after_move
+                            )
+                            self.database_session.add(game_move)
+                            self.database_session.commit()
+                            log.debug(f"[GameManager.async] Move {move_uci} committed to database")
+                    except Exception as db_error:
+                        log.error(f"[GameManager.async] Database error: {db_error}")
+                        try:
+                            self.database_session.rollback()
+                        except Exception:
+                            pass
+                
+                # 3. FEN log
+                paths.write_fen_log(fen_after_move)
+                
+                # 4. Move callback (updates display, forwards to emulators)
+                if self.move_callback is not None:
+                    try:
+                        self.move_callback(move_uci)
+                    except Exception as e:
+                        log.error(f"[GameManager.async] Error in move callback: {e}")
+                
+                # 5. Physical board validation
+                if not late_castling_in_progress:
+                    try:
+                        current_physical_state = board.getChessState()
+                        expected_logical_state = self._chess_board_to_state(self.chess_board)
+                        
+                        if current_physical_state is not None and expected_logical_state is not None:
+                            if not self._validate_board_state(current_physical_state, expected_logical_state):
+                                log.warning(f"[GameManager.async] Physical board mismatch after {move_uci}, entering correction mode")
+                                self._enter_correction_mode()
+                                self._provide_correction_guidance(current_physical_state, expected_logical_state)
+                    except Exception as e:
+                        log.warning(f"[GameManager.async] Error validating physical board: {e}")
+                
+                # 6. Game end handling
+                if game_ended:
+                    board.beep(board.SOUND_GENERAL)
+                    self._update_game_result(result_string, termination, "_execute_move")
+                        
+            except Exception as e:
+                log.error(f"[GameManager.async] Unexpected error in post-move tasks: {e}")
+        
+        # Add task to queue - worker thread will execute in order
+        self._task_queue.put(execute_tasks)
     
     def receive_field(self, piece_event: int, field: int, time_in_seconds: float):
         """Handle field events (piece lift/place).
