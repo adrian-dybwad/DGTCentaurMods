@@ -335,7 +335,7 @@ class IconButtonWidget(Widget):
         line_color = 255 if selected else 0
         
         if icon_name == "centaur":
-            self._draw_knight_icon(draw, x, y, size, line_color, selected)
+            self._draw_knight_icon(draw, x, y, size, line_color, selected, face_right=True)
         elif icon_name == "universal":
             self._draw_universal_icon(draw, x, y, size, line_color, selected)
         elif icon_name == "settings":
@@ -390,12 +390,22 @@ class IconButtonWidget(Widget):
                           outline=line_color, width=2)
     
     def _draw_knight_icon(self, draw: ImageDraw.Draw, x: int, y: int,
-                          size: int, line_color: int, selected: bool):
+                          size: int, line_color: int, selected: bool,
+                          face_right: bool = False):
         """Draw a chess knight icon.
         
         Uses path coordinates derived from python-chess (GPL-3.0+) SVG assets.
         The original SVG viewBox is 45x45, scaled to fit the icon size.
         Points are sampled from the bezier curves in the original SVG paths.
+        
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line/fill color
+            selected: Whether button is selected
+            face_right: If True, mirror the knight to face right instead of left
         """
         half = size // 2
         s = size / 45.0  # Scale factor (python-chess uses 45x45 viewBox)
@@ -406,6 +416,9 @@ class IconButtonWidget(Widget):
         
         def pt(px: float, py: float) -> tuple:
             """Convert python-chess SVG coordinate to icon coordinate."""
+            if face_right:
+                # Mirror horizontally: x' = 45 - x (flip around center of 45x45)
+                px = 45.0 - px
             return (ox + int(px * s), oy + int(py * s))
         
         # Body polygon - sampled from bezier curve:

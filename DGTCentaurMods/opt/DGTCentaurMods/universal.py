@@ -386,8 +386,8 @@ def create_settings_entries() -> List[IconMenuEntry]:
         List of IconMenuEntry for settings menu
     """
     engine_label = f"Engine\n{_game_settings['engine']}"
-    elo_label = f"ELO\n{_game_settings['elo']}"
-    color_label = f"Color\n{_game_settings['player_color'].capitalize()}"
+    elo_label = f"ELO: {_game_settings['elo']}"
+    color_label = f"Color: {_game_settings['player_color'].capitalize()}"
     
     return [
         IconMenuEntry(key="Engine", label=engine_label, icon_name="engine", enabled=True, font_size=14),
