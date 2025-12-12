@@ -669,18 +669,18 @@ def create_settings_entries() -> List[IconMenuEntry]:
     Returns:
         List of IconMenuEntry for settings menu
     """
-    engine_label = f"Engine\n{_game_settings['engine']}"
-    elo_label = f"ELO: {_game_settings['elo']}"
-    color_label = f"Color: {_game_settings['player_color'].capitalize()}"
+    engine_label = f"{_game_settings['engine'].capitalize()}"
+    elo_label = f"ELO {_game_settings['elo']}"
+    color_label = f"{_game_settings['player_color'].capitalize()}"
     
     return [
-        IconMenuEntry(key="Engine", label=engine_label, icon_name="engine", enabled=True, font_size=14),
-        IconMenuEntry(key="ELO", label=elo_label, icon_name="elo", enabled=True, font_size=14),
-        IconMenuEntry(key="Color", label=color_label, icon_name="color", enabled=True, font_size=14),
-        IconMenuEntry(key="Positions", label="Positions", icon_name="positions", enabled=True, font_size=14),
-        IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True, font_size=14),
-        IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True, font_size=14),
-        IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=14),
+        IconMenuEntry(key="Positions", label="Positions", icon_name="positions", enabled=True, font_size=12),
+        IconMenuEntry(key="Engine", label=engine_label, icon_name="engine", enabled=True, font_size=12),
+        IconMenuEntry(key="ELO", label=elo_label, icon_name="elo", enabled=True, font_size=12),
+        IconMenuEntry(key="Color", label=color_label, icon_name="color", enabled=True, font_size=12),
+        IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True, font_size=12),
+        IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True, font_size=12),
+        IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=12),
     ]
 
 
