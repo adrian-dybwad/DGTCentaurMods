@@ -1,8 +1,8 @@
 """
 Splash screen widget displayed on startup.
 
-Displays a modified DGT Centaur logo with "UNIVERSAL" replacing "MODS",
-and an updateable message below.
+Displays the knight logo with "UNIVERSAL" text below,
+and an updateable message at the bottom.
 """
 
 from PIL import Image, ImageDraw, ImageFont
@@ -26,10 +26,10 @@ except ImportError:
 
 
 class SplashScreen(Widget):
-    """Splash screen widget with logo and updateable centered message.
+    """Splash screen widget with knight logo and updateable centered message.
     
-    The logo is cropped to remove the "MODS" text, and "UNIVERSAL" is drawn
-    dynamically in a smaller font to fit the width.
+    Displays the knight logo centered at the top, with "UNIVERSAL" text below,
+    and a customizable message at the bottom.
     
     The message can be updated after creation using set_message().
     Text is automatically centered horizontally using TextWidget with Justify.CENTER.
@@ -42,8 +42,9 @@ class SplashScreen(Widget):
     is_modal = True
     
     # Layout configuration
-    LOGO_CROP_HEIGHT = 130  # Crop logo to this height to remove "MODS" text
-    UNIVERSAL_Y = 132  # Y position for "UNIVERSAL" text
+    LOGO_SIZE = 100  # Size of the knight logo
+    LOGO_Y = 10  # Y position for logo (from top of widget)
+    UNIVERSAL_Y = 120  # Y position for "UNIVERSAL" text
     TEXT_MARGIN = 4  # Margin on each side
     TEXT_Y = 170  # Y position for message text (below logo)
     TEXT_HEIGHT = 88  # Height for 4 lines of text at font size 18
@@ -59,6 +60,7 @@ class SplashScreen(Widget):
         self.message = message
         self._logo = None
         self._font = None
+        self._font_large = None
         self._load_resources()
         
         # Calculate text widget dimensions with margins for centering
