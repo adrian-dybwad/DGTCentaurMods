@@ -364,6 +364,139 @@ def _resume_game(game_data: dict) -> bool:
 
 
 # ============================================================================
+# Position Loading Functions
+# ============================================================================
+
+def _load_positions_config() -> dict:
+    """Load predefined positions from positions.ini.
+    
+    Returns:
+        Dictionary with category names as keys and dict of {name: fen} as values.
+        Example: {'test': {'en_passant': 'fen...'}, 'puzzles': {...}}
+    """
+    import configparser
+    
+    positions = {}
+    
+    # Try runtime path first, then development path
+    config_paths = [
+        pathlib.Path("/opt/DGTCentaurMods/config/positions.ini"),
+        pathlib.Path(__file__).parent / "defaults" / "config" / "positions.ini"
+    ]
+    
+    config_file = None
+    for path in config_paths:
+        if path.exists():
+            config_file = path
+            break
+    
+    if config_file is None:
+        log.warning("[Positions] positions.ini not found")
+        return positions
+    
+    try:
+        config = configparser.ConfigParser()
+        config.read(str(config_file))
+        
+        for section in config.sections():
+            positions[section] = {}
+            for name, fen in config.items(section):
+                # Validate FEN has 6 fields
+                if len(fen.split()) == 6:
+                    positions[section][name] = fen
+                else:
+                    log.warning(f"[Positions] Invalid FEN for {section}/{name}: {fen}")
+        
+        log.info(f"[Positions] Loaded {sum(len(v) for v in positions.values())} positions from {len(positions)} categories")
+        
+    except Exception as e:
+        log.error(f"[Positions] Error loading positions.ini: {e}")
+    
+    return positions
+
+
+def _start_from_position(fen: str, position_name: str) -> bool:
+    """Start a game from a predefined position.
+    
+    Sets up the game with the given FEN position and enters correction mode
+    to guide the user in setting up the physical board.
+    
+    Args:
+        fen: FEN string of the position to load
+        position_name: Display name of the position (for logging)
+        
+    Returns:
+        True if position was loaded successfully, False otherwise
+    """
+    global game_handler, app_state
+    
+    try:
+        import chess
+        from DGTCentaurMods.game_manager import EVENT_WHITE_TURN, EVENT_BLACK_TURN
+        
+        log.info(f"[Positions] Loading position: {position_name}")
+        log.info(f"[Positions] FEN: {fen}")
+        
+        # Validate FEN
+        try:
+            test_board = chess.Board(fen)
+        except ValueError as e:
+            log.error(f"[Positions] Invalid FEN: {e}")
+            return False
+        
+        # Start game mode (this initializes game_handler)
+        _start_game_mode()
+        
+        if game_handler is None or game_handler.game_manager is None:
+            log.error("[Positions] Failed to start game mode")
+            return False
+        
+        gm = game_handler.game_manager
+        
+        # Set the board to the loaded position
+        gm.chess_board.set_fen(fen)
+        
+        # Reset game_db_id to -1 so a new game record is created on first move
+        gm.game_db_id = -1
+        
+        log.info(f"[Positions] Position loaded: {gm.chess_board.fen()}")
+        
+        # Update the display to show the position
+        if game_handler:
+            game_handler._update_display()
+        
+        # Check if physical board matches the loaded position
+        current_physical_state = board.getChessState()
+        expected_logical_state = gm._chess_board_to_state(gm.chess_board)
+        
+        if current_physical_state is not None and expected_logical_state is not None:
+            if not gm._validate_board_state(current_physical_state, expected_logical_state):
+                log.info("[Positions] Physical board does not match position, entering correction mode")
+                board.beep(board.SOUND_GENERAL)
+                gm._enter_correction_mode()
+                gm._provide_correction_guidance(current_physical_state, expected_logical_state)
+            else:
+                log.info("[Positions] Physical board matches position")
+                board.beep(board.SOUND_GENERAL)
+                # Board is correct - trigger turn event
+                if gm.event_callback is not None:
+                    if gm.chess_board.turn == chess.WHITE:
+                        log.info("[Positions] White to move")
+                        gm.event_callback(EVENT_WHITE_TURN)
+                    else:
+                        log.info("[Positions] Black to move")
+                        gm.event_callback(EVENT_BLACK_TURN)
+        else:
+            log.warning("[Positions] Could not validate physical board state")
+        
+        return True
+        
+    except Exception as e:
+        log.error(f"[Positions] Error loading position: {e}")
+        return False
+
+
+# ============================================================================
 # Engine/Settings Helpers
 # ============================================================================
 
@@ -544,6 +677,7 @@ def create_settings_entries() -> List[IconMenuEntry]:
         IconMenuEntry(key="Engine", label=engine_label, icon_name="engine", enabled=True, font_size=14),
         IconMenuEntry(key="ELO", label=elo_label, icon_name="elo", enabled=True, font_size=14),
         IconMenuEntry(key="Color", label=color_label, icon_name="color", enabled=True, font_size=14),
+        IconMenuEntry(key="Positions", label="Positions", icon_name="positions", enabled=True, font_size=14),
         IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True, font_size=14),
         IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True, font_size=14),
         IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=14),
@@ -840,11 +974,88 @@ def _handle_settings():
             elif sound_result == "Off":
                 centaur.set_sound("off")
         
+        elif result == "Positions":
+            position_result = _handle_positions_menu()
+            if position_result:
+                # Position was loaded, exit settings and go to game
+                return
+        
         elif result == "WiFi":
             _handle_wifi_settings()
         
         elif result == "System":
             _handle_system_menu()
+
+
+def _handle_positions_menu() -> bool:
+    """Handle the Positions submenu.
+    
+    Shows categories of predefined positions, then positions within that category.
+    Loads the selected position and starts a game.
+    
+    Returns:
+        True if a position was loaded (caller should exit settings), False otherwise
+    """
+    positions = _load_positions_config()
+    
+    if not positions:
+        log.warning("[Positions] No positions available")
+        board.beep(board.SOUND_WRONG_MOVE)
+        return False
+    
+    # Show category menu
+    category_entries = []
+    for category in positions.keys():
+        # Capitalize category name for display
+        display_name = category.replace('_', ' ').title()
+        count = len(positions[category])
+        category_entries.append(IconMenuEntry(
+            key=category,
+            label=f"{display_name}\n({count})",
+            icon_name="positions",
+            enabled=True,
+            font_size=14
+        ))
+    
+    category_result = _show_menu(category_entries)
+    
+    if category_result in ["BACK", "SHUTDOWN", "HELP"]:
+        return False
+    
+    # Show positions in selected category
+    category = category_result
+    if category not in positions:
+        return False
+    
+    position_entries = []
+    for name, fen in positions[category].items():
+        # Format name for display
+        display_name = name.replace('_', ' ').title()
+        # Truncate if too long
+        if len(display_name) > 16:
+            display_name = display_name[:14] + ".."
+        position_entries.append(IconMenuEntry(
+            key=name,
+            label=display_name,
+            icon_name="positions",
+            enabled=True,
+            font_size=13
+        ))
+    
+    position_result = _show_menu(position_entries)
+    
+    if position_result in ["BACK", "SHUTDOWN", "HELP"]:
+        return False
+    
+    # Load the selected position
+    if position_result in positions[category]:
+        fen = positions[category][position_result]
+        display_name = position_result.replace('_', ' ').title()
+        
+        if _start_from_position(fen, display_name):
+            return True
+    
+    return False
 
 
 def _get_current_wifi_status() -> tuple:

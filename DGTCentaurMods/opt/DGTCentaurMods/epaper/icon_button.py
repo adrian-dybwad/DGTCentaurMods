@@ -411,6 +411,8 @@ class IconButtonWidget(Widget):
             self._draw_wifi_signal_icon(draw, x, y, size, line_color, strength=1)
         elif icon_name == "system":
             self._draw_system_icon(draw, x, y, size, line_color)
+        elif icon_name == "positions":
+            self._draw_positions_icon(draw, x, y, size, line_color)
         else:
             # Default: simple square placeholder
             draw.rectangle([left + 4, top + 4, right - 4, bottom - 4],
@@ -1100,3 +1102,41 @@ class IconButtonWidget(Widget):
                  fill=line_color, width=max(1, int(2*s)))
         draw.line([(head_x + head_r, head_y), (head_x + int(10*s), head_y + int(6*s))],
                  fill=line_color, width=max(1, int(2*s)))
+    
+    def _draw_positions_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                             size: int, line_color: int):
+        """Draw a chess board grid icon representing predefined positions."""
+        half = size // 2
+        s = size / 36.0  # Scale factor
+        
+        # Draw a 3x3 or 4x4 mini chess board pattern
+        grid_size = 4
+        cell_size = int(size * 0.8 / grid_size)
+        board_size = cell_size * grid_size
+        start_x = x - board_size // 2
+        start_y = y - board_size // 2
+        
+        # Draw outer border
+        draw.rectangle([start_x - 1, start_y - 1, 
+                       start_x + board_size, start_y + board_size],
+                      outline=line_color, width=1)
+        
+        # Draw filled squares (checkerboard pattern)
+        for row in range(grid_size):
+            for col in range(grid_size):
+                if (row + col) % 2 == 1:  # Dark squares
+                    cell_x = start_x + col * cell_size
+                    cell_y = start_y + row * cell_size
+                    draw.rectangle([cell_x, cell_y, 
+                                   cell_x + cell_size - 1, cell_y + cell_size - 1],
+                                  fill=line_color)
+        
+        # Draw a small piece indicator (dot) on one square
+        indicator_x = start_x + int(1.5 * cell_size)
+        indicator_y = start_y + int(1.5 * cell_size)
+        dot_r = max(2, int(cell_size * 0.25))
+        # Use opposite color (white on dark square)
+        fill_color = 255 if line_color == 0 else 0
+        draw.ellipse([indicator_x - dot_r, indicator_y - dot_r,
+                     indicator_x + dot_r, indicator_y + dot_r],
+                    fill=fill_color, outline=line_color)
