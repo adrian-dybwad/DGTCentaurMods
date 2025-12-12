@@ -49,7 +49,8 @@ class SplashScreen(Widget):
     TEXT_HEIGHT = 88  # Height for 4 lines of text at font size 18
     
     def __init__(self, message: str = "Press [OK]"):
-        super().__init__(0, STATUS_BAR_HEIGHT, 128, 296 - STATUS_BAR_HEIGHT)  # Full screen widget
+        # Use lightest grey background (shade 1 = ~6.25% grey)
+        super().__init__(0, STATUS_BAR_HEIGHT, 128, 296 - STATUS_BAR_HEIGHT, background_shade=1)
         self.message = message
         self._logo = None
         self._font = None
@@ -99,7 +100,7 @@ class SplashScreen(Widget):
     
     def render(self) -> Image.Image:
         """Render the splash screen with logo, UNIVERSAL text, and message."""
-        img = Image.new("1", (self.width, self.height), 255)
+        img = self.create_background_image()
         draw = ImageDraw.Draw(img)
         
         # Draw cropped logo (without "MODS")
