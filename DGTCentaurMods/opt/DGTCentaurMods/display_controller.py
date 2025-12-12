@@ -397,6 +397,90 @@ class DisplayController:
         wait_thread = threading.Thread(target=wait_for_result, daemon=True)
         wait_thread.start()
     
+    def show_kings_center_menu(self, on_result: callable, is_two_player: bool = False):
+        """Show confirmation menu when kings are placed in center (resign/draw gesture).
+        
+        Non-blocking - calls on_result when user makes a selection.
+        
+        Args:
+            on_result: Callback function(result: str) with result:
+                      'resign', 'resign_white', 'resign_black', 'draw', or 'cancel'
+            is_two_player: If True, show separate resign options for white and black
+        """
+        board = _get_board()
+        
+        log.info(f"[DisplayController] Showing kings-in-center menu (two_player={is_two_player})")
+        
+        if is_two_player:
+            entries = [
+                _IconMenuEntry(key="resign_white", label="White\nResigns", icon_name="resign"),
+                _IconMenuEntry(key="resign_black", label="Black\nResigns", icon_name="resign"),
+                _IconMenuEntry(key="draw", label="Draw", icon_name="draw"),
+                _IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel"),
+            ]
+        else:
+            entries = [
+                _IconMenuEntry(key="resign", label="Resign", icon_name="resign"),
+                _IconMenuEntry(key="draw", label="Draw", icon_name="draw"),
+                _IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel"),
+            ]
+        
+        kings_menu = _IconMenuWidget(
+            x=0, y=0, width=128, height=296,
+            entries=entries,
+            selected_index=len(entries) - 1
+        )
+        
+        self._menu_result_callback = on_result
+        self._current_menu = kings_menu
+        self._menu_active = True
+        
+        if board.display_manager:
+            board.display_manager.clear_widgets(addStatusBar=False)
+            future = board.display_manager.add_widget(kings_menu)
+            if future:
+                try:
+                    future.result(timeout=2.0)
+                except Exception as e:
+                    log.debug(f"[DisplayController] Error displaying menu: {e}")
+        
+        board.beep(board.SOUND_GENERAL)
+        kings_menu.activate()
+        
+        def wait_for_result():
+            try:
+                kings_menu._selection_event.wait()
+                result = kings_menu._selection_result or "BACK"
+                
+                log.info(f"[DisplayController] Kings-in-center menu result: {result}")
+                
+                self._menu_active = False
+                kings_menu.deactivate()
+                self._current_menu = None
+                
+                if result == "BACK":
+                    result = "cancel"
+                elif result == "SHUTDOWN":
+                    result = "cancel"
+                
+                if result == "cancel":
+                    self._restore_game_display()
+                
+                if self._menu_result_callback:
+                    self._menu_result_callback(result)
+                    
+            except Exception as e:
+                log.error(f"[DisplayController] Error in kings-in-center menu: {e}")
+                import traceback
+                traceback.print_exc()
+                self._menu_active = False
+                self._current_menu = None
+                if self._menu_result_callback:
+                    self._menu_result_callback("cancel")
+        
+        wait_thread = threading.Thread(target=wait_for_result, daemon=True)
+        wait_thread.start()
+    
     def handle_key(self, key):
         """Route key events to active menu or external callback.
         

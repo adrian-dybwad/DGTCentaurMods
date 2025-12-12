@@ -57,6 +57,10 @@ PROMOTION_DISPLAY_LINE = 13
 # Move constants
 MIN_UCI_MOVE_LENGTH = 4
 
+# Kings-in-center resign/draw detection
+# Center squares: d4, d5, e4, e5
+CENTER_SQUARES = {chess.D4, chess.D5, chess.E4, chess.E5}
+
 # Game constants
 STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
@@ -329,8 +333,10 @@ class GameManager:
         # UI callbacks (set by DisplayManager)
         # on_promotion_needed(is_white: bool) -> str: Called when promotion piece selection needed
         # on_back_pressed() -> None: Called when BACK pressed during game (show resign/draw menu)
+        # on_kings_in_center() -> None: Called when both kings detected in center squares
         self.on_promotion_needed = None
         self.on_back_pressed = None
+        self.on_kings_in_center = None
         
         # Thread control
         self.should_stop = False
@@ -1684,6 +1690,14 @@ class GameManager:
                 log.warning("[GameManager.receive_field] Starting position detected - abandoning current game")
                 self._reset_game()
                 return
+            
+            # Kings-in-center detection (DGT resign/draw gesture)
+            # Only check when a game is in progress
+            if self.is_game_in_progress() and self._check_kings_in_center():
+                log.info("[GameManager.receive_field] Kings in center detected - showing resign/draw confirmation")
+                if self.on_kings_in_center:
+                    self.on_kings_in_center()
+                return
         
         is_lift = (piece_event == 0)
         
@@ -1773,6 +1787,61 @@ class GameManager:
         # Play sound and turn off LEDs
         board.beep(board.SOUND_GENERAL)
         board.ledsOff()
+    
+    def _check_kings_in_center(self) -> bool:
+        """Check if both kings are placed in the center squares (d4, d5, e4, e5).
+        
+        This is the DGT convention for signaling resign/draw. When detected,
+        triggers the on_kings_in_center callback to show a confirmation menu.
+        
+        Returns:
+            True if both kings are in center squares, False otherwise.
+        """
+        # Get current physical board state using low-priority queue
+        current_state = board.getChessStateLowPriority()
+        if current_state is None:
+            return False
+        
+        # Find pieces in center squares
+        # getChessState returns 1 for occupied, 0 for empty - we need piece types
+        # Use getBoardStateLowPriority for raw piece data
+        raw_state = board.getBoardStateLowPriority()
+        if raw_state is None or len(raw_state) != BOARD_SIZE:
+            return False
+        
+        # DGT piece codes: 1=white pawn, 2=white rook, 3=white knight, 4=white bishop,
+        # 5=white queen, 6=white king, 7=black pawn, 8=black rook, 9=black knight,
+        # 10=black bishop, 11=black queen, 12=black king
+        WHITE_KING_CODE = 6
+        BLACK_KING_CODE = 12
+        
+        # Convert center squares to raw board indices
+        # Raw order: 0=a8, 1=b8, ..., 63=h1
+        # Chess order: 0=a1, 1=b1, ..., 63=h8
+        def chess_to_raw(chess_sq):
+            chess_row = chess_sq // 8
+            col = chess_sq % 8
+            raw_row = 7 - chess_row
+            return raw_row * 8 + col
+        
+        center_raw_indices = [chess_to_raw(sq) for sq in CENTER_SQUARES]
+        
+        # Check if both kings are in center squares
+        white_king_in_center = False
+        black_king_in_center = False
+        
+        for raw_idx in center_raw_indices:
+            piece_code = raw_state[raw_idx]
+            if piece_code == WHITE_KING_CODE:
+                white_king_in_center = True
+            elif piece_code == BLACK_KING_CODE:
+                black_king_in_center = True
+        
+        if white_king_in_center and black_king_in_center:
+            log.info("[GameManager._check_kings_in_center] Both kings detected in center squares")
+            return True
+        
+        return False
     
     def _reset_game(self):
         """Abandon current game and reset to starting position.

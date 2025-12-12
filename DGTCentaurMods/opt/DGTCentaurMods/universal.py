@@ -921,6 +921,14 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             is_two_player=game_handler.is_two_player_mode
         )
     
+    # Kings-in-center gesture (DGT resign/draw) - same result handling as back menu
+    # For position games, don't show resign/draw menu
+    if not is_position_game:
+        game_handler.game_manager.on_kings_in_center = lambda: display_manager.show_kings_center_menu(
+            _on_back_menu_result,
+            is_two_player=game_handler.is_two_player_mode
+        )
+    
     # Wire up event callback to handle game events
     from DGTCentaurMods.game_manager import EVENT_NEW_GAME
     def _on_game_event(event):
