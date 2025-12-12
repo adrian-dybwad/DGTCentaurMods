@@ -571,24 +571,39 @@ class IconButtonWidget(Widget):
     
     def _draw_sound_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                          size: int, line_color: int):
-        """Draw a speaker icon."""
-        half = size // 2
+        """Draw a speaker icon.
         
-        # Speaker body
+        All drawing stays within the icon bounds (x-half to x+half).
+        """
+        half = size // 2
+        s = size / 36.0  # Scale factor
+        
+        # Speaker body (left side of icon)
+        speaker_left = x - half + int(2*s)
+        speaker_width = int(12*s)
+        speaker_height = int(8*s)
+        cone_width = int(6*s)
+        cone_height = int(14*s)
+        
         draw.polygon([
-            (x - half + 4, y - 4),
-            (x - half + 4, y + 4),
-            (x - half + 10, y + 4),
-            (x - half + 16, y + half - 4),
-            (x - half + 16, y - half + 4),
-            (x - half + 10, y - 4),
+            (speaker_left, y - speaker_height//2),
+            (speaker_left, y + speaker_height//2),
+            (speaker_left + speaker_width//2, y + speaker_height//2),
+            (speaker_left + speaker_width, y + cone_height//2),
+            (speaker_left + speaker_width, y - cone_height//2),
+            (speaker_left + speaker_width//2, y - speaker_height//2),
         ], fill=line_color)
         
-        # Sound waves
-        for i, offset in enumerate([6, 12]):
-            arc_x = x - half + 16 + offset
-            draw.arc([arc_x - 4, y - 8 - i*2, arc_x + 4, y + 8 + i*2],
-                    start=-60, end=60, fill=line_color, width=2)
+        # Sound waves (right side, within bounds)
+        wave_start = speaker_left + speaker_width + int(3*s)
+        wave_width = max(2, int(3*s))
+        for i in range(2):
+            arc_x = wave_start + i * int(6*s)
+            arc_r = int(4*s) + i * int(2*s)
+            # Ensure waves stay within bounds
+            if arc_x + wave_width <= x + half:
+                draw.arc([arc_x - wave_width, y - arc_r, arc_x + wave_width, y + arc_r],
+                        start=-60, end=60, fill=line_color, width=max(1, int(1.5*s)))
     
     def _draw_power_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                          size: int, line_color: int):
