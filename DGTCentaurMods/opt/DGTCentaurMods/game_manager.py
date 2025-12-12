@@ -728,43 +728,61 @@ class GameManager:
         # This happens when:
         # 1. A rook move was already executed (castling_rook_placed is True)
         # 2. The king is now being lifted from its starting square
-        # 3. It's NOT the current player's turn (because the rook move was already made)
-        if self.move_state.castling_rook_placed and not is_current_player_piece:
-            piece_at_field = self.chess_board.piece_at(field)
-            is_king = piece_at_field is not None and piece_at_field.piece_type == chess.KING
-            
-            # Check if this is the opponent's king from the expected starting square for castling
+        # Note: We check based on which rook moved, not whose turn it is, because
+        # the engine may have already responded (changing the turn back to the player).
+        if self.move_state.castling_rook_placed:
+            # Determine the expected king square based on which rook moved
             expected_king_square = None
+            expected_king_color = None
             if self.move_state.castling_rook_source in (MoveState.WHITE_KINGSIDE_ROOK, MoveState.WHITE_QUEENSIDE_ROOK):
                 expected_king_square = MoveState.WHITE_KING_SQUARE
+                expected_king_color = chess.WHITE
             elif self.move_state.castling_rook_source in (MoveState.BLACK_KINGSIDE_ROOK, MoveState.BLACK_QUEENSIDE_ROOK):
                 expected_king_square = MoveState.BLACK_KING_SQUARE
+                expected_king_color = chess.BLACK
             
-            if is_king and field == expected_king_square:
-                # This is a late castling attempt - king lifted after rook was moved
-                log.info(f"[GameManager._handle_piece_lift] Late castling detected - king lifted from {chess.square_name(field)} after rook move")
-                # Track this as a potential late castling
-                self.move_state.source_square = field
-                self.move_state.source_piece_color = piece_color
-                self.move_state.late_castling_in_progress = True  # Suppress board validation
-                # Set legal destinations to include only the castling destination
-                king_dest = None
-                if self.move_state.castling_rook_source == MoveState.WHITE_KINGSIDE_ROOK:
-                    king_dest = MoveState.WHITE_KINGSIDE_KING_DEST
-                elif self.move_state.castling_rook_source == MoveState.WHITE_QUEENSIDE_ROOK:
-                    king_dest = MoveState.WHITE_QUEENSIDE_KING_DEST
-                elif self.move_state.castling_rook_source == MoveState.BLACK_KINGSIDE_ROOK:
-                    king_dest = MoveState.BLACK_KINGSIDE_KING_DEST
-                elif self.move_state.castling_rook_source == MoveState.BLACK_QUEENSIDE_ROOK:
-                    king_dest = MoveState.BLACK_QUEENSIDE_KING_DEST
+            # Check if this is the king being lifted from the expected square
+            if field == expected_king_square:
+                piece_at_field = self.chess_board.piece_at(field)
+                is_correct_king = (piece_at_field is not None and 
+                                   piece_at_field.piece_type == chess.KING and
+                                   piece_at_field.color == expected_king_color)
                 
-                self.move_state.legal_destination_squares = [field, king_dest] if king_dest else [field]
-                return
-            else:
-                # Not the king or wrong square - clear castling tracking
-                # The rook move was a regular move, continue normally
+                if is_correct_king:
+                    # This is a late castling attempt - king lifted after rook was moved
+                    log.info(f"[GameManager._handle_piece_lift] Late castling detected - king lifted from {chess.square_name(field)} after rook move")
+                    # Track this as a potential late castling
+                    self.move_state.source_square = field
+                    self.move_state.source_piece_color = piece_color
+                    self.move_state.late_castling_in_progress = True  # Suppress board validation
+                    # Set legal destinations to include only the castling destination
+                    king_dest = None
+                    if self.move_state.castling_rook_source == MoveState.WHITE_KINGSIDE_ROOK:
+                        king_dest = MoveState.WHITE_KINGSIDE_KING_DEST
+                    elif self.move_state.castling_rook_source == MoveState.WHITE_QUEENSIDE_ROOK:
+                        king_dest = MoveState.WHITE_QUEENSIDE_KING_DEST
+                    elif self.move_state.castling_rook_source == MoveState.BLACK_KINGSIDE_ROOK:
+                        king_dest = MoveState.BLACK_KINGSIDE_KING_DEST
+                    elif self.move_state.castling_rook_source == MoveState.BLACK_QUEENSIDE_ROOK:
+                        king_dest = MoveState.BLACK_QUEENSIDE_KING_DEST
+                    
+                    self.move_state.legal_destination_squares = [field, king_dest] if king_dest else [field]
+                    return
+            
+            # If we reach here and it's not the king from the expected square,
+            # but some other piece is being lifted, clear castling tracking
+            # (the player is making a different move)
+            if not is_current_player_piece:
+                # Non-player piece lifted - might be executing the forced move
+                # Don't clear castling tracking yet
+                pass
+            elif self.move_state.source_square < 0:
+                # Player is starting a new move (not the king for castling)
+                # Clear castling tracking as the player is abandoning the late castling
+                log.info(f"[GameManager._handle_piece_lift] Late castling abandoned - different piece lifted from {chess.square_name(field)}")
                 self.move_state.castling_rook_source = INVALID_SQUARE
                 self.move_state.castling_rook_placed = False
+                self.move_state.late_castling_in_progress = False
         
         # Check if this is a rook lift from a castling position (for rook-first castling)
         # Only track if:
