@@ -844,6 +844,43 @@ class GameManager:
         2. When king is subsequently placed on its castling destination, the move is executed
         """
         
+        # PRIORITY: Check for late castling completion FIRST, before any other validation
+        # This prevents brief flashes of "misplaced piece" mode during the castling sequence
+        if self.move_state.late_castling_in_progress:
+            # Determine the expected king destination based on which rook moved
+            expected_king_dest = None
+            if self.move_state.castling_rook_source == MoveState.WHITE_KINGSIDE_ROOK:
+                expected_king_dest = MoveState.WHITE_KINGSIDE_KING_DEST
+            elif self.move_state.castling_rook_source == MoveState.WHITE_QUEENSIDE_ROOK:
+                expected_king_dest = MoveState.WHITE_QUEENSIDE_KING_DEST
+            elif self.move_state.castling_rook_source == MoveState.BLACK_KINGSIDE_ROOK:
+                expected_king_dest = MoveState.BLACK_KINGSIDE_KING_DEST
+            elif self.move_state.castling_rook_source == MoveState.BLACK_QUEENSIDE_ROOK:
+                expected_king_dest = MoveState.BLACK_QUEENSIDE_KING_DEST
+            
+            if expected_king_dest is not None and field == expected_king_dest:
+                # King placed on correct castling destination - execute late castling
+                log.info(f"[GameManager._handle_piece_place] Late castling completion: King placed on {chess.square_name(field)}")
+                self._execute_late_castling(self.move_state.castling_rook_source)
+                return
+            elif field == self.move_state.source_square:
+                # King placed back on starting square - cancel late castling
+                log.info(f"[GameManager._handle_piece_place] Late castling cancelled: King returned to {chess.square_name(field)}")
+                self.move_state.reset()
+                board.ledsOff()
+                return
+            else:
+                # King placed on unexpected square - this is an error
+                log.warning(f"[GameManager._handle_piece_place] Late castling failed: King placed on unexpected square {chess.square_name(field)}")
+                board.beep(board.SOUND_WRONG_MOVE)
+                self._enter_correction_mode()
+                current_state = board.getChessState()
+                expected_state = self._chess_board_to_state(self.chess_board)
+                if expected_state is not None:
+                    self._provide_correction_guidance(current_state, expected_state)
+                self.move_state.reset()
+                return
+        
         is_current_player_piece = (self.chess_board.turn == chess.WHITE) == (piece_color == True)
         
         # Handle opponent piece placed back
@@ -953,30 +990,9 @@ class GameManager:
         
         # Clear exit flag on valid LIFT (handled in lift handler)
         
-        # Check for late castling completion:
-        # If a rook move was already executed (castling_rook_placed is True) and the king
-        # is now being placed on its castling destination, this is a late castling.
-        # We need to undo the rook move (and any opponent response), then execute castling.
-        if self.move_state.castling_rook_placed and self.move_state.source_square != INVALID_SQUARE:
-            # Check if the piece being moved is a king and the destination is the castling square
-            piece_at_source = self.chess_board.piece_at(self.move_state.source_square)
-            if piece_at_source is not None and piece_at_source.piece_type == chess.KING:
-                # Determine the expected king destination based on which rook moved
-                expected_king_dest = None
-                if self.move_state.castling_rook_source == MoveState.WHITE_KINGSIDE_ROOK:
-                    expected_king_dest = MoveState.WHITE_KINGSIDE_KING_DEST
-                elif self.move_state.castling_rook_source == MoveState.WHITE_QUEENSIDE_ROOK:
-                    expected_king_dest = MoveState.WHITE_QUEENSIDE_KING_DEST
-                elif self.move_state.castling_rook_source == MoveState.BLACK_KINGSIDE_ROOK:
-                    expected_king_dest = MoveState.BLACK_KINGSIDE_KING_DEST
-                elif self.move_state.castling_rook_source == MoveState.BLACK_QUEENSIDE_ROOK:
-                    expected_king_dest = MoveState.BLACK_QUEENSIDE_KING_DEST
-                
-                if expected_king_dest is not None and field == expected_king_dest:
-                    # This is a late castling - rook move was already executed, now king completes it
-                    log.info(f"[GameManager._handle_piece_place] Late castling detected: King placed on {chess.square_name(field)}")
-                    self._execute_late_castling(self.move_state.castling_rook_source)
-                    return
+        # Note: Late castling completion is handled at the very beginning of _handle_piece_place
+        # when late_castling_in_progress is True. This ensures no other validation can trigger
+        # "misplaced piece" mode during the castling sequence.
         
         # Check for illegal placement
         if field not in self.move_state.legal_destination_squares:
