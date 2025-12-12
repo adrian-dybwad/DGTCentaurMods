@@ -43,6 +43,7 @@ class IconButtonWidget(Widget):
                  margin: int = 4,
                  padding: int = 2,
                  icon_margin: int = 2,
+                 border_width: int = 2,
                  selected_shade: int = 12,
                  background_shade: int = 0):
         """Initialize icon button widget.
@@ -60,7 +61,8 @@ class IconButtonWidget(Widget):
             label_height: Height reserved for label text (default 18)
             margin: Space outside the button border (default 4)
             padding: Space inside the button border (default 2)
-            icon_margin: Space between icon and label text (default 2)
+            icon_margin: Space around the icon on all sides (default 2)
+            border_width: Width of the button border in pixels (default 2)
             selected_shade: Dithered shade for selected state 0-16 (default 12 = ~75% black)
             background_shade: Dithered background shade 0-16 (default 0 = white)
         """
@@ -74,6 +76,7 @@ class IconButtonWidget(Widget):
         self.margin = margin
         self.padding = padding
         self.icon_margin = icon_margin
+        self.border_width = border_width
         self.selected_shade = max(0, min(16, selected_shade))
         
         # Load font
@@ -143,17 +146,22 @@ class IconButtonWidget(Widget):
         border_right = self.width - 1 - self.margin
         border_bottom = self.height - 1 - self.margin
         
+        # Inside edge of border (where content can start)
+        inside_left = self.margin + self.border_width
+        inside_top = self.margin + self.border_width
+        inside_right = self.width - self.margin - self.border_width
+        inside_bottom = self.height - self.margin - self.border_width
+        
         # Content area bounds (inside border and padding)
-        content_left = self.margin + 2 + self.padding
-        content_top = self.margin + 2 + self.padding
-        content_right = self.width - self.margin - 2 - self.padding
-        content_bottom = self.height - self.margin - 2 - self.padding
+        content_left = inside_left + self.padding
+        content_top = inside_top + self.padding
+        content_right = inside_right - self.padding
+        content_bottom = inside_bottom - self.padding
         content_height = content_bottom - content_top
         
         # Draw button background (only inside border area, not margin)
         if self.selected:
             # Selected: dark grey dithered background inside border only
-            # First fill the border area, then apply dither
             for y in range(border_top, border_bottom + 1):
                 for x in range(border_left, border_right + 1):
                     pattern = DITHER_PATTERNS.get(self.selected_shade, DITHER_PATTERNS[0])
@@ -163,29 +171,33 @@ class IconButtonWidget(Widget):
             draw.rectangle([border_left, border_top, border_right, border_bottom], fill=None, outline=0)
         else:
             # Unselected: white fill with black border
-            draw.rectangle([border_left, border_top, border_right, border_bottom], fill=255, outline=0, width=2)
+            draw.rectangle([border_left, border_top, border_right, border_bottom], fill=255, outline=0, width=self.border_width)
         
-        # Draw icon (uses icon_margin from border, ignores padding)
-        # Icon is positioned icon_margin pixels from the inside of the border
-        icon_left = self.margin + 2 + self.icon_margin
+        # Draw icon (icon_margin is space around icon on all sides, ignores padding)
+        # Icon positioned from inside of border + icon_margin
+        icon_left = inside_left + self.icon_margin
+        icon_top = inside_top + self.icon_margin
         icon_x = icon_left + self.icon_size // 2
-        icon_y = content_top + content_height // 2
+        icon_y = icon_top + self.icon_size // 2
         self._draw_icon(draw, self.icon_name, icon_x, icon_y, self.icon_size, self.selected)
         
-        # Draw label (icon_margin is also space between icon and text)
-        text_x = icon_left + self.icon_size + self.icon_margin
+        # Icon right edge (including icon_margin on right side)
+        icon_right = icon_left + self.icon_size + self.icon_margin
+        
+        # Draw label (uses padding for vertical positioning, starts after icon area)
+        text_x = icon_right
         text_color = 255 if self.selected else 0
         
         # Check for multi-line text
         lines = self.label.split('\n')
         if len(lines) > 1:
-            # Multi-line: position at top of content area
+            # Multi-line: position at top of content area (uses padding)
             text_y = content_top
             for line in lines:
                 draw.text((text_x, text_y), line, font=self._font, fill=text_color)
                 text_y += 16  # Line height
         else:
-            # Single line: center vertically in content area
+            # Single line: center vertically in content area (uses padding)
             text_y = content_top + (content_height - self.label_height) // 2
             draw.text((text_x, text_y), self.label, font=self._font, fill=text_color)
         
