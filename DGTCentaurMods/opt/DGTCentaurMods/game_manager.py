@@ -909,12 +909,22 @@ class GameManager:
         
         # Check for kings-in-center gesture (resign/draw)
         # This must be checked before other logic to detect the gesture
-        if self._track_kings_center_place(field):
+        gesture_complete = self._track_kings_center_place(field)
+        
+        if gesture_complete:
             # Both kings are in center - trigger resign/draw menu
             log.info("[GameManager._handle_piece_place] Kings-in-center gesture complete, triggering menu")
             self._reset_kings_center_tracking()
             if self.on_kings_in_center:
                 self.on_kings_in_center()
+            return
+        
+        # If both kings have been lifted and a piece was just placed on a center square,
+        # suppress normal move processing - wait for the gesture to complete
+        # This prevents correction mode from interfering with the gesture
+        if self._white_king_lifted and self._black_king_lifted and field in CENTER_SQUARES:
+            log.info(f"[GameManager._handle_piece_place] Kings-in-center gesture in progress, "
+                    f"waiting for second king (center_count={len(self._center_pieces_placed)})")
             return
         
         # PRIORITY: Check for late castling completion FIRST, before any other validation
@@ -1860,10 +1870,12 @@ class GameManager:
                 log.info("[GameManager] Kings-in-center gesture detected")
                 return True
         else:
-            # Piece placed outside center - might be completing a normal move
-            # If a king was lifted and placed back on a non-center square, reset that tracking
-            # But we can't easily tell which piece was placed, so just track center placements
-            pass
+            # Piece placed outside center
+            # If both kings were lifted (gesture in progress) but piece placed outside center,
+            # this cancels the gesture - they're making a normal move or returning pieces
+            if self._white_king_lifted and self._black_king_lifted and len(self._center_pieces_placed) > 0:
+                log.info(f"[GameManager] Kings-in-center gesture cancelled - piece placed on {chess.square_name(field)} (outside center)")
+                self._reset_kings_center_tracking()
         
         return False
     
