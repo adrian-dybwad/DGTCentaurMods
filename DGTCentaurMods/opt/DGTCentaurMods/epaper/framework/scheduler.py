@@ -28,8 +28,6 @@ class Scheduler:
         self._thread = None
         self._stop_event = threading.Event()
         self._wake_event = threading.Event()  # Event to wake scheduler for immediate processing
-        self._max_partial_refreshes = 50
-        self._partial_refresh_count = 0
         self._in_partial_mode = False  # Track if display is in partial refresh mode
     
     def start(self) -> None:
@@ -137,15 +135,11 @@ class Scheduler:
                 full, future = item
                 image = None
             
-            full_refresh = full or self._partial_refresh_count >= self._max_partial_refreshes
-            if full_refresh:
-                # if full:
-                #     log.debug(f"Scheduler._process_batch(): Executing FULL refresh due to explicit request. _in_partial_mode={self._in_partial_mode}")
-                # else:
-                #     log.debug(f"Scheduler._process_batch(): Executing FULL refresh due to partial refresh count ({self._partial_refresh_count}) exceeding max ({self._max_partial_refreshes}). _in_partial_mode={self._in_partial_mode}")
+            # Full refresh only when explicitly requested (e.g., user long-press)
+            # Never auto-trigger full refresh based on partial count
+            if full:
                 self._execute_full_refresh_single(full, future, image)
             else:
-                # log.debug(f"Scheduler._process_batch(): Executing PARTIAL refresh. _in_partial_mode={self._in_partial_mode}, partial_refresh_count={self._partial_refresh_count}")
                 self._execute_partial_refresh_single(full, future, image)
     
     def _execute_full_refresh_single(self, full: bool, future: Future, image: Optional[Image.Image]) -> None:
@@ -171,7 +165,6 @@ class Scheduler:
             
             buf = self._epd.getbuffer(full_image)
             self._epd.display(buf)
-            self._partial_refresh_count = 0
         except Exception as e:
             # Don't log errors during shutdown (SPI may be closed)
             if not self._stop_event.is_set():
@@ -223,8 +216,6 @@ class Scheduler:
             # Get buffer from image and display
             buf = self._epd.getbuffer(display_image)
             self._epd.DisplayPartial(buf)
-            
-            self._partial_refresh_count += 1
         except Exception as e:
             # Don't log errors during shutdown (SPI may be closed)
             if not self._stop_event.is_set():
