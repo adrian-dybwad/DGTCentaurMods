@@ -848,16 +848,9 @@ def eventsThread(keycallback, fieldcallback, tout):
                             key_pressed = release_key
                             break
                     else:
-                        # Held for >= 1 second - trigger full refresh
-                        log.info('[board.events] Long press (1s) detected, triggering full screen refresh')
-                        if display_manager:
-                            try:
-                                display_manager.update(full=True)
-                            except Exception as e:
-                                log.error(f'[board.events] Error triggering full refresh: {e}')
-                        
+                        # Held for >= 1 second
                         if is_play_key:
-                            # PLAY key: after refresh, continue with shutdown countdown (2 more seconds)
+                            # PLAY key: start shutdown countdown (no refresh - need to see countdown)
                             beep(SOUND_POWER_OFF)
                             log.info('[board.events] PLAY held 1s, starting 2s shutdown countdown')
                             if shutdown_countdown(countdown_seconds=2):
@@ -865,7 +858,14 @@ def eventsThread(keycallback, fieldcallback, tout):
                             else:
                                 log.info('[board.events] Shutdown cancelled (button released)')
                         else:
-                            # Other keys: just wait for release, no further action
+                            # Other keys: trigger full refresh
+                            log.info('[board.events] Long press (1s) detected, triggering full screen refresh')
+                            if display_manager:
+                                try:
+                                    display_manager.update(full=True)
+                                except Exception as e:
+                                    log.error(f'[board.events] Error triggering full refresh: {e}')
+                            # Wait for release, no further action
                             while True:
                                 time.sleep(0.05)
                                 release_key = controller.get_next_key(timeout=0.0)
