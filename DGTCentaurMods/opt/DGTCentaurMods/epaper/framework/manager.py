@@ -33,14 +33,15 @@ class Manager:
         self._shutting_down = False
         log.warning(f"Manager.__init__() completed - Manager id: {id(self)}, EPD id: {id(self._epd)}")
     
-    def initialize(self) -> Future:
+    def initialize(self, background_shade: int = 4) -> Future:
         """Initialize the display.
         
         The status bar is not added by default during initialization.
         The caller is responsible for adding it when appropriate (e.g., when showing a menu).
         This prevents the status bar from briefly appearing before a splash screen is shown.
         
-        Sets a default slight grey background (shade=2) for subtle visual depth.
+        Args:
+            background_shade: Default background shade 0-16 (0=white, 16=black, default=4)
         """
         if self._initialized:
             return
@@ -57,8 +58,8 @@ class Manager:
             #self._epd.Clear()
             self._framebuffer.flush_all()
             
-            # Set default slight grey background for visual depth
-            self.set_background(shade=2)
+            # Set default background for visual depth
+            self.set_background(shade=background_shade)
             
             self._initialized = True
             return self.clear_widgets(addStatusBar=False)
