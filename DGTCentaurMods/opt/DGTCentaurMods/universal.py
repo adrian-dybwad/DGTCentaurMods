@@ -340,13 +340,13 @@ def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEnt
     # Vertical layout: icon centered on top, text centered below
     entries.append(IconMenuEntry(
         key="Universal",
-        label="Universal",
+        label="PLAY",
         icon_name="universal",
         enabled=True,
         height_ratio=2.0,
         icon_size=72,
         layout="vertical",
-        font_size=20  # Larger text for prominent button
+        font_size=32  # Larger text for prominent button
     ))
     
     # Settings in middle - standard height, horizontal layout
