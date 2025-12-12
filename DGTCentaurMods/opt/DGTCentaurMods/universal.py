@@ -57,9 +57,9 @@ def _init_display_early():
         if promise:
             promise.result(timeout=10.0)
         
-        # Show splash screen immediately
+        # Show splash screen immediately (full screen, no status bar)
         _early_display_manager.clear_widgets(addStatusBar=False)
-        _startup_splash = SplashScreen(message="Starting...")
+        _startup_splash = SplashScreen(message="Starting...", leave_room_for_status_bar=False)
         promise = _early_display_manager.add_widget(_startup_splash)
         if promise:
             promise.result(timeout=5.0)
@@ -735,9 +735,9 @@ def _scan_wifi_networks() -> List[dict]:
     networks = []
     
     try:
-        # Show scanning message
+        # Show scanning message (full screen, no status bar)
         board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(message="Scanning..."))
+        promise = board.display_manager.add_widget(SplashScreen(message="Scanning...", leave_room_for_status_bar=False))
         if promise:
             try:
                 promise.result(timeout=5.0)
@@ -832,9 +832,9 @@ def _connect_to_wifi(ssid: str, password: str = None) -> bool:
     import subprocess
     
     try:
-        # Show connecting message
+        # Show connecting message (full screen, no status bar)
         board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(message="Connecting..."))
+        promise = board.display_manager.add_widget(SplashScreen(message="Connecting...", leave_room_for_status_bar=False))
         if promise:
             try:
                 promise.result(timeout=5.0)
@@ -991,9 +991,9 @@ def _handle_wifi_scan():
     log.info(f"[WiFi] Scan complete, found {len(networks)} networks")
 
     if not networks:
-        # Show no networks found message
+        # Show no networks found message (full screen, no status bar)
         board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(message="No networks found"))
+        promise = board.display_manager.add_widget(SplashScreen(message="No networks found", leave_room_for_status_bar=False))
         if promise:
             try:
                 promise.result(timeout=2.0)
@@ -1123,7 +1123,7 @@ def _shutdown(message: str, reboot: bool = False):
         reboot: If True, reboot instead of shutdown
     """
     board.display_manager.clear_widgets(addStatusBar=False)
-    promise = board.display_manager.add_widget(SplashScreen(message=message))
+    promise = board.display_manager.add_widget(SplashScreen(message=message, leave_room_for_status_bar=False))
     if promise:
         try:
             promise.result(timeout=10.0)
@@ -1633,10 +1633,10 @@ def main():
             except Exception as e:
                 log.warning(f"Error initializing display: {e}")
         
-        # Create splash screen if early init didn't work
+        # Create splash screen if early init didn't work (full screen, no status bar)
         if startup_splash is None:
             board.display_manager.clear_widgets(addStatusBar=False)
-            startup_splash = SplashScreen(message="Starting...")
+            startup_splash = SplashScreen(message="Starting...", leave_room_for_status_bar=False)
             promise = board.display_manager.add_widget(startup_splash)
             if promise:
                 try:
