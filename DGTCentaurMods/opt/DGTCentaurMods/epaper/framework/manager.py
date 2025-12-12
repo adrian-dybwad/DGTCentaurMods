@@ -39,6 +39,8 @@ class Manager:
         The status bar is not added by default during initialization.
         The caller is responsible for adding it when appropriate (e.g., when showing a menu).
         This prevents the status bar from briefly appearing before a splash screen is shown.
+        
+        Sets a default slight grey background (shade=2) for subtle visual depth.
         """
         if self._initialized:
             return
@@ -54,6 +56,9 @@ class Manager:
             # Initial full refresh
             #self._epd.Clear()
             self._framebuffer.flush_all()
+            
+            # Set default slight grey background for visual depth
+            self.set_background(shade=2)
             
             self._initialized = True
             return self.clear_widgets(addStatusBar=False)
