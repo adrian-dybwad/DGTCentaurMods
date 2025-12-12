@@ -49,14 +49,22 @@ class SplashScreen(Widget):
     TEXT_Y = 170  # Y position for message text (below logo)
     TEXT_HEIGHT = 88  # Height for 4 lines of text at font size 18
     
-    def __init__(self, message: str = "Press [OK]", background_shade: int = 4):
+    def __init__(self, message: str = "Press [OK]", background_shade: int = 4,
+                 leave_room_for_status_bar: bool = True):
         """Initialize splash screen widget.
         
         Args:
             message: Initial message to display
             background_shade: Dithered background shade 0-16 (default 4 = ~25% grey)
+            leave_room_for_status_bar: If True, start below status bar; if False, use full screen
         """
-        super().__init__(0, STATUS_BAR_HEIGHT, 128, 296 - STATUS_BAR_HEIGHT, background_shade=background_shade)
+        if leave_room_for_status_bar:
+            y_pos = STATUS_BAR_HEIGHT
+            height = 296 - STATUS_BAR_HEIGHT
+        else:
+            y_pos = 0
+            height = 296
+        super().__init__(0, y_pos, 128, height, background_shade=background_shade)
         self.message = message
         self._logo = None
         self._font = None

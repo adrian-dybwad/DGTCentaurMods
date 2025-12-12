@@ -1354,10 +1354,10 @@ def cleanup_and_exit(reason: str = "Normal exit"):
         kill = 1
         running = False
         
-        # Show exiting splash screen
+        # Show exiting splash screen (full screen, no status bar)
         try:
             board.display_manager.clear_widgets(addStatusBar=False)
-            exit_splash = SplashScreen(message="Exiting...")
+            exit_splash = SplashScreen(message="Exiting...", leave_room_for_status_bar=False)
             board.display_manager.add_widget(exit_splash)
         except Exception as e:
             log.debug(f"Error showing exit splash: {e}")
