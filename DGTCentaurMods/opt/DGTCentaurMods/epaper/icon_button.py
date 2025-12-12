@@ -42,7 +42,7 @@ class IconButtonWidget(Widget):
                  label_height: int = 18,
                  margin: int = 4,
                  padding: int = 2,
-                 icon_margin: int = 4,
+                 icon_margin: int = 2,
                  border_width: int = 2,
                  selected_shade: int = 12,
                  background_shade: int = 0):
@@ -61,7 +61,7 @@ class IconButtonWidget(Widget):
             label_height: Height reserved for label text (default 18)
             margin: Space outside the button border (default 4)
             padding: Space inside the button border (default 2)
-            icon_margin: Space around the icon on all sides (default 4)
+            icon_margin: Space around the icon on all sides (default 2)
             border_width: Width of the button border in pixels (default 2)
             selected_shade: Dithered shade for selected state 0-16 (default 12 = ~75% black)
             background_shade: Dithered background shade 0-16 (default 0 = white)
@@ -393,24 +393,28 @@ class IconButtonWidget(Widget):
     
     def _draw_gear_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                         size: int, line_color: int):
-        """Draw a gear/cog icon."""
+        """Draw a gear/cog icon.
+        
+        All drawing stays within the icon bounds (x-half to x+half, y-half to y+half).
+        """
         half = size // 2
-        outer_r = half - 2
-        inner_r = half // 2
+        # Teeth extend to edge, so shrink outer circle to leave room for teeth
+        tooth_len = max(3, half // 6)  # Scale tooth length with size
+        outer_r = half - tooth_len - 1  # Leave room for teeth within bounds
+        inner_r = outer_r // 2
         
         draw.ellipse([x - outer_r, y - outer_r, x + outer_r, y + outer_r],
                     outline=line_color, width=2)
         draw.ellipse([x - inner_r, y - inner_r, x + inner_r, y + inner_r],
                     outline=line_color, width=2)
         
-        # Gear teeth
-        tooth_len = 6
+        # Gear teeth - extend from outer circle to edge of icon bounds
         for i in range(8):
             angle = i * (360 / 8) * (math.pi / 180)
             ix = x + int(outer_r * math.cos(angle))
             iy = y + int(outer_r * math.sin(angle))
-            ox = x + int((outer_r + tooth_len) * math.cos(angle))
-            oy = y + int((outer_r + tooth_len) * math.sin(angle))
+            ox = x + int((half - 1) * math.cos(angle))
+            oy = y + int((half - 1) * math.sin(angle))
             draw.line([(ix, iy), (ox, oy)], fill=line_color, width=2)
     
     def _draw_resign_icon(self, draw: ImageDraw.Draw, x: int, y: int,
