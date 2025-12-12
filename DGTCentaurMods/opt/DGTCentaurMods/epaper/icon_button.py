@@ -6,7 +6,7 @@ button menus on the small e-paper display.
 """
 
 from PIL import Image, ImageDraw, ImageFont
-from .framework.widget import Widget
+from .framework.widget import Widget, DITHER_PATTERNS
 from typing import Optional
 import math
 
@@ -97,6 +97,21 @@ class IconButtonWidget(Widget):
             self._last_rendered = None
             self.request_update(full=False)
     
+    def _apply_dither_pattern(self, img: Image.Image, shade: int) -> None:
+        """Apply a dither pattern to an image.
+        
+        Args:
+            img: Image to modify in place
+            shade: Shade level 0-16 (0=white, 16=black)
+        """
+        pattern = DITHER_PATTERNS.get(shade, DITHER_PATTERNS[0])
+        pixels = img.load()
+        for y in range(img.height):
+            pattern_row = pattern[y % 4]
+            for x in range(img.width):
+                if pattern_row[x % 4] == 1:
+                    pixels[x, y] = 0  # Black pixel
+    
     def render(self) -> Image.Image:
         """Render the button with icon and label.
         
@@ -112,8 +127,9 @@ class IconButtonWidget(Widget):
         
         # Draw button background
         if self.selected:
-            # Selected: filled black rectangle
-            draw.rectangle([0, 0, self.width - 1, self.height - 1], fill=0, outline=0)
+            # Selected: dark grey dithered background (shade 14 = ~87.5% black)
+            self._apply_dither_pattern(img, 14)
+            draw.rectangle([0, 0, self.width - 1, self.height - 1], fill=None, outline=0)
         else:
             # Unselected: white with black border
             draw.rectangle([0, 0, self.width - 1, self.height - 1], fill=255, outline=0, width=2)
