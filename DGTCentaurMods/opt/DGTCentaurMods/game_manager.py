@@ -1561,7 +1561,6 @@ class GameManager:
         if preserve_castling_rook_placed:
             self.move_state.castling_rook_source = preserve_castling_rook_source
             self.move_state.castling_rook_placed = preserve_castling_rook_placed
-            log.debug(f"[GameManager._execute_move] Preserved castling tracking state: rook_source={chess.square_name(preserve_castling_rook_source)}, rook_placed={preserve_castling_rook_placed}")
         
         # Only show normal move confirmation LEDs if NOT in correction mode
         # Correction mode has its own LED guidance that should not be overwritten

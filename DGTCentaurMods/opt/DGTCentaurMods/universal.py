@@ -143,6 +143,8 @@ relay_manager = None  # RelayManager for shadow target connections
 _active_menu_widget: Optional[IconMenuWidget] = None
 _menu_selection_event = None  # Threading event for menu selection
 _return_to_positions_menu = False  # Flag to signal return to positions menu from game
+_is_position_game = False  # Flag to track if current game is a position (practice) game
+_switch_to_normal_game = False  # Flag to signal switch from position game to normal game
 
 # Keyboard state (for WiFi password entry etc.)
 _active_keyboard_widget = None
@@ -766,9 +768,10 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
                          - Database saving is disabled
                          - Back button returns directly to menu (no resign prompt)
     """
-    global app_state, game_handler, display_manager, _game_settings
+    global app_state, game_handler, display_manager, _game_settings, _is_position_game
 
     log.info(f"[App] Transitioning to GAME mode (position_game={is_position_game})")
+    _is_position_game = is_position_game
     app_state = AppState.GAME
     
     # Determine if we should save to database
@@ -863,11 +866,17 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     else:
         game_handler.game_manager.on_back_pressed = lambda: display_manager.show_back_menu(_on_back_menu_result)
     
-    # Wire up event callback to reset analysis on new game
+    # Wire up event callback to handle game events
     from DGTCentaurMods.game_manager import EVENT_NEW_GAME
     def _on_game_event(event):
+        global _switch_to_normal_game, _is_position_game
         if event == EVENT_NEW_GAME:
             display_manager.reset_analysis()
+            # If we're in a position game and the starting position is set up,
+            # signal transition to normal game mode
+            if _is_position_game:
+                log.info("[App] Starting position detected in position game - signaling switch to normal game")
+                _switch_to_normal_game = True
     game_handler._external_event_callback = _on_game_event
 
 
@@ -876,7 +885,10 @@ def _cleanup_game():
     
     Used when exiting a game, whether returning to menu or positions menu.
     """
-    global game_handler, display_manager, _pending_piece_events
+    global game_handler, display_manager, _pending_piece_events, _is_position_game
+    
+    # Clear position game flag
+    _is_position_game = False
     
     # Clear any stale pending piece events from previous game
     _pending_piece_events.clear()
@@ -1990,7 +2002,7 @@ def main():
     """
     global server_sock, client_sock, client_connected, running, kill
     global mainloop, relay_mode, game_handler, relay_manager, app_state, _args
-    global _pending_piece_events, _return_to_positions_menu
+    global _pending_piece_events, _return_to_positions_menu, _switch_to_normal_game
     
     parser = argparse.ArgumentParser(description="DGT Centaur Universal")
     parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
@@ -2341,8 +2353,15 @@ def main():
                     pass
             
             elif app_state == AppState.GAME:
-                # Stay in game mode - key_callback handles exit via _return_to_menu
-                time.sleep(0.5)
+                # Check if we need to switch from position game to normal game
+                if _switch_to_normal_game:
+                    _switch_to_normal_game = False
+                    log.info("[App] Switching from position game to normal game")
+                    _cleanup_game()
+                    _start_game_mode(starting_fen=None, is_position_game=False)
+                else:
+                    # Stay in game mode - key_callback handles exit via _return_to_menu
+                    time.sleep(0.5)
             
             elif app_state == AppState.SETTINGS:
                 # Check if we need to return to positions menu (from position game back)
