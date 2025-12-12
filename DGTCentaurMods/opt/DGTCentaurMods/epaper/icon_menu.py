@@ -41,11 +41,15 @@ class IconMenuEntry:
         label: Display text
         icon_name: Icon identifier for rendering
         enabled: Whether entry is enabled/visible
+        height_ratio: Relative height weight (default 1.0, use 2.0 for double height)
+        icon_size: Custom icon size in pixels (None uses default based on button height)
     """
     key: str
     label: str
     icon_name: str
     enabled: bool = True
+    height_ratio: float = 1.0
+    icon_size: int = None
 
 
 class IconMenuWidget(Widget):
@@ -117,6 +121,10 @@ class IconMenuWidget(Widget):
         Buttons are placed directly adjacent to each other. Each button
         has its own transparent margin (set to button_margin), so the
         visual spacing between buttons is automatic.
+        
+        Button heights are proportional to their height_ratio values.
+        For example, if entries have ratios [2.0, 1.0, 0.67], the first
+        button gets 2/(2+1+0.67) of the total height.
         """
         self._buttons = []
         
@@ -124,25 +132,36 @@ class IconMenuWidget(Widget):
         if total_entries == 0:
             return
         
-        # Buttons fill the full width and are stacked vertically
-        actual_button_height = min(self.button_height, self.height // total_entries)
+        # Calculate total height ratio and individual button heights
+        total_ratio = sum(entry.height_ratio for entry in self.entries)
+        available_height = self.height
         
+        current_y = 0
         for idx, entry in enumerate(self.entries):
-            # Place buttons directly adjacent (they have their own internal margins)
-            button_y = idx * actual_button_height
+            # Calculate this button's height based on its ratio
+            button_height = int(available_height * entry.height_ratio / total_ratio)
+            
+            # Determine icon size - use entry's custom size or derive from height
+            if entry.icon_size is not None:
+                icon_size = entry.icon_size
+            else:
+                # Default icon size scales with button height
+                icon_size = min(36, max(20, button_height - 24))
             
             button = IconButtonWidget(
                 x=0,
-                y=button_y,
+                y=current_y,
                 width=self.width,
-                height=actual_button_height,
+                height=button_height,
                 key=entry.key,
                 label=entry.label,
                 icon_name=entry.icon_name,
                 selected=(idx == self.selected_index),
-                margin=self.button_margin
+                margin=self.button_margin,
+                icon_size=icon_size
             )
             self._buttons.append(button)
+            current_y += button_height
     
     def set_selection(self, index: int) -> None:
         """Set the current selection index.
@@ -321,7 +340,8 @@ def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
     """Helper to create IconMenuEntry list from config dictionaries.
     
     Args:
-        entries_config: List of dicts with 'key', 'label', 'icon_name', and optional 'enabled'
+        entries_config: List of dicts with 'key', 'label', 'icon_name', 
+                       and optional 'enabled', 'height_ratio', 'icon_size'
         
     Returns:
         List of IconMenuEntry objects
@@ -331,7 +351,9 @@ def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
             key=e['key'],
             label=e['label'],
             icon_name=e['icon_name'],
-            enabled=e.get('enabled', True)
+            enabled=e.get('enabled', True),
+            height_ratio=e.get('height_ratio', 1.0),
+            icon_size=e.get('icon_size', None)
         )
         for e in entries_config
     ]

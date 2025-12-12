@@ -375,56 +375,12 @@ class IconButtonWidget(Widget):
     
     def _draw_universal_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                              size: int, line_color: int, selected: bool):
-        """Draw chess pieces with Bluetooth symbol."""
-        half = size // 2
-        left = x - half
-        right = x + half
-        bottom = y + half
-        s = size / 36.0
+        """Draw the Universal mode icon using the knight piece.
         
-        # Left side: Small pawn silhouette
-        pawn_x = left + int(6*s)
-        pawn_bottom = bottom - int(4*s)
-        draw.rectangle([pawn_x - int(4*s), pawn_bottom - int(3*s),
-                       pawn_x + int(4*s), pawn_bottom], fill=line_color)
-        draw.polygon([
-            (pawn_x - int(3*s), pawn_bottom - int(3*s)),
-            (pawn_x - int(2*s), pawn_bottom - int(10*s)),
-            (pawn_x + int(2*s), pawn_bottom - int(10*s)),
-            (pawn_x + int(3*s), pawn_bottom - int(3*s)),
-        ], fill=line_color)
-        draw.ellipse([pawn_x - int(3*s), pawn_bottom - int(16*s),
-                     pawn_x + int(3*s), pawn_bottom - int(10*s)], fill=line_color)
-        
-        # Right side: Small rook silhouette
-        rook_x = right - int(6*s)
-        rook_bottom = bottom - int(4*s)
-        draw.rectangle([rook_x - int(4*s), rook_bottom - int(3*s),
-                       rook_x + int(4*s), rook_bottom], fill=line_color)
-        draw.rectangle([rook_x - int(3*s), rook_bottom - int(12*s),
-                       rook_x + int(3*s), rook_bottom - int(3*s)], fill=line_color)
-        draw.rectangle([rook_x - int(4*s), rook_bottom - int(16*s),
-                       rook_x + int(4*s), rook_bottom - int(12*s)], fill=line_color)
-        gap_color = 0 if selected else 255
-        draw.rectangle([rook_x - int(1*s), rook_bottom - int(16*s),
-                       rook_x + int(1*s), rook_bottom - int(13*s)], fill=gap_color)
-        
-        # Center: Bluetooth symbol
-        bt_x = x
-        bt_y = y - int(2*s)
-        bt_h = int(14*s)
-        bt_w = int(8*s)
-        
-        draw.line([(bt_x, bt_y - bt_h//2), (bt_x, bt_y + bt_h//2)],
-                 fill=line_color, width=max(1, int(1.5*s)))
-        draw.line([(bt_x, bt_y - bt_h//2), (bt_x + bt_w//2, bt_y - bt_h//4)],
-                 fill=line_color, width=max(1, int(1.5*s)))
-        draw.line([(bt_x + bt_w//2, bt_y - bt_h//4), (bt_x, bt_y)],
-                 fill=line_color, width=max(1, int(1.5*s)))
-        draw.line([(bt_x, bt_y + bt_h//2), (bt_x + bt_w//2, bt_y + bt_h//4)],
-                 fill=line_color, width=max(1, int(1.5*s)))
-        draw.line([(bt_x + bt_w//2, bt_y + bt_h//4), (bt_x, bt_y)],
-                 fill=line_color, width=max(1, int(1.5*s)))
+        Uses the same knight design as _draw_knight_icon for consistency.
+        """
+        # Delegate to the knight icon drawing
+        self._draw_knight_icon(draw, x, y, size, line_color, selected)
     
     def _draw_gear_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                         size: int, line_color: int):

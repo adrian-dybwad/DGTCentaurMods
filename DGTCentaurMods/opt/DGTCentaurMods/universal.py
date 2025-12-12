@@ -322,6 +322,11 @@ def _get_engine_elo_levels(engine_name: str) -> List[str]:
 def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEntry]:
     """Create the standard main menu entry configuration.
     
+    Layout (top to bottom):
+    1. Universal - prominent top button with large knight icon (2x height)
+    2. Settings - standard height
+    3. Original Centaur - smaller bottom option (2/3 height, smaller knight)
+    
     Args:
         centaur_available: Whether DGT Centaur software is available
         
@@ -330,27 +335,35 @@ def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEnt
     """
     entries = []
     
-    if centaur_available:
-        entries.append(IconMenuEntry(
-            key="Centaur",
-            label="Centaur",
-            icon_name="centaur",
-            enabled=True
-        ))
-    
+    # Universal at top - prominent with large knight icon (2x height)
     entries.append(IconMenuEntry(
         key="Universal",
         label="Universal",
         icon_name="universal",
-        enabled=True
+        enabled=True,
+        height_ratio=2.0,
+        icon_size=56  # Larger icon for the prominent button
     ))
     
+    # Settings in middle - standard height
     entries.append(IconMenuEntry(
         key="Settings",
         label="Settings",
         icon_name="settings",
-        enabled=True
+        enabled=True,
+        height_ratio=1.0
     ))
+    
+    # Original Centaur at bottom - smaller (2/3 height)
+    if centaur_available:
+        entries.append(IconMenuEntry(
+            key="Centaur",
+            label="Original\nCentaur",
+            icon_name="centaur",
+            enabled=True,
+            height_ratio=0.67,
+            icon_size=28  # Smaller icon for the compact button
+        ))
     
     return entries
 
