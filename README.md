@@ -1,8 +1,31 @@
-# DGT Centaur mods
+# UNIVERSAL
 
 This project adds features to the DGT Centaur electronic chessboard, such as the ability to export your games via PGN files, use the chessboard as an interface for online play (e.g. Lichess), play engines, and emulate other chess boards such as the DGT Pegasus.
 
-Inside the DGT Centaur is a Raspberry Pi Zero with an SD Card, by replacing that with a Raspberry Pi Zero 2 W (or Raspberry Pi Zero W) and using our own software we get a wireless enabled chessboard that can theoretically do practically anything we can imagine. We've reversed engineered most of the protocols for for piece detection, lights, sound, and display (although we still occassionally discover the odd new thing). Now we can control the board, we're using that to create the software features.
+Inside the DGT Centaur is a Raspberry Pi Zero with an SD Card, by replacing that with a Raspberry Pi Zero 2 W (or Raspberry Pi Zero W) and using our own software we get a wireless enabled chessboard that can theoretically do practically anything we can imagine. We've reverse-engineered most of the protocols for piece detection, lights, sound, and display (although we still occasionally discover the odd new thing). Now we can control the board, we're using that to create the software features.
+
+## Architecture
+
+The codebase is built on two foundational layers that enable everything else:
+
+**Serial Communication Layer (`sync_centaur.py`)** - Handles all low-level DGT board protocol: packet parsing, command encoding, and an async callback queue for event processing. This provides a clean, reliable interface to the hardware - piece lift/place events, key presses, LED control, and sound.
+
+**E-Paper Display Framework (`epaper/`)** - A composable widget system with a `Manager`, `Scheduler`, and widget hierarchy (`ChessBoardWidget`, `IconMenuWidget`, `GameAnalysisWidget`, etc.). Handles partial refresh scheduling, framebuffer management, and modal widget support. E-paper displays have unique constraints (slow refresh, ghosting, partial update limitations) and this framework abstracts those complexities away.
+
+These foundations enable the higher-level components:
+- `GameManager` receives clean piece events and manages chess game logic
+- `DisplayManager` composes widgets without worrying about refresh mechanics  
+- The menu system, game resume, position loading - all orchestration on top of solid primitives
+
+Good architecture compounds. Every feature added costs less than it would have before these foundations existed. New capabilities like predefined position loading become mostly wiring - the hard parts (rendering, event handling, correction mode, special move detection) are already solved.
+
+## Development Approach
+
+This codebase was developed through human-AI collaboration - a partnership where each brings different strengths. The human provides domain knowledge, hardware access, real-world testing, and architectural vision. The AI brings pattern recognition across the codebase, rapid iteration on implementations, and the ability to trace complex event flows through multiple layers of abstraction.
+
+The result is code that neither could have written alone. When a bug surfaces - like piece events being delayed during engine thinking - the AI can trace the callback chain from serial parsing through queue workers to blocking calls, while the human provides the runtime logs and hardware feedback that reveal where theory meets reality.
+
+This collaborative approach works because the foundations are solid. Clean abstractions in the serial layer and display framework mean new features can be discussed at the right level of abstraction, implemented correctly the first time, and debugged systematically when issues arise.
 
 **A word of caution!**
 
@@ -17,45 +40,37 @@ A number of binaries are included in this repository as the software makes use o
 This project is presented to you in an beta state. This means that whilst the project works generally, you may come across some bugs. If you have problems, feel free to raise an issue or join us on discord https://discord.gg/zqgUGK2x49 .
 
 
-## Current features
+## Current Features
 
-eBoard Emulation - DGT Revelation II - Enables you to use the DGT Centaur as if it was a bluetooth DGT eboard with apps, rabbit plugin, Livechess, etc. Millennium (Bluetooth Classic) - Works with Chess for Android, Chess.com app on android (experimental)
+### Standalone Play
+- **Play Engines** - Play against CT800, Zahak, RodentIV, Maia, or Stockfish directly from the board. Supports takebacks, move overrides, and configurable ELO levels. The engine shows its move via LEDs and you execute it on the board.
+- **Game Resume** - If the board is shut down mid-game, it automatically resumes where you left off on next startup.
+- **Predefined Positions** - Load test positions (en passant, castling, promotion) or puzzles/endgames from the Settings menu. Physical board correction mode guides you to set up the position correctly.
 
-DGT Pegasus - Emulate a DGT Pegasus. Works with the DGT Chess app
+### Board Emulation (Universal)
+The board simultaneously advertises as multiple e-board types and auto-detects which protocol an app uses - this is why it's called UNIVERSAL:
+- **DGT Revelation II / Millennium** - Use the Centaur as a Bluetooth DGT e-board with apps, Rabbit plugin, Livechess, etc. Works with Chess for Android and Chess.com app (experimental).
+- **DGT Pegasus** - Emulate a DGT Pegasus. Works with the DGT Chess app.
+- **Chessnut** - Emulate a Chessnut board for compatible apps.
 
-Online Gameplay - Lichess (set Lichess API token from the web interface) then play from the board.
+### Online Play
+- **Lichess** - Set your Lichess API token from the web interface, then play online games directly from the board.
 
-Web Interface - on http://IP_ADDRESS or the hostname of you board. Shows live view of chessboard, settings, and the other features below
+### Web Interface
+- **Live Board View** - See the current board position at http://IP_ADDRESS or your board's hostname.
+- **PGN Download** - Download all played games as PGN files.
+- **Game Analysis** - Playback and analyze played games with takeback support.
+- **Video Streaming** - Live MJPEG stream at /video for OBS or other streaming setups.
+- **Engine Upload** - Upload your own UCI engines via the web interface.
 
-PGN Download - For all played games from web interface
+### Connectivity
+- **WiFi** - Join WiFi networks from the board (WPS/WPA2).
+- **Bluetooth** - Pair with apps via BLE or Bluetooth Classic.
+- **Chromecast** - Stream live board view to Chromecast.
+- **Network Drive** - Access files via authenticated WebDAV. The last 100 PGNs are accessible as files.
 
-Game Analysis - Simple playback/analysis of played games from web interface. (supports takebacks)
-
-Streaming Video - On the web interface /video provides a live mjpeg stream (for example for live streaming in OBS)
-
-Chromecast - Stream live board view to Chromecast
-
-Wifi - Capability to join wifi from the board (WPS/WPA2)
-
-Play Engines - Stockfish (without centaur adaptive mode), ct800, zahak, rodentIV, maia . Upload your own engines from the web interface. (supports takebacks, overriding computer moves)
-
-Network Drive - using webdav it is possible to connect a drive letter or use explorer to access files on your Centaur. The last 100 PGNs are accessible as files in here. Run customer scripts and DGT Centaur Mods installations
-
-General Settings - Connect Wifi, Pair bluetooth, sound, lichess api token
-
-## Roadmap
-
-Currently we are working on...
-1. Squashing bugs
-2. Emulating more BLE boards (currently Pegasus is done)
-3. Improving Gamemanager features (gamemanager is the central system that handles chess games)
-4. Code tidyup
-5. Instructions
-6. Improving screen performance (and support if we get our hands on a v1 board!)
-7. Abstracting the board controller interface specifics
-8. Web interface
-9. Documentation/the wiki
-10. Other stuff :)
+### Settings
+- WiFi configuration, Bluetooth pairing, sound control, Lichess API token, engine selection, and predefined position loading.
 
 ## Install procedure
 See the install procedure in the release info page.
