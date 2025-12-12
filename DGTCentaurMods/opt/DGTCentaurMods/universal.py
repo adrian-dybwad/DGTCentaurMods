@@ -260,6 +260,11 @@ def _get_incomplete_game() -> Optional[dict]:
             # Extract move list (skip empty starting move if present)
             move_list = [m.move for m in moves if m.move]
             
+            # Only resume if there are actual moves played (not just starting position)
+            if not move_list:
+                log.debug(f"[Resume] Game {game.id} has no actual moves (only starting position), not resuming")
+                return None
+            
             log.info(f"[Resume] Found incomplete game: id={game.id}, source={game.source}, "
                     f"moves={len(move_list)}, last_fen={last_fen[:30]}...")
             
