@@ -584,33 +584,42 @@ class IconButtonWidget(Widget):
         # Draw head (filled with outline)
         draw.polygon(head_points, fill=fill_color, outline=line_color)
         
-        # Eye: small filled circle at (9, 25.5), radius 0.5
+        # Eye: small filled circle inside the head shape
+        # Position adjusted to be clearly inside the visible head area
         eye_color = line_color
-        eye_r = max(1, int(1.5 * s))  # Slightly larger for visibility
-        eye_center = pt(9, 25.5)
+        eye_r = max(2, int(2.0 * s))  # Make it visible
+        eye_center = pt(12, 24)  # Inside the head at the cheek area
         draw.ellipse([eye_center[0] - eye_r, eye_center[1] - eye_r,
                      eye_center[0] + eye_r, eye_center[1] + eye_r],
                     fill=eye_color, outline=eye_color)
         
-        # Nostril: small ellipse at approximately (14.5, 15.5)
-        # Original is rotated 30 degrees, but we'll approximate with a small filled ellipse
-        nostril_center = pt(14.5, 15.5)
-        nostril_rx = max(1, int(1.0 * s))
-        nostril_ry = max(1, int(2.0 * s))
-        # Draw rotated ellipse approximation using a small polygon
-        nostril_angle = math.radians(30)
-        nostril_points = []
-        for i in range(12):
-            angle = i * (2 * math.pi / 12)
-            # Ellipse point before rotation
-            ex = nostril_rx * math.cos(angle)
-            ey = nostril_ry * math.sin(angle)
-            # Rotate by 30 degrees
-            rx = ex * math.cos(nostril_angle) - ey * math.sin(nostril_angle)
-            ry = ex * math.sin(nostril_angle) + ey * math.cos(nostril_angle)
-            nostril_points.append((nostril_center[0] + int(rx), 
-                                   nostril_center[1] + int(ry)))
-        draw.polygon(nostril_points, fill=eye_color, outline=eye_color)
+        # Nostril: small circle on the muzzle/nose area
+        nostril_center = pt(10, 28)  # On the lower muzzle
+        nostril_r = max(1, int(1.5 * s))
+        draw.ellipse([nostril_center[0] - nostril_r, nostril_center[1] - nostril_r,
+                     nostril_center[0] + nostril_r, nostril_center[1] + nostril_r],
+                    fill=eye_color, outline=eye_color)
+        
+        # Mane texture: add curved lines along the neck/mane area
+        # The mane runs from the ears down the back of the neck
+        mane_color = line_color
+        stroke_width = max(1, int(1.5 * s))
+        
+        # Mane strokes - curved lines suggesting hair flowing down
+        mane_strokes = [
+            # Each stroke is a series of points forming a curved line
+            [(21.5, 11), (20.5, 13), (19.5, 16), (19.0, 19)],
+            [(20.0, 12), (18.5, 15), (17.5, 18), (17.0, 21)],
+            [(18.0, 14), (16.5, 17), (15.5, 20), (15.0, 23)],
+            [(16.5, 17), (15.0, 20), (14.0, 23), (13.5, 26)],
+        ]
+        
+        for stroke in mane_strokes:
+            stroke_pts = [pt(p[0], p[1]) for p in stroke]
+            # Draw as connected line segments
+            for i in range(len(stroke_pts) - 1):
+                draw.line([stroke_pts[i], stroke_pts[i + 1]], 
+                         fill=mane_color, width=stroke_width)
     
     def _draw_gear_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                         size: int, line_color: int):
