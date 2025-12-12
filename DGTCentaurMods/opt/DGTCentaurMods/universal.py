@@ -214,6 +214,131 @@ def _save_game_setting(key: str, value: str):
 
 
 # ============================================================================
+# Game Resume Functions
+# ============================================================================
+
+def _get_incomplete_game() -> Optional[dict]:
+    """Check if there's an incomplete game that can be resumed.
+    
+    An incomplete game is one where result is NULL (not completed, not abandoned).
+    Games marked with '*' are explicitly abandoned and should not be resumed.
+    
+    Returns:
+        Dictionary with game data if found, None otherwise.
+        Dict contains: id, source, fen (last position), moves (list of move strings)
+    """
+    try:
+        from sqlalchemy.orm import sessionmaker
+        from DGTCentaurMods.db import models
+        
+        Session = sessionmaker(bind=models.engine)
+        session = Session()
+        
+        try:
+            # Get the most recent game with NULL result (incomplete, not abandoned)
+            game = session.query(models.Game).filter(
+                models.Game.result == None  # NULL means in progress
+            ).order_by(models.Game.id.desc()).first()
+            
+            if game is None:
+                log.debug("[Resume] No incomplete games found")
+                return None
+            
+            # Get all moves for this game
+            moves = session.query(models.GameMove).filter(
+                models.GameMove.gameid == game.id
+            ).order_by(models.GameMove.id.asc()).all()
+            
+            if not moves:
+                log.debug(f"[Resume] Game {game.id} has no moves, cannot resume")
+                return None
+            
+            # Get the last FEN position
+            last_move = moves[-1]
+            last_fen = last_move.fen
+            
+            # Extract move list (skip empty starting move if present)
+            move_list = [m.move for m in moves if m.move]
+            
+            log.info(f"[Resume] Found incomplete game: id={game.id}, source={game.source}, "
+                    f"moves={len(move_list)}, last_fen={last_fen[:30]}...")
+            
+            return {
+                'id': game.id,
+                'source': game.source,
+                'fen': last_fen,
+                'moves': move_list,
+                'white': game.white,
+                'black': game.black
+            }
+        finally:
+            session.close()
+            
+    except Exception as e:
+        log.error(f"[Resume] Error checking for incomplete game: {e}")
+        return None
+
+
+def _resume_game(game_data: dict) -> bool:
+    """Resume an incomplete game.
+    
+    Sets up the GameManager with the saved game state and starts game mode.
+    
+    Args:
+        game_data: Dictionary from _get_incomplete_game()
+        
+    Returns:
+        True if game was successfully resumed, False otherwise
+    """
+    global game_handler, app_state
+    
+    try:
+        import chess
+        
+        log.info(f"[Resume] Resuming game {game_data['id']}...")
+        
+        # Start game mode first (this initializes game_handler)
+        _start_game_mode()
+        
+        if game_handler is None or game_handler.game_manager is None:
+            log.error("[Resume] Failed to start game mode")
+            return False
+        
+        gm = game_handler.game_manager
+        
+        # Set the database game ID so updates go to the right record
+        gm.game_db_id = game_data['id']
+        
+        # Replay all the moves to get to the current position
+        for move_uci in game_data['moves']:
+            try:
+                move = chess.Move.from_uci(move_uci)
+                if move in gm.chess_board.legal_moves:
+                    gm.chess_board.push(move)
+                else:
+                    log.warning(f"[Resume] Illegal move in history: {move_uci}")
+            except Exception as move_error:
+                log.warning(f"[Resume] Error replaying move {move_uci}: {move_error}")
+        
+        # Verify we reached the expected position
+        current_fen = gm.chess_board.fen()
+        if current_fen != game_data['fen']:
+            log.warning(f"[Resume] FEN mismatch after replay. Expected: {game_data['fen']}, Got: {current_fen}")
+        
+        log.info(f"[Resume] Game resumed successfully at position: {current_fen[:50]}...")
+        
+        # Update the display to show the current position
+        if game_handler:
+            game_handler.update_display()
+        
+        return True
+        
+    except Exception as e:
+        log.error(f"[Resume] Error resuming game: {e}")
+        return False
+
+
+# ============================================================================
 # Engine/Settings Helpers
 # ============================================================================
 
@@ -1854,16 +1979,31 @@ def main():
         log.info("  RFCOMM: Initializing in background...")
     log.info("")
     
-    # Show ready message before menu
-    if startup_splash:
-        startup_splash.set_message("Ready")
-        time.sleep(0.3)
+    # Check for incomplete game to resume
+    incomplete_game = _get_incomplete_game()
+    if incomplete_game:
+        if startup_splash:
+            startup_splash.set_message("Resuming game...")
+            time.sleep(0.5)
+        
+        if _resume_game(incomplete_game):
+            log.info("[App] Successfully resumed incomplete game")
+            app_state = AppState.GAME
+        else:
+            log.warning("[App] Failed to resume game, showing menu")
+            if startup_splash:
+                startup_splash.set_message("Ready")
+                time.sleep(0.3)
+            app_state = AppState.MENU
+    else:
+        # Show ready message before menu
+        if startup_splash:
+            startup_splash.set_message("Ready")
+            time.sleep(0.3)
+        app_state = AppState.MENU
     
     # Check if Centaur software is available
     centaur_available = os.path.exists(CENTAUR_SOFTWARE)
-    
-    # Main application loop - menu based
-    app_state = AppState.MENU
     try:
         while running and not kill:
             if app_state == AppState.MENU:
