@@ -931,13 +931,13 @@ def _handle_wifi_settings():
         wifi_entries = [
             IconMenuEntry(
                 key="Scan", 
-                label="Scan Networks", 
+                label="Scan", 
                 icon_name="wifi", 
                 enabled=True,
                 height_ratio=2.0,
                 icon_size=48,
                 layout="vertical",
-                font_size=18
+                font_size=24
             ),
             IconMenuEntry(
                 key="Enable", 

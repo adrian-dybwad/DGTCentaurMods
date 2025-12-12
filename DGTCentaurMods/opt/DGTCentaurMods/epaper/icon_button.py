@@ -258,6 +258,8 @@ class IconButtonWidget(Widget):
                                    lines: list, line_height: int, text_color: int):
         """Render button with icon on left, text on right.
         
+        Both icon and text are centered vertically in the content area.
+        
         Args:
             draw: ImageDraw object
             inside_left: Left edge inside border
@@ -268,11 +270,11 @@ class IconButtonWidget(Widget):
             line_height: Height of each text line
             text_color: Color for text (0 or 255)
         """
-        # Draw icon on the left
+        # Draw icon on the left, centered vertically in content area
         icon_left = inside_left + self.icon_margin
-        icon_top = inside_top + self.icon_margin
         icon_x = icon_left + self.icon_size // 2
-        icon_y = icon_top + self.icon_size // 2
+        # Center icon vertically in content area
+        icon_y = content_top + content_height // 2
         self._draw_icon(draw, self.icon_name, icon_x, icon_y, self.icon_size, self.selected)
         
         # Icon right edge (including icon_margin on right side)
@@ -282,8 +284,9 @@ class IconButtonWidget(Widget):
         text_x = icon_right
         
         if len(lines) > 1:
-            # Multi-line: position at top of content area
-            text_y = content_top
+            # Multi-line: center text block vertically
+            total_text_height = len(lines) * line_height
+            text_y = content_top + (content_height - total_text_height) // 2
             for line in lines:
                 draw.text((text_x, text_y), line, font=self._font, fill=text_color)
                 text_y += line_height

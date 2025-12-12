@@ -62,6 +62,10 @@ class IconMenuWidget(Widget):
     Displays a vertical list of icon buttons with keyboard navigation.
     Supports UP/DOWN for navigation, TICK for selection, BACK for cancel.
     
+    When there are more entries than can fit on screen (based on min_button_height),
+    the menu becomes scrollable. Navigation automatically scrolls to keep the
+    selected item visible.
+    
     Can be used in two modes:
     1. Callback mode: Provide on_select callback, call handle_key() externally
     2. Blocking mode: Call wait_for_selection() which blocks until user selects
@@ -69,6 +73,7 @@ class IconMenuWidget(Widget):
     Attributes:
         entries: List of menu entry configurations
         selected_index: Currently highlighted entry index
+        scroll_offset: Index of first visible entry (for scrolling)
     """
     
     def __init__(self, x: int, y: int, width: int, height: int,
@@ -78,7 +83,8 @@ class IconMenuWidget(Widget):
                  on_back: Optional[Callable[[], None]] = None,
                  button_height: int = 70,
                  button_margin: int = 4,
-                 background_shade: int = 2):
+                 background_shade: int = 2,
+                 min_button_height: int = 45):
         """Initialize icon menu widget.
         
         Args:
@@ -93,6 +99,7 @@ class IconMenuWidget(Widget):
             button_height: Height of each button (default 70)
             button_margin: Margin around buttons, passed to each button (default 4)
             background_shade: Dithered background shade 0-16 (default 2 = ~12.5% grey)
+            min_button_height: Minimum button height before scrolling (default 45)
         """
         super().__init__(x, y, width, height, background_shade=background_shade)
         
@@ -107,41 +114,85 @@ class IconMenuWidget(Widget):
         # Layout
         self.button_height = button_height
         self.button_margin = button_margin
+        self.min_button_height = min_button_height
+        
+        # Scrolling state
+        self.scroll_offset = 0  # Index of first visible entry
+        self._visible_count = 0  # Number of entries that fit on screen
         
         # Selection event handling for blocking mode
         self._selection_event = threading.Event()
         self._selection_result: Optional[str] = None
         self._active = False
         
-        # Create button widgets
+        # Create button widgets for visible entries
         self._buttons: List[IconButtonWidget] = []
+        self._calculate_visible_count()
         self._create_buttons()
         
-        log.info(f"IconMenuWidget: Created with {len(self.entries)} entries")
+        log.info(f"IconMenuWidget: Created with {len(self.entries)} entries, "
+                 f"{self._visible_count} visible at a time")
+    
+    def _calculate_visible_count(self) -> None:
+        """Calculate how many entries can fit on screen.
+        
+        Uses min_button_height to determine if scrolling is needed.
+        """
+        if not self.entries:
+            self._visible_count = 0
+            return
+        
+        # Calculate total height ratio if all entries were shown
+        total_ratio = sum(entry.height_ratio for entry in self.entries)
+        avg_ratio = total_ratio / len(self.entries)
+        
+        # Estimate height per unit ratio
+        height_per_ratio = self.height / total_ratio if total_ratio > 0 else self.height
+        
+        # Check if buttons would be too small
+        min_height_per_entry = self.min_button_height / avg_ratio if avg_ratio > 0 else self.min_button_height
+        
+        if height_per_ratio >= min_height_per_entry:
+            # All entries fit without scrolling
+            self._visible_count = len(self.entries)
+        else:
+            # Calculate how many entries fit with minimum height
+            # For simplicity with variable ratios, estimate based on average
+            entries_that_fit = int(self.height / self.min_button_height)
+            self._visible_count = max(1, min(entries_that_fit, len(self.entries)))
     
     def _create_buttons(self) -> None:
-        """Create IconButtonWidget instances for each entry.
+        """Create IconButtonWidget instances for visible entries.
         
-        Buttons are placed directly adjacent to each other. Each button
-        has its own transparent margin (set to button_margin), so the
-        visual spacing between buttons is automatic.
+        Only creates buttons for entries from scroll_offset to 
+        scroll_offset + visible_count. Buttons are placed directly 
+        adjacent to each other with their own transparent margins.
         
-        Button heights are proportional to their height_ratio values.
-        For example, if entries have ratios [2.0, 1.0, 0.67], the first
-        button gets 2/(2+1+0.67) of the total height.
+        Button heights are proportional to their height_ratio values
+        within the visible subset.
         """
         self._buttons = []
         
-        total_entries = len(self.entries)
-        if total_entries == 0:
+        if not self.entries or self._visible_count == 0:
             return
         
-        # Calculate total height ratio and individual button heights
-        total_ratio = sum(entry.height_ratio for entry in self.entries)
+        # Get visible entries
+        visible_start = self.scroll_offset
+        visible_end = min(visible_start + self._visible_count, len(self.entries))
+        visible_entries = self.entries[visible_start:visible_end]
+        
+        if not visible_entries:
+            return
+        
+        # Calculate total height ratio for visible entries
+        total_ratio = sum(entry.height_ratio for entry in visible_entries)
         available_height = self.height
         
         current_y = 0
-        for idx, entry in enumerate(self.entries):
+        for vis_idx, entry in enumerate(visible_entries):
+            # Actual index in full entries list
+            actual_idx = visible_start + vis_idx
+            
             # Calculate this button's height based on its ratio
             button_height = int(available_height * entry.height_ratio / total_ratio)
             
@@ -160,7 +211,7 @@ class IconMenuWidget(Widget):
                 key=entry.key,
                 label=entry.label,
                 icon_name=entry.icon_name,
-                selected=(idx == self.selected_index),
+                selected=(actual_idx == self.selected_index),
                 margin=self.button_margin,
                 icon_size=icon_size,
                 layout=entry.layout,
@@ -170,23 +221,45 @@ class IconMenuWidget(Widget):
             current_y += button_height
     
     def set_selection(self, index: int) -> None:
-        """Set the current selection index.
+        """Set the current selection index, scrolling if needed.
+        
+        Automatically adjusts scroll_offset to keep the selected item visible.
         
         Args:
             index: New selection index
         """
         new_index = max(0, min(index, len(self.entries) - 1))
-        if new_index != self.selected_index:
-            # Update button states using setter methods
-            if self._buttons:
-                if self.selected_index < len(self._buttons):
-                    self._buttons[self.selected_index].set_selected(False)
-                if new_index < len(self._buttons):
-                    self._buttons[new_index].set_selected(True)
-            
-            self.selected_index = new_index
-            self._last_rendered = None
-            self.request_update(full=False)
+        if new_index == self.selected_index:
+            return
+        
+        self.selected_index = new_index
+        
+        # Check if we need to scroll to keep selection visible
+        needs_rebuild = False
+        
+        if self._visible_count < len(self.entries):
+            # Scrolling is active - ensure selected item is visible
+            if new_index < self.scroll_offset:
+                # Selected item is above visible area - scroll up
+                self.scroll_offset = new_index
+                needs_rebuild = True
+            elif new_index >= self.scroll_offset + self._visible_count:
+                # Selected item is below visible area - scroll down
+                self.scroll_offset = new_index - self._visible_count + 1
+                needs_rebuild = True
+        
+        if needs_rebuild:
+            # Rebuild buttons with new scroll position
+            self._create_buttons()
+        else:
+            # Just update selection state on existing buttons
+            visible_start = self.scroll_offset
+            for vis_idx, button in enumerate(self._buttons):
+                actual_idx = visible_start + vis_idx
+                button.set_selected(actual_idx == self.selected_index)
+        
+        self._last_rendered = None
+        self.request_update(full=False)
     
     def get_selected_key(self) -> Optional[str]:
         """Get the key of the currently selected entry.
