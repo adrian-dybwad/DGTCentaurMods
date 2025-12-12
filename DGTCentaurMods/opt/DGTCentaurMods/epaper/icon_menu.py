@@ -89,7 +89,8 @@ class IconMenuWidget(Widget):
             button_height: Height of each button
             button_margin: Margin between buttons
         """
-        super().__init__(x, y, width, height)
+        # Use shade 2 (~12.5% grey), one up from splash screen's shade 1
+        super().__init__(x, y, width, height, background_shade=2)
         
         # Filter disabled entries
         self.entries = [e for e in entries if e.enabled]
@@ -177,7 +178,7 @@ class IconMenuWidget(Widget):
         Returns:
             PIL Image with rendered menu
         """
-        img = Image.new("1", (self.width, self.height), 255)
+        img = self.create_background_image()
         
         # Render each button and paste to image
         for button in self._buttons:
