@@ -165,13 +165,15 @@ class IconButtonWidget(Widget):
             # Unselected: white fill with black border
             draw.rectangle([border_left, border_top, border_right, border_bottom], fill=255, outline=0, width=2)
         
-        # Draw icon (centered vertically in content area)
-        icon_x = content_left + self.icon_size // 2
+        # Draw icon (uses icon_margin from border, ignores padding)
+        # Icon is positioned icon_margin pixels from the inside of the border
+        icon_left = self.margin + 2 + self.icon_margin
+        icon_x = icon_left + self.icon_size // 2
         icon_y = content_top + content_height // 2
         self._draw_icon(draw, self.icon_name, icon_x, icon_y, self.icon_size, self.selected)
         
-        # Draw label (icon_margin is space between icon and text)
-        text_x = content_left + self.icon_size + self.icon_margin
+        # Draw label (icon_margin is also space between icon and text)
+        text_x = icon_left + self.icon_size + self.icon_margin
         text_color = 255 if self.selected else 0
         
         # Check for multi-line text
