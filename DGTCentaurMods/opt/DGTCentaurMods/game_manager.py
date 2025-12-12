@@ -142,7 +142,38 @@ class ClockManager:
 
 
 class MoveState:
-    """Tracks the state of a move in progress."""
+    """Tracks the state of a move in progress.
+    
+    For castling, supports both king-first and rook-first move ordering.
+    When rook is moved first during castling:
+    1. Rook is lifted from h1/a1/h8/a8 -> tracked in castling_rook_source
+    2. Rook is placed on f1/d1/f8/d8 -> tracked in castling_rook_placed
+    3. King is lifted from e1/e8 -> tracked in source_square
+    4. King is placed on g1/c1/g8/c8 -> castling move is executed using king move
+    """
+    
+    # Castling square definitions (chess square indices 0=a1, 63=h8)
+    # King starting squares
+    WHITE_KING_SQUARE = chess.E1  # 4
+    BLACK_KING_SQUARE = chess.E8  # 60
+    
+    # Rook starting squares
+    WHITE_KINGSIDE_ROOK = chess.H1   # 7
+    WHITE_QUEENSIDE_ROOK = chess.A1  # 0
+    BLACK_KINGSIDE_ROOK = chess.H8   # 63
+    BLACK_QUEENSIDE_ROOK = chess.A8  # 56
+    
+    # Rook destination squares for castling
+    WHITE_KINGSIDE_ROOK_DEST = chess.F1   # 5
+    WHITE_QUEENSIDE_ROOK_DEST = chess.D1  # 3
+    BLACK_KINGSIDE_ROOK_DEST = chess.F8   # 61
+    BLACK_QUEENSIDE_ROOK_DEST = chess.D8  # 59
+    
+    # King destination squares for castling
+    WHITE_KINGSIDE_KING_DEST = chess.G1   # 6
+    WHITE_QUEENSIDE_KING_DEST = chess.C1  # 2
+    BLACK_KINGSIDE_KING_DEST = chess.G8   # 62
+    BLACK_QUEENSIDE_KING_DEST = chess.C8  # 58
     
     def __init__(self):
         self.source_square = INVALID_SQUARE
@@ -151,6 +182,10 @@ class MoveState:
         self.computer_move_uci = ""
         self.is_forced_move = False
         self.source_piece_color = None  # Store piece color when lifted (for captures)
+        
+        # Castling state for rook-first ordering
+        self.castling_rook_source = INVALID_SQUARE  # Where rook was lifted from
+        self.castling_rook_placed = False  # True if rook has been placed in castling position
     
     def reset(self):
         """Reset all move state variables."""
@@ -160,6 +195,50 @@ class MoveState:
         self.computer_move_uci = ""
         self.is_forced_move = False
         self.source_piece_color = None
+        self.castling_rook_source = INVALID_SQUARE
+        self.castling_rook_placed = False
+    
+    def is_rook_castling_square(self, square: int) -> bool:
+        """Check if a square is a rook's starting position for castling."""
+        return square in (
+            self.WHITE_KINGSIDE_ROOK, self.WHITE_QUEENSIDE_ROOK,
+            self.BLACK_KINGSIDE_ROOK, self.BLACK_QUEENSIDE_ROOK
+        )
+    
+    def is_valid_rook_castling_destination(self, rook_source: int, rook_dest: int) -> bool:
+        """Check if rook placement is valid for castling.
+        
+        Args:
+            rook_source: Square where rook was lifted from
+            rook_dest: Square where rook was placed
+            
+        Returns:
+            True if this is a valid rook castling destination
+        """
+        valid_pairs = {
+            self.WHITE_KINGSIDE_ROOK: self.WHITE_KINGSIDE_ROOK_DEST,
+            self.WHITE_QUEENSIDE_ROOK: self.WHITE_QUEENSIDE_ROOK_DEST,
+            self.BLACK_KINGSIDE_ROOK: self.BLACK_KINGSIDE_ROOK_DEST,
+            self.BLACK_QUEENSIDE_ROOK: self.BLACK_QUEENSIDE_ROOK_DEST,
+        }
+        return valid_pairs.get(rook_source) == rook_dest
+    
+    def get_castling_king_move(self, rook_source: int) -> str:
+        """Get the king's UCI move for castling based on rook source.
+        
+        Args:
+            rook_source: The square the rook was lifted from
+            
+        Returns:
+            UCI string for the king's castling move (e.g., "e1g1")
+        """
+        castling_moves = {
+            self.WHITE_KINGSIDE_ROOK: "e1g1",
+            self.WHITE_QUEENSIDE_ROOK: "e1c1",
+            self.BLACK_KINGSIDE_ROOK: "e8g8",
+            self.BLACK_QUEENSIDE_ROOK: "e8c8",
+        }
+        return castling_moves.get(rook_source, "")
     
     def set_computer_move(self, uci_move: str, forced: bool = True):
         """Set the computer move that the player is expected to make."""
@@ -633,8 +712,80 @@ class GameManager:
                 self._provide_correction_guidance(current_physical_state, current_expected_state)
     
     def _handle_piece_lift(self, field: int, piece_color):
-        """Handle piece lift event."""
+        """Handle piece lift event.
+        
+        For castling support, tracks when a rook is lifted from a castling position.
+        This allows rook-first castling where the player moves the rook before the king.
+        
+        If a rook move was executed and the king is subsequently lifted from its
+        starting square, this may be a late castling attempt.
+        """
         is_current_player_piece = (self.chess_board.turn == chess.WHITE) == (piece_color == True)
+        
+        # Check if this is a late castling attempt
+        # This happens when:
+        # 1. A rook move was already executed (castling_rook_placed is True)
+        # 2. The king is now being lifted from its starting square
+        # 3. It's NOT the current player's turn (because the rook move was already made)
+        if self.move_state.castling_rook_placed and not is_current_player_piece:
+            piece_at_field = self.chess_board.piece_at(field)
+            is_king = piece_at_field is not None and piece_at_field.piece_type == chess.KING
+            
+            # Check if this is the opponent's king from the expected starting square for castling
+            expected_king_square = None
+            if self.move_state.castling_rook_source in (MoveState.WHITE_KINGSIDE_ROOK, MoveState.WHITE_QUEENSIDE_ROOK):
+                expected_king_square = MoveState.WHITE_KING_SQUARE
+            elif self.move_state.castling_rook_source in (MoveState.BLACK_KINGSIDE_ROOK, MoveState.BLACK_QUEENSIDE_ROOK):
+                expected_king_square = MoveState.BLACK_KING_SQUARE
+            
+            if is_king and field == expected_king_square:
+                # This is a late castling attempt - king lifted after rook was moved
+                log.info(f"[GameManager._handle_piece_lift] Late castling detected - king lifted from {chess.square_name(field)} after rook move")
+                # Track this as a potential late castling
+                self.move_state.source_square = field
+                self.move_state.source_piece_color = piece_color
+                # Set legal destinations to include only the castling destination
+                king_dest = None
+                if self.move_state.castling_rook_source == MoveState.WHITE_KINGSIDE_ROOK:
+                    king_dest = MoveState.WHITE_KINGSIDE_KING_DEST
+                elif self.move_state.castling_rook_source == MoveState.WHITE_QUEENSIDE_ROOK:
+                    king_dest = MoveState.WHITE_QUEENSIDE_KING_DEST
+                elif self.move_state.castling_rook_source == MoveState.BLACK_KINGSIDE_ROOK:
+                    king_dest = MoveState.BLACK_KINGSIDE_KING_DEST
+                elif self.move_state.castling_rook_source == MoveState.BLACK_QUEENSIDE_ROOK:
+                    king_dest = MoveState.BLACK_QUEENSIDE_KING_DEST
+                
+                self.move_state.legal_destination_squares = [field, king_dest] if king_dest else [field]
+                return
+            else:
+                # Not the king or wrong square - clear castling tracking
+                # The rook move was a regular move, continue normally
+                self.move_state.castling_rook_source = INVALID_SQUARE
+                self.move_state.castling_rook_placed = False
+        
+        # Check if this is a rook lift from a castling position (for rook-first castling)
+        # Only track if:
+        # 1. It's the current player's piece
+        # 2. The piece is a rook at a castling starting square
+        # 3. We're not already tracking a move in progress
+        if is_current_player_piece and self.move_state.source_square < 0:
+            piece_at_field = self.chess_board.piece_at(field)
+            if piece_at_field is not None and piece_at_field.piece_type == chess.ROOK:
+                if self.move_state.is_rook_castling_square(field):
+                    # Check if castling is still legal for this side
+                    can_castle = False
+                    if field == MoveState.WHITE_KINGSIDE_ROOK:
+                        can_castle = self.chess_board.has_kingside_castling_rights(chess.WHITE)
+                    elif field == MoveState.WHITE_QUEENSIDE_ROOK:
+                        can_castle = self.chess_board.has_queenside_castling_rights(chess.WHITE)
+                    elif field == MoveState.BLACK_KINGSIDE_ROOK:
+                        can_castle = self.chess_board.has_kingside_castling_rights(chess.BLACK)
+                    elif field == MoveState.BLACK_QUEENSIDE_ROOK:
+                        can_castle = self.chess_board.has_queenside_castling_rights(chess.BLACK)
+                    
+                    if can_castle:
+                        log.info(f"[GameManager._handle_piece_lift] Potential castling rook lifted from {chess.square_name(field)}")
+                        self.move_state.castling_rook_source = field
         
         if field not in self.move_state.legal_destination_squares and \
            self.move_state.source_square < 0 and \
@@ -664,7 +815,13 @@ class GameManager:
                 self.move_state.source_piece_color = piece_color
 
     def _handle_piece_place(self, field: int, piece_color):
-        """Handle piece place event."""
+        """Handle piece place event.
+        
+        For castling support, handles both king-first and rook-first ordering.
+        When rook is moved first:
+        1. Rook placement on castling destination is tracked (not treated as illegal)
+        2. When king is subsequently placed on its castling destination, the move is executed
+        """
         
         is_current_player_piece = (self.chess_board.turn == chess.WHITE) == (piece_color == True)
         
@@ -675,6 +832,39 @@ class GameManager:
             board.ledsOff()
             self.move_state.opponent_source_square = INVALID_SQUARE
             return
+        
+        # Check for rook move from castling position
+        # If a rook is moved from h1/a1/h8/a8 to its castling destination (f1/d1/f8/d8),
+        # treat it as a regular rook move (e.g., h1f1). This is a legal move in chess.
+        # 
+        # If the player subsequently moves the king to the castling destination,
+        # we detect this was intended as castling, undo both moves, and execute castling.
+        if self.move_state.castling_rook_source != INVALID_SQUARE and \
+           self.move_state.source_square < 0:
+            if field == self.move_state.castling_rook_source:
+                # Rook placed back on its original square - cancel castling tracking
+                log.info(f"[GameManager._handle_piece_place] Rook returned to {chess.square_name(field)} - cancelling potential castling")
+                self.move_state.castling_rook_source = INVALID_SQUARE
+                self.move_state.castling_rook_placed = False
+                return
+            
+            # Rook is being moved somewhere - treat as a regular rook move
+            # Set source_square so _execute_move can process it
+            self.move_state.source_square = self.move_state.castling_rook_source
+            self.move_state.legal_destination_squares = self._calculate_legal_squares(self.move_state.castling_rook_source)
+            
+            # Track that this was a potential castling rook move (for late castling detection)
+            if self.move_state.is_valid_rook_castling_destination(
+                self.move_state.castling_rook_source, field
+            ):
+                log.info(f"[GameManager._handle_piece_place] Rook moved to castling position {chess.square_name(field)} - treating as regular move, tracking for late castling")
+                self.move_state.castling_rook_placed = True
+            else:
+                # Rook moved elsewhere - clear castling tracking
+                self.move_state.castling_rook_source = INVALID_SQUARE
+                self.move_state.castling_rook_placed = False
+            
+            # Fall through to normal move processing below
         
         # Ignore stale PLACE events without corresponding LIFT
         if self.move_state.source_square < 0 and self.move_state.opponent_source_square < 0:
@@ -742,6 +932,31 @@ class GameManager:
         
         # Clear exit flag on valid LIFT (handled in lift handler)
         
+        # Check for late castling completion:
+        # If a rook move was already executed (castling_rook_placed is True) and the king
+        # is now being placed on its castling destination, this is a late castling.
+        # We need to undo the rook move (and any opponent response), then execute castling.
+        if self.move_state.castling_rook_placed and self.move_state.source_square != INVALID_SQUARE:
+            # Check if the piece being moved is a king and the destination is the castling square
+            piece_at_source = self.chess_board.piece_at(self.move_state.source_square)
+            if piece_at_source is not None and piece_at_source.piece_type == chess.KING:
+                # Determine the expected king destination based on which rook moved
+                expected_king_dest = None
+                if self.move_state.castling_rook_source == MoveState.WHITE_KINGSIDE_ROOK:
+                    expected_king_dest = MoveState.WHITE_KINGSIDE_KING_DEST
+                elif self.move_state.castling_rook_source == MoveState.WHITE_QUEENSIDE_ROOK:
+                    expected_king_dest = MoveState.WHITE_QUEENSIDE_KING_DEST
+                elif self.move_state.castling_rook_source == MoveState.BLACK_KINGSIDE_ROOK:
+                    expected_king_dest = MoveState.BLACK_KINGSIDE_KING_DEST
+                elif self.move_state.castling_rook_source == MoveState.BLACK_QUEENSIDE_ROOK:
+                    expected_king_dest = MoveState.BLACK_QUEENSIDE_KING_DEST
+                
+                if expected_king_dest is not None and field == expected_king_dest:
+                    # This is a late castling - rook move was already executed, now king completes it
+                    log.info(f"[GameManager._handle_piece_place] Late castling detected: King placed on {chess.square_name(field)}")
+                    self._execute_late_castling(self.move_state.castling_rook_source)
+                    return
+        
         # Check for illegal placement
         if field not in self.move_state.legal_destination_squares:
             board.beep(board.SOUND_WRONG_MOVE)
@@ -763,9 +978,323 @@ class GameManager:
             self.move_state.source_square = INVALID_SQUARE
             self.move_state.legal_destination_squares = []
             self.move_state.source_piece_color = None
+            # Also reset castling state if we're putting the king back
+            self.move_state.castling_rook_source = INVALID_SQUARE
+            self.move_state.castling_rook_placed = False
         else:
             # Valid move
             self._execute_move(field)
+    
+    def _execute_castling_move(self, rook_source: int):
+        """Execute a castling move when the rook was moved first.
+        
+        The chess library represents castling as a king move (e.g., e1g1 for white kingside).
+        This method converts the rook-first physical move sequence into the proper UCI format.
+        
+        Args:
+            rook_source: The square the rook was lifted from (determines which castling type)
+        """
+        # Check if game is already over before executing move
+        outcome = self.chess_board.outcome(claim_draw=True)
+        if outcome is not None:
+            log.warning(f"[GameManager._execute_castling_move] Attempted to execute castling after game ended. Result: {self.chess_board.result()}")
+            board.beep(board.SOUND_WRONG_MOVE)
+            board.ledsOff()
+            self.move_state.reset()
+            return
+        
+        # Get the king's UCI move for this castling
+        castling_uci = self.move_state.get_castling_king_move(rook_source)
+        if not castling_uci:
+            log.error(f"[GameManager._execute_castling_move] Invalid rook source for castling: {rook_source}")
+            board.beep(board.SOUND_WRONG_MOVE)
+            self.move_state.reset()
+            return
+        
+        log.info(f"[GameManager._execute_castling_move] Executing rook-first castling: {castling_uci}")
+        
+        # Validate the castling move is legal
+        try:
+            move = chess.Move.from_uci(castling_uci)
+            if move not in self.chess_board.legal_moves:
+                log.error(f"[GameManager._execute_castling_move] Castling move {castling_uci} is not legal at current position")
+                board.beep(board.SOUND_WRONG_MOVE)
+                self._enter_correction_mode()
+                current_state = board.getChessState()
+                expected_state = self._chess_board_to_state(self.chess_board)
+                if expected_state is not None:
+                    self._provide_correction_guidance(current_state, expected_state)
+                self.move_state.reset()
+                return
+        except ValueError as e:
+            log.error(f"[GameManager._execute_castling_move] Invalid castling UCI: {castling_uci}. Error: {e}")
+            board.beep(board.SOUND_WRONG_MOVE)
+            self.move_state.reset()
+            return
+        
+        # Extract king's destination for LED feedback
+        king_dest = chess.parse_square(castling_uci[2:4])
+        
+        # Push the castling move to the chess board
+        try:
+            self.chess_board.push(move)
+        except (ValueError, AssertionError) as e:
+            log.error(f"[GameManager._execute_castling_move] Failed to push castling move: {e}")
+            board.beep(board.SOUND_WRONG_MOVE)
+            self.move_state.reset()
+            return
+        
+        # Save to database (similar to _execute_move but simplified for castling)
+        if self.database_session is not None and self.game_db_id >= 0:
+            try:
+                game_move = models.GameMove(
+                    gameid=self.game_db_id,
+                    move=castling_uci,
+                    fen=str(self.chess_board.fen())
+                )
+                self.database_session.add(game_move)
+                self.database_session.commit()
+            except Exception as db_error:
+                log.error(f"[GameManager._execute_castling_move] Database error: {db_error}")
+        elif self.database_session is not None and self.game_db_id < 0:
+            # First move - need to create game first (handle this case)
+            log.info("[GameManager._execute_castling_move] First move is castling - creating game")
+            try:
+                game = models.Game(
+                    source=self.source_file,
+                    event=self.game_info['event'],
+                    site=self.game_info['site'],
+                    round=self.game_info['round'],
+                    white=self.game_info['white'],
+                    black=self.game_info['black']
+                )
+                self.database_session.add(game)
+                self.database_session.flush()
+                if hasattr(game, 'id') and game.id is not None:
+                    self.game_db_id = game.id
+                    # Create initial position move
+                    initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+                    initial_move = models.GameMove(
+                        gameid=self.game_db_id,
+                        move='',
+                        fen=initial_fen
+                    )
+                    self.database_session.add(initial_move)
+                    # Create castling move
+                    game_move = models.GameMove(
+                        gameid=self.game_db_id,
+                        move=castling_uci,
+                        fen=str(self.chess_board.fen())
+                    )
+                    self.database_session.add(game_move)
+                    self.database_session.commit()
+            except Exception as db_error:
+                log.error(f"[GameManager._execute_castling_move] Database error creating game: {db_error}")
+                try:
+                    self.database_session.rollback()
+                except Exception:
+                    pass
+        
+        paths.write_fen_log(self.chess_board.fen())
+        
+        # Call move callback to update display
+        if self.move_callback is not None:
+            try:
+                self.move_callback(castling_uci)
+            except Exception as e:
+                log.error(f"[GameManager._execute_castling_move] Error in move callback: {e}")
+        
+        # Reset move state (including castling tracking)
+        self.move_state.reset()
+        
+        # LED and sound feedback
+        board.ledsOff()
+        board.beep(board.SOUND_GENERAL)
+        board.led(king_dest)
+        
+        # Check game outcome
+        outcome = self.chess_board.outcome(claim_draw=True)
+        if outcome is None:
+            self._switch_turn_with_event()
+        else:
+            board.beep(board.SOUND_GENERAL)
+            result_string = str(self.chess_board.result())
+            termination = str(outcome.termination)
+            self._update_game_result(result_string, termination, "_execute_castling_move")
+    
+    def _execute_late_castling(self, rook_source: int):
+        """Execute castling when rook move was already made as a regular move.
+        
+        This handles the case where:
+        1. Player moved rook from h1 to f1 (executed as regular move h1f1)
+        2. Engine made a response move
+        3. Player now moves king e1 to g1 (indicating they intended castling)
+        
+        We need to:
+        1. Undo the engine's response move (if any)
+        2. Undo the rook move from the logical board
+        3. Execute the proper castling move (e1g1)
+        4. Notify the takeback callback to re-trigger the engine
+        
+        Args:
+            rook_source: The original square the rook was moved from (h1, a1, h8, a8)
+        """
+        log.info(f"[GameManager._execute_late_castling] Processing late castling for rook from {chess.square_name(rook_source)}")
+        
+        # Get the castling move UCI
+        castling_uci = self.move_state.get_castling_king_move(rook_source)
+        if not castling_uci:
+            log.error(f"[GameManager._execute_late_castling] Invalid rook source: {rook_source}")
+            board.beep(board.SOUND_WRONG_MOVE)
+            self.move_state.reset()
+            return
+        
+        # Determine how many moves to undo:
+        # - If it's the opponent's turn, undo 1 move (just the rook move)
+        # - If it's the castling player's turn again, undo 2 moves (rook move + opponent response)
+        # Actually, since the rook was the player's move, it's now the opponent's turn.
+        # If the player is moving the king, they're moving out of turn, which means
+        # either no opponent move was made yet, or we need to undo the opponent's move.
+        
+        # Check if the rook move is in the move stack
+        if len(self.chess_board.move_stack) < 1:
+            log.error("[GameManager._execute_late_castling] No moves in stack to undo")
+            board.beep(board.SOUND_WRONG_MOVE)
+            self.move_state.reset()
+            return
+        
+        # Get the rook move UCI for database cleanup
+        rook_move_uci = None
+        if rook_source == MoveState.WHITE_KINGSIDE_ROOK:
+            rook_move_uci = "h1f1"
+        elif rook_source == MoveState.WHITE_QUEENSIDE_ROOK:
+            rook_move_uci = "a1d1"
+        elif rook_source == MoveState.BLACK_KINGSIDE_ROOK:
+            rook_move_uci = "h8f8"
+        elif rook_source == MoveState.BLACK_QUEENSIDE_ROOK:
+            rook_move_uci = "a8d8"
+        
+        # Count moves to undo
+        moves_to_undo = 0
+        undone_moves = []
+        
+        # Check the move stack - we need to find and undo the rook move
+        # The rook move should be either the last move (opponent hasn't moved yet)
+        # or second-to-last (opponent has moved)
+        for i in range(min(2, len(self.chess_board.move_stack))):
+            check_move = self.chess_board.move_stack[-(i + 1)]
+            if check_move.uci() == rook_move_uci:
+                moves_to_undo = i + 1
+                break
+        
+        if moves_to_undo == 0:
+            log.error(f"[GameManager._execute_late_castling] Rook move {rook_move_uci} not found in recent moves")
+            board.beep(board.SOUND_WRONG_MOVE)
+            self.move_state.reset()
+            return
+        
+        log.info(f"[GameManager._execute_late_castling] Undoing {moves_to_undo} move(s) to correct castling")
+        
+        # Undo the moves
+        for i in range(moves_to_undo):
+            undone_move = self.chess_board.pop()
+            undone_moves.append(undone_move)
+            log.info(f"[GameManager._execute_late_castling] Undone move: {undone_move.uci()}")
+            
+            # Remove from database
+            if self.database_session is not None:
+                try:
+                    db_last_move = self.database_session.query(models.GameMove).filter(
+                        models.GameMove.gameid == self.game_db_id
+                    ).order_by(models.GameMove.id.desc()).first()
+                    if db_last_move is not None:
+                        self.database_session.delete(db_last_move)
+                        self.database_session.commit()
+                except Exception as e:
+                    log.error(f"[GameManager._execute_late_castling] Error removing move from database: {e}")
+        
+        # Now verify castling is legal at this position
+        try:
+            castling_move = chess.Move.from_uci(castling_uci)
+            if castling_move not in self.chess_board.legal_moves:
+                log.error(f"[GameManager._execute_late_castling] Castling {castling_uci} not legal after undo")
+                # Restore the moves we undid
+                for move in reversed(undone_moves):
+                    self.chess_board.push(move)
+                board.beep(board.SOUND_WRONG_MOVE)
+                self._enter_correction_mode()
+                current_state = board.getChessState()
+                expected_state = self._chess_board_to_state(self.chess_board)
+                if expected_state is not None:
+                    self._provide_correction_guidance(current_state, expected_state)
+                self.move_state.reset()
+                return
+        except ValueError as e:
+            log.error(f"[GameManager._execute_late_castling] Invalid castling UCI: {e}")
+            board.beep(board.SOUND_WRONG_MOVE)
+            self.move_state.reset()
+            return
+        
+        # Execute the castling move
+        try:
+            self.chess_board.push(castling_move)
+        except (ValueError, AssertionError) as e:
+            log.error(f"[GameManager._execute_late_castling] Failed to push castling: {e}")
+            board.beep(board.SOUND_WRONG_MOVE)
+            self.move_state.reset()
+            return
+        
+        log.info(f"[GameManager._execute_late_castling] Castling {castling_uci} executed successfully")
+        
+        # Save to database
+        if self.database_session is not None and self.game_db_id >= 0:
+            try:
+                game_move = models.GameMove(
+                    gameid=self.game_db_id,
+                    move=castling_uci,
+                    fen=str(self.chess_board.fen())
+                )
+                self.database_session.add(game_move)
+                self.database_session.commit()
+            except Exception as db_error:
+                log.error(f"[GameManager._execute_late_castling] Database error: {db_error}")
+        
+        paths.write_fen_log(self.chess_board.fen())
+        
+        # Call move callback to update display
+        if self.move_callback is not None:
+            try:
+                self.move_callback(castling_uci)
+            except Exception as e:
+                log.error(f"[GameManager._execute_late_castling] Error in move callback: {e}")
+        
+        # Reset move state
+        self.move_state.reset()
+        
+        # LED and sound feedback
+        king_dest = chess.parse_square(castling_uci[2:4])
+        board.ledsOff()
+        board.beep(board.SOUND_GENERAL)
+        board.led(king_dest)
+        
+        # Notify takeback callback to re-trigger engine
+        # This is used when moves_to_undo > 1 (opponent had already moved)
+        if moves_to_undo > 1 and self.takeback_callback is not None:
+            log.info("[GameManager._execute_late_castling] Calling takeback callback to re-trigger engine")
+            try:
+                self.takeback_callback()
+            except Exception as e:
+                log.error(f"[GameManager._execute_late_castling] Error in takeback callback: {e}")
+        
+        # Check game outcome
+        outcome = self.chess_board.outcome(claim_draw=True)
+        if outcome is None:
+            self._switch_turn_with_event()
+        else:
+            board.beep(board.SOUND_GENERAL)
+            result_string = str(self.chess_board.result())
+            termination = str(outcome.termination)
+            self._update_game_result(result_string, termination, "_execute_late_castling")
     
     def _execute_move(self, target_square: int):
         """Execute a move from source to target square.
