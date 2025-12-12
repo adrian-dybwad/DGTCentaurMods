@@ -915,6 +915,12 @@ class GameManager:
             # Both kings are in center - trigger resign/draw menu
             log.info("[GameManager._handle_piece_place] Kings-in-center gesture complete, triggering menu")
             self._reset_kings_center_tracking()
+            # Exit correction mode if active and turn off LEDs
+            if self.correction_mode.is_active:
+                self._exit_correction_mode()
+            board.ledsOff()
+            # Reset move state to clean slate
+            self.move_state.reset()
             if self.on_kings_in_center:
                 self.on_kings_in_center()
             return
