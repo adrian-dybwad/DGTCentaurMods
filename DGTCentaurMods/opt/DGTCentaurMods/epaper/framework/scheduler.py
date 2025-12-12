@@ -205,7 +205,6 @@ class Scheduler:
                 log.debug(f"Scheduler._execute_partial_refresh_single(): Transitioning to partial mode (calling init() and Clear())")
                 self._epd.init()
                 self._epd.Clear()
-                # Mark as in partial mode immediately after transition, even if no dirty regions
                 self._in_partial_mode = True
                 log.debug(f"Scheduler._execute_partial_refresh_single(): Transition complete, _in_partial_mode is now True")
             
