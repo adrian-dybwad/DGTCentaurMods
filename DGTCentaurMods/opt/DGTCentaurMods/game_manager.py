@@ -808,14 +808,18 @@ class GameManager:
                         log.info(f"[GameManager._handle_piece_lift] Potential castling rook lifted from {chess.square_name(field)}")
                         self.move_state.castling_rook_source = field
         
-        if field not in self.move_state.legal_destination_squares and \
-           self.move_state.source_square < 0 and \
-           is_current_player_piece:
-            # Generate legal destination squares for this piece
-            self.move_state.legal_destination_squares = self._calculate_legal_squares(field)
-            self.move_state.source_square = field
-            # Store piece color for use during PLACE event (important for captures)
-            self.move_state.source_piece_color = piece_color
+        # If we're tracking a potential castling rook, don't set source_square here.
+        # The source_square will be set in _handle_piece_place when the rook is placed,
+        # allowing the castling tracking logic to check castling_rook_source first.
+        if self.move_state.castling_rook_source == INVALID_SQUARE:
+            if field not in self.move_state.legal_destination_squares and \
+               self.move_state.source_square < 0 and \
+               is_current_player_piece:
+                # Generate legal destination squares for this piece
+                self.move_state.legal_destination_squares = self._calculate_legal_squares(field)
+                self.move_state.source_square = field
+                # Store piece color for use during PLACE event (important for captures)
+                self.move_state.source_piece_color = piece_color
         
         # Track opposing side lifts
         if not is_current_player_piece:
