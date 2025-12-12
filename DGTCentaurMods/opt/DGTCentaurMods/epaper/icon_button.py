@@ -28,11 +28,16 @@ class IconButtonWidget(Widget):
     The button can be in selected (inverted colors) or unselected state.
     Icons are drawn using PIL primitives for e-paper compatibility.
     
+    Supports two layout modes:
+    - horizontal: Icon on left, text on right (default, compact)
+    - vertical: Icon centered on top, text centered below (for large buttons)
+    
     Attributes:
         key: Unique identifier for this button
         label: Display text
         icon_name: Icon identifier for rendering
         selected: Whether button is currently selected (inverted)
+        layout: Layout mode - 'horizontal' or 'vertical'
     """
     
     def __init__(self, x: int, y: int, width: int, height: int,
@@ -45,7 +50,9 @@ class IconButtonWidget(Widget):
                  icon_margin: int = 2,
                  border_width: int = 2,
                  selected_shade: int = 12,
-                 background_shade: int = 0):
+                 background_shade: int = 0,
+                 layout: str = "horizontal",
+                 font_size: int = 16):
         """Initialize icon button widget.
         
         Args:
@@ -65,6 +72,9 @@ class IconButtonWidget(Widget):
             border_width: Width of the button border in pixels (default 2)
             selected_shade: Dithered shade for selected state 0-16 (default 12 = ~75% black)
             background_shade: Dithered background shade 0-16 (default 0 = white)
+            layout: Layout mode - 'horizontal' (icon left, text right) or 
+                   'vertical' (icon top centered, text bottom centered)
+            font_size: Font size in pixels (default 16)
         """
         super().__init__(x, y, width, height, background_shade=background_shade)
         self.key = key
@@ -78,16 +88,21 @@ class IconButtonWidget(Widget):
         self.icon_margin = icon_margin
         self.border_width = border_width
         self.selected_shade = max(0, min(16, selected_shade))
+        self.layout = layout
+        self.font_size = font_size
         
         # Load font
         self._font = None
         self._load_font()
     
     def _load_font(self):
-        """Load font for label rendering."""
+        """Load font for label rendering at configured size."""
         try:
             if AssetManager:
-                self._font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
+                self._font = ImageFont.truetype(
+                    AssetManager.get_resource_path("Font.ttc"), 
+                    self.font_size
+                )
             else:
                 self._font = ImageFont.load_default()
         except Exception as e:
@@ -125,9 +140,11 @@ class IconButtonWidget(Widget):
     def render(self) -> Image.Image:
         """Render the button with icon and label.
         
-        Multi-line labels are supported. For multi-line text, the label is
-        positioned at the top of the button (after the icon). For single-line
-        text, it remains at the bottom.
+        Supports two layout modes:
+        - horizontal: Icon on left, text on right (default)
+        - vertical: Icon centered on top, text centered below
+        
+        Multi-line labels are supported in both modes.
         
         Layout:
             - margin: transparent space outside the border
@@ -157,6 +174,7 @@ class IconButtonWidget(Widget):
         content_top = inside_top + self.padding
         content_right = inside_right - self.padding
         content_bottom = inside_bottom - self.padding
+        content_width = content_right - content_left
         content_height = content_bottom - content_top
         
         # Draw button background (only inside border area, not margin)
@@ -173,8 +191,84 @@ class IconButtonWidget(Widget):
             # Unselected: white fill with black border
             draw.rectangle([border_left, border_top, border_right, border_bottom], fill=255, outline=0, width=self.border_width)
         
-        # Draw icon (icon_margin is space around icon on all sides, ignores padding)
-        # Icon positioned from inside of border + icon_margin
+        text_color = 255 if self.selected else 0
+        lines = self.label.split('\n')
+        line_height = self.font_size + 2  # Add small spacing between lines
+        
+        if self.layout == "vertical":
+            # Vertical layout: icon centered on top, text centered below
+            self._render_vertical_layout(
+                draw, content_left, content_top, content_width, content_height,
+                lines, line_height, text_color
+            )
+        else:
+            # Horizontal layout: icon on left, text on right (default)
+            self._render_horizontal_layout(
+                draw, inside_left, inside_top, content_top, content_height,
+                lines, line_height, text_color
+            )
+        
+        return img
+    
+    def _render_vertical_layout(self, draw: ImageDraw.Draw, 
+                                 content_left: int, content_top: int,
+                                 content_width: int, content_height: int,
+                                 lines: list, line_height: int, text_color: int):
+        """Render button with icon on top, text below (both centered).
+        
+        Args:
+            draw: ImageDraw object
+            content_left: Left edge of content area
+            content_top: Top edge of content area
+            content_width: Width of content area
+            content_height: Height of content area
+            lines: Text lines to render
+            line_height: Height of each text line
+            text_color: Color for text (0 or 255)
+        """
+        # Calculate total text height
+        text_total_height = len(lines) * line_height
+        
+        # Calculate vertical distribution: icon on top, text below
+        # Leave some spacing between icon and text
+        icon_text_gap = 4
+        total_content = self.icon_size + icon_text_gap + text_total_height
+        
+        # Center the combined icon+text vertically
+        start_y = content_top + (content_height - total_content) // 2
+        
+        # Draw icon centered horizontally
+        icon_x = content_left + content_width // 2
+        icon_y = start_y + self.icon_size // 2
+        self._draw_icon(draw, self.icon_name, icon_x, icon_y, self.icon_size, self.selected)
+        
+        # Draw text centered below icon
+        text_start_y = start_y + self.icon_size + icon_text_gap
+        for i, line in enumerate(lines):
+            # Measure text width for centering
+            bbox = draw.textbbox((0, 0), line, font=self._font)
+            text_width = bbox[2] - bbox[0]
+            text_x = content_left + (content_width - text_width) // 2
+            text_y = text_start_y + i * line_height
+            draw.text((text_x, text_y), line, font=self._font, fill=text_color)
+    
+    def _render_horizontal_layout(self, draw: ImageDraw.Draw,
+                                   inside_left: int, inside_top: int,
+                                   content_top: int, content_height: int,
+                                   lines: list, line_height: int, text_color: int):
+        """Render button with icon on left, text on right.
+        
+        Args:
+            draw: ImageDraw object
+            inside_left: Left edge inside border
+            inside_top: Top edge inside border
+            content_top: Top of content area (with padding)
+            content_height: Height of content area
+            lines: Text lines to render
+            line_height: Height of each text line
+            text_color: Color for text (0 or 255)
+        """
+        # Draw icon on the left
         icon_left = inside_left + self.icon_margin
         icon_top = inside_top + self.icon_margin
         icon_x = icon_left + self.icon_size // 2
@@ -184,24 +278,19 @@ class IconButtonWidget(Widget):
         # Icon right edge (including icon_margin on right side)
         icon_right = icon_left + self.icon_size + self.icon_margin
         
-        # Draw label (uses padding for vertical positioning, starts after icon area)
+        # Draw label to the right of icon
         text_x = icon_right
-        text_color = 255 if self.selected else 0
         
-        # Check for multi-line text
-        lines = self.label.split('\n')
         if len(lines) > 1:
-            # Multi-line: position at top of content area (uses padding)
+            # Multi-line: position at top of content area
             text_y = content_top
             for line in lines:
                 draw.text((text_x, text_y), line, font=self._font, fill=text_color)
-                text_y += 16  # Line height
+                text_y += line_height
         else:
-            # Single line: center vertically in content area (uses padding)
+            # Single line: center vertically in content area
             text_y = content_top + (content_height - self.label_height) // 2
             draw.text((text_x, text_y), self.label, font=self._font, fill=text_color)
-        
-        return img
     
     def get_mask(self):
         """Get mask for transparent margin.

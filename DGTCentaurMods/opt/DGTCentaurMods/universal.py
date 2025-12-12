@@ -323,8 +323,9 @@ def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEnt
     """Create the standard main menu entry configuration.
     
     Layout (top to bottom):
-    1. Universal - prominent top button with large knight icon (2x height)
-    2. Settings - standard height
+    1. Universal - prominent top button with large centered knight icon (2x height)
+       Uses vertical layout (icon on top, text below)
+    2. Settings - standard height, horizontal layout
     3. Original Centaur - smaller bottom option (2/3 height, smaller knight)
     
     Args:
@@ -335,23 +336,28 @@ def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEnt
     """
     entries = []
     
-    # Universal at top - prominent with large knight icon (2x height)
+    # Universal at top - prominent with large centered knight icon
+    # Vertical layout: icon centered on top, text centered below
     entries.append(IconMenuEntry(
         key="Universal",
         label="Universal",
         icon_name="universal",
         enabled=True,
         height_ratio=2.0,
-        icon_size=56  # Larger icon for the prominent button
+        icon_size=56,
+        layout="vertical",
+        font_size=20  # Larger text for prominent button
     ))
     
-    # Settings in middle - standard height
+    # Settings in middle - standard height, horizontal layout
     entries.append(IconMenuEntry(
         key="Settings",
         label="Settings",
         icon_name="settings",
         enabled=True,
-        height_ratio=1.0
+        height_ratio=1.0,
+        layout="horizontal",
+        font_size=16
     ))
     
     # Original Centaur at bottom - smaller (2/3 height)
@@ -362,7 +368,9 @@ def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEnt
             icon_name="centaur",
             enabled=True,
             height_ratio=0.67,
-            icon_size=28  # Smaller icon for the compact button
+            icon_size=28,
+            layout="horizontal",
+            font_size=14  # Smaller text for compact button
         ))
     
     return entries

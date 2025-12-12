@@ -43,6 +43,8 @@ class IconMenuEntry:
         enabled: Whether entry is enabled/visible
         height_ratio: Relative height weight (default 1.0, use 2.0 for double height)
         icon_size: Custom icon size in pixels (None uses default based on button height)
+        layout: Button layout - 'horizontal' (icon left) or 'vertical' (icon top centered)
+        font_size: Font size in pixels (default 16)
     """
     key: str
     label: str
@@ -50,6 +52,8 @@ class IconMenuEntry:
     enabled: bool = True
     height_ratio: float = 1.0
     icon_size: int = None
+    layout: str = "horizontal"
+    font_size: int = 16
 
 
 class IconMenuWidget(Widget):
@@ -158,7 +162,9 @@ class IconMenuWidget(Widget):
                 icon_name=entry.icon_name,
                 selected=(idx == self.selected_index),
                 margin=self.button_margin,
-                icon_size=icon_size
+                icon_size=icon_size,
+                layout=entry.layout,
+                font_size=entry.font_size
             )
             self._buttons.append(button)
             current_y += button_height
@@ -341,7 +347,8 @@ def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
     
     Args:
         entries_config: List of dicts with 'key', 'label', 'icon_name', 
-                       and optional 'enabled', 'height_ratio', 'icon_size'
+                       and optional 'enabled', 'height_ratio', 'icon_size',
+                       'layout', 'font_size'
         
     Returns:
         List of IconMenuEntry objects
@@ -353,7 +360,9 @@ def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
             icon_name=e['icon_name'],
             enabled=e.get('enabled', True),
             height_ratio=e.get('height_ratio', 1.0),
-            icon_size=e.get('icon_size', None)
+            icon_size=e.get('icon_size', None),
+            layout=e.get('layout', 'horizontal'),
+            font_size=e.get('font_size', 16)
         )
         for e in entries_config
     ]
