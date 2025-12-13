@@ -713,9 +713,9 @@ def create_system_entries() -> List[IconMenuEntry]:
         timeout_icon = "timer_checked"  # Checked box
     
     return [
-        IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
         IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True),
         IconMenuEntry(key="Bluetooth", label="Bluetooth", icon_name="bluetooth", enabled=True),
+        IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
         IconMenuEntry(key="Inactivity", label=timeout_label, icon_name=timeout_icon, enabled=True),
         IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
         IconMenuEntry(key="Reboot", label="Reboot", icon_name="reboot", enabled=True),
@@ -1888,21 +1888,22 @@ def _handle_system_menu():
     def handle_selection(result: MenuSelection):
         """Handle system menu selection."""
         # Route to submenus - propagate break results
+        # Use is_break_result() since some handlers return strings, some return MenuSelection
         if result.key == "Sound":
             sub_result = _handle_sound_settings()
-            if sub_result and sub_result.is_break:
+            if is_break_result(sub_result):
                 return sub_result
         elif result.key == "WiFi":
             sub_result = _handle_wifi_settings()
-            if sub_result and sub_result.is_break:
+            if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Bluetooth":
             sub_result = _handle_bluetooth_settings()
-            if sub_result and sub_result.is_break:
+            if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Inactivity":
             sub_result = _handle_inactivity_timeout()
-            if sub_result and sub_result.is_break:
+            if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Shutdown":
             _shutdown("Shutdown")
