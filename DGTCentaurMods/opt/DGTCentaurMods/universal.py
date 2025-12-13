@@ -308,8 +308,8 @@ def _resume_game(game_data: dict) -> bool:
         
         log.info(f"[Resume] Resuming game {game_data['id']}...")
         
-        # Start game mode first (this initializes game_handler)
-        _start_game_mode()
+        # Start game mode with the resume position FEN so display shows correct position immediately
+        _start_game_mode(starting_fen=game_data['fen'])
         
         if game_handler is None or game_handler.game_manager is None:
             log.error("[Resume] Failed to start game mode")
