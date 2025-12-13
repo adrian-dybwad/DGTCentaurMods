@@ -929,13 +929,14 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     # Kings-in-center gesture (DGT resign/draw) - only for 2-player mode
     # In engine games, moving kings to center would just trigger correction mode
+    # Uses the same back menu as the BACK button - just with a beep to confirm gesture
     if is_two_player and not is_position_game:
-        game_handler.game_manager.on_kings_in_center = lambda: display_manager.show_kings_center_menu(
-            _on_back_menu_result,
-            is_two_player=True
-        )
-        # Cancel callback when pieces are returned to position
-        game_handler.game_manager.on_kings_in_center_cancel = display_manager.cancel_kings_center_menu
+        def _on_kings_in_center():
+            board.beep(board.SOUND_GENERAL)  # Beep to confirm gesture recognized
+            display_manager.show_back_menu(_on_back_menu_result, is_two_player=True)
+        game_handler.game_manager.on_kings_in_center = _on_kings_in_center
+        # Cancel callback simulates BACK key press to properly dismiss menu
+        game_handler.game_manager.on_kings_in_center_cancel = display_manager.cancel_menu
     
     # Wire up event callback to handle game events
     from DGTCentaurMods.game_manager import EVENT_NEW_GAME
