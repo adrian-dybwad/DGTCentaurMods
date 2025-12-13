@@ -21,10 +21,14 @@ except ImportError:
 class Scheduler:
     """Background thread that schedules display refreshes using Waveshare DisplayPartial."""
     
+    # Maximum queue size - when full, oldest items are dropped to make room for new ones
+    QUEUE_MAX_SIZE = 5
+    
     def __init__(self, framebuffer: FrameBuffer, epd: EPD):
         self._framebuffer = framebuffer
         self._epd = epd
-        self._queue = queue.Queue(maxsize=10)
+        self._queue = queue.Queue(maxsize=self.QUEUE_MAX_SIZE)
+        self._queue_lock = threading.Lock()  # Protects queue operations during eviction
         self._thread = None
         self._stop_event = threading.Event()
         self._wake_event = threading.Event()  # Event to wake scheduler for immediate processing
@@ -59,6 +63,9 @@ class Scheduler:
     def submit(self, full: bool = False, immediate: bool = False, image: Optional[Image.Image] = None) -> Future:
         """Submit a refresh request.
         
+        If the queue is full, the oldest item is dropped to make room for the new one.
+        This ensures the display always shows the latest state.
+        
         Args:
             full: If True, force a full refresh instead of partial refresh.
             immediate: If True, wake scheduler immediately to process without batching delay.
@@ -69,13 +76,27 @@ class Scheduler:
             log.warning(f"Scheduler.submit() called with full=True (will cause flashing refresh)")
         
         future = Future()
-        try:
-            self._queue.put_nowait((full, future, image))
-            if immediate:
-                # Wake scheduler thread immediately for urgent updates (e.g., menu arrow)
-                self._wake_event.set()
-        except queue.Full:
-            future.set_result("queue-full")
+        with self._queue_lock:
+            # If queue is full, drop oldest item to make room
+            if self._queue.full():
+                try:
+                    old_item = self._queue.get_nowait()
+                    _, old_future, _ = old_item if len(old_item) == 3 else (old_item[0], old_item[1], None)
+                    if not old_future.done():
+                        old_future.set_result("evicted")
+                    log.warning("Scheduler.submit(): Queue full, evicted oldest item to make room for new update")
+                except queue.Empty:
+                    pass  # Queue was emptied by another thread, that's fine
+            
+            try:
+                self._queue.put_nowait((full, future, image))
+                if immediate:
+                    # Wake scheduler thread immediately for urgent updates (e.g., menu arrow)
+                    self._wake_event.set()
+            except queue.Full:
+                # Should not happen after eviction, but handle gracefully
+                log.warning("Scheduler.submit(): Queue still full after eviction attempt")
+                future.set_result("queue-full")
         return future
     
     def _run(self) -> None:

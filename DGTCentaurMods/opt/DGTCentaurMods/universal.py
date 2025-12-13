@@ -48,21 +48,49 @@ from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
 _early_display_manager: Optional[Manager] = None
 _startup_splash: Optional[SplashScreen] = None
 
+def _wait_for_display_promise(promise, operation_name: str, timeout: float = 10.0):
+    """Wait for a display promise in the background and log any errors.
+    
+    This allows the main thread to continue while display operations complete.
+    Errors are logged but don't block startup.
+    
+    Args:
+        promise: The Future to wait on
+        operation_name: Description of the operation for logging
+        timeout: Maximum time to wait in seconds
+    """
+    import threading
+    def _wait():
+        try:
+            if promise:
+                result = promise.result(timeout=timeout)
+                log.debug(f"[Display] {operation_name} completed: {result}")
+        except Exception as e:
+            log.warning(f"[Display] {operation_name} failed: {e}")
+    
+    thread = threading.Thread(target=_wait, daemon=True)
+    thread.start()
+
 def _init_display_early():
-    """Initialize display and show splash screen before board initialization."""
+    """Initialize display and show splash screen before board initialization.
+    
+    Display operations are queued and monitored in background threads,
+    allowing the main thread to continue with other startup tasks while
+    the e-paper display catches up (the initial Clear() takes ~3 seconds).
+    """
     global _early_display_manager, _startup_splash
     try:
         _early_display_manager = Manager()
         promise = _early_display_manager.initialize()
-        if promise:
-            promise.result(timeout=10.0)
+        # Don't block - monitor in background thread
+        _wait_for_display_promise(promise, "initialize", timeout=10.0)
         
         # Show splash screen immediately (full screen, no status bar)
         _early_display_manager.clear_widgets(addStatusBar=False)
         _startup_splash = SplashScreen(message="Starting...", leave_room_for_status_bar=False)
         promise = _early_display_manager.add_widget(_startup_splash)
-        if promise:
-            promise.result(timeout=5.0)
+        # Don't block - monitor in background thread
+        _wait_for_display_promise(promise, "add_splash", timeout=10.0)
     except Exception as e:
         log.warning(f"Early display initialization failed: {e}")
 
