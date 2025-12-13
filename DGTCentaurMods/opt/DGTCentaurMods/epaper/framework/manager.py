@@ -21,12 +21,17 @@ except ImportError:
 
 
 class Manager:
-    """Main coordinator for the ePaper framework."""
+    """Main coordinator for the ePaper framework.
     
-    def __init__(self):
+    Args:
+        on_refresh: Optional callback invoked with the display image (PIL Image)
+                    after each successful display update. Used for web dashboard mirroring.
+    """
+    
+    def __init__(self, on_refresh=None):
         self._epd = EPD()
         self._framebuffer = FrameBuffer(self._epd.width, self._epd.height)
-        self._scheduler = Scheduler(self._framebuffer, self._epd)
+        self._scheduler = Scheduler(self._framebuffer, self._epd, on_display_updated=on_refresh)
         self._widgets: List[Widget] = []
         self._background = None  # Optional BackgroundWidget for dithered backgrounds
         self._initialized = False
@@ -280,23 +285,9 @@ class Manager:
         # updates display all intermediate states, not just the final one
         snapshot = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
         
-        # Write to file for web server (separate process)
-        self._write_epaper_jpg(snapshot)
-        
         # Submit refresh with the captured snapshot and return Future
+        # The on_refresh callback is invoked by Scheduler after display update
         return self._scheduler.submit(full=full, image=snapshot)
-    
-    def _write_epaper_jpg(self, image: Image.Image) -> None:
-        """Write the display image to a file for the web server.
-        
-        The web server runs in a separate process and reads this file.
-        Writes are done in a try/except to avoid blocking display updates.
-        """
-        try:
-            from DGTCentaurMods.managers import AssetManager
-            AssetManager.write_epaper_static_jpg(image)
-        except Exception as e:
-            log.debug(f"Failed to write epaper.jpg: {e}")
     
     def shutdown(self) -> None:
         """Shutdown the display."""

@@ -72,12 +72,29 @@ board_meta_properties: Optional[dict] = None
 # Global display manager
 display_manager: Optional[Manager] = None
 
-def init_display() -> Future:
-    """Get or create the global display manager."""
+def _default_on_refresh(image):
+    """Default callback for display refreshes - writes image to web static folder.
+    
+    Used by the web dashboard to mirror the e-paper display.
+    """
+    try:
+        from DGTCentaurMods.managers import AssetManager
+        AssetManager.write_epaper_static_jpg(image)
+    except Exception as e:
+        log.debug(f"Failed to write epaper.jpg: {e}")
+
+def init_display(on_refresh=None) -> Future:
+    """Get or create the global display manager.
+    
+    Args:
+        on_refresh: Optional callback invoked with the display image after each refresh.
+                    If None, uses default callback that writes to web static folder.
+    """
     global display_manager
     
     if display_manager is None:
-        display_manager = Manager()
+        callback = on_refresh if on_refresh is not None else _default_on_refresh
+        display_manager = Manager(on_refresh=callback)
         return display_manager.initialize()
     return None
 

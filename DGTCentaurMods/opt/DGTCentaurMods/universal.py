@@ -71,6 +71,18 @@ def _wait_for_display_promise(promise, operation_name: str, timeout: float = 10.
     thread = threading.Thread(target=_wait, daemon=True)
     thread.start()
 
+def _on_display_refresh(image):
+    """Callback for display refreshes - writes image to web static folder.
+    
+    Used by the web dashboard to mirror the e-paper display.
+    Deferred import to avoid loading AssetManager at startup.
+    """
+    try:
+        from DGTCentaurMods.managers import AssetManager
+        AssetManager.write_epaper_static_jpg(image)
+    except Exception as e:
+        log.debug(f"Failed to write epaper.jpg: {e}")
+
 def _init_display_early():
     """Initialize display and show splash screen before board initialization.
     
@@ -80,7 +92,7 @@ def _init_display_early():
     """
     global _early_display_manager, _startup_splash
     try:
-        _early_display_manager = Manager()
+        _early_display_manager = Manager(on_refresh=_on_display_refresh)
         promise = _early_display_manager.initialize()
         # Don't block - monitor in background thread
         _wait_for_display_promise(promise, "initialize", timeout=10.0)

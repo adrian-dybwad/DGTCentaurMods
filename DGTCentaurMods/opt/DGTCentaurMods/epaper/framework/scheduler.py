@@ -19,12 +19,19 @@ except ImportError:
     log = logging.getLogger(__name__)
 
 class Scheduler:
-    """Background thread that schedules display refreshes using Waveshare DisplayPartial."""
+    """Background thread that schedules display refreshes using Waveshare DisplayPartial.
+    
+    Args:
+        framebuffer: The FrameBuffer to read display state from
+        epd: The EPD hardware driver
+        on_display_updated: Optional callback invoked with the displayed image (PIL Image)
+                            after each successful display update. Used for web dashboard mirroring.
+    """
     
     # Maximum queue size - when full, oldest items are dropped to make room for new ones
     QUEUE_MAX_SIZE = 5
     
-    def __init__(self, framebuffer: FrameBuffer, epd: EPD):
+    def __init__(self, framebuffer: FrameBuffer, epd: EPD, on_display_updated=None):
         self._framebuffer = framebuffer
         self._epd = epd
         self._queue = queue.Queue(maxsize=self.QUEUE_MAX_SIZE)
@@ -35,6 +42,7 @@ class Scheduler:
         self._max_partial_refreshes = 200
         self._partial_refresh_count = 0
         self._in_partial_mode = False  # Track if display is in partial refresh mode
+        self._on_display_updated = on_display_updated  # Callback after display update
     
     def start(self) -> None:
         """Start the refresh scheduler thread."""
@@ -189,6 +197,13 @@ class Scheduler:
             buf = self._epd.getbuffer(full_image)
             self._epd.display(buf)
             self._partial_refresh_count = 0
+            
+            # Invoke callback after successful display update
+            if self._on_display_updated:
+                try:
+                    self._on_display_updated(full_image)
+                except Exception as cb_e:
+                    log.debug(f"on_display_updated callback failed: {cb_e}")
         except Exception as e:
             # Don't log errors during shutdown (SPI may be closed)
             if not self._stop_event.is_set():
@@ -242,6 +257,13 @@ class Scheduler:
             self._epd.DisplayPartial(buf)
             
             self._partial_refresh_count += 1
+            
+            # Invoke callback after successful display update
+            if self._on_display_updated:
+                try:
+                    self._on_display_updated(display_image)
+                except Exception as cb_e:
+                    log.debug(f"on_display_updated callback failed: {cb_e}")
         except Exception as e:
             # Don't log errors during shutdown (SPI may be closed)
             if not self._stop_event.is_set():
