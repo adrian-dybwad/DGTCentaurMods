@@ -35,7 +35,7 @@ def _get_board():
 @dataclass
 class IconMenuEntry:
     """Configuration for a menu entry.
-    
+
     Attributes:
         key: Unique identifier returned on selection
         label: Display text
@@ -48,6 +48,7 @@ class IconMenuEntry:
         layout: Button layout - 'horizontal' (icon left) or 'vertical' (icon top centered)
         font_size: Font size in pixels (default 16)
         bold: Whether to render text in bold (default False)
+        border_width: Width of button border in pixels (default 2)
     """
     key: str
     label: str
@@ -59,6 +60,7 @@ class IconMenuEntry:
     layout: str = "horizontal"
     font_size: int = 16
     bold: bool = False
+    border_width: int = 2
 
 
 class IconMenuWidget(Widget):
@@ -236,7 +238,8 @@ class IconMenuWidget(Widget):
                 icon_size=icon_size,
                 layout=entry.layout,
                 font_size=entry.font_size,
-                bold=entry.bold
+                bold=entry.bold,
+                border_width=entry.border_width
             )
             self._buttons.append(button)
             current_y += button_height

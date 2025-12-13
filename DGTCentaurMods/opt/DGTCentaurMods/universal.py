@@ -1652,7 +1652,8 @@ def _handle_wifi_settings():
                     height_ratio=1.8,
                     icon_size=52,
                     layout="vertical",
-                    font_size=12
+                    font_size=12,
+                    border_width=1
                 ),
                 # Scan button
                 IconMenuEntry(
@@ -1820,7 +1821,8 @@ def _handle_bluetooth_settings():
                 height_ratio=1.5,
                 icon_size=36,
                 layout="vertical",
-                font_size=11
+                font_size=11,
+                border_width=1
             ),
             # Advertised names display (non-selectable)
             IconMenuEntry(
@@ -1832,7 +1834,8 @@ def _handle_bluetooth_settings():
                 height_ratio=1.2,
                 icon_size=24,
                 layout="vertical",
-                font_size=10
+                font_size=10,
+                border_width=1
             ),
             # Enable/Disable toggle (checkbox style)
             IconMenuEntry(
