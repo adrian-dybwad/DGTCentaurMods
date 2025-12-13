@@ -9,9 +9,19 @@
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE.md for details.
 
+import time as _t
+import logging as _log_temp
+_logger = _log_temp.getLogger(__name__)
+_s = _t.time()
+
 from DGTCentaurMods.board import board
+_logger.debug(f"[millennium import] board: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from DGTCentaurMods.board.logging import log
+_logger.debug(f"[millennium import] logging: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from DGTCentaurMods.managers.game import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
+_logger.debug(f"[millennium import] game: {(_t.time() - _s)*1000:.0f}ms")
 
 # LED commands -> Patterns seen from Android chess with an original millennium:
 # AA = slow flash - used to indicate the start of a game on two bottom corner LEDS.
