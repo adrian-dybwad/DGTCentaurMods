@@ -100,6 +100,14 @@ class GameHandler:
         # Game manager shared by all emulators
         self.game_manager = GameManager(save_to_database=save_to_database)
         
+        # Set player color for resign gesture detection
+        # In 2-player mode (no engine), player_color is None (both colors are human)
+        # In engine mode, player_color is the human's color
+        if standalone_engine_name is None:
+            self.game_manager.player_color = None  # Both colors are human
+        else:
+            self.game_manager.player_color = player_color
+        
         # Emulator instances - always create all emulators for auto-detection
         # The hint from BLE characteristic is unreliable as apps may connect to any service
         self._millennium = None

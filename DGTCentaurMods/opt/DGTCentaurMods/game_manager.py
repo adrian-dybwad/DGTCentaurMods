@@ -192,6 +192,11 @@ class MoveState:
         self.castling_rook_source = INVALID_SQUARE  # Where rook was lifted from
         self.castling_rook_placed = False  # True if rook has been placed in castling position
         self.late_castling_in_progress = False  # True when king is lifted for late castling
+        
+        # King lift resign tracking
+        self.king_lifted_square = INVALID_SQUARE  # Square the king was lifted from
+        self.king_lifted_color = None  # Color of the lifted king (chess.WHITE or chess.BLACK)
+        self.king_lift_timer = None  # Timer for 3-second resign detection
     
     def reset(self):
         """Reset all move state variables."""
@@ -204,6 +209,9 @@ class MoveState:
         self.castling_rook_source = INVALID_SQUARE
         self.castling_rook_placed = False
         self.late_castling_in_progress = False
+        self._cancel_king_lift_timer()
+        self.king_lifted_square = INVALID_SQUARE
+        self.king_lifted_color = None
     
     def is_rook_castling_square(self, square: int) -> bool:
         """Check if a square is a rook's starting position for castling."""
@@ -254,6 +262,12 @@ class MoveState:
         self.computer_move_uci = uci_move
         self.is_forced_move = forced
         return True
+    
+    def _cancel_king_lift_timer(self):
+        """Cancel any active king lift resign timer."""
+        if self.king_lift_timer is not None:
+            self.king_lift_timer.cancel()
+            self.king_lift_timer = None
 
 
 class CorrectionMode:
@@ -335,11 +349,21 @@ class GameManager:
         # on_back_pressed() -> None: Called when BACK pressed during game (show resign/draw menu)
         # on_kings_in_center() -> None: Called when both kings detected in center squares
         # on_kings_in_center_cancel() -> None: Called when kings-in-center gesture is cancelled (pieces returned)
+        # on_king_lift_resign(color: chess.Color) -> None: Called when king held off board for 3+ seconds
+        # on_king_lift_resign_cancel() -> None: Called when king-lift resign menu should be dismissed
         self.on_promotion_needed = None
         self.on_back_pressed = None
         self.on_kings_in_center = None
         self.on_kings_in_center_cancel = None
         self._kings_in_center_menu_active = False  # Track if the menu is showing
+        self.on_king_lift_resign = None
+        self.on_king_lift_resign_cancel = None
+        self._king_lift_resign_menu_active = False  # Track if the king-lift resign menu is showing
+        
+        # Player configuration - which color(s) are human players
+        # In 2-player mode, both colors are human. In engine mode, only player_color is human.
+        # Set by GameHandler after initialization.
+        self.player_color = None  # chess.WHITE, chess.BLACK, or None (meaning both are human)
         
         # Thread control
         self.should_stop = False
@@ -930,6 +954,34 @@ class GameManager:
         if not is_current_player_piece:
             self.move_state.opponent_source_square = field
         
+        # King-lift resign detection: if a human player's king is lifted, start 3-second timer
+        # This works in any game mode but only for human players (not engine's king)
+        piece_at_field = self.chess_board.piece_at(field)
+        if piece_at_field is not None and piece_at_field.piece_type == chess.KING:
+            king_color = piece_at_field.color
+            # Check if this is a human player's king
+            # In 2-player mode (player_color is None), both colors are human
+            # In engine mode, only player_color is human
+            is_human_king = (self.player_color is None or king_color == self.player_color)
+            
+            if is_human_king:
+                # Cancel any existing timer and start a new one
+                self.move_state._cancel_king_lift_timer()
+                self.move_state.king_lifted_square = field
+                self.move_state.king_lifted_color = king_color
+                
+                # Start 3-second timer for resign menu
+                def _king_lift_timeout():
+                    log.info(f"[GameManager] King held off board for 3 seconds - showing resign menu for {'White' if king_color == chess.WHITE else 'Black'}")
+                    self._king_lift_resign_menu_active = True
+                    if self.on_king_lift_resign:
+                        self.on_king_lift_resign(king_color)
+                
+                self.move_state.king_lift_timer = threading.Timer(3.0, _king_lift_timeout)
+                self.move_state.king_lift_timer.daemon = True
+                self.move_state.king_lift_timer.start()
+                log.debug(f"[GameManager._handle_piece_lift] King lifted from {chess.square_name(field)}, started 3-second resign timer")
+        
         # Handle forced moves
         if self.move_state.is_forced_move and is_current_player_piece:
             field_name = chess.square_name(field)
@@ -952,6 +1004,23 @@ class GameManager:
         1. Rook placement on castling destination is tracked (not treated as illegal)
         2. When king is subsequently placed on its castling destination, the move is executed
         """
+        # Cancel king-lift resign timer on any piece placement
+        # If the king-lift resign menu is active, cancel it when the king is placed
+        if self.move_state.king_lift_timer is not None:
+            self.move_state._cancel_king_lift_timer()
+            log.debug(f"[GameManager._handle_piece_place] Cancelled king-lift resign timer")
+            
+            # If the resign menu is active and the king was placed back, cancel the menu
+            if self._king_lift_resign_menu_active:
+                log.info("[GameManager._handle_piece_place] King placed - cancelling resign menu")
+                self._king_lift_resign_menu_active = False
+                if self.on_king_lift_resign_cancel:
+                    self.on_king_lift_resign_cancel()
+            
+            # Clear king lift tracking
+            self.move_state.king_lifted_square = INVALID_SQUARE
+            self.move_state.king_lifted_color = None
+        
         # PRIORITY: Check for late castling completion FIRST, before any other validation
         # This prevents brief flashes of "misplaced piece" mode during the castling sequence
         if self.move_state.late_castling_in_progress:

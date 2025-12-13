@@ -476,6 +476,92 @@ class DisplayManager:
             board = _get_board()
             self._current_menu.handle_key(board.Key.BACK)
     
+    def show_king_lift_resign_menu(self, king_color, on_result: callable):
+        """Show resign confirmation menu when king is held off board for 3+ seconds.
+        
+        Non-blocking - calls on_result when user makes a selection.
+        
+        Args:
+            king_color: chess.WHITE or chess.BLACK - the color of the lifted king
+            on_result: Callback function(result: str) with result:
+                      'resign' or 'cancel'
+        """
+        board = _get_board()
+        
+        color_name = "White" if king_color else "Black"
+        log.info(f"[DisplayManager] Showing king-lift resign menu for {color_name}")
+        
+        entries = [
+            _IconMenuEntry(key="resign", label=f"Resign\n{color_name}?", icon_name="resign"),
+            _IconMenuEntry(key="cancel", label="No", icon_name="cancel"),
+        ]
+        
+        # Create menu - default to No (cancel)
+        resign_menu = _IconMenuWidget(
+            x=0, y=0, width=128, height=296,
+            entries=entries,
+            selected_index=1  # Default to No (cancel)
+        )
+        
+        self._menu_result_callback = on_result
+        self._current_menu = resign_menu
+        self._menu_active = True
+        
+        # Clear display and show menu
+        if board.display_manager:
+            board.display_manager.clear_widgets(addStatusBar=False)
+            future = board.display_manager.add_widget(resign_menu)
+            if future:
+                try:
+                    future.result(timeout=2.0)
+                except Exception as e:
+                    log.debug(f"[DisplayManager] Error displaying menu: {e}")
+        
+        # Play a beep to indicate the gesture was recognized
+        board.beep(board.SOUND_GENERAL)
+        
+        # Activate menu
+        resign_menu.activate()
+        
+        # Start thread to wait for result
+        def wait_for_result():
+            try:
+                resign_menu._selection_event.wait()
+                result = resign_menu._selection_result or "BACK"
+                
+                log.info(f"[DisplayManager] King-lift resign menu result: {result}")
+                
+                # Cleanup
+                self._menu_active = False
+                resign_menu.deactivate()
+                self._current_menu = None
+                
+                # Map special keys
+                if result == "BACK":
+                    result = "cancel"
+                elif result == "SHUTDOWN":
+                    result = "cancel"  # Don't shutdown from this menu
+                
+                # Restore display for cancel, or let caller handle for resign
+                if result == "cancel":
+                    self._restore_game_display()
+                
+                # Call result callback
+                if self._menu_result_callback:
+                    self._menu_result_callback(result)
+                    
+            except Exception as e:
+                log.error(f"[DisplayManager] Error in king-lift resign menu: {e}")
+                import traceback
+                traceback.print_exc()
+                self._menu_active = False
+                self._current_menu = None
+                if self._menu_result_callback:
+                    self._menu_result_callback("cancel")
+        
+        wait_thread = threading.Thread(target=wait_for_result, daemon=True)
+        wait_thread.start()
+    
     def handle_key(self, key):
         """Route key events to active menu or external callback.
         

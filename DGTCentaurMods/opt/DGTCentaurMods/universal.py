@@ -938,6 +938,33 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         # Cancel callback simulates BACK key press to properly dismiss menu
         game_handler.game_manager.on_kings_in_center_cancel = display_manager.cancel_menu
     
+    # King-lift resign gesture - works in any game mode for human player's king
+    # When king is held off board for 3+ seconds, show resign confirmation
+    def _on_king_lift_resign_result(result: str):
+        """Handle result from king-lift resign menu."""
+        # Reset the menu flag
+        game_handler.game_manager._king_lift_resign_menu_active = False
+        
+        if result == "resign":
+            # Get the color of the king that was lifted
+            king_color = game_handler.game_manager.move_state.king_lifted_color
+            if king_color is not None:
+                game_handler.game_manager.handle_resign(king_color)
+                color_name = "White" if king_color == chess.WHITE else "Black"
+                _return_to_menu(f"{color_name} Resigned")
+            else:
+                # Fallback - shouldn't happen but handle gracefully
+                game_handler.game_manager.handle_resign()
+                _return_to_menu("Resigned")
+        # cancel is handled by DisplayManager (restores display)
+    
+    def _on_king_lift_resign(king_color):
+        """Handle king-lift resign gesture."""
+        display_manager.show_king_lift_resign_menu(king_color, _on_king_lift_resign_result)
+    
+    game_handler.game_manager.on_king_lift_resign = _on_king_lift_resign
+    game_handler.game_manager.on_king_lift_resign_cancel = display_manager.cancel_menu
+    
     # Wire up event callback to handle game events
     from DGTCentaurMods.game_manager import EVENT_NEW_GAME
     def _on_game_event(event):
