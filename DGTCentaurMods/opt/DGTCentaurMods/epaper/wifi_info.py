@@ -234,6 +234,8 @@ def _status_changed(old: Optional[dict], new: dict) -> bool:
     """Check if WiFi status has meaningfully changed.
     
     Compares key fields to determine if subscribers should be notified.
+    Only checks connection-related fields, not signal strength (which
+    fluctuates constantly and would cause excessive refreshes).
     
     Args:
         old: Previous status dict (may be None on first check)
@@ -245,8 +247,9 @@ def _status_changed(old: Optional[dict], new: dict) -> bool:
     if old is None:
         return True
     
-    # Compare key fields that indicate a meaningful change
-    fields_to_check = ['enabled', 'connected', 'ssid', 'ip_address', 'signal']
+    # Compare only connection-related fields (not signal strength which fluctuates)
+    # Signal changes are cosmetic and don't need menu refreshes
+    fields_to_check = ['enabled', 'connected', 'ssid', 'ip_address']
     for field in fields_to_check:
         if old.get(field) != new.get(field):
             return True
@@ -283,8 +286,8 @@ def _notify_subscribers(status: dict) -> None:
 def _monitor_loop() -> None:
     """Background loop that monitors WiFi status changes.
     
-    Polls every 2 seconds and also checks for dhcpcd hook notifications.
-    Notifies subscribers when status changes.
+    Polls every 5 seconds and also checks for dhcpcd hook notifications.
+    Notifies subscribers when connection status changes (not signal strength).
     """
     global _last_status, _last_hook_mtime, _monitor_running
     
@@ -313,8 +316,8 @@ def _monitor_loop() -> None:
                 _last_status = current_status
                 _notify_subscribers(current_status)
             
-            # Sleep for 2 seconds, interruptible
-            _monitor_stop_event.wait(timeout=2.0)
+            # Sleep for 5 seconds, interruptible
+            _monitor_stop_event.wait(timeout=5.0)
             _monitor_stop_event.clear()
             
         except Exception as e:

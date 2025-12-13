@@ -14,7 +14,7 @@ except ImportError:
     log = logging.getLogger(__name__)
 
 try:
-    from DGTCentaurMods.config.settings import Settings
+    from DGTCentaurMods.board.settings import Settings
 except ImportError:
     Settings = None
     log.warning("[SoundSettings] Settings module not available")
