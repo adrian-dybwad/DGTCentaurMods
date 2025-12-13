@@ -130,6 +130,12 @@ class IconMenuWidget(Widget):
         # Create button widgets for visible entries
         self._buttons: List[IconButtonWidget] = []
         self._calculate_visible_count()
+        
+        # Adjust scroll_offset so selected item is visible before creating buttons
+        if self._visible_count < len(self.entries) and self.selected_index >= self._visible_count:
+            # Selected item is below the initially visible area
+            self.scroll_offset = self.selected_index - self._visible_count + 1
+        
         self._create_buttons()
         
         log.info(f"IconMenuWidget: Created with {len(self.entries)} entries, "
