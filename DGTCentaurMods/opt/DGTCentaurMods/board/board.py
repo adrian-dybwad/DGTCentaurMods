@@ -242,10 +242,39 @@ def run_background(start_key_polling=False):
 # Board control - functions related to making the board do something
 #
 
-def beep(beeptype):
-    if centaur.get_sound() == "off":
-        log.warning("Beep disabled")
-        return
+def beep(beeptype, event_type: str = None):
+    """Play a beep sound if sound settings allow it.
+    
+    Checks both the master sound enable and the specific event type setting.
+    If no event_type is provided, only the master enable is checked (backward compatible).
+    
+    Args:
+        beeptype: Sound type constant (e.g., SOUND_GENERAL, SOUND_WRONG)
+        event_type: Optional event category for granular control:
+                   'key_press' - button press feedback
+                   'error' - error/invalid move sounds
+                   'game_event' - check, checkmate, game end sounds
+                   'piece_event' - piece lift/place sounds
+    """
+    try:
+        from DGTCentaurMods.epaper.sound_settings import should_beep_for, is_sound_enabled
+        
+        if event_type:
+            # Check both master enable and specific event setting
+            if not should_beep_for(event_type):
+                log.debug(f"Beep disabled for event_type={event_type}")
+                return
+        else:
+            # No event type specified - just check master enable (backward compatible)
+            if not is_sound_enabled():
+                log.debug("Beep disabled (master)")
+                return
+    except ImportError:
+        # Fallback to old behavior if sound_settings not available
+        if centaur.get_sound() == "off":
+            log.warning("Beep disabled")
+            return
+    
     # Ask the centaur to make a beep sound
     controller.beep(beeptype)
 
@@ -345,7 +374,7 @@ def shutdown_countdown(countdown_seconds: int = 3) -> bool:
             if key == Key.PLAY:
                 # PLAY key-up means button was released - cancel shutdown
                 log.info("[board.shutdown_countdown] Cancelled (PLAY released)")
-                beep(SOUND_GENERAL)
+                beep(SOUND_GENERAL, event_type='key_press')
                 # Remove modal widget to restore normal widget rendering
                 try:
                     if display_manager is not None and countdown_splash is not None:
@@ -832,7 +861,7 @@ def eventsThread(keycallback, fieldcallback, tout):
 
                 # PLAY_DOWN starts shutdown countdown, releasing cancels
                 if key_pressed == Key.PLAY_DOWN:
-                    beep(SOUND_GENERAL)
+                    beep(SOUND_GENERAL, event_type='key_press')
                     log.info('[board.events] PLAY_DOWN detected, starting shutdown countdown')
                     if shutdown_countdown():
                         # Countdown completed without release - proceed with shutdown
@@ -856,7 +885,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                         # Check if held long enough for full refresh
                         if not long_press_triggered and (time.monotonic() - long_press_start) >= 1.0:
                             log.info('[board.events] Long press detected, triggering full refresh')
-                            beep(SOUND_GENERAL)
+                            beep(SOUND_GENERAL, event_type='key_press')
                             long_press_triggered = True
                             # Trigger full display refresh
                             if display_manager is not None:
@@ -881,7 +910,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 break
                             elif next_key == Key.PLAY_DOWN:
                                 # PLAY_DOWN interrupts - handle shutdown
-                                beep(SOUND_GENERAL)
+                                beep(SOUND_GENERAL, event_type='key_press')
                                 log.info('[board.events] PLAY_DOWN during long press, starting shutdown countdown')
                                 if shutdown_countdown():
                                     shutdown(reason="PLAY button held during countdown")

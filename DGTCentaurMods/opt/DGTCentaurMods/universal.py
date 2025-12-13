@@ -483,12 +483,12 @@ def _start_from_position(fen: str, position_name: str) -> bool:
         if current_physical_state is not None and expected_logical_state is not None:
             if not gm._validate_board_state(current_physical_state, expected_logical_state):
                 log.info("[Positions] Physical board does not match position, entering correction mode")
-                board.beep(board.SOUND_GENERAL)
+                board.beep(board.SOUND_GENERAL, event_type='game_event')
                 gm._enter_correction_mode()
                 gm._provide_correction_guidance(current_physical_state, expected_logical_state)
             else:
                 log.info("[Positions] Physical board matches position")
-                board.beep(board.SOUND_GENERAL)
+                board.beep(board.SOUND_GENERAL, event_type='game_event')
                 # Board is correct - trigger turn event
                 if gm.event_callback is not None:
                     if gm.chess_board.turn == chess.WHITE:
@@ -942,7 +942,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     # Uses the same back menu as the BACK button - just with a beep to confirm gesture
     if is_two_player and not is_position_game:
         def _on_kings_in_center():
-            board.beep(board.SOUND_GENERAL)  # Beep to confirm gesture recognized
+            board.beep(board.SOUND_GENERAL, event_type='game_event')  # Beep to confirm gesture recognized
             display_manager.show_back_menu(_on_back_menu_result, is_two_player=True)
         game_handler.game_manager.on_kings_in_center = _on_kings_in_center
         # Cancel callback simulates BACK key press to properly dismiss menu
@@ -1116,7 +1116,7 @@ def _handle_settings():
                 log.info(f"[Settings] Engine changed: {old_engine} -> {engine_result}")
                 # Reset ELO to Default when engine changes
                 _save_game_setting('elo', 'Default')
-                board.beep(board.SOUND_GENERAL)
+                board.beep(board.SOUND_GENERAL, event_type='key_press')
         
         elif result == "ELO":
             # ELO selection submenu (depends on selected engine)
@@ -1135,7 +1135,7 @@ def _handle_settings():
                 old_elo = _game_settings['elo']
                 _save_game_setting('elo', elo_result)
                 log.info(f"[Settings] ELO changed: {old_elo} -> {elo_result}")
-                board.beep(board.SOUND_GENERAL)
+                board.beep(board.SOUND_GENERAL, event_type='key_press')
         
         elif result == "Color":
             # Player color selection submenu
@@ -1177,7 +1177,7 @@ def _handle_settings():
                 old_color = _game_settings['player_color']
                 _save_game_setting('player_color', color_result)
                 log.info(f"[Settings] Player color changed: {old_color} -> {color_result}")
-                board.beep(board.SOUND_GENERAL)
+                board.beep(board.SOUND_GENERAL, event_type='key_press')
                 # Start game immediately after selecting color/game type
                 app_state = AppState.MENU
                 _start_game_mode()
@@ -1215,7 +1215,7 @@ def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
     
     if not positions:
         log.warning("[Positions] No positions available")
-        board.beep(board.SOUND_WRONG_MOVE)
+        board.beep(board.SOUND_WRONG_MOVE, event_type='error')
         return False
     
     # Map category names to specific icons
@@ -1525,20 +1525,20 @@ def _connect_to_wifi(ssid: str, password: str = None) -> bool:
         
         if result.returncode == 0:
             log.info(f"[WiFi] Connected to {ssid}")
-            board.beep(board.SOUND_GENERAL)
+            board.beep(board.SOUND_GENERAL, event_type='key_press')
             return True
         else:
             log.error(f"[WiFi] Failed to connect: {result.stderr}")
-            board.beep(board.SOUND_WRONG)
+            board.beep(board.SOUND_WRONG, event_type='error')
             return False
             
     except subprocess.TimeoutExpired:
         log.error("[WiFi] Connection timed out")
-        board.beep(board.SOUND_WRONG)
+        board.beep(board.SOUND_WRONG, event_type='error')
         return False
     except Exception as e:
         log.error(f"[WiFi] Error connecting: {e}")
-        board.beep(board.SOUND_WRONG)
+        board.beep(board.SOUND_WRONG, event_type='error')
         return False
 
 
@@ -1665,7 +1665,7 @@ def _handle_wifi_settings():
                 wifi_info.disable_wifi()
             else:
                 if wifi_info.enable_wifi():
-                    board.beep(board.SOUND_GENERAL)
+                    board.beep(board.SOUND_GENERAL, event_type='key_press')
 
 
 def _handle_wifi_scan():
@@ -1822,15 +1822,108 @@ def _handle_bluetooth_settings():
                 bluetooth_status.disable_bluetooth()
             else:
                 if bluetooth_status.enable_bluetooth():
-                    board.beep(board.SOUND_GENERAL)
+                    board.beep(board.SOUND_GENERAL, event_type='key_press')
         # Info and Names do nothing when selected - they're just displays
         # Info button does nothing, just shows the info
 
 
+def _handle_sound_settings():
+    """Handle sound settings submenu.
+    
+    Shows individual sound settings with toggle checkboxes:
+    - Piece events (beep on piece lift/place)
+    - Game events (beep on check, checkmate, etc.)
+    - Errors (beep on invalid moves)
+    - Key press (beep on button press)
+    - Master enable (global on/off)
+    
+    Uses the sound_settings module for settings management.
+    """
+    from DGTCentaurMods.epaper import sound_settings
+    
+    last_selected = 4  # Default to master enable toggle (last selectable item)
+    
+    while True:
+        settings = sound_settings.get_sound_settings()
+        
+        # Build entries from bottom to top as requested
+        # (list order determines display order top to bottom)
+        sound_entries = [
+            # Piece events
+            IconMenuEntry(
+                key="piece_event",
+                label="Piece Events",
+                icon_name="timer_checked" if settings['piece_event'] else "timer",
+                enabled=True,
+                selectable=True,
+                height_ratio=0.8,
+                layout="horizontal",
+                font_size=14
+            ),
+            # Game events
+            IconMenuEntry(
+                key="game_event",
+                label="Game Events",
+                icon_name="timer_checked" if settings['game_event'] else "timer",
+                enabled=True,
+                selectable=True,
+                height_ratio=0.8,
+                layout="horizontal",
+                font_size=14
+            ),
+            # Errors
+            IconMenuEntry(
+                key="error",
+                label="Errors",
+                icon_name="timer_checked" if settings['error'] else "timer",
+                enabled=True,
+                selectable=True,
+                height_ratio=0.8,
+                layout="horizontal",
+                font_size=14
+            ),
+            # Key press
+            IconMenuEntry(
+                key="key_press",
+                label="Key Press",
+                icon_name="timer_checked" if settings['key_press'] else "timer",
+                enabled=True,
+                selectable=True,
+                height_ratio=0.8,
+                layout="horizontal",
+                font_size=14
+            ),
+            # Master enable at bottom
+            IconMenuEntry(
+                key="enabled",
+                label="Sound Enabled",
+                icon_name="timer_checked" if settings['enabled'] else "timer",
+                enabled=True,
+                selectable=True,
+                height_ratio=0.8,
+                layout="horizontal",
+                font_size=14,
+                bold=True
+            ),
+        ]
+        
+        sound_result = _show_menu(sound_entries, initial_index=last_selected)
+        
+        last_selected = _find_entry_index(sound_entries, sound_result)
+        
+        if sound_result in ["BACK", "SHUTDOWN", "HELP"]:
+            return
+        
+        # Toggle the selected setting
+        if sound_result in sound_settings.SOUND_SETTINGS:
+            new_value = sound_settings.toggle_sound_setting(sound_result)
+            if new_value and sound_result == 'enabled':
+                # Play beep to confirm sound is enabled (bypass event type check for confirmation)
+                board.beep(board.SOUND_GENERAL)
+
+
 def _handle_system_menu():
     """Handle system submenu (sound, WiFi, Bluetooth, sleep timer, shutdown, reboot)."""
-    from DGTCentaurMods.board import centaur
-    
     last_selected = 0  # Track last selected index for returning from submenus
     
     while True:
@@ -1841,17 +1934,7 @@ def _handle_system_menu():
         last_selected = _find_entry_index(system_entries, system_result)
 
         if system_result == "Sound":
-            # Sound toggle submenu
-            sound_entries = [
-                IconMenuEntry(key="On", label="On", icon_name="sound", enabled=True),
-                IconMenuEntry(key="Off", label="Off", icon_name="cancel", enabled=True),
-            ]
-            sound_result = _show_menu(sound_entries)
-            if sound_result == "On":
-                centaur.set_sound("on")
-                board.beep(board.SOUND_GENERAL)
-            elif sound_result == "Off":
-                centaur.set_sound("off")
+            _handle_sound_settings()
         elif system_result == "WiFi":
             _handle_wifi_settings()
         elif system_result == "Bluetooth":
@@ -2720,7 +2803,7 @@ def main():
                 
                 if result == "BACK":
                     # Show idle screen and wait for TICK
-                    board.beep(board.SOUND_POWER_OFF)
+                    board.beep(board.SOUND_POWER_OFF, event_type='key_press')
                     board.display_manager.clear_widgets()
                     promise = board.display_manager.add_widget(SplashScreen(message="Press [OK]"))
                     if promise:

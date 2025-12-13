@@ -528,7 +528,7 @@ class GameManager:
         if not (is_white_promotion or is_black_promotion):
             return ""
         
-        board.beep(board.SOUND_GENERAL)
+        board.beep(board.SOUND_GENERAL, event_type='game_event')
         if not is_forced:
             self.is_showing_promotion = True
             
@@ -602,7 +602,7 @@ class GameManager:
             
             self.chess_board.pop()
             paths.write_fen_log(self.chess_board.fen())
-            board.beep(board.SOUND_GENERAL)
+            board.beep(board.SOUND_GENERAL, event_type='game_event')
             
             self.takeback_callback()
             
@@ -843,7 +843,7 @@ class GameManager:
         
         if current_physical_state is not None and self._validate_board_state(current_physical_state, expected_logical_state):
             log.info("[GameManager._handle_field_event_in_correction_mode] Physical board now matches logical board, exiting correction mode")
-            board.beep(board.SOUND_GENERAL)
+            board.beep(board.SOUND_GENERAL, event_type='game_event')
             self._exit_correction_mode()
             return
         
@@ -1071,7 +1071,7 @@ class GameManager:
             else:
                 # King placed on unexpected square - this is an error
                 log.warning(f"[GameManager._handle_piece_place] Late castling failed: King placed on unexpected square {chess.square_name(field)}")
-                board.beep(board.SOUND_WRONG_MOVE)
+                board.beep(board.SOUND_WRONG_MOVE, event_type='error')
                 self._enter_correction_mode()
                 current_state = board.getChessState()
                 expected_state = self._chess_board_to_state(self.chess_board)
@@ -1152,7 +1152,7 @@ class GameManager:
                 
                 if len(extra_squares) > 0:
                     log.warning(f"[GameManager._handle_piece_place] PLACE event without LIFT created invalid board state with {len(extra_squares)} extra piece(s) at {[chess.square_name(sq) for sq in extra_squares]}, entering correction mode")
-                    board.beep(board.SOUND_WRONG_MOVE)
+                    board.beep(board.SOUND_WRONG_MOVE, event_type='error')
                     self._enter_correction_mode()
                     self._provide_correction_guidance(current_state, expected_state)
                     return
@@ -1195,7 +1195,7 @@ class GameManager:
         
         # Check for illegal placement
         if field not in self.move_state.legal_destination_squares:
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             log.warning(f"[GameManager._handle_piece_place] Piece placed on illegal square {field}")
             is_takeback = self._check_takeback()
             if not is_takeback:
@@ -1234,7 +1234,7 @@ class GameManager:
         outcome = self.chess_board.outcome(claim_draw=True)
         if outcome is not None:
             log.warning(f"[GameManager._execute_castling_move] Attempted to execute castling after game ended. Result: {self.chess_board.result()}")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             board.ledsOff()
             self.move_state.reset()
             return
@@ -1243,7 +1243,7 @@ class GameManager:
         castling_uci = self.move_state.get_castling_king_move(rook_source)
         if not castling_uci:
             log.error(f"[GameManager._execute_castling_move] Invalid rook source for castling: {rook_source}")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             self.move_state.reset()
             return
         
@@ -1254,7 +1254,7 @@ class GameManager:
             move = chess.Move.from_uci(castling_uci)
             if move not in self.chess_board.legal_moves:
                 log.error(f"[GameManager._execute_castling_move] Castling move {castling_uci} is not legal at current position")
-                board.beep(board.SOUND_WRONG_MOVE)
+                board.beep(board.SOUND_WRONG_MOVE, event_type='error')
                 self._enter_correction_mode()
                 current_state = board.getChessState()
                 expected_state = self._chess_board_to_state(self.chess_board)
@@ -1264,7 +1264,7 @@ class GameManager:
                 return
         except ValueError as e:
             log.error(f"[GameManager._execute_castling_move] Invalid castling UCI: {castling_uci}. Error: {e}")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             self.move_state.reset()
             return
         
@@ -1276,7 +1276,7 @@ class GameManager:
             self.chess_board.push(move)
         except (ValueError, AssertionError) as e:
             log.error(f"[GameManager._execute_castling_move] Failed to push castling move: {e}")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             self.move_state.reset()
             return
         
@@ -1345,7 +1345,7 @@ class GameManager:
         
         # LED and sound feedback
         board.ledsOff()
-        board.beep(board.SOUND_GENERAL)
+        board.beep(board.SOUND_GENERAL, event_type='game_event')
         board.led(king_dest)
         
         # Check game outcome
@@ -1353,7 +1353,7 @@ class GameManager:
         if outcome is None:
             self._switch_turn_with_event()
         else:
-            board.beep(board.SOUND_GENERAL)
+            board.beep(board.SOUND_GENERAL, event_type='game_event')
             result_string = str(self.chess_board.result())
             termination = str(outcome.termination)
             self._update_game_result(result_string, termination, "_execute_castling_move")
@@ -1381,7 +1381,7 @@ class GameManager:
         castling_uci = self.move_state.get_castling_king_move(rook_source)
         if not castling_uci:
             log.error(f"[GameManager._execute_late_castling] Invalid rook source: {rook_source}")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             self.move_state.reset()
             return
         
@@ -1395,7 +1395,7 @@ class GameManager:
         # Check if the rook move is in the move stack
         if len(self.chess_board.move_stack) < 1:
             log.error("[GameManager._execute_late_castling] No moves in stack to undo")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             self.move_state.reset()
             return
         
@@ -1425,7 +1425,7 @@ class GameManager:
         
         if moves_to_undo == 0:
             log.error(f"[GameManager._execute_late_castling] Rook move {rook_move_uci} not found in recent moves")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             self.move_state.reset()
             return
         
@@ -1457,7 +1457,7 @@ class GameManager:
                 # Restore the moves we undid
                 for move in reversed(undone_moves):
                     self.chess_board.push(move)
-                board.beep(board.SOUND_WRONG_MOVE)
+                board.beep(board.SOUND_WRONG_MOVE, event_type='error')
                 self._enter_correction_mode()
                 current_state = board.getChessState()
                 expected_state = self._chess_board_to_state(self.chess_board)
@@ -1467,7 +1467,7 @@ class GameManager:
                 return
         except ValueError as e:
             log.error(f"[GameManager._execute_late_castling] Invalid castling UCI: {e}")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             self.move_state.reset()
             return
         
@@ -1476,7 +1476,7 @@ class GameManager:
             self.chess_board.push(castling_move)
         except (ValueError, AssertionError) as e:
             log.error(f"[GameManager._execute_late_castling] Failed to push castling: {e}")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             self.move_state.reset()
             return
         
@@ -1510,7 +1510,7 @@ class GameManager:
         # LED and sound feedback
         king_dest = chess.parse_square(castling_uci[2:4])
         board.ledsOff()
-        board.beep(board.SOUND_GENERAL)
+        board.beep(board.SOUND_GENERAL, event_type='game_event')
         board.led(king_dest)
         
         # Notify takeback callback to re-trigger engine
@@ -1527,7 +1527,7 @@ class GameManager:
         if outcome is None:
             self._switch_turn_with_event()
         else:
-            board.beep(board.SOUND_GENERAL)
+            board.beep(board.SOUND_GENERAL, event_type='game_event')
             result_string = str(self.chess_board.result())
             termination = str(outcome.termination)
             self._update_game_result(result_string, termination, "_execute_late_castling")
@@ -1549,7 +1549,7 @@ class GameManager:
         outcome = self.chess_board.outcome(claim_draw=True)
         if outcome is not None:
             log.warning(f"[GameManager._execute_move] Attempted to execute move after game ended. Result: {self.chess_board.result()}, Termination: {outcome.termination}")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             board.ledsOff()
             self.move_state.reset()
             return
@@ -1585,7 +1585,7 @@ class GameManager:
             move = chess.Move.from_uci(move_uci)
         except ValueError as e:
             log.error(f"[GameManager._execute_move] Invalid move UCI format: {move_uci}. Error: {e}")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             board.ledsOff()
             self.move_state.reset()
             return
@@ -1600,7 +1600,7 @@ class GameManager:
             self.chess_board.push(move)
         except (ValueError, AssertionError) as e:
             log.error(f"[GameManager._execute_move] Illegal move or chess engine push failed: {move_uci}. Error: {e}")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             board.ledsOff()
             self.move_state.reset()
             return
@@ -1608,7 +1608,7 @@ class GameManager:
         # IMMEDIATE FEEDBACK: Beep and LED are sent synchronously here for minimum latency
         # These bypass the serial queue via _send_immediate() in sync_centaur
         board.ledsOff()
-        board.beep(board.SOUND_GENERAL)
+        board.beep(board.SOUND_GENERAL, event_type='game_event')
         board.led(target_square)
         
         # Capture state needed for async operations
@@ -1762,7 +1762,7 @@ class GameManager:
                 
                 # 5. Game end handling
                 if game_ended:
-                    board.beep(board.SOUND_GENERAL)
+                    board.beep(board.SOUND_GENERAL, event_type='game_event')
                     self._update_game_result(result_string, termination, "_execute_move")
                         
             except Exception as e:
@@ -1972,7 +1972,7 @@ class GameManager:
         self._update_game_result(result, "Termination.RESIGN", "handle_resign")
         
         # Play sound and turn off LEDs
-        board.beep(board.SOUND_GENERAL)
+        board.beep(board.SOUND_GENERAL, event_type='game_event')
         board.ledsOff()
     
     def handle_draw(self) -> None:
@@ -1989,7 +1989,7 @@ class GameManager:
         self._update_game_result(result, "Termination.DRAW", "handle_draw")
         
         # Play sound and turn off LEDs
-        board.beep(board.SOUND_GENERAL)
+        board.beep(board.SOUND_GENERAL, event_type='game_event')
         board.ledsOff()
     
     def _reset_game(self):
@@ -2067,9 +2067,9 @@ class GameManager:
                     self.event_callback(EVENT_BLACK_TURN)
             
             # Step 11: Audio/visual feedback for game abandonment
-            board.beep(board.SOUND_GENERAL)
+            board.beep(board.SOUND_GENERAL, event_type='game_event')
             time.sleep(0.3)
-            board.beep(board.SOUND_GENERAL)
+            board.beep(board.SOUND_GENERAL, event_type='game_event')
             
             log.info("[GameManager._reset_game] Game abandoned and reset complete - ready for new game (will be created on first move)")
         except Exception as e:
@@ -2212,11 +2212,11 @@ class GameManager:
             move = chess.Move.from_uci(uci_move)
             if move not in self.chess_board.legal_moves:
                 log.error(f"[GameManager.computer_move] Illegal move: {uci_move}. Legal moves: {list(self.chess_board.legal_moves)[:10]}...")
-                board.beep(board.SOUND_WRONG_MOVE)
+                board.beep(board.SOUND_WRONG_MOVE, event_type='error')
                 return
         except ValueError as e:
             log.error(f"[GameManager.computer_move] Invalid move UCI format: {uci_move}. Error: {e}")
-            board.beep(board.SOUND_WRONG_MOVE)
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             return
         
         # Light up LEDs to indicate the move
