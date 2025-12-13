@@ -1,5 +1,8 @@
 """
-Game analysis widget displaying evaluation score, history, and turn indicator.
+Game analysis widget displaying evaluation score and history.
+
+Positioned below the chess clock widget at y=236, height=60.
+Turn indicator is handled by the ChessClockWidget above.
 """
 
 from PIL import Image, ImageDraw, ImageFont
@@ -13,12 +16,20 @@ import chess
 class GameAnalysisWidget(Widget):
     """Widget displaying chess game analysis information."""
     
-    def __init__(self, x: int, y: int, width: int = 128, height: int = 80, bottom_color: str = "black", analysis_engine=None):
+    # Default position: below the chess clock widget
+    DEFAULT_Y = 236
+    DEFAULT_HEIGHT = 60
+    
+    def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None, 
+                 bottom_color: str = "black", analysis_engine=None):
+        if y is None:
+            y = self.DEFAULT_Y
+        if height is None:
+            height = self.DEFAULT_HEIGHT
         super().__init__(x, y, width, height)
         self.score_value = 0.0
         self.score_text = "0.0"
         self.score_history = []
-        self.current_turn = "white"  # "white" or "black"
         self.bottom_color = bottom_color  # "white" or "black" - color at bottom of board
         self._font = self._load_font()
         self._max_history_size = 200
@@ -87,13 +98,6 @@ class GameAnalysisWidget(Widget):
         # Trigger update if scheduler is available
         self.request_update(full=False)
     
-    def set_turn(self, turn: str) -> None:
-        """Set current turn ('white' or 'black')."""
-        if self.current_turn != turn:
-            self.current_turn = turn
-            self._last_rendered = None
-            # Trigger update if scheduler is available
-            self.request_update(full=False)
     
     def clear_history(self) -> None:
         """Clear score history and pending analysis queue."""
@@ -198,7 +202,7 @@ class GameAnalysisWidget(Widget):
                     continue
                 
                 # Unpack request
-                board_copy, position_fen, current_turn, is_first_move, time_limit = request
+                board_copy, position_fen, is_first_move, time_limit = request
                 
                 # Analyze every position to ensure complete history graph
                 # (don't skip "stale" positions - each move should be in the history)
@@ -207,7 +211,7 @@ class GameAnalysisWidget(Widget):
                     info = self.analysis_engine.analyse(board_copy, chess.engine.Limit(time=time_limit))
                     
                     # Update widget with analysis result
-                    self.update_from_analysis(info, current_turn, is_first_move)
+                    self.update_from_analysis(info, is_first_move)
                     
                 except Exception as e:
                     log.warning(f"Error analyzing position: {e}")
@@ -219,7 +223,7 @@ class GameAnalysisWidget(Widget):
                 import traceback
                 traceback.print_exc()
     
-    def analyze_position(self, board, current_turn: str, is_first_move: bool = False, time_limit: float = 0.5) -> None:
+    def analyze_position(self, board, is_first_move: bool = False, time_limit: float = 0.5) -> None:
         """
         Queue a position for analysis using the analysis engine.
         
@@ -233,23 +237,13 @@ class GameAnalysisWidget(Widget):
         are available. This ensures a complete history graph even if moves are made
         before the engine finishes starting.
         
-        Sequence:
-        1. Update turn indicator immediately (fast operation)
-        2. Queue analysis request (non-blocking)
-        3. Worker thread processes request and updates score/history
-        
         Args:
             board: chess.Board object to analyze
-            current_turn: Current turn as "white" or "black"
             is_first_move: Whether this is the first move (skip adding to history)
             time_limit: Time limit for analysis in seconds (default 0.5)
         """
         if board is None:
             return
-        
-        # Step 1: Update turn indicator immediately (fast operation)
-        # This allows the turn circle to update before the slow analysis completes
-        self.set_turn(current_turn)
         
         # Get FEN of current position
         try:
@@ -277,16 +271,16 @@ class GameAnalysisWidget(Widget):
             log.warning("Could not create board copy for analysis")
             return
         
-        # Step 3: Queue analysis request (non-blocking)
+        # Step 2: Queue analysis request (non-blocking)
         # All positions are queued and analyzed in order to ensure complete history
         try:
-            self._analysis_queue.put_nowait((board_copy, position_fen, current_turn, is_first_move, time_limit))
+            self._analysis_queue.put_nowait((board_copy, position_fen, is_first_move, time_limit))
         except queue.Full:
             import logging
             log = logging.getLogger(__name__)
             log.warning("Analysis queue full, dropping request")
     
-    def update_from_analysis(self, analysis_info: dict, current_turn: str, is_first_move: bool = False) -> None:
+    def update_from_analysis(self, analysis_info: dict, is_first_move: bool = False) -> None:
         """
         Update widget from raw chess engine analysis info.
         
@@ -295,7 +289,6 @@ class GameAnalysisWidget(Widget):
         
         Args:
             analysis_info: Raw analysis info dict from chess engine (must contain "score")
-            current_turn: Current turn as "white" or "black" (already updated in analyze_position)
             is_first_move: Whether this is the first move (skip adding to history)
         """
         if "score" not in analysis_info:
@@ -404,8 +397,9 @@ class GameAnalysisWidget(Widget):
             draw.rectangle([(int(offset), 1), (127, 11)], fill=0, outline=0)
         
         # Draw score history bar chart
+        # Position chart relative to widget height, leaving room for score bar at top
         if len(self.score_history) > 0:
-            chart_y = 50
+            chart_y = self.height - 10  # 10 pixels from bottom
             draw.line([(0, chart_y), (128, chart_y)], fill=0, width=1)
             
             bar_width = 128 / len(self.score_history)
@@ -426,22 +420,6 @@ class GameAnalysisWidget(Widget):
                     outline=0
                 )
                 bar_offset += bar_width
-        
-        # Draw turn indicator showing which color is at the bottom of the board
-        # When board is flipped (bottom_color == "black"), we need to invert the turn
-        # to show which color is physically at the bottom
-        if self.bottom_color == "black":
-            # Board is flipped: invert the turn to show bottom color
-            bottom_turn = "black" if self.current_turn == "white" else "white"
-        else:
-            # Board not flipped: turn directly indicates bottom color
-            bottom_turn = self.current_turn
-        
-        # Draw circle: white circle (fill=255) for white at bottom, black circle (fill=0) for black at bottom
-        if bottom_turn == "white":
-            draw.ellipse((119, 14, 126, 21), fill=255, outline=0)
-        else:
-            draw.ellipse((119, 14, 126, 21), fill=0, outline=0)
         
         # Cache the rendered image
         self._last_rendered = img

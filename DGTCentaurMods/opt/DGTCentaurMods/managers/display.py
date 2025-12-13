@@ -32,6 +32,7 @@ _board_module = None
 _widgets_loaded = False
 _ChessBoardWidget = None
 _GameAnalysisWidget = None
+_ChessClockWidget = None
 _IconMenuWidget = None
 _IconMenuEntry = None
 _SplashScreen = None
@@ -51,7 +52,7 @@ def _get_board():
 
 def _load_widgets():
     """Lazily load widget classes."""
-    global _widgets_loaded, _ChessBoardWidget, _GameAnalysisWidget
+    global _widgets_loaded, _ChessBoardWidget, _GameAnalysisWidget, _ChessClockWidget
     global _IconMenuWidget, _IconMenuEntry, _SplashScreen, _BrainHintWidget
     global _GameOverWidget, _AlertWidget
     
@@ -59,13 +60,14 @@ def _load_widgets():
         return
     
     from DGTCentaurMods.epaper import (
-        ChessBoardWidget, GameAnalysisWidget, 
+        ChessBoardWidget, GameAnalysisWidget, ChessClockWidget,
         IconMenuWidget, IconMenuEntry, SplashScreen, BrainHintWidget,
         AlertWidget
     )
     from DGTCentaurMods.epaper.game_over import GameOverWidget
     _ChessBoardWidget = ChessBoardWidget
     _GameAnalysisWidget = GameAnalysisWidget
+    _ChessClockWidget = ChessClockWidget
     _IconMenuWidget = IconMenuWidget
     _IconMenuEntry = IconMenuEntry
     _SplashScreen = SplashScreen
@@ -89,15 +91,22 @@ class DisplayManager:
     Note: This is distinct from the lower-level epaper Manager class. This
     DisplayManager orchestrates game-specific widgets at a higher level.
     
+    Layout (below status bar at y=16):
+    - Chess board: y=16, height=184 (23 squares * 8)
+    - Clock widget: y=200, height=36 (turn indicator / time)
+    - Analysis widget: y=236, height=60 (eval bar and history)
+    
     Attributes:
         chess_board_widget: The chess board display widget
+        clock_widget: The chess clock / turn indicator widget
         analysis_widget: The game analysis/evaluation widget
         analysis_engine: UCI engine for position analysis
     """
     
     def __init__(self, flip_board: bool = False, show_analysis: bool = True,
                  analysis_engine_path: str = None, on_exit: callable = None,
-                 hand_brain_mode: bool = False, initial_fen: str = None):
+                 hand_brain_mode: bool = False, initial_fen: str = None,
+                 time_control: int = 0):
         """Initialize the display controller.
         
         Args:
@@ -107,6 +116,7 @@ class DisplayManager:
             on_exit: Callback function() when user requests exit via back menu
             hand_brain_mode: If True, show brain hint widget for Hand+Brain variant
             initial_fen: FEN string for initial position. If None, uses starting position.
+            time_control: Time per player in minutes (0 = disabled/untimed, shows turn only)
         """
         _load_widgets()
         
@@ -115,9 +125,11 @@ class DisplayManager:
         self._on_exit = on_exit
         self._hand_brain_mode = hand_brain_mode
         self._initial_fen = initial_fen or STARTING_FEN
+        self._time_control = time_control  # Minutes per player (0 = disabled)
         
         # Widgets
         self.chess_board_widget = None
+        self.clock_widget = None
         self.analysis_widget = None
         self.analysis_engine = None
         self.brain_hint_widget = None
@@ -179,7 +191,14 @@ class DisplayManager:
         self._engine_init_thread.start()
     
     def _init_widgets(self):
-        """Create and add widgets to the display manager."""
+        """Create and add widgets to the display manager.
+        
+        Layout:
+        - Status bar: y=0, height=16
+        - Chess board: y=16, height=184
+        - Clock widget: y=200, height=36
+        - Analysis widget: y=236, height=60
+        """
         board = _get_board()
         
         if not board.display_manager:
@@ -200,10 +219,25 @@ class DisplayManager:
         board.display_manager.add_widget(self.chess_board_widget)
         log.info("[DisplayManager] Chess board widget initialized")
         
-        # Create analysis widget at bottom (y=144, which is 16+128)
+        # Create clock widget directly below board (y=200, height=36)
+        # Shows times if time_control > 0, otherwise shows turn indicator only
+        timed_mode = self._time_control > 0
+        self.clock_widget = _ChessClockWidget(
+            x=0, y=200, width=128, height=36,
+            timed_mode=timed_mode
+        )
+        # Set initial times if timed mode is enabled
+        if self._time_control > 0:
+            initial_seconds = self._time_control * 60
+            self.clock_widget.set_times(initial_seconds, initial_seconds)
+        
+        board.display_manager.add_widget(self.clock_widget)
+        log.info(f"[DisplayManager] Clock widget initialized (time_control={self._time_control} min)")
+        
+        # Create analysis widget below clock (y=236, height=60)
         bottom_color = "black" if self.chess_board_widget.flip else "white"
         self.analysis_widget = _GameAnalysisWidget(
-            0, 144, 128, 80,
+            x=0, y=236, width=128, height=60,
             bottom_color=bottom_color,
             analysis_engine=self.analysis_engine
         )
@@ -214,15 +248,18 @@ class DisplayManager:
         board.display_manager.add_widget(self.analysis_widget)
         log.info(f"[DisplayManager] Analysis widget initialized (visible={self._show_analysis})")
         
-        # Create alert widget for CHECK/QUEEN warnings (y=144, overlays analysis widget)
+        # Create alert widget for CHECK/QUEEN warnings (y=200, overlays clock widget)
         # Alert widget is hidden by default and shown when check or queen threat occurs
-        self.alert_widget = _AlertWidget(0, 144, 128, 40)
+        self.alert_widget = _AlertWidget(0, 200, 128, 40)
         board.display_manager.add_widget(self.alert_widget)
         log.info("[DisplayManager] Alert widget initialized (hidden)")
         
-        # Create brain hint widget for Hand+Brain mode (y=224, below analysis)
+        # Create brain hint widget for Hand+Brain mode (y=200, replaces clock)
         if self._hand_brain_mode:
-            self.brain_hint_widget = _BrainHintWidget(0, 224, 128, 72)
+            self.brain_hint_widget = _BrainHintWidget(0, 200, 128, 36)
+            # Hide clock widget in hand+brain mode, brain hint takes its place
+            if self.clock_widget:
+                self.clock_widget.hide()
             board.display_manager.add_widget(self.brain_hint_widget)
             log.info("[DisplayManager] Brain hint widget initialized")
     
@@ -246,7 +283,7 @@ class DisplayManager:
             except Exception as e:
                 log.error(f"[DisplayManager] Error updating position: {e}")
     
-    def analyze_position(self, board_obj: chess.Board, current_turn: str,
+    def analyze_position(self, board_obj: chess.Board,
                         is_first_move: bool = False, time_limit: float = 0.3):
         """Trigger position analysis.
         
@@ -254,14 +291,13 @@ class DisplayManager:
         
         Args:
             board_obj: chess.Board object to analyze
-            current_turn: "white" or "black"
             is_first_move: If True, don't add to history
             time_limit: Analysis time limit in seconds
         """
         if self.analysis_widget:
             try:
                 self.analysis_widget.analyze_position(
-                    board_obj, current_turn, is_first_move, time_limit
+                    board_obj, is_first_move, time_limit
                 )
             except Exception as e:
                 log.debug(f"[DisplayManager] Error analyzing position: {e}")
@@ -287,6 +323,49 @@ class DisplayManager:
         # Also clear brain hint on reset
         if self.brain_hint_widget:
             self.brain_hint_widget.clear()
+    
+    def set_clock_times(self, white_seconds: int, black_seconds: int) -> None:
+        """Set the chess clock times for both players.
+        
+        Args:
+            white_seconds: White's time in seconds
+            black_seconds: Black's time in seconds
+        """
+        if self.clock_widget:
+            self.clock_widget.set_times(white_seconds, black_seconds)
+    
+    def set_clock_active(self, color: str) -> None:
+        """Set which player's clock is active (whose turn it is).
+        
+        Args:
+            color: 'white', 'black', or None (paused)
+        """
+        if self.clock_widget:
+            self.clock_widget.set_active(color)
+    
+    def start_clock(self, active_color: str = 'white') -> None:
+        """Start the chess clock.
+        
+        Args:
+            active_color: Which player's clock starts running
+        """
+        if self.clock_widget and self._time_control > 0:
+            self.clock_widget.start(active_color)
+    
+    def switch_clock_turn(self) -> None:
+        """Switch which player's clock is running."""
+        if self.clock_widget:
+            self.clock_widget.switch_turn()
+    
+    def pause_clock(self) -> None:
+        """Pause the chess clock."""
+        if self.clock_widget:
+            self.clock_widget.pause()
+    
+    def stop_clock(self) -> None:
+        """Stop the chess clock completely."""
+        if self.clock_widget:
+            self.clock_widget.stop()
     
     def set_brain_hint(self, piece_symbol: str) -> None:
         """Set the brain hint piece type for Hand+Brain mode.
@@ -632,18 +711,25 @@ class DisplayManager:
                         except Exception:
                             pass
                 
-                # Re-add analysis widget
-                if self.analysis_widget:
-                    future = board.display_manager.add_widget(self.analysis_widget)
+                # Re-add clock widget (or brain hint if in Hand+Brain mode)
+                if self._hand_brain_mode and self.brain_hint_widget:
+                    future = board.display_manager.add_widget(self.brain_hint_widget)
+                    if future:
+                        try:
+                            future.result(timeout=2.0)
+                        except Exception:
+                            pass
+                elif self.clock_widget:
+                    future = board.display_manager.add_widget(self.clock_widget)
                     if future:
                         try:
                             future.result(timeout=2.0)
                         except Exception:
                             pass
                 
-                # Re-add brain hint widget if in Hand+Brain mode
-                if self.brain_hint_widget:
-                    future = board.display_manager.add_widget(self.brain_hint_widget)
+                # Re-add analysis widget
+                if self.analysis_widget:
+                    future = board.display_manager.add_widget(self.analysis_widget)
                     if future:
                         try:
                             future.result(timeout=2.0)
@@ -677,11 +763,11 @@ class DisplayManager:
     
     def show_game_over(self, result: str, termination_type: str = None, move_count: int = 0):
         """
-        Show the game over widget below the analysis widget.
+        Show the game over widget, replacing the clock widget.
         
-        The board and analysis widget remain visible, and the game over widget
-        is added in the space below them (y=224, height=72) to display the
-        winner and termination reason.
+        The board remains visible. The game over widget occupies y=200, height=56
+        to display the winner, termination reason, and times. The analysis widget
+        is repositioned below (y=256, height=40) to show the evaluation history.
         
         Args:
             result: Game result string (e.g., "1-0", "0-1", "1/2-1/2")
@@ -694,15 +780,32 @@ class DisplayManager:
         try:
             log.info(f"[DisplayManager] Showing game over: result={result}, termination={termination_type}")
             
+            # Get final times from clock widget before hiding it
+            final_times = None
+            if self.clock_widget and self._time_control > 0:
+                final_times = self.clock_widget.get_final_times()
+                self.clock_widget.stop()
+                self.clock_widget.hide()
+            elif self.clock_widget:
+                # Even in untimed mode, hide the clock (turn indicator)
+                self.clock_widget.hide()
+            
+            # Reposition analysis widget below game over widget (y=256, h=40)
+            # This provides more space for game over info while keeping the eval graph
+            if self.analysis_widget:
+                self.analysis_widget.y = 256
+                self.analysis_widget.height = 40
+                self.analysis_widget._last_rendered = None  # Force re-render at new size
+                self.analysis_widget.request_update(full=False)
+            
+            # Hide brain hint widget if present
+            if self.brain_hint_widget:
+                self.brain_hint_widget.hide()
+            
             if board.display_manager:
-                # Create game over widget in space below analysis widget
-                # Uses default position (y=224) and height (72) from GameOverWidget
+                # Create game over widget (y=200, height=56)
                 game_over_widget = _GameOverWidget()
-                game_over_widget.set_result(result, termination_type, move_count)
-                
-                # Hide brain hint widget if present (occupies same space)
-                if self.brain_hint_widget:
-                    self.brain_hint_widget.hide()
+                game_over_widget.set_result(result, termination_type, move_count, final_times)
                 
                 future = board.display_manager.add_widget(game_over_widget)
                 if future:
@@ -725,6 +828,13 @@ class DisplayManager:
                 self._engine_init_thread.join(timeout=1.0)
             except Exception:
                 pass
+        
+        # Stop clock widget
+        if self.clock_widget:
+            try:
+                self.clock_widget.stop()
+            except Exception as e:
+                log.debug(f"[DisplayManager] Error stopping clock widget: {e}")
         
         # Stop analysis widget worker
         if self.analysis_widget:

@@ -252,7 +252,11 @@ _game_settings = {
     'engine': 'stockfish_pi',  # Default engine
     'elo': 'Default',          # Default ELO level
     'player_color': 'white',   # white, black, or random
+    'time_control': 0,         # Time per player in minutes (0 = disabled/untimed)
 }
+
+# Available time control options (in minutes)
+TIME_CONTROL_OPTIONS = [0, 1, 3, 5, 10, 15, 30, 60, 90]
 
 # Settings section name in centaur.ini
 SETTINGS_SECTION = 'game'
@@ -280,9 +284,15 @@ def _load_game_settings():
         _game_settings['engine'] = Settings.read(SETTINGS_SECTION, 'engine', 'stockfish_pi')
         _game_settings['elo'] = Settings.read(SETTINGS_SECTION, 'elo', 'Default')
         _game_settings['player_color'] = Settings.read(SETTINGS_SECTION, 'player_color', 'white')
+        time_control_str = Settings.read(SETTINGS_SECTION, 'time_control', '0')
+        try:
+            _game_settings['time_control'] = int(time_control_str)
+        except ValueError:
+            _game_settings['time_control'] = 0
         
         log.info(f"[Settings] Loaded: engine={_game_settings['engine']}, "
-                 f"elo={_game_settings['elo']}, color={_game_settings['player_color']}")
+                 f"elo={_game_settings['elo']}, color={_game_settings['player_color']}, "
+                 f"time_control={_game_settings['time_control']} min")
     except Exception as e:
         log.warning(f"[Settings] Error loading game settings: {e}, using defaults")
 
@@ -831,8 +841,9 @@ def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEnt
 def create_settings_entries() -> List[IconMenuEntry]:
     """Create entries for the settings submenu.
     
-    Uses current values from _game_settings for engine, elo, and color labels.
+    Uses current values from _game_settings for engine, elo, color, and timed_mode.
     Multi-line labels are used to show the setting name and current value.
+    Time control shows current setting and opens a selection menu.
 
     Returns:
         List of IconMenuEntry for settings menu
@@ -841,11 +852,21 @@ def create_settings_entries() -> List[IconMenuEntry]:
     elo_label = f"ELO {_game_settings['elo']}"
     color_label = f"{_game_settings['player_color'].capitalize()}"
     
+    # Time control: show current setting, icon indicates enabled/disabled
+    time_control = _game_settings['time_control']
+    if time_control == 0:
+        time_label = "Time\nDisabled"
+        time_icon = "timer"
+    else:
+        time_label = f"Time\n{time_control} min"
+        time_icon = "timer_checked"
+    
     return [
         IconMenuEntry(key="Positions", label="Positions", icon_name="positions", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="Engine", label=engine_label, icon_name="engine", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="ELO", label=elo_label, icon_name="elo", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="Color", label=color_label, icon_name="color", enabled=True, font_size=12, height_ratio=0.8),
+        IconMenuEntry(key="TimeControl", label=time_label, icon_name=time_icon, enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=12, height_ratio=0.8),
     ]
 
@@ -957,7 +978,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     base_path = pathlib.Path(__file__).parent
     analysis_engine_path = str((base_path / "engines/ct800").resolve())
 
-    # Create DisplayManager - handles all game widgets (chess board, analysis)
+    # Create DisplayManager - handles all game widgets (chess board, analysis, clock)
     # Analysis runs in a background thread so it doesn't block move processing
     display_manager = DisplayManager(
         flip_board=False,
@@ -965,24 +986,27 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         analysis_engine_path=analysis_engine_path,
         on_exit=lambda: _return_to_menu("Menu exit"),
         hand_brain_mode=is_hand_brain,
-        initial_fen=starting_fen
+        initial_fen=starting_fen,
+        time_control=_game_settings['time_control']
     )
-    log.info("[App] DisplayManager initialized")
+    log.info(f"[App] DisplayManager initialized (time_control={_game_settings['time_control']} min)")
 
     # Display update callback for ProtocolManager
     def update_display(fen):
         """Update display manager with new position.
         
         Analysis is triggered but runs in a background thread, so it doesn't
-        block move validation or recording.
+        block move validation or recording. Also updates the clock turn indicator.
         """
         if display_manager:
             display_manager.update_position(fen)
             # Trigger analysis (runs asynchronously in background thread)
             try:
                 board_obj = chess.Board(fen)
+                display_manager.analyze_position(board_obj)
+                # Update clock turn indicator based on whose turn it is
                 current_turn = "white" if board_obj.turn == chess.WHITE else "black"
-                display_manager.analyze_position(board_obj, current_turn)
+                display_manager.set_clock_active(current_turn)
             except Exception as e:
                 log.debug(f"Error triggering analysis: {e}")
 
@@ -1327,6 +1351,39 @@ def _handle_settings():
                 app_state = AppState.MENU
                 _start_game_mode()
                 return  # Exit settings to enter game mode
+        
+        elif result == "TimeControl":
+            # Time control selection submenu
+            time_entries = []
+            current_time = _game_settings['time_control']
+            
+            for minutes in TIME_CONTROL_OPTIONS:
+                if minutes == 0:
+                    label = "* Disabled" if current_time == 0 else "Disabled"
+                    icon = "timer"
+                else:
+                    label = f"* {minutes} min" if current_time == minutes else f"{minutes} min"
+                    icon = "timer_checked"
+                
+                time_entries.append(
+                    IconMenuEntry(key=str(minutes), label=label, icon_name=icon, enabled=True)
+                )
+            
+            time_result = _show_menu(time_entries)
+            if is_break_result(time_result):
+                app_state = AppState.MENU
+                return time_result
+            if time_result not in ["BACK", "SHUTDOWN", "HELP"]:
+                try:
+                    new_time = int(time_result)
+                    old_time = _game_settings['time_control']
+                    _save_game_setting('time_control', str(new_time))
+                    _game_settings['time_control'] = new_time
+                    log.info(f"[Settings] Time control changed: {old_time} -> {new_time} min")
+                    board.beep(board.SOUND_GENERAL, event_type='key_press')
+                except ValueError:
+                    pass
+            # Stay in settings menu to allow further configuration
         
         elif result == "Positions":
             position_result = _handle_positions_menu()
