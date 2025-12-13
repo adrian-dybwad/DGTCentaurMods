@@ -1,12 +1,12 @@
 """
 Bluetooth status module.
 
-Provides functions to query Bluetooth adapter status and a widget for
-displaying Bluetooth information in menus.
+Provides functions to query Bluetooth adapter status and format
+Bluetooth information for display in menus.
 """
 
 import subprocess
-from typing import Optional
+from typing import Optional, List
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -15,13 +15,21 @@ except ImportError:
     log = logging.getLogger(__name__)
 
 
+# Advertised service names for different protocols
+ADVERTISED_NAMES = {
+    'pegasus': 'DGT PEGASUS',
+    'millennium': 'MILLENNIUM CHESS',
+    'chessnut': 'Chessnut Air',
+}
+
+
 def get_bluetooth_status(device_name: str = "DGT PEGASUS",
                          ble_manager=None,
                          rfcomm_connected: bool = False) -> dict:
     """Get current Bluetooth adapter status and information.
     
     Args:
-        device_name: The advertised device name
+        device_name: The primary advertised device name
         ble_manager: Optional BleManager instance to check BLE connection status
         rfcomm_connected: Whether an RFCOMM client is connected
     
@@ -29,10 +37,12 @@ def get_bluetooth_status(device_name: str = "DGT PEGASUS",
         Dictionary with keys:
         - enabled: bool, whether Bluetooth is enabled (not blocked by rfkill)
         - powered: bool, whether adapter is powered on
-        - device_name: str, the advertised device name
+        - device_name: str, the primary advertised device name
         - address: str, the Bluetooth MAC address
         - ble_connected: bool, whether a BLE client is connected
+        - ble_client_type: str or None, type of connected BLE client
         - rfcomm_connected: bool, whether an RFCOMM client is connected
+        - advertised_names: list of str, all names being advertised
     """
     status = {
         'enabled': False,
@@ -40,7 +50,9 @@ def get_bluetooth_status(device_name: str = "DGT PEGASUS",
         'device_name': device_name,
         'address': '',
         'ble_connected': False,
+        'ble_client_type': None,
         'rfcomm_connected': rfcomm_connected,
+        'advertised_names': list(ADVERTISED_NAMES.values()),
     }
     
     # Check rfkill status
@@ -72,8 +84,57 @@ def get_bluetooth_status(device_name: str = "DGT PEGASUS",
     # Check BLE connection status
     if ble_manager is not None:
         status['ble_connected'] = ble_manager.connected
+        status['ble_client_type'] = ble_manager.client_type
     
     return status
+
+
+def format_status_label(status: dict) -> str:
+    """Format Bluetooth status into a multi-line label for display.
+    
+    Shows device name, MAC address, connection status, and connected client type.
+    
+    Args:
+        status: Dictionary from get_bluetooth_status()
+        
+    Returns:
+        Multi-line string for display
+    """
+    lines = []
+    
+    # Device name
+    lines.append(status['device_name'])
+    
+    # MAC address
+    if status['address']:
+        lines.append(status['address'])
+    
+    # Connection status
+    if status['ble_connected']:
+        client_type = status.get('ble_client_type', 'BLE')
+        if client_type:
+            lines.append(f"BLE: {client_type}")
+        else:
+            lines.append("BLE: Connected")
+    elif status['rfcomm_connected']:
+        lines.append("RFCOMM: Connected")
+    elif status['enabled'] and status['powered']:
+        lines.append("Ready")
+    elif status['enabled']:
+        lines.append("Enabled")
+    else:
+        lines.append("Disabled")
+    
+    return '\n'.join(lines)
+
+
+def get_advertised_names_label() -> str:
+    """Get a formatted label showing all advertised names.
+    
+    Returns:
+        Multi-line string with all advertised names
+    """
+    return '\n'.join(ADVERTISED_NAMES.values())
 
 
 def enable_bluetooth() -> bool:

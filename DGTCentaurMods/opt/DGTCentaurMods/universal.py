@@ -1731,13 +1731,18 @@ def _handle_wifi_scan():
 def _handle_bluetooth_settings():
     """Handle Bluetooth settings submenu.
     
-    Shows Bluetooth status information and enable/disable options.
-    Displays the advertised device name, MAC address, and connection status.
+    Shows Bluetooth status information with a toggle for enable/disable.
+    Displays:
+    - Device name and MAC address
+    - Connection status and connected client type
+    - Advertised host names
+    - Enable toggle (checkbox style)
+    
     Uses the bluetooth_status module for status queries and control.
     """
     from DGTCentaurMods.epaper import bluetooth_status
     
-    last_selected = 0
+    last_selected = 2  # Default to Toggle button (index 2, since Info=0 and Names=1 are non-selectable)
     
     while True:
         device_name = _args.device_name if _args else 'DGT PEGASUS'
@@ -1747,49 +1752,50 @@ def _handle_bluetooth_settings():
             rfcomm_connected=client_connected
         )
         
-        # Build status info for display
-        if bt_status['ble_connected'] or bt_status['rfcomm_connected']:
-            conn_status = "Connected"
-        elif bt_status['enabled'] and bt_status['powered']:
-            conn_status = "Ready"
-        elif bt_status['enabled']:
-            conn_status = "Enabled"
-        else:
-            conn_status = "Disabled"
+        # Format status label using the module function
+        status_label = bluetooth_status.format_status_label(bt_status)
         
-        # Create info label with device name and address
-        info_lines = [bt_status['device_name']]
-        if bt_status['address']:
-            info_lines.append(bt_status['address'])
-        info_lines.append(conn_status)
-        info_label = '\n'.join(info_lines)
+        # Get advertised names
+        advertised_label = bluetooth_status.get_advertised_names_label()
+        
+        # Enable toggle uses checkbox icon based on current state
+        is_enabled = bt_status['enabled']
+        enable_icon = "timer_checked" if is_enabled else "timer"
+        enable_label = "Enabled" if is_enabled else "Disabled"
         
         bt_entries = [
+            # Status info display (non-selectable - displayed but skipped during navigation)
             IconMenuEntry(
                 key="Info",
-                label=info_label,
+                label=status_label,
                 icon_name="bluetooth",
                 enabled=True,
-                height_ratio=2.0,
-                icon_size=48,
+                selectable=False,
+                height_ratio=1.5,
+                icon_size=36,
                 layout="vertical",
-                font_size=12
+                font_size=11
             ),
+            # Advertised names display (non-selectable)
             IconMenuEntry(
-                key="Enable",
-                label="Enable",
+                key="Names",
+                label=advertised_label,
                 icon_name="bluetooth",
                 enabled=True,
-                height_ratio=0.67,
-                layout="horizontal",
-                font_size=14
+                selectable=False,
+                height_ratio=1.2,
+                icon_size=24,
+                layout="vertical",
+                font_size=10
             ),
+            # Enable/Disable toggle (checkbox style)
             IconMenuEntry(
-                key="Disable",
-                label="Disable",
-                icon_name="cancel",
+                key="Toggle",
+                label=enable_label,
+                icon_name=enable_icon,
                 enabled=True,
-                height_ratio=0.67,
+                selectable=True,
+                height_ratio=0.8,
                 layout="horizontal",
                 font_size=14
             ),
@@ -1802,11 +1808,14 @@ def _handle_bluetooth_settings():
         if bt_result in ["BACK", "SHUTDOWN", "HELP"]:
             return
         
-        if bt_result == "Enable":
-            if bluetooth_status.enable_bluetooth():
-                board.beep(board.SOUND_GENERAL)
-        elif bt_result == "Disable":
-            bluetooth_status.disable_bluetooth()
+        if bt_result == "Toggle":
+            # Toggle Bluetooth state
+            if is_enabled:
+                bluetooth_status.disable_bluetooth()
+            else:
+                if bluetooth_status.enable_bluetooth():
+                    board.beep(board.SOUND_GENERAL)
+        # Info and Names do nothing when selected - they're just displays
         # Info button does nothing, just shows the info
 
 

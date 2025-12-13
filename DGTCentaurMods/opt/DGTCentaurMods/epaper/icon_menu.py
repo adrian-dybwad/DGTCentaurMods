@@ -40,7 +40,9 @@ class IconMenuEntry:
         key: Unique identifier returned on selection
         label: Display text
         icon_name: Icon identifier for rendering
-        enabled: Whether entry is enabled/visible
+        enabled: Whether entry is enabled/visible (disabled entries are hidden)
+        selectable: Whether entry can be selected (non-selectable entries are
+                   displayed but skipped during navigation and cannot be activated)
         height_ratio: Relative height weight (default 1.0, use 2.0 for double height)
         icon_size: Custom icon size in pixels (None uses default based on button height)
         layout: Button layout - 'horizontal' (icon left) or 'vertical' (icon top centered)
@@ -51,6 +53,7 @@ class IconMenuEntry:
     label: str
     icon_name: str
     enabled: bool = True
+    selectable: bool = True
     height_ratio: float = 1.0
     icon_size: int = None
     layout: str = "horizontal"
@@ -105,9 +108,18 @@ class IconMenuWidget(Widget):
         """
         super().__init__(x, y, width, height, background_shade=background_shade)
         
-        # Filter disabled entries
+        # Filter disabled entries (disabled entries are not shown at all)
         self.entries = [e for e in entries if e.enabled]
+        
+        # Clamp selected_index to valid range
         self.selected_index = min(selected_index, max(0, len(self.entries) - 1))
+        
+        # If initial selection is non-selectable, find first selectable entry
+        if self.entries and not self.entries[self.selected_index].selectable:
+            for i, entry in enumerate(self.entries):
+                if entry.selectable:
+                    self.selected_index = i
+                    break
         
         # Callbacks for external use
         self.on_select = on_select
@@ -252,6 +264,57 @@ class IconMenuWidget(Widget):
         
         return False
     
+    def _is_selectable(self, index: int) -> bool:
+        """Check if the entry at the given index is selectable.
+        
+        Args:
+            index: Entry index to check
+            
+        Returns:
+            True if entry exists and is selectable, False otherwise
+        """
+        if 0 <= index < len(self.entries):
+            return self.entries[index].selectable
+        return False
+    
+    def _find_next_selectable(self, start: int, direction: int) -> int:
+        """Find the next selectable entry in the given direction.
+        
+        Wraps around if reaching the end of the list.
+        
+        Args:
+            start: Starting index
+            direction: 1 for forward/down, -1 for backward/up
+            
+        Returns:
+            Index of next selectable entry, or start if none found
+        """
+        if not self.entries:
+            return start
+        
+        count = len(self.entries)
+        current = start
+        
+        # Try each entry once
+        for _ in range(count):
+            current = (current + direction) % count
+            if self._is_selectable(current):
+                return current
+        
+        # No selectable entries found, return original
+        return start
+    
+    def _find_first_selectable(self) -> int:
+        """Find the first selectable entry.
+        
+        Returns:
+            Index of first selectable entry, or 0 if none found
+        """
+        for i, entry in enumerate(self.entries):
+            if entry.selectable:
+                return i
+        return 0
+    
     def set_selection(self, index: int) -> None:
         """Set the current selection index, scrolling if needed.
         
@@ -317,6 +380,9 @@ class IconMenuWidget(Widget):
         Routes key events to navigate menu and trigger selection.
         Can be called externally to send key events to this menu.
         
+        Non-selectable entries are skipped during navigation. Pressing TICK
+        on a non-selectable entry does nothing.
+        
         Args:
             key_id: Key identifier from board
             
@@ -329,23 +395,23 @@ class IconMenuWidget(Widget):
         board = _get_board()
         
         if key_id == board.Key.UP:
-            # Move up with wrap-around
-            if self.selected_index > 0:
-                self.set_selection(self.selected_index - 1)
-            else:
-                self.set_selection(len(self.entries) - 1)
+            # Move up, skipping non-selectable entries, with wrap-around
+            next_idx = self._find_next_selectable(self.selected_index, -1)
+            self.set_selection(next_idx)
             return True
         
         elif key_id == board.Key.DOWN:
-            # Move down with wrap-around
-            if self.selected_index < len(self.entries) - 1:
-                self.set_selection(self.selected_index + 1)
-            else:
-                self.set_selection(0)
+            # Move down, skipping non-selectable entries, with wrap-around
+            next_idx = self._find_next_selectable(self.selected_index, 1)
+            self.set_selection(next_idx)
             return True
         
         elif key_id == board.Key.TICK:
-            # Selection confirmed
+            # Selection confirmed - only if current entry is selectable
+            if not self._is_selectable(self.selected_index):
+                # Non-selectable entry - do nothing
+                return True
+            
             selected_key = self.get_selected_key()
             if selected_key:
                 self._selection_result = selected_key
@@ -402,12 +468,19 @@ class IconMenuWidget(Widget):
         Ensures the initial selection is scrolled into view even if the
         index hasn't changed (e.g., when returning to a parent menu).
         
+        If the initial_index points to a non-selectable entry, the first
+        selectable entry is selected instead.
+        
         Args:
-            initial_index: Initial selection index
+            initial_index: Initial selection index (must be selectable)
             
         Returns:
             Selected entry key, "BACK", "HELP", or "SHUTDOWN"
         """
+        # Ensure initial_index points to a selectable entry
+        if not self._is_selectable(initial_index):
+            initial_index = self._find_first_selectable()
+        
         # Set initial selection
         self.set_selection(initial_index)
         
