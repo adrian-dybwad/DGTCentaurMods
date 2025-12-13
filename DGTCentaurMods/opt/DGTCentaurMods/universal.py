@@ -2653,17 +2653,17 @@ def field_callback(piece_event, field, time_in_seconds):
         _active_keyboard_widget.handle_field_event(field, piece_present)
         return
     
-    # Priority 2: Menu mode - piece events queued for game mode
+    # Priority 2: Menu/Settings mode - piece events trigger game start
     # Queue events if:
     # - Menu is active (first event triggers game start), OR
     # - Game start is pending (events already queued, waiting for main thread to start game)
     active_widget = _menu_manager.active_widget if _menu_manager else None
-    if app_state == AppState.MENU:
+    if app_state in (AppState.MENU, AppState.SETTINGS):
         if active_widget is not None or len(_pending_piece_events) > 0:
             # Queue the piece event to forward after game mode starts
             # Multiple events may arrive before game mode is ready (e.g., LIFT then PLACE)
             _pending_piece_events.append((piece_event, field, time_in_seconds))
-            log.info(f"[App] Piece event in menu - queued for game (field={field}, event={piece_event}, queue_size={len(_pending_piece_events)}, menu_active={active_widget is not None})")
+            log.info(f"[App] Piece event in {app_state.name} - queued for game (field={field}, event={piece_event}, queue_size={len(_pending_piece_events)}, menu_active={active_widget is not None})")
             # Only trigger game start on first event (avoid multiple cancel calls)
             if len(_pending_piece_events) == 1 and active_widget is not None:
                 log.info("[App] Cancelling menu selection with PIECE_MOVED")
