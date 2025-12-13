@@ -14,13 +14,14 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
-# Import AssetManager - handle both direct execution and module execution
+# Import AssetManager - use direct module import to avoid circular import
+# (managers/__init__.py imports ProtocolManager which imports emulators which imports board)
 try:
-    from DGTCentaurMods.managers import AssetManager
+    from DGTCentaurMods.managers.asset import AssetManager
 except ImportError:
     # Fallback for direct execution
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from asset_manager import AssetManager
+    from managers.asset import AssetManager
 
 
 class ChessBoardWidget(Widget):

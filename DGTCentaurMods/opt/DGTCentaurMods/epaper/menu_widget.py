@@ -11,8 +11,9 @@ from dataclasses import dataclass
 import threading
 from DGTCentaurMods.board.logging import log
 
+# Import AssetManager - use direct module import to avoid circular import
 try:
-    from DGTCentaurMods.managers import AssetManager
+    from DGTCentaurMods.managers.asset import AssetManager
 except ImportError:
     AssetManager = None
 

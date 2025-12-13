@@ -18,11 +18,12 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
+# Import AssetManager - use direct module import to avoid circular import
 try:
-    from DGTCentaurMods.managers import AssetManager
+    from DGTCentaurMods.managers.asset import AssetManager
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from asset_manager import AssetManager
+    from managers.asset import AssetManager
 
 
 class SplashScreen(Widget):

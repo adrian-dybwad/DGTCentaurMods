@@ -13,12 +13,13 @@ from .framework.widget import Widget
 import os
 import sys
 
+# Import AssetManager - use direct module import to avoid circular import
 try:
-    from DGTCentaurMods.managers import AssetManager
+    from DGTCentaurMods.managers.asset import AssetManager
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     try:
-        from asset_manager import AssetManager
+        from managers.asset import AssetManager
     except ImportError:
         AssetManager = None
 
