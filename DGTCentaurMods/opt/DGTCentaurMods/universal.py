@@ -145,6 +145,9 @@ _menu_selection_event = None  # Threading event for menu selection
 _return_to_positions_menu = False  # Flag to signal return to positions menu from game
 _is_position_game = False  # Flag to track if current game is a position (practice) game
 _switch_to_normal_game = False  # Flag to signal switch from position game to normal game
+_last_position_category_index = 0  # Remember last selected category in positions menu
+_last_position_index = 0  # Remember last selected position in positions menu
+_last_position_category = None  # Remember last selected category name for direct return
 
 # Keyboard state (for WiFi password entry etc.)
 _active_keyboard_widget = None
@@ -1190,7 +1193,7 @@ def _handle_settings():
             _handle_system_menu()
 
 
-def _handle_positions_menu() -> bool:
+def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
     """Handle the Positions submenu.
     
     Shows categories of predefined positions, then positions within that category.
@@ -1199,9 +1202,15 @@ def _handle_positions_menu() -> bool:
     Uses nested loops so that pressing BACK from position details returns to
     the category menu, and pressing BACK from category menu exits entirely.
     
+    Args:
+        return_to_last_position: If True, skip category menu and go directly to the
+                                 last selected position in the last selected category.
+    
     Returns:
         True if a position was loaded (caller should exit settings), False otherwise
     """
+    global _last_position_category_index, _last_position_index, _last_position_category
+    
     positions = _load_positions_config()
     
     if not positions:
@@ -1224,18 +1233,27 @@ def _handle_positions_menu() -> bool:
             height_ratio=1.5  # Taller buttons for two lines of text
         ))
     
-    # Track last selected category for returning from position list
-    last_category_index = 0
+    # Use stored category index for returning from position list
+    last_category_index = _last_position_category_index
+    
+    # If returning to last position, skip category menu and go directly to positions
+    skip_category_menu = return_to_last_position and _last_position_category is not None
     
     # Outer loop for category menu - pressing BACK here exits positions menu
     while True:
-        category_result = _show_menu(category_entries, initial_index=last_category_index)
-        
-        if category_result in ["BACK", "SHUTDOWN", "HELP"]:
-            return False
+        if skip_category_menu:
+            # Use stored category from last position game
+            category_result = _last_position_category
+            skip_category_menu = False  # Only skip once
+        else:
+            category_result = _show_menu(category_entries, initial_index=last_category_index)
+            
+            if category_result in ["BACK", "SHUTDOWN", "HELP"]:
+                return False
         
         # Update last_category_index for when we return from position list
         last_category_index = _find_entry_index(category_entries, category_result)
+        _last_position_category_index = last_category_index
         
         # Show positions in selected category
         category = category_result
@@ -1294,12 +1312,21 @@ def _handle_positions_menu() -> bool:
                 height_ratio=height_ratio
             ))
         
+        # Determine initial position index
+        # Use stored index if returning to same category, otherwise start at 0
+        if return_to_last_position and category == _last_position_category:
+            initial_position_index = _last_position_index
+        else:
+            initial_position_index = 0
+        
         # Inner loop for position details - pressing BACK returns to category menu
-        position_result = _show_menu(position_entries)
+        position_result = _show_menu(position_entries, initial_index=initial_position_index)
         
         if position_result in ["BACK", "HELP"]:
             # Go back to category menu (continue outer loop)
             # last_category_index already set, so category will be pre-selected
+            # Clear last position category so we don't skip category menu next time
+            _last_position_category = None
             continue
         elif position_result == "SHUTDOWN":
             return False
@@ -1308,6 +1335,10 @@ def _handle_positions_menu() -> bool:
         if position_result in positions[category]:
             fen = positions[category][position_result]
             display_name = position_result.replace('_', ' ').title()
+            
+            # Store the category and position for returning later
+            _last_position_category = category
+            _last_position_index = _find_entry_index(position_entries, position_result)
             
             if _start_from_position(fen, display_name):
                 return True
@@ -2606,7 +2637,8 @@ def main():
                 # Check if we need to return to positions menu (from position game back)
                 if _return_to_positions_menu:
                     _return_to_positions_menu = False
-                    position_result = _handle_positions_menu()
+                    # Return directly to the last selected position in the menu
+                    position_result = _handle_positions_menu(return_to_last_position=True)
                     if not position_result:
                         # User backed out of positions menu, show settings
                         _handle_settings()
