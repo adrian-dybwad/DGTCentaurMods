@@ -223,6 +223,29 @@ class IconMenuWidget(Widget):
             self._buttons.append(button)
             current_y += button_height
     
+    def _ensure_selection_visible(self) -> bool:
+        """Ensure the currently selected item is within the visible scroll region.
+        
+        Adjusts scroll_offset if the selected item is outside the visible area.
+        
+        Returns:
+            True if scroll_offset was changed, False otherwise
+        """
+        if self._visible_count >= len(self.entries):
+            # No scrolling needed - all items visible
+            return False
+        
+        if self.selected_index < self.scroll_offset:
+            # Selected item is above visible area - scroll up
+            self.scroll_offset = self.selected_index
+            return True
+        elif self.selected_index >= self.scroll_offset + self._visible_count:
+            # Selected item is below visible area - scroll down
+            self.scroll_offset = self.selected_index - self._visible_count + 1
+            return True
+        
+        return False
+    
     def set_selection(self, index: int) -> None:
         """Set the current selection index, scrolling if needed.
         
@@ -238,18 +261,7 @@ class IconMenuWidget(Widget):
         self.selected_index = new_index
         
         # Check if we need to scroll to keep selection visible
-        needs_rebuild = False
-        
-        if self._visible_count < len(self.entries):
-            # Scrolling is active - ensure selected item is visible
-            if new_index < self.scroll_offset:
-                # Selected item is above visible area - scroll up
-                self.scroll_offset = new_index
-                needs_rebuild = True
-            elif new_index >= self.scroll_offset + self._visible_count:
-                # Selected item is below visible area - scroll down
-                self.scroll_offset = new_index - self._visible_count + 1
-                needs_rebuild = True
+        needs_rebuild = self._ensure_selection_visible()
         
         if needs_rebuild:
             # Rebuild buttons with new scroll position
@@ -381,6 +393,9 @@ class IconMenuWidget(Widget):
         This is the blocking mode of operation. For non-blocking mode,
         use activate(), handle_key(), and deactivate() directly.
         
+        Ensures the initial selection is scrolled into view even if the
+        index hasn't changed (e.g., when returning to a parent menu).
+        
         Args:
             initial_index: Initial selection index
             
@@ -389,6 +404,14 @@ class IconMenuWidget(Widget):
         """
         # Set initial selection
         self.set_selection(initial_index)
+        
+        # Ensure the selected item is visible even if selection didn't change
+        # This handles the case of returning to a menu where the selected item
+        # is not in the visible scroll region
+        if self._ensure_selection_visible():
+            self._create_buttons()
+            self._last_rendered = None
+            self.request_update(full=False)
         
         # Activate key handling
         self.activate()
