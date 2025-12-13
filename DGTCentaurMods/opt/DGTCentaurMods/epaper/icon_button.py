@@ -437,6 +437,8 @@ class IconButtonWidget(Widget):
             self._draw_timer_icon(draw, x, y, size, line_color, checked=False)
         elif icon_name == "timer_checked":
             self._draw_timer_icon(draw, x, y, size, line_color, checked=True)
+        elif icon_name == "bluetooth":
+            self._draw_bluetooth_icon(draw, x, y, size, line_color)
         else:
             # Default: simple square placeholder
             draw.rectangle([left + 4, top + 4, right - 4, bottom - 4],
@@ -1582,3 +1584,54 @@ class IconButtonWidget(Widget):
             
             draw.line([p1, p2], fill=line_color, width=max(2, int(2.5 * s)))
             draw.line([p2, p3], fill=line_color, width=max(2, int(2.5 * s)))
+
+    def _draw_bluetooth_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                             size: int, line_color: int):
+        """Draw a Bluetooth icon.
+        
+        The Bluetooth logo is a stylized "B" rune shape - a vertical line
+        with two triangular arrow shapes pointing right.
+        
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line color (0=black, 255=white)
+        """
+        s = size / 36.0
+        line_width = max(2, int(2 * s))
+        
+        # The Bluetooth symbol dimensions
+        # Vertical line from top to bottom
+        top_y = y - int(14 * s)
+        bottom_y = y + int(14 * s)
+        mid_y = y
+        
+        # Horizontal extent for the arrows
+        left_x = x - int(8 * s)
+        right_x = x + int(6 * s)
+        center_x = x
+        
+        # Draw vertical center line
+        draw.line([(center_x, top_y), (center_x, bottom_y)], fill=line_color, width=line_width)
+        
+        # Top arrow: from top-center to right-middle, then back to left-top-middle
+        # Top point
+        top_point = (center_x, top_y)
+        # Right middle point
+        right_mid = (right_x, mid_y)
+        # Left upper point (where arrow goes back to)
+        left_upper = (left_x, y - int(7 * s))
+        
+        draw.line([top_point, right_mid], fill=line_color, width=line_width)
+        draw.line([right_mid, left_upper], fill=line_color, width=line_width)
+        
+        # Bottom arrow: from bottom-center to right-middle, then back to left-bottom-middle
+        # Bottom point
+        bottom_point = (center_x, bottom_y)
+        # Left lower point (where arrow goes back to)
+        left_lower = (left_x, y + int(7 * s))
+        
+        draw.line([bottom_point, right_mid], fill=line_color, width=line_width)
+        draw.line([right_mid, left_lower], fill=line_color, width=line_width)

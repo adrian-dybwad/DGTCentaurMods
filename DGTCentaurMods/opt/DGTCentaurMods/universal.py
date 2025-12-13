@@ -714,6 +714,7 @@ def create_system_entries() -> List[IconMenuEntry]:
     return [
         IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
         IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True),
+        IconMenuEntry(key="Bluetooth", label="Bluetooth", icon_name="bluetooth", enabled=True),
         IconMenuEntry(key="Inactivity", label=timeout_label, icon_name=timeout_icon, enabled=True),
         IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
         IconMenuEntry(key="Reboot", label="Reboot", icon_name="reboot", enabled=True),
@@ -1727,8 +1728,90 @@ def _handle_wifi_scan():
         _connect_to_wifi(selected_network['ssid'])
 
 
+def _handle_bluetooth_settings():
+    """Handle Bluetooth settings submenu.
+    
+    Shows Bluetooth status information and enable/disable options.
+    Displays the advertised device name, MAC address, and connection status.
+    Uses the bluetooth_status module for status queries and control.
+    """
+    from DGTCentaurMods.epaper import bluetooth_status
+    
+    last_selected = 0
+    
+    while True:
+        device_name = _args.device_name if _args else 'DGT PEGASUS'
+        bt_status = bluetooth_status.get_bluetooth_status(
+            device_name=device_name,
+            ble_manager=ble_manager,
+            rfcomm_connected=client_connected
+        )
+        
+        # Build status info for display
+        if bt_status['ble_connected'] or bt_status['rfcomm_connected']:
+            conn_status = "Connected"
+        elif bt_status['enabled'] and bt_status['powered']:
+            conn_status = "Ready"
+        elif bt_status['enabled']:
+            conn_status = "Enabled"
+        else:
+            conn_status = "Disabled"
+        
+        # Create info label with device name and address
+        info_lines = [bt_status['device_name']]
+        if bt_status['address']:
+            info_lines.append(bt_status['address'])
+        info_lines.append(conn_status)
+        info_label = '\n'.join(info_lines)
+        
+        bt_entries = [
+            IconMenuEntry(
+                key="Info",
+                label=info_label,
+                icon_name="bluetooth",
+                enabled=True,
+                height_ratio=2.0,
+                icon_size=48,
+                layout="vertical",
+                font_size=12
+            ),
+            IconMenuEntry(
+                key="Enable",
+                label="Enable",
+                icon_name="bluetooth",
+                enabled=True,
+                height_ratio=0.67,
+                layout="horizontal",
+                font_size=14
+            ),
+            IconMenuEntry(
+                key="Disable",
+                label="Disable",
+                icon_name="cancel",
+                enabled=True,
+                height_ratio=0.67,
+                layout="horizontal",
+                font_size=14
+            ),
+        ]
+        
+        bt_result = _show_menu(bt_entries, initial_index=last_selected)
+        
+        last_selected = _find_entry_index(bt_entries, bt_result)
+        
+        if bt_result in ["BACK", "SHUTDOWN", "HELP"]:
+            return
+        
+        if bt_result == "Enable":
+            if bluetooth_status.enable_bluetooth():
+                board.beep(board.SOUND_GENERAL)
+        elif bt_result == "Disable":
+            bluetooth_status.disable_bluetooth()
+        # Info button does nothing, just shows the info
+
+
 def _handle_system_menu():
-    """Handle system submenu (sound, WiFi, sleep timer, shutdown, reboot)."""
+    """Handle system submenu (sound, WiFi, Bluetooth, sleep timer, shutdown, reboot)."""
     from DGTCentaurMods.board import centaur
     
     last_selected = 0  # Track last selected index for returning from submenus
@@ -1754,6 +1837,8 @@ def _handle_system_menu():
                 centaur.set_sound("off")
         elif system_result == "WiFi":
             _handle_wifi_settings()
+        elif system_result == "Bluetooth":
+            _handle_bluetooth_settings()
         elif system_result == "Inactivity":
             _handle_inactivity_timeout()
             # Loop back to system menu after changing timeout
