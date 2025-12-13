@@ -721,12 +721,6 @@ class GameManager:
         
         if len(missing_squares) == 0 and len(extra_squares) == 0:
             board.ledsOff()
-            # If kings-in-center menu is active and board is now correct, cancel the menu
-            if self._kings_in_center_menu_active:
-                log.info("[GameManager._provide_correction_guidance] Board corrected while kings-in-center menu active - cancelling menu")
-                self._kings_in_center_menu_active = False
-                if self.on_kings_in_center_cancel:
-                    self.on_kings_in_center_cancel()
             return
         
         # Check for kings-in-center gesture (resign/draw)
@@ -809,6 +803,12 @@ class GameManager:
             log.info("[GameManager._handle_field_event_in_correction_mode] Physical board now matches logical board, exiting correction mode")
             board.beep(board.SOUND_GENERAL)
             self._exit_correction_mode()
+            # If kings-in-center menu is active and board is now correct, cancel the menu
+            if self._kings_in_center_menu_active:
+                log.info("[GameManager._handle_field_event_in_correction_mode] Board corrected while kings-in-center menu active - cancelling menu")
+                self._kings_in_center_menu_active = False
+                if self.on_kings_in_center_cancel:
+                    self.on_kings_in_center_cancel()
             return
         
         # Still incorrect, update guidance using current logical board as authority
