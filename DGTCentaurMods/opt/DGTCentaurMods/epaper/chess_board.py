@@ -27,6 +27,40 @@ except ImportError:
 class ChessBoardWidget(Widget):
     """Chess board widget that renders a position from FEN string."""
     
+    # Class-level cache for chesssprites - loaded once and shared by all instances
+    _cached_chess_font = None
+    _cache_loaded = False
+    
+    @classmethod
+    def preload_sprites(cls):
+        """Preload chess sprites into class cache.
+        
+        Call this during startup to avoid loading delay when first game starts.
+        Safe to call multiple times - only loads once.
+        """
+        if cls._cache_loaded:
+            return
+        
+        log.info("[ChessBoardWidget] Preloading chesssprites into cache")
+        try:
+            font_path = AssetManager.get_resource_path("chesssprites.bmp")
+            if font_path and os.path.exists(font_path):
+                loaded_image = Image.open(font_path)
+                # Convert to "1" mode (1-bit monochrome) immediately
+                if loaded_image.mode != "1":
+                    if loaded_image.mode != "L":
+                        loaded_image = loaded_image.convert("L")
+                    cls._cached_chess_font = loaded_image.point(lambda x: 0 if x < 128 else 255, mode="1")
+                else:
+                    cls._cached_chess_font = loaded_image
+                log.info(f"[ChessBoardWidget] Chesssprites cached: {cls._cached_chess_font.size}")
+            else:
+                log.warning(f"[ChessBoardWidget] Chesssprites not found at: {font_path}")
+        except Exception as e:
+            log.error(f"[ChessBoardWidget] Error preloading chesssprites: {e}")
+        finally:
+            cls._cache_loaded = True
+    
     def __init__(self, x: int, y: int, fen: str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", flip: bool = False):
         super().__init__(x, y, 128, 128)
         self.fen = fen
@@ -39,8 +73,19 @@ class ChessBoardWidget(Widget):
         self._load_chess_font()
     
     def _load_chess_font(self):
-        """Load chess piece sprite sheet."""
-        log.info("Attempting to load chesssprites sprite sheet")
+        """Load chess piece sprite sheet.
+        
+        Uses class-level cache if available (from preload_sprites).
+        Falls back to loading from disk if cache is empty.
+        """
+        # Use cached sprites if available
+        if ChessBoardWidget._cached_chess_font is not None:
+            self._chess_font = ChessBoardWidget._cached_chess_font
+            log.debug("[ChessBoardWidget] Using cached chesssprites")
+            return
+        
+        # Cache not available - load from disk (slower path)
+        log.info("Attempting to load chesssprites sprite sheet (cache miss)")
         
         try:
             font_path = AssetManager.get_resource_path("chesssprites.bmp")
@@ -74,6 +119,11 @@ class ChessBoardWidget(Widget):
                     self._chess_font = loaded_image.point(lambda x: 0 if x < 128 else 255, mode="1")
                 else:
                     self._chess_font = loaded_image
+                
+                # Store in class cache for future instances
+                ChessBoardWidget._cached_chess_font = self._chess_font
+                ChessBoardWidget._cache_loaded = True
+                
             except IOError as e:
                 log.error(f"IOError opening chesssprites file {font_path}: {e}")
                 self._chess_font = None

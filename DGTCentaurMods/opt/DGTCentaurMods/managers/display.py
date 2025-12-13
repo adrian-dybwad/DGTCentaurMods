@@ -190,16 +190,14 @@ class DisplayManager:
         board.display_manager.clear_widgets()
 
         # Create chess board widget at y=16 (below status bar)
+        # Uses cached sprites from preload_sprites() if available
         self.chess_board_widget = _ChessBoardWidget(0, 16, self._initial_fen)
         if self._flip_board:
             self.chess_board_widget.set_flip(True)
         
-        future = board.display_manager.add_widget(self.chess_board_widget)
-        if future:
-            try:
-                future.result(timeout=5.0)
-            except Exception as e:
-                log.warning(f"[DisplayManager] Error displaying chess board: {e}")
+        # Add widgets without blocking - display will catch up
+        # This allows game logic to start while display updates queue
+        board.display_manager.add_widget(self.chess_board_widget)
         log.info("[DisplayManager] Chess board widget initialized")
         
         # Create analysis widget at bottom (y=144, which is 16+128)
@@ -213,34 +211,19 @@ class DisplayManager:
         if not self._show_analysis:
             self.analysis_widget.hide()
         
-        future = board.display_manager.add_widget(self.analysis_widget)
-        if future:
-            try:
-                future.result(timeout=5.0)
-            except Exception as e:
-                log.warning(f"[DisplayManager] Error displaying analysis widget: {e}")
+        board.display_manager.add_widget(self.analysis_widget)
         log.info(f"[DisplayManager] Analysis widget initialized (visible={self._show_analysis})")
         
         # Create alert widget for CHECK/QUEEN warnings (y=144, overlays analysis widget)
         # Alert widget is hidden by default and shown when check or queen threat occurs
         self.alert_widget = _AlertWidget(0, 144, 128, 40)
-        future = board.display_manager.add_widget(self.alert_widget)
-        if future:
-            try:
-                future.result(timeout=5.0)
-            except Exception as e:
-                log.warning(f"[DisplayManager] Error displaying alert widget: {e}")
+        board.display_manager.add_widget(self.alert_widget)
         log.info("[DisplayManager] Alert widget initialized (hidden)")
         
         # Create brain hint widget for Hand+Brain mode (y=224, below analysis)
         if self._hand_brain_mode:
             self.brain_hint_widget = _BrainHintWidget(0, 224, 128, 72)
-            future = board.display_manager.add_widget(self.brain_hint_widget)
-            if future:
-                try:
-                    future.result(timeout=5.0)
-                except Exception as e:
-                    log.warning(f"[DisplayManager] Error displaying brain hint widget: {e}")
+            board.display_manager.add_widget(self.brain_hint_widget)
             log.info("[DisplayManager] Brain hint widget initialized")
     
     def set_key_callback(self, callback: callable):

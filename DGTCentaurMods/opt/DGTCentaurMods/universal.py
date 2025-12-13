@@ -170,6 +170,20 @@ log.debug(f"[Import timing] managers: {(_import_time.time() - _import_start)*100
 if _startup_splash:
     _startup_splash.set_message("Initializing...")
 
+# Preload chess sprites in background thread to avoid delay when first game starts
+# This loads the chesssprites.bmp and converts it to 1-bit mode (~150ms on Pi)
+def _preload_chess_sprites():
+    """Preload chess sprites in background."""
+    try:
+        from DGTCentaurMods.epaper.chess_board import ChessBoardWidget
+        ChessBoardWidget.preload_sprites()
+    except Exception as e:
+        log.warning(f"[Startup] Failed to preload chess sprites: {e}")
+
+import threading
+_sprite_preload_thread = threading.Thread(target=_preload_chess_sprites, daemon=True)
+_sprite_preload_thread.start()
+
 # App States
 class AppState(Enum):
     MENU = auto()      # Showing main menu
