@@ -1323,8 +1323,20 @@ def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
             else:
                 height_ratio = 2.0
             
-            # Use the same icon as the category for consistency
-            position_icon = category_icons.get(category, 'positions')
+            # Determine icon based on position name for test category, else use category icon
+            if category == 'test':
+                # Map test position names to specific icons
+                if 'en_passant' in name:
+                    position_icon = 'en_passant'
+                elif 'castling' in name:
+                    position_icon = 'castling'
+                elif 'promotion' in name:
+                    position_icon = 'promotion'
+                else:
+                    position_icon = 'positions_test'
+            else:
+                position_icon = category_icons.get(category, 'positions')
+            
             position_entries.append(IconMenuEntry(
                 key=name,
                 label=wrapped_text,
