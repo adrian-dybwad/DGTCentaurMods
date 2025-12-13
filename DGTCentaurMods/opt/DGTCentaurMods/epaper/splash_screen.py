@@ -85,6 +85,7 @@ class SplashScreen(Widget):
         """Update the splash screen message and trigger a re-render.
         
         Only requests a display update if the message actually changes.
+        Also logs the message prominently for startup visibility.
         
         Args:
             message: New message to display (will be centered)
@@ -93,6 +94,12 @@ class SplashScreen(Widget):
             return
         self.message = message
         self._text_widget.set_text(message)
+        
+        # Log prominently so startup messages are visible in logs
+        log.info("=" * 60)
+        log.info(f"[Startup] {message}")
+        log.info("=" * 60)
+        
         self.request_update(full=False)
 
     def _load_resources(self):
