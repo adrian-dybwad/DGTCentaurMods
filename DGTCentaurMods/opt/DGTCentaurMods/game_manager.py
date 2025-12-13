@@ -930,6 +930,10 @@ class GameManager:
                     if can_castle:
                         log.info(f"[GameManager._handle_piece_lift] Potential castling rook lifted from {chess.square_name(field)}")
                         self.move_state.castling_rook_source = field
+                        # Store piece color for use during PLACE event (important for captures
+                        # where destination square has opponent's piece). Even though we don't
+                        # set source_square yet, we need the color for proper piece identification.
+                        self.move_state.source_piece_color = piece_color
         
         # If we're tracking a potential castling rook, don't set source_square here.
         # The source_square will be set in _handle_piece_place when the rook is placed,
