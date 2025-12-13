@@ -927,12 +927,12 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             is_two_player=game_handler.is_two_player_mode
         )
     
-    # Kings-in-center gesture (DGT resign/draw) - same result handling as back menu
-    # For position games, don't show resign/draw menu
-    if not is_position_game:
+    # Kings-in-center gesture (DGT resign/draw) - only for 2-player mode
+    # In engine games, moving kings to center would just trigger correction mode
+    if is_two_player and not is_position_game:
         game_handler.game_manager.on_kings_in_center = lambda: display_manager.show_kings_center_menu(
             _on_back_menu_result,
-            is_two_player=game_handler.is_two_player_mode
+            is_two_player=True
         )
         # Cancel callback when pieces are returned to position
         game_handler.game_manager.on_kings_in_center_cancel = display_manager.cancel_kings_center_menu
