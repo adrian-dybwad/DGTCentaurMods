@@ -204,7 +204,7 @@ class TextWidget(Widget):
     def _create_dither_pattern(self) -> Image.Image:
         """Create dither pattern based on background level.
         
-        Uses Stucki error diffusion dithering for smooth gradients.
+        Uses an 8x8 Bayer matrix for ordered dithering.
         For transparent backgrounds (-1), returns a white image since
         the actual compositing is handled via get_mask().
         """
@@ -219,7 +219,7 @@ class TextWidget(Widget):
             draw.rectangle([0, 0, self.width, self.height], fill=0)
             return img
         
-        # Map background levels 1-4 to shade levels
+        # Map background levels 1-4 to shade levels for Bayer patterns
         # Level 1: ~20% black (shade 3)
         # Level 2: ~38% black (shade 6)
         # Level 3: ~50% black (shade 8)
@@ -228,13 +228,12 @@ class TextWidget(Widget):
         shade = shade_map.get(self.background, 8)
         
         pattern = DITHER_PATTERNS.get(shade, DITHER_PATTERNS[0])
-        pattern_size = len(pattern)
         pixels = img.load()
         
         for y in range(self.height):
-            pattern_row = pattern[y % pattern_size]
+            pattern_row = pattern[y % 8]
             for x in range(self.width):
-                if pattern_row[x % pattern_size] == 1:
+                if pattern_row[x % 8] == 1:
                     pixels[x, y] = 0  # Black pixel
         
         return img

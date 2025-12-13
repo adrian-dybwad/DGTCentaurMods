@@ -16,100 +16,46 @@ except ImportError:
     log = logging.getLogger(__name__)
 
 
-# Stucki error diffusion dithering
-# Uses a 5x3 error diffusion kernel for high-quality dithering with smooth gradients.
-# The kernel distributes quantization error to neighboring pixels for natural results.
-
-# Stucki kernel (weights sum to 42, applied as fractions of error)
-# Current pixel is at position marked with X
-#             X   8   4
-#     2   4   8   4   2
-#     1   2   4   2   1
-_STUCKI_KERNEL = [
-    # (dx, dy, weight)
-    (1, 0, 8), (2, 0, 4),                           # Same row, right
-    (-2, 1, 2), (-1, 1, 4), (0, 1, 8), (1, 1, 4), (2, 1, 2),  # Next row
-    (-2, 2, 1), (-1, 2, 2), (0, 2, 4), (1, 2, 2), (2, 2, 1),  # Two rows down
+# 8x8 Bayer matrix for ordered dithering threshold values (0-63)
+# This provides smoother gradients than 4x4 and less obvious tiling patterns
+_BAYER_8x8 = [
+    [ 0, 32,  8, 40,  2, 34, 10, 42],
+    [48, 16, 56, 24, 50, 18, 58, 26],
+    [12, 44,  4, 36, 14, 46,  6, 38],
+    [60, 28, 52, 20, 62, 30, 54, 22],
+    [ 3, 35, 11, 43,  1, 33,  9, 41],
+    [51, 19, 59, 27, 49, 17, 57, 25],
+    [15, 47,  7, 39, 13, 45,  5, 37],
+    [63, 31, 55, 23, 61, 29, 53, 21],
 ]
-_STUCKI_DIVISOR = 42  # Sum of all weights
 
 
-def _stucki_dither(width: int, height: int, gray_value: int) -> list:
-    """Generate a dithered pattern using Stucki error diffusion.
-    
-    Stucki dithering uses a larger 5x3 kernel than Floyd-Steinberg,
-    producing smoother gradients and less visible artifacts.
-    
-    Args:
-        width: Pattern width in pixels
-        height: Pattern height in pixels
-        gray_value: Gray level 0-255 (0=black, 255=white)
-        
-    Returns:
-        2D list of 0s (white) and 1s (black) with dimensions width x height
-    """
-    # Create float buffer for error accumulation
-    # Values represent grayscale 0.0 (black) to 255.0 (white)
-    buffer = [[float(gray_value) for _ in range(width)] for _ in range(height)]
-    
-    # Output pattern
-    pattern = [[0 for _ in range(width)] for _ in range(height)]
-    
-    # Process each pixel
-    for y in range(height):
-        for x in range(width):
-            old_val = buffer[y][x]
-            # Quantize to black (0) or white (255)
-            new_val = 255 if old_val >= 128 else 0
-            # Store result (1 = black pixel, 0 = white pixel)
-            pattern[y][x] = 0 if new_val == 255 else 1
-            
-            # Calculate and distribute error
-            error = old_val - new_val
-            
-            for dx, dy, weight in _STUCKI_KERNEL:
-                nx, ny = x + dx, y + dy
-                if 0 <= nx < width and 0 <= ny < height:
-                    buffer[ny][nx] += error * weight / _STUCKI_DIVISOR
-    
-    return pattern
-
-
-# Pre-computed pattern size for tiling
-_DITHER_PATTERN_SIZE = 128
-
-# Cache for pre-computed Stucki dither patterns
-_dither_cache: dict = {}
-
-
-def _get_dither_pattern(shade: int) -> list:
-    """Get or generate a Stucki dither pattern for the given shade level.
-    
-    Uses caching to avoid recomputing patterns for the same shade.
+def _generate_dither_pattern(shade: int) -> list:
+    """Generate an 8x8 dither pattern for a given shade level.
     
     Args:
         shade: Shade level 0-16 (0=white, 16=black)
         
     Returns:
-        128x128 list of 0s (white) and 1s (black)
+        8x8 list of 0s (white) and 1s (black)
     """
-    if shade in _dither_cache:
-        return _dither_cache[shade]
+    # Map shade 0-16 to threshold 0-64
+    # shade 0 = threshold 0 (all white)
+    # shade 16 = threshold 64 (all black)
+    threshold = shade * 4  # 0, 4, 8, 12, ... 64
     
-    # Map shade 0-16 to gray value 255-0
-    # shade 0 = gray 255 (white)
-    # shade 16 = gray 0 (black)
-    gray_value = 255 - (shade * 16)
-    if gray_value < 0:
-        gray_value = 0
-    
-    pattern = _stucki_dither(_DITHER_PATTERN_SIZE, _DITHER_PATTERN_SIZE, gray_value)
-    _dither_cache[shade] = pattern
+    pattern = []
+    for row in _BAYER_8x8:
+        pattern_row = []
+        for val in row:
+            # Pixel is black if Bayer value is less than threshold
+            pattern_row.append(1 if val < threshold else 0)
+        pattern.append(pattern_row)
     return pattern
 
 
-# Pre-generate patterns for shade levels 0-16 at module load
-DITHER_PATTERNS = {shade: _get_dither_pattern(shade) for shade in range(17)}
+# Pre-generate patterns for shade levels 0-16
+DITHER_PATTERNS = {shade: _generate_dither_pattern(shade) for shade in range(17)}
 
 
 class Widget(ABC):
@@ -217,8 +163,8 @@ class Widget(ABC):
         Image.new("1", (self.width, self.height), 255) to get a dithered
         background based on background_shade.
         
-        Uses Stucki error diffusion dithering, which provides smooth gradients
-        and natural-looking results without regular grid artifacts.
+        Uses an 8x8 Bayer matrix for ordered dithering, which provides
+        smoother gradients and less obvious tiling than 4x4 patterns.
         
         Returns:
             A new 1-bit image with the dithered background pattern applied.
@@ -231,9 +177,9 @@ class Widget(ABC):
         pattern = DITHER_PATTERNS.get(self._background_shade, DITHER_PATTERNS[0])
         pixels = img.load()
         for y in range(self.height):
-            pattern_row = pattern[y % _DITHER_PATTERN_SIZE]
+            pattern_row = pattern[y % 8]
             for x in range(self.width):
-                if pattern_row[x % _DITHER_PATTERN_SIZE] == 1:
+                if pattern_row[x % 8] == 1:
                     pixels[x, y] = 0  # Black pixel
         
         return img

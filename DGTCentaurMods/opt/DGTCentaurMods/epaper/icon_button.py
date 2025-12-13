@@ -145,14 +145,14 @@ class IconButtonWidget(Widget):
     def _apply_dither_pattern(self, img: Image.Image, shade: int) -> None:
         """Apply a dither pattern to an image.
         
-        Uses Stucki error diffusion dithering for smooth gradients.
+        Uses an 8x8 Bayer matrix for ordered dithering.
         
         Args:
             img: Image to modify in place
             shade: Shade level 0-16 (0=white, 16=black)
         """
         pattern = DITHER_PATTERNS.get(shade, DITHER_PATTERNS[0])
-        pattern_size = len(pattern)
+        pattern_size = len(pattern)  # 8 for Bayer
         pixels = img.load()
         for y in range(img.height):
             pattern_row = pattern[y % pattern_size]
