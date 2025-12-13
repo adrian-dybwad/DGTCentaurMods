@@ -1594,78 +1594,100 @@ def _handle_wifi_settings():
     - Enable toggle (checkbox style)
     
     Uses the wifi_info module for status queries and control.
+    Subscribes to WiFi status updates to refresh the display when
+    connection status changes (connect, disconnect, signal change).
     """
+    global _active_menu_widget
     from DGTCentaurMods.epaper import wifi_info
     
     last_selected = 1  # Default to Scan button (first selectable after status display)
     
-    while True:
-        # Get current status
-        wifi_status = wifi_info.get_wifi_status()
-        
-        # Format status label
-        status_label = wifi_info.format_status_label(wifi_status)
-        
-        # Enable toggle uses checkbox icon based on current state
-        is_enabled = wifi_status['enabled']
-        enable_icon = "timer_checked" if is_enabled else "timer"
-        enable_label = "Enabled" if is_enabled else "Disabled"
+    # Callback to refresh menu when WiFi status changes
+    def _on_wifi_status_change(status: dict):
+        """Refresh the menu when WiFi status changes."""
+        if _active_menu_widget is not None:
+            log.debug(f"[WiFi Settings] Status changed, refreshing menu: connected={status.get('connected')}")
+            _active_menu_widget.cancel_selection("WIFI_REFRESH")
+    
+    # Subscribe to WiFi status updates
+    wifi_info.subscribe(_on_wifi_status_change)
+    
+    try:
+        while True:
+            # Get current status
+            wifi_status = wifi_info.get_wifi_status()
+            
+            # Format status label
+            status_label = wifi_info.format_status_label(wifi_status)
+            
+            # Enable toggle uses checkbox icon based on current state
+            is_enabled = wifi_status['enabled']
+            enable_icon = "timer_checked" if is_enabled else "timer"
+            enable_label = "Enabled" if is_enabled else "Disabled"
 
-        wifi_entries = [
-            # Status info display (non-selectable)
-            IconMenuEntry(
-                key="Info",
-                label=status_label,
-                icon_name="wifi",
-                enabled=True,
-                selectable=False,
-                height_ratio=1.5,
-                icon_size=36,
-                layout="vertical",
-                font_size=11
-            ),
-            # Scan button
-            IconMenuEntry(
-                key="Scan",
-                label="Scan",
-                icon_name="wifi",
-                enabled=True,
-                selectable=True,
-                height_ratio=1.0,
-                icon_size=32,
-                layout="horizontal",
-                font_size=16
-            ),
-            # Enable/Disable toggle (checkbox style)
-            IconMenuEntry(
-                key="Toggle",
-                label=enable_label,
-                icon_name=enable_icon,
-                enabled=True,
-                selectable=True,
-                height_ratio=0.8,
-                layout="horizontal",
-                font_size=14
-            ),
-        ]
+            wifi_entries = [
+                # Status info display (non-selectable)
+                IconMenuEntry(
+                    key="Info",
+                    label=status_label,
+                    icon_name="wifi",
+                    enabled=True,
+                    selectable=False,
+                    height_ratio=1.5,
+                    icon_size=36,
+                    layout="vertical",
+                    font_size=11
+                ),
+                # Scan button
+                IconMenuEntry(
+                    key="Scan",
+                    label="Scan",
+                    icon_name="wifi",
+                    enabled=True,
+                    selectable=True,
+                    height_ratio=1.0,
+                    icon_size=32,
+                    layout="horizontal",
+                    font_size=16
+                ),
+                # Enable/Disable toggle (checkbox style)
+                IconMenuEntry(
+                    key="Toggle",
+                    label=enable_label,
+                    icon_name=enable_icon,
+                    enabled=True,
+                    selectable=True,
+                    height_ratio=0.8,
+                    layout="horizontal",
+                    font_size=14
+                ),
+            ]
 
-        wifi_result = _show_menu(wifi_entries, initial_index=last_selected)
-        
-        # Update last_selected for when we return from a submenu
-        last_selected = _find_entry_index(wifi_entries, wifi_result)
+            wifi_result = _show_menu(wifi_entries, initial_index=last_selected)
+            
+            # Handle refresh from WiFi status change
+            if wifi_result == "WIFI_REFRESH":
+                # Keep current selection and rebuild menu
+                continue
+            
+            # Update last_selected for when we return from a submenu
+            last_selected = _find_entry_index(wifi_entries, wifi_result)
 
-        if wifi_result in ["BACK", "SHUTDOWN", "HELP"]:
-            return
+            if wifi_result in ["BACK", "SHUTDOWN", "HELP"]:
+                return
 
-        if wifi_result == "Scan":
-            _handle_wifi_scan()
-        elif wifi_result == "Toggle":
-            # Toggle WiFi state
-            if is_enabled:
-                wifi_info.disable_wifi()
-            else:
-                if wifi_info.enable_wifi():
-                    board.beep(board.SOUND_GENERAL, event_type='key_press')
+            if wifi_result == "Scan":
+                _handle_wifi_scan()
+            elif wifi_result == "Toggle":
+                # Toggle WiFi state
+                if is_enabled:
+                    wifi_info.disable_wifi()
+                else:
+                    if wifi_info.enable_wifi():
+                        board.beep(board.SOUND_GENERAL, event_type='key_press')
+    finally:
+        # Always unsubscribe when exiting the menu
+        wifi_info.unsubscribe(_on_wifi_status_change)
 
 
 def _handle_wifi_scan():

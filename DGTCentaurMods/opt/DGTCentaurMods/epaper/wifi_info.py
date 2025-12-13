@@ -3,16 +3,31 @@ WiFi status information module.
 
 Provides functions to query WiFi adapter status and format
 WiFi information for display in menus.
+
+Supports subscribing to WiFi status changes via callbacks.
 """
 
 import subprocess
-from typing import Optional, Tuple
+import threading
+import os
+import re
+from typing import Optional, Tuple, Callable, List
 
 try:
     from DGTCentaurMods.board.logging import log
 except ImportError:
     import logging
     log = logging.getLogger(__name__)
+
+
+# Module-level subscription system
+_subscribers: List[Callable[[dict], None]] = []
+_monitor_thread: Optional[threading.Thread] = None
+_monitor_running = False
+_monitor_stop_event = threading.Event()
+_last_status: Optional[dict] = None
+_hook_notification_file = "/var/run/dgtcm-wifi-hook-notify"
+_last_hook_mtime = 0.0
 
 
 def get_wifi_status() -> dict:
@@ -213,3 +228,168 @@ def disable_wifi() -> bool:
     except Exception as e:
         log.error(f"[WiFi] Failed to disable: {e}")
         return False
+
+
+def _status_changed(old: Optional[dict], new: dict) -> bool:
+    """Check if WiFi status has meaningfully changed.
+    
+    Compares key fields to determine if subscribers should be notified.
+    
+    Args:
+        old: Previous status dict (may be None on first check)
+        new: Current status dict
+        
+    Returns:
+        True if status changed, False otherwise
+    """
+    if old is None:
+        return True
+    
+    # Compare key fields that indicate a meaningful change
+    fields_to_check = ['enabled', 'connected', 'ssid', 'ip_address', 'signal']
+    for field in fields_to_check:
+        if old.get(field) != new.get(field):
+            return True
+    return False
+
+
+def _notify_subscribers(status: dict) -> None:
+    """Notify all subscribers of a status change.
+    
+    Calls each subscriber callback with the new status.
+    Removes any subscribers that raise exceptions.
+    
+    Args:
+        status: Current WiFi status dict
+    """
+    global _subscribers
+    failed_subscribers = []
+    
+    for callback in _subscribers:
+        try:
+            callback(status)
+        except Exception as e:
+            log.warning(f"[WiFi] Subscriber callback failed: {e}")
+            failed_subscribers.append(callback)
+    
+    # Remove failed subscribers
+    for callback in failed_subscribers:
+        try:
+            _subscribers.remove(callback)
+        except ValueError:
+            pass
+
+
+def _monitor_loop() -> None:
+    """Background loop that monitors WiFi status changes.
+    
+    Polls every 2 seconds and also checks for dhcpcd hook notifications.
+    Notifies subscribers when status changes.
+    """
+    global _last_status, _last_hook_mtime, _monitor_running
+    
+    log.debug("[WiFi] Monitor thread started")
+    
+    while _monitor_running:
+        try:
+            # Check for dhcpcd hook notification (immediate update)
+            hook_notified = False
+            if os.path.exists(_hook_notification_file):
+                try:
+                    current_mtime = os.path.getmtime(_hook_notification_file)
+                    if current_mtime > _last_hook_mtime:
+                        _last_hook_mtime = current_mtime
+                        hook_notified = True
+                        log.debug("[WiFi] dhcpcd hook notification detected")
+                except Exception as e:
+                    log.debug(f"[WiFi] Error checking hook notification: {e}")
+            
+            # Get current status
+            current_status = get_wifi_status()
+            
+            # Check if status changed or hook notified
+            if _status_changed(_last_status, current_status) or hook_notified:
+                log.debug(f"[WiFi] Status changed: connected={current_status['connected']}, ssid={current_status['ssid']}")
+                _last_status = current_status
+                _notify_subscribers(current_status)
+            
+            # Sleep for 2 seconds, interruptible
+            _monitor_stop_event.wait(timeout=2.0)
+            _monitor_stop_event.clear()
+            
+        except Exception as e:
+            log.error(f"[WiFi] Monitor loop error: {e}")
+            _monitor_stop_event.wait(timeout=5.0)
+            _monitor_stop_event.clear()
+    
+    log.debug("[WiFi] Monitor thread stopped")
+
+
+def subscribe(callback: Callable[[dict], None]) -> None:
+    """Subscribe to WiFi status change notifications.
+    
+    The callback will be called with the current status dict whenever
+    WiFi status changes (connect, disconnect, enable, disable, signal change).
+    
+    Starts the monitor thread if not already running.
+    
+    Args:
+        callback: Function to call with status dict when status changes
+    """
+    global _monitor_thread, _monitor_running, _subscribers
+    
+    if callback not in _subscribers:
+        _subscribers.append(callback)
+        log.debug(f"[WiFi] Subscriber added, total: {len(_subscribers)}")
+    
+    # Start monitor thread if not running
+    if not _monitor_running:
+        _monitor_running = True
+        _monitor_stop_event.clear()
+        _monitor_thread = threading.Thread(
+            target=_monitor_loop,
+            name="wifi-monitor",
+            daemon=True
+        )
+        _monitor_thread.start()
+        log.debug("[WiFi] Monitor thread started")
+
+
+def unsubscribe(callback: Callable[[dict], None]) -> None:
+    """Unsubscribe from WiFi status change notifications.
+    
+    Stops the monitor thread if no subscribers remain.
+    
+    Args:
+        callback: Previously subscribed callback function
+    """
+    global _monitor_thread, _monitor_running, _subscribers
+    
+    try:
+        _subscribers.remove(callback)
+        log.debug(f"[WiFi] Subscriber removed, remaining: {len(_subscribers)}")
+    except ValueError:
+        pass  # Callback wasn't subscribed
+    
+    # Stop monitor thread if no subscribers
+    if len(_subscribers) == 0 and _monitor_running:
+        _monitor_running = False
+        _monitor_stop_event.set()
+        if _monitor_thread:
+            _monitor_thread.join(timeout=3.0)
+            if _monitor_thread.is_alive():
+                log.warning("[WiFi] Monitor thread did not stop within timeout")
+            _monitor_thread = None
+        log.debug("[WiFi] Monitor thread stopped (no subscribers)")
+
+
+def get_last_status() -> Optional[dict]:
+    """Get the last cached WiFi status.
+    
+    Returns the most recent status from the monitor thread,
+    or None if no status has been cached yet.
+    
+    Returns:
+        Last status dict, or None if not available
+    """
+    return _last_status
