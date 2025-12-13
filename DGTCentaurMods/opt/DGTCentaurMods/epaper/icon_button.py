@@ -417,6 +417,14 @@ class IconButtonWidget(Widget):
             self._draw_system_icon(draw, x, y, size, line_color)
         elif icon_name == "positions":
             self._draw_positions_icon(draw, x, y, size, line_color)
+        elif icon_name == "positions_test":
+            self._draw_positions_test_icon(draw, x, y, size, line_color)
+        elif icon_name == "positions_puzzles":
+            self._draw_positions_puzzles_icon(draw, x, y, size, line_color)
+        elif icon_name == "positions_endgames":
+            self._draw_positions_endgames_icon(draw, x, y, size, line_color)
+        elif icon_name == "positions_custom":
+            self._draw_positions_custom_icon(draw, x, y, size, line_color)
         else:
             # Default: simple square placeholder
             draw.rectangle([left + 4, top + 4, right - 4, bottom - 4],
@@ -1192,3 +1200,218 @@ class IconButtonWidget(Widget):
         draw.ellipse([indicator_x - dot_r, indicator_y - dot_r,
                      indicator_x + dot_r, indicator_y + dot_r],
                     fill=fill_color, outline=line_color)
+
+    def _draw_positions_test_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                                   size: int, line_color: int):
+        """Draw a test/flask icon for test positions category."""
+        s = size / 36.0  # Scale factor
+        
+        # Draw a test tube / flask shape
+        # Neck of flask (top)
+        neck_width = int(4 * s)
+        neck_height = int(8 * s)
+        draw.rectangle([x - neck_width, y - int(14 * s),
+                       x + neck_width, y - int(14 * s) + neck_height],
+                      outline=line_color, width=max(1, int(2 * s)))
+        
+        # Body of flask (wider bottom) - trapezoidal shape
+        body_top = y - int(6 * s)
+        body_bottom = y + int(14 * s)
+        top_width = int(4 * s)
+        bottom_width = int(12 * s)
+        
+        # Draw flask body as polygon (trapezoid)
+        points = [
+            (x - top_width, body_top),
+            (x + top_width, body_top),
+            (x + bottom_width, body_bottom),
+            (x - bottom_width, body_bottom),
+        ]
+        draw.polygon(points, outline=line_color, fill=None)
+        
+        # Draw liquid level inside flask
+        liquid_top = y + int(4 * s)
+        liquid_width_at_top = int(8 * s)
+        liquid_points = [
+            (x - liquid_width_at_top, liquid_top),
+            (x + liquid_width_at_top, liquid_top),
+            (x + bottom_width - int(2 * s), body_bottom - int(2 * s)),
+            (x - bottom_width + int(2 * s), body_bottom - int(2 * s)),
+        ]
+        draw.polygon(liquid_points, fill=line_color)
+        
+        # Draw checkmark inside to indicate "test passed" concept
+        check_x = x - int(3 * s)
+        check_y = y + int(8 * s)
+        check_color = 255 if line_color == 0 else 0
+        draw.line([(check_x - int(3 * s), check_y),
+                  (check_x, check_y + int(3 * s)),
+                  (check_x + int(5 * s), check_y - int(4 * s))],
+                 fill=check_color, width=max(1, int(2 * s)))
+
+    def _draw_positions_puzzles_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                                      size: int, line_color: int):
+        """Draw a puzzle piece icon for puzzles category."""
+        s = size / 36.0  # Scale factor
+        
+        # Draw a stylized puzzle piece
+        # Main body - rectangular with tabs
+        body_size = int(12 * s)
+        
+        # Draw center square
+        draw.rectangle([x - body_size, y - body_size,
+                       x + body_size, y + body_size],
+                      outline=line_color, width=max(1, int(2 * s)))
+        
+        # Draw puzzle tabs (bumps on edges)
+        tab_radius = int(5 * s)
+        
+        # Top tab (outward)
+        draw.ellipse([x - tab_radius, y - body_size - tab_radius * 2 + int(2 * s),
+                     x + tab_radius, y - body_size + int(2 * s)],
+                    fill=line_color)
+        
+        # Right tab (outward)
+        draw.ellipse([x + body_size - int(2 * s), y - tab_radius,
+                     x + body_size + tab_radius * 2 - int(2 * s), y + tab_radius],
+                    fill=line_color)
+        
+        # Bottom indentation (inward) - draw as white/background
+        fill_color = 255 if line_color == 0 else 0
+        draw.ellipse([x - tab_radius, y + body_size - int(2 * s),
+                     x + tab_radius, y + body_size + tab_radius * 2 - int(2 * s)],
+                    fill=fill_color, outline=line_color)
+        
+        # Left indentation (inward)
+        draw.ellipse([x - body_size - tab_radius * 2 + int(2 * s), y - tab_radius,
+                     x - body_size + int(2 * s), y + tab_radius],
+                    fill=fill_color, outline=line_color)
+        
+        # Draw question mark in center to indicate "puzzle to solve"
+        q_x = x
+        q_y = y - int(3 * s)
+        draw.arc([q_x - int(4 * s), q_y - int(5 * s),
+                 q_x + int(4 * s), q_y + int(3 * s)],
+                start=180, end=0, fill=line_color, width=max(1, int(2 * s)))
+        draw.line([(q_x + int(4 * s), q_y - int(1 * s)),
+                  (q_x, q_y + int(3 * s))],
+                 fill=line_color, width=max(1, int(2 * s)))
+        # Dot of question mark
+        draw.ellipse([q_x - int(2 * s), y + int(5 * s),
+                     q_x + int(2 * s), y + int(9 * s)],
+                    fill=line_color)
+
+    def _draw_positions_endgames_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                                       size: int, line_color: int):
+        """Draw a king and pawn icon for endgames category."""
+        s = size / 36.0  # Scale factor
+        
+        # Draw a simplified king on the left
+        king_x = x - int(8 * s)
+        
+        # King cross on top
+        cross_width = int(2 * s)
+        cross_height = int(6 * s)
+        draw.rectangle([king_x - cross_width, y - int(14 * s),
+                       king_x + cross_width, y - int(14 * s) + cross_height],
+                      fill=line_color)
+        draw.rectangle([king_x - int(4 * s), y - int(12 * s),
+                       king_x + int(4 * s), y - int(10 * s)],
+                      fill=line_color)
+        
+        # King body (tapered)
+        king_points = [
+            (king_x - int(3 * s), y - int(8 * s)),
+            (king_x + int(3 * s), y - int(8 * s)),
+            (king_x + int(6 * s), y + int(10 * s)),
+            (king_x - int(6 * s), y + int(10 * s)),
+        ]
+        draw.polygon(king_points, fill=line_color)
+        
+        # King base
+        draw.rectangle([king_x - int(8 * s), y + int(10 * s),
+                       king_x + int(8 * s), y + int(14 * s)],
+                      fill=line_color)
+        
+        # Draw a simplified pawn on the right
+        pawn_x = x + int(8 * s)
+        
+        # Pawn head (circle)
+        head_r = int(4 * s)
+        draw.ellipse([pawn_x - head_r, y - int(12 * s),
+                     pawn_x + head_r, y - int(4 * s)],
+                    fill=line_color)
+        
+        # Pawn body (tapered)
+        pawn_points = [
+            (pawn_x - int(2 * s), y - int(4 * s)),
+            (pawn_x + int(2 * s), y - int(4 * s)),
+            (pawn_x + int(5 * s), y + int(10 * s)),
+            (pawn_x - int(5 * s), y + int(10 * s)),
+        ]
+        draw.polygon(pawn_points, fill=line_color)
+        
+        # Pawn base
+        draw.rectangle([pawn_x - int(6 * s), y + int(10 * s),
+                       pawn_x + int(6 * s), y + int(14 * s)],
+                      fill=line_color)
+
+    def _draw_positions_custom_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                                     size: int, line_color: int):
+        """Draw a pencil/edit icon for custom positions category."""
+        s = size / 36.0  # Scale factor
+        
+        # Draw a pencil at 45 degree angle
+        # Pencil body (main shaft)
+        pencil_length = int(24 * s)
+        pencil_width = int(6 * s)
+        
+        # Calculate rotated rectangle corners (45 degrees)
+        import math
+        angle = math.pi / 4  # 45 degrees
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        
+        # Pencil tip position (lower left)
+        tip_x = x - int(10 * s)
+        tip_y = y + int(10 * s)
+        
+        # Draw pencil body as rotated parallelogram
+        half_w = pencil_width / 2
+        body_points = [
+            (tip_x + int(4 * s * cos_a), tip_y - int(4 * s * sin_a)),  # Near tip
+            (tip_x + int(4 * s * cos_a) - half_w * sin_a, tip_y - int(4 * s * sin_a) - half_w * cos_a),
+            (tip_x + pencil_length * cos_a - half_w * sin_a, tip_y - pencil_length * sin_a - half_w * cos_a),
+            (tip_x + pencil_length * cos_a + half_w * sin_a, tip_y - pencil_length * sin_a + half_w * cos_a),
+            (tip_x + int(4 * s * cos_a) + half_w * sin_a, tip_y - int(4 * s * sin_a) + half_w * cos_a),
+        ]
+        draw.polygon(body_points, fill=line_color)
+        
+        # Pencil tip (triangle)
+        tip_points = [
+            (tip_x, tip_y),  # Actual tip
+            (tip_x + int(4 * s * cos_a) - half_w * sin_a, tip_y - int(4 * s * sin_a) - half_w * cos_a),
+            (tip_x + int(4 * s * cos_a) + half_w * sin_a, tip_y - int(4 * s * sin_a) + half_w * cos_a),
+        ]
+        draw.polygon(tip_points, outline=line_color, fill=None)
+        
+        # Eraser end (small rectangle at top)
+        eraser_start = pencil_length - int(4 * s)
+        eraser_points = [
+            (tip_x + eraser_start * cos_a - half_w * sin_a, tip_y - eraser_start * sin_a - half_w * cos_a),
+            (tip_x + pencil_length * cos_a - half_w * sin_a, tip_y - pencil_length * sin_a - half_w * cos_a),
+            (tip_x + pencil_length * cos_a + half_w * sin_a, tip_y - pencil_length * sin_a + half_w * cos_a),
+            (tip_x + eraser_start * cos_a + half_w * sin_a, tip_y - eraser_start * sin_a + half_w * cos_a),
+        ]
+        # Draw eraser as inverted color
+        fill_color = 255 if line_color == 0 else 0
+        draw.polygon(eraser_points, fill=fill_color, outline=line_color)
+        
+        # Add a small plus sign to indicate "add custom"
+        plus_x = x + int(8 * s)
+        plus_y = y + int(8 * s)
+        plus_size = int(5 * s)
+        draw.line([(plus_x - plus_size, plus_y), (plus_x + plus_size, plus_y)],
+                 fill=line_color, width=max(1, int(2 * s)))
+        draw.line([(plus_x, plus_y - plus_size), (plus_x, plus_y + plus_size)],
+                 fill=line_color, width=max(1, int(2 * s)))
