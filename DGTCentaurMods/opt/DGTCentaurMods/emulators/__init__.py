@@ -16,8 +16,18 @@ These modules emulate the protocols used by various chess board companion apps,
 allowing the DGT Centaur to appear as different board types to those apps.
 """
 
+import time as _t
+import logging as _log
+_logger = _log.getLogger(__name__)
+_s = _t.time()
+
 from .chessnut import Chessnut
+_logger.debug(f"[emulators init] chessnut: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from .millennium import Millennium
+_logger.debug(f"[emulators init] millennium: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from .pegasus import Pegasus
+_logger.debug(f"[emulators init] pegasus: {(_t.time() - _s)*1000:.0f}ms")
 
 __all__ = ['Chessnut', 'Millennium', 'Pegasus']
