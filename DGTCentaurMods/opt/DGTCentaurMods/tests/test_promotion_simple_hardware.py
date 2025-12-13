@@ -126,8 +126,8 @@ class SimplePromotionTester:
         # Load the position
         try:
             gamemanager.setBoard(chess.Board(fen))
-            from DGTCentaurMods.config import paths
-            paths.write_fen_log(gamemanager.getFEN())
+            from DGTCentaurMods.managers import AssetManager
+            AssetManager.write_fen_log(gamemanager.getFEN())
             print(f"Position loaded to {fenlog}")
         except Exception as e:
             print(f"Could not load position: {e}")

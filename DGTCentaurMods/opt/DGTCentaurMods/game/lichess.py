@@ -41,7 +41,7 @@ from DGTCentaurMods.display.epaper_service import service, widgets
 from DGTCentaurMods.game import gamemanager
 from DGTCentaurMods.board.logging import log
 
-from DGTCentaurMods.config import paths
+from DGTCentaurMods.managers import AssetManager
 
 log.info("loaded lichess.py")
 curturn = 1
@@ -390,7 +390,7 @@ blackclock = 0
 whiteincrement = 0
 blackincrement = 0
 winner= ''
-paths.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
+AssetManager.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
 starttime = -1
 
 # This thread keeps track of the move, etc, data coming back from lichess

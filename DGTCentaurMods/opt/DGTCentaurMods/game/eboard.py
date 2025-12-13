@@ -99,7 +99,7 @@ import chess
 import os
 from PIL import Image, ImageDraw, ImageFont
 import pathlib
-from DGTCentaurMods.config import paths
+from DGTCentaurMods.managers import AssetManager
 import select
 import bluetooth
 import subprocess
@@ -391,7 +391,7 @@ def drawCurrentBoard():
 
 boardtoscreen = 0
 
-paths.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
+AssetManager.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
 
 def screenUpdate():
 	# Separate thread to display the screen/pieces should improve
@@ -944,7 +944,7 @@ def pieceMoveDetectionThread():
 			lastcurturn = curturn
 			_piece_state['lastcurturn'] = lastcurturn
 			log.info("--------------")
-			paths.write_fen_log(cb.fen())
+			AssetManager.write_fen_log(cb.fen())
 			if curturn == 1:
 				log.info("White turn")
 				widgets.write_text(10,"White turn")
@@ -958,7 +958,7 @@ def pieceMoveDetectionThread():
 				if bytearray(r) == startstate and startstateflag == 0:
 					log.info("start state detected")
 					clockpaused = 1
-					paths.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
+					AssetManager.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
 					board.sendCustomBeep(b'\x50\x08\x00\x08\x50\x08\x00\x08\x59\x08\x00\x08\x50\x08\x00\x08\x00')
 					boardhistory = []
 					turnhistory = []
@@ -1605,7 +1605,7 @@ while True and dodie == 0:
 				if debugcmds == 1:
 					log.info("DGT_BUS_SET_START_GAME " + dump.hex())
 				log.info("Bus set start game")
-				paths.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
+				AssetManager.write_fen_log("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
 				# Write EE_START_TAG to EEPROM
 				# Followed by piece positions
 				# Return DGT_MSG_BUS_START_GAME_WRITTEN message

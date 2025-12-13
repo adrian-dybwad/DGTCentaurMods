@@ -23,7 +23,7 @@ from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, T
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from DGTCentaurMods.config import paths
+from DGTCentaurMods.managers import AssetManager
 
 Base = declarative_base()
 
@@ -58,5 +58,5 @@ class GameMove(Base):
     def __repr__(self):
         return "<GameMove(id='%s', move_at='%s', move='%s', fen='%s')>" % (str(self.id), str(self.move_at), self.move, self.fen)
 
-engine = create_engine(paths.get_database_uri())
+engine = create_engine(AssetManager.get_database_uri())
 Base.metadata.create_all(bind=engine)

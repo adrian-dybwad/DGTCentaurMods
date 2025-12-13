@@ -293,8 +293,8 @@ class Manager:
         Writes are done in a try/except to avoid blocking display updates.
         """
         try:
-            from DGTCentaurMods.config import paths
-            paths.write_epaper_static_jpg(image)
+            from DGTCentaurMods.managers import AssetManager
+            AssetManager.write_epaper_static_jpg(image)
         except Exception as e:
             log.debug(f"Failed to write epaper.jpg: {e}")
     

@@ -25,7 +25,7 @@ import inspect
 import numpy as np
 
 from DGTCentaurMods.board import board
-from DGTCentaurMods.config import paths
+from DGTCentaurMods.managers.asset import AssetManager
 from DGTCentaurMods.board.logging import log
 
 # Deferred imports - these are slow (~3s total on Raspberry Pi) and loaded in background
@@ -693,7 +693,7 @@ class GameManager:
                     self.database_session.commit()
             
             self.chess_board.pop()
-            paths.write_fen_log(self.chess_board.fen())
+            AssetManager.write_fen_log(self.chess_board.fen())
             board.beep(board.SOUND_GENERAL, event_type='game_event')
             
             self.takeback_callback()
@@ -1426,7 +1426,7 @@ class GameManager:
                 except Exception:
                     pass
         
-        paths.write_fen_log(self.chess_board.fen())
+        AssetManager.write_fen_log(self.chess_board.fen())
         
         # Call move callback to update display
         if self.move_callback is not None:
@@ -1592,7 +1592,7 @@ class GameManager:
             except Exception as db_error:
                 log.error(f"[GameManager._execute_late_castling] Database error: {db_error}")
         
-        paths.write_fen_log(self.chess_board.fen())
+        AssetManager.write_fen_log(self.chess_board.fen())
         
         # Call move callback to update display
         if self.move_callback is not None:
@@ -1824,7 +1824,7 @@ class GameManager:
                             pass
                 
                 # 2. FEN log
-                paths.write_fen_log(fen_after_move)
+                AssetManager.write_fen_log(fen_after_move)
                 
                 # 3. Move callback (updates display, forwards to emulators)
                 if self.move_callback is not None:
@@ -2154,7 +2154,7 @@ class GameManager:
             log.info("[GameManager._reset_game] Reset game_db_id to -1 - new game will be created on first move")
             
             # Step 9: Update FEN log
-            paths.write_fen_log(self.chess_board.fen())
+            AssetManager.write_fen_log(self.chess_board.fen())
             
             # Step 10: Notify callbacks of new game (but don't create DB entry yet)
             if self.event_callback is not None:
@@ -2200,7 +2200,7 @@ class GameManager:
         
         # Only create database session if save_to_database is enabled
         if self.save_to_database:
-            database_uri = paths.get_database_uri()
+            database_uri = AssetManager.get_database_uri()
             # Configure SQLite with check_same_thread=False to allow connections created in this thread
             # to be used throughout the thread's lifetime. This is safe because we create and use
             # the engine entirely within this thread.
