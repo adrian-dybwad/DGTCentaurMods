@@ -556,7 +556,7 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
     Returns:
         True if position was loaded successfully, False otherwise
     """
-    global protocol_manager, app_state
+    global protocol_manager, app_state, display_manager
     
     try:
         import chess
@@ -638,8 +638,8 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
                     log.info(f"[Positions] Position is already terminal: {termination} ({result_string})")
                     
                     # Show game over screen via display manager
-                    if protocol_manager and protocol_manager.display_manager:
-                        protocol_manager.display_manager.show_game_over(result_string, termination)
+                    if display_manager:
+                        display_manager.show_game_over(result_string, termination)
                 else:
                     # Show hint LEDs if provided
                     if hint_from_sq is not None and hint_to_sq is not None:
