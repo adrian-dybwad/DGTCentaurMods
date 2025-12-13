@@ -537,7 +537,8 @@ class ProtocolManager:
         if not self._standalone_engine_name:
             return
         
-        base_path = pathlib.Path(__file__).parent
+        # Go up one level from managers/ to find the engines/ folder
+        base_path = pathlib.Path(__file__).parent.parent
         engine_path = base_path / "engines" / self._standalone_engine_name
         uci_file_path = str(engine_path) + ".uci"
         
