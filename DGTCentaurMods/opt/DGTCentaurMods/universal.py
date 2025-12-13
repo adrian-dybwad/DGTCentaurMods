@@ -100,13 +100,18 @@ import chess.engine
 import pathlib
 from PIL import Image, ImageDraw, ImageFont
 
-from DGTCentaurMods.rfcomm_manager import RfcommManager
-from DGTCentaurMods.ble_manager import BleManager
-from DGTCentaurMods.relay_manager import RelayManager
-from DGTCentaurMods.protocol_manager import ProtocolManager
-from DGTCentaurMods.display_manager import DisplayManager
-from DGTCentaurMods.menu_manager import MenuManager, MenuSelection, is_break_result, find_entry_index
-from DGTCentaurMods.connection_manager import ConnectionManager
+from DGTCentaurMods.managers import (
+    RfcommManager,
+    BleManager,
+    RelayManager,
+    ProtocolManager,
+    DisplayManager,
+    MenuManager,
+    MenuSelection,
+    is_break_result,
+    find_entry_index,
+    ConnectionManager,
+)
 
 # All imports complete
 if _startup_splash:
@@ -310,7 +315,7 @@ def _resume_game(game_data: dict) -> bool:
     
     try:
         import chess
-        from DGTCentaurMods.game_manager import EVENT_WHITE_TURN, EVENT_BLACK_TURN
+        from DGTCentaurMods.managers import EVENT_WHITE_TURN, EVENT_BLACK_TURN
         
         log.info(f"[Resume] Resuming game {game_data['id']}...")
         
@@ -449,7 +454,7 @@ def _start_from_position(fen: str, position_name: str) -> bool:
     
     try:
         import chess
-        from DGTCentaurMods.game_manager import EVENT_WHITE_TURN, EVENT_BLACK_TURN
+        from DGTCentaurMods.managers import EVENT_WHITE_TURN, EVENT_BLACK_TURN
         
         log.info(f"[Positions] Loading position: {position_name}")
         log.info(f"[Positions] FEN: {fen}")
@@ -958,7 +963,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     protocol_manager.game_manager.on_alert_clear = display_manager.hide_alert
     
     # Wire up event callback to handle game events
-    from DGTCentaurMods.game_manager import EVENT_NEW_GAME
+    from DGTCentaurMods.managers import EVENT_NEW_GAME
     def _on_game_event(event):
         global _switch_to_normal_game, _is_position_game
         if event == EVENT_NEW_GAME:

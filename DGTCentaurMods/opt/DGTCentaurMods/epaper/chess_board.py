@@ -16,7 +16,7 @@ except ImportError:
 
 # Import AssetManager - handle both direct execution and module execution
 try:
-    from DGTCentaurMods.asset_manager import AssetManager
+    from DGTCentaurMods.managers import AssetManager
 except ImportError:
     # Fallback for direct execution
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

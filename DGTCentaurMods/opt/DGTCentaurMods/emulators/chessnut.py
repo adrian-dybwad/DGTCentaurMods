@@ -21,7 +21,7 @@ https://github.com/chessnutech/Chessnut_eBoards
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.game_manager import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
+from DGTCentaurMods.managers.game import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
 
 
 # Chessnut Air command bytes

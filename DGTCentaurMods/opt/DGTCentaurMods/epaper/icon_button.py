@@ -17,7 +17,7 @@ except ImportError:
     log = logging.getLogger(__name__)
 
 try:
-    from DGTCentaurMods.asset_manager import AssetManager
+    from DGTCentaurMods.managers import AssetManager
 except ImportError:
     AssetManager = None
 

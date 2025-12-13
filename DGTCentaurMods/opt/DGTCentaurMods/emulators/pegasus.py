@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 import time
 
-from DGTCentaurMods.game_manager import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
+from DGTCentaurMods.managers.game import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
 
 # Unified command registry
 @dataclass(frozen=True)

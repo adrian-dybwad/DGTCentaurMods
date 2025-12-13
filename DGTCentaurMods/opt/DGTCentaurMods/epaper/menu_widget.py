@@ -12,7 +12,7 @@ import threading
 from DGTCentaurMods.board.logging import log
 
 try:
-    from DGTCentaurMods.asset_manager import AssetManager
+    from DGTCentaurMods.managers import AssetManager
 except ImportError:
     AssetManager = None
 

@@ -32,7 +32,7 @@ import subprocess
 import signal
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence, Tuple
-from DGTCentaurMods.asset_manager import AssetManager
+from DGTCentaurMods.managers import AssetManager
 
 from DGTCentaurMods.board import *
 from DGTCentaurMods.board.sync_centaur import command
@@ -407,7 +407,7 @@ def reset_bluetooth():
     This clears all paired devices to start fresh. Useful when switching
     between different phone/tablet connections or troubleshooting pairing issues.
     """
-    from DGTCentaurMods.rfcomm_manager import RfcommManager
+    from DGTCentaurMods.managers import RfcommManager
     
     clear_screen()
     write_text(0, "Resetting")

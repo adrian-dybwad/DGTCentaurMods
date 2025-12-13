@@ -19,7 +19,7 @@ except ImportError:
     log = logging.getLogger(__name__)
 
 try:
-    from DGTCentaurMods.asset_manager import AssetManager
+    from DGTCentaurMods.managers import AssetManager
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from asset_manager import AssetManager

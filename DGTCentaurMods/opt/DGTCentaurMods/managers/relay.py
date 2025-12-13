@@ -26,7 +26,7 @@ import time
 import bluetooth
 
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.rfcomm_manager import RfcommManager
+from DGTCentaurMods.managers.rfcomm import RfcommManager
 
 
 class RelayManager:

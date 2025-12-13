@@ -20,7 +20,7 @@ class TestRfcommManager(unittest.TestCase):
     @patch('psutil.process_iter')
     def test_enable_bluetooth(self, mock_process_iter, mock_popen):
         """Test enabling Bluetooth and making device discoverable"""
-        from DGTCentaurMods.rfcomm_manager import RfcommManager
+        from DGTCentaurMods.managers import RfcommManager
         
         # Mock subprocess
         mock_proc = MagicMock()
@@ -45,7 +45,7 @@ class TestRfcommManager(unittest.TestCase):
     @patch('psutil.process_iter')
     def test_start_discovery(self, mock_process_iter, mock_popen):
         """Test starting device discovery"""
-        from DGTCentaurMods.rfcomm_manager import RfcommManager
+        from DGTCentaurMods.managers import RfcommManager
         
         # Mock subprocess
         mock_proc = MagicMock()
@@ -70,7 +70,7 @@ class TestRfcommManager(unittest.TestCase):
     @patch('select.poll')
     def test_start_pairing_classic_bluetooth(self, mock_poll, mock_process_iter, mock_popen):
         """Test starting pairing for Classic Bluetooth"""
-        from DGTCentaurMods.rfcomm_manager import RfcommManager
+        from DGTCentaurMods.managers import RfcommManager
         
         # Mock subprocess for bluetoothctl
         mock_btctl_proc = MagicMock()
@@ -110,7 +110,7 @@ class TestRfcommManager(unittest.TestCase):
     @patch('psutil.process_iter')
     def test_set_device_name(self, mock_process_iter, mock_popen):
         """Test setting Bluetooth device name"""
-        from DGTCentaurMods.rfcomm_manager import RfcommManager
+        from DGTCentaurMods.managers import RfcommManager
         
         # Mock subprocess
         mock_proc = MagicMock()
@@ -134,7 +134,7 @@ class TestRfcommManager(unittest.TestCase):
     @patch('psutil.process_iter')
     def test_get_paired_devices(self, mock_process_iter, mock_popen):
         """Test getting list of paired devices"""
-        from DGTCentaurMods.rfcomm_manager import RfcommManager
+        from DGTCentaurMods.managers import RfcommManager
         
         # Mock subprocess with output
         mock_proc = MagicMock()
@@ -162,7 +162,7 @@ class TestRfcommManager(unittest.TestCase):
     @patch('psutil.process_iter')
     def test_remove_device(self, mock_process_iter, mock_popen):
         """Test removing a paired device"""
-        from DGTCentaurMods.rfcomm_manager import RfcommManager
+        from DGTCentaurMods.managers import RfcommManager
         
         # Mock subprocess
         mock_proc = MagicMock()
@@ -186,7 +186,7 @@ class TestRfcommManager(unittest.TestCase):
     @patch('psutil.process_iter')
     def test_keep_discoverable(self, mock_process_iter, mock_popen):
         """Test keeping device discoverable"""
-        from DGTCentaurMods.rfcomm_manager import RfcommManager
+        from DGTCentaurMods.managers import RfcommManager
         
         # Mock subprocess
         mock_proc = MagicMock()

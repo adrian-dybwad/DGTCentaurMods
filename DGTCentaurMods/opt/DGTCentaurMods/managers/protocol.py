@@ -16,7 +16,7 @@ from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.emulators.millennium import Millennium
 from DGTCentaurMods.emulators.pegasus import Pegasus
 from DGTCentaurMods.emulators.chessnut import Chessnut
-from DGTCentaurMods.game_manager import GameManager, EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
+from DGTCentaurMods.managers.game import GameManager, EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
 
 import chess
 import chess.engine

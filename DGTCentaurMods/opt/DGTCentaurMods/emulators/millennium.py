@@ -11,7 +11,7 @@
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.game_manager import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
+from DGTCentaurMods.managers.game import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
 
 # LED commands -> Patterns seen from Android chess with an original millennium:
 # AA = slow flash - used to indicate the start of a game on two bottom corner LEDS.
