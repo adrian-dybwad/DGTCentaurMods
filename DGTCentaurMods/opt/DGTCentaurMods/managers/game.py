@@ -43,16 +43,29 @@ def _load_deferred_imports():
     
     Imports scipy and database models which take ~3 seconds combined on Pi.
     Sets _deferred_imports_ready event when complete.
+    
+    Import order matters: scipy first (no dependencies on our code), then
+    database/SQLAlchemy (which may have already been imported by db.models).
     """
     global _deferred_models, _deferred_linear_sum_assignment
     global _deferred_sessionmaker, _deferred_func, _deferred_select, _deferred_create_engine
     
     try:
+        # Import scipy first (~1.5s) - no conflicts with our codebase
+        from scipy.optimize import linear_sum_assignment as _lsa
+        _deferred_linear_sum_assignment = _lsa
+        log.debug("[GameManager] scipy loaded successfully")
+    except Exception as e:
+        log.warning(f"[GameManager] scipy import failed (correction guidance will use fallback): {e}")
+    
+    try:
         # Import database models (~1.5s)
+        # Note: db.models imports SQLAlchemy at module level, so we import
+        # models first to ensure SQLAlchemy is fully initialized
         from DGTCentaurMods.db import models as _models
         _deferred_models = _models
         
-        # Import SQLAlchemy components
+        # Import SQLAlchemy components (should already be loaded by models)
         from sqlalchemy.orm import sessionmaker as _sessionmaker
         from sqlalchemy import func as _func, select as _select, create_engine as _create_engine
         _deferred_sessionmaker = _sessionmaker
@@ -60,13 +73,9 @@ def _load_deferred_imports():
         _deferred_select = _select
         _deferred_create_engine = _create_engine
         
-        # Import scipy (~1.5s)
-        from scipy.optimize import linear_sum_assignment as _lsa
-        _deferred_linear_sum_assignment = _lsa
-        
         log.debug("[GameManager] Deferred imports loaded successfully")
     except Exception as e:
-        log.error(f"[GameManager] Error loading deferred imports: {e}")
+        log.error(f"[GameManager] Error loading database imports: {e}")
     finally:
         _deferred_imports_ready.set()
 
@@ -870,18 +879,30 @@ class GameManager:
                 from_idx = extra_squares[0]
                 to_idx = missing_squares[0]
             else:
-                # Use Hungarian algorithm for optimal pairing
-                n_extra = len(extra_squares)
-                n_missing = len(missing_squares)
-                costs = np.zeros((n_extra, n_missing))
-                for i, extra_sq in enumerate(extra_squares):
-                    for j, missing_sq in enumerate(missing_squares):
-                        costs[i, j] = manhattan_distance(extra_sq, missing_sq)
-                
+                # Use Hungarian algorithm for optimal pairing if scipy is available
                 linear_sum_assignment = _get_linear_sum_assignment()
-                row_ind, col_ind = linear_sum_assignment(costs)
-                from_idx = extra_squares[row_ind[0]]
-                to_idx = missing_squares[col_ind[0]]
+                if linear_sum_assignment is not None:
+                    n_extra = len(extra_squares)
+                    n_missing = len(missing_squares)
+                    costs = np.zeros((n_extra, n_missing))
+                    for i, extra_sq in enumerate(extra_squares):
+                        for j, missing_sq in enumerate(missing_squares):
+                            costs[i, j] = manhattan_distance(extra_sq, missing_sq)
+                    row_ind, col_ind = linear_sum_assignment(costs)
+                    from_idx = extra_squares[row_ind[0]]
+                    to_idx = missing_squares[col_ind[0]]
+                else:
+                    # Fallback: guide first extra piece to nearest missing square
+                    log.warning("[GameManager._provide_correction_guidance] scipy unavailable, using simple fallback")
+                    from_idx = extra_squares[0]
+                    # Find nearest missing square by Manhattan distance
+                    min_dist = float('inf')
+                    to_idx = missing_squares[0]
+                    for missing_sq in missing_squares:
+                        dist = manhattan_distance(from_idx, missing_sq)
+                        if dist < min_dist:
+                            min_dist = dist
+                            to_idx = missing_sq
             
             board.ledsOff()
             # Use faster flashing (speed=10) for correction guidance to distinguish from normal moves (default speed=3)
