@@ -1771,7 +1771,11 @@ def _handle_system_menu():
 
 
 def _handle_inactivity_timeout():
-    """Handle inactivity timeout setting submenu."""
+    """Handle inactivity timeout setting submenu.
+    
+    The currently active timeout option displays a timer icon with a checkmark
+    overlay to indicate selection. Other options show a plain timer icon.
+    """
     # Available timeout options in minutes (0 = disabled)
     timeout_options = [
         (0, "Disabled"),
@@ -1787,12 +1791,10 @@ def _handle_inactivity_timeout():
     entries = []
     for minutes, label in timeout_options:
         seconds = minutes * 60
-        # Mark current selection with checkmark
-        if seconds == current_timeout:
-            display_label = f"\u2713 {label}"  # Unicode checkmark
-        else:
-            display_label = label
-        entries.append(IconMenuEntry(key=str(seconds), label=display_label, icon_name="timer", enabled=True))
+        # Use timer_checked icon for current selection, plain timer for others
+        is_current = seconds == current_timeout
+        icon = "timer_checked" if is_current else "timer"
+        entries.append(IconMenuEntry(key=str(seconds), label=label, icon_name=icon, enabled=True))
     
     result = _show_menu(entries)
     
