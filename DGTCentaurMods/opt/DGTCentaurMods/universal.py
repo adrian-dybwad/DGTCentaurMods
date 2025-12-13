@@ -1587,47 +1587,63 @@ def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
 def _handle_wifi_settings():
     """Handle WiFi settings submenu.
 
-    Shows WiFi status, allows scanning for networks, and connecting.
+    Shows WiFi status information with a toggle for enable/disable.
+    Displays:
+    - SSID, IP address, signal strength, frequency
+    - Scan button for connecting to networks
+    - Enable toggle (checkbox style)
+    
+    Uses the wifi_info module for status queries and control.
     """
-    last_selected = 0  # Track last selected index for returning from submenus
+    from DGTCentaurMods.epaper import wifi_info
+    
+    last_selected = 1  # Default to Scan button (first selectable after status display)
     
     while True:
         # Get current status
-        current_ssid, ip_address = _get_current_wifi_status()
-
-        if current_ssid:
-            status_label = f"Status\n{current_ssid}"
-            if ip_address:
-                status_label = f"Connected\n{ip_address}"
-        else:
-            status_label = "Status\nNot connected"
+        wifi_status = wifi_info.get_wifi_status()
+        
+        # Format status label
+        status_label = wifi_info.format_status_label(wifi_status)
+        
+        # Enable toggle uses checkbox icon based on current state
+        is_enabled = wifi_status['enabled']
+        enable_icon = "timer_checked" if is_enabled else "timer"
+        enable_label = "Enabled" if is_enabled else "Disabled"
 
         wifi_entries = [
+            # Status info display (non-selectable)
+            IconMenuEntry(
+                key="Info",
+                label=status_label,
+                icon_name="wifi",
+                enabled=True,
+                selectable=False,
+                height_ratio=1.5,
+                icon_size=36,
+                layout="vertical",
+                font_size=11
+            ),
+            # Scan button
             IconMenuEntry(
                 key="Scan",
                 label="Scan",
                 icon_name="wifi",
                 enabled=True,
-                height_ratio=2.0,
-                icon_size=48,
-                layout="vertical",
-                font_size=24
-            ),
-            IconMenuEntry(
-                key="Enable",
-                label="Enable",
-                icon_name="wifi",
-                enabled=True,
-                height_ratio=0.67,
+                selectable=True,
+                height_ratio=1.0,
+                icon_size=32,
                 layout="horizontal",
-                font_size=14
+                font_size=16
             ),
+            # Enable/Disable toggle (checkbox style)
             IconMenuEntry(
-                key="Disable",
-                label="Disable",
-                icon_name="cancel",
+                key="Toggle",
+                label=enable_label,
+                icon_name=enable_icon,
                 enabled=True,
-                height_ratio=0.67,
+                selectable=True,
+                height_ratio=0.8,
                 layout="horizontal",
                 font_size=14
             ),
@@ -1643,21 +1659,13 @@ def _handle_wifi_settings():
 
         if wifi_result == "Scan":
             _handle_wifi_scan()
-        elif wifi_result == "Enable":
-            try:
-                import subprocess
-                subprocess.run(['sudo', 'rfkill', 'unblock', 'wifi'], timeout=5)
-                board.beep(board.SOUND_GENERAL)
-                log.info("[Settings] WiFi enabled")
-            except Exception as e:
-                log.error(f"[Settings] Failed to enable WiFi: {e}")
-        elif wifi_result == "Disable":
-            try:
-                import subprocess
-                subprocess.run(['sudo', 'rfkill', 'block', 'wifi'], timeout=5)
-                log.info("[Settings] WiFi disabled")
-            except Exception as e:
-                log.error(f"[Settings] Failed to disable WiFi: {e}")
+        elif wifi_result == "Toggle":
+            # Toggle WiFi state
+            if is_enabled:
+                wifi_info.disable_wifi()
+            else:
+                if wifi_info.enable_wifi():
+                    board.beep(board.SOUND_GENERAL)
 
 
 def _handle_wifi_scan():
