@@ -103,9 +103,10 @@ from PIL import Image, ImageDraw, ImageFont
 from DGTCentaurMods.rfcomm_manager import RfcommManager
 from DGTCentaurMods.ble_manager import BleManager
 from DGTCentaurMods.relay_manager import RelayManager
-from DGTCentaurMods.game_handler import GameHandler
+from DGTCentaurMods.protocol_manager import ProtocolManager
 from DGTCentaurMods.display_manager import DisplayManager
 from DGTCentaurMods.menu_manager import MenuManager, MenuSelection, is_break_result, find_entry_index
+from DGTCentaurMods.connection_manager import ConnectionManager
 
 # All imports complete
 if _startup_splash:
@@ -131,7 +132,7 @@ running = True
 kill = 0
 client_connected = False
 app_state = AppState.MENU  # Current application state
-game_handler = None  # GameHandler instance
+protocol_manager = None  # ProtocolManager instance
 display_manager = None  # DisplayManager for game UI widgets
 _last_message = None  # Last message sent via sendMessage
 relay_mode = False  # Whether relay mode is enabled (connects to relay target)
@@ -139,6 +140,7 @@ mainloop = None  # GLib mainloop for BLE
 rfcomm_manager = None  # RfcommManager for RFCOMM pairing
 ble_manager = None  # BleManager for BLE GATT services
 relay_manager = None  # RelayManager for shadow target connections
+_connection_manager: Optional[ConnectionManager] = None  # Initialized in main()
 
 # Menu state - managed by MenuManager singleton
 _menu_manager: Optional[MenuManager] = None  # Initialized in main()
@@ -304,7 +306,7 @@ def _resume_game(game_data: dict) -> bool:
     Returns:
         True if game was successfully resumed, False otherwise
     """
-    global game_handler, app_state
+    global protocol_manager, app_state
     
     try:
         import chess
@@ -315,11 +317,11 @@ def _resume_game(game_data: dict) -> bool:
         # Start game mode with the resume position FEN so display shows correct position immediately
         _start_game_mode(starting_fen=game_data['fen'])
         
-        if game_handler is None or game_handler.game_manager is None:
+        if protocol_manager is None or protocol_manager.game_manager is None:
             log.error("[Resume] Failed to start game mode")
             return False
         
-        gm = game_handler.game_manager
+        gm = protocol_manager.game_manager
         
         # Set the database game ID so updates go to the right record
         gm.game_db_id = game_data['id']
@@ -343,8 +345,8 @@ def _resume_game(game_data: dict) -> bool:
         log.info(f"[Resume] Game resumed successfully at position: {current_fen[:50]}...")
         
         # Update the display to show the current position
-        if game_handler:
-            game_handler._update_display()
+        if protocol_manager:
+            protocol_manager._update_display()
         
         # Check if physical board matches the resumed position
         current_physical_state = board.getChessState()
@@ -443,7 +445,7 @@ def _start_from_position(fen: str, position_name: str) -> bool:
     Returns:
         True if position was loaded successfully, False otherwise
     """
-    global game_handler, app_state
+    global protocol_manager, app_state
     
     try:
         import chess
@@ -462,11 +464,11 @@ def _start_from_position(fen: str, position_name: str) -> bool:
         # Start game mode with position game flag (disables DB, changes back behavior)
         _start_game_mode(starting_fen=fen, is_position_game=True)
         
-        if game_handler is None or game_handler.game_manager is None:
+        if protocol_manager is None or protocol_manager.game_manager is None:
             log.error("[Positions] Failed to start game mode")
             return False
         
-        gm = game_handler.game_manager
+        gm = protocol_manager.game_manager
         
         # Set the board to the loaded position
         gm.chess_board.set_fen(fen)
@@ -474,8 +476,8 @@ def _start_from_position(fen: str, position_name: str) -> bool:
         log.info(f"[Positions] Position loaded: {gm.chess_board.fen()}")
         
         # Update the display to show the position
-        if game_handler:
-            game_handler._update_display()
+        if protocol_manager:
+            protocol_manager._update_display()
         
         # Check if physical board matches the loaded position
         current_physical_state = board.getChessState()
@@ -760,7 +762,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
                          - Database saving is disabled
                          - Back button returns directly to menu (no resign prompt)
     """
-    global app_state, game_handler, display_manager, _game_settings, _is_position_game
+    global app_state, protocol_manager, display_manager, _game_settings, _is_position_game
 
     log.info(f"[App] Transitioning to GAME mode (position_game={is_position_game})")
     _is_position_game = is_position_game
@@ -812,7 +814,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     )
     log.info("[App] DisplayManager initialized")
 
-    # Display update callback for GameHandler
+    # Display update callback for ProtocolManager
     def update_display(fen):
         """Update display manager with new position.
         
@@ -837,19 +839,19 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         indicate which side is resigning.
         """
         # Reset the kings-in-center menu flag (in case this was triggered by that menu)
-        game_handler.game_manager._kings_in_center_menu_active = False
+        protocol_manager.game_manager._kings_in_center_menu_active = False
         
         if result == "resign":
-            game_handler.game_manager.handle_resign()
+            protocol_manager.game_manager.handle_resign()
             _return_to_menu("Resigned")
         elif result == "resign_white":
-            game_handler.game_manager.handle_resign(chess.WHITE)
+            protocol_manager.game_manager.handle_resign(chess.WHITE)
             _return_to_menu("White Resigned")
         elif result == "resign_black":
-            game_handler.game_manager.handle_resign(chess.BLACK)
+            protocol_manager.game_manager.handle_resign(chess.BLACK)
             _return_to_menu("Black Resigned")
         elif result == "draw":
-            game_handler.game_manager.handle_draw()
+            protocol_manager.game_manager.handle_draw()
             _return_to_menu("Draw")
         elif result == "exit":
             board.shutdown(reason="User selected 'exit' from game menu")
@@ -882,10 +884,10 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         if squares:
             board.ledArray(squares, repeat=20)
     
-    # Create GameHandler with user-configured settings
+    # Create ProtocolManager with user-configured settings
     # Note: Key and field events are routed through universal.py's callbacks
     # In 2-player mode, don't pass an engine name so no engine opponent is used
-    game_handler = GameHandler(
+    protocol_manager = ProtocolManager(
         sendMessage_callback=sendMessage,
         client_type=None,
         compare_mode=relay_mode,
@@ -897,19 +899,19 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         hand_brain_mode=is_hand_brain,
         brain_hint_callback=_on_brain_hint if is_hand_brain else None
     )
-    log.info(f"[App] GameHandler created: engine={None if is_two_player else engine_name}, elo={engine_elo}, color={player_color_setting}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
+    log.info(f"[App] ProtocolManager created: engine={None if is_two_player else engine_name}, elo={engine_elo}, color={player_color_setting}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
     
     # Wire up GameManager callbacks to DisplayManager
-    game_handler.game_manager.on_promotion_needed = display_manager.show_promotion_menu
+    protocol_manager.game_manager.on_promotion_needed = display_manager.show_promotion_menu
     
     # For position games, skip the resign/draw menu and return directly
     if is_position_game:
-        game_handler.game_manager.on_back_pressed = _on_position_game_back
+        protocol_manager.game_manager.on_back_pressed = _on_position_game_back
     else:
         # In 2-player mode, show separate resign options for white and black
-        game_handler.game_manager.on_back_pressed = lambda: display_manager.show_back_menu(
+        protocol_manager.game_manager.on_back_pressed = lambda: display_manager.show_back_menu(
             _on_back_menu_result, 
-            is_two_player=game_handler.is_two_player_mode
+            is_two_player=protocol_manager.is_two_player_mode
         )
     
     # Kings-in-center gesture (DGT resign/draw) - only for 2-player mode
@@ -919,27 +921,27 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         def _on_kings_in_center():
             board.beep(board.SOUND_GENERAL, event_type='game_event')  # Beep to confirm gesture recognized
             display_manager.show_back_menu(_on_back_menu_result, is_two_player=True)
-        game_handler.game_manager.on_kings_in_center = _on_kings_in_center
+        protocol_manager.game_manager.on_kings_in_center = _on_kings_in_center
         # Cancel callback simulates BACK key press to properly dismiss menu
-        game_handler.game_manager.on_kings_in_center_cancel = display_manager.cancel_menu
+        protocol_manager.game_manager.on_kings_in_center_cancel = display_manager.cancel_menu
     
     # King-lift resign gesture - works in any game mode for human player's king
     # When king is held off board for 3+ seconds, show resign confirmation
     def _on_king_lift_resign_result(result: str):
         """Handle result from king-lift resign menu."""
         # Reset the menu flag
-        game_handler.game_manager._king_lift_resign_menu_active = False
+        protocol_manager.game_manager._king_lift_resign_menu_active = False
         
         if result == "resign":
             # Get the color of the king that was lifted
-            king_color = game_handler.game_manager.move_state.king_lifted_color
+            king_color = protocol_manager.game_manager.move_state.king_lifted_color
             if king_color is not None:
-                game_handler.game_manager.handle_resign(king_color)
+                protocol_manager.game_manager.handle_resign(king_color)
                 color_name = "White" if king_color == chess.WHITE else "Black"
                 _return_to_menu(f"{color_name} Resigned")
             else:
                 # Fallback - shouldn't happen but handle gracefully
-                game_handler.game_manager.handle_resign()
+                protocol_manager.game_manager.handle_resign()
                 _return_to_menu("Resigned")
         # cancel is handled by DisplayManager (restores display)
     
@@ -947,13 +949,13 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         """Handle king-lift resign gesture."""
         display_manager.show_king_lift_resign_menu(king_color, _on_king_lift_resign_result)
     
-    game_handler.game_manager.on_king_lift_resign = _on_king_lift_resign
-    game_handler.game_manager.on_king_lift_resign_cancel = display_manager.cancel_menu
+    protocol_manager.game_manager.on_king_lift_resign = _on_king_lift_resign
+    protocol_manager.game_manager.on_king_lift_resign_cancel = display_manager.cancel_menu
     
     # Wire up check and queen threat alert callbacks
-    game_handler.game_manager.on_check = display_manager.show_check_alert
-    game_handler.game_manager.on_queen_threat = display_manager.show_queen_threat_alert
-    game_handler.game_manager.on_alert_clear = display_manager.hide_alert
+    protocol_manager.game_manager.on_check = display_manager.show_check_alert
+    protocol_manager.game_manager.on_queen_threat = display_manager.show_queen_threat_alert
+    protocol_manager.game_manager.on_alert_clear = display_manager.hide_alert
     
     # Wire up event callback to handle game events
     from DGTCentaurMods.game_manager import EVENT_NEW_GAME
@@ -969,10 +971,13 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         elif isinstance(event, str) and event.startswith("Termination."):
             # Game ended (checkmate, stalemate, resign, draw, etc.)
             termination_type = event[12:]  # Remove "Termination." prefix
-            result = game_handler.game_manager.get_result()
+            result = protocol_manager.game_manager.get_result()
             log.info(f"[App] Game terminated: {termination_type}, result={result}")
             display_manager.show_game_over(result, termination_type)
-    game_handler._external_event_callback = _on_game_event
+    protocol_manager._external_event_callback = _on_game_event
+    
+    # Register protocol_manager with ConnectionManager - this also processes any queued data
+    _connection_manager.set_protocol_manager(protocol_manager)
 
 
 def _cleanup_game():
@@ -980,7 +985,7 @@ def _cleanup_game():
     
     Used when exiting a game, whether returning to menu or positions menu.
     """
-    global game_handler, display_manager, _pending_piece_events, _is_position_game
+    global protocol_manager, display_manager, _pending_piece_events, _is_position_game
     
     # Clear position game flag
     _is_position_game = False
@@ -988,13 +993,16 @@ def _cleanup_game():
     # Clear any stale pending piece events from previous game
     _pending_piece_events.clear()
     
+    # Clear ConnectionManager handler and pending data
+    _connection_manager.clear_handler()
+    
     # Clean up game handler
-    if game_handler is not None:
+    if protocol_manager is not None:
         try:
-            game_handler.cleanup()
+            protocol_manager.cleanup()
         except Exception as e:
             log.debug(f"Error cleaning up game handler: {e}")
-        game_handler = None
+        protocol_manager = None
     
     # Clean up display manager
     if display_manager is not None:
@@ -2031,25 +2039,14 @@ def _run_centaur():
 def _on_ble_data_received(data: bytes, client_type: str):
     """Handle data received from BLE client.
     
-    Routes data to GameHandler for protocol processing.
+    Routes data to ConnectionManager which handles queuing if ProtocolManager is not
+    yet ready (e.g., during menu -> game transition).
     
     Args:
         data: Raw bytes received from BLE client
         client_type: Type of client ('millennium', 'pegasus', 'chessnut')
     """
-    global game_handler, relay_mode, relay_manager
-    
-    hex_str = ' '.join(f'{b:02x}' for b in data)
-    log.info(f"[BLE RX] {client_type}: {len(data)} bytes - {hex_str}")
-    
-    # Process through GameHandler
-    if game_handler:
-        for byte_val in data:
-            game_handler.receive_data(byte_val)
-    
-    # Forward to shadow target if in relay mode
-    if relay_mode and relay_manager is not None and relay_manager.connected:
-        relay_manager.send_to_target(data)
+    _connection_manager.receive_data(data, client_type)
 
 
 def _on_ble_connected(client_type: str):
@@ -2063,12 +2060,12 @@ def _on_ble_connected(client_type: str):
     Args:
         client_type: Type of client ('millennium', 'pegasus', 'chessnut')
     """
-    global game_handler, app_state, _menu_manager, _pending_ble_client_type
+    global protocol_manager, app_state, _menu_manager, _pending_ble_client_type
     
     log.info(f"[BLE] Client connected: {client_type}")
     
     # Case 1: Already in game mode - show confirmation dialog
-    if app_state == AppState.GAME and game_handler is not None:
+    if app_state == AppState.GAME and protocol_manager is not None:
         log.info("[BLE] Client connected while in game - showing confirmation dialog")
         _show_ble_connection_confirm(client_type)
         return
@@ -2077,7 +2074,7 @@ def _on_ble_connected(client_type: str):
     if (app_state == AppState.MENU or app_state == AppState.SETTINGS) and _menu_manager.active_widget is not None:
         log.info(f"[BLE] Client connected while in {app_state.name} - cancelling menu to start game")
         _menu_manager.cancel_selection("CLIENT_CONNECTED")
-        return  # GameHandler will be notified after game mode starts
+        return  # ProtocolManager will be notified after game mode starts
     
     # Case 3: In menu/settings mode but between menus (no active widget) - set flag for main loop
     if app_state == AppState.MENU or app_state == AppState.SETTINGS:
@@ -2086,8 +2083,8 @@ def _on_ble_connected(client_type: str):
         return
     
     # Case 4: Other states - notify game handler if available
-    if game_handler:
-        game_handler.on_app_connected()
+    if protocol_manager:
+        protocol_manager.on_app_connected()
 
 
 def _show_ble_connection_confirm(client_type: str):
@@ -2102,20 +2099,20 @@ def _show_ble_connection_confirm(client_type: str):
     
     def _on_confirm_result(result: str):
         """Handle confirmation dialog result."""
-        global game_handler, app_state
+        global protocol_manager, app_state
         
         if result == "new_game":
             log.info("[BLE] User chose to abandon game and start new one")
             # Clean up current game and start new one
             _cleanup_game()
             _start_game_mode()
-            if game_handler:
-                game_handler.on_app_connected()
+            if protocol_manager:
+                protocol_manager.on_app_connected()
         else:
             # Cancel - keep current game
             log.info("[BLE] User cancelled - keeping current game")
-            if game_handler:
-                game_handler.on_app_connected()
+            if protocol_manager:
+                protocol_manager.on_app_connected()
     
     # Show confirmation menu using display_manager
     if display_manager is not None:
@@ -2153,16 +2150,16 @@ def _show_ble_connection_confirm(client_type: str):
 def _on_ble_disconnected():
     """Handle BLE client disconnection.
     
-    Notifies GameHandler that the app has disconnected.
+    Notifies ProtocolManager that the app has disconnected.
     """
-    global game_handler
+    global protocol_manager
     
     log.info("[BLE] Client disconnected")
-    if game_handler:
-        game_handler.on_app_disconnected()
+    if protocol_manager:
+        protocol_manager.on_app_disconnected()
 
 # ============================================================================
-# sendMessage callback for GameHandler
+# sendMessage callback for ProtocolManager
 # ============================================================================
 
 def sendMessage(data, message_type=None):
@@ -2210,9 +2207,9 @@ def sendMessage(data, message_type=None):
 def client_reader():
     """Read data from RFCOMM client.
     
-    Processes data through GameHandler and optionally forwards to relay target.
+    Processes data through ProtocolManager and optionally forwards to relay target.
     """
-    global running, client_sock, client_connected, game_handler, relay_mode, relay_manager
+    global running, client_sock, client_connected, protocol_manager, relay_mode, relay_manager
     
     log.info("Starting Client reader thread")
     try:
@@ -2226,19 +2223,11 @@ def client_reader():
                 if len(data) == 0:
                     log.info("RFCOMM client disconnected")
                     client_connected = False
-                    game_handler.on_app_disconnected()
+                    protocol_manager.on_app_disconnected()
                     break
                 
-                data_bytes = bytearray(data)
-                log.info(f"[RFCOMM RX] {' '.join(f'{b:02x}' for b in data_bytes)}")
-                
-                # Process through GameHandler
-                for byte_val in data_bytes:
-                    game_handler.receive_data(byte_val)
-                
-                # Forward to shadow target if in relay mode
-                if relay_mode and relay_manager is not None and relay_manager.connected:
-                    relay_manager.send_to_target(bytes(data_bytes))
+                # Route through ConnectionManager (handles queuing and relay)
+                _connection_manager.receive_data(bytes(data), "rfcomm")
                     
             except bluetooth.BluetoothError as e:
                 if running:
@@ -2272,7 +2261,7 @@ def cleanup_and_exit(reason: str = "Normal exit"):
         reason: Description of why the exit is happening (logged for debugging)
     """
     global kill, running, client_sock, server_sock, client_connected, mainloop
-    global game_handler, display_manager, rfcomm_manager, ble_manager, relay_manager
+    global protocol_manager, display_manager, rfcomm_manager, ble_manager, relay_manager
     
     try:
         log.info(f"Exiting: {reason}")
@@ -2304,9 +2293,9 @@ def cleanup_and_exit(reason: str = "Normal exit"):
                 log.debug(f"Error stopping relay_manager: {e}")
         
         # Clean up game handler (stops game manager thread and closes standalone engine)
-        if game_handler is not None:
+        if protocol_manager is not None:
             try:
-                game_handler.cleanup()
+                protocol_manager.cleanup()
             except Exception as e:
                 log.debug(f"Error cleaning up game handler: {e}")
         
@@ -2442,19 +2431,19 @@ def key_callback(key_id):
                 display_manager.toggle_analysis()
             return
         
-        # Forward other keys to game_handler -> game_manager
-        if game_handler:
-            game_handler.receive_key(key_id)
+        # Forward other keys to protocol_manager -> game_manager
+        if protocol_manager:
+            protocol_manager.receive_key(key_id)
             
             # Check if GameManager wants us to exit:
             # - BACK with no game in progress (no moves made)
             # - BACK after game over (checkmate, stalemate, etc.)
             if key_id == board.Key.BACK:
-                outcome = game_handler.game_manager.chess_board.outcome(claim_draw=True)
+                outcome = protocol_manager.game_manager.chess_board.outcome(claim_draw=True)
                 if outcome is not None:
                     log.info(f"[App] BACK after game over ({outcome.termination}) - returning to menu")
                     _return_to_menu("Game over - BACK pressed")
-                elif not game_handler.game_manager.is_game_in_progress():
+                elif not protocol_manager.game_manager.is_game_in_progress():
                     log.info("[App] BACK with no game - returning to menu")
                     _return_to_menu("BACK pressed")
 
@@ -2469,14 +2458,14 @@ def field_callback(piece_event, field, time_in_seconds):
     Routes field events based on priority:
     1. Active keyboard widget (for text input like WiFi password)
     2. Menu mode with piece lift: Start game mode (piece move starts game)
-    3. Game mode: Forward to game_handler -> game_manager for piece detection
+    3. Game mode: Forward to protocol_manager -> game_manager for piece detection
     
     Args:
         piece_event: 0 = lift, 1 = place
         field: Board field index (0-63)
         time_in_seconds: Event timestamp
     """
-    global app_state, game_handler, _active_keyboard_widget, _menu_manager, _pending_piece_events
+    global app_state, protocol_manager, _active_keyboard_widget, _menu_manager, _pending_piece_events
 
     # Priority 1: Active keyboard gets field events
     if _active_keyboard_widget is not None:
@@ -2506,8 +2495,8 @@ def field_callback(piece_event, field, time_in_seconds):
     
     # Priority 3: Game mode
     if app_state == AppState.GAME:
-        if game_handler:
-            game_handler.receive_field(piece_event, field, time_in_seconds)
+        if protocol_manager:
+            protocol_manager.receive_field(piece_event, field, time_in_seconds)
         else:
             # Game handler not yet created - queue event for when it's ready
             _pending_piece_events.append((piece_event, field, time_in_seconds))
@@ -2521,7 +2510,7 @@ def main():
     BLE/RFCOMM connections can trigger auto-transition to game mode.
     """
     global server_sock, client_sock, client_connected, running, kill
-    global mainloop, relay_mode, game_handler, relay_manager, app_state, _args
+    global mainloop, relay_mode, protocol_manager, relay_manager, app_state, _args
     global _pending_piece_events, _return_to_positions_menu, _switch_to_normal_game, _menu_manager
     
     parser = argparse.ArgumentParser(description="DGT Centaur Universal")
@@ -2559,6 +2548,10 @@ def main():
     _menu_manager = MenuManager.get_instance()
     _menu_manager.set_board(board)
     _menu_manager.set_dimensions(DISPLAY_WIDTH, DISPLAY_HEIGHT, STATUS_BAR_HEIGHT)
+    
+    # Initialize the ConnectionManager singleton
+    global _connection_manager
+    _connection_manager = ConnectionManager()
 
     # Display is already initialized at module load time - use the early splash screen
     # The _startup_splash was created before board module was imported
@@ -2708,7 +2701,7 @@ def main():
                     log.info(f"Client address: {client_info}")
                     
                     # Handle connection - same logic as BLE
-                    if app_state == AppState.GAME and game_handler is not None:
+                    if app_state == AppState.GAME and protocol_manager is not None:
                         # Already in game - show confirmation dialog
                         log.info("[RFCOMM] Client connected while in game - showing confirmation dialog")
                         _show_ble_connection_confirm("rfcomm")
@@ -2720,8 +2713,8 @@ def main():
                         # Between menus - set flag for main loop
                         log.info(f"[RFCOMM] Client connected between menus ({app_state.name}) - setting flag")
                         _pending_ble_client_type = "rfcomm"
-                    elif game_handler:
-                        game_handler.on_app_connected()
+                    elif protocol_manager:
+                        protocol_manager.on_app_connected()
                     
                     # Start client reader thread
                     reader_thread = threading.Thread(target=client_reader, daemon=True)
@@ -2755,8 +2748,8 @@ def main():
         def _on_shadow_data(data: bytes):
             """Handle data received from shadow target."""
             # Compare with emulator if in compare mode
-            if game_handler is not None and game_handler.compare_mode:
-                match, emulator_response = game_handler.compare_with_shadow(data)
+            if protocol_manager is not None and protocol_manager.compare_mode:
+                match, emulator_response = protocol_manager.compare_with_shadow(data)
                 if match is False:
                     log.error("[Relay] MISMATCH: Emulator response differs from shadow host")
                 elif match is True:
@@ -2795,6 +2788,9 @@ def main():
         
         shadow_thread = threading.Thread(target=connect_shadow, daemon=True)
         shadow_thread.start()
+        
+        # Configure ConnectionManager for relay mode
+        _connection_manager.set_relay_manager(relay_manager, relay_mode)
     
     log.info("")
     log.info("Ready for connections and user input")
@@ -2841,8 +2837,8 @@ def main():
                     log.info(f"[App] Pending BLE client connection detected ({_pending_ble_client_type}) - starting game mode")
                     _pending_ble_client_type = None
                     _start_game_mode()
-                    if game_handler:
-                        game_handler.on_app_connected()
+                    if protocol_manager:
+                        protocol_manager.on_app_connected()
                     continue  # Re-check app_state (now should be GAME)
                 
                 # Check for pending piece events before showing menu
@@ -2853,11 +2849,11 @@ def main():
                     while _pending_piece_events:
                         pe, field, ts = _pending_piece_events.pop(0)
                         log.info(f"[App] Forwarding piece event: field={field}, event={pe}")
-                        if game_handler:
-                            game_handler.receive_field(pe, field, ts)
+                        if protocol_manager:
+                            protocol_manager.receive_field(pe, field, ts)
                     if (ble_manager and ble_manager.connected) or client_connected:
-                        if game_handler:
-                            game_handler.on_app_connected()
+                        if protocol_manager:
+                            protocol_manager.on_app_connected()
                     continue  # Re-check app_state (now should be GAME)
                 
                 # Show main menu
@@ -2900,21 +2896,21 @@ def main():
                     while _pending_piece_events:
                         pe, field, ts = _pending_piece_events.pop(0)
                         log.info(f"[App] Forwarding piece event: field={field}, event={pe}")
-                        if game_handler:
-                            game_handler.receive_field(pe, field, ts)
+                        if protocol_manager:
+                            protocol_manager.receive_field(pe, field, ts)
                     
-                    # Notify GameHandler if client is already connected
+                    # Notify ProtocolManager if client is already connected
                     if (ble_manager and ble_manager.connected) or client_connected:
-                        if game_handler:
-                            game_handler.on_app_connected()
+                        if protocol_manager:
+                            protocol_manager.on_app_connected()
                 
                 elif result == "Settings":
                     settings_result = _handle_settings()
                     # Check if a BLE client connected during settings
                     if is_break_result(settings_result):
                         _start_game_mode()
-                        if game_handler:
-                            game_handler.on_app_connected()
+                        if protocol_manager:
+                            protocol_manager.on_app_connected()
                     # After settings, continue to main menu
                 
                 elif result == "HELP":
@@ -2941,15 +2937,15 @@ def main():
                     if is_break_result(position_result):
                         # BLE client connected during positions menu
                         _start_game_mode()
-                        if game_handler:
-                            game_handler.on_app_connected()
+                        if protocol_manager:
+                            protocol_manager.on_app_connected()
                     elif not position_result:
                         # User backed out of positions menu, show settings
                         settings_result = _handle_settings()
                         if is_break_result(settings_result):
                             _start_game_mode()
-                            if game_handler:
-                                game_handler.on_app_connected()
+                            if protocol_manager:
+                                protocol_manager.on_app_connected()
                 else:
                     # Settings handled by _handle_settings loop
                     time.sleep(0.1)

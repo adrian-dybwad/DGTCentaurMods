@@ -1,10 +1,13 @@
-# Game Handler
+# Protocol Manager
 #
 # This file is part of the DGTCentaurUniversal project
 # ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
 #
 # This project started as a fork of DGTCentaur Mods by EdNekebno
 # ( https://github.com/EdNekebno/DGTCentaur )
+#
+# Manages protocol parsing and routing for chess app connections
+# (Millennium, Pegasus, Chessnut). Bridges external protocols to GameManager.
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE.md for details.
@@ -23,12 +26,14 @@ import configparser
 import threading
 
 
-class GameHandler:
-    """Game handler that supports multiple protocols (Millennium, Pegasus, Chessnut).
+class ProtocolManager:
+    """Manages protocol parsing and routing for chess app connections.
     
-    This class can operate in two modes:
+    Supports Millennium, Pegasus, and Chessnut protocols. Can operate in two modes:
     1. Known client type (BLE): Only creates the specific emulator for that protocol
     2. Unknown client type (RFCOMM): Creates all RFCOMM-capable emulators and auto-detects
+    
+    Bridges external app protocols to the internal GameManager for chess logic.
     
     In relay mode (compare_mode=True), emulator responses are buffered for comparison
     with shadow host responses instead of being sent directly to the client.
@@ -44,7 +49,7 @@ class GameHandler:
                  standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default",
                  display_update_callback=None, save_to_database=True,
                  hand_brain_mode: bool = False, brain_hint_callback=None):
-        """Initialize the GameHandler.
+        """Initialize the ProtocolManager.
         
         Args:
             sendMessage_callback: Callback function(data) for sending messages to client
@@ -116,28 +121,28 @@ class GameHandler:
         
         # Always create all emulators for auto-detection from actual data
         # The client_type hint from BLE service UUID is unreliable
-        log.info(f"[GameHandler] Creating emulators for auto-detection (hint: {client_type or 'none'})")
+        log.info(f"[ProtocolManager] Creating emulators for auto-detection (hint: {client_type or 'none'})")
         
         # Create Millennium emulator
         self._millennium = Millennium(
             sendMessage_callback=self._handle_emulator_response,
             manager=self.game_manager
         )
-        log.info("[GameHandler] Created Millennium emulator")
+        log.info("[ProtocolManager] Created Millennium emulator")
         
         # Create Pegasus emulator
         self._pegasus = Pegasus(
             sendMessage_callback=self._handle_emulator_response,
             manager=self.game_manager
         )
-        log.info("[GameHandler] Created Pegasus emulator")
+        log.info("[ProtocolManager] Created Pegasus emulator")
         
         # Create Chessnut emulator
         self._chessnut = Chessnut(
             sendMessage_callback=self._handle_emulator_response,
             manager=self.game_manager
         )
-        log.info("[GameHandler] Created Chessnut emulator")
+        log.info("[ProtocolManager] Created Chessnut emulator")
         
         # Track 2-player mode (no engine opponent)
         self._is_two_player_mode = standalone_engine_name is None
@@ -161,7 +166,7 @@ class GameHandler:
         """
         if self.compare_mode:
             self._pending_response = bytes(data) if data else None
-            log.debug(f"[GameHandler] Emulator response buffered ({len(data) if data else 0} bytes)")
+            log.debug(f"[ProtocolManager] Emulator response buffered ({len(data) if data else 0} bytes)")
         else:
             if self._sendMessage:
                 self._sendMessage(data)
@@ -201,18 +206,18 @@ class GameHandler:
         emulator_response = self.get_pending_response()
         
         if emulator_response is None:
-            log.debug("[GameHandler] No emulator response to compare (emulator may not have generated one)")
+            log.debug("[ProtocolManager] No emulator response to compare (emulator may not have generated one)")
             return (None, None)
         
         shadow_bytes = bytes(shadow_response) if shadow_response else b''
         match = emulator_response == shadow_bytes
         
         if not match:
-            log.warning("[GameHandler] Response MISMATCH between emulator and shadow host:")
+            log.warning("[ProtocolManager] Response MISMATCH between emulator and shadow host:")
             log.warning(f"  Shadow host: {shadow_bytes.hex() if shadow_bytes else '(empty)'}")
             log.warning(f"  Emulator:    {emulator_response.hex() if emulator_response else '(empty)'}")
         else:
-            log.debug(f"[GameHandler] Response match: {shadow_bytes.hex()}")
+            log.debug(f"[ProtocolManager] Response match: {shadow_bytes.hex()}")
         
         return (match, emulator_response)
     
@@ -230,24 +235,24 @@ class GameHandler:
             time_in_seconds: Time since game start
         """
         try:
-            log.debug(f"[GameHandler] _manager_event_callback: {event} piece_event={piece_event}, field={field}")
-            log.debug(f"[GameHandler] Flags: is_millennium={self.is_millennium}, is_pegasus={self.is_pegasus}, is_chessnut={self.is_chessnut}")
-            log.debug(f"[GameHandler] Emulators: _millennium={self._millennium is not None}, _pegasus={self._pegasus is not None}, _chessnut={self._chessnut is not None}")
+            log.debug(f"[ProtocolManager] _manager_event_callback: {event} piece_event={piece_event}, field={field}")
+            log.debug(f"[ProtocolManager] Flags: is_millennium={self.is_millennium}, is_pegasus={self.is_pegasus}, is_chessnut={self.is_chessnut}")
+            log.debug(f"[ProtocolManager] Emulators: _millennium={self._millennium is not None}, _pegasus={self._pegasus is not None}, _chessnut={self._chessnut is not None}")
             
             # If protocol is confirmed, only forward to the active emulator
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_event'):
-                log.debug("[GameHandler] Routing event to Millennium")
+                log.debug("[ProtocolManager] Routing event to Millennium")
                 self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_event'):
-                log.debug("[GameHandler] Routing event to Pegasus")
+                log.debug("[ProtocolManager] Routing event to Pegasus")
                 self._pegasus.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
-                log.debug("[GameHandler] Routing event to Chessnut")
+                log.debug("[ProtocolManager] Routing event to Chessnut")
                 self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
             else:
                 # Protocol not yet confirmed - forward to ALL emulators
                 # Each emulator will only act if it has reporting enabled
-                log.debug("[GameHandler] Protocol not confirmed, forwarding event to all emulators")
+                log.debug("[ProtocolManager] Protocol not confirmed, forwarding event to all emulators")
                 if self._millennium and hasattr(self._millennium, 'handle_manager_event'):
                     self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
                 if self._pegasus and hasattr(self._pegasus, 'handle_manager_event'):
@@ -270,12 +275,12 @@ class GameHandler:
                 try:
                     self._external_event_callback(event)
                 except Exception as e:
-                    log.debug(f"[GameHandler] Error in external event callback: {e}")
+                    log.debug(f"[ProtocolManager] Error in external event callback: {e}")
             
             # Update display with current position
             self._update_display()
         except Exception as e:
-            log.error(f"[GameHandler] Error in _manager_event_callback: {e}")
+            log.error(f"[ProtocolManager] Error in _manager_event_callback: {e}")
             import traceback
             traceback.print_exc()
     
@@ -290,7 +295,7 @@ class GameHandler:
             move: Chess move object
         """
         try:
-            log.debug(f"[GameHandler] _manager_move_callback: {move}")
+            log.debug(f"[ProtocolManager] _manager_move_callback: {move}")
             
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_move'):
                 self._millennium.handle_manager_move(move)
@@ -300,7 +305,7 @@ class GameHandler:
                 self._chessnut.handle_manager_move(move)
             else:
                 # Protocol not yet confirmed - forward to ALL emulators
-                log.debug("[GameHandler] Protocol not confirmed, forwarding move to all emulators")
+                log.debug("[ProtocolManager] Protocol not confirmed, forwarding move to all emulators")
                 if self._millennium and hasattr(self._millennium, 'handle_manager_move'):
                     self._millennium.handle_manager_move(move)
                 if self._pegasus and hasattr(self._pegasus, 'handle_manager_move'):
@@ -313,7 +318,7 @@ class GameHandler:
             # Update display with current position
             self._update_display()
         except Exception as e:
-            log.error(f"[GameHandler] Error in _manager_move_callback: {e}")
+            log.error(f"[ProtocolManager] Error in _manager_move_callback: {e}")
             import traceback
             traceback.print_exc()
     
@@ -326,7 +331,7 @@ class GameHandler:
             key: Key that was pressed (board.Key enum value)
         """
         try:
-            log.debug(f"[GameHandler] _manager_key_callback: {key}")
+            log.debug(f"[ProtocolManager] _manager_key_callback: {key}")
             
             # Forward to active emulator
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_key'):
@@ -336,14 +341,14 @@ class GameHandler:
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_key'):
                 self._chessnut.handle_manager_key(key)
         except Exception as e:
-            log.error(f"[GameHandler] Error in _manager_key_callback: {e}")
+            log.error(f"[ProtocolManager] Error in _manager_key_callback: {e}")
             import traceback
             traceback.print_exc()
     
     def _manager_takeback_callback(self):
         """Handle takeback requests from the manager."""
         try:
-            log.info("[GameHandler] _manager_takeback_callback")
+            log.info("[ProtocolManager] _manager_takeback_callback")
             
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_takeback'):
                 self._millennium.handle_manager_takeback()
@@ -352,7 +357,7 @@ class GameHandler:
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_takeback'):
                 self._chessnut.handle_manager_takeback()
         except Exception as e:
-            log.error(f"[GameHandler] Error in _manager_takeback_callback: {e}")
+            log.error(f"[ProtocolManager] Error in _manager_takeback_callback: {e}")
             import traceback
             traceback.print_exc()
 
@@ -437,7 +442,7 @@ class GameHandler:
             if emulator and emulator.parse_byte(byte_value):
                 hint_match = " (matches hint)" if self._client_type_hint == client_type else ""
                 hint_mismatch = f" (hint was {self._client_type_hint})" if self._client_type_hint and self._client_type_hint != client_type else ""
-                log.info(f"[GameHandler] {name} protocol detected via auto-detection{hint_match}{hint_mismatch}")
+                log.info(f"[ProtocolManager] {name} protocol detected via auto-detection{hint_match}{hint_mismatch}")
                 
                 self.client_type = client_type
                 
@@ -483,21 +488,21 @@ class GameHandler:
                 fen = self.game_manager.chess_board.fen()
                 self._display_update_callback(fen)
             except Exception as e:
-                log.error(f"[GameHandler] Error updating display: {e}")
+                log.error(f"[ProtocolManager] Error updating display: {e}")
 
     def subscribe_manager(self):
         """Subscribe to the game manager with callbacks."""
         try:
-            log.info("[GameHandler] Subscribing to game manager")
+            log.info("[ProtocolManager] Subscribing to game manager")
             self.game_manager.subscribe_game(
                 self._manager_event_callback,
                 self._manager_move_callback,
                 self._manager_key_callback,
                 self._manager_takeback_callback
             )
-            log.info("[GameHandler] Successfully subscribed to game manager")
+            log.info("[ProtocolManager] Successfully subscribed to game manager")
         except Exception as e:
-            log.error(f"[GameHandler] Failed to subscribe to game manager: {e}")
+            log.error(f"[ProtocolManager] Failed to subscribe to game manager: {e}")
             import traceback
             traceback.print_exc()
     
@@ -522,8 +527,8 @@ class GameHandler:
         uci_file_path = str(engine_path) + ".uci"
         
         if not engine_path.exists():
-            log.error(f"[GameHandler] Standalone engine not found: {engine_path}")
-            log.error(f"[GameHandler] Standalone play will not be available")
+            log.error(f"[ProtocolManager] Standalone engine not found: {engine_path}")
+            log.error(f"[ProtocolManager] Standalone play will not be available")
             return
         
         # Load UCI options from config file (fast, can be done sync)
@@ -532,19 +537,19 @@ class GameHandler:
         def _init_engine():
             """Background thread for engine initialization."""
             try:
-                log.info(f"[GameHandler] Starting standalone engine initialization: {self._standalone_engine_name}")
+                log.info(f"[ProtocolManager] Starting standalone engine initialization: {self._standalone_engine_name}")
                 engine = chess.engine.SimpleEngine.popen_uci(str(engine_path))
                 
                 # Apply UCI options (ELO settings)
                 if self._uci_options:
-                    log.info(f"[GameHandler] Configuring engine with options: {self._uci_options}")
+                    log.info(f"[ProtocolManager] Configuring engine with options: {self._uci_options}")
                     engine.configure(self._uci_options)
                 
                 self._standalone_engine = engine
-                log.info(f"[GameHandler] Standalone UCI engine ready: {self._standalone_engine_name} @ {self._engine_elo}")
+                log.info(f"[ProtocolManager] Standalone UCI engine ready: {self._standalone_engine_name} @ {self._engine_elo}")
                     
             except Exception as e:
-                log.error(f"[GameHandler] Failed to initialize standalone engine: {e}")
+                log.error(f"[ProtocolManager] Failed to initialize standalone engine: {e}")
                 import traceback
                 traceback.print_exc()
                 self._standalone_engine = None
@@ -564,7 +569,7 @@ class GameHandler:
             uci_file_path: Path to the .uci config file (e.g., engines/stockfish_pi.uci)
         """
         if not os.path.exists(uci_file_path):
-            log.warning(f"[GameHandler] UCI file not found: {uci_file_path}, using defaults")
+            log.warning(f"[ProtocolManager] UCI file not found: {uci_file_path}, using defaults")
             return
         
         config = configparser.ConfigParser()
@@ -574,7 +579,7 @@ class GameHandler:
         section = self._engine_elo
         
         if config.has_section(section):
-            log.info(f"[GameHandler] Loading UCI options from section: {section}")
+            log.info(f"[ProtocolManager] Loading UCI options from section: {section}")
             for key, value in config.items(section):
                 self._uci_options[key] = value
             
@@ -584,9 +589,9 @@ class GameHandler:
                 k: v for k, v in self._uci_options.items()
                 if k not in non_uci_fields
             }
-            log.info(f"[GameHandler] UCI options: {self._uci_options}")
+            log.info(f"[ProtocolManager] UCI options: {self._uci_options}")
         else:
-            log.warning(f"[GameHandler] Section '{section}' not found in {uci_file_path}")
+            log.warning(f"[ProtocolManager] Section '{section}' not found in {uci_file_path}")
             if config.has_section("DEFAULT"):
                 for key, value in config.items("DEFAULT"):
                     if key != 'Description':
@@ -608,15 +613,15 @@ class GameHandler:
         if not self._standalone_engine:
             return
         
-        log.info("[GameHandler] New game detected - resetting standalone engine state")
+        log.info("[ProtocolManager] New game detected - resetting standalone engine state")
         
         # Send ucinewgame to reset engine's internal state
         try:
             # The chess.engine library handles ucinewgame automatically on new positions
             # but we log this for clarity
-            log.info("[GameHandler] Engine state will be reset on next move")
+            log.info("[ProtocolManager] Engine state will be reset on next move")
         except Exception as e:
-            log.error(f"[GameHandler] Error resetting engine state: {e}")
+            log.error(f"[ProtocolManager] Error resetting engine state: {e}")
     
     def _check_standalone_engine_turn(self):
         """If no app connected and it's engine's turn, start engine thinking in background.
@@ -655,7 +660,7 @@ class GameHandler:
         def _engine_think():
             """Background thread for engine thinking."""
             try:
-                log.info(f"[GameHandler] Standalone engine ({self._standalone_engine_name} @ {self._engine_elo}) thinking...")
+                log.info(f"[ProtocolManager] Standalone engine ({self._standalone_engine_name} @ {self._engine_elo}) thinking...")
                 
                 # Re-apply UCI options before each move
                 if self._uci_options:
@@ -669,13 +674,13 @@ class GameHandler:
                 move = result.move
                 
                 if move:
-                    log.info(f"[GameHandler] Standalone engine move: {move.uci()}")
+                    log.info(f"[ProtocolManager] Standalone engine move: {move.uci()}")
                     # Use manager.computer_move to set up the forced move with LEDs
                     # This lights up the from/to squares and waits for player to execute the move
                     self.game_manager.computer_move(move.uci(), forced=True)
-                    log.info(f"[GameHandler] Waiting for player to execute move {move.uci()} on board")
+                    log.info(f"[ProtocolManager] Waiting for player to execute move {move.uci()} on board")
             except Exception as e:
-                log.error(f"[GameHandler] Error getting standalone engine move: {e}")
+                log.error(f"[ProtocolManager] Error getting standalone engine move: {e}")
                 import traceback
                 traceback.print_exc()
             finally:
@@ -729,7 +734,7 @@ class GameHandler:
         def _brain_think():
             """Background thread for brain hint generation."""
             try:
-                log.info("[GameHandler] Brain analyzing position for piece hint...")
+                log.info("[ProtocolManager] Brain analyzing position for piece hint...")
                 
                 # Copy the board to avoid race conditions
                 board_copy = chess_board.copy()
@@ -755,16 +760,16 @@ class GameHandler:
                             if p and p.piece_type == piece_type and p.color == piece_color:
                                 squares_with_piece.append(sq)
                         
-                        log.info(f"[GameHandler] Brain says: {piece_symbol} (squares: {squares_with_piece})")
+                        log.info(f"[ProtocolManager] Brain says: {piece_symbol} (squares: {squares_with_piece})")
                         
                         # Call the callback with piece symbol and squares
                         try:
                             self._brain_hint_callback(piece_symbol, squares_with_piece)
                         except Exception as e:
-                            log.warning(f"[GameHandler] Error in brain hint callback: {e}")
+                            log.warning(f"[ProtocolManager] Error in brain hint callback: {e}")
                         
             except Exception as e:
-                log.error(f"[GameHandler] Error generating brain hint: {e}")
+                log.error(f"[ProtocolManager] Error generating brain hint: {e}")
                 import traceback
                 traceback.print_exc()
             finally:
@@ -779,14 +784,14 @@ class GameHandler:
         The protocol detection flags will be set by receive_data() which will
         naturally stop the standalone engine from playing.
         """
-        log.info("[GameHandler] App connected - standalone engine paused")
+        log.info("[ProtocolManager] App connected - standalone engine paused")
     
     def on_app_disconnected(self):
         """Called when app disconnects - resume standalone engine.
         
         Resets protocol detection flags so the standalone engine can resume playing.
         """
-        log.info("[GameHandler] App disconnected - standalone engine may resume")
+        log.info("[ProtocolManager] App disconnected - standalone engine may resume")
         # Reset protocol detection flags
         self.is_millennium = False
         self.is_pegasus = False
@@ -826,16 +831,16 @@ class GameHandler:
         if self.game_manager:
             try:
                 self.game_manager.unsubscribe_game()
-                log.info("[GameHandler] Unsubscribed from game manager")
+                log.info("[ProtocolManager] Unsubscribed from game manager")
             except Exception as e:
-                log.error(f"[GameHandler] Error unsubscribing from game manager: {e}")
+                log.error(f"[ProtocolManager] Error unsubscribing from game manager: {e}")
 
         # Close standalone engine
         if self._standalone_engine:
             try:
                 self._standalone_engine.quit()
-                log.info("[GameHandler] Standalone engine closed")
+                log.info("[ProtocolManager] Standalone engine closed")
             except Exception as e:
                 # "event loop dead" is expected during signal-based shutdown
-                log.debug(f"[GameHandler] Error closing standalone engine: {e}")
+                log.debug(f"[ProtocolManager] Error closing standalone engine: {e}")
             self._standalone_engine = None

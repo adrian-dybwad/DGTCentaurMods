@@ -365,7 +365,7 @@ class GameManager:
         
         # Player configuration - which color(s) are human players
         # In 2-player mode, both colors are human. In engine mode, only player_color is human.
-        # Set by GameHandler after initialization.
+        # Set by ProtocolManager after initialization.
         self.player_color = None  # chess.WHITE, chess.BLACK, or None (meaning both are human)
         
         # Thread control
@@ -2124,7 +2124,7 @@ class GameManager:
         
         # Note: GameManager no longer subscribes to board events directly.
         # Events are routed from the app coordinator (universal.py) through
-        # GameHandler.receive_key() and GameHandler.receive_field() methods.
+        # ProtocolManager.receive_key() and ProtocolManager.receive_field() methods.
         
         # Mark as ready and replay any queued events
         with self._ready_lock:

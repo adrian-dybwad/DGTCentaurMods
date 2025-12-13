@@ -1,10 +1,10 @@
 # Emulators
 
-Protocol parsing and encoding modules used by `game_handler.py` to translate between chess app protocols and the physical DGT Centaur board.
+Protocol parsing and encoding modules used by `protocol_manager.py` to translate between chess app protocols and the physical DGT Centaur board.
 
 ## Purpose
 
-These are library modules imported by `game_handler.py` (and other relay scripts). They provide:
+These are library modules imported by `protocol_manager.py` (and other relay scripts). They provide:
 - Protocol packet parsing (decoding commands from apps)
 - Response encoding (generating replies in the expected format)
 - Board state translation between Centaur and target protocol formats
@@ -20,13 +20,13 @@ These are library modules imported by `game_handler.py` (and other relay scripts
 ## Architecture
 
 ```
-Chess App <--BLE/RFCOMM--> game_handler.py <--uses--> emulators/*.py
+Chess App <--BLE/RFCOMM--> protocol_manager.py <--uses--> emulators/*.py
                                   |
                                   v
                           Physical Centaur Board
 ```
 
-The GameHandler class handles Bluetooth stack and routing. These emulator modules handle protocol-specific logic.
+The ProtocolManager class handles protocol parsing and routing. These emulator modules handle protocol-specific logic.
 
 ## Requirements
 
@@ -36,4 +36,4 @@ The GameHandler class handles Bluetooth stack and routing. These emulator module
 ## See Also
 
 - `tools/simulators/` - Standalone board simulators that run without hardware
-- `game_handler.py` - The GameHandler class that uses these modules
+- `protocol_manager.py` - The ProtocolManager class that uses these modules

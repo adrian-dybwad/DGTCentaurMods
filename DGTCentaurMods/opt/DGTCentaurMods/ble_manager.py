@@ -12,7 +12,7 @@ This module provides BLE (Bluetooth Low Energy) communication via D-Bus/BlueZ.
 It implements GATT services for Millennium, Pegasus (Nordic UART), and Chessnut
 protocols, allowing chess apps to connect and communicate with the board.
 
-The BleManager uses callbacks to notify the owner (GameHandler) of:
+The BleManager uses callbacks to notify the owner (ProtocolManager) of:
 - Client connections/disconnections
 - Received data
 - Connection state changes

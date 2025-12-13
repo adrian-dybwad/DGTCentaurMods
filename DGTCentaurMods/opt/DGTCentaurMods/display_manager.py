@@ -3,7 +3,7 @@ Display manager for game-related UI widgets.
 
 This module provides a centralized manager for all game display widgets,
 handling widget lifecycle, menu presentation, and display state management.
-It separates UI concerns from game logic (GameManager) and protocol handling (GameHandler).
+It separates UI concerns from game logic (GameManager) and protocol handling (ProtocolManager).
 
 Note: This is distinct from the lower-level epaper Manager class which handles
 framebuffer rendering. This DisplayManager orchestrates game-specific widgets.
