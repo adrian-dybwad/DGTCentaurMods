@@ -16,20 +16,38 @@
 # moveCallback feeds back the chess moves made on the board
 # keyCallback feeds back key presses from keys under the display
 
+import time as _t
+import logging as _log_temp
+_logger = _log_temp.getLogger(__name__)
+_s = _t.time()
+
 from DGTCentaurMods.board import board
+_logger.debug(f"[game import] board: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from DGTCentaurMods.db import models
+_logger.debug(f"[game import] models: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import func, select, create_engine
+_logger.debug(f"[game import] sqlalchemy: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from scipy.optimize import linear_sum_assignment
+_logger.debug(f"[game import] scipy: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 import threading
 import queue
 import time
 import chess
 import sys
 import inspect
+_logger.debug(f"[game import] stdlib: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 import numpy as np
+_logger.debug(f"[game import] numpy: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from DGTCentaurMods.config import paths
 from DGTCentaurMods.board.logging import log
+_logger.debug(f"[game import] config/logging: {(_t.time() - _s)*1000:.0f}ms")
 
 
 # Event constants
