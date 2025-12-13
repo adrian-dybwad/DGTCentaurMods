@@ -827,12 +827,6 @@ class GameManager:
             log.info("[GameManager._handle_field_event_in_correction_mode] Physical board now matches logical board, exiting correction mode")
             board.beep(board.SOUND_GENERAL)
             self._exit_correction_mode()
-            # If kings-in-center menu is active and board is now correct, cancel the menu
-            if self._kings_in_center_menu_active:
-                log.info("[GameManager._handle_field_event_in_correction_mode] Board corrected while kings-in-center menu active - cancelling menu")
-                self._kings_in_center_menu_active = False
-                if self.on_kings_in_center_cancel:
-                    self.on_kings_in_center_cancel()
             return
         
         # Still incorrect, update guidance using current logical board as authority
@@ -1781,6 +1775,28 @@ class GameManager:
                  f"color_at={'White' if piece_color else 'Black'} time_in_seconds={time_in_seconds}")
         
         is_place = (piece_event == 1)
+        
+        # When a resign menu is active (kings-in-center or king-lift), only check if the board
+        # is corrected to cancel the menu. Skip all other processing.
+        if self._kings_in_center_menu_active or self._king_lift_resign_menu_active:
+            # Check if board is now correct (pieces returned to position)
+            expected_state = self._chess_board_to_state(self.chess_board)
+            current_state = board.getChessState()
+            if current_state is not None and expected_state is not None:
+                if self._validate_board_state(current_state, expected_state):
+                    log.info("[GameManager.receive_field] Board corrected while resign menu active - cancelling menu")
+                    if self._kings_in_center_menu_active:
+                        self._kings_in_center_menu_active = False
+                        if self.on_kings_in_center_cancel:
+                            self.on_kings_in_center_cancel()
+                    if self._king_lift_resign_menu_active:
+                        self._king_lift_resign_menu_active = False
+                        self.move_state._cancel_king_lift_timer()
+                        self.move_state.king_lifted_square = INVALID_SQUARE
+                        self.move_state.king_lifted_color = None
+                        if self.on_king_lift_resign_cancel:
+                            self.on_king_lift_resign_cancel()
+            return  # Skip all other processing while menu is active
         
         # Skip takeback and correction mode checks if late castling is in progress
         # During late castling, the board is intentionally in a transitional state
