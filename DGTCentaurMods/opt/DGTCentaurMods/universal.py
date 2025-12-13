@@ -722,6 +722,25 @@ def create_system_entries() -> List[IconMenuEntry]:
     ]
 
 
+# Special menu results that should break out of all nested menus and return to main loop
+MENU_BREAK_RESULTS = {"CLIENT_CONNECTED", "PIECE_MOVED"}
+
+
+def _is_break_result(result: str) -> bool:
+    """Check if a menu result should break out of all nested menus.
+    
+    These results indicate an external event (BLE connection, piece movement)
+    that should interrupt any menu and transition to game mode.
+    
+    Args:
+        result: Menu result string
+        
+    Returns:
+        True if this result should break out of all menus
+    """
+    return result in MENU_BREAK_RESULTS
+
+
 def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
     """Display a menu and wait for selection.
 
@@ -1091,6 +1110,11 @@ def _handle_settings():
         # Update last_selected for when we return from a submenu
         last_selected = _find_entry_index(entries, result)
         
+        # Handle special results that should break out of all menus
+        if _is_break_result(result):
+            app_state = AppState.MENU
+            return result
+        
         if result == "BACK":
             app_state = AppState.MENU
             return
@@ -1111,6 +1135,9 @@ def _handle_settings():
                 )
             
             engine_result = _show_menu(engine_entries)
+            if _is_break_result(engine_result):
+                app_state = AppState.MENU
+                return engine_result
             if engine_result not in ["BACK", "SHUTDOWN", "HELP"]:
                 old_engine = _game_settings['engine']
                 _save_game_setting('engine', engine_result)
@@ -1132,6 +1159,9 @@ def _handle_settings():
                 )
             
             elo_result = _show_menu(elo_entries)
+            if _is_break_result(elo_result):
+                app_state = AppState.MENU
+                return elo_result
             if elo_result not in ["BACK", "SHUTDOWN", "HELP"]:
                 old_elo = _game_settings['elo']
                 _save_game_setting('elo', elo_result)
@@ -1174,6 +1204,9 @@ def _handle_settings():
             ]
             
             color_result = _show_menu(color_entries)
+            if _is_break_result(color_result):
+                app_state = AppState.MENU
+                return color_result
             if color_result in ["white", "black", "random", "2player", "handbrain"]:
                 old_color = _game_settings['player_color']
                 _save_game_setting('player_color', color_result)
@@ -1186,12 +1219,18 @@ def _handle_settings():
         
         elif result == "Positions":
             position_result = _handle_positions_menu()
+            if _is_break_result(position_result):
+                app_state = AppState.MENU
+                return position_result
             if position_result:
                 # Position was loaded, exit settings and go to game
                 return
         
         elif result == "System":
-            _handle_system_menu()
+            system_result = _handle_system_menu()
+            if _is_break_result(system_result):
+                app_state = AppState.MENU
+                return system_result
 
 
 def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
@@ -1259,6 +1298,8 @@ def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
         else:
             category_result = _show_menu(category_entries, initial_index=last_category_index)
             
+            if _is_break_result(category_result):
+                return category_result
             if category_result in ["BACK", "SHUTDOWN", "HELP"]:
                 return False
         
@@ -1346,7 +1387,9 @@ def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
         
         # Inner loop for position details - pressing BACK returns to category menu
         position_result = _show_menu(position_entries, initial_index=initial_position_index)
-        
+
+        if _is_break_result(position_result):
+            return position_result
         if position_result in ["BACK", "HELP"]:
             # Go back to category menu (continue outer loop)
             # last_category_index already set, so category will be pre-selected
@@ -1682,12 +1725,16 @@ def _handle_wifi_settings():
             ]
 
             wifi_result = _show_menu(wifi_entries, initial_index=last_selected)
-            
+
+            # Handle break results - exit to main loop
+            if _is_break_result(wifi_result):
+                return wifi_result
+
             # Handle refresh from WiFi status change
             if wifi_result == "WIFI_REFRESH":
                 # Keep current selection and rebuild menu
                 continue
-            
+
             # Update last_selected for when we return from a submenu
             last_selected = _find_entry_index(wifi_entries, wifi_result)
 
@@ -1749,7 +1796,9 @@ def _handle_wifi_scan():
     log.info(f"[WiFi] Showing menu with {len(network_entries)} entries")
     network_result = _show_menu(network_entries)
     log.info(f"[WiFi] Menu result: {network_result}")
-    
+
+    if _is_break_result(network_result):
+        return network_result
     if network_result in ["BACK", "SHUTDOWN", "HELP"]:
         return
     
@@ -1852,9 +1901,12 @@ def _handle_bluetooth_settings():
         ]
         
         bt_result = _show_menu(bt_entries, initial_index=last_selected)
-        
+
+        if _is_break_result(bt_result):
+            return bt_result
+
         last_selected = _find_entry_index(bt_entries, bt_result)
-        
+
         if bt_result in ["BACK", "SHUTDOWN", "HELP"]:
             return
         
@@ -1950,9 +2002,12 @@ def _handle_sound_settings():
         ]
         
         sound_result = _show_menu(sound_entries, initial_index=last_selected)
-        
+
+        if _is_break_result(sound_result):
+            return sound_result
+
         last_selected = _find_entry_index(sound_entries, sound_result)
-        
+
         if sound_result in ["BACK", "SHUTDOWN", "HELP"]:
             return
         
@@ -1972,17 +2027,29 @@ def _handle_system_menu():
         system_entries = create_system_entries()
         system_result = _show_menu(system_entries, initial_index=last_selected)
         
+        # Handle break results from menu
+        if _is_break_result(system_result):
+            return system_result
+        
         # Update last_selected for when we return from a submenu
         last_selected = _find_entry_index(system_entries, system_result)
 
         if system_result == "Sound":
-            _handle_sound_settings()
+            sub_result = _handle_sound_settings()
+            if _is_break_result(sub_result):
+                return sub_result
         elif system_result == "WiFi":
-            _handle_wifi_settings()
+            sub_result = _handle_wifi_settings()
+            if _is_break_result(sub_result):
+                return sub_result
         elif system_result == "Bluetooth":
-            _handle_bluetooth_settings()
+            sub_result = _handle_bluetooth_settings()
+            if _is_break_result(sub_result):
+                return sub_result
         elif system_result == "Inactivity":
-            _handle_inactivity_timeout()
+            sub_result = _handle_inactivity_timeout()
+            if _is_break_result(sub_result):
+                return sub_result
             # Loop back to system menu after changing timeout
         elif system_result == "Shutdown":
             _shutdown("Shutdown")
@@ -2029,6 +2096,9 @@ def _handle_inactivity_timeout():
         entries.append(IconMenuEntry(key=str(seconds), label=label, icon_name=icon, enabled=True))
     
     result = _show_menu(entries)
+    
+    if _is_break_result(result):
+        return result
     
     if result not in ("BACK", "HELP", "SHUTDOWN"):
         try:
@@ -2129,7 +2199,7 @@ def _on_ble_connected(client_type: str):
     """Handle BLE client connection.
     
     Always transitions to game mode when a BLE client connects:
-    - If in menu mode: cancels menu and starts game
+    - If in menu/settings mode: cancels menu and starts game
     - If between menus: starts game directly via flag
     - If in game mode: shows confirmation dialog to abandon current game or cancel
     
@@ -2146,15 +2216,15 @@ def _on_ble_connected(client_type: str):
         _show_ble_connection_confirm(client_type)
         return
     
-    # Case 2: In menu mode with active menu widget - cancel menu to trigger game start
-    if app_state == AppState.MENU and _active_menu_widget is not None:
-        log.info("[BLE] Client connected while in menu - cancelling menu to start game")
+    # Case 2: In menu or settings mode with active menu widget - cancel menu to trigger game start
+    if (app_state == AppState.MENU or app_state == AppState.SETTINGS) and _active_menu_widget is not None:
+        log.info(f"[BLE] Client connected while in {app_state.name} - cancelling menu to start game")
         _active_menu_widget.cancel_selection("CLIENT_CONNECTED")
         return  # GameHandler will be notified after game mode starts
     
-    # Case 3: In menu mode but between menus (no active widget) - set flag for main loop
-    if app_state == AppState.MENU:
-        log.info("[BLE] Client connected between menus - setting flag for game start")
+    # Case 3: In menu/settings mode but between menus (no active widget) - set flag for main loop
+    if app_state == AppState.MENU or app_state == AppState.SETTINGS:
+        log.info(f"[BLE] Client connected between menus ({app_state.name}) - setting flag for game start")
         _pending_ble_client_type = client_type
         return
     
@@ -2779,13 +2849,13 @@ def main():
                         # Already in game - show confirmation dialog
                         log.info("[RFCOMM] Client connected while in game - showing confirmation dialog")
                         _show_ble_connection_confirm("rfcomm")
-                    elif app_state == AppState.MENU and _active_menu_widget is not None:
-                        # In menu with active widget - cancel to start game
-                        log.info("[RFCOMM] Client connected while in menu - transitioning to game")
+                    elif (app_state == AppState.MENU or app_state == AppState.SETTINGS) and _active_menu_widget is not None:
+                        # In menu/settings with active widget - cancel to start game
+                        log.info(f"[RFCOMM] Client connected while in {app_state.name} - transitioning to game")
                         _active_menu_widget.cancel_selection("CLIENT_CONNECTED")
-                    elif app_state == AppState.MENU:
+                    elif app_state == AppState.MENU or app_state == AppState.SETTINGS:
                         # Between menus - set flag for main loop
-                        log.info("[RFCOMM] Client connected between menus - setting flag")
+                        log.info(f"[RFCOMM] Client connected between menus ({app_state.name}) - setting flag")
                         _pending_ble_client_type = "rfcomm"
                     elif game_handler:
                         game_handler.on_app_connected()
@@ -2976,7 +3046,12 @@ def main():
                             game_handler.on_app_connected()
                 
                 elif result == "Settings":
-                    _handle_settings()
+                    settings_result = _handle_settings()
+                    # Check if a BLE client connected during settings
+                    if _is_break_result(settings_result):
+                        _start_game_mode()
+                        if game_handler:
+                            game_handler.on_app_connected()
                     # After settings, continue to main menu
                 
                 elif result == "HELP":
@@ -3000,9 +3075,18 @@ def main():
                     _return_to_positions_menu = False
                     # Return directly to the last selected position in the menu
                     position_result = _handle_positions_menu(return_to_last_position=True)
-                    if not position_result:
+                    if _is_break_result(position_result):
+                        # BLE client connected during positions menu
+                        _start_game_mode()
+                        if game_handler:
+                            game_handler.on_app_connected()
+                    elif not position_result:
                         # User backed out of positions menu, show settings
-                        _handle_settings()
+                        settings_result = _handle_settings()
+                        if _is_break_result(settings_result):
+                            _start_game_mode()
+                            if game_handler:
+                                game_handler.on_app_connected()
                 else:
                     # Settings handled by _handle_settings loop
                     time.sleep(0.1)
