@@ -12,13 +12,16 @@
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE.md for details.
 
-from DGTCentaurMods.board.logging import log
-
 import time as _t
+import logging as _log_temp
+_logger = _log_temp.getLogger(__name__)
 _s = _t.time()
 
+from DGTCentaurMods.board.logging import log
+_logger.debug(f"[protocol import] board.logging: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from DGTCentaurMods.emulators.millennium import Millennium
-log.debug(f"[protocol import] millennium: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+_logger.debug(f"[protocol import] millennium: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
 from DGTCentaurMods.emulators.pegasus import Pegasus
 log.debug(f"[protocol import] pegasus: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
