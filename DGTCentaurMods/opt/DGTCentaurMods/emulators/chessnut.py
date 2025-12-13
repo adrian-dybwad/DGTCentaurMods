@@ -19,9 +19,19 @@ Protocol based on official Chessnut eBoards API documentation:
 https://github.com/chessnutech/Chessnut_eBoards
 """
 
+import time as _t
+import logging as _log_temp
+_logger = _log_temp.getLogger(__name__)
+_s = _t.time()
+
 from DGTCentaurMods.board import board
+_logger.debug(f"[chessnut import] board: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from DGTCentaurMods.board.logging import log
+_logger.debug(f"[chessnut import] logging: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from DGTCentaurMods.managers.game import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
+_logger.debug(f"[chessnut import] game: {(_t.time() - _s)*1000:.0f}ms")
 
 
 # Chessnut Air command bytes
