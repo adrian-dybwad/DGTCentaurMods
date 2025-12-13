@@ -3,7 +3,7 @@ Text display widget.
 """
 
 from PIL import Image, ImageDraw, ImageFont
-from .framework.widget import Widget
+from .framework.widget import Widget, DITHER_PATTERNS
 from enum import Enum
 import os
 import sys
@@ -204,48 +204,40 @@ class TextWidget(Widget):
     def _create_dither_pattern(self) -> Image.Image:
         """Create dither pattern based on background level.
         
-        For transparent backgrounds (-1), returns a white image since
-        the actual compositing is handled via get_mask().
+        Uses blue noise dithering for visually pleasing results without
+        regular grid artifacts. For transparent backgrounds (-1), returns
+        a white image since the actual compositing is handled via get_mask().
         """
-        pattern = Image.new("1", (self.width, self.height), 255)
+        img = Image.new("1", (self.width, self.height), 255)
         
         if self.background <= 0:
             # Transparent (-1) or white (0) - all white
-            return pattern
+            return img
         elif self.background == 5:
             # Solid black
-            draw = ImageDraw.Draw(pattern)
+            draw = ImageDraw.Draw(img)
             draw.rectangle([0, 0, self.width, self.height], fill=0)
-            return pattern
+            return img
         
-        # Dithering levels 1-4 using ordered dithering
-        draw = ImageDraw.Draw(pattern)
-        # Use a 4x4 Bayer dither matrix for better visual quality
-        # Level 1: ~19% (3/16 black pixels)
-        # Level 2: ~38% (6/16 black pixels)
-        # Level 3: ~50% (8/16 black pixels) - checkerboard-like
-        # Level 4: ~69% (11/16 black pixels)
+        # Map background levels 1-4 to shade levels for blue noise patterns
+        # Level 1: ~20% black (shade 3)
+        # Level 2: ~38% black (shade 6)
+        # Level 3: ~50% black (shade 8)
+        # Level 4: ~69% black (shade 11)
+        shade_map = {1: 3, 2: 6, 3: 8, 4: 11}
+        shade = shade_map.get(self.background, 8)
         
-        bayer_matrix = [
-            [0, 8, 2, 10],
-            [12, 4, 14, 6],
-            [3, 11, 1, 9],
-            [15, 7, 13, 5]
-        ]
-        
-        # Thresholds for each level (out of 16)
-        thresholds = {1: 3, 2: 6, 3: 8, 4: 11}
-        threshold = thresholds.get(self.background, 8)
+        pattern = DITHER_PATTERNS.get(shade, DITHER_PATTERNS[0])
+        pattern_size = len(pattern)  # 64 for blue noise
+        pixels = img.load()
         
         for y in range(self.height):
+            pattern_row = pattern[y % pattern_size]
             for x in range(self.width):
-                pattern_x = x % 4
-                pattern_y = y % 4
-                value = bayer_matrix[pattern_y][pattern_x]
-                if value < threshold:
-                    draw.point((x, y), fill=0)
+                if pattern_row[x % pattern_size] == 1:
+                    pixels[x, y] = 0  # Black pixel
         
-        return pattern
+        return img
     
     def get_mask(self):
         """Get mask for transparent compositing.

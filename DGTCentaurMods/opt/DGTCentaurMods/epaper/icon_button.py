@@ -145,18 +145,19 @@ class IconButtonWidget(Widget):
     def _apply_dither_pattern(self, img: Image.Image, shade: int) -> None:
         """Apply a dither pattern to an image.
         
-        Uses an 8x8 Bayer matrix for smoother gradients.
+        Uses a 64x64 blue noise texture for visually pleasing dithering.
         
         Args:
             img: Image to modify in place
             shade: Shade level 0-16 (0=white, 16=black)
         """
         pattern = DITHER_PATTERNS.get(shade, DITHER_PATTERNS[0])
+        pattern_size = len(pattern)  # 64 for blue noise
         pixels = img.load()
         for y in range(img.height):
-            pattern_row = pattern[y % 8]
+            pattern_row = pattern[y % pattern_size]
             for x in range(img.width):
-                if pattern_row[x % 8] == 1:
+                if pattern_row[x % pattern_size] == 1:
                     pixels[x, y] = 0  # Black pixel
     
     def render(self) -> Image.Image:
@@ -202,10 +203,11 @@ class IconButtonWidget(Widget):
         # Draw button background (only inside border area, not margin)
         if self.selected:
             # Selected: dark grey dithered background inside border only
+            pattern = DITHER_PATTERNS.get(self.selected_shade, DITHER_PATTERNS[0])
+            pattern_size = len(pattern)  # 64 for blue noise
             for y in range(border_top, border_bottom + 1):
                 for x in range(border_left, border_right + 1):
-                    pattern = DITHER_PATTERNS.get(self.selected_shade, DITHER_PATTERNS[0])
-                    if pattern[y % 8][x % 8] == 1:
+                    if pattern[y % pattern_size][x % pattern_size] == 1:
                         img.putpixel((x, y), 0)
             # Draw border outline
             draw.rectangle([border_left, border_top, border_right, border_bottom], fill=None, outline=0)

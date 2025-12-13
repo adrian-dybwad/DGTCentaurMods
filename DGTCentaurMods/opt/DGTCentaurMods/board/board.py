@@ -723,8 +723,10 @@ def eventsThread(keycallback, fieldcallback, tout):
     adjustments (e.g., NTP sync on Raspberry Pi startup that can jump the clock
     forward and trigger premature shutdown).
     
-    PLAY_DOWN starts shutdown countdown (releasing cancels).
-    Other key-down events are ignored; only key-up events go to callback.
+    Key handling:
+    - PLAY_DOWN: Starts shutdown countdown (releasing cancels).
+    - Other keys held for 1+ second: Triggers full display refresh (key consumed).
+    - Short presses: Key-up events passed to callback.
     """
     global eventsrunning
     global chargerconnected
@@ -840,10 +842,53 @@ def eventsThread(keycallback, fieldcallback, tout):
                         log.info('[board.events] Shutdown cancelled (button released)')
                     key_pressed = None  # Already handled
                 
-                # Ignore other key-down events - only key-up events go to callback
+                # Other key-down events: track for long-press full refresh
                 elif key_pressed is not None and key_pressed.value >= 0x80:
-                    # This is a _DOWN event (has KEY_DOWN_OFFSET), ignore it
-                    key_pressed = None
+                    # This is a _DOWN event - start long-press detection
+                    long_press_key = key_pressed
+                    long_press_start = time.monotonic()
+                    long_press_triggered = False
+                    
+                    # Wait for key-up while checking for long press threshold (1 second)
+                    while True:
+                        time.sleep(0.05)
+                        
+                        # Check if held long enough for full refresh
+                        if not long_press_triggered and (time.monotonic() - long_press_start) >= 1.0:
+                            log.info('[board.events] Long press detected, triggering full refresh')
+                            beep(SOUND_GENERAL)
+                            long_press_triggered = True
+                            # Trigger full display refresh
+                            if display_manager is not None:
+                                try:
+                                    display_manager.update(full=True)
+                                except Exception as e:
+                                    log.error(f"[board.events] Full refresh error: {e}")
+                        
+                        # Check for key-up
+                        next_key = controller.get_next_key(timeout=0.0)
+                        if next_key is not None:
+                            # Get the base key code (without DOWN offset)
+                            base_code = long_press_key.value - 0x80
+                            if next_key.value == base_code:
+                                # Matching key-up received
+                                if long_press_triggered:
+                                    # Long press already handled - don't pass to callback
+                                    key_pressed = None
+                                else:
+                                    # Short press - pass the key-up to callback
+                                    key_pressed = next_key
+                                break
+                            elif next_key == Key.PLAY_DOWN:
+                                # PLAY_DOWN interrupts - handle shutdown
+                                beep(SOUND_GENERAL)
+                                log.info('[board.events] PLAY_DOWN during long press, starting shutdown countdown')
+                                if shutdown_countdown():
+                                    shutdown(reason="PLAY button held during countdown")
+                                else:
+                                    log.info('[board.events] Shutdown cancelled (button released)')
+                                key_pressed = None
+                                break
                     
             except Exception as e:
                 log.error(f"[board.events] error: {e}")
