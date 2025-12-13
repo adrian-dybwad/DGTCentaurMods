@@ -36,6 +36,7 @@ _IconMenuWidget = None
 _IconMenuEntry = None
 _SplashScreen = None
 _BrainHintWidget = None
+_GameOverWidget = None
 
 
 def _get_board():
@@ -51,6 +52,7 @@ def _load_widgets():
     """Lazily load widget classes."""
     global _widgets_loaded, _ChessBoardWidget, _GameAnalysisWidget
     global _IconMenuWidget, _IconMenuEntry, _SplashScreen, _BrainHintWidget
+    global _GameOverWidget
     
     if _widgets_loaded:
         return
@@ -59,12 +61,14 @@ def _load_widgets():
         ChessBoardWidget, GameAnalysisWidget, 
         IconMenuWidget, IconMenuEntry, SplashScreen, BrainHintWidget
     )
+    from DGTCentaurMods.epaper.game_over import GameOverWidget
     _ChessBoardWidget = ChessBoardWidget
     _GameAnalysisWidget = GameAnalysisWidget
     _IconMenuWidget = IconMenuWidget
     _IconMenuEntry = IconMenuEntry
     _SplashScreen = SplashScreen
     _BrainHintWidget = BrainHintWidget
+    _GameOverWidget = GameOverWidget
     _widgets_loaded = True
 
 
@@ -642,6 +646,42 @@ class DisplayManager:
                         pass
         except Exception as e:
             log.debug(f"[DisplayManager] Error showing splash: {e}")
+    
+    def show_game_over(self, result: str, termination_type: str = None):
+        """Show the game over screen with result and score history.
+        
+        Args:
+            result: Game result string (e.g., "1-0", "0-1", "1/2-1/2")
+            termination_type: Type of termination (e.g., "CHECKMATE", "STALEMATE", "RESIGN")
+        """
+        _load_widgets()
+        board = _get_board()
+        
+        try:
+            log.info(f"[DisplayManager] Showing game over: result={result}, termination={termination_type}")
+            
+            if board.display_manager:
+                board.display_manager.clear_widgets(addStatusBar=False)
+                
+                game_over_widget = _GameOverWidget(0, 0, 128, 296)
+                game_over_widget.set_result(result)
+                
+                # Get score history from analysis widget if available
+                if self.analysis_widget:
+                    game_over_widget.set_score_history(self.analysis_widget.get_score_history())
+                else:
+                    game_over_widget.set_score_history([])
+                
+                future = board.display_manager.add_widget(game_over_widget)
+                if future:
+                    try:
+                        future.result(timeout=2.0)
+                    except Exception:
+                        pass
+                        
+                log.info("[DisplayManager] Game over screen displayed")
+        except Exception as e:
+            log.error(f"[DisplayManager] Error showing game over: {e}")
     
     def cleanup(self):
         """Clean up resources (analysis engine, widgets)."""

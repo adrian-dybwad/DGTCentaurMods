@@ -690,6 +690,12 @@ class GameManager:
         Returns:
             True if kings-in-center gesture detected, False otherwise
         """
+        # Don't trigger resign/draw gesture if the game is already over
+        outcome = self.chess_board.outcome(claim_draw=True)
+        if outcome is not None:
+            log.debug(f"[GameManager._check_kings_in_center_from_state] Skipping - game already over: {outcome.termination}")
+            return False
+        
         # Find where kings should be according to logical board
         white_king_square = self.chess_board.king(chess.WHITE)
         black_king_square = self.chess_board.king(chess.BLACK)
@@ -916,16 +922,22 @@ class GameManager:
             piece_at_field = self.chess_board.piece_at(field)
             if piece_at_field is not None and piece_at_field.piece_type == chess.ROOK:
                 if self.move_state.is_rook_castling_square(field):
-                    # Check if castling is still legal for this side
-                    can_castle = False
+                    # Check if castling is actually legal (not just has rights)
+                    # Castling rights only track if king/rook have moved, but castling
+                    # can be illegal due to: pieces blocking path, king in check,
+                    # king passing through attacked square, or king landing on attacked square.
+                    # Use legal_moves to verify castling is actually possible.
+                    castling_move = None
                     if field == MoveState.WHITE_KINGSIDE_ROOK:
-                        can_castle = self.chess_board.has_kingside_castling_rights(chess.WHITE)
+                        castling_move = chess.Move.from_uci("e1g1")
                     elif field == MoveState.WHITE_QUEENSIDE_ROOK:
-                        can_castle = self.chess_board.has_queenside_castling_rights(chess.WHITE)
+                        castling_move = chess.Move.from_uci("e1c1")
                     elif field == MoveState.BLACK_KINGSIDE_ROOK:
-                        can_castle = self.chess_board.has_kingside_castling_rights(chess.BLACK)
+                        castling_move = chess.Move.from_uci("e8g8")
                     elif field == MoveState.BLACK_QUEENSIDE_ROOK:
-                        can_castle = self.chess_board.has_queenside_castling_rights(chess.BLACK)
+                        castling_move = chess.Move.from_uci("e8c8")
+                    
+                    can_castle = castling_move is not None and castling_move in self.chess_board.legal_moves
                     
                     if can_castle:
                         log.info(f"[GameManager._handle_piece_lift] Potential castling rook lifted from {chess.square_name(field)}")

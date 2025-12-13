@@ -976,6 +976,12 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             if _is_position_game:
                 log.info("[App] Starting position detected in position game - signaling switch to normal game")
                 _switch_to_normal_game = True
+        elif isinstance(event, str) and event.startswith("Termination."):
+            # Game ended (checkmate, stalemate, resign, draw, etc.)
+            termination_type = event[12:]  # Remove "Termination." prefix
+            result = game_handler.game_manager.get_result()
+            log.info(f"[App] Game terminated: {termination_type}, result={result}")
+            display_manager.show_game_over(result, termination_type)
     game_handler._external_event_callback = _on_game_event
 
 
