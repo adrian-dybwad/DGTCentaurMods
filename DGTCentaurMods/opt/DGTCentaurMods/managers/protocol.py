@@ -13,10 +13,21 @@
 # See LICENSE.md for details.
 
 from DGTCentaurMods.board.logging import log
+
+import time as _t
+_s = _t.time()
+
 from DGTCentaurMods.emulators.millennium import Millennium
+log.debug(f"[protocol import] millennium: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from DGTCentaurMods.emulators.pegasus import Pegasus
+log.debug(f"[protocol import] pegasus: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from DGTCentaurMods.emulators.chessnut import Chessnut
+log.debug(f"[protocol import] chessnut: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 from DGTCentaurMods.managers.game import GameManager, EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
+log.debug(f"[protocol import] game: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
 import chess
 import chess.engine
@@ -24,6 +35,7 @@ import pathlib
 import os
 import configparser
 import threading
+log.debug(f"[protocol import] stdlib: {(_t.time() - _s)*1000:.0f}ms")
 
 
 class ProtocolManager:
