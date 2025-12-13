@@ -489,10 +489,12 @@ class DisplayManager:
         board = _get_board()
         
         color_name = "White" if king_color else "Black"
+        # Use same resign icons as kings-in-center: resign_white for white, resign_black for black
+        icon_name = "resign_white" if king_color else "resign_black"
         log.info(f"[DisplayManager] Showing king-lift resign menu for {color_name}")
         
         entries = [
-            _IconMenuEntry(key="resign", label=f"Resign\n{color_name}?", icon_name="resign"),
+            _IconMenuEntry(key="resign", label=f"Resign\n{color_name}?", icon_name=icon_name),
             _IconMenuEntry(key="cancel", label="No", icon_name="cancel"),
         ]
         
