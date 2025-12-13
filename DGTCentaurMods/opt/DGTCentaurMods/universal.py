@@ -145,6 +145,7 @@ _menu_selection_event = None  # Threading event for menu selection
 _return_to_positions_menu = False  # Flag to signal return to positions menu from game
 _is_position_game = False  # Flag to track if current game is a position (practice) game
 _switch_to_normal_game = False  # Flag to signal switch from position game to normal game
+_pending_ble_client_type: str = None  # Flag for BLE connection when between menus
 _last_position_category_index = 0  # Remember last selected category in positions menu
 _last_position_index = 0  # Remember last selected position in positions menu
 _last_position_category = None  # Remember last selected category name for direct return
@@ -2127,25 +2128,99 @@ def _on_ble_data_received(data: bytes, client_type: str):
 def _on_ble_connected(client_type: str):
     """Handle BLE client connection.
     
-    If in menu mode, auto-transitions to game mode by cancelling the menu.
-    Notifies GameHandler that an app has connected.
+    Always transitions to game mode when a BLE client connects:
+    - If in menu mode: cancels menu and starts game
+    - If between menus: starts game directly via flag
+    - If in game mode: shows confirmation dialog to abandon current game or cancel
     
     Args:
         client_type: Type of client ('millennium', 'pegasus', 'chessnut')
     """
-    global game_handler, app_state, _active_menu_widget
+    global game_handler, app_state, _active_menu_widget, _pending_ble_client_type
     
     log.info(f"[BLE] Client connected: {client_type}")
     
-    # Auto-transition to game mode if currently in menu
+    # Case 1: Already in game mode - show confirmation dialog
+    if app_state == AppState.GAME and game_handler is not None:
+        log.info("[BLE] Client connected while in game - showing confirmation dialog")
+        _show_ble_connection_confirm(client_type)
+        return
+    
+    # Case 2: In menu mode with active menu widget - cancel menu to trigger game start
     if app_state == AppState.MENU and _active_menu_widget is not None:
         log.info("[BLE] Client connected while in menu - cancelling menu to start game")
-        # Cancel the menu selection with a special result that triggers game mode
         _active_menu_widget.cancel_selection("CLIENT_CONNECTED")
         return  # GameHandler will be notified after game mode starts
     
+    # Case 3: In menu mode but between menus (no active widget) - set flag for main loop
+    if app_state == AppState.MENU:
+        log.info("[BLE] Client connected between menus - setting flag for game start")
+        _pending_ble_client_type = client_type
+        return
+    
+    # Case 4: Other states - notify game handler if available
     if game_handler:
         game_handler.on_app_connected()
+
+
+def _show_ble_connection_confirm(client_type: str):
+    """Show confirmation dialog when BLE client connects during active game.
+    
+    Presents options to abandon current game and start new one, or cancel.
+    
+    Args:
+        client_type: Type of BLE client that connected
+    """
+    global display_manager
+    
+    def _on_confirm_result(result: str):
+        """Handle confirmation dialog result."""
+        global game_handler, app_state
+        
+        if result == "new_game":
+            log.info("[BLE] User chose to abandon game and start new one")
+            # Clean up current game and start new one
+            _cleanup_game()
+            _start_game_mode()
+            if game_handler:
+                game_handler.on_app_connected()
+        else:
+            # Cancel - keep current game
+            log.info("[BLE] User cancelled - keeping current game")
+            if game_handler:
+                game_handler.on_app_connected()
+    
+    # Show confirmation menu using display_manager
+    if display_manager is not None:
+        from DGTCentaurMods.epaper.icon_menu import IconMenuEntry as _IconMenuEntry
+        from DGTCentaurMods.epaper.icon_menu import IconMenuWidget as _IconMenuWidget
+        
+        entries = [
+            _IconMenuEntry(key="new_game", label="New Game\n(abandon)", icon_name="play"),
+            _IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel"),
+        ]
+        
+        confirm_menu = _IconMenuWidget(
+            x=0, y=0, width=128, height=296,
+            entries=entries,
+            selected_index=1  # Default to Cancel
+        )
+        
+        display_manager._menu_result_callback = _on_confirm_result
+        display_manager._current_menu = confirm_menu
+        display_manager._menu_active = True
+        
+        # Wait for selection in a background thread
+        def _wait_for_selection():
+            result = confirm_menu.wait_for_selection(initial_index=1)
+            display_manager._menu_active = False
+            display_manager._current_menu = None
+            if display_manager._menu_result_callback:
+                display_manager._menu_result_callback(result)
+        
+        import threading
+        wait_thread = threading.Thread(target=_wait_for_selection, daemon=True)
+        wait_thread.start()
 
 
 def _on_ble_disconnected():
@@ -2644,7 +2719,7 @@ def main():
             to avoid blocking startup. Once setup is complete, accepts connections.
             """
             global rfcomm_manager, server_sock, client_sock, client_connected
-            global app_state, _active_menu_widget
+            global app_state, _active_menu_widget, _pending_ble_client_type
             
             log.info("[RFCOMM] Starting background initialization...")
             
@@ -2699,10 +2774,19 @@ def main():
                     log.info("=" * 60)
                     log.info(f"Client address: {client_info}")
                     
-                    # Auto-transition to game mode if in menu
-                    if app_state == AppState.MENU and _active_menu_widget is not None:
+                    # Handle connection - same logic as BLE
+                    if app_state == AppState.GAME and game_handler is not None:
+                        # Already in game - show confirmation dialog
+                        log.info("[RFCOMM] Client connected while in game - showing confirmation dialog")
+                        _show_ble_connection_confirm("rfcomm")
+                    elif app_state == AppState.MENU and _active_menu_widget is not None:
+                        # In menu with active widget - cancel to start game
                         log.info("[RFCOMM] Client connected while in menu - transitioning to game")
                         _active_menu_widget.cancel_selection("CLIENT_CONNECTED")
+                    elif app_state == AppState.MENU:
+                        # Between menus - set flag for main loop
+                        log.info("[RFCOMM] Client connected between menus - setting flag")
+                        _pending_ble_client_type = "rfcomm"
                     elif game_handler:
                         game_handler.on_app_connected()
                     
@@ -2818,6 +2902,16 @@ def main():
     try:
         while running and not kill:
             if app_state == AppState.MENU:
+                # Check for pending BLE client connection (set when connection happens between menus)
+                global _pending_ble_client_type
+                if _pending_ble_client_type is not None:
+                    log.info(f"[App] Pending BLE client connection detected ({_pending_ble_client_type}) - starting game mode")
+                    _pending_ble_client_type = None
+                    _start_game_mode()
+                    if game_handler:
+                        game_handler.on_app_connected()
+                    continue  # Re-check app_state (now should be GAME)
+                
                 # Check for pending piece events before showing menu
                 # These may have been queued while in a submenu
                 if _pending_piece_events:
