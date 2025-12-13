@@ -433,6 +433,10 @@ class IconButtonWidget(Widget):
             self._draw_castling_icon(draw, x, y, size, line_color)
         elif icon_name == "promotion":
             self._draw_promotion_icon(draw, x, y, size, line_color)
+        elif icon_name == "timer":
+            self._draw_timer_icon(draw, x, y, size, line_color, checked=False)
+        elif icon_name == "timer_checked":
+            self._draw_timer_icon(draw, x, y, size, line_color, checked=True)
         else:
             # Default: simple square placeholder
             draw.rectangle([left + 4, top + 4, right - 4, bottom - 4],
@@ -1537,3 +1541,65 @@ class IconButtonWidget(Widget):
             (x + int(6 * s), crown_y + int(4 * s)),
         ]
         draw.polygon(crown_points, outline=line_color, fill=None)
+
+    def _draw_timer_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                         size: int, line_color: int, checked: bool = False):
+        """Draw a timer/clock icon with optional checkmark overlay.
+        
+        The icon is a clock face with hour and minute hands.
+        When checked=True, a checkmark is drawn in the bottom-right quadrant.
+        
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line color (0=black, 255=white)
+            checked: Whether to draw a checkmark overlay
+        """
+        half = size // 2
+        s = size / 36.0
+        
+        # Clock face circle
+        r = half - int(3 * s)
+        draw.ellipse([x - r, y - r, x + r, y + r], outline=line_color, width=2)
+        
+        # Small knob at top (clock winder)
+        knob_w = int(3 * s)
+        knob_h = int(2 * s)
+        draw.rectangle([x - knob_w // 2, y - r - knob_h, x + knob_w // 2, y - r],
+                      fill=line_color)
+        
+        # Hour hand (short, pointing to ~10 o'clock)
+        hour_len = int(6 * s)
+        hour_angle = math.radians(120)  # 10 o'clock position
+        hour_x = x + int(hour_len * math.cos(hour_angle - math.pi / 2))
+        hour_y = y + int(hour_len * math.sin(hour_angle - math.pi / 2))
+        draw.line([(x, y), (hour_x, hour_y)], fill=line_color, width=max(2, int(2 * s)))
+        
+        # Minute hand (longer, pointing to ~2 o'clock)
+        min_len = int(10 * s)
+        min_angle = math.radians(60)  # 2 o'clock position
+        min_x = x + int(min_len * math.cos(min_angle - math.pi / 2))
+        min_y = y + int(min_len * math.sin(min_angle - math.pi / 2))
+        draw.line([(x, y), (min_x, min_y)], fill=line_color, width=max(1, int(1.5 * s)))
+        
+        # Center dot
+        dot_r = max(2, int(2 * s))
+        draw.ellipse([x - dot_r, y - dot_r, x + dot_r, y + dot_r], fill=line_color)
+        
+        if checked:
+            # Draw checkmark in bottom-right area of clock
+            # Position it so it overlaps the clock face slightly
+            check_x = x + int(4 * s)
+            check_y = y + int(6 * s)
+            check_size = int(8 * s)
+            
+            # Checkmark points (relative to check_x, check_y as center)
+            # Draw a V-shape checkmark
+            p1 = (check_x - check_size // 2, check_y)
+            p2 = (check_x - int(1 * s), check_y + check_size // 3)
+            p3 = (check_x + check_size // 2, check_y - check_size // 2)
+            
+            draw.line([p1, p2], fill=line_color, width=max(2, int(2.5 * s)))
+            draw.line([p2, p3], fill=line_color, width=max(2, int(2.5 * s)))
