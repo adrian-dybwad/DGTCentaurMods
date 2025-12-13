@@ -789,6 +789,7 @@ def create_system_entries() -> List[IconMenuEntry]:
     return [
         IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True),
         IconMenuEntry(key="Bluetooth", label="Bluetooth", icon_name="bluetooth", enabled=True),
+        IconMenuEntry(key="Accounts", label="Accounts", icon_name="account", enabled=True),
         IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
         IconMenuEntry(key="Inactivity", label=timeout_label, icon_name=timeout_icon, enabled=True),
         IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
@@ -1981,6 +1982,10 @@ def _handle_system_menu():
             sub_result = _handle_bluetooth_settings()
             if is_break_result(sub_result):
                 return sub_result
+        elif result.key == "Accounts":
+            sub_result = _handle_accounts_menu()
+            if is_break_result(sub_result):
+                return sub_result
         elif result.key == "Inactivity":
             sub_result = _handle_inactivity_timeout()
             if is_break_result(sub_result):
@@ -2044,6 +2049,108 @@ def _handle_inactivity_timeout():
             pass
     
     return result
+
+
+def _mask_token(token: str) -> str:
+    """Mask a token for display, showing only first and last few characters.
+    
+    Args:
+        token: The token to mask
+        
+    Returns:
+        Masked token string (e.g., "lip_ab...xy" or "Not set")
+    """
+    if not token:
+        return "Not set"
+    if len(token) <= 8:
+        return token[:2] + "..." + token[-2:] if len(token) > 4 else "****"
+    return token[:6] + "..." + token[-4:]
+
+
+def _handle_accounts_menu():
+    """Handle Accounts submenu for online service credentials.
+    
+    Shows account settings for online services like Lichess.
+    Each entry displays the current credential status (masked).
+    """
+    from DGTCentaurMods.board import centaur
+    
+    def build_entries():
+        """Build accounts menu entries with current status."""
+        token = centaur.get_lichess_api()
+        masked = _mask_token(token)
+        
+        return [
+            IconMenuEntry(
+                key="Lichess",
+                label=f"Lichess\n{masked}",
+                icon_name="lichess",
+                enabled=True,
+                font_size=12,
+                height_ratio=1.5
+            ),
+        ]
+    
+    def handle_selection(result: MenuSelection):
+        """Handle accounts menu selection."""
+        if result.key == "Lichess":
+            sub_result = _handle_lichess_token()
+            if is_break_result(sub_result):
+                return sub_result
+        return None  # Continue loop
+    
+    return _menu_manager.run_menu_loop(build_entries, handle_selection)
+
+
+def _handle_lichess_token():
+    """Handle Lichess API token entry using keyboard widget.
+    
+    Shows the keyboard widget for entering/editing the Lichess API token.
+    The token is saved immediately when confirmed (no restart required).
+    
+    Returns:
+        MenuSelection or result indicating success/cancel
+    """
+    global _active_keyboard_widget
+    from DGTCentaurMods.board import centaur
+    
+    log.info("[Accounts] Opening keyboard for Lichess token entry")
+    
+    # Clear display and show keyboard widget
+    board.display_manager.clear_widgets(addStatusBar=False)
+    
+    # Create keyboard widget with current token as initial text
+    current_token = centaur.get_lichess_api()
+    keyboard = KeyboardWidget(title="Lichess Token", max_length=64)
+    # Pre-fill with current token if exists (user can edit or clear)
+    keyboard.text = current_token if current_token else ""
+    
+    _active_keyboard_widget = keyboard
+    
+    # Add widget to display
+    promise = board.display_manager.add_widget(keyboard)
+    if promise:
+        try:
+            promise.result(timeout=5.0)
+        except Exception as e:
+            log.warning(f"[Accounts] Keyboard display timeout: {e}")
+    
+    try:
+        # Wait for input (blocking)
+        result = keyboard.wait_for_input(timeout=300.0)
+        
+        if result is not None:
+            # User confirmed - save the token
+            centaur.set_lichess_api(result)
+            log.info(f"[Accounts] Lichess token saved ({len(result)} chars)")
+            board.beep(board.SOUND_GENERAL)
+        else:
+            log.info("[Accounts] Lichess token entry cancelled")
+        
+        return result
+    finally:
+        # Clear keyboard widget reference
+        _active_keyboard_widget = None
 
 
 def _shutdown(message: str, reboot: bool = False):

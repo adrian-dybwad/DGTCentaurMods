@@ -444,6 +444,10 @@ class IconButtonWidget(Widget):
             self._draw_timer_icon(draw, x, y, size, line_color, checked=True)
         elif icon_name == "bluetooth":
             self._draw_bluetooth_icon(draw, x, y, size, line_color)
+        elif icon_name == "account":
+            self._draw_account_icon(draw, x, y, size, line_color)
+        elif icon_name == "lichess":
+            self._draw_lichess_icon(draw, x, y, size, line_color)
         else:
             # Default: simple square placeholder
             draw.rectangle([left + 4, top + 4, right - 4, bottom - 4],
@@ -1661,3 +1665,96 @@ class IconButtonWidget(Widget):
         
         draw.line([bottom_point, right_mid], fill=line_color, width=line_width)
         draw.line([right_mid, left_lower], fill=line_color, width=line_width)
+
+    def _draw_account_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                           size: int, line_color: int):
+        """Draw an account/user icon (person silhouette).
+        
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line color (0=black, 255=white)
+        """
+        s = size / 36.0
+        line_width = max(2, int(2 * s))
+        
+        # Head (circle at top)
+        head_radius = int(6 * s)
+        head_y = y - int(6 * s)
+        draw.ellipse(
+            [x - head_radius, head_y - head_radius,
+             x + head_radius, head_y + head_radius],
+            outline=line_color, width=line_width
+        )
+        
+        # Body (arc/shoulders below)
+        body_top = y + int(2 * s)
+        body_bottom = y + int(14 * s)
+        body_width = int(12 * s)
+        
+        # Draw shoulders as an arc
+        draw.arc(
+            [x - body_width, body_top,
+             x + body_width, body_bottom + int(10 * s)],
+            start=180, end=0,
+            fill=line_color, width=line_width
+        )
+
+    def _draw_lichess_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                           size: int, line_color: int):
+        """Draw the Lichess logo (simplified knight with flame).
+        
+        The Lichess logo is a stylized knight chess piece. This draws
+        a simplified version suitable for small e-paper display.
+        
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line color (0=black, 255=white)
+        """
+        s = size / 36.0
+        line_width = max(2, int(2 * s))
+        
+        # Draw a simplified knight head facing left (like Lichess logo)
+        # Base/platform
+        base_y = y + int(12 * s)
+        base_left = x - int(10 * s)
+        base_right = x + int(10 * s)
+        draw.line([(base_left, base_y), (base_right, base_y)], 
+                  fill=line_color, width=line_width)
+        
+        # Neck (vertical line from base)
+        neck_top = y - int(4 * s)
+        neck_x = x + int(2 * s)
+        draw.line([(neck_x, base_y), (neck_x, neck_top)],
+                  fill=line_color, width=line_width)
+        
+        # Head (angled line for snout)
+        snout_x = x - int(10 * s)
+        snout_y = y - int(2 * s)
+        draw.line([(neck_x, neck_top), (snout_x, snout_y)],
+                  fill=line_color, width=line_width)
+        
+        # Mane/top curve
+        mane_top = y - int(12 * s)
+        draw.line([(neck_x, neck_top), (x, mane_top)],
+                  fill=line_color, width=line_width)
+        draw.line([(x, mane_top), (x + int(6 * s), y - int(6 * s))],
+                  fill=line_color, width=line_width)
+        
+        # Ear
+        ear_x = x + int(4 * s)
+        ear_y = y - int(10 * s)
+        draw.line([(x, mane_top), (ear_x, ear_y - int(4 * s))],
+                  fill=line_color, width=line_width)
+        
+        # Eye (small dot)
+        eye_x = x - int(2 * s)
+        eye_y = y - int(4 * s)
+        eye_r = max(1, int(1.5 * s))
+        draw.ellipse([eye_x - eye_r, eye_y - eye_r, eye_x + eye_r, eye_y + eye_r],
+                     fill=line_color)
