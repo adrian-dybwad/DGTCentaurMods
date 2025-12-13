@@ -16,38 +16,110 @@
 # moveCallback feeds back the chess moves made on the board
 # keyCallback feeds back key presses from keys under the display
 
-import time as _t
-import logging as _log_temp
-_logger = _log_temp.getLogger(__name__)
-_s = _t.time()
-
-from DGTCentaurMods.board import board
-_logger.debug(f"[game import] board: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from DGTCentaurMods.db import models
-_logger.debug(f"[game import] models: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import func, select, create_engine
-_logger.debug(f"[game import] sqlalchemy: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from scipy.optimize import linear_sum_assignment
-_logger.debug(f"[game import] scipy: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
 import threading
 import queue
 import time
 import chess
 import sys
 import inspect
-_logger.debug(f"[game import] stdlib: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
 import numpy as np
-_logger.debug(f"[game import] numpy: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
+from DGTCentaurMods.board import board
 from DGTCentaurMods.config import paths
 from DGTCentaurMods.board.logging import log
-_logger.debug(f"[game import] config/logging: {(_t.time() - _s)*1000:.0f}ms")
+
+# Deferred imports - these are slow (~3s total on Raspberry Pi) and loaded in background
+# to avoid blocking startup. They're only needed when a game actually starts.
+_deferred_imports_ready = threading.Event()
+_deferred_models = None
+_deferred_linear_sum_assignment = None
+_deferred_sessionmaker = None
+_deferred_func = None
+_deferred_select = None
+_deferred_create_engine = None
+
+def _load_deferred_imports():
+    """Load slow imports in background thread.
+    
+    Imports scipy and database models which take ~3 seconds combined on Pi.
+    Sets _deferred_imports_ready event when complete.
+    """
+    global _deferred_models, _deferred_linear_sum_assignment
+    global _deferred_sessionmaker, _deferred_func, _deferred_select, _deferred_create_engine
+    
+    try:
+        # Import database models (~1.5s)
+        from DGTCentaurMods.db import models as _models
+        _deferred_models = _models
+        
+        # Import SQLAlchemy components
+        from sqlalchemy.orm import sessionmaker as _sessionmaker
+        from sqlalchemy import func as _func, select as _select, create_engine as _create_engine
+        _deferred_sessionmaker = _sessionmaker
+        _deferred_func = _func
+        _deferred_select = _select
+        _deferred_create_engine = _create_engine
+        
+        # Import scipy (~1.5s)
+        from scipy.optimize import linear_sum_assignment as _lsa
+        _deferred_linear_sum_assignment = _lsa
+        
+        log.debug("[GameManager] Deferred imports loaded successfully")
+    except Exception as e:
+        log.error(f"[GameManager] Error loading deferred imports: {e}")
+    finally:
+        _deferred_imports_ready.set()
+
+# Start background import thread
+_import_thread = threading.Thread(target=_load_deferred_imports, daemon=True)
+_import_thread.start()
+
+def _wait_for_imports(timeout=30.0):
+    """Wait for deferred imports to complete.
+    
+    Called by functions that need the deferred modules.
+    Returns True if imports are ready, False on timeout.
+    
+    Args:
+        timeout: Maximum seconds to wait (default 30s, plenty of time)
+    
+    Returns:
+        True if imports ready, False if timed out
+    """
+    if _deferred_imports_ready.is_set():
+        return True
+    log.debug("[GameManager] Waiting for deferred imports...")
+    return _deferred_imports_ready.wait(timeout=timeout)
+
+def _get_models():
+    """Get the models module, waiting for import if needed."""
+    _wait_for_imports()
+    return _deferred_models
+
+def _get_linear_sum_assignment():
+    """Get the linear_sum_assignment function, waiting for import if needed."""
+    _wait_for_imports()
+    return _deferred_linear_sum_assignment
+
+def _get_sessionmaker():
+    """Get SQLAlchemy sessionmaker, waiting for import if needed."""
+    _wait_for_imports()
+    return _deferred_sessionmaker
+
+def _get_sqlalchemy_func():
+    """Get SQLAlchemy func, waiting for import if needed."""
+    _wait_for_imports()
+    return _deferred_func
+
+def _get_sqlalchemy_select():
+    """Get SQLAlchemy select, waiting for import if needed."""
+    _wait_for_imports()
+    return _deferred_select
+
+def _get_create_engine():
+    """Get SQLAlchemy create_engine, waiting for import if needed."""
+    _wait_for_imports()
+    return _deferred_create_engine
 
 
 # Event constants
@@ -502,6 +574,7 @@ class GameManager:
         # Only update database if game has been properly initialized
         # This prevents database operations with invalid game ID (game_db_id = -1) before _reset_game() is called
         if self.database_session is not None and self.game_db_id >= 0:
+            models = _get_models()
             game_record = self.database_session.query(models.Game).filter(
                 models.Game.id == self.game_db_id
             ).first()
@@ -611,6 +684,7 @@ class GameManager:
             
             # Remove last move from database
             if self.database_session is not None:
+                models = _get_models()
                 db_last_move = self.database_session.query(models.GameMove).order_by(
                     models.GameMove.id.desc()
                 ).first()
@@ -802,6 +876,7 @@ class GameManager:
                     for j, missing_sq in enumerate(missing_squares):
                         costs[i, j] = manhattan_distance(extra_sq, missing_sq)
                 
+                linear_sum_assignment = _get_linear_sum_assignment()
                 row_ind, col_ind = linear_sum_assignment(costs)
                 from_idx = extra_squares[row_ind[0]]
                 to_idx = missing_squares[col_ind[0]]
@@ -1301,6 +1376,7 @@ class GameManager:
         # Save to database (similar to _execute_move but simplified for castling)
         if self.database_session is not None and self.game_db_id >= 0:
             try:
+                models = _get_models()
                 game_move = models.GameMove(
                     gameid=self.game_db_id,
                     move=castling_uci,
@@ -1314,6 +1390,7 @@ class GameManager:
             # First move - need to create game first (handle this case)
             log.info("[GameManager._execute_castling_move] First move is castling - creating game")
             try:
+                models = _get_models()
                 game = models.Game(
                     source=self.source_file,
                     event=self.game_info['event'],
@@ -1458,6 +1535,7 @@ class GameManager:
             # Remove from database
             if self.database_session is not None:
                 try:
+                    models = _get_models()
                     db_last_move = self.database_session.query(models.GameMove).filter(
                         models.GameMove.gameid == self.game_db_id
                     ).order_by(models.GameMove.id.desc()).first()
@@ -1503,6 +1581,7 @@ class GameManager:
         # Save to database
         if self.database_session is not None and self.game_db_id >= 0:
             try:
+                models = _get_models()
                 game_move = models.GameMove(
                     gameid=self.game_db_id,
                     move=castling_uci,
@@ -1701,6 +1780,7 @@ class GameManager:
                 # 1. Database operations
                 if self.database_session is not None:
                     try:
+                        models = _get_models()
                         # Create new game if first move
                         if is_first_move:
                             game = models.Game(
@@ -2041,6 +2121,7 @@ class GameManager:
             if self.database_session is not None and self.game_db_id >= 0:
                 try:
                     # Check if the previous game has a result (if not, it was abandoned)
+                    models = _get_models()
                     previous_game = self.database_session.query(models.Game).filter(
                         models.Game.id == self.game_db_id
                     ).first()
@@ -2123,6 +2204,8 @@ class GameManager:
             # Configure SQLite with check_same_thread=False to allow connections created in this thread
             # to be used throughout the thread's lifetime. This is safe because we create and use
             # the engine entirely within this thread.
+            create_engine = _get_create_engine()
+            sessionmaker = _get_sessionmaker()
             if database_uri.startswith('sqlite'):
                 self.database_engine = create_engine(
                     database_uri,
@@ -2333,6 +2416,8 @@ class GameManager:
                 return self.cached_result
             return "Unknown"
         
+        models = _get_models()
+        select = _get_sqlalchemy_select()
         game_data = self.database_session.execute(
             select(
                 models.Game.created_at,
