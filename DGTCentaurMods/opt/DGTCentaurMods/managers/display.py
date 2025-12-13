@@ -675,12 +675,18 @@ class DisplayManager:
         except Exception as e:
             log.debug(f"[DisplayManager] Error showing splash: {e}")
     
-    def show_game_over(self, result: str, termination_type: str = None):
-        """Show the game over screen with result and score history.
+    def show_game_over(self, result: str, termination_type: str = None, move_count: int = 0):
+        """
+        Show the game over widget below the analysis widget.
+        
+        The board and analysis widget remain visible, and the game over widget
+        is added in the space below them (y=224, height=72) to display the
+        winner and termination reason.
         
         Args:
             result: Game result string (e.g., "1-0", "0-1", "1/2-1/2")
             termination_type: Type of termination (e.g., "CHECKMATE", "STALEMATE", "RESIGN")
+            move_count: Number of moves played in the game
         """
         _load_widgets()
         board = _get_board()
@@ -689,17 +695,14 @@ class DisplayManager:
             log.info(f"[DisplayManager] Showing game over: result={result}, termination={termination_type}")
             
             if board.display_manager:
-                board.display_manager.clear_widgets(addStatusBar=True)
+                # Create game over widget in space below analysis widget
+                # Uses default position (y=224) and height (72) from GameOverWidget
+                game_over_widget = _GameOverWidget()
+                game_over_widget.set_result(result, termination_type, move_count)
                 
-                # GameOverWidget is sized to leave room for status bar (296 - 20 = 276)
-                game_over_widget = _GameOverWidget(0, 0, 128, 276)
-                game_over_widget.set_result(result)
-                
-                # Get score history from analysis widget if available
-                if self.analysis_widget:
-                    game_over_widget.set_score_history(self.analysis_widget.get_score_history())
-                else:
-                    game_over_widget.set_score_history([])
+                # Hide brain hint widget if present (occupies same space)
+                if self.brain_hint_widget:
+                    self.brain_hint_widget.hide()
                 
                 future = board.display_manager.add_widget(game_over_widget)
                 if future:
@@ -708,7 +711,7 @@ class DisplayManager:
                     except Exception:
                         pass
                         
-                log.info("[DisplayManager] Game over screen displayed")
+                log.info("[DisplayManager] Game over widget displayed")
         except Exception as e:
             log.error(f"[DisplayManager] Error showing game over: {e}")
     

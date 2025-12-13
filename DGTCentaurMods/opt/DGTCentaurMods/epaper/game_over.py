@@ -1,5 +1,8 @@
 """
-Game over screen widget displaying game result and score history.
+Game over widget displaying winner and termination reason.
+
+This widget occupies the space below the analysis widget (y=224, height=72)
+and displays the game result information without including the analysis widget.
 """
 
 from PIL import Image, ImageDraw, ImageFont
@@ -19,31 +22,50 @@ except ImportError:
 
 
 class GameOverWidget(Widget):
-    """Widget displaying game over screen with result and score history."""
+    """
+    Widget displaying game over information below the analysis widget.
     
-    def __init__(self, x: int = 0, y: int = 0, width: int = 128, height: int = 296):
+    Shows winner, termination reason, and game result in a compact format
+    designed for the 128x72 pixel space below the analysis widget.
+    """
+    
+    # Default position: below analysis widget (y=224) with height=72
+    DEFAULT_Y = 224
+    DEFAULT_HEIGHT = 72
+    
+    def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None):
         """
         Initialize game over widget.
         
         Args:
-            x: X position
-            y: Y position
-            width: Widget width
-            height: Widget height
+            x: X position (default 0)
+            y: Y position (default 224, below analysis widget)
+            width: Widget width (default 128)
+            height: Widget height (default 72)
         """
+        if y is None:
+            y = self.DEFAULT_Y
+        if height is None:
+            height = self.DEFAULT_HEIGHT
+            
         super().__init__(x, y, width, height)
-        self.result_text = ""
-        self.score_history = []
-        self._font_18 = self._load_font()
+        
+        self.result = ""           # "1-0", "0-1", "1/2-1/2"
+        self.winner = ""           # "White wins", "Black wins", "Draw"
+        self.termination = ""      # "Checkmate", "Stalemate", "Resignation", etc.
+        self.move_count = 0        # Number of moves played
+        
+        self._font_large = self._load_font(16)
+        self._font_small = self._load_font(12)
     
-    def _load_font(self):
+    def _load_font(self, size: int):
         """Load font with Font.ttc as default."""
         if AssetManager is not None:
             try:
                 font_path = AssetManager.get_resource_path("Font.ttc")
                 if font_path and os.path.exists(font_path):
-                    return ImageFont.truetype(font_path, 18)
-            except:
+                    return ImageFont.truetype(font_path, size)
+            except Exception:
                 pass
         
         # Fallback paths
@@ -55,60 +77,128 @@ class GameOverWidget(Widget):
         for path in font_paths:
             if os.path.exists(path):
                 try:
-                    return ImageFont.truetype(path, 18)
-                except:
+                    return ImageFont.truetype(path, size)
+                except Exception:
                     pass
         return ImageFont.load_default()
     
-    def set_result(self, result: str) -> None:
-        """Set the game result text."""
-        if self.result_text != result:
-            self.result_text = result
+    def set_result(self, result: str, termination: str = None, move_count: int = 0) -> None:
+        """
+        Set the game result and termination type.
+        
+        Args:
+            result: Game result string ("1-0", "0-1", "1/2-1/2")
+            termination: Termination type (e.g., "CHECKMATE", "STALEMATE", "RESIGN")
+            move_count: Number of moves played in the game
+        """
+        changed = False
+        
+        if self.result != result:
+            self.result = result
+            changed = True
+            
+            # Determine winner from result
+            if result == "1-0":
+                self.winner = "White wins"
+            elif result == "0-1":
+                self.winner = "Black wins"
+            elif result == "1/2-1/2":
+                self.winner = "Draw"
+            else:
+                self.winner = result
+        
+        if termination is not None and self.termination != termination:
+            # Format termination for display
+            self.termination = self._format_termination(termination)
+            changed = True
+        
+        if move_count > 0 and self.move_count != move_count:
+            self.move_count = move_count
+            changed = True
+        
+        if changed:
             self._last_rendered = None
             self.request_update(full=False)
     
-    def set_score_history(self, history: list) -> None:
-        """Set the score history for the graph."""
-        if self.score_history != history:
-            self.score_history = history.copy() if history else []
-            self._last_rendered = None
-            self.request_update(full=False)
+    def _format_termination(self, termination: str) -> str:
+        """
+        Format termination type for display.
+        
+        Args:
+            termination: Raw termination string (e.g., "CHECKMATE", "Termination.CHECKMATE")
+            
+        Returns:
+            Formatted display string
+        """
+        if not termination:
+            return ""
+        
+        # Remove "Termination." prefix if present
+        term = termination.replace("Termination.", "")
+        
+        # Convert to readable format
+        termination_map = {
+            "CHECKMATE": "Checkmate",
+            "STALEMATE": "Stalemate",
+            "INSUFFICIENT_MATERIAL": "Insufficient material",
+            "SEVENTYFIVE_MOVES": "75-move rule",
+            "FIVEFOLD_REPETITION": "5-fold repetition",
+            "FIFTY_MOVES": "50-move rule",
+            "THREEFOLD_REPETITION": "3-fold repetition",
+            "RESIGN": "Resignation",
+            "TIMEOUT": "Time forfeit",
+            "ABANDONED": "Abandoned",
+        }
+        
+        return termination_map.get(term.upper(), term.title())
     
     def render(self) -> Image.Image:
-        """Render game over screen with result and score history."""
+        """
+        Render game over widget.
+        
+        Layout (72 pixels height):
+        - Line 1 (y=2): "GAME OVER" header
+        - Line 2 (y=20): Winner ("White wins", "Black wins", "Draw")
+        - Line 3 (y=38): Termination reason
+        - Line 4 (y=56): Move count (if available)
+        """
+        if self._last_rendered is not None:
+            return self._last_rendered
+        
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
-        # Draw "GAME OVER" text
-        draw.text((0, 0), "   GAME OVER", font=self._font_18, fill=0)
+        # Draw separator line at top
+        draw.line([(0, 0), (self.width, 0)], fill=0, width=1)
         
-        # Draw result text
-        if self.result_text:
-            draw.text((0, 20), "          " + self.result_text, font=self._font_18, fill=0)
+        # Line 1: "GAME OVER" header (centered)
+        header = "GAME OVER"
+        header_bbox = draw.textbbox((0, 0), header, font=self._font_large)
+        header_width = header_bbox[2] - header_bbox[0]
+        header_x = (self.width - header_width) // 2
+        draw.text((header_x, 2), header, font=self._font_large, fill=0)
         
-        # Draw score history graph if available
-        if len(self.score_history) > 0:
-            # Draw horizontal line at y=114
-            draw.line([(0, 114), (self.width, 114)], fill=0, width=1)
-            
-            # Calculate bar width
-            bar_width = self.width / len(self.score_history)
-            if bar_width > 8:
-                bar_width = 8
-            
-            # Draw bars
-            bar_offset = 0
-            for score in self.score_history:
-                color = 255 if score >= 0 else 0
-                bar_height = abs(score * 4)
-                y1 = 114 - bar_height if score >= 0 else 114
-                y2 = 114 if score >= 0 else 114 + bar_height
-                draw.rectangle(
-                    [(bar_offset, y1), (bar_offset + bar_width, y2)],
-                    fill=color,
-                    outline=0
-                )
-                bar_offset += bar_width
+        # Line 2: Winner (centered)
+        if self.winner:
+            winner_bbox = draw.textbbox((0, 0), self.winner, font=self._font_large)
+            winner_width = winner_bbox[2] - winner_bbox[0]
+            winner_x = (self.width - winner_width) // 2
+            draw.text((winner_x, 20), self.winner, font=self._font_large, fill=0)
         
+        # Line 3: Termination reason (centered)
+        if self.termination:
+            term_bbox = draw.textbbox((0, 0), self.termination, font=self._font_small)
+            term_width = term_bbox[2] - term_bbox[0]
+            term_x = (self.width - term_width) // 2
+            draw.text((term_x, 40), self.termination, font=self._font_small, fill=0)
+        
+        # Line 4: Move count if available (centered)
+        if self.move_count > 0:
+            moves_text = f"{self.move_count} moves"
+            moves_bbox = draw.textbbox((0, 0), moves_text, font=self._font_small)
+            moves_width = moves_bbox[2] - moves_bbox[0]
+            moves_x = (self.width - moves_width) // 2
+            draw.text((moves_x, 56), moves_text, font=self._font_small, fill=0)
+        
+        self._last_rendered = img
         return img
-
