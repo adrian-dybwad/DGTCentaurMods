@@ -618,6 +618,11 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
             if not gm._validate_board_state(current_physical_state, expected_logical_state):
                 log.info("[Positions] Physical board does not match position, entering correction mode")
                 board.beep(board.SOUND_GENERAL, event_type='game_event')
+                
+                # Store hint for after correction mode exits
+                if hint_from_sq is not None and hint_to_sq is not None:
+                    gm.set_pending_hint(hint_from_sq, hint_to_sq)
+                
                 gm._enter_correction_mode()
                 gm._provide_correction_guidance(current_physical_state, expected_logical_state)
             else:

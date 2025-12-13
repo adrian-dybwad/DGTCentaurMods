@@ -477,6 +477,10 @@ class GameManager:
         # Ready state and event queue for synchronization
         # Events received before ready are queued and replayed when ready
         self._is_ready = False
+        
+        # Pending hint move for position games
+        # Stored as (from_square, to_square) tuple, applied after correction mode exits
+        self._pending_hint_squares = None
         self._pending_field_events = []
         self._ready_lock = threading.Lock()
         
@@ -743,9 +747,28 @@ class GameManager:
                     self._provide_correction_guidance(current, expected_state)
             
             return True
-        
+
         return False
-    
+
+    def set_pending_hint(self, from_square: int, to_square: int):
+        """Set a pending hint move to be shown after correction mode exits.
+        
+        Used by position loading to defer hint display until the board
+        is correctly set up.
+        
+        Args:
+            from_square: Source square index (0-63)
+            to_square: Destination square index (0-63)
+        """
+        self._pending_hint_squares = (from_square, to_square)
+        log.debug(f"[GameManager.set_pending_hint] Stored hint: {chess.square_name(from_square)} -> {chess.square_name(to_square)}")
+
+    def clear_pending_hint(self):
+        """Clear any pending hint move."""
+        if self._pending_hint_squares is not None:
+            log.debug("[GameManager.clear_pending_hint] Cleared pending hint")
+            self._pending_hint_squares = None
+
     def _enter_correction_mode(self):
         """Enter correction mode to guide user in fixing board state.
         
@@ -762,7 +785,11 @@ class GameManager:
         log.warning(f"[GameManager._enter_correction_mode] Entered correction mode - physical board must match logical board (FEN: {self.chess_board.fen()})")
     
     def _exit_correction_mode(self):
-        """Exit correction mode and resume normal game flow."""
+        """Exit correction mode and resume normal game flow.
+        
+        If a pending hint move was set (from position loading), it is shown
+        on the LEDs after correction mode exits.
+        """
         self.correction_mode.exit()
         log.warning("[GameManager._exit_correction_mode] Exited correction mode")
         
@@ -781,6 +808,13 @@ class GameManager:
                 if from_sq is not None and to_sq is not None:
                     board.ledFromTo(from_sq, to_sq, repeat=0)
                     log.info(f"[GameManager._exit_correction_mode] Restored forced move LEDs: {self.move_state.computer_move_uci}")
+        # Apply pending hint move if set (from position loading)
+        elif self._pending_hint_squares is not None:
+            from_sq, to_sq = self._pending_hint_squares
+            board.ledFromTo(from_sq, to_sq, repeat=0)
+            log.info(f"[GameManager._exit_correction_mode] Showing hint LEDs: {chess.square_name(from_sq)} -> {chess.square_name(to_sq)}")
+            # Clear the hint after showing it once
+            self._pending_hint_squares = None
     
     def _check_kings_in_center_from_state(self, missing_squares: list, extra_squares: list) -> bool:
         """Check if the misplaced piece state indicates a kings-in-center gesture.
