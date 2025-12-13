@@ -44,6 +44,7 @@ class IconMenuEntry:
         selectable: Whether entry can be selected (non-selectable entries are
                    displayed but skipped during navigation and cannot be activated)
         height_ratio: Relative height weight (default 1.0, use 2.0 for double height)
+        max_height: Maximum height in pixels (None for no limit)
         icon_size: Custom icon size in pixels (None uses default based on button height)
         layout: Button layout - 'horizontal' (icon left) or 'vertical' (icon top centered)
         font_size: Font size in pixels (default 16)
@@ -56,6 +57,7 @@ class IconMenuEntry:
     enabled: bool = True
     selectable: bool = True
     height_ratio: float = 1.0
+    max_height: int = None
     icon_size: int = None
     layout: str = "horizontal"
     font_size: int = 16
@@ -217,6 +219,11 @@ class IconMenuWidget(Widget):
             
             # Calculate this button's height based on its ratio
             button_height = int(available_height * entry.height_ratio / total_ratio)
+            
+            # Apply max_height constraint if specified (only for selectable entries)
+            # Non-selectable info widgets are exempt from height constraints
+            if entry.selectable and entry.max_height is not None and button_height > entry.max_height:
+                button_height = entry.max_height
             
             # Determine icon size - use entry's custom size or derive from height
             if entry.icon_size is not None:
@@ -533,8 +540,8 @@ def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
     
     Args:
         entries_config: List of dicts with 'key', 'label', 'icon_name',
-                       and optional 'enabled', 'height_ratio', 'icon_size',
-                       'layout', 'font_size', 'bold'
+                       and optional 'enabled', 'height_ratio', 'max_height',
+                       'icon_size', 'layout', 'font_size', 'bold'
         
     Returns:
         List of IconMenuEntry objects
@@ -546,6 +553,7 @@ def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
             icon_name=e['icon_name'],
             enabled=e.get('enabled', True),
             height_ratio=e.get('height_ratio', 1.0),
+            max_height=e.get('max_height', None),
             icon_size=e.get('icon_size', None),
             layout=e.get('layout', 'horizontal'),
             font_size=e.get('font_size', 16),
