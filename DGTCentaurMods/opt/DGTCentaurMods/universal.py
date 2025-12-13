@@ -2650,6 +2650,54 @@ def signal_handler(signum, frame):
     cleanup_and_exit(f"Received signal {signum}")
 
 
+# Counter for unhandled key events - used to detect broken state and recover
+_unhandled_key_count = 0
+_UNHANDLED_KEY_THRESHOLD = 5  # After this many unhandled keys, force recovery to main menu
+
+
+def _reset_unhandled_key_count():
+    """Reset the unhandled key counter after a successful key handling."""
+    global _unhandled_key_count
+    _unhandled_key_count = 0
+
+
+def _handle_unhandled_key(key_id, reason: str):
+    """Handle an unhandled key event - log error and potentially recover.
+    
+    If too many keys fall through without being handled, the app is likely in
+    a broken state (e.g., menu displayed but no active widget). Force recovery
+    by cleaning up and returning to the main menu.
+    
+    Args:
+        key_id: The key that was not handled
+        reason: Description of why the key was not handled
+    """
+    global _unhandled_key_count, app_state, protocol_manager, display_manager
+    
+    _unhandled_key_count += 1
+    log.error(f"[App] UNHANDLED KEY: {key_id}, reason: {reason}, "
+              f"app_state={app_state}, count={_unhandled_key_count}/{_UNHANDLED_KEY_THRESHOLD}")
+    
+    if _unhandled_key_count >= _UNHANDLED_KEY_THRESHOLD:
+        log.error(f"[App] Too many unhandled keys ({_unhandled_key_count}) - forcing recovery to main menu")
+        _unhandled_key_count = 0
+        
+        # Force cleanup and return to menu
+        try:
+            _cleanup_game()
+        except Exception as e:
+            log.error(f"[App] Error during recovery cleanup: {e}")
+        
+        # Force app_state to MENU so main loop will show the menu
+        app_state = AppState.MENU
+        
+        # Beep to indicate recovery
+        try:
+            board.beep(board.SOUND_GENERAL, event_type='system')
+        except Exception:
+            pass
+
+
 def key_callback(key_id):
     """Handle key press events from the board.
     
@@ -2661,6 +2709,10 @@ def key_callback(key_id):
     - BACK: In game mode (no game or after resign/draw), returns to menu
     - HELP: Toggle game analysis widget visibility (game mode only)
     - LONG_PLAY: Shutdown system
+    
+    If keys fall through without being handled, an error is logged. After
+    too many unhandled keys (indicating a broken state), the app forces
+    recovery by returning to the main menu.
     """
     global running, kill, display_manager, app_state, _menu_manager, _active_keyboard_widget
     
@@ -2672,26 +2724,34 @@ def key_callback(key_id):
         running = False
         kill = 1
         board.shutdown(reason="LONG_PLAY key event from universal.py")
+        _reset_unhandled_key_count()
         return
     
     # Priority 1: Active keyboard widget gets key events
     if _active_keyboard_widget is not None:
         handled = _active_keyboard_widget.handle_key(key_id)
         if handled:
+            _reset_unhandled_key_count()
             return
     
     # Route based on app state
     if app_state == AppState.MENU or app_state == AppState.SETTINGS:
         # Route to active menu widget via MenuManager
-        if _menu_manager.active_widget is not None:
+        if _menu_manager is not None and _menu_manager.active_widget is not None:
             handled = _menu_manager.active_widget.handle_key(key_id)
             if handled:
+                _reset_unhandled_key_count()
                 return
+        
+        # Key not handled in MENU/SETTINGS - this should not happen
+        _handle_unhandled_key(key_id, f"No active menu widget in {app_state.name}")
+        return
     
     elif app_state == AppState.GAME:
         # Priority: DisplayManager menu (resign/draw, promotion) > app keys > game
         if display_manager and display_manager.is_menu_active():
             display_manager.handle_key(key_id)
+            _reset_unhandled_key_count()
             return
         
         # Handle app-level keys
@@ -2699,11 +2759,13 @@ def key_callback(key_id):
             # Toggle game analysis widget visibility
             if display_manager:
                 display_manager.toggle_analysis()
+            _reset_unhandled_key_count()
             return
         
         # Forward other keys to protocol_manager -> game_manager
         if protocol_manager:
             protocol_manager.receive_key(key_id)
+            _reset_unhandled_key_count()
             
             # Check if GameManager wants us to exit:
             # - BACK with no game in progress (no moves made)
@@ -2716,6 +2778,14 @@ def key_callback(key_id):
                 elif not protocol_manager.game_manager.is_game_in_progress():
                     log.info("[App] BACK with no game - returning to menu")
                     _return_to_menu("BACK pressed")
+            return
+        
+        # No protocol_manager in GAME mode - should not happen
+        _handle_unhandled_key(key_id, "No protocol_manager in GAME mode")
+        return
+    
+    # Unknown app_state or fell through all handlers
+    _handle_unhandled_key(key_id, f"Unknown app_state or no handler: {app_state}")
 
 
 # Pending piece events for menu -> game transition
