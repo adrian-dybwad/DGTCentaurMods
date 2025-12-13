@@ -723,13 +723,8 @@ def eventsThread(keycallback, fieldcallback, tout):
     adjustments (e.g., NTP sync on Raspberry Pi startup that can jump the clock
     forward and trigger premature shutdown).
     
-    Long-press behavior (hold >= 1 second while still holding):
-    - Any button: Triggers full screen refresh at 1 second
-    - PLAY button: After refresh, continues with 2-second shutdown countdown
-      (total 3 seconds to shutdown). Releasing before 3s cancels shutdown.
-    - Other buttons: No further action after refresh; wait for release.
-    
-    Short press (< 1 second) passes the key event to the callback as normal.
+    PLAY_DOWN starts shutdown countdown (releasing cancels).
+    Other key-down events are ignored; only key-up events go to callback.
     """
     global eventsrunning
     global chargerconnected
@@ -833,49 +828,22 @@ def eventsThread(keycallback, fieldcallback, tout):
             try:
                 key_pressed = controller.get_next_key(timeout=0.0)
 
-                # Handle any key-down event: wait for 1 second hold for full refresh
-                if key_pressed is not None and key_pressed.value >= 0x80:
-                    # This is a _DOWN event (has KEY_DOWN_OFFSET)
-                    is_play_key = (key_pressed == Key.PLAY_DOWN)
-                    key_down_start = time.monotonic()
-                    
-                    # Wait up to 1 second for long-press, checking for key release
-                    while time.monotonic() - key_down_start < 1.0:
-                        time.sleep(0.05)
-                        release_key = controller.get_next_key(timeout=0.0)
-                        if release_key is not None and release_key.value < 0x80:
-                            # Key was released before 1 second - pass as normal key press
-                            key_pressed = release_key
-                            break
+                # PLAY_DOWN starts shutdown countdown, releasing cancels
+                if key_pressed == Key.PLAY_DOWN:
+                    beep(SOUND_GENERAL)
+                    log.info('[board.events] PLAY_DOWN detected, starting shutdown countdown')
+                    if shutdown_countdown():
+                        # Countdown completed without release - proceed with shutdown
+                        shutdown(reason="PLAY button held during countdown")
                     else:
-                        # Held for >= 1 second
-                        if is_play_key:
-                            # PLAY key: start shutdown countdown (no refresh - need to see countdown)
-                            beep(SOUND_POWER_OFF)
-                            log.info('[board.events] PLAY held 1s, starting 2s shutdown countdown')
-                            if shutdown_countdown(countdown_seconds=2):
-                                shutdown(reason="PLAY button held for 3 seconds")
-                            else:
-                                log.info('[board.events] Shutdown cancelled (button released)')
-                        else:
-                            # Other keys: trigger full refresh
-                            log.info('[board.events] Long press (1s) detected, triggering full screen refresh')
-                            if display_manager:
-                                try:
-                                    display_manager.update(full=True)
-                                except Exception as e:
-                                    log.error(f'[board.events] Error triggering full refresh: {e}')
-                            # Wait for release, no further action
-                            while True:
-                                time.sleep(0.05)
-                                release_key = controller.get_next_key(timeout=0.0)
-                                if release_key is not None and release_key.value < 0x80:
-                                    break
-                        
-                        key_pressed = None  # Don't pass long-press to callback
+                        # User released button - cancelled
+                        log.info('[board.events] Shutdown cancelled (button released)')
+                    key_pressed = None  # Already handled
                 
-                # Key-up events without prior key-down tracking are passed through normally
-                # (This handles the case where key was already released in the loop above)
+                # Ignore other key-down events - only key-up events go to callback
+                elif key_pressed is not None and key_pressed.value >= 0x80:
+                    # This is a _DOWN event (has KEY_DOWN_OFFSET), ignore it
+                    key_pressed = None
                     
             except Exception as e:
                 log.error(f"[board.events] error: {e}")

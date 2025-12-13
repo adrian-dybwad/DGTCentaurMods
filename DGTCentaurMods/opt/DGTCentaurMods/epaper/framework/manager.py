@@ -93,14 +93,6 @@ class Manager:
                     self._widgets.remove(existing)
                     break  # Only one modal should exist
         
-        # Check for overlaps (skip if modal since it intentionally covers everything)
-        if not widget.is_modal:
-            new_region = widget.get_region()
-            for existing in self._widgets:
-                if new_region.intersects(existing.get_region()):
-                    import warnings
-                    warnings.warn(f"Widget at {new_region} overlaps with widget at {existing.get_region()}")
-        
         # Pass scheduler and update callback to widget so it can trigger updates
         widget.set_scheduler(self._scheduler)
         widget.set_update_callback(self.update)

@@ -20,8 +20,10 @@ from .icon_button import IconButtonWidget
 from .icon_menu import IconMenuWidget, IconMenuEntry
 from .keyboard import KeyboardWidget
 from .brain_hint import BrainHintWidget
+from .alert_widget import AlertWidget
 
 __all__ = ['Manager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'Justify', 'BallWidget', 
            'ChessBoardWidget', 'GameAnalysisWidget', 'CheckerboardWidget', 'BackgroundWidget',
            'SplashScreen', 'StatusBarWidget', 'WiFiStatusWidget', 'GameOverWidget', 'MenuArrowWidget',
-           'IconButtonWidget', 'IconMenuWidget', 'IconMenuEntry', 'KeyboardWidget', 'BrainHintWidget']
+           'IconButtonWidget', 'IconMenuWidget', 'IconMenuEntry', 'KeyboardWidget', 'BrainHintWidget',
+           'AlertWidget']

@@ -965,6 +965,11 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     game_handler.game_manager.on_king_lift_resign = _on_king_lift_resign
     game_handler.game_manager.on_king_lift_resign_cancel = display_manager.cancel_menu
     
+    # Wire up check and queen threat alert callbacks
+    game_handler.game_manager.on_check = display_manager.show_check_alert
+    game_handler.game_manager.on_queen_threat = display_manager.show_queen_threat_alert
+    game_handler.game_manager.on_alert_clear = display_manager.hide_alert
+    
     # Wire up event callback to handle game events
     from DGTCentaurMods.game_manager import EVENT_NEW_GAME
     def _on_game_event(event):
@@ -2140,10 +2145,17 @@ def key_callback(key_id):
         if game_handler:
             game_handler.receive_key(key_id)
             
-            # Check if GameManager wants us to exit (BACK with no game in progress)
-            if key_id == board.Key.BACK and not game_handler.game_manager.is_game_in_progress():
-                log.info("[App] BACK with no game - returning to menu")
-                _return_to_menu("BACK pressed")
+            # Check if GameManager wants us to exit:
+            # - BACK with no game in progress (no moves made)
+            # - BACK after game over (checkmate, stalemate, etc.)
+            if key_id == board.Key.BACK:
+                outcome = game_handler.game_manager.chess_board.outcome(claim_draw=True)
+                if outcome is not None:
+                    log.info(f"[App] BACK after game over ({outcome.termination}) - returning to menu")
+                    _return_to_menu("Game over - BACK pressed")
+                elif not game_handler.game_manager.is_game_in_progress():
+                    log.info("[App] BACK with no game - returning to menu")
+                    _return_to_menu("BACK pressed")
 
 
 # Pending piece events for menu -> game transition

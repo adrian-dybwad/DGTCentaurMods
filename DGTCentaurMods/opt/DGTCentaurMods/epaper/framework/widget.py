@@ -5,7 +5,6 @@ Base widget class for ePaper display.
 from abc import ABC, abstractmethod
 from PIL import Image
 from typing import Optional, TYPE_CHECKING, Callable
-from .regions import Region
 
 if TYPE_CHECKING:
     from .scheduler import Scheduler
@@ -144,10 +143,6 @@ class Widget(ABC):
         # No callback available - cannot update without Manager
         log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (no update callback)")
         return None
-    
-    def get_region(self) -> Region:
-        """Get the widget's display region."""
-        return Region(self.x, self.y, self.x + self.width, self.y + self.height)
     
     def set_background_shade(self, shade: int) -> None:
         """Set the background shade level.

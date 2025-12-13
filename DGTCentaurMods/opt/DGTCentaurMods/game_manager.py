@@ -325,6 +325,9 @@ class GameManager:
         self.move_callback = None
         self.key_callback = None
         self.takeback_callback = None
+        self.on_check = None  # Callback(is_black_in_check, attacker_square, king_square)
+        self.on_queen_threat = None  # Callback(is_black_queen_threatened, attacker_square, queen_square)
+        self.on_alert_clear = None  # Callback() to clear alerts
         
         # Game metadata
         self.game_info = {
@@ -807,7 +810,16 @@ class GameManager:
         
         Validates physical board against logical board (self.chess_board).
         The logical board is the authority - physical board must conform to it.
+        
+        Note: When sliding pieces, sensors may briefly show incorrect states.
+        A small delay allows sensors to settle before polling board state.
         """
+        # Small delay to allow sensors to settle after piece placement
+        # This helps with sliding pieces where sensors may briefly show both squares
+        is_place = (piece_event == 1)
+        if is_place:
+            time.sleep(0.05)  # 50ms delay for sensor settling
+        
         current_physical_state = board.getChessState()
         
         # Check if board is in starting position (new game detection)
@@ -1723,6 +1735,14 @@ class GameManager:
                     except Exception as e:
                         log.error(f"[GameManager.async] Error in move callback: {e}")
                 
+                # 3.5. Check and queen threat detection (only if game not ended)
+                # This triggers LED flashing and alert widget display
+                if not game_ended:
+                    try:
+                        self._detect_check_and_threats()
+                    except Exception as e:
+                        log.error(f"[GameManager.async] Error detecting check/threats: {e}")
+                
                 # 4. Physical board validation (low priority - yields to polling)
                 # Uses low-priority queue so validation doesn't delay piece event detection.
                 # If the queue is busy with polling, validation is skipped - which is fine
@@ -1887,18 +1907,24 @@ class GameManager:
     
     def receive_key(self, key_pressed):
         """Handle key press events.
-        
+
         GameManager handles game-related key logic:
         - BACK during game: Shows resign/draw menu, only passes through if user chooses to exit
         - BACK with no game: Passes through to external callback (caller handles exit)
+        - BACK after game over: Passes through to external callback (return to menu)
         - Other keys: Passed through to external callback
-        
+
         Args:
             key_pressed: Key that was pressed (board.Key enum value)
         """
         # Handle BACK key - notify DisplayManager if game in progress
         if key_pressed == board.Key.BACK:
-            if self.is_game_in_progress():
+            # Check if game is over (checkmate, stalemate, etc.)
+            outcome = self.chess_board.outcome(claim_draw=True)
+            if outcome is not None:
+                # Game is over - pass through to external callback for exit handling
+                log.info(f"[GameManager] BACK pressed after game over ({outcome.termination}) - passing to external callback")
+            elif self.is_game_in_progress():
                 log.info("[GameManager] BACK pressed during game - notifying display controller")
                 if self.on_back_pressed:
                     self.on_back_pressed()
@@ -2197,6 +2223,66 @@ class GameManager:
         from_sq, to_sq = self._uci_to_squares(uci_move)
         if from_sq is not None and to_sq is not None:
             board.ledFromTo(from_sq, to_sq, repeat=0)
+    
+    def _detect_check_and_threats(self) -> None:
+        """Detect check and queen threats after a move, triggering appropriate callbacks.
+        
+        Called after each move to check:
+        1. If the opponent's king is in check - triggers on_check callback
+        2. If the opponent's queen is under attack - triggers on_queen_threat callback
+        3. If neither applies - triggers on_alert_clear callback
+        
+        Priority: Check > Queen threat (only one alert at a time)
+        """
+        try:
+            # Check if opponent is in check
+            if self.chess_board.is_check():
+                # Current side to move is in check
+                side_in_check = self.chess_board.turn  # chess.WHITE or chess.BLACK
+                is_black_in_check = (side_in_check == chess.BLACK)
+                
+                # Find the king that's in check
+                king_square = self.chess_board.king(side_in_check)
+                
+                # Find one of the pieces giving check (checkers returns SquareSet)
+                checkers = self.chess_board.checkers()
+                if checkers and king_square is not None:
+                    # Get the first (or only) checker
+                    attacker_square = list(checkers)[0]
+                    
+                    log.info(f"[GameManager._detect_check_and_threats] CHECK: {'Black' if is_black_in_check else 'White'} king in check at {chess.square_name(king_square)} by piece at {chess.square_name(attacker_square)}")
+                    
+                    if self.on_check:
+                        self.on_check(is_black_in_check, attacker_square, king_square)
+                    return
+            
+            # No check - check if opponent's queen is under attack
+            side_to_move = self.chess_board.turn
+            opponent_color = not side_to_move  # Opponent's pieces
+            
+            # Find opponent's queen
+            queens = self.chess_board.pieces(chess.QUEEN, opponent_color)
+            if queens:
+                queen_square = list(queens)[0]  # Get first queen
+                
+                # Check if queen is attacked by current side to move
+                attackers = self.chess_board.attackers(side_to_move, queen_square)
+                if attackers:
+                    attacker_square = list(attackers)[0]
+                    is_black_queen_threatened = (opponent_color == chess.BLACK)
+                    
+                    log.info(f"[GameManager._detect_check_and_threats] QUEEN THREAT: {'Black' if is_black_queen_threatened else 'White'} queen at {chess.square_name(queen_square)} attacked by piece at {chess.square_name(attacker_square)}")
+                    
+                    if self.on_queen_threat:
+                        self.on_queen_threat(is_black_queen_threatened, attacker_square, queen_square)
+                    return
+            
+            # No check or queen threat - clear any existing alert
+            if self.on_alert_clear:
+                self.on_alert_clear()
+                
+        except Exception as e:
+            log.error(f"[GameManager._detect_check_and_threats] Error detecting threats: {e}")
     
     def resign_game(self, side_resigning: int):
         """Handle game resignation."""

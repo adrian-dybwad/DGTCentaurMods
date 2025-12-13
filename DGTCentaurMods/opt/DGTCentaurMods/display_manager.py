@@ -37,6 +37,7 @@ _IconMenuEntry = None
 _SplashScreen = None
 _BrainHintWidget = None
 _GameOverWidget = None
+_AlertWidget = None
 
 
 def _get_board():
@@ -52,14 +53,15 @@ def _load_widgets():
     """Lazily load widget classes."""
     global _widgets_loaded, _ChessBoardWidget, _GameAnalysisWidget
     global _IconMenuWidget, _IconMenuEntry, _SplashScreen, _BrainHintWidget
-    global _GameOverWidget
+    global _GameOverWidget, _AlertWidget
     
     if _widgets_loaded:
         return
     
     from DGTCentaurMods.epaper import (
         ChessBoardWidget, GameAnalysisWidget, 
-        IconMenuWidget, IconMenuEntry, SplashScreen, BrainHintWidget
+        IconMenuWidget, IconMenuEntry, SplashScreen, BrainHintWidget,
+        AlertWidget
     )
     from DGTCentaurMods.epaper.game_over import GameOverWidget
     _ChessBoardWidget = ChessBoardWidget
@@ -69,6 +71,7 @@ def _load_widgets():
     _SplashScreen = SplashScreen
     _BrainHintWidget = BrainHintWidget
     _GameOverWidget = GameOverWidget
+    _AlertWidget = AlertWidget
     _widgets_loaded = True
 
 
@@ -116,6 +119,7 @@ class DisplayManager:
         self.analysis_widget = None
         self.analysis_engine = None
         self.brain_hint_widget = None
+        self.alert_widget = None
         
         # Menu state
         self._menu_active = False
@@ -215,6 +219,17 @@ class DisplayManager:
                 log.warning(f"[DisplayManager] Error displaying analysis widget: {e}")
         log.info(f"[DisplayManager] Analysis widget initialized (visible={self._show_analysis})")
         
+        # Create alert widget for CHECK/QUEEN warnings (y=144, overlays analysis widget)
+        # Alert widget is hidden by default and shown when check or queen threat occurs
+        self.alert_widget = _AlertWidget(0, 144, 128, 40)
+        future = board.display_manager.add_widget(self.alert_widget)
+        if future:
+            try:
+                future.result(timeout=5.0)
+            except Exception as e:
+                log.warning(f"[DisplayManager] Error displaying alert widget: {e}")
+        log.info("[DisplayManager] Alert widget initialized (hidden)")
+        
         # Create brain hint widget for Hand+Brain mode (y=224, below analysis)
         if self._hand_brain_mode:
             self.brain_hint_widget = _BrainHintWidget(0, 224, 128, 72)
@@ -301,6 +316,34 @@ class DisplayManager:
         """Clear the brain hint display."""
         if self.brain_hint_widget:
             self.brain_hint_widget.clear()
+    
+    def show_check_alert(self, is_black_in_check: bool, attacker_square: int, king_square: int) -> None:
+        """Show CHECK alert and flash LEDs from attacker to king.
+        
+        Args:
+            is_black_in_check: True if black king is in check, False if white
+            attacker_square: Square index (0-63) of the piece giving check
+            king_square: Square index (0-63) of the king in check
+        """
+        if self.alert_widget:
+            self.alert_widget.show_check(is_black_in_check, attacker_square, king_square)
+    
+    def show_queen_threat_alert(self, is_black_queen_threatened: bool, 
+                                 attacker_square: int, queen_square: int) -> None:
+        """Show YOUR QUEEN alert and flash LEDs from attacker to queen.
+        
+        Args:
+            is_black_queen_threatened: True if black queen is threatened, False if white
+            attacker_square: Square index (0-63) of the attacking piece
+            queen_square: Square index (0-63) of the threatened queen
+        """
+        if self.alert_widget:
+            self.alert_widget.show_queen_threat(is_black_queen_threatened, attacker_square, queen_square)
+    
+    def hide_alert(self) -> None:
+        """Hide the alert widget."""
+        if self.alert_widget:
+            self.alert_widget.hide()
     
     def show_promotion_menu(self, is_white: bool) -> str:
         """Show promotion piece selection menu.
@@ -661,9 +704,10 @@ class DisplayManager:
             log.info(f"[DisplayManager] Showing game over: result={result}, termination={termination_type}")
             
             if board.display_manager:
-                board.display_manager.clear_widgets(addStatusBar=False)
+                board.display_manager.clear_widgets(addStatusBar=True)
                 
-                game_over_widget = _GameOverWidget(0, 0, 128, 296)
+                # GameOverWidget is sized to leave room for status bar (296 - 20 = 276)
+                game_over_widget = _GameOverWidget(0, 0, 128, 276)
                 game_over_widget.set_result(result)
                 
                 # Get score history from analysis widget if available
