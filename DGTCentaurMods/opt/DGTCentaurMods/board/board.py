@@ -263,22 +263,25 @@ def beep(beeptype, event_type: str = None):
             # Check both master enable and specific event setting
             should_play = should_beep_for(event_type)
             if not should_play:
-                log.debug(f"Beep disabled for event_type={event_type}")
+                log.info(f"Beep BLOCKED for event_type={event_type}")
                 return
+            log.debug(f"Beep ALLOWED for event_type={event_type}")
         else:
             # No event type specified - just check master enable (backward compatible)
             master_on = is_sound_enabled()
             if not master_on:
-                log.debug("Beep disabled (master)")
+                log.info("Beep BLOCKED (master disabled, no event_type)")
                 return
+            log.debug("Beep ALLOWED (master enabled, no event_type)")
     except Exception as e:
         # On any error, fall back to old behavior
         log.warning(f"Beep: sound_settings error: {e}, using centaur.get_sound()")
         if centaur.get_sound() == "off":
-            log.debug("Beep disabled (centaur fallback)")
+            log.info("Beep BLOCKED (centaur fallback)")
             return
     
     # Ask the centaur to make a beep sound
+    log.debug(f"Beep: sending to controller, type={beeptype}")
     controller.beep(beeptype)
 
 def ledsOff():

@@ -62,23 +62,23 @@ def get_sound_setting(key: str) -> bool:
         True if setting is enabled, False otherwise
     """
     if key not in SOUND_SETTINGS:
-        log.warning(f"[SoundSettings] Unknown setting key: {key}")
+        log.warning(f"[SoundSettings] Unknown setting key: {key}, defaulting to True")
         return True  # Default to enabled for unknown keys to avoid silencing sounds
     
     section, option, default = SOUND_SETTINGS[key]
     
     if Settings is None:
-        log.debug(f"[SoundSettings] Settings module not available, using default for {key}")
+        log.warning(f"[SoundSettings] Settings module is None, using default for {key}: {default}")
         return default == 'on'
     
     try:
         value = Settings.read(section, option, default)
         # Handle case-insensitive comparison
         result = str(value).lower() == 'on'
-        log.debug(f"[SoundSettings] get_sound_setting({key}): value='{value}', result={result}")
+        log.info(f"[SoundSettings] get_sound_setting({key}): [{section}][{option}]='{value}' -> {result}")
         return result
     except Exception as e:
-        log.warning(f"[SoundSettings] Error reading {key}: {e}, using default")
+        log.error(f"[SoundSettings] Error reading {key}: {e}, using default={default}")
         return default == 'on'
 
 
@@ -156,12 +156,15 @@ def should_beep_for(event_type: str) -> bool:
         # Master enable must be on
         master_enabled = is_sound_enabled()
         if not master_enabled:
-            log.debug(f"[SoundSettings] should_beep_for({event_type}): master disabled")
+            log.info(f"[SoundSettings] should_beep_for({event_type}): BLOCKED - master disabled")
             return False
         
         # Check specific event setting
         event_enabled = get_sound_setting(event_type)
-        log.debug(f"[SoundSettings] should_beep_for({event_type}): master={master_enabled}, event={event_enabled}")
+        if event_enabled:
+            log.debug(f"[SoundSettings] should_beep_for({event_type}): ALLOWED")
+        else:
+            log.info(f"[SoundSettings] should_beep_for({event_type}): BLOCKED - event disabled")
         return event_enabled
     except Exception as e:
         log.warning(f"[SoundSettings] Error in should_beep_for({event_type}): {e}, defaulting to True")

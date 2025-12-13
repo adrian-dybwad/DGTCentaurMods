@@ -40,10 +40,17 @@ class WiFiStatusWidget(Widget):
     Uses the same icon style as the WiFi menu icons:
     - Concentric arcs showing signal strength (1-3 based on signal %)
     - Cross overlay when WiFi is disabled
+    
+    Args:
+        x: X position
+        y: Y position
+        size: Widget size in pixels (default 16 for status bar)
+        auto_update: If True, starts background thread for automatic updates
     """
     
-    def __init__(self, x: int, y: int):
-        super().__init__(x, y, 16, 16)
+    def __init__(self, x: int, y: int, size: int = 16, auto_update: bool = True):
+        super().__init__(x, y, size, size)
+        self._size = size
         self._last_state: Optional[int] = None  # WIFI_DISABLED, WIFI_DISCONNECTED, WIFI_CONNECTED
         self._last_signal_strength: int = 0  # 0-3 (0 = no signal, 1-3 = weak/medium/strong)
         self._running = False
@@ -52,7 +59,8 @@ class WiFiStatusWidget(Widget):
         self._hook_notification_file = "/var/run/dgtcm-wifi-hook-notify"
         self._last_hook_mtime = 0.0
         self._stop_event = threading.Event()
-        self._start_update_loop()
+        if auto_update:
+            self._start_update_loop()
     
     def _start_update_loop(self) -> None:
         """Start the background update loop."""
@@ -81,6 +89,40 @@ class WiFiStatusWidget(Widget):
     def stop(self) -> None:
         """Stop the widget and perform cleanup tasks."""
         self._stop_update_loop()
+    
+    def update_status(self, status: dict = None) -> None:
+        """Manually update the WiFi status.
+        
+        Call this when auto_update=False to update the widget's state.
+        If status is None, queries the current WiFi status.
+        
+        Args:
+            status: Optional dict with 'enabled', 'connected', 'signal' keys.
+                   If None, queries current status using _get_wifi_status().
+        """
+        if status is None:
+            state, signal_strength = self._get_wifi_status()
+        else:
+            # Convert status dict to internal state
+            if not status.get('enabled', True):
+                state = WIFI_DISABLED
+                signal_strength = 0
+            elif not status.get('connected', False):
+                state = WIFI_DISCONNECTED
+                signal_strength = 0
+            else:
+                state = WIFI_CONNECTED
+                signal_pct = status.get('signal', 0)
+                if signal_pct >= 70:
+                    signal_strength = 3
+                elif signal_pct >= 40:
+                    signal_strength = 2
+                else:
+                    signal_strength = 1
+        
+        self._last_state = state
+        self._last_signal_strength = signal_strength
+        self._last_rendered = None  # Invalidate cache
     
     def _update_loop(self) -> None:
         """Background loop that checks WiFi state every 10 seconds and on dhcpcd hook notifications."""
@@ -211,39 +253,48 @@ class WiFiStatusWidget(Widget):
     def _draw_wifi_signal_icon(self, draw: ImageDraw.Draw, strength: int = 3):
         """Draw a WiFi signal icon with variable strength.
         
-        Uses the same style as icon_button.py but scaled for 16x16 status bar.
+        Scales automatically based on widget size.
         
         Args:
             draw: ImageDraw object
-            strength: Signal strength 1-3 (1=weak, 2=medium, 3=strong)
+            strength: Signal strength 0-3 (0=disconnected, 1=weak, 2=medium, 3=strong)
         """
-        # Center point and base position (bottom center of icon)
-        cx = 8
-        base_y = 13
+        # Scale factor based on size (16 is the base size)
+        s = self._size / 16.0
         
-        # Arc radii for 16x16 icon
-        radii = [3, 6, 9]
+        # Center point and base position (bottom center of icon)
+        cx = self._size // 2
+        base_y = int(13 * s)
+        
+        # Arc radii scaled to size
+        radii = [int(3 * s), int(6 * s), int(9 * s)]
         
         for i, radius in enumerate(radii):
             # Determine line width based on active/inactive
             if i < strength:
                 # Active arc - thicker line
-                width = 2
+                width = max(2, int(2 * s))
             else:
                 # Inactive arc - thin line
-                width = 1
+                width = max(1, int(1 * s))
             
             draw.arc([cx - radius, base_y - radius, cx + radius, base_y + radius],
                     start=225, end=315, fill=0, width=width)
         
         # Small dot at the bottom center (always drawn)
-        draw.ellipse([cx - 1, base_y - 1, cx + 1, base_y + 1], fill=0)
+        dot_r = max(1, int(1 * s))
+        draw.ellipse([cx - dot_r, base_y - dot_r, cx + dot_r, base_y + dot_r], fill=0)
     
     def _draw_disabled_cross(self, draw: ImageDraw.Draw):
         """Draw a cross overlay to indicate WiFi is disabled."""
+        # Scale factor based on size
+        s = self._size / 16.0
+        margin = int(2 * s)
+        width = max(2, int(2 * s))
+        
         # Draw diagonal cross over the icon
-        draw.line([2, 2, 14, 14], fill=0, width=2)
-        draw.line([14, 2, 2, 14], fill=0, width=2)
+        draw.line([margin, margin, self._size - margin, self._size - margin], fill=0, width=width)
+        draw.line([self._size - margin, margin, margin, self._size - margin], fill=0, width=width)
     
     def render(self) -> Image.Image:
         """Render WiFi status icon with signal strength or disabled indicator."""

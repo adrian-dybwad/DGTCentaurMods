@@ -1620,23 +1620,39 @@ def _handle_wifi_settings():
             # Format status label
             status_label = wifi_info.format_status_label(wifi_status)
             
-            # Enable toggle uses checkbox icon based on current state
+            # Determine WiFi status icon based on actual state
+            # Uses same logic as WiFiStatusWidget from status bar
             is_enabled = wifi_status['enabled']
+            is_connected = wifi_status['connected']
+            signal = wifi_status.get('signal', 0)
+            
+            if not is_enabled:
+                status_icon = "wifi_disabled"
+            elif not is_connected:
+                status_icon = "wifi_disconnected"
+            elif signal >= 70:
+                status_icon = "wifi_strong"
+            elif signal >= 40:
+                status_icon = "wifi_medium"
+            else:
+                status_icon = "wifi_weak"
+            
+            # Enable toggle uses checkbox icon
             enable_icon = "timer_checked" if is_enabled else "timer"
             enable_label = "Enabled" if is_enabled else "Disabled"
 
             wifi_entries = [
-                # Status info display (non-selectable)
+                # Status info display with dynamic WiFi icon (non-selectable)
                 IconMenuEntry(
                     key="Info",
                     label=status_label,
-                    icon_name="wifi",
+                    icon_name=status_icon,
                     enabled=True,
                     selectable=False,
-                    height_ratio=1.5,
-                    icon_size=36,
+                    height_ratio=1.8,
+                    icon_size=52,
                     layout="vertical",
-                    font_size=11
+                    font_size=12
                 ),
                 # Scan button
                 IconMenuEntry(
@@ -1645,10 +1661,10 @@ def _handle_wifi_settings():
                     icon_name="wifi",
                     enabled=True,
                     selectable=True,
-                    height_ratio=1.0,
-                    icon_size=32,
+                    height_ratio=0.9,
+                    icon_size=28,
                     layout="horizontal",
-                    font_size=16
+                    font_size=14
                 ),
                 # Enable/Disable toggle (checkbox style)
                 IconMenuEntry(
@@ -1657,7 +1673,7 @@ def _handle_wifi_settings():
                     icon_name=enable_icon,
                     enabled=True,
                     selectable=True,
-                    height_ratio=0.8,
+                    height_ratio=0.7,
                     layout="horizontal",
                     font_size=14
                 ),

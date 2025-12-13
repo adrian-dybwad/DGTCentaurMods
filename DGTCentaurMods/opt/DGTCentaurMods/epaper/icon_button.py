@@ -415,6 +415,10 @@ class IconButtonWidget(Widget):
             self._draw_wifi_signal_icon(draw, x, y, size, line_color, strength=2)
         elif icon_name == "wifi_weak":
             self._draw_wifi_signal_icon(draw, x, y, size, line_color, strength=1)
+        elif icon_name == "wifi_disabled":
+            self._draw_wifi_disabled_icon(draw, x, y, size, line_color)
+        elif icon_name == "wifi_disconnected":
+            self._draw_wifi_signal_icon(draw, x, y, size, line_color, strength=0)
         elif icon_name == "system":
             self._draw_system_icon(draw, x, y, size, line_color)
         elif icon_name == "positions":
@@ -1116,41 +1120,62 @@ class IconButtonWidget(Widget):
                         size: int, line_color: int):
         """Draw a WiFi signal icon (concentric arcs)."""
         self._draw_wifi_signal_icon(draw, x, y, size, line_color, strength=3)
-    
+
     def _draw_wifi_signal_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                                size: int, line_color: int, strength: int = 3):
         """Draw a WiFi signal icon with variable strength.
-        
-        Only draws the arcs corresponding to the signal strength level.
-        Weak (1) = innermost arc only, Medium (2) = inner + middle, Strong (3) = all three.
-        
+
+        Draws arcs with thick lines for active strength levels and thin lines
+        for inactive levels (strength=0 shows all arcs as thin/inactive).
+
         Args:
             draw: ImageDraw object
             x: X center position
             y: Y center position
             size: Icon size in pixels
             line_color: Line color
-            strength: Signal strength 1-3 (1=weak, 2=medium, 3=strong)
+            strength: Signal strength 0-3 (0=disconnected, 1=weak, 2=medium, 3=strong)
         """
         s = size / 36.0  # Scale factor
-        
+
         # Draw concentric arcs from bottom center
         base_y = y + int(10*s)
-        
-        # Arc radii - only draw arcs up to the strength level
+
+        # Arc radii
         radii = [int(6*s), int(12*s), int(18*s)]
-        width = max(2, int(3*s))
+        thick_width = max(2, int(3*s))
+        thin_width = max(1, int(1.5*s))
         
         for i, radius in enumerate(radii):
-            # Only draw arcs up to the strength level
+            # Active arcs (up to strength level) are thick, inactive are thin
             if i < strength:
                 draw.arc([x - radius, base_y - radius, x + radius, base_y + radius],
-                        start=225, end=315, fill=line_color, width=width)
+                        start=225, end=315, fill=line_color, width=thick_width)
+            else:
+                # Draw thin arc for inactive signal levels
+                draw.arc([x - radius, base_y - radius, x + radius, base_y + radius],
+                        start=225, end=315, fill=line_color, width=thin_width)
         
         # Small dot at the bottom center (always drawn)
         dot_r = max(2, int(3*s))
         draw.ellipse([x - dot_r, base_y - dot_r, x + dot_r, base_y + dot_r],
                     fill=line_color)
+
+    def _draw_wifi_disabled_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                                  size: int, line_color: int):
+        """Draw a WiFi icon with a cross overlay indicating disabled state."""
+        # Draw the base wifi icon (disconnected/thin arcs)
+        self._draw_wifi_signal_icon(draw, x, y, size, line_color, strength=0)
+        
+        # Draw diagonal cross over the icon
+        s = size / 36.0  # Scale factor
+        cross_offset = int(12*s)
+        cross_width = max(2, int(3*s))
+        
+        draw.line([x - cross_offset, y - cross_offset, x + cross_offset, y + cross_offset],
+                 fill=line_color, width=cross_width)
+        draw.line([x + cross_offset, y - cross_offset, x - cross_offset, y + cross_offset],
+                 fill=line_color, width=cross_width)
     
     def _draw_system_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                           size: int, line_color: int):
