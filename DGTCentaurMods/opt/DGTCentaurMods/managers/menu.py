@@ -76,6 +76,11 @@ class MenuManager:
     Singleton class that provides centralized menu management.
     Handles the active menu widget, break results, and state transitions.
     
+    Includes key queuing to handle the case where users press keys before
+    a menu finishes loading. Keys pressed during menu loading are queued
+    and replayed after the menu becomes active, or their net effect is
+    applied to the initial selection index.
+    
     Usage:
         manager = MenuManager.get_instance()
         
@@ -100,6 +105,11 @@ class MenuManager:
         self._status_bar_height = 16  # Default, can be overridden
         self._display_width = 128
         self._display_height = 296
+        
+        # Key queue for caching key presses while menu is loading
+        # This allows users to press keys before a menu finishes rendering
+        self._key_queue: List[Any] = []
+        self._menu_loading = False  # True while menu is being set up
     
     @classmethod
     def get_instance(cls) -> 'MenuManager':
@@ -133,6 +143,53 @@ class MenuManager:
         """Get the currently active menu widget."""
         return self._active_widget
     
+    @property
+    def is_loading(self) -> bool:
+        """Check if a menu is currently loading (not yet ready for key events)."""
+        return self._menu_loading
+    
+    def queue_key(self, key_id) -> bool:
+        """Queue a key press while menu is loading.
+        
+        Call this when a key event arrives during menu loading. The key will
+        be replayed after the menu becomes active.
+        
+        Args:
+            key_id: The key that was pressed
+            
+        Returns:
+            True if key was queued, False if menu is not loading
+        """
+        if self._menu_loading:
+            self._key_queue.append(key_id)
+            log.info(f"[MenuManager] Queued key {key_id} during menu load (queue size: {len(self._key_queue)})")
+            return True
+        return False
+    
+    def _replay_queued_keys(self):
+        """Replay any keys that were queued during menu loading.
+        
+        Called after menu is fully loaded and active. Keys are replayed in
+        order to apply their effect (navigation, selection, etc.).
+        """
+        if not self._key_queue:
+            return
+        
+        log.info(f"[MenuManager] Replaying {len(self._key_queue)} queued keys")
+        
+        # Take the queue and clear it (in case handle_key causes re-entrancy)
+        keys_to_replay = self._key_queue.copy()
+        self._key_queue.clear()
+        
+        # Replay each key in order
+        for key_id in keys_to_replay:
+            if self._active_widget is not None:
+                log.debug(f"[MenuManager] Replaying queued key: {key_id}")
+                self._active_widget.handle_key(key_id)
+            else:
+                log.warning(f"[MenuManager] Cannot replay key {key_id} - no active widget")
+                break
+    
     def cancel_selection(self, result: str):
         """Cancel the current menu with a specific result.
         
@@ -141,6 +198,8 @@ class MenuManager:
         Args:
             result: Result string to return from the menu
         """
+        # Clear any queued keys when cancelling
+        self._key_queue.clear()
         if self._active_widget is not None:
             log.info(f"[MenuManager] Cancelling menu with result: {result}")
             self._active_widget.cancel_selection(result)
@@ -156,6 +215,11 @@ class MenuManager:
         - Creating and displaying the menu widget
         - Managing the active widget state
         - Converting the result to a MenuSelection object
+        - Queuing and replaying keys pressed during menu loading
+        
+        Keys pressed while the menu is loading (rendering) are queued and
+        replayed after the menu becomes active. This allows users to navigate
+        before the menu visually appears.
         
         Args:
             entries: List of menu entry configurations
@@ -167,6 +231,10 @@ class MenuManager:
         if self._board is None:
             raise RuntimeError("MenuManager.set_board() must be called before show_menu()")
         
+        # Clear any stale queued keys and mark as loading
+        self._key_queue.clear()
+        self._menu_loading = True
+        
         # Create menu widget
         menu_widget = IconMenuWidget(
             x=0,
@@ -177,7 +245,7 @@ class MenuManager:
             selected_index=initial_index
         )
         
-        # Register as active menu
+        # Register as active menu (keys will be queued until loading completes)
         self._active_widget = menu_widget
         
         # Add widget to display
@@ -189,10 +257,25 @@ class MenuManager:
                 log.warning(f"[MenuManager] Error waiting for menu render: {e}")
         
         try:
-            # Wait for selection
-            result_key = menu_widget.wait_for_selection(initial_index=initial_index)
+            # Activate the widget for key handling
+            menu_widget.activate()
+            
+            # Menu is now ready - stop queuing keys
+            self._menu_loading = False
+            
+            # Replay any keys that were pressed during loading
+            self._replay_queued_keys()
+            
+            # Wait for selection (widget is already activated)
+            log.info("MenuManager: Waiting for selection...")
+            menu_widget._selection_event.wait()
+            result_key = menu_widget._selection_result or "BACK"
+            log.info(f"MenuManager: Selection result='{result_key}'")
             return MenuSelection.from_key(result_key)
         finally:
+            self._menu_loading = False
+            self._key_queue.clear()
+            menu_widget.deactivate()
             self._active_widget = None
     
     def run_menu_loop(

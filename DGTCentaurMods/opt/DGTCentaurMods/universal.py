@@ -2736,6 +2736,12 @@ def key_callback(key_id):
     
     # Route based on app state
     if app_state == AppState.MENU or app_state == AppState.SETTINGS:
+        # Check if menu is loading - queue keys for replay after load completes
+        if _menu_manager is not None and _menu_manager.is_loading:
+            if _menu_manager.queue_key(key_id):
+                _reset_unhandled_key_count()
+                return
+        
         # Route to active menu widget via MenuManager
         if _menu_manager is not None and _menu_manager.active_widget is not None:
             handled = _menu_manager.active_widget.handle_key(key_id)
