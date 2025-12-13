@@ -122,14 +122,16 @@ def _get_create_engine():
     return _deferred_create_engine
 
 
-# Event constants
-EVENT_NEW_GAME = 1
-EVENT_BLACK_TURN = 2
-EVENT_WHITE_TURN = 3
-EVENT_REQUEST_DRAW = 4
-EVENT_RESIGN_GAME = 5
-EVENT_LIFT_PIECE = 6
-EVENT_PLACE_PIECE = 7
+# Event constants - import from lightweight events module for backward compatibility
+from DGTCentaurMods.managers.events import (
+    EVENT_NEW_GAME,
+    EVENT_BLACK_TURN,
+    EVENT_WHITE_TURN,
+    EVENT_REQUEST_DRAW,
+    EVENT_RESIGN_GAME,
+    EVENT_LIFT_PIECE,
+    EVENT_PLACE_PIECE,
+)
 
 # Board constants
 BOARD_SIZE = 64

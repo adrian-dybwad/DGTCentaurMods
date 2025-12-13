@@ -20,8 +20,8 @@ _logger.debug(f"[millennium import] board: {(_t.time() - _s)*1000:.0f}ms"); _s =
 from DGTCentaurMods.board.logging import log
 _logger.debug(f"[millennium import] logging: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
-from DGTCentaurMods.managers.game import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
-_logger.debug(f"[millennium import] game: {(_t.time() - _s)*1000:.0f}ms")
+from DGTCentaurMods.managers.events import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
+_logger.debug(f"[millennium import] events: {(_t.time() - _s)*1000:.0f}ms")
 
 # LED commands -> Patterns seen from Android chess with an original millennium:
 # AA = slow flash - used to indicate the start of a game on two bottom corner LEDS.

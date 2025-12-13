@@ -285,7 +285,6 @@ class AssetManager:
         """
         if ensure_parent:
             AssetManager.ensure_parent_dir(AssetManager.EPAPER_STATIC_JPG)
-        log.info(f"Getting epaper.jpg path: {AssetManager.EPAPER_STATIC_JPG}")
         return AssetManager.EPAPER_STATIC_JPG
 
     @staticmethod
@@ -311,7 +310,6 @@ class AssetManager:
         if img.mode not in ("L", "RGB"):
             img = img.convert("L")
         img.save(path, format="JPEG")
-        log.info(f"Wrote epaper.jpg to {path}")
         return path
 
 
