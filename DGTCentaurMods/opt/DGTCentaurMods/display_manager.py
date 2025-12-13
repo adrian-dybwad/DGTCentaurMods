@@ -97,7 +97,7 @@ class DisplayManager:
     
     def __init__(self, flip_board: bool = False, show_analysis: bool = True,
                  analysis_engine_path: str = None, on_exit: callable = None,
-                 hand_brain_mode: bool = False):
+                 hand_brain_mode: bool = False, initial_fen: str = None):
         """Initialize the display controller.
         
         Args:
@@ -106,6 +106,7 @@ class DisplayManager:
             analysis_engine_path: Path to UCI engine for analysis (e.g., ct800)
             on_exit: Callback function() when user requests exit via back menu
             hand_brain_mode: If True, show brain hint widget for Hand+Brain variant
+            initial_fen: FEN string for initial position. If None, uses starting position.
         """
         _load_widgets()
         
@@ -113,6 +114,7 @@ class DisplayManager:
         self._show_analysis = show_analysis
         self._on_exit = on_exit
         self._hand_brain_mode = hand_brain_mode
+        self._initial_fen = initial_fen or STARTING_FEN
         
         # Widgets
         self.chess_board_widget = None
@@ -186,9 +188,9 @@ class DisplayManager:
         
         # Clear any existing widgets
         board.display_manager.clear_widgets()
-        
+
         # Create chess board widget at y=16 (below status bar)
-        self.chess_board_widget = _ChessBoardWidget(0, 16, STARTING_FEN)
+        self.chess_board_widget = _ChessBoardWidget(0, 16, self._initial_fen)
         if self._flip_board:
             self.chess_board_widget.set_flip(True)
         

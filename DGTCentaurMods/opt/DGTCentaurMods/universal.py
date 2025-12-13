@@ -823,7 +823,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         show_analysis=True,
         analysis_engine_path=analysis_engine_path,
         on_exit=lambda: _return_to_menu("Menu exit"),
-        hand_brain_mode=is_hand_brain
+        hand_brain_mode=is_hand_brain,
+        initial_fen=starting_fen
     )
     log.info("[App] DisplayManager initialized")
 
