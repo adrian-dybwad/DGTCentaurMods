@@ -1228,16 +1228,26 @@ def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
         board.beep(board.SOUND_WRONG_MOVE)
         return False
     
+    # Map category names to specific icons
+    category_icons = {
+        'test': 'positions_test',
+        'puzzles': 'positions_puzzles',
+        'endgames': 'positions_endgames',
+        'custom': 'positions_custom',
+    }
+    
     # Build category entries once
     category_entries = []
     for category in positions.keys():
         # Capitalize category name for display
         display_name = category.replace('_', ' ').title()
         count = len(positions[category])
+        # Use category-specific icon if available, otherwise default to positions
+        icon_name = category_icons.get(category, 'positions')
         category_entries.append(IconMenuEntry(
             key=category,
             label=f"{display_name}\n({count})",
-            icon_name="positions",
+            icon_name=icon_name,
             enabled=True,
             font_size=14,
             height_ratio=1.5  # Taller buttons for two lines of text
@@ -1313,10 +1323,12 @@ def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
             else:
                 height_ratio = 2.0
             
+            # Use the same icon as the category for consistency
+            position_icon = category_icons.get(category, 'positions')
             position_entries.append(IconMenuEntry(
                 key=name,
                 label=wrapped_text,
-                icon_name="positions",
+                icon_name=position_icon,
                 enabled=True,
                 font_size=12,
                 height_ratio=height_ratio
