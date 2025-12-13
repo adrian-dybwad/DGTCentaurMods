@@ -261,18 +261,21 @@ def beep(beeptype, event_type: str = None):
         
         if event_type:
             # Check both master enable and specific event setting
-            if not should_beep_for(event_type):
+            should_play = should_beep_for(event_type)
+            if not should_play:
                 log.debug(f"Beep disabled for event_type={event_type}")
                 return
         else:
             # No event type specified - just check master enable (backward compatible)
-            if not is_sound_enabled():
+            master_on = is_sound_enabled()
+            if not master_on:
                 log.debug("Beep disabled (master)")
                 return
-    except ImportError:
-        # Fallback to old behavior if sound_settings not available
+    except Exception as e:
+        # On any error, fall back to old behavior
+        log.warning(f"Beep: sound_settings error: {e}, using centaur.get_sound()")
         if centaur.get_sound() == "off":
-            log.warning("Beep disabled")
+            log.debug("Beep disabled (centaur fallback)")
             return
     
     # Ask the centaur to make a beep sound

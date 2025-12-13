@@ -63,15 +63,23 @@ def get_sound_setting(key: str) -> bool:
     """
     if key not in SOUND_SETTINGS:
         log.warning(f"[SoundSettings] Unknown setting key: {key}")
-        return False
+        return True  # Default to enabled for unknown keys to avoid silencing sounds
     
     section, option, default = SOUND_SETTINGS[key]
     
     if Settings is None:
+        log.debug(f"[SoundSettings] Settings module not available, using default for {key}")
         return default == 'on'
     
-    value = Settings.read(section, option, default)
-    return value == 'on'
+    try:
+        value = Settings.read(section, option, default)
+        # Handle case-insensitive comparison
+        result = str(value).lower() == 'on'
+        log.debug(f"[SoundSettings] get_sound_setting({key}): value='{value}', result={result}")
+        return result
+    except Exception as e:
+        log.warning(f"[SoundSettings] Error reading {key}: {e}, using default")
+        return default == 'on'
 
 
 def set_sound_setting(key: str, enabled: bool) -> bool:
@@ -123,15 +131,20 @@ def is_sound_enabled() -> bool:
     """Check if master sound is enabled.
     
     Returns:
-        True if sound is enabled globally
+        True if sound is enabled globally (defaults to True on error)
     """
-    return get_sound_setting('enabled')
+    try:
+        return get_sound_setting('enabled')
+    except Exception as e:
+        log.warning(f"[SoundSettings] Error checking master enable: {e}, defaulting to True")
+        return True
 
 
 def should_beep_for(event_type: str) -> bool:
     """Check if a beep should play for a given event type.
     
     Checks both the master enable and the specific event setting.
+    Defaults to True (allow beep) if there are any errors reading settings.
     
     Args:
         event_type: One of 'key_press', 'error', 'game_event', 'piece_event'
@@ -139,9 +152,17 @@ def should_beep_for(event_type: str) -> bool:
     Returns:
         True if beep should play, False otherwise
     """
-    # Master enable must be on
-    if not is_sound_enabled():
-        return False
-    
-    # Check specific event setting
-    return get_sound_setting(event_type)
+    try:
+        # Master enable must be on
+        master_enabled = is_sound_enabled()
+        if not master_enabled:
+            log.debug(f"[SoundSettings] should_beep_for({event_type}): master disabled")
+            return False
+        
+        # Check specific event setting
+        event_enabled = get_sound_setting(event_type)
+        log.debug(f"[SoundSettings] should_beep_for({event_type}): master={master_enabled}, event={event_enabled}")
+        return event_enabled
+    except Exception as e:
+        log.warning(f"[SoundSettings] Error in should_beep_for({event_type}): {e}, defaulting to True")
+        return True
