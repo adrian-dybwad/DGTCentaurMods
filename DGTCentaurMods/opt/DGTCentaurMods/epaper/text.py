@@ -204,9 +204,9 @@ class TextWidget(Widget):
     def _create_dither_pattern(self) -> Image.Image:
         """Create dither pattern based on background level.
         
-        Uses blue noise dithering for visually pleasing results without
-        regular grid artifacts. For transparent backgrounds (-1), returns
-        a white image since the actual compositing is handled via get_mask().
+        Uses Stucki error diffusion dithering for smooth gradients.
+        For transparent backgrounds (-1), returns a white image since
+        the actual compositing is handled via get_mask().
         """
         img = Image.new("1", (self.width, self.height), 255)
         
@@ -219,7 +219,7 @@ class TextWidget(Widget):
             draw.rectangle([0, 0, self.width, self.height], fill=0)
             return img
         
-        # Map background levels 1-4 to shade levels for blue noise patterns
+        # Map background levels 1-4 to shade levels
         # Level 1: ~20% black (shade 3)
         # Level 2: ~38% black (shade 6)
         # Level 3: ~50% black (shade 8)
@@ -228,7 +228,7 @@ class TextWidget(Widget):
         shade = shade_map.get(self.background, 8)
         
         pattern = DITHER_PATTERNS.get(shade, DITHER_PATTERNS[0])
-        pattern_size = len(pattern)  # 64 for blue noise
+        pattern_size = len(pattern)
         pixels = img.load()
         
         for y in range(self.height):

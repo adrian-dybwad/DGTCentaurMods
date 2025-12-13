@@ -5,7 +5,6 @@ Base widget class for ePaper display.
 from abc import ABC, abstractmethod
 from PIL import Image
 from typing import Optional, TYPE_CHECKING, Callable
-import random
 
 if TYPE_CHECKING:
     from .scheduler import Scheduler
@@ -17,42 +16,76 @@ except ImportError:
     log = logging.getLogger(__name__)
 
 
-# Random noise dithering pattern size
-# Using 128x128 provides good coverage without excessive memory usage
-_NOISE_PATTERN_SIZE = 128
+# Stucki error diffusion dithering
+# Uses a 5x3 error diffusion kernel for high-quality dithering with smooth gradients.
+# The kernel distributes quantization error to neighboring pixels for natural results.
 
-# Pre-computed random noise threshold matrix (values 0-255)
-# Uses a fixed seed for deterministic results across renders, which is
-# critical for e-paper displays to avoid flicker from varying patterns.
-# Random noise dithering produces a grainy but natural-looking result
-# without the regular grid artifacts of Bayer ordered dithering.
-def _generate_random_noise_matrix() -> list:
-    """Generate a random noise threshold matrix.
+# Stucki kernel (weights sum to 42, applied as fractions of error)
+# Current pixel is at position marked with X
+#             X   8   4
+#     2   4   8   4   2
+#     1   2   4   2   1
+_STUCKI_KERNEL = [
+    # (dx, dy, weight)
+    (1, 0, 8), (2, 0, 4),                           # Same row, right
+    (-2, 1, 2), (-1, 1, 4), (0, 1, 8), (1, 1, 4), (2, 1, 2),  # Next row
+    (-2, 2, 1), (-1, 2, 2), (0, 2, 4), (1, 2, 2), (2, 2, 1),  # Two rows down
+]
+_STUCKI_DIVISOR = 42  # Sum of all weights
+
+
+def _stucki_dither(width: int, height: int, gray_value: int) -> list:
+    """Generate a dithered pattern using Stucki error diffusion.
     
-    Uses a fixed seed for deterministic results across renders, which is
-    critical for e-paper displays to avoid flicker from varying patterns.
+    Stucki dithering uses a larger 5x3 kernel than Floyd-Steinberg,
+    producing smoother gradients and less visible artifacts.
     
+    Args:
+        width: Pattern width in pixels
+        height: Pattern height in pixels
+        gray_value: Gray level 0-255 (0=black, 255=white)
+        
     Returns:
-        128x128 list of random values 0-255
+        2D list of 0s (white) and 1s (black) with dimensions width x height
     """
-    # Use fixed seed for deterministic pattern generation
-    rng = random.Random(42)
-    matrix = []
-    for _ in range(_NOISE_PATTERN_SIZE):
-        row = [rng.randint(0, 255) for _ in range(_NOISE_PATTERN_SIZE)]
-        matrix.append(row)
-    return matrix
-
-
-# Pre-generate the random noise matrix once at module load
-_RANDOM_NOISE = _generate_random_noise_matrix()
-
-
-def _generate_dither_pattern(shade: int) -> list:
-    """Generate a 128x128 dither pattern for a given shade level using random noise.
+    # Create float buffer for error accumulation
+    # Values represent grayscale 0.0 (black) to 255.0 (white)
+    buffer = [[float(gray_value) for _ in range(width)] for _ in range(height)]
     
-    Random noise dithering produces a grainy but natural-looking result without
-    regular grid artifacts. The pattern is deterministic due to fixed seed.
+    # Output pattern
+    pattern = [[0 for _ in range(width)] for _ in range(height)]
+    
+    # Process each pixel
+    for y in range(height):
+        for x in range(width):
+            old_val = buffer[y][x]
+            # Quantize to black (0) or white (255)
+            new_val = 255 if old_val >= 128 else 0
+            # Store result (1 = black pixel, 0 = white pixel)
+            pattern[y][x] = 0 if new_val == 255 else 1
+            
+            # Calculate and distribute error
+            error = old_val - new_val
+            
+            for dx, dy, weight in _STUCKI_KERNEL:
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < width and 0 <= ny < height:
+                    buffer[ny][nx] += error * weight / _STUCKI_DIVISOR
+    
+    return pattern
+
+
+# Pre-computed pattern size for tiling
+_DITHER_PATTERN_SIZE = 128
+
+# Cache for pre-computed Stucki dither patterns
+_dither_cache: dict = {}
+
+
+def _get_dither_pattern(shade: int) -> list:
+    """Get or generate a Stucki dither pattern for the given shade level.
+    
+    Uses caching to avoid recomputing patterns for the same shade.
     
     Args:
         shade: Shade level 0-16 (0=white, 16=black)
@@ -60,23 +93,23 @@ def _generate_dither_pattern(shade: int) -> list:
     Returns:
         128x128 list of 0s (white) and 1s (black)
     """
-    # Map shade 0-16 to threshold 0-256
-    # shade 0 = threshold 0 (all white)
-    # shade 16 = threshold 256 (all black)
-    threshold = shade * 16  # 0, 16, 32, ... 256
+    if shade in _dither_cache:
+        return _dither_cache[shade]
     
-    pattern = []
-    for row in _RANDOM_NOISE:
-        pattern_row = []
-        for val in row:
-            # Pixel is black if random noise value is less than threshold
-            pattern_row.append(1 if val < threshold else 0)
-        pattern.append(pattern_row)
+    # Map shade 0-16 to gray value 255-0
+    # shade 0 = gray 255 (white)
+    # shade 16 = gray 0 (black)
+    gray_value = 255 - (shade * 16)
+    if gray_value < 0:
+        gray_value = 0
+    
+    pattern = _stucki_dither(_DITHER_PATTERN_SIZE, _DITHER_PATTERN_SIZE, gray_value)
+    _dither_cache[shade] = pattern
     return pattern
 
 
-# Pre-generate patterns for shade levels 0-16
-DITHER_PATTERNS = {shade: _generate_dither_pattern(shade) for shade in range(17)}
+# Pre-generate patterns for shade levels 0-16 at module load
+DITHER_PATTERNS = {shade: _get_dither_pattern(shade) for shade in range(17)}
 
 
 class Widget(ABC):
@@ -184,8 +217,8 @@ class Widget(ABC):
         Image.new("1", (self.width, self.height), 255) to get a dithered
         background based on background_shade.
         
-        Uses random noise dithering, which provides a natural grainy appearance
-        without the regular grid artifacts of Bayer ordered dithering.
+        Uses Stucki error diffusion dithering, which provides smooth gradients
+        and natural-looking results without regular grid artifacts.
         
         Returns:
             A new 1-bit image with the dithered background pattern applied.
@@ -198,9 +231,9 @@ class Widget(ABC):
         pattern = DITHER_PATTERNS.get(self._background_shade, DITHER_PATTERNS[0])
         pixels = img.load()
         for y in range(self.height):
-            pattern_row = pattern[y % _NOISE_PATTERN_SIZE]
+            pattern_row = pattern[y % _DITHER_PATTERN_SIZE]
             for x in range(self.width):
-                if pattern_row[x % _NOISE_PATTERN_SIZE] == 1:
+                if pattern_row[x % _DITHER_PATTERN_SIZE] == 1:
                     pixels[x, y] = 0  # Black pixel
         
         return img
