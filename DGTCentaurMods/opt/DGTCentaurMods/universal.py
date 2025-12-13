@@ -2087,7 +2087,7 @@ def _handle_accounts_menu():
                 icon_name="lichess",
                 enabled=True,
                 font_size=12,
-                height_ratio=1.5
+                max_height=47  # ~1/6 of available screen height (280px)
             ),
         ]
     
