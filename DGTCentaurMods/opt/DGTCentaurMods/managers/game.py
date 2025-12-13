@@ -455,6 +455,8 @@ class GameManager:
         # on_kings_in_center_cancel() -> None: Called when kings-in-center gesture is cancelled (pieces returned)
         # on_king_lift_resign(color: chess.Color) -> None: Called when king held off board for 3+ seconds
         # on_king_lift_resign_cancel() -> None: Called when king-lift resign menu should be dismissed
+        # on_terminal_position(result: str, termination: str) -> None: Called when position is terminal
+        #   (e.g., after correction mode exits for a checkmate/stalemate position)
         self.on_promotion_needed = None
         self.on_back_pressed = None
         self.on_kings_in_center = None
@@ -463,6 +465,7 @@ class GameManager:
         self.on_king_lift_resign = None
         self.on_king_lift_resign_cancel = None
         self._king_lift_resign_menu_active = False  # Track if the king-lift resign menu is showing
+        self.on_terminal_position = None
         
         # Player configuration - which color(s) are human players
         # In 2-player mode, both colors are human. In engine mode, only player_color is human.
@@ -800,6 +803,20 @@ class GameManager:
         self.move_state.source_square = INVALID_SQUARE
         self.move_state.legal_destination_squares = []
         self.move_state.opponent_source_square = INVALID_SQUARE
+        
+        # Check if position is already terminal (checkmate, stalemate, insufficient material)
+        # This can happen when loading a position that's already game-over
+        outcome = self.chess_board.outcome(claim_draw=True)
+        if outcome is not None:
+            result_string = str(self.chess_board.result())
+            termination = str(outcome.termination).replace("Termination.", "")
+            log.info(f"[GameManager._exit_correction_mode] Position is terminal: {termination} ({result_string})")
+            # Clear any pending hints since game is over
+            self._pending_hint_squares = None
+            # Notify via callback
+            if self.on_terminal_position:
+                self.on_terminal_position(result_string, termination)
+            return
         
         # Restore forced move LEDs if needed
         if self.move_state.is_forced_move and self.move_state.computer_move_uci:

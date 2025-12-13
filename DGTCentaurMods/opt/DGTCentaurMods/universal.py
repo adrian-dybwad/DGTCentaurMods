@@ -629,19 +629,31 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
                 log.info("[Positions] Physical board matches position")
                 board.beep(board.SOUND_GENERAL, event_type='game_event')
                 
-                # Show hint LEDs if provided
-                if hint_from_sq is not None and hint_to_sq is not None:
-                    log.info(f"[Positions] Showing hint LEDs: {hint_move} ({hint_from_sq} -> {hint_to_sq})")
-                    board.ledFromTo(hint_from_sq, hint_to_sq, repeat=0)
-                
-                # Board is correct - trigger turn event
-                if gm.event_callback is not None:
-                    if gm.chess_board.turn == chess.WHITE:
-                        log.info("[Positions] White to move")
-                        gm.event_callback(EVENT_WHITE_TURN)
-                    else:
-                        log.info("[Positions] Black to move")
-                        gm.event_callback(EVENT_BLACK_TURN)
+                # Check if position is already a terminal state (checkmate, stalemate, etc.)
+                outcome = gm.chess_board.outcome(claim_draw=True)
+                if outcome is not None:
+                    # Game is already over - show game over screen
+                    result_string = str(gm.chess_board.result())
+                    termination = str(outcome.termination).replace("Termination.", "")
+                    log.info(f"[Positions] Position is already terminal: {termination} ({result_string})")
+                    
+                    # Show game over screen via display manager
+                    if protocol_manager and protocol_manager.display_manager:
+                        protocol_manager.display_manager.show_game_over(result_string, termination)
+                else:
+                    # Show hint LEDs if provided
+                    if hint_from_sq is not None and hint_to_sq is not None:
+                        log.info(f"[Positions] Showing hint LEDs: {hint_move} ({hint_from_sq} -> {hint_to_sq})")
+                        board.ledFromTo(hint_from_sq, hint_to_sq, repeat=0)
+                    
+                    # Board is correct - trigger turn event
+                    if gm.event_callback is not None:
+                        if gm.chess_board.turn == chess.WHITE:
+                            log.info("[Positions] White to move")
+                            gm.event_callback(EVENT_WHITE_TURN)
+                        else:
+                            log.info("[Positions] Black to move")
+                            gm.event_callback(EVENT_BLACK_TURN)
         else:
             log.warning("[Positions] Could not validate physical board state")
         
@@ -1094,6 +1106,15 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     protocol_manager.game_manager.on_king_lift_resign = _on_king_lift_resign
     protocol_manager.game_manager.on_king_lift_resign_cancel = display_manager.cancel_menu
+    
+    # Terminal position callback - triggered when correction mode exits on a position
+    # that is already checkmate, stalemate, or insufficient material
+    def _on_terminal_position(result: str, termination: str):
+        """Handle terminal position detection after correction mode exits."""
+        log.info(f"[App] Terminal position detected: {termination} ({result})")
+        display_manager.show_game_over(result, termination)
+    
+    protocol_manager.game_manager.on_terminal_position = _on_terminal_position
     
     # Wire up check and queen threat alert callbacks
     protocol_manager.game_manager.on_check = display_manager.show_check_alert
