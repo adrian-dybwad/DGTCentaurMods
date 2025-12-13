@@ -465,12 +465,37 @@ def _resume_game(game_data: dict) -> bool:
 # Position Loading Functions
 # ============================================================================
 
+def _parse_position_entry(value: str) -> tuple:
+    """Parse a position entry from positions.ini.
+    
+    Format: FEN | hint_move (hint_move is optional)
+    
+    Args:
+        value: Raw value from INI file
+        
+    Returns:
+        Tuple of (fen, hint_move) where hint_move may be None
+    """
+    if '|' in value:
+        parts = value.split('|', 1)
+        fen = parts[0].strip()
+        hint_move = parts[1].strip() if len(parts) > 1 else None
+        # Validate hint_move format (UCI: 4-5 chars like e2e4 or a7a8q)
+        if hint_move and (len(hint_move) < 4 or len(hint_move) > 5):
+            log.warning(f"[Positions] Invalid hint move format: {hint_move}")
+            hint_move = None
+        return (fen, hint_move)
+    else:
+        return (value.strip(), None)
+
+
 def _load_positions_config() -> dict:
     """Load predefined positions from positions.ini.
     
     Returns:
-        Dictionary with category names as keys and dict of {name: fen} as values.
-        Example: {'test': {'en_passant': 'fen...'}, 'puzzles': {...}}
+        Dictionary with category names as keys and dict of {name: (fen, hint_move)} as values.
+        hint_move is None if not specified.
+        Example: {'test': {'en_passant': ('fen...', 'e5d6')}, 'puzzles': {...}}
     """
     import configparser
     
@@ -498,10 +523,11 @@ def _load_positions_config() -> dict:
         
         for section in config.sections():
             positions[section] = {}
-            for name, fen in config.items(section):
+            for name, value in config.items(section):
+                fen, hint_move = _parse_position_entry(value)
                 # Validate FEN has 6 fields
                 if len(fen.split()) == 6:
-                    positions[section][name] = fen
+                    positions[section][name] = (fen, hint_move)
                 else:
                     log.warning(f"[Positions] Invalid FEN for {section}/{name}: {fen}")
         
@@ -513,7 +539,7 @@ def _load_positions_config() -> dict:
     return positions
 
 
-def _start_from_position(fen: str, position_name: str) -> bool:
+def _start_from_position(fen: str, position_name: str, hint_move: str = None) -> bool:
     """Start a game from a predefined position.
     
     Sets up the game with the given FEN position and enters correction mode
@@ -525,6 +551,7 @@ def _start_from_position(fen: str, position_name: str) -> bool:
     Args:
         fen: FEN string of the position to load
         position_name: Display name of the position (for logging)
+        hint_move: Optional UCI move string (e.g., 'e2e4') to show as LED hint
         
     Returns:
         True if position was loaded successfully, False otherwise
@@ -537,6 +564,8 @@ def _start_from_position(fen: str, position_name: str) -> bool:
         
         log.info(f"[Positions] Loading position: {position_name}")
         log.info(f"[Positions] FEN: {fen}")
+        if hint_move:
+            log.info(f"[Positions] Hint move: {hint_move}")
         
         # Validate FEN
         try:
@@ -544,6 +573,24 @@ def _start_from_position(fen: str, position_name: str) -> bool:
         except ValueError as e:
             log.error(f"[Positions] Invalid FEN: {e}")
             return False
+        
+        # Validate hint move if provided
+        hint_from_sq = None
+        hint_to_sq = None
+        if hint_move and len(hint_move) >= 4:
+            try:
+                hint_from_sq = chess.parse_square(hint_move[0:2])
+                hint_to_sq = chess.parse_square(hint_move[2:4])
+                # Validate move is legal in this position
+                hint_chess_move = chess.Move.from_uci(hint_move)
+                if hint_chess_move not in test_board.legal_moves:
+                    log.warning(f"[Positions] Hint move {hint_move} is not legal in position")
+                    hint_from_sq = None
+                    hint_to_sq = None
+            except (ValueError, IndexError) as e:
+                log.warning(f"[Positions] Invalid hint move format {hint_move}: {e}")
+                hint_from_sq = None
+                hint_to_sq = None
         
         # Start game mode with position game flag (disables DB, changes back behavior)
         _start_game_mode(starting_fen=fen, is_position_game=True)
@@ -576,6 +623,12 @@ def _start_from_position(fen: str, position_name: str) -> bool:
             else:
                 log.info("[Positions] Physical board matches position")
                 board.beep(board.SOUND_GENERAL, event_type='game_event')
+                
+                # Show hint LEDs if provided
+                if hint_from_sq is not None and hint_to_sq is not None:
+                    log.info(f"[Positions] Showing hint LEDs: {hint_move} ({hint_from_sq} -> {hint_to_sq})")
+                    board.ledFromTo(hint_from_sq, hint_to_sq, repeat=0)
+                
                 # Board is correct - trigger turn event
                 if gm.event_callback is not None:
                     if gm.chess_board.turn == chess.WHITE:
@@ -1433,14 +1486,14 @@ def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
         
         # Load the selected position
         if position_result in positions[category]:
-            fen = positions[category][position_result]
+            fen, hint_move = positions[category][position_result]
             display_name = position_result.replace('_', ' ').title()
             
             # Store the category and position for returning later
             _last_position_category = category
             _last_position_index = find_entry_index(position_entries, position_result)
             
-            if _start_from_position(fen, display_name):
+            if _start_from_position(fen, display_name, hint_move):
                 return True
 
 
