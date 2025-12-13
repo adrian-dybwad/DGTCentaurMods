@@ -105,6 +105,7 @@ from DGTCentaurMods.ble_manager import BleManager
 from DGTCentaurMods.relay_manager import RelayManager
 from DGTCentaurMods.game_handler import GameHandler
 from DGTCentaurMods.display_manager import DisplayManager
+from DGTCentaurMods.menu_manager import MenuManager, MenuSelection, is_break_result, find_entry_index
 
 # All imports complete
 if _startup_splash:
@@ -139,9 +140,8 @@ rfcomm_manager = None  # RfcommManager for RFCOMM pairing
 ble_manager = None  # BleManager for BLE GATT services
 relay_manager = None  # RelayManager for shadow target connections
 
-# Menu state
-_active_menu_widget: Optional[IconMenuWidget] = None
-_menu_selection_event = None  # Threading event for menu selection
+# Menu state - managed by MenuManager singleton
+_menu_manager: Optional[MenuManager] = None  # Initialized in main()
 _return_to_positions_menu = False  # Flag to signal return to positions menu from game
 _is_position_game = False  # Flag to track if current game is a position (practice) game
 _switch_to_normal_game = False  # Flag to signal switch from position game to normal game
@@ -722,36 +722,19 @@ def create_system_entries() -> List[IconMenuEntry]:
     ]
 
 
-# Special menu results that should break out of all nested menus and return to main loop
-MENU_BREAK_RESULTS = {"CLIENT_CONNECTED", "PIECE_MOVED"}
-
-
-def _is_break_result(result: str) -> bool:
-    """Check if a menu result should break out of all nested menus.
-    
-    These results indicate an external event (BLE connection, piece movement)
-    that should interrupt any menu and transition to game mode.
-    
-    Args:
-        result: Menu result string
-        
-    Returns:
-        True if this result should break out of all menus
-    """
-    return result in MENU_BREAK_RESULTS
-
-
 def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
     """Display a menu and wait for selection.
+
+    Uses the MenuManager singleton for menu management.
 
     Args:
         entries: List of menu entry configurations to display
         initial_index: Index of the entry to select initially (for returning to parent menus)
 
     Returns:
-        Selected entry key, "BACK", "HELP", or "SHUTDOWN"
+        Selected entry key, "BACK", "HELP", "SHUTDOWN", "CLIENT_CONNECTED", or "PIECE_MOVED"
     """
-    global _active_menu_widget
+    global _menu_manager
 
     # Clamp initial_index to valid range
     if initial_index < 0 or initial_index >= len(entries):
@@ -760,37 +743,9 @@ def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
     # Clear existing widgets and add status bar
     board.display_manager.clear_widgets()
 
-    # Create menu widget
-    menu_widget = IconMenuWidget(
-        x=0,
-        y=STATUS_BAR_HEIGHT,
-        width=DISPLAY_WIDTH,
-        height=DISPLAY_HEIGHT - STATUS_BAR_HEIGHT,
-        entries=entries,
-        selected_index=initial_index
-    )
-
-    # Register as active menu for key routing
-    # Note: Don't call activate() here - wait_for_selection() will do it
-    # This avoids a race condition where cancel_selection could be called
-    # between activate() and wait_for_selection(), with the event getting cleared
-    _active_menu_widget = menu_widget
-
-    # Add widget to display and wait for render
-    promise = board.display_manager.add_widget(menu_widget)
-    if promise:
-        try:
-            promise.result(timeout=5.0)
-        except Exception as e:
-            log.warning(f"[Menu] Error waiting for menu render: {e}")
-
-    try:
-        # Wait for selection using the widget's blocking method
-        # This calls activate() internally, which sets up the event
-        result = menu_widget.wait_for_selection(initial_index=initial_index)
-        return result
-    finally:
-        _active_menu_widget = None
+    # Use the MenuManager to show the menu
+    result = _menu_manager.show_menu(entries, initial_index=initial_index)
+    return result.key
 
 
 def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
@@ -1075,22 +1030,6 @@ def _return_to_menu(reason: str):
         app_state = AppState.MENU
 
 
-def _find_entry_index(entries: List[IconMenuEntry], key: str) -> int:
-    """Find the index of an entry by its key.
-    
-    Args:
-        entries: List of menu entries
-        key: The key to find
-        
-    Returns:
-        Index of the entry with matching key, or 0 if not found.
-    """
-    for i, entry in enumerate(entries):
-        if entry.key == key:
-            return i
-    return 0
-
-
 def _handle_settings():
     """Handle the Settings submenu.
     
@@ -1108,10 +1047,10 @@ def _handle_settings():
         result = _show_menu(entries, initial_index=last_selected)
         
         # Update last_selected for when we return from a submenu
-        last_selected = _find_entry_index(entries, result)
+        last_selected = find_entry_index(entries, result)
         
         # Handle special results that should break out of all menus
-        if _is_break_result(result):
+        if is_break_result(result):
             app_state = AppState.MENU
             return result
         
@@ -1135,7 +1074,7 @@ def _handle_settings():
                 )
             
             engine_result = _show_menu(engine_entries)
-            if _is_break_result(engine_result):
+            if is_break_result(engine_result):
                 app_state = AppState.MENU
                 return engine_result
             if engine_result not in ["BACK", "SHUTDOWN", "HELP"]:
@@ -1159,7 +1098,7 @@ def _handle_settings():
                 )
             
             elo_result = _show_menu(elo_entries)
-            if _is_break_result(elo_result):
+            if is_break_result(elo_result):
                 app_state = AppState.MENU
                 return elo_result
             if elo_result not in ["BACK", "SHUTDOWN", "HELP"]:
@@ -1204,7 +1143,7 @@ def _handle_settings():
             ]
             
             color_result = _show_menu(color_entries)
-            if _is_break_result(color_result):
+            if is_break_result(color_result):
                 app_state = AppState.MENU
                 return color_result
             if color_result in ["white", "black", "random", "2player", "handbrain"]:
@@ -1219,7 +1158,7 @@ def _handle_settings():
         
         elif result == "Positions":
             position_result = _handle_positions_menu()
-            if _is_break_result(position_result):
+            if is_break_result(position_result):
                 app_state = AppState.MENU
                 return position_result
             if position_result:
@@ -1228,7 +1167,7 @@ def _handle_settings():
         
         elif result == "System":
             system_result = _handle_system_menu()
-            if _is_break_result(system_result):
+            if is_break_result(system_result):
                 app_state = AppState.MENU
                 return system_result
 
@@ -1298,13 +1237,13 @@ def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
         else:
             category_result = _show_menu(category_entries, initial_index=last_category_index)
             
-            if _is_break_result(category_result):
+            if is_break_result(category_result):
                 return category_result
             if category_result in ["BACK", "SHUTDOWN", "HELP"]:
                 return False
         
         # Update last_category_index for when we return from position list
-        last_category_index = _find_entry_index(category_entries, category_result)
+        last_category_index = find_entry_index(category_entries, category_result)
         _last_position_category_index = last_category_index
         
         # Show positions in selected category
@@ -1388,7 +1327,7 @@ def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
         # Inner loop for position details - pressing BACK returns to category menu
         position_result = _show_menu(position_entries, initial_index=initial_position_index)
 
-        if _is_break_result(position_result):
+        if is_break_result(position_result):
             return position_result
         if position_result in ["BACK", "HELP"]:
             # Go back to category menu (continue outer loop)
@@ -1406,7 +1345,7 @@ def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
             
             # Store the category and position for returning later
             _last_position_category = category
-            _last_position_index = _find_entry_index(position_entries, position_result)
+            _last_position_index = find_entry_index(position_entries, position_result)
             
             if _start_from_position(fen, display_name):
                 return True
@@ -1641,7 +1580,7 @@ def _handle_wifi_settings():
     Subscribes to WiFi status updates to refresh the display when
     connection status changes (connect, disconnect, signal change).
     """
-    global _active_menu_widget
+    global _menu_manager
     from DGTCentaurMods.epaper import wifi_info
     
     last_selected = 1  # Default to Scan button (first selectable after status display)
@@ -1649,9 +1588,9 @@ def _handle_wifi_settings():
     # Callback to refresh menu when WiFi status changes
     def _on_wifi_status_change(status: dict):
         """Refresh the menu when WiFi status changes."""
-        if _active_menu_widget is not None:
+        if _menu_manager.active_widget is not None:
             log.debug(f"[WiFi Settings] Status changed, refreshing menu: connected={status.get('connected')}")
-            _active_menu_widget.cancel_selection("WIFI_REFRESH")
+            _menu_manager.cancel_selection("WIFI_REFRESH")
     
     # Subscribe to WiFi status updates
     wifi_info.subscribe(_on_wifi_status_change)
@@ -1727,7 +1666,7 @@ def _handle_wifi_settings():
             wifi_result = _show_menu(wifi_entries, initial_index=last_selected)
 
             # Handle break results - exit to main loop
-            if _is_break_result(wifi_result):
+            if is_break_result(wifi_result):
                 return wifi_result
 
             # Handle refresh from WiFi status change
@@ -1736,7 +1675,7 @@ def _handle_wifi_settings():
                 continue
 
             # Update last_selected for when we return from a submenu
-            last_selected = _find_entry_index(wifi_entries, wifi_result)
+            last_selected = find_entry_index(wifi_entries, wifi_result)
 
             if wifi_result in ["BACK", "SHUTDOWN", "HELP"]:
                 return
@@ -1797,7 +1736,7 @@ def _handle_wifi_scan():
     network_result = _show_menu(network_entries)
     log.info(f"[WiFi] Menu result: {network_result}")
 
-    if _is_break_result(network_result):
+    if is_break_result(network_result):
         return network_result
     if network_result in ["BACK", "SHUTDOWN", "HELP"]:
         return
@@ -1839,86 +1778,51 @@ def _handle_bluetooth_settings():
     """
     from DGTCentaurMods.epaper import bluetooth_status
     
-    last_selected = 2  # Default to Toggle button (index 2, since Info=0 and Names=1 are non-selectable)
-    
-    while True:
+    def build_entries():
+        """Build Bluetooth settings menu entries."""
         device_name = _args.device_name if _args else 'DGT PEGASUS'
         bt_status = bluetooth_status.get_bluetooth_status(
             device_name=device_name,
             ble_manager=ble_manager,
             rfcomm_connected=client_connected
         )
-        
-        # Format status label using the module function
         status_label = bluetooth_status.format_status_label(bt_status)
-        
-        # Get advertised names
         advertised_label = bluetooth_status.get_advertised_names_label()
-        
-        # Enable toggle uses checkbox icon based on current state
         is_enabled = bt_status['enabled']
-        enable_icon = "timer_checked" if is_enabled else "timer"
-        enable_label = "Enabled" if is_enabled else "Disabled"
         
-        bt_entries = [
-            # Status info display (non-selectable - displayed but skipped during navigation)
+        return [
             IconMenuEntry(
-                key="Info",
-                label=status_label,
-                icon_name="bluetooth",
-                enabled=True,
-                selectable=False,
-                height_ratio=1.5,
-                icon_size=36,
-                layout="vertical",
-                font_size=11,
-                border_width=1
+                key="Info", label=status_label, icon_name="bluetooth",
+                enabled=True, selectable=False, height_ratio=1.5, icon_size=36,
+                layout="vertical", font_size=11, border_width=1
             ),
-            # Advertised names display (non-selectable)
             IconMenuEntry(
-                key="Names",
-                label=advertised_label,
-                icon_name="bluetooth",
-                enabled=True,
-                selectable=False,
-                height_ratio=1.2,
-                icon_size=24,
-                layout="vertical",
-                font_size=10,
-                border_width=1
+                key="Names", label=advertised_label, icon_name="bluetooth",
+                enabled=True, selectable=False, height_ratio=1.2, icon_size=24,
+                layout="vertical", font_size=10, border_width=1
             ),
-            # Enable/Disable toggle (checkbox style)
             IconMenuEntry(
-                key="Toggle",
-                label=enable_label,
-                icon_name=enable_icon,
-                enabled=True,
-                selectable=True,
-                height_ratio=0.8,
-                layout="horizontal",
-                font_size=14
+                key="Toggle", label="Enabled" if is_enabled else "Disabled",
+                icon_name="timer_checked" if is_enabled else "timer",
+                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
             ),
         ]
-        
-        bt_result = _show_menu(bt_entries, initial_index=last_selected)
-
-        if _is_break_result(bt_result):
-            return bt_result
-
-        last_selected = _find_entry_index(bt_entries, bt_result)
-
-        if bt_result in ["BACK", "SHUTDOWN", "HELP"]:
-            return
-        
-        if bt_result == "Toggle":
-            # Toggle Bluetooth state
-            if is_enabled:
+    
+    def handle_selection(result: MenuSelection):
+        """Handle Bluetooth toggle."""
+        if result.key == "Toggle":
+            device_name = _args.device_name if _args else 'DGT PEGASUS'
+            bt_status = bluetooth_status.get_bluetooth_status(
+                device_name=device_name, ble_manager=ble_manager, rfcomm_connected=client_connected
+            )
+            if bt_status['enabled']:
                 bluetooth_status.disable_bluetooth()
             else:
                 if bluetooth_status.enable_bluetooth():
                     board.beep(board.SOUND_GENERAL, event_type='key_press')
-        # Info and Names do nothing when selected - they're just displays
-        # Info button does nothing, just shows the info
+        return None  # Continue loop
+    
+    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=2)
 
 
 def _handle_sound_settings():
@@ -1935,126 +1839,75 @@ def _handle_sound_settings():
     """
     from DGTCentaurMods.epaper import sound_settings
     
-    last_selected = 4  # Default to master enable toggle (last selectable item)
-    
-    while True:
+    def build_entries():
+        """Build sound settings menu entries."""
         settings = sound_settings.get_sound_settings()
-        
-        # Build entries from bottom to top as requested
-        # (list order determines display order top to bottom)
-        sound_entries = [
-            # Piece events
+        return [
             IconMenuEntry(
-                key="piece_event",
-                label="Piece Events",
+                key="piece_event", label="Piece Events",
                 icon_name="timer_checked" if settings['piece_event'] else "timer",
-                enabled=True,
-                selectable=True,
-                height_ratio=0.8,
-                layout="horizontal",
-                font_size=14
+                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
             ),
-            # Game events
             IconMenuEntry(
-                key="game_event",
-                label="Game Events",
+                key="game_event", label="Game Events",
                 icon_name="timer_checked" if settings['game_event'] else "timer",
-                enabled=True,
-                selectable=True,
-                height_ratio=0.8,
-                layout="horizontal",
-                font_size=14
+                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
             ),
-            # Errors
             IconMenuEntry(
-                key="error",
-                label="Errors",
+                key="error", label="Errors",
                 icon_name="timer_checked" if settings['error'] else "timer",
-                enabled=True,
-                selectable=True,
-                height_ratio=0.8,
-                layout="horizontal",
-                font_size=14
+                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
             ),
-            # Key press
             IconMenuEntry(
-                key="key_press",
-                label="Key Press",
+                key="key_press", label="Key Press",
                 icon_name="timer_checked" if settings['key_press'] else "timer",
-                enabled=True,
-                selectable=True,
-                height_ratio=0.8,
-                layout="horizontal",
-                font_size=14
+                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
             ),
-            # Master enable at bottom
             IconMenuEntry(
-                key="enabled",
-                label="Sound Enabled",
+                key="enabled", label="Sound Enabled",
                 icon_name="timer_checked" if settings['enabled'] else "timer",
-                enabled=True,
-                selectable=True,
-                height_ratio=0.8,
-                layout="horizontal",
-                font_size=14,
-                bold=True
+                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14, bold=True
             ),
         ]
-        
-        sound_result = _show_menu(sound_entries, initial_index=last_selected)
-
-        if _is_break_result(sound_result):
-            return sound_result
-
-        last_selected = _find_entry_index(sound_entries, sound_result)
-
-        if sound_result in ["BACK", "SHUTDOWN", "HELP"]:
-            return
-        
-        # Toggle the selected setting
-        if sound_result in sound_settings.SOUND_SETTINGS:
-            new_value = sound_settings.toggle_sound_setting(sound_result)
-            if new_value and sound_result == 'enabled':
-                # Play beep to confirm sound is enabled (bypass event type check for confirmation)
+    
+    def handle_selection(result: MenuSelection):
+        """Handle sound setting toggle."""
+        if result.key in sound_settings.SOUND_SETTINGS:
+            new_value = sound_settings.toggle_sound_setting(result.key)
+            if new_value and result.key == 'enabled':
+                # Play beep to confirm sound is enabled
                 board.beep(board.SOUND_GENERAL)
+        return None  # Continue loop
+    
+    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=4)
 
 
 def _handle_system_menu():
     """Handle system submenu (sound, WiFi, Bluetooth, sleep timer, shutdown, reboot)."""
-    last_selected = 0  # Track last selected index for returning from submenus
     
-    while True:
-        system_entries = create_system_entries()
-        system_result = _show_menu(system_entries, initial_index=last_selected)
-        
-        # Handle break results from menu
-        if _is_break_result(system_result):
-            return system_result
-        
-        # Update last_selected for when we return from a submenu
-        last_selected = _find_entry_index(system_entries, system_result)
-
-        if system_result == "Sound":
+    def handle_selection(result: MenuSelection):
+        """Handle system menu selection."""
+        # Route to submenus - propagate break results
+        if result.key == "Sound":
             sub_result = _handle_sound_settings()
-            if _is_break_result(sub_result):
+            if sub_result and sub_result.is_break:
                 return sub_result
-        elif system_result == "WiFi":
+        elif result.key == "WiFi":
             sub_result = _handle_wifi_settings()
-            if _is_break_result(sub_result):
+            if sub_result and sub_result.is_break:
                 return sub_result
-        elif system_result == "Bluetooth":
+        elif result.key == "Bluetooth":
             sub_result = _handle_bluetooth_settings()
-            if _is_break_result(sub_result):
+            if sub_result and sub_result.is_break:
                 return sub_result
-        elif system_result == "Inactivity":
+        elif result.key == "Inactivity":
             sub_result = _handle_inactivity_timeout()
-            if _is_break_result(sub_result):
+            if sub_result and sub_result.is_break:
                 return sub_result
-            # Loop back to system menu after changing timeout
-        elif system_result == "Shutdown":
+        elif result.key == "Shutdown":
             _shutdown("Shutdown")
-            return
-        elif system_result == "Reboot":
+            return result  # Exit after shutdown
+        elif result.key == "Reboot":
             # LED cascade pattern for reboot
             try:
                 for i in range(0, 8):
@@ -2063,17 +1916,19 @@ def _handle_system_menu():
             except Exception:
                 pass
             _shutdown("Rebooting", reboot=True)
-            return
-        else:
-            # BACK or other - exit system menu
-            return
+            return result  # Exit after reboot
+        return None  # Continue loop
+    
+    return _menu_manager.run_menu_loop(create_system_entries, handle_selection)
 
 
 def _handle_inactivity_timeout():
     """Handle inactivity timeout setting submenu.
-    
+
     The currently active timeout option displays a timer icon with a checkmark
     overlay to indicate selection. Other options show a plain timer icon.
+    
+    This is a one-shot selection menu - select a timeout and return.
     """
     # Available timeout options in minutes (0 = disabled)
     timeout_options = [
@@ -2084,29 +1939,30 @@ def _handle_inactivity_timeout():
         (30, "30 min"),
         (60, "1 hour"),
     ]
-    
+
     current_timeout = board.get_inactivity_timeout()
-    
+
     entries = []
     for minutes, label in timeout_options:
         seconds = minutes * 60
-        # Use timer_checked icon for current selection, plain timer for others
         is_current = seconds == current_timeout
         icon = "timer_checked" if is_current else "timer"
         entries.append(IconMenuEntry(key=str(seconds), label=label, icon_name=icon, enabled=True))
-    
-    result = _show_menu(entries)
-    
-    if _is_break_result(result):
+
+    result = _menu_manager.show_menu(entries)
+
+    if result.is_break:
         return result
     
-    if result not in ("BACK", "HELP", "SHUTDOWN"):
+    if not result.is_exit():
         try:
-            new_timeout = int(result)
+            new_timeout = int(result.key)
             board.set_inactivity_timeout(new_timeout)
             log.info(f"[Settings] Inactivity timeout set to {new_timeout}s")
         except ValueError:
             pass
+    
+    return result
 
 
 def _shutdown(message: str, reboot: bool = False):
@@ -2206,7 +2062,7 @@ def _on_ble_connected(client_type: str):
     Args:
         client_type: Type of client ('millennium', 'pegasus', 'chessnut')
     """
-    global game_handler, app_state, _active_menu_widget, _pending_ble_client_type
+    global game_handler, app_state, _menu_manager, _pending_ble_client_type
     
     log.info(f"[BLE] Client connected: {client_type}")
     
@@ -2217,9 +2073,9 @@ def _on_ble_connected(client_type: str):
         return
     
     # Case 2: In menu or settings mode with active menu widget - cancel menu to trigger game start
-    if (app_state == AppState.MENU or app_state == AppState.SETTINGS) and _active_menu_widget is not None:
+    if (app_state == AppState.MENU or app_state == AppState.SETTINGS) and _menu_manager.active_widget is not None:
         log.info(f"[BLE] Client connected while in {app_state.name} - cancelling menu to start game")
-        _active_menu_widget.cancel_selection("CLIENT_CONNECTED")
+        _menu_manager.cancel_selection("CLIENT_CONNECTED")
         return  # GameHandler will be notified after game mode starts
     
     # Case 3: In menu/settings mode but between menus (no active widget) - set flag for main loop
@@ -2546,7 +2402,7 @@ def key_callback(key_id):
     - HELP: Toggle game analysis widget visibility (game mode only)
     - LONG_PLAY: Shutdown system
     """
-    global running, kill, display_manager, app_state, _active_menu_widget, _active_keyboard_widget
+    global running, kill, display_manager, app_state, _menu_manager, _active_keyboard_widget
     
     log.info(f"[App] Key event received: {key_id}, app_state={app_state}")
     
@@ -2566,9 +2422,9 @@ def key_callback(key_id):
     
     # Route based on app state
     if app_state == AppState.MENU or app_state == AppState.SETTINGS:
-        # Route to active menu widget
-        if _active_menu_widget is not None:
-            handled = _active_menu_widget.handle_key(key_id)
+        # Route to active menu widget via MenuManager
+        if _menu_manager.active_widget is not None:
+            handled = _menu_manager.active_widget.handle_key(key_id)
             if handled:
                 return
     
@@ -2619,7 +2475,7 @@ def field_callback(piece_event, field, time_in_seconds):
         field: Board field index (0-63)
         time_in_seconds: Event timestamp
     """
-    global app_state, game_handler, _active_keyboard_widget, _active_menu_widget, _pending_piece_events
+    global app_state, game_handler, _active_keyboard_widget, _menu_manager, _pending_piece_events
 
     # Priority 1: Active keyboard gets field events
     if _active_keyboard_widget is not None:
@@ -2632,17 +2488,18 @@ def field_callback(piece_event, field, time_in_seconds):
     # Queue events if:
     # - Menu is active (first event triggers game start), OR
     # - Game start is pending (events already queued, waiting for main thread to start game)
+    active_widget = _menu_manager.active_widget if _menu_manager else None
     if app_state == AppState.MENU:
-        if _active_menu_widget is not None or len(_pending_piece_events) > 0:
+        if active_widget is not None or len(_pending_piece_events) > 0:
             # Queue the piece event to forward after game mode starts
             # Multiple events may arrive before game mode is ready (e.g., LIFT then PLACE)
             _pending_piece_events.append((piece_event, field, time_in_seconds))
-            log.info(f"[App] Piece event in menu - queued for game (field={field}, event={piece_event}, queue_size={len(_pending_piece_events)}, menu_active={_active_menu_widget is not None})")
+            log.info(f"[App] Piece event in menu - queued for game (field={field}, event={piece_event}, queue_size={len(_pending_piece_events)}, menu_active={active_widget is not None})")
             # Only trigger game start on first event (avoid multiple cancel calls)
-            if len(_pending_piece_events) == 1 and _active_menu_widget is not None:
+            if len(_pending_piece_events) == 1 and active_widget is not None:
                 log.info("[App] Cancelling menu selection with PIECE_MOVED")
-                _active_menu_widget.cancel_selection("PIECE_MOVED")
-            elif _active_menu_widget is None:
+                _menu_manager.cancel_selection("PIECE_MOVED")
+            elif active_widget is None:
                 log.info("[App] Menu widget is None, events will be processed on next menu loop iteration")
             return
     
@@ -2664,7 +2521,7 @@ def main():
     """
     global server_sock, client_sock, client_connected, running, kill
     global mainloop, relay_mode, game_handler, relay_manager, app_state, _args
-    global _pending_piece_events, _return_to_positions_menu, _switch_to_normal_game
+    global _pending_piece_events, _return_to_positions_menu, _switch_to_normal_game, _menu_manager
     
     parser = argparse.ArgumentParser(description="DGT Centaur Universal")
     parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
@@ -2696,6 +2553,11 @@ def main():
     
     # Load game settings from centaur.ini
     _load_game_settings()
+
+    # Initialize the MenuManager singleton
+    _menu_manager = MenuManager.get_instance()
+    _menu_manager.set_board(board)
+    _menu_manager.set_dimensions(DISPLAY_WIDTH, DISPLAY_HEIGHT, STATUS_BAR_HEIGHT)
 
     # Display is already initialized at module load time - use the early splash screen
     # The _startup_splash was created before board module was imported
@@ -2789,7 +2651,7 @@ def main():
             to avoid blocking startup. Once setup is complete, accepts connections.
             """
             global rfcomm_manager, server_sock, client_sock, client_connected
-            global app_state, _active_menu_widget, _pending_ble_client_type
+            global app_state, _menu_manager, _pending_ble_client_type
             
             log.info("[RFCOMM] Starting background initialization...")
             
@@ -2849,10 +2711,10 @@ def main():
                         # Already in game - show confirmation dialog
                         log.info("[RFCOMM] Client connected while in game - showing confirmation dialog")
                         _show_ble_connection_confirm("rfcomm")
-                    elif (app_state == AppState.MENU or app_state == AppState.SETTINGS) and _active_menu_widget is not None:
+                    elif (app_state == AppState.MENU or app_state == AppState.SETTINGS) and _menu_manager.active_widget is not None:
                         # In menu/settings with active widget - cancel to start game
                         log.info(f"[RFCOMM] Client connected while in {app_state.name} - transitioning to game")
-                        _active_menu_widget.cancel_selection("CLIENT_CONNECTED")
+                        _menu_manager.cancel_selection("CLIENT_CONNECTED")
                     elif app_state == AppState.MENU or app_state == AppState.SETTINGS:
                         # Between menus - set flag for main loop
                         log.info(f"[RFCOMM] Client connected between menus ({app_state.name}) - setting flag")
@@ -3002,7 +2864,7 @@ def main():
                 result = _show_menu(entries, initial_index=main_menu_last_selected)
                 
                 # Update last_selected for when we return from a submenu
-                main_menu_last_selected = _find_entry_index(entries, result)
+                main_menu_last_selected = find_entry_index(entries, result)
                 
                 log.info(f"[App] Main menu selection: {result}")
                 
@@ -3048,7 +2910,7 @@ def main():
                 elif result == "Settings":
                     settings_result = _handle_settings()
                     # Check if a BLE client connected during settings
-                    if _is_break_result(settings_result):
+                    if is_break_result(settings_result):
                         _start_game_mode()
                         if game_handler:
                             game_handler.on_app_connected()
@@ -3075,7 +2937,7 @@ def main():
                     _return_to_positions_menu = False
                     # Return directly to the last selected position in the menu
                     position_result = _handle_positions_menu(return_to_last_position=True)
-                    if _is_break_result(position_result):
+                    if is_break_result(position_result):
                         # BLE client connected during positions menu
                         _start_game_mode()
                         if game_handler:
@@ -3083,7 +2945,7 @@ def main():
                     elif not position_result:
                         # User backed out of positions menu, show settings
                         settings_result = _handle_settings()
-                        if _is_break_result(settings_result):
+                        if is_break_result(settings_result):
                             _start_game_mode()
                             if game_handler:
                                 game_handler.on_app_connected()
