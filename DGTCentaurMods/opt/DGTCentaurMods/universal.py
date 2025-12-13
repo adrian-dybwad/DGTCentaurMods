@@ -689,14 +689,14 @@ def create_settings_entries() -> List[IconMenuEntry]:
         IconMenuEntry(key="Engine", label=engine_label, icon_name="engine", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="ELO", label=elo_label, icon_name="elo", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="Color", label=color_label, icon_name="color", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=12, height_ratio=0.8),
     ]
 
 
 def create_system_entries() -> List[IconMenuEntry]:
-    """Create entries for the system submenu (shutdown, reboot, inactivity timeout).
+    """Create entries for the system submenu.
+    
+    Includes sound, WiFi, sleep timer, shutdown, and reboot options.
 
     Returns:
         List of IconMenuEntry for system menu
@@ -709,6 +709,8 @@ def create_system_entries() -> List[IconMenuEntry]:
         timeout_label = f"Sleep Timer\n{timeout // 60} min"
     
     return [
+        IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
+        IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True),
         IconMenuEntry(key="Inactivity", label=timeout_label, icon_name="timer", enabled=True),
         IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
         IconMenuEntry(key="Reboot", label="Reboot", icon_name="reboot", enabled=True),
@@ -1177,27 +1179,11 @@ def _handle_settings():
                 _start_game_mode()
                 return  # Exit settings to enter game mode
         
-        elif result == "Sound":
-            # Sound toggle submenu
-            sound_entries = [
-                IconMenuEntry(key="On", label="On", icon_name="sound", enabled=True),
-                IconMenuEntry(key="Off", label="Off", icon_name="cancel", enabled=True),
-            ]
-            sound_result = _show_menu(sound_entries)
-            if sound_result == "On":
-                centaur.set_sound("on")
-                board.beep(board.SOUND_GENERAL)
-            elif sound_result == "Off":
-                centaur.set_sound("off")
-        
         elif result == "Positions":
             position_result = _handle_positions_menu()
             if position_result:
                 # Position was loaded, exit settings and go to game
                 return
-        
-        elif result == "WiFi":
-            _handle_wifi_settings()
         
         elif result == "System":
             _handle_system_menu()
@@ -1739,7 +1725,9 @@ def _handle_wifi_scan():
 
 
 def _handle_system_menu():
-    """Handle system submenu (shutdown, reboot, inactivity timeout)."""
+    """Handle system submenu (sound, WiFi, sleep timer, shutdown, reboot)."""
+    from DGTCentaurMods.board import centaur
+    
     last_selected = 0  # Track last selected index for returning from submenus
     
     while True:
@@ -1749,7 +1737,21 @@ def _handle_system_menu():
         # Update last_selected for when we return from a submenu
         last_selected = _find_entry_index(system_entries, system_result)
 
-        if system_result == "Inactivity":
+        if system_result == "Sound":
+            # Sound toggle submenu
+            sound_entries = [
+                IconMenuEntry(key="On", label="On", icon_name="sound", enabled=True),
+                IconMenuEntry(key="Off", label="Off", icon_name="cancel", enabled=True),
+            ]
+            sound_result = _show_menu(sound_entries)
+            if sound_result == "On":
+                centaur.set_sound("on")
+                board.beep(board.SOUND_GENERAL)
+            elif sound_result == "Off":
+                centaur.set_sound("off")
+        elif system_result == "WiFi":
+            _handle_wifi_settings()
+        elif system_result == "Inactivity":
             _handle_inactivity_timeout()
             # Loop back to system menu after changing timeout
         elif system_result == "Shutdown":
