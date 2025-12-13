@@ -93,13 +93,37 @@ if _startup_splash:
     _startup_splash.set_message("Loading...")
 
 # Continue with remaining imports
-import bluetooth
-from gi.repository import GLib
-import chess
-import chess.engine
-import pathlib
-from PIL import Image, ImageDraw, ImageFont
+import time as _import_time
+_import_start = _import_time.time()
 
+if _startup_splash:
+    _startup_splash.set_message("Bluetooth...")
+import bluetooth
+log.debug(f"[Import timing] bluetooth: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+
+if _startup_splash:
+    _startup_splash.set_message("GLib...")
+from gi.repository import GLib
+log.debug(f"[Import timing] GLib: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+
+if _startup_splash:
+    _startup_splash.set_message("Chess...")
+import chess
+log.debug(f"[Import timing] chess: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+
+import chess.engine
+log.debug(f"[Import timing] chess.engine: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+
+import pathlib
+log.debug(f"[Import timing] pathlib: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+
+if _startup_splash:
+    _startup_splash.set_message("Graphics...")
+from PIL import Image, ImageDraw, ImageFont
+log.debug(f"[Import timing] PIL: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+
+if _startup_splash:
+    _startup_splash.set_message("Managers...")
 from DGTCentaurMods.managers import (
     RfcommManager,
     BleManager,
@@ -112,6 +136,7 @@ from DGTCentaurMods.managers import (
     find_entry_index,
     ConnectionManager,
 )
+log.debug(f"[Import timing] managers: {(_import_time.time() - _import_start)*1000:.0f}ms")
 
 # All imports complete
 if _startup_splash:
