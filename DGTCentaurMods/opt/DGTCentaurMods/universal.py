@@ -1026,17 +1026,27 @@ def _cleanup_game():
 
 def _return_to_menu(reason: str):
     """Return from game mode to menu mode.
-    
-    Cleans up game handler and display manager, shows main menu.
-    
+
+    Cleans up game handler and display manager. For position games, returns to
+    the positions menu. For regular games, returns to the main menu.
+
     Args:
         reason: Reason for returning to menu (for logging)
     """
-    global app_state
-    
-    log.info(f"[App] Returning to MENU: {reason}")
+    global app_state, _return_to_positions_menu, _is_position_game
+
+    # Check if this was a position game BEFORE cleanup clears the flag
+    was_position_game = _is_position_game
+
+    log.info(f"[App] Returning to menu: {reason} (was_position_game={was_position_game})")
     _cleanup_game()
-    app_state = AppState.MENU
+    
+    if was_position_game:
+        # Return to positions menu, not main menu
+        _return_to_positions_menu = True
+        app_state = AppState.SETTINGS
+    else:
+        app_state = AppState.MENU
 
 
 def _find_entry_index(entries: List[IconMenuEntry], key: str) -> int:
