@@ -2184,6 +2184,9 @@ class GameManager:
         # Wire error callback - players report errors like place-without-lift
         player_manager.set_error_callback(self._on_player_error)
         
+        # Wire pending move callback - for LED display when engine/lichess has a move
+        player_manager.set_pending_move_callback(self._on_pending_move)
+        
         log.info(f"[GameManager] Player manager set: White={player_manager.white_player.name} "
                  f"({player_manager.white_player.player_type.name}), "
                  f"Black={player_manager.black_player.name} "
@@ -2423,6 +2426,19 @@ class GameManager:
         log.warning(f"[GameManager._on_player_error] Error: {error_type} - entering correction mode")
         board.beep(board.SOUND_WRONG_MOVE, event_type='error')
         self._enter_correction_mode()
+    
+    def _on_pending_move(self, move: chess.Move) -> None:
+        """Handle pending move from engine/Lichess player.
+        
+        Called when a non-human player has computed/received a move
+        that needs to be executed on the physical board.
+        Lights up the from/to squares as a guide.
+        
+        Args:
+            move: The pending move to display.
+        """
+        log.info(f"[GameManager._on_pending_move] Pending move: {move.uci()}")
+        board.ledFromTo(move.from_square, move.to_square, repeat=0)
     
     def _detect_late_castling(self, king_move: chess.Move) -> Optional[chess.Move]:
         """Detect if a king move is part of a late castling sequence.
