@@ -832,8 +832,10 @@ class DisplayManager:
             log.error(f"[DisplayManager] Error showing game over: {e}")
     
     def cleanup(self):
-        """Clean up resources (analysis engine, widgets)."""
+        """Clean up resources (analysis engine, widgets) and clear display."""
         log.info("[DisplayManager] Cleaning up")
+        
+        board = _get_board()
         
         # Wait for engine init thread if still running (brief wait)
         if self._engine_init_thread is not None and self._engine_init_thread.is_alive():
@@ -863,3 +865,11 @@ class DisplayManager:
             except Exception as e:
                 log.debug(f"[DisplayManager] Error quitting analysis engine: {e}")
             self.analysis_engine = None
+        
+        # Clear all widgets from display to prevent stale rendering
+        if board.display_manager:
+            try:
+                board.display_manager.clear_widgets(addStatusBar=True)
+                log.debug("[DisplayManager] Widgets cleared from display")
+            except Exception as e:
+                log.debug(f"[DisplayManager] Error clearing widgets: {e}")

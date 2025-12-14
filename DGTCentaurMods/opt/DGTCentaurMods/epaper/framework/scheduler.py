@@ -57,16 +57,26 @@ class Scheduler:
         # Wake the thread if it's waiting
         self._wake_event.set()
         # Drain the queue to prevent new operations from starting
-        while not self._queue.empty():
-            try:
-                item = self._queue.get_nowait()
-                _, future, _ = item if len(item) == 3 else (item[0], item[1], None)
-                if not future.done():
-                    future.set_result("shutdown")
-            except queue.Empty:
-                break
+        self.clear_pending()
         if self._thread is not None:
             self._thread.join(timeout=5.0)
+    
+    def clear_pending(self) -> None:
+        """Clear all pending refresh requests from the queue.
+        
+        Marks all pending futures as cancelled. Use when transitioning between
+        display states to prevent stale updates from rendering.
+        """
+        with self._queue_lock:
+            while not self._queue.empty():
+                try:
+                    item = self._queue.get_nowait()
+                    _, future, _ = item if len(item) == 3 else (item[0], item[1], None)
+                    if not future.done():
+                        future.set_result("cleared")
+                except queue.Empty:
+                    break
+        log.debug("Scheduler.clear_pending(): Cleared pending refresh requests")
     
     def submit(self, full: bool = False, immediate: bool = False, image: Optional[Image.Image] = None) -> Future:
         """Submit a refresh request.

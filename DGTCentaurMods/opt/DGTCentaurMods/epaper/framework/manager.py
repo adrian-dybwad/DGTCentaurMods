@@ -195,26 +195,35 @@ class Manager:
             return None
     
     def clear_widgets(self, addStatusBar: bool = True) -> Future:
-        """Clear all widgets from the display."""
+        """Clear all widgets from the display.
+        
+        Stops all widget background threads, clears the widget list, and
+        clears any pending refresh requests to prevent stale updates.
+        """
         log.debug(f"Manager.clear_widgets() called, clearing {len(self._widgets)} widgets")
+        
+        # Clear pending refresh requests first to prevent stale updates
+        # from widgets that are about to be removed
+        self._scheduler.clear_pending()
+        
         # Stop all existing widgets before clearing to prevent background threads from continuing
         for widget in self._widgets:
             try:
                 widget.stop()
             except Exception as e:
                 log.debug(f"Error stopping widget {widget.__class__.__name__} during clear: {e}")
+            # Clear the widget's update callback to prevent stale updates
+            try:
+                widget.set_update_callback(None)
+            except Exception:
+                pass
         
         self._widgets.clear()
+        
         # Create and add status bar widget
         if addStatusBar:
             status_bar_widget = StatusBarWidget(0, 0)
             return self.add_widget(status_bar_widget)
-            # if future:
-            #     try:
-            #         future.result(timeout=10.0)
-            #         log.debug(">>> _get_display_manager() status bar widget update completed, display is now in partial mode")
-            #     except Exception as e:
-            #         log.error(f">>> _get_display_manager() status bar widget update failed: {e}")
 
         return None
     
