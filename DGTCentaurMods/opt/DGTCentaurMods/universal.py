@@ -297,15 +297,26 @@ def _load_game_settings():
             _game_settings['time_control'] = 0
         
         # Load display settings (booleans stored as 'true'/'false' strings)
-        _game_settings['show_board'] = Settings.read(SETTINGS_SECTION, 'show_board', 'true').lower() == 'true'
-        _game_settings['show_clock'] = Settings.read(SETTINGS_SECTION, 'show_clock', 'true').lower() == 'true'
-        _game_settings['show_analysis'] = Settings.read(SETTINGS_SECTION, 'show_analysis', 'true').lower() == 'true'
-        _game_settings['show_score_bar'] = Settings.read(SETTINGS_SECTION, 'show_score_bar', 'true').lower() == 'true'
-        _game_settings['show_graph'] = Settings.read(SETTINGS_SECTION, 'show_graph', 'true').lower() == 'true'
+        # Default to 'true' if not present or if value is empty/invalid
+        def load_bool_setting(key: str) -> bool:
+            value = Settings.read(SETTINGS_SECTION, key, 'true')
+            # Treat empty string, 'false', or '0' as False; everything else as True
+            if value.lower() in ('false', '0', ''):
+                return False
+            return True
+        
+        _game_settings['show_board'] = load_bool_setting('show_board')
+        _game_settings['show_clock'] = load_bool_setting('show_clock')
+        _game_settings['show_analysis'] = load_bool_setting('show_analysis')
+        _game_settings['show_score_bar'] = load_bool_setting('show_score_bar')
+        _game_settings['show_graph'] = load_bool_setting('show_graph')
 
         log.info(f"[Settings] Loaded: engine={_game_settings['engine']}, "
                  f"elo={_game_settings['elo']}, color={_game_settings['player_color']}, "
                  f"time_control={_game_settings['time_control']} min")
+        log.info(f"[Settings] Display: board={_game_settings['show_board']}, "
+                 f"clock={_game_settings['show_clock']}, analysis={_game_settings['show_analysis']}, "
+                 f"score_bar={_game_settings['show_score_bar']}, graph={_game_settings['show_graph']}")
     except Exception as e:
         log.warning(f"[Settings] Error loading game settings: {e}, using defaults")
 
@@ -883,7 +894,6 @@ def create_settings_entries() -> List[IconMenuEntry]:
         IconMenuEntry(key="ELO", label=elo_label, icon_name="elo", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="Color", label=color_label, icon_name="color", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="TimeControl", label=time_label, icon_name=time_icon, enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="Display", label="Display", icon_name="display", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=12, height_ratio=0.8),
     ]
 
@@ -907,11 +917,13 @@ def create_system_entries() -> List[IconMenuEntry]:
         timeout_icon = "timer_checked"  # Checked box
     
     return [
+        IconMenuEntry(key="Display", label="Display", icon_name="display", enabled=True),
         IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True),
         IconMenuEntry(key="Bluetooth", label="Bluetooth", icon_name="bluetooth", enabled=True),
         IconMenuEntry(key="Accounts", label="Accounts", icon_name="account", enabled=True),
         IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
         IconMenuEntry(key="Inactivity", label=timeout_label, icon_name=timeout_icon, enabled=True),
+        IconMenuEntry(key="ResetSettings", label="Reset\nSettings", icon_name="cancel", enabled=True),
         IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
         IconMenuEntry(key="Reboot", label="Reboot", icon_name="reboot", enabled=True),
     ]
@@ -1409,14 +1421,6 @@ def _handle_settings():
                     pass
             # Stay in settings menu to allow further configuration
         
-        elif result == "Display":
-            # Display settings submenu
-            display_result = _handle_display_settings()
-            if is_break_result(display_result):
-                app_state = AppState.MENU
-                return display_result
-            # Stay in settings menu
-        
         elif result == "Positions":
             position_result = _handle_positions_menu()
             if is_break_result(position_result):
@@ -1495,6 +1499,68 @@ def _handle_display_settings():
             log.info(f"[Display] {result} changed to {new_value}")
             board.beep(board.SOUND_GENERAL, event_type='key_press')
             # Continue loop to show updated menu
+
+
+def _handle_reset_settings():
+    """Handle reset all settings to defaults.
+    
+    Shows a confirmation dialog, then clears all entries in the [game] section
+    of centaur.ini and reloads settings with defaults.
+    
+    Returns:
+        Break result if user triggered a break action, None otherwise
+    """
+    global _game_settings
+    
+    # Confirmation menu
+    entries = [
+        IconMenuEntry(key="confirm", label="Reset All\nSettings?", icon_name="cancel", enabled=True),
+        IconMenuEntry(key="cancel", label="Cancel", icon_name="cancel", enabled=True),
+    ]
+    
+    result = _show_menu(entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result == "confirm":
+        try:
+            from DGTCentaurMods.board.settings import Settings
+            import configparser
+            
+            # Read the current config
+            config = configparser.ConfigParser()
+            config.read(Settings.configfile)
+            
+            # Clear all options in the [game] section
+            if config.has_section(SETTINGS_SECTION):
+                for key in list(config.options(SETTINGS_SECTION)):
+                    config.remove_option(SETTINGS_SECTION, key)
+                Settings.write_config(config)
+                log.info("[Settings] Cleared all game settings from centaur.ini")
+            
+            # Reset in-memory settings to defaults
+            _game_settings['engine'] = 'stockfish_pi'
+            _game_settings['elo'] = 'Default'
+            _game_settings['player_color'] = 'white'
+            _game_settings['time_control'] = 0
+            _game_settings['show_board'] = True
+            _game_settings['show_clock'] = True
+            _game_settings['show_analysis'] = True
+            _game_settings['show_score_bar'] = True
+            _game_settings['show_graph'] = True
+            
+            # Reload from file (which will use defaults since section is empty)
+            _load_game_settings()
+            
+            board.beep(board.SOUND_GENERAL, event_type='key_press')
+            log.info("[Settings] Settings reset to defaults")
+            
+        except Exception as e:
+            log.error(f"[Settings] Error resetting settings: {e}")
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
+    
+    return None
 
 
 def _handle_positions_menu(return_to_last_position: bool = False) -> bool:
@@ -2208,13 +2274,17 @@ def _handle_sound_settings():
 
 
 def _handle_system_menu():
-    """Handle system submenu (sound, WiFi, Bluetooth, sleep timer, shutdown, reboot)."""
+    """Handle system submenu (display, sound, WiFi, Bluetooth, sleep timer, reset, shutdown, reboot)."""
     
     def handle_selection(result: MenuSelection):
         """Handle system menu selection."""
         # Route to submenus - propagate break results
         # Use is_break_result() since some handlers return strings, some return MenuSelection
-        if result.key == "Sound":
+        if result.key == "Display":
+            sub_result = _handle_display_settings()
+            if is_break_result(sub_result):
+                return sub_result
+        elif result.key == "Sound":
             sub_result = _handle_sound_settings()
             if is_break_result(sub_result):
                 return sub_result
@@ -2232,6 +2302,10 @@ def _handle_system_menu():
                 return sub_result
         elif result.key == "Inactivity":
             sub_result = _handle_inactivity_timeout()
+            if is_break_result(sub_result):
+                return sub_result
+        elif result.key == "ResetSettings":
+            sub_result = _handle_reset_settings()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Shutdown":
