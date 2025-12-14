@@ -515,12 +515,23 @@ class GameManager:
         return legal_destinations
     
     def _switch_turn_with_event(self):
-        """Trigger appropriate event callback based on current turn."""
+        """Trigger appropriate event callback and prompt current player.
+        
+        Called after a move is made or when resuming a game. Notifies
+        the display layer of turn change and prompts the current player
+        to make a move (important for engine/Lichess players).
+        """
         if self.event_callback is not None:
             if self.chess_board.turn == chess.WHITE:
                 self.event_callback(EVENT_WHITE_TURN)
             else:
                 self.event_callback(EVENT_BLACK_TURN)
+        
+        # Prompt the current player to move
+        # For human players, this is a no-op (they're always ready)
+        # For engine/Lichess players, this triggers move computation
+        if self._player_manager:
+            self._player_manager.request_move(self.chess_board)
     
     def _get_clock_times_for_db(self) -> tuple:
         """Get clock times for database storage.
