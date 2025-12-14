@@ -2862,6 +2862,8 @@ def _start_lichess_game(lichess_config) -> bool:
     """Start a Lichess game with the given configuration.
     
     Similar to _start_game_mode() but for Lichess online play.
+    Shows a waiting screen while seeking, then transitions to game board.
+    BACK button during waiting cancels and returns to Lichess menu.
     
     Args:
         lichess_config: LichessConfig with game parameters
@@ -2870,12 +2872,12 @@ def _start_lichess_game(lichess_config) -> bool:
         True if game started successfully, False otherwise
     """
     global app_state, protocol_manager, display_manager
+    from DGTCentaurMods.emulators.lichess import LichessGameMode, LichessGameState
     
     log.info(f"[App] Starting Lichess game (mode={lichess_config.mode})")
     app_state = AppState.GAME
     
-    # Create DisplayManager - use simpler setup for online play
-    # Analysis is disabled for online games (unfair advantage)
+    # Create DisplayManager first (this initializes game widgets)
     display_manager = DisplayManager(
         flip_board=False,  # Will be updated based on player color
         show_analysis=False,
@@ -2885,17 +2887,65 @@ def _start_lichess_game(lichess_config) -> bool:
         initial_fen=None,
         time_control=0,  # Lichess manages its own clock
         show_board=_game_settings['show_board'],
-        show_clock=False,  # Lichess has its own clock
+        show_clock=True,  # Show clock for Lichess (time comes from server)
         show_graph=False,
         analysis_mode=False
     )
     log.info("[App] DisplayManager initialized for Lichess")
     
-    # Display update callback
+    # Show waiting screen while seeking/connecting (overlay on top of DisplayManager)
+    waiting_message = "Finding Game..."
+    if lichess_config.mode == LichessGameMode.ONGOING:
+        waiting_message = "Connecting..."
+    elif lichess_config.mode == LichessGameMode.CHALLENGE:
+        waiting_message = "Loading\nChallenge..."
+    
+    # Add splash screen as modal overlay (covers game widgets)
+    waiting_splash = SplashScreen(message=waiting_message)
+    board.display_manager.add_widget(waiting_splash)
+    log.info(f"[App] Showing Lichess waiting screen: {waiting_message}")
+    
+    # Track if game has connected
+    game_connected = False
+    user_cancelled = False
+    
     def update_display(fen):
         """Update display manager with new position."""
         if display_manager:
             display_manager.update_position(fen)
+    
+    def on_game_connected():
+        """Called when Lichess game is connected and ready to play.
+        
+        Removes the waiting splash to reveal game display.
+        """
+        nonlocal game_connected
+        if game_connected:
+            return
+        game_connected = True
+        
+        log.info("[App] Lichess game connected - removing waiting screen")
+        # Remove splash to reveal game widgets
+        board.display_manager.remove_widget(waiting_splash)
+    
+    def on_back_during_waiting():
+        """Handle BACK button during waiting/seeking state."""
+        global app_state
+        nonlocal user_cancelled
+        if game_connected:
+            # Game started, use normal back menu
+            display_manager.show_back_menu(
+                _on_lichess_back_menu_result,
+                is_two_player=False
+            )
+        else:
+            # Still waiting - cancel and return to Lichess menu
+            log.info("[App] User cancelled Lichess seek")
+            user_cancelled = True
+            if protocol_manager and protocol_manager._lichess:
+                protocol_manager._lichess.stop()
+            _cleanup_game()
+            app_state = AppState.SETTINGS
     
     # Create ProtocolManager in Lichess mode
     protocol_manager = ProtocolManager(
@@ -2910,7 +2960,11 @@ def _start_lichess_game(lichess_config) -> bool:
     # Wire up GameManager callbacks to DisplayManager
     protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)
     
-    # Lichess games: BACK shows resign/abort menu
+    # Set callback for when game is connected
+    if protocol_manager._lichess:
+        protocol_manager._lichess.set_on_game_connected(on_game_connected)
+    
+    # Lichess games: BACK behavior depends on state
     def _on_lichess_back_menu_result(action: str):
         """Handle Lichess back menu result (resign/abort/cancel)."""
         if action == "resign":
@@ -2930,10 +2984,8 @@ def _start_lichess_game(lichess_config) -> bool:
             # Don't exit - continue game, opponent may accept or decline
         # cancel: do nothing, return to game
     
-    protocol_manager.set_on_back_pressed(lambda: display_manager.show_back_menu(
-        _on_lichess_back_menu_result,
-        is_two_player=False
-    ))
+    # Use the waiting-aware back handler
+    protocol_manager.set_on_back_pressed(on_back_during_waiting)
     
     # Start the Lichess connection
     if not protocol_manager.start_lichess():
@@ -2943,11 +2995,7 @@ def _start_lichess_game(lichess_config) -> bool:
         app_state = AppState.SETTINGS
         return False
     
-    # Update board flip based on player color (after connection established)
-    # This happens asynchronously so we can't get it immediately
-    # The Lichess emulator will update the display when player info is received
-    
-    log.info("[App] Lichess game started successfully")
+    log.info("[App] Lichess connection started - waiting for game match")
     return True
 
 

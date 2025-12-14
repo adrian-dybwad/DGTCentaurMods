@@ -155,6 +155,19 @@ class Lichess:
         
         # Board orientation
         self._board_flip: bool = False
+        
+        # Callback for when game is connected and ready
+        self._on_game_connected: Optional[Callable] = None
+    
+    def set_on_game_connected(self, callback: Callable):
+        """Set callback to be called when game is connected and ready to play.
+        
+        Used by universal.py to switch from waiting screen to game board.
+        
+        Args:
+            callback: Function to call when game transitions to PLAYING state
+        """
+        self._on_game_connected = callback
     
     # =========================================================================
     # Public API - Lifecycle Management
@@ -276,10 +289,10 @@ class Lichess:
                 log.debug("[Lichess] Opponent's turn - waiting for remote move")
         
         elif event == EVENT_RESIGN_GAME:
-            self._resign_game()
+            self.resign_game()
         
         elif event == EVENT_REQUEST_DRAW:
-            self._offer_draw()
+            self.offer_draw()
         
         # Handle game termination events (passed as strings)
         if isinstance(event, str) and event.startswith("Termination."):
@@ -593,6 +606,13 @@ class Lichess:
             self.manager.set_game_info("", "", "", white_str, black_str)
         
         self._update_display()
+        
+        # Notify caller that game is connected and ready
+        if self._on_game_connected:
+            try:
+                self._on_game_connected()
+            except Exception as e:
+                log.warning(f"[Lichess] Error in on_game_connected callback: {e}")
     
     def _process_time_update(self, state: dict):
         """Process clock time update from game state.
