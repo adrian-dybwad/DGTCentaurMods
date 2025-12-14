@@ -1166,6 +1166,12 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         if squares:
             board.ledArray(squares, repeat=20)
     
+    def _on_takeback():
+        """Handle takeback - remove last analysis score and switch clock back."""
+        display_manager.remove_last_analysis_score()
+        display_manager.switch_clock_turn()
+        log.debug("[App] Takeback: removed last analysis score and switched clock")
+    
     # Create ProtocolManager with user-configured settings
     # Note: Key and field events are routed through universal.py's callbacks
     # In 2-player mode, don't pass an engine name so no engine opponent is used
@@ -1180,7 +1186,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         save_to_database=save_to_database,
         hand_brain_mode=is_hand_brain,
         brain_hint_callback=_on_brain_hint if is_hand_brain else None,
-        takeback_callback=display_manager.remove_last_analysis_score
+        takeback_callback=_on_takeback
     )
     log.info(f"[App] ProtocolManager created: engine={None if is_two_player else engine_name}, elo={engine_elo}, color={player_color_setting}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
     

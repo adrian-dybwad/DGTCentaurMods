@@ -882,20 +882,8 @@ def eventsThread(keycallback, fieldcallback, tout):
             try:
                 key_pressed = controller.get_next_key(timeout=0.0)
 
-                # PLAY_DOWN starts shutdown countdown, releasing cancels
-                if key_pressed == Key.PLAY_DOWN:
-                    beep(SOUND_GENERAL, event_type='key_press')
-                    log.info('[board.events] PLAY_DOWN detected, starting shutdown countdown')
-                    if shutdown_countdown():
-                        # Countdown completed without release - proceed with shutdown
-                        shutdown(reason="PLAY button held during countdown")
-                    else:
-                        # User released button - cancelled
-                        log.info('[board.events] Shutdown cancelled (button released)')
-                    key_pressed = None  # Already handled
-                
-                # Other key-down events: track for long-press handling
-                elif key_pressed is not None and key_pressed.value >= 0x80:
+                # All key-down events: track for long-press handling
+                if key_pressed is not None and key_pressed.value >= 0x80:
                     # This is a _DOWN event - start long-press detection
                     long_press_key = key_pressed
                     long_press_start = time.monotonic()
@@ -914,6 +902,15 @@ def eventsThread(keycallback, fieldcallback, tout):
                             if long_press_key == Key.HELP_DOWN:
                                 log.info('[board.events] Long press HELP detected, sending LONG_HELP event')
                                 # Will be sent to callback after key-up
+                            # PLAY long-press: start shutdown countdown
+                            elif long_press_key == Key.PLAY_DOWN:
+                                log.info('[board.events] Long press PLAY detected, starting shutdown countdown')
+                                if shutdown_countdown():
+                                    shutdown(reason="PLAY button held for long press")
+                                else:
+                                    log.info('[board.events] Shutdown cancelled (button released)')
+                                key_pressed = None
+                                break  # Exit the long-press detection loop
                             else:
                                 # Other keys: trigger full display refresh
                                 log.info('[board.events] Long press detected, triggering full refresh')
@@ -932,6 +929,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 # Matching key-up received
                                 if long_press_triggered:
                                     # Long press - check if HELP (send LONG_HELP), else already handled
+                                    # PLAY long-press is handled above with shutdown_countdown
                                     if long_press_key == Key.HELP_DOWN:
                                         key_pressed = Key.LONG_HELP
                                     else:
@@ -939,16 +937,6 @@ def eventsThread(keycallback, fieldcallback, tout):
                                 else:
                                     # Short press - pass the key-up to callback
                                     key_pressed = next_key
-                                break
-                            elif next_key == Key.PLAY_DOWN:
-                                # PLAY_DOWN interrupts - handle shutdown
-                                beep(SOUND_GENERAL, event_type='key_press')
-                                log.info('[board.events] PLAY_DOWN during long press, starting shutdown countdown')
-                                if shutdown_countdown():
-                                    shutdown(reason="PLAY button held during countdown")
-                                else:
-                                    log.info('[board.events] Shutdown cancelled (button released)')
-                                key_pressed = None
                                 break
                     
             except Exception as e:
