@@ -355,6 +355,9 @@ class GameAnalysisWidget(Widget):
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
+        # DEBUG: Draw 1px border around widget extent
+        draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=None, outline=0)
+        
         # Adjust score for display based on bottom color
         # Score is always from white's perspective (positive = white advantage)
         # If bottom is black (board is flipped), we need to flip (negative = black losing, positive = black winning)

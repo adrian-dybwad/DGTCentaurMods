@@ -325,8 +325,8 @@ class ChessClockWidget(Widget):
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
-        # Draw separator line at top
-        draw.line([(0, 0), (self.width, 0)], fill=0, width=1)
+        # DEBUG: Draw 1px border around widget extent
+        draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=None, outline=0)
         
         if self._timed_mode:
             self._render_timed_mode(draw)
