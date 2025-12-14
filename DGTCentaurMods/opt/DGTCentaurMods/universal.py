@@ -2594,26 +2594,52 @@ def _handle_lichess_menu():
 def _show_lichess_error(title: str, message: str):
     """Show a Lichess error message on the display.
     
-    Uses a single-item menu to display the error. User presses BACK to dismiss.
+    Uses an info box pattern with an OK button to dismiss.
+    Similar to the WiFi and Bluetooth info displays.
     
     Args:
         title: Error title
         message: Error message (can be multi-line)
     """
-    # Use a single menu entry to display error - user dismisses with BACK
-    entries = [
-        IconMenuEntry(
-            key="error",
-            label=f"{title}\n{message}",
-            icon_name="lichess",
-            enabled=False,  # Can't select, just informational
-            font_size=12,
-            height_ratio=2.0
-        )
-    ]
+    log.info(f"[Lichess] Showing error: {title} - {message}")
     
-    # Show menu - will return on BACK press
-    _show_menu(entries)
+    def build_entries():
+        """Build error display entries."""
+        return [
+            # Info box showing error message
+            IconMenuEntry(
+                key="Info",
+                label=f"{title}\n{message}",
+                icon_name="lichess",
+                enabled=True,
+                selectable=False,
+                height_ratio=1.8,
+                icon_size=36,
+                layout="vertical",
+                font_size=11,
+                border_width=1
+            ),
+            # OK button to dismiss
+            IconMenuEntry(
+                key="OK",
+                label="OK",
+                icon_name="checkbox_checked",
+                enabled=True,
+                selectable=True,
+                height_ratio=0.8,
+                layout="horizontal",
+                font_size=14
+            ),
+        ]
+    
+    def handle_selection(result: MenuSelection):
+        """Handle OK button press - exit menu."""
+        if result.key == "OK":
+            return result  # Exit menu
+        return None  # Continue loop
+    
+    # Show menu with info box and OK button
+    _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=1)
 
 
 def _show_lichess_ongoing_games(client) -> str:
