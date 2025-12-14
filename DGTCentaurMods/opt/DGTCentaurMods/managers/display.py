@@ -558,6 +558,7 @@ class DisplayManager:
             return
         
         self._is_paused = True
+        board = _get_board()
         
         # Remember which clock was active so we can resume it
         if self.clock_widget:
@@ -619,6 +620,7 @@ class DisplayManager:
             return
         
         self._is_paused = False
+        board = _get_board()
         
         # Remove pause widget
         if self.pause_widget:
@@ -647,6 +649,7 @@ class DisplayManager:
         Called on new game to ensure clean state.
         """
         if self._is_paused:
+            board = _get_board()
             # Remove pause widget if present
             if self.pause_widget:
                 board.display_manager.remove_widget(self.pause_widget)
