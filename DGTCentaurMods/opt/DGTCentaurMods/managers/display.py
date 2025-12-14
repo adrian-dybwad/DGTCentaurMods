@@ -232,11 +232,44 @@ class DisplayManager:
         else:
             log.info("[DisplayManager] Chess board widget disabled")
         
-        # Create clock widget directly below board (y=144, height=72)
+        # Calculate dynamic layout based on which widgets are shown
+        # Available space: y=144 to y=296 (152 pixels total)
+        # Layout depends on what's enabled:
+        # - Clock needs more space if timed mode, less if just turn indicator
+        # - Analysis needs more space if score bar enabled, less if just graph
+        
+        # Determine analysis widget height based on what it shows
+        if self._show_analysis:
+            if self._show_score_bar and self._show_graph:
+                # Full analysis: score bar (28px) + graph area (50px) + padding
+                analysis_height = 80
+            elif self._show_score_bar:
+                # Score bar only
+                analysis_height = 40
+            elif self._show_graph:
+                # Graph only
+                analysis_height = 54
+            else:
+                # Nothing visible but widget exists
+                analysis_height = 0
+        else:
+            analysis_height = 0
+        
+        # Clock gets remaining space
+        clock_height = 152 - analysis_height
+        if clock_height < 36:
+            clock_height = 36  # Minimum for turn indicator
+        
+        clock_y = 144
+        analysis_y = clock_y + clock_height
+        
+        log.info(f"[DisplayManager] Layout: clock_height={clock_height}, analysis_height={analysis_height}")
+        
+        # Create clock widget directly below board
         # Shows times if time_control > 0, otherwise shows turn indicator only
         timed_mode = self._time_control > 0
         self.clock_widget = _ChessClockWidget(
-            x=0, y=144, width=128, height=72,
+            x=0, y=clock_y, width=128, height=clock_height,
             timed_mode=timed_mode
         )
         # Set initial times if timed mode is enabled
@@ -246,15 +279,15 @@ class DisplayManager:
         
         if self._show_clock:
             board.display_manager.add_widget(self.clock_widget)
-            log.info(f"[DisplayManager] Clock widget initialized (time_control={self._time_control} min)")
+            log.info(f"[DisplayManager] Clock widget initialized (y={clock_y}, height={clock_height}, time_control={self._time_control} min)")
         else:
             log.info("[DisplayManager] Clock widget disabled")
         
-        # Create analysis widget below clock (y=216, height=80)
+        # Create analysis widget below clock
         # Pass display settings for score bar and graph
         bottom_color = "black" if self.chess_board_widget.flip else "white"
         self.analysis_widget = _GameAnalysisWidget(
-            x=0, y=216, width=128, height=80,
+            x=0, y=analysis_y, width=128, height=analysis_height if analysis_height > 0 else 80,
             bottom_color=bottom_color,
             analysis_engine=self.analysis_engine,
             show_score_bar=self._show_score_bar,

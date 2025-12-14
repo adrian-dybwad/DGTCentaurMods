@@ -431,23 +431,38 @@ class GameAnalysisWidget(Widget):
         
         # Draw score history bar chart if enabled
         if self._show_graph and len(self.score_history) > 0:
-            chart_y = self.height - 10  # 10 pixels from bottom
+            # Calculate graph area: starts after score bar (if shown), ends at bottom
+            # Score bar uses ~28 pixels (box 1-11 + text at 12 + padding)
+            graph_top = 30 if self._show_score_bar else 4
+            graph_bottom = self.height - 4
+            graph_height = graph_bottom - graph_top
+            
+            # Center line is in the middle of the graph area
+            chart_y = graph_top + (graph_height // 2)
             draw.line([(0, chart_y), (self.width, chart_y)], fill=0, width=1)
             
             bar_width = self.width / len(self.score_history)
             if bar_width > 8:
                 bar_width = 8
             
+            # Calculate scale factor: map score range (-12 to +12) to half the graph height
+            half_height = graph_height // 2
+            scale = half_height / 12.0  # pixels per score unit
+            
             bar_offset = 0
             for score in self.score_history:
                 # Adjust score for display if bottom_color is black (board is flipped)
                 adjusted_score = -score if self.bottom_color == "black" else score
                 color = 255 if adjusted_score >= 0 else 0
-                y_calc = chart_y - (adjusted_score * 2)
-                y0 = min(chart_y, y_calc)
-                y1 = max(chart_y, y_calc)
+                # Scale score to pixel offset from center line
+                y_offset = adjusted_score * scale
+                y_calc = chart_y - y_offset
+                # Clamp to graph bounds
+                y_calc = max(graph_top, min(graph_bottom, y_calc))
+                y0 = min(chart_y, int(y_calc))
+                y1 = max(chart_y, int(y_calc))
                 draw.rectangle(
-                    [(int(bar_offset), int(y0)), (int(bar_offset + bar_width), int(y1))],
+                    [(int(bar_offset), y0), (int(bar_offset + bar_width), y1)],
                     fill=color,
                     outline=0
                 )
