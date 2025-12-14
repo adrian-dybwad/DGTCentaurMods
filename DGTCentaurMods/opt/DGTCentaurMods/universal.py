@@ -73,7 +73,7 @@ def _initialize_resources():
             chess_board_module.set_chess_sprites(sprites)
         
         # Load and set knight logos at common sizes
-        for size in [100, 36, 24, 20]:  # Splash screen, icon buttons
+        for size in [100, 80, 36, 24, 20]:  # Splash screen (100), menu buttons (80), icon buttons
             logo, mask = loader.get_knight_logo(size)
             if logo and mask:
                 icon_button_module.set_knight_logo(size, logo, mask)
