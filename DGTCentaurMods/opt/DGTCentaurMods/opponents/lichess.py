@@ -293,22 +293,19 @@ class LichessOpponent(Opponent):
         
         log.info(f"[LichessOpponent] Sending player move: {move_uci}")
         
-        try:
-            retries = 3
-            for attempt in range(retries):
-                try:
-                    result = self._client.board.make_move(self._game_id, move_uci)
-                    if result:
-                        log.debug(f"[LichessOpponent] Move sent successfully")
-                        return
-                except Exception as e:
-                    log.warning(f"[LichessOpponent] Move attempt {attempt + 1} failed: {e}")
-                    if attempt < retries - 1:
-                        time.sleep(0.5)
-            
-            log.error(f"[LichessOpponent] Failed to send move after {retries} attempts")
-        except Exception as e:
-            log.error(f"[LichessOpponent] Error sending move: {e}")
+        retries = 3
+        for attempt in range(retries):
+            try:
+                # make_move returns None on success, raises exception on failure
+                self._client.board.make_move(self._game_id, move_uci)
+                log.debug(f"[LichessOpponent] Move sent successfully")
+                return
+            except Exception as e:
+                log.warning(f"[LichessOpponent] Move attempt {attempt + 1} failed: {e}")
+                if attempt < retries - 1:
+                    time.sleep(0.5)
+        
+        log.error(f"[LichessOpponent] Failed to send move after {retries} attempts")
     
     def on_new_game(self) -> None:
         """Notification that a new game is starting.
