@@ -41,8 +41,8 @@ class GameAnalysisWidget(Widget):
     DEFAULT_HEIGHT = 80
     
     # Layout constants
-    LEFT_COLUMN_WIDTH = 40
-    EVAL_BAR_WIDTH = 6
+    SCORE_COLUMN_WIDTH = 40  # Score text, annotation, and eval bar
+    EVAL_BAR_WIDTH = 4  # Narrowed by 2px as requested
     
     def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None, 
                  bottom_color: str = "black", analysis_engine=None,
@@ -467,43 +467,17 @@ class GameAnalysisWidget(Widget):
         # Score is always from white's perspective (positive = white advantage)
         display_score_value = -self.score_value if self.bottom_color == "black" else self.score_value
         
-        # Calculate layout columns
-        left_col_width = self.LEFT_COLUMN_WIDTH if self._show_score_bar else 0
+        # Calculate layout: Score text/annotation on left, graph+eval bar on right
+        # The eval bar is the rightmost element (latest value of graph)
+        left_col_width = self.SCORE_COLUMN_WIDTH if self._show_score_bar else 0
         graph_x = left_col_width + 2 if self._show_score_bar else 2
-        graph_width = self.width - graph_x - 2
+        graph_right = self.width - 2
+        graph_width = graph_right - graph_x
         
-        # === LEFT COLUMN: Score bar, text, annotation ===
+        # === LEFT COLUMN: Score text, annotation ===
         if self._show_score_bar:
-            # Vertical evaluation bar (left edge)
-            bar_x = 2
-            bar_width = self.EVAL_BAR_WIDTH
-            bar_top = 4
-            bar_bottom = self.height - 4
-            bar_height = bar_bottom - bar_top
-            bar_center = bar_top + bar_height // 2
-            
-            # Draw bar outline
-            draw.rectangle([(bar_x, bar_top), (bar_x + bar_width, bar_bottom)], fill=255, outline=0)
-            
-            # Calculate fill based on score (-12 to +12 mapped to bar height)
-            score_clamped = max(-12, min(12, display_score_value))
-            # Positive score = fill from center upward (white winning)
-            # Negative score = fill from center downward (black winning)
-            fill_pixels = int((abs(score_clamped) / 12.0) * (bar_height // 2))
-            
-            if score_clamped >= 0:
-                # Fill from center upward (white advantage)
-                fill_top = bar_center - fill_pixels
-                fill_bottom = bar_center
-            else:
-                # Fill from center downward (black advantage)
-                fill_top = bar_center
-                fill_bottom = bar_center + fill_pixels
-            
-            draw.rectangle([(bar_x + 1, fill_top), (bar_x + bar_width - 1, fill_bottom)], fill=0)
-            
-            # Score text (large, right of bar)
-            text_x = bar_x + bar_width + 4
+            # Draw vertical separator between score column and graph
+            draw.line([(left_col_width, 2), (left_col_width, self.height - 2)], fill=0, width=1)
             
             # Format score text
             if abs(display_score_value) > 999:
@@ -518,34 +492,31 @@ class GameAnalysisWidget(Widget):
                 else:
                     display_score_text = f"{display_score_value:.1f}"
             
-            # Draw score text (centered vertically in top half)
+            # Draw score text (top of column)
+            text_x = 2
             score_y = 8
             draw.text((text_x, score_y), display_score_text, font=self._font_large, fill=0)
             
-            # Annotation symbol (below score, centered)
+            # Annotation symbol (below score)
             if self.last_annotation:
-                # Get annotation text dimensions
-                annot_bbox = draw.textbbox((0, 0), self.last_annotation, font=self._font_annotation)
-                annot_width = annot_bbox[2] - annot_bbox[0]
-                annot_x = text_x + (left_col_width - text_x - annot_width) // 2
                 annot_y = score_y + 24
-                draw.text((annot_x, annot_y), self.last_annotation, font=self._font_annotation, fill=0)
-            
-            # Draw vertical separator between columns
-            draw.line([(left_col_width, 2), (left_col_width, self.height - 2)], fill=0, width=1)
+                draw.text((text_x, annot_y), self.last_annotation, font=self._font_annotation, fill=0)
         
-        # === RIGHT COLUMN: History graph ===
-        if self._show_graph and len(self.score_history) > 0:
+        # === RIGHT SECTION: History graph (excluding last value, shown in eval bar) ===
+        # Draw all but the last score in history; the eval bar shows the current/last value
+        history_to_draw = self.score_history[:-1] if len(self.score_history) > 1 else []
+        
+        if self._show_graph and len(history_to_draw) > 0:
             graph_top = 4
             graph_bottom = self.height - 4
             graph_height = graph_bottom - graph_top
             
             # Center line
             chart_y = graph_top + graph_height // 2
-            draw.line([(graph_x, chart_y), (self.width - 2, chart_y)], fill=0, width=1)
+            draw.line([(graph_x, chart_y), (graph_right, chart_y)], fill=0, width=1)
             
-            # Calculate bar width based on history length
-            bar_width = graph_width / len(self.score_history)
+            # Calculate bar width based on history length (excluding last)
+            bar_width = graph_width / len(history_to_draw)
             if bar_width > 6:
                 bar_width = 6
             
@@ -554,7 +525,7 @@ class GameAnalysisWidget(Widget):
             scale = half_height / 12.0
             
             bar_offset = graph_x
-            for score in self.score_history:
+            for score in history_to_draw:
                 # Adjust score for display if bottom_color is black
                 adjusted_score = -score if self.bottom_color == "black" else score
                 # Positive scores (white advantage) go up, use white fill
@@ -575,6 +546,39 @@ class GameAnalysisWidget(Widget):
                     outline=0
                 )
                 bar_offset += bar_width
+        elif self._show_graph:
+            # Still draw the center line even if no history yet
+            graph_top = 4
+            graph_bottom = self.height - 4
+            chart_y = graph_top + (graph_bottom - graph_top) // 2
+            draw.line([(graph_x, chart_y), (graph_right, chart_y)], fill=0, width=1)
+        
+        # Draw eval bar at the right edge (latest value, continuation of graph)
+        if self._show_score_bar:
+            eval_bar_width = self.EVAL_BAR_WIDTH
+            bar_x = self.width - eval_bar_width - 2
+            bar_top = 4
+            bar_bottom = self.height - 4
+            bar_height = bar_bottom - bar_top
+            bar_center = bar_top + bar_height // 2
+            
+            # Draw bar outline
+            draw.rectangle([(bar_x, bar_top), (bar_x + eval_bar_width, bar_bottom)], fill=255, outline=0)
+            
+            # Calculate fill based on score (-12 to +12 mapped to bar height)
+            score_clamped = max(-12, min(12, display_score_value))
+            fill_pixels = int((abs(score_clamped) / 12.0) * (bar_height // 2))
+            
+            if score_clamped >= 0:
+                # Fill from center upward (white advantage)
+                fill_top = bar_center - fill_pixels
+                fill_bottom = bar_center
+            else:
+                # Fill from center downward (black advantage)
+                fill_top = bar_center
+                fill_bottom = bar_center + fill_pixels
+            
+            draw.rectangle([(bar_x + 1, fill_top), (bar_x + eval_bar_width - 1, fill_bottom)], fill=0)
         
         # Cache the rendered image
         self._last_rendered = img
