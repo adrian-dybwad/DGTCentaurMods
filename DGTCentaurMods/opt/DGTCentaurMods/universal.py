@@ -2728,9 +2728,25 @@ def _show_lichess_ongoing_games(client) -> str:
         
         return result.key
         
+    except AttributeError as e:
+        log.error(f"[Lichess] berserk API method not found: {e}")
+        _show_lichess_error(
+            "API Not Supported",
+            "Ongoing games API\nnot available.\nUpdate berserk:\npip install -U berserk"
+        )
+        return None
     except Exception as e:
+        error_msg = str(e)
         log.error(f"[Lichess] Error fetching ongoing games: {e}")
-        _show_lichess_error("Error", "Failed to fetch\nongoing games")
+        # Show a more descriptive error
+        if "401" in error_msg or "unauthorized" in error_msg.lower():
+            _show_lichess_error("Auth Error", "Token does not have\nboard:play permission")
+        elif "network" in error_msg.lower() or "connection" in error_msg.lower():
+            _show_lichess_error("Network Error", "Could not connect\nto Lichess")
+        else:
+            # Show truncated error message
+            short_error = error_msg[:40] + "..." if len(error_msg) > 40 else error_msg
+            _show_lichess_error("Error", f"Games failed:\n{short_error}")
         return None
 
 
@@ -2745,8 +2761,28 @@ def _show_lichess_challenges(client) -> dict:
     """
     try:
         # Get incoming and outgoing challenges
-        incoming = list(client.challenges.get_mine().get('in', []))
-        outgoing = list(client.challenges.get_mine().get('out', []))
+        # Try different berserk API versions
+        challenges_data = None
+        try:
+            # Newer berserk versions
+            challenges_data = client.challenges.get_mine()
+        except AttributeError:
+            # Older berserk versions - try alternative methods
+            try:
+                challenges_data = client.challenges.list()
+            except AttributeError:
+                pass
+        
+        if challenges_data is None:
+            log.error("[Lichess] berserk library does not support challenges API")
+            _show_lichess_error(
+                "API Not Supported",
+                "Challenges require\nberserk >= 0.13\nUpdate with:\npip install -U berserk"
+            )
+            return None
+        
+        incoming = list(challenges_data.get('in', []))
+        outgoing = list(challenges_data.get('out', []))
         
         if not incoming and not outgoing:
             _show_lichess_error("No Challenges", "No pending\nchallenges")
@@ -2794,9 +2830,25 @@ def _show_lichess_challenges(client) -> dict:
         direction, c_id = result.key.split(':', 1)
         return {'id': c_id, 'direction': direction}
         
+    except AttributeError as e:
+        log.error(f"[Lichess] berserk API method not found: {e}")
+        _show_lichess_error(
+            "API Not Supported",
+            "Challenges require\nberserk >= 0.13\nUpdate with:\npip install -U berserk"
+        )
+        return None
     except Exception as e:
+        error_msg = str(e)
         log.error(f"[Lichess] Error fetching challenges: {e}")
-        _show_lichess_error("Error", "Failed to fetch\nchallenges")
+        # Show a more descriptive error
+        if "401" in error_msg or "unauthorized" in error_msg.lower():
+            _show_lichess_error("Auth Error", "Token does not have\nchallenge permissions")
+        elif "network" in error_msg.lower() or "connection" in error_msg.lower():
+            _show_lichess_error("Network Error", "Could not connect\nto Lichess")
+        else:
+            # Show truncated error message
+            short_error = error_msg[:40] + "..." if len(error_msg) > 40 else error_msg
+            _show_lichess_error("Error", f"Challenges failed:\n{short_error}")
         return None
 
 
