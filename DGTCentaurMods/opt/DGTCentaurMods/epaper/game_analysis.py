@@ -12,6 +12,12 @@ import queue
 import threading
 import chess
 
+try:
+    from DGTCentaurMods.board.logging import log
+except ImportError:
+    import logging
+    log = logging.getLogger(__name__)
+
 
 class GameAnalysisWidget(Widget):
     """Widget displaying chess game analysis information."""
