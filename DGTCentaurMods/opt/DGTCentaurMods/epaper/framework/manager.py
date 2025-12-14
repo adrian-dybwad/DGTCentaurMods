@@ -265,6 +265,7 @@ class Manager:
             if widget.is_modal:
                 continue  # Modal rendered last, on top
             widget_image = widget.render()
+            log.debug(f"Manager._do_update(): Rendering {widget.__class__.__name__} at ({widget.x}, {widget.y}) size {widget.width}x{widget.height}")
             mask = widget.get_mask()
             if mask:
                 canvas.paste(widget_image, (widget.x, widget.y), mask)

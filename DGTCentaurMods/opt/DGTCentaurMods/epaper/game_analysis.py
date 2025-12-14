@@ -352,6 +352,8 @@ class GameAnalysisWidget(Widget):
         if self._last_rendered is not None:
             return self._last_rendered
         
+        log.debug(f"[GameAnalysisWidget] Rendering: y={self.y}, height={self.height}, score_history={len(self.score_history)}")
+        
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
