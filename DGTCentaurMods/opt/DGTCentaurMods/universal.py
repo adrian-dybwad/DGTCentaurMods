@@ -2570,7 +2570,7 @@ def _handle_lichess_menu():
                 time_minutes=time_minutes,
                 increment_seconds=0,
                 rated=False,
-                color=color
+                color_preference=color
             )
             
             if _start_lichess_game(config):
