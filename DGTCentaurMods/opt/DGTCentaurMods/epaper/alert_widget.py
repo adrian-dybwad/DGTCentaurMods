@@ -59,7 +59,7 @@ class AlertWidget(Widget):
         self._is_black_threatened = False  # True if black piece is threatened
         self._attacker_square = None  # Square index (0-63) of attacking piece
         self._target_square = None  # Square index (0-63) of threatened piece
-        self._visible = False
+        self.visible = False  # Hidden by default (uses base class attribute)
         self._font_check = None
         self._font_queen = None
         self._load_fonts()
@@ -121,15 +121,14 @@ class AlertWidget(Widget):
         self._is_black_threatened = is_black_in_check
         self._attacker_square = attacker_square
         self._target_square = king_square
-        self._visible = True
-        self._last_rendered = None
         
         log.info(f"[AlertWidget] Showing CHECK: {'black' if is_black_in_check else 'white'} king in check, attacker={attacker_square}, king={king_square}")
         
         # Flash LEDs from attacker to king
         self._flash_leds()
         
-        self.request_update(full=False)
+        # Use base class show() to handle visibility and update
+        super().show()
     
     def show_queen_threat(self, is_black_queen_threatened: bool, attacker_square: int, queen_square: int) -> None:
         """Show YOUR QUEEN alert and flash LEDs.
@@ -143,26 +142,24 @@ class AlertWidget(Widget):
         self._is_black_threatened = is_black_queen_threatened
         self._attacker_square = attacker_square
         self._target_square = queen_square
-        self._visible = True
-        self._last_rendered = None
         
         log.info(f"[AlertWidget] Showing QUEEN threat: {'black' if is_black_queen_threatened else 'white'} queen threatened, attacker={attacker_square}, queen={queen_square}")
         
         # Flash LEDs from attacker to queen
         self._flash_leds()
         
-        self.request_update(full=False)
+        # Use base class show() to handle visibility and update
+        super().show()
     
     def hide(self) -> None:
-        """Hide the alert widget."""
-        if self._visible:
-            self._visible = False
+        """Hide the alert widget and clear alert state."""
+        if self.visible:
             self._alert_type = None
             self._attacker_square = None
             self._target_square = None
-            self._last_rendered = None
             log.info("[AlertWidget] Hiding alert")
-            self.request_update(full=False)
+            # Use base class hide() to handle visibility and update
+            super().hide()
     
     def _flash_leds(self) -> None:
         """Flash LEDs from attacker square to target square."""
@@ -177,9 +174,6 @@ class AlertWidget(Widget):
         except Exception as e:
             log.error(f"[AlertWidget] Error flashing LEDs: {e}")
     
-    def is_visible(self) -> bool:
-        """Check if alert is currently visible."""
-        return self._visible
     
     def render(self) -> Image.Image:
         """Render alert widget.
@@ -189,7 +183,7 @@ class AlertWidget(Widget):
         """
         img = Image.new("1", (self.width, self.height), 255)
         
-        if not self._visible or self._alert_type is None:
+        if not self.visible or self._alert_type is None:
             return img
         
         draw = ImageDraw.Draw(img)
