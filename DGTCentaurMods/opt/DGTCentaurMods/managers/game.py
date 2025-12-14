@@ -1095,19 +1095,6 @@ class GameManager:
                         # set source_square yet, we need the color for proper piece identification.
                         self.move_state.source_piece_color = piece_color
         
-        # If we're tracking a potential castling rook, don't set source_square here.
-        # The source_square will be set in _handle_piece_place when the rook is placed,
-        # allowing the castling tracking logic to check castling_rook_source first.
-        if self.move_state.castling_rook_source == INVALID_SQUARE:
-            if field not in self.move_state.legal_destination_squares and \
-               self.move_state.source_square < 0 and \
-               is_current_player_piece:
-                # Generate legal destination squares for this piece
-                self.move_state.legal_destination_squares = self._calculate_legal_squares(field)
-                self.move_state.source_square = field
-                # Store piece color for use during PLACE event (important for captures)
-                self.move_state.source_piece_color = piece_color
-        
         # Track opposing side lifts
         if not is_current_player_piece:
             self.move_state.opponent_source_square = field
@@ -1140,18 +1127,34 @@ class GameManager:
                 self.move_state.king_lift_timer.start()
                 log.debug(f"[GameManager._handle_piece_lift] King lifted from {chess.square_name(field)}, started 3-second resign timer")
         
-        # Handle forced moves
-        if self.move_state.is_forced_move and is_current_player_piece:
-            field_name = chess.square_name(field)
-            if field_name != self.move_state.computer_move_uci[0:2]:
-                # Wrong piece lifted for forced move
-                self.move_state.legal_destination_squares = [field]
-            else:
-                # Correct piece, limit to target square
-                target = self.move_state.computer_move_uci[2:4]
-                target_square = chess.parse_square(target)
-                self.move_state.legal_destination_squares = [target_square]
-                # Store piece color for forced moves too
+        # Handle forced moves (engine's turn)
+        # When there's a forced move, the opponent (engine) has determined the move.
+        # The human must execute exactly that move. Only the forced move piece can
+        # be moved, and only to the forced target. Any other board changes trigger
+        # correction mode via board state comparison.
+        if self.move_state.is_forced_move and self.move_state.computer_move_uci:
+            forced_source = chess.parse_square(self.move_state.computer_move_uci[0:2])
+            forced_target = chess.parse_square(self.move_state.computer_move_uci[2:4])
+            
+            if field == forced_source:
+                self.move_state.legal_destination_squares = [forced_target]
+                self.move_state.source_square = field
+                self.move_state.source_piece_color = piece_color
+            # Don't set up legal moves for any other piece during forced moves
+            return
+        
+        # Normal move handling (player's turn or 2-player mode)
+        # If we're tracking a potential castling rook, don't set source_square here.
+        # The source_square will be set in _handle_piece_place when the rook is placed,
+        # allowing the castling tracking logic to check castling_rook_source first.
+        if self.move_state.castling_rook_source == INVALID_SQUARE:
+            if field not in self.move_state.legal_destination_squares and \
+               self.move_state.source_square < 0 and \
+               is_current_player_piece:
+                # Generate legal destination squares for this piece
+                self.move_state.legal_destination_squares = self._calculate_legal_squares(field)
+                self.move_state.source_square = field
+                # Store piece color for use during PLACE event (important for captures)
                 self.move_state.source_piece_color = piece_color
 
     def _handle_piece_place(self, field: int, piece_color):
