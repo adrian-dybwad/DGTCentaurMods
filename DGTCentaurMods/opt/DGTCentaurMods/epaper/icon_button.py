@@ -473,6 +473,8 @@ class IconButtonWidget(Widget):
             self._draw_bluetooth_icon(draw, x, y, size, line_color)
         elif icon_name == "account":
             self._draw_account_icon(draw, x, y, size, line_color)
+        elif icon_name == "players":
+            self._draw_players_icon(draw, x, y, size, line_color)
         elif icon_name == "lichess":
             self._draw_lichess_icon(draw, x, y, size, line_color)
         elif icon_name == "checkbox_checked":
@@ -1703,6 +1705,61 @@ class IconButtonWidget(Widget):
         draw.arc(
             [x - body_width, body_top,
              x + body_width, body_bottom + int(10 * s)],
+            start=180, end=0,
+            fill=line_color, width=line_width
+        )
+
+    def _draw_players_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                           size: int, line_color: int):
+        """Draw a players icon (two person silhouettes side by side).
+
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line color (0=black, 255=white)
+        """
+        s = size / 36.0
+        line_width = max(2, int(2 * s))
+        
+        # Offset for left and right person
+        offset = int(8 * s)
+        
+        # Left person (slightly smaller, appears behind)
+        left_x = x - offset
+        head_radius_left = int(5 * s)
+        head_y_left = y - int(5 * s)
+        draw.ellipse(
+            [left_x - head_radius_left, head_y_left - head_radius_left,
+             left_x + head_radius_left, head_y_left + head_radius_left],
+            outline=line_color, width=line_width
+        )
+        body_top_left = y + int(2 * s)
+        body_bottom_left = y + int(12 * s)
+        body_width_left = int(9 * s)
+        draw.arc(
+            [left_x - body_width_left, body_top_left,
+             left_x + body_width_left, body_bottom_left + int(8 * s)],
+            start=180, end=0,
+            fill=line_color, width=line_width
+        )
+        
+        # Right person (slightly larger, appears in front)
+        right_x = x + offset
+        head_radius_right = int(5 * s)
+        head_y_right = y - int(5 * s)
+        draw.ellipse(
+            [right_x - head_radius_right, head_y_right - head_radius_right,
+             right_x + head_radius_right, head_y_right + head_radius_right],
+            outline=line_color, width=line_width
+        )
+        body_top_right = y + int(2 * s)
+        body_bottom_right = y + int(12 * s)
+        body_width_right = int(9 * s)
+        draw.arc(
+            [right_x - body_width_right, body_top_right,
+             right_x + body_width_right, body_bottom_right + int(8 * s)],
             start=180, end=0,
             fill=line_color, width=line_width
         )

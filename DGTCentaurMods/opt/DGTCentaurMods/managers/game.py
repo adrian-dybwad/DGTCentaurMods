@@ -23,6 +23,7 @@ import chess
 import sys
 import inspect
 import numpy as np
+from typing import Optional
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.managers.asset import AssetManager
@@ -2097,35 +2098,18 @@ class GameManager:
         
         # Route piece events to PlayerManager for move formation
         # Players receive events, form moves, and submit via callback
-        if self._player_manager:
-            event_type = "lift" if is_lift else "place"
-            self._player_manager.on_piece_event(event_type, field, self.chess_board)
-            
-            if is_lift:
-                # Handle board-level concerns that stay in GameManager
-                self._handle_king_lift_resign(field, piece_color)
-                self.correction_mode.clear_exit_flag()
-            elif is_place:
-                # After any PLACE, check if board is now in starting position (game reset)
-                current_state = board.getChessState()
-                if self._is_starting_position(current_state):
-                    log.warning("[GameManager.receive_field] Starting position detected after PLACE - resetting game")
-                    self._reset_game()
-                    return
-        else:
-            # Fallback to legacy handling if no PlayerManager (shouldn't happen)
-            log.warning("[GameManager.receive_field] No PlayerManager set, using legacy handling")
-            if is_lift:
-                self._handle_piece_lift(field, piece_color)
-                self.correction_mode.clear_exit_flag()
-            elif is_place:
-                self._handle_piece_place(field, piece_color)
-                
-                current_state = board.getChessState()
-                if self._is_starting_position(current_state):
-                    log.warning("[GameManager.receive_field] Starting position detected after PLACE - resetting game")
-                    self._reset_game()
-                    return
+        # PlayerManager is always set via ProtocolManager
+        if not self._player_manager:
+            log.error("[GameManager.receive_field] No PlayerManager set - this should never happen")
+            return
+        
+        event_type = "lift" if is_lift else "place"
+        self._player_manager.on_piece_event(event_type, field, self.chess_board)
+        
+        if is_lift:
+            # Handle board-level concerns that stay in GameManager
+            self._handle_king_lift_resign(field, piece_color)
+            self.correction_mode.clear_exit_flag()
     
     def receive_key(self, key_pressed):
         """Handle key press events.
@@ -2198,12 +2182,90 @@ class GameManager:
         """Get the player manager for this game."""
         return self._player_manager
     
+    def _execute_complete_move(self, move: chess.Move) -> None:
+        """Execute a complete move submitted by a player.
+        
+        This is used when players submit complete moves via callback,
+        as opposed to the legacy piece-lift/place flow.
+        
+        The move has already been validated as legal by the caller.
+        
+        Args:
+            move: The complete chess move to execute.
+        """
+        # Check if game is already over before executing move
+        outcome = self.chess_board.outcome(claim_draw=True)
+        if outcome is not None:
+            log.warning(f"[GameManager._execute_complete_move] Attempted to execute move after game ended. "
+                       f"Result: {self.chess_board.result()}, Termination: {outcome.termination}")
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
+            board.ledsOff()
+            return
+        
+        move_uci = move.uci()
+        target_square = move.to_square
+        
+        # Capture FEN before move for database (needed for initial position record)
+        fen_before_move = str(self.chess_board.fen())
+        is_first_move = self.game_db_id < 0
+        
+        # CRITICAL PATH: Push move to chess engine
+        try:
+            self.chess_board.push(move)
+        except (ValueError, AssertionError) as e:
+            log.error(f"[GameManager._execute_complete_move] Chess engine push failed: {move_uci}. Error: {e}")
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
+            board.ledsOff()
+            return
+        
+        # IMMEDIATE FEEDBACK: Beep and LED for minimum latency
+        board.ledsOff()
+        board.beep(board.SOUND_GENERAL, event_type='game_event')
+        board.led(target_square)
+        
+        # Capture state needed for async operations
+        fen_after_move = str(self.chess_board.fen())
+        
+        # Check game outcome
+        game_ended = False
+        result_string = None
+        termination = None
+        outcome = self.chess_board.outcome(claim_draw=True)
+        if outcome is not None:
+            game_ended = True
+            result_string = str(self.chess_board.result())
+            termination = str(outcome.termination)
+        
+        # Reset move state (clear any legacy state)
+        self.move_state.reset()
+        
+        # Switch turn event
+        if not game_ended:
+            self._switch_turn_with_event()
+        
+        # ASYNC: Remaining I/O operations run in background thread
+        self._enqueue_post_move_tasks(
+            target_square=target_square,
+            move_uci=move_uci,
+            fen_before_move=fen_before_move,
+            fen_after_move=fen_after_move,
+            is_first_move=is_first_move,
+            late_castling_in_progress=False,
+            game_ended=game_ended,
+            result_string=result_string,
+            termination=termination
+        )
+
     def _on_player_move(self, move: chess.Move) -> None:
         """Callback when a player submits a move.
         
         All players (human, engine, Lichess) submit moves through this callback.
         The move is validated against chess rules and executed if legal,
         or correction mode is entered if invalid.
+        
+        Handles late castling: if the player moved a rook first (e.g., h1f1) and
+        then moves the king to the castling square (e.g., e1g1), this is detected
+        as late castling. The rook move is undone and castling is executed.
         
         Args:
             move: The move submitted by the player.
@@ -2213,11 +2275,83 @@ class GameManager:
         # Check if the move is legal
         if move in self.chess_board.legal_moves:
             log.info(f"[GameManager._on_player_move] Legal move, executing: {move.uci()}")
-            self._execute_move(move)
+            self._execute_complete_move(move)
         else:
-            log.warning(f"[GameManager._on_player_move] Illegal move: {move.uci()}, entering correction mode")
-            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
-            self._enter_correction_mode()
+            # Check for late castling pattern (only if current player supports it)
+            # Late castling: player moved rook first (e.g., h1f1), then king (e.g., e1g1)
+            # Not supported for online play where moves cannot be undone
+            late_castling_move = None
+            if self._player_manager:
+                current_player = self._player_manager.current_player
+                if current_player and current_player.supports_late_castling():
+                    late_castling_move = self._detect_late_castling(move)
+            
+            if late_castling_move:
+                log.info(f"[GameManager._on_player_move] Late castling detected: {move.uci()} -> {late_castling_move.uci()}")
+                self._execute_late_castling_from_move(late_castling_move)
+            else:
+                log.warning(f"[GameManager._on_player_move] Illegal move: {move.uci()}, entering correction mode")
+                board.beep(board.SOUND_WRONG_MOVE, event_type='error')
+                self._enter_correction_mode()
+    
+    def _detect_late_castling(self, king_move: chess.Move) -> Optional[chess.Move]:
+        """Detect if a king move is part of a late castling sequence.
+        
+        Late castling occurs when the player moves the rook first (e.g., h1f1),
+        and then moves the king to the castling destination (e.g., e1g1).
+        After the rook move, castling is no longer legal because the rook moved,
+        but we recognize this pattern and allow it.
+        
+        Args:
+            king_move: The submitted king move (e.g., e1g1)
+            
+        Returns:
+            The castling move to execute, or None if not late castling.
+        """
+        # Must have at least one move in history
+        if len(self.chess_board.move_stack) == 0:
+            return None
+        
+        # Define castling patterns: (king_from, king_to, rook_from, rook_to, castling_uci)
+        CASTLING_PATTERNS = [
+            (chess.E1, chess.G1, chess.H1, chess.F1, "e1g1"),  # White kingside
+            (chess.E1, chess.C1, chess.A1, chess.D1, "e1c1"),  # White queenside
+            (chess.E8, chess.G8, chess.H8, chess.F8, "e8g8"),  # Black kingside
+            (chess.E8, chess.C8, chess.A8, chess.D8, "e8c8"),  # Black queenside
+        ]
+        
+        # Check if the king move matches a castling pattern
+        for king_from, king_to, rook_from, rook_to, castling_uci in CASTLING_PATTERNS:
+            if king_move.from_square == king_from and king_move.to_square == king_to:
+                # Check if the last move was the corresponding rook move
+                last_move = self.chess_board.peek()
+                if last_move.from_square == rook_from and last_move.to_square == rook_to:
+                    # This is late castling - undo the rook move and check if castling is legal
+                    self.chess_board.pop()
+                    castling_move = chess.Move.from_uci(castling_uci)
+                    if castling_move in self.chess_board.legal_moves:
+                        return castling_move
+                    else:
+                        # Castling not legal even before the rook move - put it back
+                        self.chess_board.push(last_move)
+                        return None
+        
+        return None
+    
+    def _execute_late_castling_from_move(self, castling_move: chess.Move) -> None:
+        """Execute a late castling move.
+        
+        Called after _detect_late_castling has already undone the rook move.
+        The board is now in a state where castling is legal.
+        
+        Args:
+            castling_move: The castling move to execute (e.g., e1g1)
+        """
+        log.info(f"[GameManager._execute_late_castling_from_move] Executing castling: {castling_move.uci()}")
+        
+        # The board is already in the correct state (rook move undone)
+        # Just execute the castling move normally
+        self._execute_complete_move(castling_move)
     
     def handle_resign(self, resigning_color: chess.Color = None) -> None:
         """Handle game resignation.

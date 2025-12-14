@@ -1040,7 +1040,7 @@ def create_settings_entries() -> List[IconMenuEntry]:
     
     return [
         IconMenuEntry(key="Positions", label="Positions", icon_name="positions", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="Players", label=players_label, icon_name="universal_logo", enabled=True, font_size=12, height_ratio=0.8),
+        IconMenuEntry(key="Players", label=players_label, icon_name="players", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="TimeControl", label=time_label, icon_name=time_icon, enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=12, height_ratio=0.8),
     ]
