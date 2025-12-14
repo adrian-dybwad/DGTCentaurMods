@@ -2057,6 +2057,14 @@ class GameManager:
             self.correction_mode.clear_exit_flag()
         elif is_place:
             self._handle_piece_place(field, piece_color)
+            
+            # After any PLACE, check if board is now in starting position (game reset)
+            # This handles the case where pieces are rearranged to starting position
+            current_state = board.getChessState()
+            if self._is_starting_position(current_state):
+                log.warning("[GameManager.receive_field] Starting position detected after PLACE - resetting game")
+                self._reset_game()
+                return
     
     def receive_key(self, key_pressed):
         """Handle key press events.
