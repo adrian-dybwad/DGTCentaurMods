@@ -7,7 +7,7 @@
 # ( https://github.com/EdNekebno/DGTCentaur )
 #
 # Manages protocol parsing and routing for chess app connections
-# (Millennium, Pegasus, Chessnut). Bridges external protocols to GameManager.
+# (Millennium, Pegasus, Chessnut, Lichess). Bridges external protocols to GameManager.
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE.md for details.
@@ -44,9 +44,10 @@ log.debug(f"[protocol import] stdlib: {(_t.time() - _s)*1000:.0f}ms")
 class ProtocolManager:
     """Manages protocol parsing and routing for chess app connections.
     
-    Supports Millennium, Pegasus, and Chessnut protocols. Can operate in two modes:
+    Supports Millennium, Pegasus, Chessnut, and Lichess protocols. Can operate in:
     1. Known client type (BLE): Only creates the specific emulator for that protocol
     2. Unknown client type (RFCOMM): Creates all RFCOMM-capable emulators and auto-detects
+    3. Lichess mode: Uses HTTP/WebSocket API for online play (no byte-stream protocol)
     
     Bridges external app protocols to the internal GameManager for chess logic.
     
@@ -59,12 +60,13 @@ class ProtocolManager:
     CLIENT_MILLENNIUM = "millennium"
     CLIENT_PEGASUS = "pegasus"
     CLIENT_CHESSNUT = "chessnut"
+    CLIENT_LICHESS = "lichess"
     
     def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False,
                  standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default",
                  display_update_callback=None, save_to_database=True,
                  hand_brain_mode: bool = False, brain_hint_callback=None,
-                 takeback_callback=None):
+                 takeback_callback=None, lichess_config=None):
         """Initialize the ProtocolManager.
         
         Args:
@@ -73,6 +75,7 @@ class ProtocolManager:
                         - CLIENT_MILLENNIUM: Millennium ChessLink
                         - CLIENT_PEGASUS: Nordic UART (Pegasus)
                         - CLIENT_CHESSNUT: Chessnut Air
+                        - CLIENT_LICHESS: Lichess online play
                         - CLIENT_UNKNOWN or None: Auto-detect from incoming data (RFCOMM)
             compare_mode: If True, buffer emulator responses for comparison with
                          shadow host instead of sending directly. Used in relay mode.
@@ -90,6 +93,8 @@ class ProtocolManager:
                                 squares is a list of square indices containing that piece type.
             takeback_callback: Callback function() called when a takeback is detected.
                               Used to sync analysis widget score history with game state.
+            lichess_config: Optional LichessConfig for Lichess online play mode.
+                           When provided, creates Lichess emulator instead of byte-stream emulators.
         """
         self._sendMessage = sendMessage_callback
         self.compare_mode = compare_mode
@@ -106,6 +111,7 @@ class ProtocolManager:
         self.is_millennium = False
         self.is_pegasus = False
         self.is_chessnut = False
+        self.is_lichess = False
         
         # UCI standalone engine settings (for standalone play without app)
         self._standalone_engine = None
@@ -137,31 +143,37 @@ class ProtocolManager:
         self._millennium = None
         self._pegasus = None
         self._chessnut = None
+        self._lichess = None
+        self._lichess_config = lichess_config
         
-        # Always create all emulators for auto-detection from actual data
-        # The client_type hint from BLE service UUID is unreliable
-        log.info(f"[ProtocolManager] Creating emulators for auto-detection (hint: {client_type or 'none'})")
-        
-        # Create Millennium emulator
-        self._millennium = Millennium(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self.game_manager
-        )
-        log.info("[ProtocolManager] Created Millennium emulator")
-        
-        # Create Pegasus emulator
-        self._pegasus = Pegasus(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self.game_manager
-        )
-        log.info("[ProtocolManager] Created Pegasus emulator")
-        
-        # Create Chessnut emulator
-        self._chessnut = Chessnut(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self.game_manager
-        )
-        log.info("[ProtocolManager] Created Chessnut emulator")
+        # If Lichess mode, create only Lichess emulator (no byte-stream emulators)
+        if lichess_config is not None:
+            self._create_lichess_emulator(lichess_config)
+        else:
+            # Always create all emulators for auto-detection from actual data
+            # The client_type hint from BLE service UUID is unreliable
+            log.info(f"[ProtocolManager] Creating emulators for auto-detection (hint: {client_type or 'none'})")
+            
+            # Create Millennium emulator
+            self._millennium = Millennium(
+                sendMessage_callback=self._handle_emulator_response,
+                manager=self.game_manager
+            )
+            log.info("[ProtocolManager] Created Millennium emulator")
+            
+            # Create Pegasus emulator
+            self._pegasus = Pegasus(
+                sendMessage_callback=self._handle_emulator_response,
+                manager=self.game_manager
+            )
+            log.info("[ProtocolManager] Created Pegasus emulator")
+            
+            # Create Chessnut emulator
+            self._chessnut = Chessnut(
+                sendMessage_callback=self._handle_emulator_response,
+                manager=self.game_manager
+            )
+            log.info("[ProtocolManager] Created Chessnut emulator")
         
         # Track 2-player mode (no engine opponent)
         self._is_two_player_mode = standalone_engine_name is None
@@ -350,11 +362,15 @@ class ProtocolManager:
         """
         try:
             log.debug(f"[ProtocolManager] _manager_event_callback: {event} piece_event={piece_event}, field={field}")
-            log.debug(f"[ProtocolManager] Flags: is_millennium={self.is_millennium}, is_pegasus={self.is_pegasus}, is_chessnut={self.is_chessnut}")
-            log.debug(f"[ProtocolManager] Emulators: _millennium={self._millennium is not None}, _pegasus={self._pegasus is not None}, _chessnut={self._chessnut is not None}")
+            log.debug(f"[ProtocolManager] Flags: is_millennium={self.is_millennium}, is_pegasus={self.is_pegasus}, is_chessnut={self.is_chessnut}, is_lichess={self.is_lichess}")
+            log.debug(f"[ProtocolManager] Emulators: _millennium={self._millennium is not None}, _pegasus={self._pegasus is not None}, _chessnut={self._chessnut is not None}, _lichess={self._lichess is not None}")
             
+            # If Lichess mode, route to Lichess emulator
+            if self.is_lichess and self._lichess:
+                log.debug("[ProtocolManager] Routing event to Lichess")
+                self._lichess.handle_manager_event(event, piece_event, field, time_in_seconds)
             # If protocol is confirmed, only forward to the active emulator
-            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_event'):
+            elif self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_event'):
                 log.debug("[ProtocolManager] Routing event to Millennium")
                 self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_event'):
@@ -411,7 +427,10 @@ class ProtocolManager:
         try:
             log.debug(f"[ProtocolManager] _manager_move_callback: {move}")
             
-            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_move'):
+            # If Lichess mode, route to Lichess emulator
+            if self.is_lichess and self._lichess:
+                self._lichess.handle_manager_move(move)
+            elif self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_move'):
                 self._millennium.handle_manager_move(move)
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_move'):
                 self._pegasus.handle_manager_move(move)
@@ -448,7 +467,9 @@ class ProtocolManager:
             log.debug(f"[ProtocolManager] _manager_key_callback: {key}")
             
             # Forward to active emulator
-            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_key'):
+            if self.is_lichess and self._lichess:
+                self._lichess.handle_manager_key(key)
+            elif self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_key'):
                 self._millennium.handle_manager_key(key)
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_key'):
                 self._pegasus.handle_manager_key(key)
@@ -468,7 +489,9 @@ class ProtocolManager:
             if self._takeback_callback:
                 self._takeback_callback()
             
-            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_takeback'):
+            if self.is_lichess and self._lichess:
+                self._lichess.handle_manager_takeback()
+            elif self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_takeback'):
                 self._millennium.handle_manager_takeback()
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_takeback'):
                 self._pegasus.handle_manager_takeback()
@@ -625,6 +648,100 @@ class ProtocolManager:
             traceback.print_exc()
     
     # =========================================================================
+    # Lichess Online Play Methods
+    # =========================================================================
+    
+    def _create_lichess_emulator(self, config):
+        """Create Lichess emulator for online play.
+        
+        Unlike byte-stream emulators, Lichess uses HTTP/WebSocket API.
+        The emulator manages its own connection lifecycle.
+        
+        Args:
+            config: LichessConfig with game parameters
+        """
+        from DGTCentaurMods.emulators.lichess import Lichess
+        
+        log.info(f"[ProtocolManager] Creating Lichess emulator (mode: {config.mode})")
+        
+        self._lichess = Lichess(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.game_manager,
+            config=config,
+            display_callback=self._lichess_display_callback
+        )
+        
+        self.client_type = self.CLIENT_LICHESS
+        self.is_lichess = True
+        
+        log.info("[ProtocolManager] Created Lichess emulator")
+    
+    def _lichess_display_callback(self, lines: dict):
+        """Handle display updates from Lichess emulator.
+        
+        Converts Lichess display line updates to FEN-based display updates
+        if a display callback is configured.
+        
+        Args:
+            lines: Dict mapping line numbers to text strings
+        """
+        # For now, just log the updates
+        # Full display integration would require changes to how DisplayManager works
+        for line_num, text in lines.items():
+            log.debug(f"[ProtocolManager] Lichess display line {line_num}: {text}")
+        
+        # Update position display if we have a callback
+        if self._display_update_callback and self.game_manager:
+            try:
+                fen = self.game_manager.chess_board.fen()
+                self._display_update_callback(fen)
+            except Exception as e:
+                log.debug(f"[ProtocolManager] Error updating display from Lichess: {e}")
+    
+    def start_lichess(self) -> bool:
+        """Start the Lichess connection and game.
+        
+        Must be called after construction when using Lichess mode.
+        
+        Returns:
+            True if Lichess started successfully, False on error.
+        """
+        if not self._lichess:
+            log.error("[ProtocolManager] Cannot start Lichess - no Lichess emulator configured")
+            return False
+        
+        return self._lichess.start()
+    
+    def stop_lichess(self):
+        """Stop the Lichess connection.
+        
+        Call this to cleanly disconnect from Lichess.
+        """
+        if self._lichess:
+            self._lichess.stop()
+    
+    def is_lichess_connected(self) -> bool:
+        """Check if Lichess game is active.
+        
+        Returns:
+            True if connected to a Lichess game, False otherwise.
+        """
+        if self._lichess:
+            return self._lichess.is_connected()
+        return False
+    
+    @property
+    def lichess_board_flip(self) -> bool:
+        """Get board flip state for Lichess (True if playing as black).
+        
+        Returns:
+            True if board should be flipped (playing as black).
+        """
+        if self._lichess:
+            return self._lichess.board_flip
+        return False
+    
+    # =========================================================================
     # UCI Standalone Engine Methods
     # =========================================================================
     
@@ -724,9 +841,9 @@ class ProtocolManager:
         """Check if any chess app protocol has been detected.
         
         Returns:
-            True if a chess app is connected (Millennium, Pegasus, or Chessnut)
+            True if a chess app is connected (Millennium, Pegasus, Chessnut, or Lichess)
         """
-        return self.is_millennium or self.is_pegasus or self.is_chessnut
+        return self.is_millennium or self.is_pegasus or self.is_chessnut or self.is_lichess
     
     def _handle_new_game(self):
         """Handle new game event for standalone engine.
@@ -939,10 +1056,20 @@ class ProtocolManager:
         self._check_standalone_engine_turn()
     
     def cleanup(self):
-        """Clean up resources including UCI engine and game manager.
+        """Clean up resources including UCI engine, Lichess, and game manager.
 
-        Properly stops the game manager thread and closes the UCI engine.
+        Properly stops the game manager thread, closes Lichess connection,
+        and closes the UCI engine.
         """
+        # Stop Lichess emulator if active
+        if self._lichess:
+            try:
+                self._lichess.stop()
+                log.info("[ProtocolManager] Lichess emulator stopped")
+            except Exception as e:
+                log.debug(f"[ProtocolManager] Error stopping Lichess emulator: {e}")
+            self._lichess = None
+        
         # Wait for engine init thread if still running (brief wait)
         if self._engine_init_thread is not None and self._engine_init_thread.is_alive():
             try:

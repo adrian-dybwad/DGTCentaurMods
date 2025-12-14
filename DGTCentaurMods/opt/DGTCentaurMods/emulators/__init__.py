@@ -14,6 +14,12 @@ Protocol emulators for chess board apps.
 
 These modules emulate the protocols used by various chess board companion apps,
 allowing the DGT Centaur to appear as different board types to those apps.
+
+Includes:
+- Chessnut: Chessnut Air protocol (BLE)
+- Millennium: Millennium ChessLink protocol (BLE/RFCOMM)
+- Pegasus: DGT Pegasus protocol (BLE)
+- Lichess: Lichess online play (HTTP/WebSocket API)
 """
 
 import time as _t
@@ -28,6 +34,9 @@ from .millennium import Millennium
 _logger.debug(f"[emulators init] millennium: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
 from .pegasus import Pegasus
-_logger.debug(f"[emulators init] pegasus: {(_t.time() - _s)*1000:.0f}ms")
+_logger.debug(f"[emulators init] pegasus: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
+# Lichess is imported lazily to avoid loading berserk when not needed
+# Use: from DGTCentaurMods.emulators.lichess import Lichess, LichessConfig, LichessGameMode
 
 __all__ = ['Chessnut', 'Millennium', 'Pegasus']

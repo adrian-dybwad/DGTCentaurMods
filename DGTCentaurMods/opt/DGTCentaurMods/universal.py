@@ -215,6 +215,7 @@ from DGTCentaurMods.managers import (
     DisplayManager,
     MenuManager,
     MenuSelection,
+    MenuResult,
     is_break_result,
     find_entry_index,
     ConnectionManager,
@@ -955,6 +956,7 @@ def create_settings_entries() -> List[IconMenuEntry]:
         IconMenuEntry(key="ELO", label=elo_label, icon_name="elo", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="Color", label=color_label, icon_name="color", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="TimeControl", label=time_label, icon_name=time_icon, enabled=True, font_size=12, height_ratio=0.8),
+        IconMenuEntry(key="Lichess", label="Lichess", icon_name="lichess", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=12, height_ratio=0.8),
     ]
 
@@ -1527,6 +1529,15 @@ def _handle_settings():
                 return position_result
             if position_result:
                 # Position was loaded, exit settings and go to game
+                return
+        
+        elif result == "Lichess":
+            lichess_result = _handle_lichess_menu()
+            if is_break_result(lichess_result):
+                app_state = AppState.MENU
+                return lichess_result
+            if lichess_result:
+                # Lichess game started, exit settings
                 return
         
         elif result == "System":
@@ -2424,6 +2435,336 @@ def _handle_system_menu():
         return None  # Continue loop
     
     return _menu_manager.run_menu_loop(create_system_entries, handle_selection)
+
+
+# =============================================================================
+# Lichess Online Play
+# =============================================================================
+
+def _get_lichess_client():
+    """Get a berserk Lichess API client.
+    
+    Returns:
+        Tuple (client, username) if successful, (None, None) if token missing/invalid.
+    """
+    from DGTCentaurMods.board import centaur
+    
+    token = centaur.get_lichess_api()
+    if not token or token == "tokenhere":
+        log.warning("[Lichess] No valid API token configured")
+        return None, None
+    
+    try:
+        import berserk
+        session = berserk.TokenSession(token)
+        client = berserk.Client(session=session)
+        # Verify token by getting user info
+        user_info = client.account.get()
+        username = user_info.get('username', '')
+        log.info(f"[Lichess] Authenticated as: {username}")
+        return client, username
+    except ImportError:
+        log.error("[Lichess] berserk library not installed")
+        return None, None
+    except Exception as e:
+        log.error(f"[Lichess] API authentication failed: {e}")
+        return None, None
+
+
+def _handle_lichess_menu():
+    """Handle Lichess submenu with New Game, Ongoing, and Challenges options.
+    
+    Returns:
+        True if a Lichess game was started, break result if break action,
+        None/False otherwise.
+    """
+    from DGTCentaurMods.emulators.lichess import LichessConfig, LichessGameMode
+    
+    # First verify we have a valid token
+    client, username = _get_lichess_client()
+    if client is None:
+        # Show error message
+        _show_lichess_error("No API Token", "Configure in\nSystem > Accounts")
+        return None
+    
+    def build_entries():
+        """Build Lichess menu entries."""
+        return [
+            IconMenuEntry(
+                key="NewGame",
+                label="New Game",
+                icon_name="lichess",
+                enabled=True,
+                font_size=14
+            ),
+            IconMenuEntry(
+                key="Ongoing",
+                label="Ongoing",
+                icon_name="positions",
+                enabled=True,
+                font_size=14
+            ),
+            IconMenuEntry(
+                key="Challenges",
+                label="Challenges",
+                icon_name="random",
+                enabled=True,
+                font_size=14
+            ),
+        ]
+    
+    def handle_selection(result: MenuSelection):
+        """Handle Lichess menu selection."""
+        if result.key == "NewGame":
+            # Use current game settings for color and time
+            color = _game_settings['player_color']
+            # Map 2player/handbrain to random for Lichess
+            if color in ['2player', 'handbrain']:
+                color = 'random'
+            
+            time_minutes = _game_settings['time_control']
+            if time_minutes == 0:
+                time_minutes = 10  # Default to 10 min if clock disabled
+            
+            config = LichessConfig(
+                mode=LichessGameMode.NEW,
+                time_minutes=time_minutes,
+                increment_seconds=0,
+                rated=False,
+                color=color
+            )
+            
+            if _start_lichess_game(config):
+                return MenuResult(should_exit=True, value=True)
+            return None
+        
+        elif result.key == "Ongoing":
+            game_id = _show_lichess_ongoing_games(client)
+            if game_id:
+                config = LichessConfig(
+                    mode=LichessGameMode.ONGOING,
+                    game_id=game_id
+                )
+                if _start_lichess_game(config):
+                    return MenuResult(should_exit=True, value=True)
+            return None
+        
+        elif result.key == "Challenges":
+            challenge = _show_lichess_challenges(client)
+            if challenge:
+                config = LichessConfig(
+                    mode=LichessGameMode.CHALLENGE,
+                    challenge_id=challenge['id'],
+                    challenge_direction=challenge['direction']
+                )
+                if _start_lichess_game(config):
+                    return MenuResult(should_exit=True, value=True)
+            return None
+        
+        return None
+    
+    result = _menu_manager.run_menu_loop(build_entries, handle_selection)
+    
+    if is_break_result(result):
+        return result
+    if isinstance(result, MenuResult) and result.value:
+        return True
+    return None
+
+
+def _show_lichess_error(title: str, message: str):
+    """Show a Lichess error message on the display.
+    
+    Args:
+        title: Error title
+        message: Error message (can be multi-line)
+    """
+    from DGTCentaurMods.epaper.text import TextWidget
+    
+    # Create text widget for error display
+    widget = TextWidget(text=f"{title}\n\n{message}", font_size=16)
+    widget.render()
+    
+    # Wait for any key press
+    time.sleep(3)
+
+
+def _show_lichess_ongoing_games(client) -> str:
+    """Show list of ongoing Lichess games and return selected game ID.
+    
+    Args:
+        client: berserk Lichess client
+        
+    Returns:
+        Game ID if selected, None if cancelled
+    """
+    try:
+        ongoing = client.games.get_ongoing(count=10)
+        
+        if not ongoing:
+            _show_lichess_error("No Games", "No ongoing\ngames found")
+            return None
+        
+        # Build menu entries for each game
+        entries = []
+        for game in ongoing:
+            game_id = game.get('gameId', '')
+            opponent = game.get('opponent', {})
+            opponent_name = opponent.get('username', 'Unknown')
+            opponent_rating = opponent.get('rating', '')
+            color = 'W' if game.get('color') == 'white' else 'B'
+            
+            label = f"{opponent_name}\n({opponent_rating}) {color}"
+            entries.append(IconMenuEntry(
+                key=game_id,
+                label=label,
+                icon_name="lichess",
+                enabled=True,
+                font_size=12
+            ))
+        
+        result = _menu_manager.show_menu(entries)
+        
+        if result.is_break or result.key == "BACK":
+            return None
+        
+        return result.key
+        
+    except Exception as e:
+        log.error(f"[Lichess] Error fetching ongoing games: {e}")
+        _show_lichess_error("Error", "Failed to fetch\nongoing games")
+        return None
+
+
+def _show_lichess_challenges(client) -> dict:
+    """Show list of Lichess challenges and return selected challenge.
+    
+    Args:
+        client: berserk Lichess client
+        
+    Returns:
+        Dict with 'id' and 'direction' if selected, None if cancelled
+    """
+    try:
+        # Get incoming and outgoing challenges
+        incoming = list(client.challenges.get_mine().get('in', []))
+        outgoing = list(client.challenges.get_mine().get('out', []))
+        
+        if not incoming and not outgoing:
+            _show_lichess_error("No Challenges", "No pending\nchallenges")
+            return None
+        
+        # Build menu entries
+        entries = []
+        
+        for challenge in incoming:
+            c_id = challenge.get('id', '')
+            challenger = challenge.get('challenger', {})
+            name = challenger.get('name', 'Unknown')
+            rating = challenger.get('rating', '')
+            
+            label = f"IN: {name}\n({rating})"
+            entries.append(IconMenuEntry(
+                key=f"in:{c_id}",
+                label=label,
+                icon_name="lichess",
+                enabled=True,
+                font_size=12
+            ))
+        
+        for challenge in outgoing:
+            c_id = challenge.get('id', '')
+            dest = challenge.get('destUser', {})
+            name = dest.get('name', 'Unknown')
+            rating = dest.get('rating', '')
+            
+            label = f"OUT: {name}\n({rating})"
+            entries.append(IconMenuEntry(
+                key=f"out:{c_id}",
+                label=label,
+                icon_name="lichess",
+                enabled=True,
+                font_size=12
+            ))
+        
+        result = _menu_manager.show_menu(entries)
+        
+        if result.is_break or result.key == "BACK":
+            return None
+        
+        # Parse direction and ID from key
+        direction, c_id = result.key.split(':', 1)
+        return {'id': c_id, 'direction': direction}
+        
+    except Exception as e:
+        log.error(f"[Lichess] Error fetching challenges: {e}")
+        _show_lichess_error("Error", "Failed to fetch\nchallenges")
+        return None
+
+
+def _start_lichess_game(lichess_config) -> bool:
+    """Start a Lichess game with the given configuration.
+    
+    Similar to _start_game_mode() but for Lichess online play.
+    
+    Args:
+        lichess_config: LichessConfig with game parameters
+        
+    Returns:
+        True if game started successfully, False otherwise
+    """
+    global app_state, protocol_manager, display_manager
+    
+    log.info(f"[App] Starting Lichess game (mode={lichess_config.mode})")
+    app_state = AppState.GAME
+    
+    # Create DisplayManager - use simpler setup for online play
+    # Analysis is disabled for online games (unfair advantage)
+    display_manager = DisplayManager(
+        flip_board=False,  # Will be updated based on player color
+        show_analysis=False,
+        analysis_engine_path=None,
+        on_exit=lambda: _return_to_menu("Lichess exit"),
+        hand_brain_mode=False,
+        initial_fen=None,
+        time_control=0,  # Lichess manages its own clock
+        show_board=_game_settings['show_board'],
+        show_clock=False,  # Lichess has its own clock
+        show_graph=False,
+        analysis_mode=False
+    )
+    log.info("[App] DisplayManager initialized for Lichess")
+    
+    # Display update callback
+    def update_display(fen):
+        """Update display manager with new position."""
+        if display_manager:
+            display_manager.update_position(fen)
+    
+    # Create ProtocolManager in Lichess mode
+    protocol_manager = ProtocolManager(
+        lichess_config=lichess_config,
+        display_update_callback=update_display,
+        save_to_database=True,
+    )
+    
+    # Set up display bridge for consolidated display operations
+    protocol_manager.set_display_bridge(display_manager)
+    
+    # Start the Lichess connection
+    if not protocol_manager.start_lichess():
+        log.error("[App] Failed to start Lichess connection")
+        _cleanup_game()
+        _show_lichess_error("Connection Failed", "Could not connect\nto Lichess")
+        app_state = AppState.SETTINGS
+        return False
+    
+    # Update board flip based on player color (after connection established)
+    # This happens asynchronously so we can't get it immediately
+    # The Lichess emulator will update the display when player info is received
+    
+    log.info("[App] Lichess game started successfully")
+    return True
 
 
 def _handle_inactivity_timeout():
