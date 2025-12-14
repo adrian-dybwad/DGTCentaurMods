@@ -2361,12 +2361,16 @@ class GameManager:
     def set_clock(self, white_seconds: int, black_seconds: int):
         """Set the clock times for both players.
         
-        Calls the set_clock_times callback if set (connected to DisplayManager).
+        Uses the display_bridge to update clock times if available.
         Used by Lichess emulator to update clock times from the server.
+        
+        Args:
+            white_seconds: White player's remaining time in seconds
+            black_seconds: Black player's remaining time in seconds
         """
-        if self.set_clock_times:
+        if self.display_bridge and hasattr(self.display_bridge, 'set_clock_times'):
             try:
-                self.set_clock_times(white_seconds, black_seconds)
+                self.display_bridge.set_clock_times(white_seconds, black_seconds)
             except Exception as e:
                 log.debug(f"[GameManager.set_clock] Error setting clock times: {e}")
     
