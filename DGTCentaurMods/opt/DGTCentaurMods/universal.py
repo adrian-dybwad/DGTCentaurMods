@@ -44,6 +44,49 @@ from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.epaper import Manager, SplashScreen, IconMenuWidget, IconMenuEntry, KeyboardWidget
 from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
 
+# Load resources BEFORE any widgets are created
+# This must happen synchronously at import time
+def _initialize_resources():
+    """Load resources and inject into widget modules.
+    
+    Must be called before any widgets are created, as widgets
+    rely on module-level resources being set.
+    """
+    try:
+        from DGTCentaurMods.resources import ResourceLoader
+        from DGTCentaurMods.epaper import text as text_module
+        from DGTCentaurMods.epaper import chess_board as chess_board_module
+        from DGTCentaurMods.epaper import splash_screen as splash_screen_module
+        from DGTCentaurMods.epaper import icon_button as icon_button_module
+        from DGTCentaurMods.epaper import keyboard as keyboard_module
+        
+        # Create resource loader
+        loader = ResourceLoader("/opt/DGTCentaurMods/resources", "/home/pi/resources")
+        
+        # Set resource loader on modules that need fonts
+        text_module.set_resource_loader(loader)
+        keyboard_module.set_resource_loader(loader)
+        
+        # Load and set chess sprites
+        sprites = loader.get_chess_sprites()
+        if sprites:
+            chess_board_module.set_chess_sprites(sprites)
+        
+        # Load and set knight logos at common sizes
+        for size in [100, 36, 24, 20]:  # Splash screen, icon buttons
+            logo, mask = loader.get_knight_logo(size)
+            if logo and mask:
+                icon_button_module.set_knight_logo(size, logo, mask)
+                if size == 100:
+                    splash_screen_module.set_knight_logo(logo, mask)
+        
+        log.info("[Startup] Resources loaded and injected into widget modules")
+    except Exception as e:
+        log.error(f"[Startup] Failed to initialize resources: {e}", exc_info=True)
+
+# Initialize resources synchronously before any widgets are created
+_initialize_resources()
+
 # Initialize display immediately
 _early_display_manager: Optional[Manager] = None
 _startup_splash: Optional[SplashScreen] = None
@@ -181,46 +224,6 @@ log.debug(f"[Import timing] managers: {(_import_time.time() - _import_start)*100
 # All imports complete
 if _startup_splash:
     _startup_splash.set_message("Initializing...")
-
-# Load resources and inject into widget modules
-# Resources are loaded once here and set on modules that need them
-def _initialize_resources():
-    """Load resources and inject into widget modules."""
-    try:
-        from DGTCentaurMods.resources import ResourceLoader
-        from DGTCentaurMods.epaper import text as text_module
-        from DGTCentaurMods.epaper import chess_board as chess_board_module
-        from DGTCentaurMods.epaper import splash_screen as splash_screen_module
-        from DGTCentaurMods.epaper import icon_button as icon_button_module
-        from DGTCentaurMods.epaper import keyboard as keyboard_module
-        
-        # Create resource loader
-        loader = ResourceLoader("/opt/DGTCentaurMods/resources", "/home/pi/resources")
-        
-        # Set resource loader on modules that need fonts
-        text_module.set_resource_loader(loader)
-        keyboard_module.set_resource_loader(loader)
-        
-        # Load and set chess sprites
-        sprites = loader.get_chess_sprites()
-        if sprites:
-            chess_board_module.set_chess_sprites(sprites)
-        
-        # Load and set knight logos at common sizes
-        for size in [100, 36, 24, 20]:  # Splash screen, icon buttons
-            logo, mask = loader.get_knight_logo(size)
-            if logo and mask:
-                icon_button_module.set_knight_logo(size, logo, mask)
-                if size == 100:
-                    splash_screen_module.set_knight_logo(logo, mask)
-        
-        log.info("[Startup] Resources loaded and injected into widget modules")
-    except Exception as e:
-        log.error(f"[Startup] Failed to initialize resources: {e}", exc_info=True)
-
-import threading
-_resource_init_thread = threading.Thread(target=_initialize_resources, daemon=True)
-_resource_init_thread.start()
 
 # App States
 class AppState(Enum):
