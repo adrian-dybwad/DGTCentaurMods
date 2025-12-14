@@ -302,17 +302,18 @@ class Lichess:
         """Handle a move made on the physical board.
         
         Called by GameManager when the player completes a valid move.
-        Sends the move to Lichess if it's the player's turn.
+        Sends the move to Lichess. The move callback is only called for
+        moves made by the local player on the physical board, so we always
+        send them to Lichess (the server will validate).
+        
+        Note: We cannot check _is_player_turn() here because the turn
+        has already switched by the time the move callback fires.
         
         Args:
             move: Chess move object (e.g., chess.Move)
         """
         if not self.is_connected():
             log.warning("[Lichess] handle_manager_move called but not connected")
-            return
-        
-        if not self._is_player_turn():
-            log.debug(f"[Lichess] Ignoring move {move} - not player's turn")
             return
         
         move_uci = str(move).lower()

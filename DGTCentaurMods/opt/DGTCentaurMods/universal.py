@@ -2987,6 +2987,35 @@ def _start_lichess_game(lichess_config) -> bool:
     # Use the waiting-aware back handler
     protocol_manager.set_on_back_pressed(on_back_during_waiting)
     
+    # Track clock state
+    from DGTCentaurMods.managers import EVENT_WHITE_TURN, EVENT_BLACK_TURN
+    _clock_started = False
+    
+    def _on_lichess_game_event(event):
+        """Handle game events for Lichess - updates clock widget on turn changes."""
+        nonlocal _clock_started
+        
+        if event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
+            active_color = "white" if event == EVENT_WHITE_TURN else "black"
+            if not _clock_started:
+                # Start clock on first turn event
+                display_manager.start_clock(active_color)
+                _clock_started = True
+                log.debug(f"[App] Lichess clock started, {active_color} to move")
+            else:
+                # Switch clock on subsequent turn events
+                display_manager.switch_clock_turn()
+        elif isinstance(event, str) and event.startswith("Termination."):
+            # Game ended
+            termination_type = event[12:]
+            result = protocol_manager.get_result()
+            log.info(f"[App] Lichess game terminated: {termination_type}, result={result}")
+            display_manager.stop_clock()
+            display_manager.show_game_over(result, termination_type)
+    
+    # Register event callback for clock/turn updates
+    protocol_manager._external_event_callback = _on_lichess_game_event
+    
     # Start the Lichess connection
     if not protocol_manager.start_lichess():
         log.error("[App] Failed to start Lichess connection")
