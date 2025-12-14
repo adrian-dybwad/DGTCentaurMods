@@ -1273,6 +1273,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         if event == EVENT_NEW_GAME:
             display_manager.reset_analysis()
             display_manager.reset_clock()
+            display_manager.clear_pause()
             # Reset clock started flag for new game
             _clock_started = False
             # If we're in a position game and the starting position is set up,
@@ -3079,6 +3080,13 @@ def key_callback(key_id):
         return
     
     elif app_state == AppState.GAME:
+        # Check if game is paused - any key unpauses
+        if display_manager and display_manager.is_paused():
+            display_manager.toggle_pause()
+            log.info("[App] Game unpaused by key press")
+            _reset_unhandled_key_count()
+            return  # Don't process the key that unpaused
+        
         # Priority: DisplayManager menu (resign/draw, promotion) > app keys > game
         if display_manager and display_manager.is_menu_active():
             display_manager.handle_key(key_id)
@@ -3106,6 +3114,17 @@ def key_callback(key_id):
             # Apply changes by reinitializing widgets
             if display_manager:
                 display_manager._init_widgets()
+            _reset_unhandled_key_count()
+            return
+        
+        if key_id == board.Key.PLAY:
+            # Toggle pause - pauses clock, turns off LEDs, shows pause widget
+            if display_manager:
+                is_paused = display_manager.toggle_pause()
+                if is_paused:
+                    log.info("[App] Game paused")
+                else:
+                    log.info("[App] Game resumed")
             _reset_unhandled_key_count()
             return
         
@@ -3181,6 +3200,12 @@ def field_callback(piece_event, field, time_in_seconds):
     
     # Priority 3: Game mode
     if app_state == AppState.GAME:
+        # Check if game is paused - any piece event unpauses
+        if display_manager and display_manager.is_paused():
+            display_manager.toggle_pause()
+            log.info("[App] Game unpaused by piece event")
+            return  # Don't process the piece event that unpaused
+        
         if protocol_manager:
             protocol_manager.receive_field(piece_event, field, time_in_seconds)
         else:

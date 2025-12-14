@@ -144,6 +144,11 @@ class DisplayManager:
         self.analysis_engine = None
         self.brain_hint_widget = None
         self.alert_widget = None
+        self.pause_widget = None
+        
+        # Pause state
+        self._is_paused = False
+        self._paused_active_color = None  # Which clock was running before pause
         
         # Menu state
         self._menu_active = False
@@ -524,6 +529,131 @@ class DisplayManager:
             initial_seconds = self._time_control * 60
             self.clock_widget.set_times(initial_seconds, initial_seconds)
             log.info(f"[DisplayManager] Clock reset to {self._time_control} min per player")
+    
+    def toggle_pause(self) -> bool:
+        """Toggle pause state for the game.
+        
+        When paused:
+        - Clock is paused
+        - LEDs are turned off
+        - A pause widget is shown in the center of the screen
+        
+        When resumed:
+        - Clock resumes for the previously active player
+        - Pause widget is hidden
+        
+        Returns:
+            True if now paused, False if now resumed
+        """
+        if self._is_paused:
+            self._resume_game()
+            return False
+        else:
+            self._pause_game()
+            return True
+    
+    def _pause_game(self) -> None:
+        """Pause the game - stop clock, turn off LEDs, show pause widget."""
+        if self._is_paused:
+            return
+        
+        self._is_paused = True
+        
+        # Remember which clock was active so we can resume it
+        if self.clock_widget:
+            self._paused_active_color = self.clock_widget._active_color
+            self.clock_widget.pause()
+        
+        # Turn off LEDs
+        board.ledsOff()
+        
+        # Show pause widget (centered on screen)
+        # Import here to avoid circular imports
+        from DGTCentaurMods.epaper.text import TextWidget, Justify
+        from DGTCentaurMods.epaper.framework.widget import Widget
+        from PIL import Image, ImageDraw
+        
+        # Create a custom pause widget with icon and text
+        class PauseWidget(Widget):
+            """Widget showing pause icon and PAUSED text."""
+            def __init__(self):
+                # Centered on 128x296 display
+                super().__init__(x=0, y=98, width=128, height=100)
+                self._text_widget = TextWidget(
+                    x=0, y=60, width=128, height=30,
+                    text="PAUSED", font_size=24,
+                    justify=Justify.CENTER, transparent=True
+                )
+            
+            def render(self) -> Image.Image:
+                img = Image.new("1", (self.width, self.height), 255)
+                draw = ImageDraw.Draw(img)
+                
+                # Draw pause icon (two vertical bars) centered at top
+                bar_width = 12
+                bar_height = 50
+                gap = 16
+                total_width = bar_width * 2 + gap
+                start_x = (self.width - total_width) // 2
+                start_y = 5
+                
+                # Left bar
+                draw.rectangle([start_x, start_y, start_x + bar_width, start_y + bar_height], fill=0)
+                # Right bar
+                draw.rectangle([start_x + bar_width + gap, start_y, 
+                               start_x + bar_width * 2 + gap, start_y + bar_height], fill=0)
+                
+                # Draw "PAUSED" text below
+                self._text_widget.draw_on(img, 0, 60, text_color=0)
+                
+                return img
+        
+        self.pause_widget = PauseWidget()
+        board.display_manager.add_widget(self.pause_widget)
+        
+        log.info("[DisplayManager] Game paused")
+    
+    def _resume_game(self) -> None:
+        """Resume the game - restart clock, remove pause widget."""
+        if not self._is_paused:
+            return
+        
+        self._is_paused = False
+        
+        # Remove pause widget
+        if self.pause_widget:
+            board.display_manager.remove_widget(self.pause_widget)
+            self.pause_widget = None
+        
+        # Resume clock with previously active color
+        if self.clock_widget and self._paused_active_color:
+            self.clock_widget.start(self._paused_active_color)
+            log.info(f"[DisplayManager] Clock resumed for {self._paused_active_color}")
+        
+        self._paused_active_color = None
+        log.info("[DisplayManager] Game resumed")
+    
+    def is_paused(self) -> bool:
+        """Check if the game is currently paused.
+        
+        Returns:
+            True if game is paused, False otherwise
+        """
+        return self._is_paused
+    
+    def clear_pause(self) -> None:
+        """Clear pause state without resuming clock.
+        
+        Called on new game to ensure clean state.
+        """
+        if self._is_paused:
+            # Remove pause widget if present
+            if self.pause_widget:
+                board.display_manager.remove_widget(self.pause_widget)
+                self.pause_widget = None
+            self._is_paused = False
+            self._paused_active_color = None
+            log.info("[DisplayManager] Pause state cleared")
     
     def get_clock_times(self) -> tuple:
         """Get the current clock times for both players.
