@@ -2149,6 +2149,7 @@ class GameManager:
         """Handle time expiration (flag) for a player.
 
         When a player's clock runs out, they lose on time.
+        Triggers the event callback with Termination.TIME_FORFEIT to show game over.
 
         Args:
             flagged_color: The color of the player whose time expired (they lose)
@@ -2166,6 +2167,10 @@ class GameManager:
         # Play sound and turn off LEDs
         board.beep(board.SOUND_GENERAL, event_type='game_event')
         board.ledsOff()
+        
+        # Trigger event callback to show game over widget
+        if self.event_callback:
+            self.event_callback("Termination.TIME_FORFEIT")
 
     def _reset_game(self):
         """Abandon current game and reset to starting position.
@@ -2232,13 +2237,10 @@ class GameManager:
             AssetManager.write_fen_log(self.chess_board.fen())
             
             # Step 10: Notify callbacks of new game (but don't create DB entry yet)
+            # Note: Do NOT fire turn event here - clock should only start on first actual move.
+            # The turn event is fired when a move is made, not when game is reset.
             if self.event_callback is not None:
                 self.event_callback(EVENT_NEW_GAME)
-                # Determine which turn event to send based on current board state
-                if self.chess_board.turn == chess.WHITE:
-                    self.event_callback(EVENT_WHITE_TURN)
-                else:
-                    self.event_callback(EVENT_BLACK_TURN)
             
             # Step 11: Audio/visual feedback for game abandonment
             board.beep(board.SOUND_GENERAL, event_type='game_event')
