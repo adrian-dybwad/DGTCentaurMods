@@ -353,9 +353,6 @@ class GameManager:
         self.move_callback = None
         self.key_callback = None
         self.takeback_callback = None
-        self.on_check = None  # Callback(is_black_in_check, attacker_square, king_square)
-        self.on_queen_threat = None  # Callback(is_black_queen_threatened, attacker_square, queen_square)
-        self.on_alert_clear = None  # Callback() to clear alerts
         
         # Game metadata
         self.game_info = {
@@ -394,11 +391,11 @@ class GameManager:
         self._king_lift_resign_menu_active = False  # Track if the king-lift resign menu is showing
         self.on_terminal_position = None
         
-        # Clock callbacks - set by universal.py to connect to DisplayManager's clock widget
-        # get_clock_times() -> (white_seconds, black_seconds): Get current clock times for DB storage
-        # set_clock_times(white_seconds, black_seconds) -> None: Set clock times (used by Lichess)
-        self.get_clock_times = None
-        self.set_clock_times = None
+        # Display bridge - consolidated interface for display-related operations
+        # Set by ProtocolManager to connect GameManager with DisplayManager
+        # Provides: get_clock_times, set_clock_times, get_eval_score, update_position,
+        #           show_check_alert, show_queen_threat, clear_alerts, analyze_position
+        self.display_bridge = None
         
         # Player configuration - which color(s) are human players
         # In 2-player mode, both colors are human. In engine mode, only player_color is human.
@@ -522,16 +519,29 @@ class GameManager:
     
     def _get_clock_times_for_db(self) -> tuple:
         """Get clock times for database storage.
-        
+
         Returns:
             Tuple of (white_seconds, black_seconds), or (None, None) if unavailable
         """
-        if self.get_clock_times:
+        if self.display_bridge:
             try:
-                return self.get_clock_times()
+                return self.display_bridge.get_clock_times()
             except Exception as e:
                 log.debug(f"[GameManager._get_clock_times_for_db] Error getting clock times: {e}")
         return (None, None)
+    
+    def _get_eval_score_for_db(self) -> int:
+        """Get evaluation score for database storage.
+
+        Returns:
+            Evaluation score in centipawns (from white's perspective), or None if unavailable
+        """
+        if self.display_bridge:
+            try:
+                return self.display_bridge.get_eval_score()
+            except Exception as e:
+                log.debug(f"[GameManager._get_eval_score_for_db] Error getting eval score: {e}")
+        return None
     
     def _update_game_result(self, result_string: str, termination: str, context: str = ""):
         """Update game result in database and trigger event callback."""
@@ -1403,12 +1413,14 @@ class GameManager:
             try:
                 models = _get_models()
                 white_clock, black_clock = self._get_clock_times_for_db()
+                eval_score = self._get_eval_score_for_db()
                 game_move = models.GameMove(
                     gameid=self.game_db_id,
                     move=castling_uci,
                     fen=str(self.chess_board.fen()),
                     white_clock=white_clock,
-                    black_clock=black_clock
+                    black_clock=black_clock,
+                    eval_score=eval_score
                 )
                 self.database_session.add(game_move)
                 self.database_session.commit()
@@ -1441,12 +1453,14 @@ class GameManager:
                     )
                     self.database_session.add(initial_move)
                     # Create castling move
+                    eval_score = self._get_eval_score_for_db()
                     game_move = models.GameMove(
                         gameid=self.game_db_id,
                         move=castling_uci,
                         fen=str(self.chess_board.fen()),
                         white_clock=white_clock,
-                        black_clock=black_clock
+                        black_clock=black_clock,
+                        eval_score=eval_score
                     )
                     self.database_session.add(game_move)
                     self.database_session.commit()
@@ -1614,12 +1628,14 @@ class GameManager:
             try:
                 models = _get_models()
                 white_clock, black_clock = self._get_clock_times_for_db()
+                eval_score = self._get_eval_score_for_db()
                 game_move = models.GameMove(
                     gameid=self.game_db_id,
                     move=castling_uci,
                     fen=str(self.chess_board.fen()),
                     white_clock=white_clock,
-                    black_clock=black_clock
+                    black_clock=black_clock,
+                    eval_score=eval_score
                 )
                 self.database_session.add(game_move)
                 self.database_session.commit()
@@ -1843,12 +1859,14 @@ class GameManager:
                         # Add this move
                         if self.game_db_id >= 0:
                             white_clock, black_clock = self._get_clock_times_for_db()
+                            eval_score = self._get_eval_score_for_db()
                             game_move = models.GameMove(
                                 gameid=self.game_db_id,
                                 move=move_uci,
                                 fen=fen_after_move,
                                 white_clock=white_clock,
-                                black_clock=black_clock
+                                black_clock=black_clock,
+                                eval_score=eval_score
                             )
                             self.database_session.add(game_move)
                             self.database_session.commit()
@@ -2404,8 +2422,8 @@ class GameManager:
                     
                     log.info(f"[GameManager._detect_check_and_threats] CHECK: {'Black' if is_black_in_check else 'White'} king in check at {chess.square_name(king_square)} by piece at {chess.square_name(attacker_square)}")
                     
-                    if self.on_check:
-                        self.on_check(is_black_in_check, attacker_square, king_square)
+                    if self.display_bridge:
+                        self.display_bridge.show_check_alert(is_black_in_check, attacker_square, king_square)
                     return
             
             # No check - check if opponent's queen is under attack
@@ -2425,13 +2443,13 @@ class GameManager:
                     
                     log.info(f"[GameManager._detect_check_and_threats] QUEEN THREAT: {'Black' if is_black_queen_threatened else 'White'} queen at {chess.square_name(queen_square)} attacked by piece at {chess.square_name(attacker_square)}")
                     
-                    if self.on_queen_threat:
-                        self.on_queen_threat(is_black_queen_threatened, attacker_square, queen_square)
+                    if self.display_bridge:
+                        self.display_bridge.show_queen_threat(is_black_queen_threatened, attacker_square, queen_square)
                     return
             
             # No check or queen threat - clear any existing alert
-            if self.on_alert_clear:
-                self.on_alert_clear()
+            if self.display_bridge:
+                self.display_bridge.clear_alerts()
                 
         except Exception as e:
             log.error(f"[GameManager._detect_check_and_threats] Error detecting threats: {e}")

@@ -196,9 +196,33 @@ class GameAnalysisWidget(Widget):
         self.request_update(full=False)
     
     def reset(self) -> None:
-        """Reset widget to initial state (clear history and reset score)."""
+        """Reset widget to initial state (clear history, score, and annotation)."""
         self.clear_history()
-        self.set_score(0.0, "0.0")
+        self.score_value = 0.0
+        self.score_text = "0.0"
+        self.last_annotation = ""
+        self._previous_score = 0.0
+        self._last_rendered = None
+        self.request_update(full=False)
+    
+    def set_score_history(self, scores: list) -> None:
+        """Set the score history directly (for restoring from database).
+        
+        Args:
+            scores: List of scores in pawns (float values, -12 to +12 range)
+        """
+        self.score_history = list(scores)
+        if len(scores) > 0:
+            self.score_value = scores[-1]
+            self._previous_score = scores[-1]
+            # Format score text
+            if abs(self.score_value) > 999:
+                self.score_text = "M"
+            else:
+                self.score_text = f"{self.score_value:+.1f}"
+        self._last_rendered = None
+        self.request_update(full=False)
+        log.info(f"[GameAnalysisWidget] Restored {len(scores)} scores from history")
     
     def remove_last_score(self) -> None:
         """Remove the last score from history (used for takebacks)."""

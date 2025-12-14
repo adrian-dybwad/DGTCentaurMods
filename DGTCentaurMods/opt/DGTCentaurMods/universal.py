@@ -424,9 +424,12 @@ def _get_incomplete_game() -> Optional[dict]:
             # Get clock times from the last move (may be None for older games)
             white_clock = getattr(last_move, 'white_clock', None)
             black_clock = getattr(last_move, 'black_clock', None)
-            
+
             # Extract move list (skip empty starting move if present)
             move_list = [m.move for m in moves if m.move]
+            
+            # Extract eval scores for analysis history (skip moves without eval)
+            eval_scores = [getattr(m, 'eval_score', None) for m in moves if m.move and getattr(m, 'eval_score', None) is not None]
             
             # Only resume if there are actual moves played (not just starting position)
             if not move_list:
@@ -437,6 +440,8 @@ def _get_incomplete_game() -> Optional[dict]:
                     f"moves={len(move_list)}, last_fen={last_fen[:30]}...")
             if white_clock is not None and black_clock is not None:
                 log.info(f"[Resume] Clock times: white={white_clock}s, black={black_clock}s")
+            if eval_scores:
+                log.info(f"[Resume] Eval scores: {len(eval_scores)} positions")
             
             return {
                 'id': game.id,
@@ -446,7 +451,8 @@ def _get_incomplete_game() -> Optional[dict]:
                 'white': game.white,
                 'black': game.black,
                 'white_clock': white_clock,
-                'black_clock': black_clock
+                'black_clock': black_clock,
+                'eval_scores': eval_scores
             }
         finally:
             session.close()
@@ -517,6 +523,12 @@ def _resume_game(game_data: dict) -> bool:
         if white_clock is not None and black_clock is not None and display_manager:
             display_manager.set_clock_times(white_clock, black_clock)
             log.info(f"[Resume] Clock times restored: white={white_clock}s, black={black_clock}s")
+        
+        # Restore eval score history if available
+        eval_scores = game_data.get('eval_scores', [])
+        if eval_scores and display_manager:
+            display_manager.set_score_history(eval_scores)
+            log.info(f"[Resume] Eval scores restored: {len(eval_scores)} positions")
         
         # Check if physical board matches the resumed position
         current_physical_state = board.getChessState()
@@ -1232,15 +1244,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     protocol_manager.set_on_terminal_position(_on_terminal_position)
     
-    # Wire up check and queen threat alert callbacks
-    protocol_manager.set_on_check(display_manager.show_check_alert)
-    protocol_manager.set_on_queen_threat(display_manager.show_queen_threat_alert)
-    protocol_manager.set_on_alert_clear(display_manager.hide_alert)
-    
-    # Wire up clock callbacks to connect GameManager with DisplayManager's clock widget
-    # get_clock_times: retrieves current times for database storage
-    # set_clock_times: sets times (used by Lichess emulator to sync with server)
-    protocol_manager.set_clock_callbacks(display_manager.get_clock_times, display_manager.set_clock_times)
+    # Wire up display bridge to connect GameManager with DisplayManager
+    # Provides consolidated interface for: clock times, eval scores, alerts, position updates
+    protocol_manager.set_display_bridge(display_manager)
     
     # Wire up flag callback for when a player's time expires
     def _on_flag(color: str):

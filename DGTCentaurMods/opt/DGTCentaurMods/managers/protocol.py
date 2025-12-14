@@ -203,18 +203,6 @@ class ProtocolManager:
     # GameManager Callback Delegation (Law of Demeter compliance)
     # =========================================================================
     
-    def set_on_check(self, callback):
-        """Set callback for check alerts. Callback(is_black_in_check, attacker_sq, king_sq)."""
-        self.game_manager.on_check = callback
-    
-    def set_on_queen_threat(self, callback):
-        """Set callback for queen threat alerts. Callback(is_black_threatened, attacker_sq, queen_sq)."""
-        self.game_manager.on_queen_threat = callback
-    
-    def set_on_alert_clear(self, callback):
-        """Set callback to clear alerts. Callback()."""
-        self.game_manager.on_alert_clear = callback
-    
     def set_on_terminal_position(self, callback):
         """Set callback for terminal positions. Callback(result, termination)."""
         self.game_manager.on_terminal_position = callback
@@ -239,16 +227,17 @@ class ProtocolManager:
         """Set callback to cancel king-lift resign. Callback()."""
         self.game_manager.on_king_lift_resign_cancel = callback
     
-    def set_clock_callbacks(self, get_times_callback, set_times_callback):
-        """Set clock time callbacks for database storage and Lichess sync.
+    def set_display_bridge(self, bridge) -> None:
+        """Set the display bridge for consolidated display operations.
+        
+        The DisplayBridge provides a unified interface for all display-related
+        operations including clock times, eval scores, alerts, and position updates.
         
         Args:
-            get_times_callback: () -> (white_seconds, black_seconds)
-            set_times_callback: (white_seconds, black_seconds) -> None
+            bridge: Object implementing the DisplayBridge protocol
         """
-        self.game_manager.get_clock_times = get_times_callback
-        self.game_manager.set_clock_times = set_times_callback
-    
+        self.game_manager.display_bridge = bridge
+
     def set_on_promotion_needed(self, callback):
         """Set callback for promotion selection. Callback(is_white) -> piece_symbol."""
         self.game_manager.on_promotion_needed = callback

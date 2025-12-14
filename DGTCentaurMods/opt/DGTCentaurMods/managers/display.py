@@ -468,14 +468,46 @@ class DisplayManager:
     
     def get_clock_times(self) -> tuple:
         """Get the current clock times for both players.
-        
+
         Returns:
             Tuple of (white_seconds, black_seconds), or (None, None) if no clock
         """
         if self.clock_widget:
             return self.clock_widget.get_final_times()
         return (None, None)
-    
+
+    def get_eval_score(self) -> int:
+        """Get the current evaluation score in centipawns.
+
+        Returns:
+            Evaluation score in centipawns (from white's perspective), or None if unavailable.
+            Score is multiplied by 100 to convert from pawns to centipawns.
+        """
+        if self.analysis_widget:
+            # score_value is in pawns (-12 to +12), convert to centipawns
+            return int(self.analysis_widget.score_value * 100)
+        return None
+
+    def set_score_history(self, centipawn_scores: list) -> None:
+        """Set the score history from database values (for restoring on resume).
+
+        Args:
+            centipawn_scores: List of scores in centipawns (integers).
+                             Will be converted to pawns for the widget.
+        """
+        if self.analysis_widget and centipawn_scores:
+            # Convert centipawns to pawns (-12 to +12 clamped)
+            pawn_scores = []
+            for cp in centipawn_scores:
+                if cp is not None:
+                    pawn_score = cp / 100.0
+                    # Clamp to display range
+                    pawn_score = max(-12, min(12, pawn_score))
+                    pawn_scores.append(pawn_score)
+            if pawn_scores:
+                self.analysis_widget.set_score_history(pawn_scores)
+                log.info(f"[DisplayManager] Restored {len(pawn_scores)} scores to analysis widget")
+
     def set_on_flag(self, callback) -> None:
         """Set callback for when a player's time expires (flag).
         
@@ -510,9 +542,11 @@ class DisplayManager:
         if self.alert_widget:
             self.alert_widget.show_check(is_black_in_check, attacker_square, king_square)
     
-    def show_queen_threat_alert(self, is_black_queen_threatened: bool, 
-                                 attacker_square: int, queen_square: int) -> None:
+    def show_queen_threat(self, is_black_queen_threatened: bool, 
+                          attacker_square: int, queen_square: int) -> None:
         """Show YOUR QUEEN alert and flash LEDs from attacker to queen.
+        
+        Part of DisplayBridge interface.
         
         Args:
             is_black_queen_threatened: True if black queen is threatened, False if white
@@ -522,10 +556,17 @@ class DisplayManager:
         if self.alert_widget:
             self.alert_widget.show_queen_threat(is_black_queen_threatened, attacker_square, queen_square)
     
-    def hide_alert(self) -> None:
-        """Hide the alert widget."""
+    def clear_alerts(self) -> None:
+        """Clear any active alerts from the display.
+        
+        Part of DisplayBridge interface.
+        """
         if self.alert_widget:
             self.alert_widget.hide()
+    
+    def hide_alert(self) -> None:
+        """Hide the alert widget. Alias for clear_alerts."""
+        self.clear_alerts()
     
     def show_promotion_menu(self, is_white: bool) -> str:
         """Show promotion piece selection menu.

@@ -55,6 +55,8 @@ class GameMove(Base):
     # Clock times in seconds remaining after this move (nullable for backward compatibility)
     white_clock = Column(Integer, nullable=True)
     black_clock = Column(Integer, nullable=True)
+    # Analysis score (centipawns from white's perspective, nullable for backward compatibility)
+    eval_score = Column(Integer, nullable=True)
 
     game = relationship("Game")
 
@@ -77,6 +79,9 @@ try:
             conn.commit()
         if 'black_clock' not in columns:
             conn.execute(text('ALTER TABLE gameMove ADD COLUMN black_clock INTEGER'))
+            conn.commit()
+        if 'eval_score' not in columns:
+            conn.execute(text('ALTER TABLE gameMove ADD COLUMN eval_score INTEGER'))
             conn.commit()
 except Exception:
     # Migration may fail if table doesn't exist yet (first run) - that's ok
