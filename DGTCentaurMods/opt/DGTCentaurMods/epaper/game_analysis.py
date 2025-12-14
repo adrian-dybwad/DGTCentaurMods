@@ -16,6 +16,7 @@ Annotation symbols based on score change:
 
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget
+from .text import TextWidget, Justify
 import os
 import queue
 import threading
@@ -32,8 +33,10 @@ class GameAnalysisWidget(Widget):
     """Widget displaying chess game analysis with horizontal split layout.
     
     Layout:
-    - Left column (40px wide): Score text (large), annotation symbol, vertical eval bar
-    - Right column (88px wide): Full-height history graph with center line
+    - Left column (40px wide): Score text (large), annotation symbol
+    - Right column (88px wide): Full-height history graph with eval bar at end
+    
+    Uses TextWidget for score and annotation display.
     """
     
     # Default position: below the chess clock widget
@@ -41,8 +44,8 @@ class GameAnalysisWidget(Widget):
     DEFAULT_HEIGHT = 80
     
     # Layout constants
-    SCORE_COLUMN_WIDTH = 40  # Score text, annotation, and eval bar
-    EVAL_BAR_WIDTH = 4  # Narrowed by 2px as requested
+    SCORE_COLUMN_WIDTH = 40  # Score text and annotation
+    EVAL_BAR_WIDTH = 4  # Vertical evaluation bar width
     
     def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None, 
                  bottom_color: str = "black", analysis_engine=None,
@@ -69,9 +72,6 @@ class GameAnalysisWidget(Widget):
         self.score_history = []
         self.last_annotation = ""  # Current move annotation (!, ??, etc.)
         self.bottom_color = bottom_color  # "white" or "black" - color at bottom of board
-        self._font_small = self._load_font(12)
-        self._font_large = self._load_font(18)
-        self._font_annotation = self._load_font(14)
         self._max_history_size = 200
         self.analysis_engine = analysis_engine
         self._show_score_bar = show_score_bar
@@ -80,30 +80,26 @@ class GameAnalysisWidget(Widget):
         # Track previous score for annotation calculation
         self._previous_score = 0.0
         
+        # Create TextWidgets for score and annotation (center-justified in left column)
+        # These are rendered into the main widget's image during render()
+        self._score_text_widget = TextWidget(
+            x=0, y=4, 
+            width=self.SCORE_COLUMN_WIDTH, height=24,
+            text="+0.0", font_size=18, 
+            justify=Justify.CENTER, transparent=True
+        )
+        self._annotation_text_widget = TextWidget(
+            x=0, y=28,
+            width=self.SCORE_COLUMN_WIDTH, height=20,
+            text="", font_size=14,
+            justify=Justify.CENTER, transparent=True
+        )
+        
         # Analysis queue and worker thread
         self._analysis_queue = queue.Queue(maxsize=50)
         self._analysis_worker_thread = None
         self._analysis_worker_stop = threading.Event()
         self._start_analysis_worker()
-    
-    def _load_font(self, size: int = 12):
-        """Load font with fallbacks.
-        
-        Args:
-            size: Font size in points
-        """
-        font_paths = [
-            '/opt/DGTCentaurMods/resources/Font.ttc',
-            'resources/Font.ttc',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-        ]
-        for path in font_paths:
-            if os.path.exists(path):
-                try:
-                    return ImageFont.truetype(path, size)
-                except:
-                    pass
-        return ImageFont.load_default()
     
     def _calculate_annotation(self, current_score: float, previous_score: float) -> str:
         """Calculate annotation symbol based on score change.
@@ -474,7 +470,7 @@ class GameAnalysisWidget(Widget):
         graph_right = self.width - 2
         graph_width = graph_right - graph_x
         
-        # === LEFT COLUMN: Score text, annotation ===
+        # === LEFT COLUMN: Score text, annotation (center-justified) ===
         if self._show_score_bar:
             # Draw vertical separator between score column and graph
             draw.line([(left_col_width, 2), (left_col_width, self.height - 2)], fill=0, width=1)
@@ -492,18 +488,18 @@ class GameAnalysisWidget(Widget):
                 else:
                     display_score_text = f"{display_score_value:.1f}"
             
-            # Draw score text (top of column)
-            text_x = 2
-            score_y = 8
-            draw.text((text_x, score_y), display_score_text, font=self._font_large, fill=0)
+            # Draw score text directly onto image (center-justified)
+            self._score_text_widget.set_text(display_score_text)
+            self._score_text_widget.draw_on(img, 0, 4)
             
-            # Annotation symbol (below score)
+            # Draw annotation directly onto image (center-justified, below score)
             if self.last_annotation:
-                annot_y = score_y + 24
-                draw.text((text_x, annot_y), self.last_annotation, font=self._font_annotation, fill=0)
+                self._annotation_text_widget.set_text(self.last_annotation)
+                self._annotation_text_widget.draw_on(img, 0, 32)
         
         # === RIGHT SECTION: History graph (excluding last value, shown in eval bar) ===
         # Draw all but the last score in history; the eval bar shows the current/last value
+        # Graph is right-justified: newest values are near the eval bar
         history_to_draw = self.score_history[:-1] if len(self.score_history) > 1 else []
         
         if self._show_graph and len(history_to_draw) > 0:
@@ -524,7 +520,10 @@ class GameAnalysisWidget(Widget):
             half_height = graph_height // 2
             scale = half_height / 12.0
             
-            bar_offset = graph_x
+            # Right-justify: calculate starting offset so bars end at graph_right
+            total_bars_width = bar_width * len(history_to_draw)
+            bar_offset = graph_right - total_bars_width
+            
             for score in history_to_draw:
                 # Adjust score for display if bottom_color is black
                 adjusted_score = -score if self.bottom_color == "black" else score

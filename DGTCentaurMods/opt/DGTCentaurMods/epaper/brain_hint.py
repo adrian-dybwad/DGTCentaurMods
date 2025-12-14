@@ -4,11 +4,13 @@ Brain hint widget displaying the suggested piece type for Hand+Brain mode.
 Shows a large single letter indicating which piece type the "brain" (engine)
 suggests moving. Used in Hand+Brain chess variant where the engine picks
 the piece type and the human picks the specific move.
+
+Uses TextWidget for all text rendering.
 """
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from .framework.widget import Widget
-import os
+from .text import TextWidget, Justify
 
 
 class BrainHintWidget(Widget):
@@ -17,6 +19,8 @@ class BrainHintWidget(Widget):
     Shows a large letter (K, Q, R, B, N, P) indicating which piece type
     the engine recommends moving. The player must then choose which
     specific piece of that type to move and where.
+    
+    Uses TextWidget for text rendering.
     """
     
     def __init__(self, x: int, y: int, width: int = 128, height: int = 72):
@@ -30,30 +34,14 @@ class BrainHintWidget(Widget):
         """
         super().__init__(x, y, width, height)
         self._piece_letter = ""  # Empty = no hint shown
-        self._font_large = self._load_font(48)
-        self._font_small = self._load_font(12)
-    
-    def _load_font(self, size: int):
-        """Load font with fallbacks.
         
-        Args:
-            size: Font size in points
-            
-        Returns:
-            PIL ImageFont object
-        """
-        font_paths = [
-            '/opt/DGTCentaurMods/resources/Font.ttc',
-            'resources/Font.ttc',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-        ]
-        for path in font_paths:
-            if os.path.exists(path):
-                try:
-                    return ImageFont.truetype(path, size)
-                except Exception:
-                    pass
-        return ImageFont.load_default()
+        # Create TextWidgets for label and piece letter
+        self._label_text = TextWidget(x=0, y=2, width=width, height=14,
+                                       text="BRAIN:", font_size=12,
+                                       justify=Justify.CENTER, transparent=True)
+        self._piece_text = TextWidget(x=0, y=16, width=width, height=56,
+                                       text="", font_size=48,
+                                       justify=Justify.CENTER, transparent=True)
     
     def set_piece(self, piece_symbol: str) -> None:
         """Set the piece type to display.
@@ -75,7 +63,7 @@ class BrainHintWidget(Widget):
         self.set_piece("")
     
     def render(self) -> Image.Image:
-        """Render the brain hint widget.
+        """Render the brain hint widget using TextWidgets.
         
         Returns:
             PIL Image with the rendered widget
@@ -85,23 +73,14 @@ class BrainHintWidget(Widget):
             return self._last_rendered
         
         img = Image.new("1", (self.width, self.height), 255)
-        draw = ImageDraw.Draw(img)
         
         if self._piece_letter:
-            # Draw "BRAIN:" label at top
-            label = "BRAIN:"
-            label_bbox = draw.textbbox((0, 0), label, font=self._font_small)
-            label_width = label_bbox[2] - label_bbox[0]
-            label_x = (self.width - label_width) // 2
-            draw.text((label_x, 2), label, font=self._font_small, fill=0)
+            # Draw "BRAIN:" label at top directly onto image
+            self._label_text.draw_on(img, 0, 2)
             
-            # Draw large piece letter centered
-            letter_bbox = draw.textbbox((0, 0), self._piece_letter, font=self._font_large)
-            letter_width = letter_bbox[2] - letter_bbox[0]
-            letter_height = letter_bbox[3] - letter_bbox[1]
-            letter_x = (self.width - letter_width) // 2
-            letter_y = 16 + (self.height - 16 - letter_height) // 2
-            draw.text((letter_x, letter_y), self._piece_letter, font=self._font_large, fill=0)
+            # Draw large piece letter centered directly onto image
+            self._piece_text.set_text(self._piece_letter)
+            self._piece_text.draw_on(img, 0, 16)
         
         # Cache the rendered image
         self._last_rendered = img

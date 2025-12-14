@@ -7,6 +7,7 @@ button menus on the small e-paper display.
 
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget, DITHER_PATTERNS
+from .text import TextWidget, Justify
 from typing import Optional
 import math
 
@@ -95,42 +96,52 @@ class IconButtonWidget(Widget):
         self.font_size = font_size
         self.bold = bold
         
-        # Load font
-        self._font = None
-        self._load_font()
+        # TextWidgets for label rendering - cached by (width, centered, bold) key
+        # Text content is set dynamically via set_text()
+        self._text_widgets_cache = {}
     
-    def _load_font(self):
-        """Load font for label rendering at configured size."""
-        try:
-            if AssetManager:
-                self._font = ImageFont.truetype(
-                    AssetManager.get_resource_path("Font.ttc"), 
-                    self.font_size
-                )
-            else:
-                self._font = ImageFont.load_default()
-        except Exception as e:
-            log.error(f"Failed to load font: {e}")
-            self._font = ImageFont.load_default()
-    
-    def _draw_text(self, draw: ImageDraw.Draw, xy: tuple, text: str, fill: int):
-        """Draw text with optional bold effect.
-        
-        Simulates bold by drawing text multiple times with 1-pixel offsets.
+    def _get_cached_text_widget(self, width: int, centered: bool) -> TextWidget:
+        """Get or create a cached TextWidget for the given parameters.
         
         Args:
-            draw: ImageDraw object
-            xy: (x, y) position for text
-            text: Text string to draw
-            fill: Color value (0 or 255)
+            width: Width for text widget
+            centered: If True, center-justify the text
+            
+        Returns:
+            Cached TextWidget instance
         """
-        x, y = xy
-        if self.bold:
-            # Draw text multiple times with slight offsets to simulate bold
-            draw.text((x, y), text, font=self._font, fill=fill)
-            draw.text((x + 1, y), text, font=self._font, fill=fill)
-        else:
-            draw.text((x, y), text, font=self._font, fill=fill)
+        cache_key = (width, centered, self.bold)
+        
+        if cache_key not in self._text_widgets_cache:
+            line_height = self.font_size + 4
+            widget = TextWidget(
+                x=0, y=0, width=width, height=line_height,
+                text="", font_size=self.font_size,
+                justify=Justify.CENTER if centered else Justify.LEFT,
+                transparent=True, bold=self.bold
+            )
+            self._text_widgets_cache[cache_key] = widget
+        
+        return self._text_widgets_cache[cache_key]
+    
+    def _render_text_line(self, img: Image.Image, text: str, x: int, y: int, 
+                          width: int, text_color: int, centered: bool = False):
+        """Render a line of text directly onto the target image.
+        
+        Uses TextWidget.draw_on() to avoid creating intermediate images.
+        
+        Args:
+            img: Target image to draw text onto
+            text: Text to render
+            x: X position for text
+            y: Y position for text
+            width: Width for text widget (used for justification)
+            text_color: Text color (0=black, 255=white)
+            centered: If True, center-justify the text
+        """
+        widget = self._get_cached_text_widget(width, centered)
+        widget.set_text(text)
+        widget.draw_on(img, x, y, text_color=text_color)
     
     def set_selected(self, selected: bool) -> None:
         """Set the selection state.
@@ -241,6 +252,8 @@ class IconButtonWidget(Widget):
                                  lines: list, line_height: int, text_color: int):
         """Render button with icon on top, text below (both centered).
         
+        Uses TextWidget for text rendering.
+        
         Args:
             draw: ImageDraw object
             content_left: Left edge of content area
@@ -251,6 +264,8 @@ class IconButtonWidget(Widget):
             line_height: Height of each text line
             text_color: Color for text (0 or 255)
         """
+        img = draw._image  # Get the underlying image
+        
         # Calculate total text height
         text_total_height = len(lines) * line_height
         
@@ -267,15 +282,12 @@ class IconButtonWidget(Widget):
         icon_y = start_y + self.icon_size // 2
         self._draw_icon(draw, self.icon_name, icon_x, icon_y, self.icon_size, self.selected)
         
-        # Draw text centered below icon
+        # Draw text centered below icon using TextWidget
         text_start_y = start_y + self.icon_size + icon_text_gap
         for i, line in enumerate(lines):
-            # Measure text width for centering
-            bbox = draw.textbbox((0, 0), line, font=self._font)
-            text_width = bbox[2] - bbox[0]
-            text_x = content_left + (content_width - text_width) // 2
             text_y = text_start_y + i * line_height
-            self._draw_text(draw, (text_x, text_y), line, text_color)
+            self._render_text_line(img, line, content_left, text_y, 
+                                   content_width, text_color, centered=True)
     
     def _render_horizontal_layout(self, draw: ImageDraw.Draw,
                                    inside_left: int, inside_top: int,
@@ -283,6 +295,7 @@ class IconButtonWidget(Widget):
                                    lines: list, line_height: int, text_color: int):
         """Render button with icon on left, text on right.
         
+        Uses TextWidget for text rendering.
         Both icon and text are centered vertically in the content area.
         
         Args:
@@ -295,6 +308,8 @@ class IconButtonWidget(Widget):
             line_height: Height of each text line
             text_color: Color for text (0 or 255)
         """
+        img = draw._image  # Get the underlying image
+        
         # Draw icon on the left, centered vertically in content area
         icon_left = inside_left + self.icon_margin
         icon_x = icon_left + self.icon_size // 2
@@ -305,20 +320,21 @@ class IconButtonWidget(Widget):
         # Icon right edge (including icon_margin on right side)
         icon_right = icon_left + self.icon_size + self.icon_margin
         
-        # Draw label to the right of icon
+        # Calculate text width (remaining space after icon)
         text_x = icon_right
+        text_width = self.width - text_x - self.margin - self.border_width - self.padding
         
         if len(lines) > 1:
             # Multi-line: center text block vertically
             total_text_height = len(lines) * line_height
             text_y = content_top + (content_height - total_text_height) // 2
             for line in lines:
-                self._draw_text(draw, (text_x, text_y), line, text_color)
+                self._render_text_line(img, line, text_x, text_y, text_width, text_color)
                 text_y += line_height
         else:
             # Single line: center vertically in content area
             text_y = content_top + (content_height - self.label_height) // 2
-            self._draw_text(draw, (text_x, text_y), self.label, text_color)
+            self._render_text_line(img, self.label, text_x, text_y, text_width, text_color)
     
     def get_mask(self):
         """Get mask for transparent margin.

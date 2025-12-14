@@ -8,28 +8,20 @@ evaluation history graph.
 
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget
+from .text import TextWidget, Justify
 import os
 import sys
 from typing import Optional, Tuple
-
-# Import AssetManager - use direct module import to avoid circular import
-try:
-    from DGTCentaurMods.managers.asset import AssetManager
-except ImportError:
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    try:
-        from managers.asset import AssetManager
-    except ImportError:
-        AssetManager = None
 
 
 class GameOverWidget(Widget):
     """
     Widget displaying game over information.
     
-    Replaces the clock widget at game end (y=200, h=56). Shows winner,
-    termination reason, move count, and final times. The analysis widget
-    is repositioned below (y=256, h=40) to show the evaluation history graph.
+    Replaces the clock widget at game end (y=144, h=72). Shows winner,
+    termination reason, move count, and final times using TextWidget.
+    The analysis widget stays in place (y=216, h=80) to show the
+    evaluation history graph.
     """
     
     # Default position: replaces clock widget (board ends at y=144)
@@ -42,9 +34,9 @@ class GameOverWidget(Widget):
         
         Args:
             x: X position (default 0)
-            y: Y position (default 200, below board, replacing clock)
+            y: Y position (default 144, below board, replacing clock)
             width: Widget width (default 128)
-            height: Widget height (default 36)
+            height: Widget height (default 72)
         """
         if y is None:
             y = self.DEFAULT_Y
@@ -60,33 +52,19 @@ class GameOverWidget(Widget):
         self.white_time: Optional[int] = None  # Final white time in seconds
         self.black_time: Optional[int] = None  # Final black time in seconds
         
-        self._font_large = self._load_font(16)
-        self._font_medium = self._load_font(12)
-        self._font_small = self._load_font(10)
-    
-    def _load_font(self, size: int):
-        """Load font with Font.ttc as default."""
-        if AssetManager is not None:
-            try:
-                font_path = AssetManager.get_resource_path("Font.ttc")
-                if font_path and os.path.exists(font_path):
-                    return ImageFont.truetype(font_path, size)
-            except Exception:
-                pass
-        
-        # Fallback paths
-        font_paths = [
-            '/opt/DGTCentaurMods/resources/Font.ttc',
-            'resources/Font.ttc',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-        ]
-        for path in font_paths:
-            if os.path.exists(path):
-                try:
-                    return ImageFont.truetype(path, size)
-                except Exception:
-                    pass
-        return ImageFont.load_default()
+        # Create TextWidgets for each line (all center-justified)
+        self._winner_text = TextWidget(x=0, y=4, width=width, height=18,
+                                        text="", font_size=16,
+                                        justify=Justify.CENTER, transparent=True)
+        self._termination_text = TextWidget(x=0, y=24, width=width, height=16,
+                                            text="", font_size=12,
+                                            justify=Justify.CENTER, transparent=True)
+        self._moves_text = TextWidget(x=0, y=44, width=width, height=14,
+                                      text="", font_size=10,
+                                      justify=Justify.CENTER, transparent=True)
+        self._times_text = TextWidget(x=0, y=58, width=width, height=14,
+                                      text="", font_size=10,
+                                      justify=Justify.CENTER, transparent=True)
     
     def set_result(self, result: str, termination: str = None, move_count: int = 0,
                    final_times: Optional[Tuple[int, int]] = None) -> None:
@@ -187,7 +165,7 @@ class GameOverWidget(Widget):
     
     def render(self) -> Image.Image:
         """
-        Render game over widget.
+        Render game over widget using TextWidgets.
         
         Layout (72 pixels height):
         - Line 1 (y=4): Winner (e.g., "White wins", "Black wins", "Draw")
@@ -206,35 +184,25 @@ class GameOverWidget(Widget):
         
         # Line 1: Winner (centered, large font)
         if self.winner:
-            winner_bbox = draw.textbbox((0, 0), self.winner, font=self._font_large)
-            winner_width = winner_bbox[2] - winner_bbox[0]
-            winner_x = (self.width - winner_width) // 2
-            draw.text((winner_x, 4), self.winner, font=self._font_large, fill=0)
+            self._winner_text.set_text(self.winner)
+            self._winner_text.draw_on(img, 0, 4)
         
         # Line 2: Termination reason (centered, medium font)
         if self.termination:
-            term_bbox = draw.textbbox((0, 0), self.termination, font=self._font_medium)
-            term_width = term_bbox[2] - term_bbox[0]
-            term_x = (self.width - term_width) // 2
-            draw.text((term_x, 24), self.termination, font=self._font_medium, fill=0)
+            self._termination_text.set_text(self.termination)
+            self._termination_text.draw_on(img, 0, 24)
         
         # Line 3: Move count (centered, small font)
         if self.move_count > 0:
-            moves_text = f"{self.move_count} moves"
-            moves_bbox = draw.textbbox((0, 0), moves_text, font=self._font_small)
-            moves_width = moves_bbox[2] - moves_bbox[0]
-            moves_x = (self.width - moves_width) // 2
-            draw.text((moves_x, 44), moves_text, font=self._font_small, fill=0)
+            self._moves_text.set_text(f"{self.move_count} moves")
+            self._moves_text.draw_on(img, 0, 44)
         
         # Line 4: Final times if available (centered, small font)
         if self.white_time is not None and self.black_time is not None:
             white_str = self._format_time(self.white_time)
             black_str = self._format_time(self.black_time)
-            time_text = f"W:{white_str}  B:{black_str}"
-            time_bbox = draw.textbbox((0, 0), time_text, font=self._font_small)
-            time_width = time_bbox[2] - time_bbox[0]
-            time_x = (self.width - time_width) // 2
-            draw.text((time_x, 58), time_text, font=self._font_small, fill=0)
+            self._times_text.set_text(f"W:{white_str}  B:{black_str}")
+            self._times_text.draw_on(img, 0, 58)
         
         self._last_rendered = img
         return img

@@ -6,22 +6,12 @@ Displays a prominent alert with:
 - YOUR QUEEN: When a queen is under attack, with background color of the threatened queen
 
 The widget also triggers LED flashing from the attacking piece to the threatened piece.
+Uses TextWidget for all text rendering.
 """
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from .framework.widget import Widget
-import os
-import sys
-
-# Import AssetManager - use direct module import to avoid circular import
-try:
-    from DGTCentaurMods.managers.asset import AssetManager
-except ImportError:
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    try:
-        from managers.asset import AssetManager
-    except ImportError:
-        AssetManager = None
+from .text import TextWidget, Justify
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -37,6 +27,7 @@ class AlertWidget(Widget):
     - Black background (white text) = Black piece is threatened
     - White background (black text) = White piece is threatened
     
+    Uses TextWidget for text rendering.
     Attacker/target squares trigger LED flashing from attacker to target.
     """
     
@@ -60,54 +51,17 @@ class AlertWidget(Widget):
         self._attacker_square = None  # Square index (0-63) of attacking piece
         self._target_square = None  # Square index (0-63) of threatened piece
         self.visible = False  # Hidden by default (uses base class attribute)
-        self._font_check = None
-        self._font_queen = None
-        self._load_fonts()
-    
-    def _load_fonts(self):
-        """Load fonts for CHECK and YOUR QUEEN text.
         
-        CHECK uses a single large font, YOUR QUEEN uses smaller font for two lines.
-        """
-        font_path = None
-        
-        if AssetManager is not None:
-            try:
-                font_path = AssetManager.get_resource_path("Font.ttc")
-            except Exception:
-                pass
-        
-        if not font_path or not os.path.exists(font_path):
-            # Fallback paths
-            fallback_paths = [
-                '/opt/DGTCentaurMods/resources/Font.ttc',
-                'resources/Font.ttc',
-                '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-            ]
-            for path in fallback_paths:
-                if os.path.exists(path):
-                    font_path = path
-                    break
-        
-        # Load CHECK font - as large as possible for height
-        # Height is 40px, leave some margin for vertical centering
-        try:
-            if font_path:
-                self._font_check = ImageFont.truetype(font_path, 32)
-            else:
-                self._font_check = ImageFont.load_default()
-        except Exception:
-            self._font_check = ImageFont.load_default()
-        
-        # Load YOUR QUEEN font - smaller for two lines
-        # Each line needs to fit in roughly half the height
-        try:
-            if font_path:
-                self._font_queen = ImageFont.truetype(font_path, 18)
-            else:
-                self._font_queen = ImageFont.load_default()
-        except Exception:
-            self._font_queen = ImageFont.load_default()
+        # Create TextWidgets for CHECK and YOUR QUEEN
+        # CHECK: single large centered text
+        self._check_text = TextWidget(x=0, y=0, width=width, height=height,
+                                       text="CHECK", font_size=32,
+                                       justify=Justify.CENTER, transparent=True)
+        # YOUR QUEEN: two lines centered - use wrap text
+        self._queen_text = TextWidget(x=0, y=0, width=width, height=height,
+                                       text="YOUR\nQUEEN", font_size=18,
+                                       justify=Justify.CENTER, wrapText=True,
+                                       transparent=True)
     
     def show_check(self, is_black_in_check: bool, attacker_square: int, king_square: int) -> None:
         """Show CHECK alert and flash LEDs.
@@ -176,7 +130,7 @@ class AlertWidget(Widget):
     
     
     def render(self) -> Image.Image:
-        """Render alert widget.
+        """Render alert widget using TextWidgets.
         
         Returns transparent (all white) image if not visible.
         Otherwise renders CHECK or YOUR QUEEN with appropriate colors.
@@ -202,46 +156,12 @@ class AlertWidget(Widget):
         draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=bg_color, outline=0)
         
         if self._alert_type == self.ALERT_CHECK:
-            # Draw "CHECK" centered, as large as possible
-            text = "CHECK"
-            font = self._font_check
-            
-            # Get text size for centering
-            bbox = draw.textbbox((0, 0), text, font=font)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-            
-            x = (self.width - text_width) // 2
-            y = (self.height - text_height) // 2 - 2  # Slight upward adjustment
-            
-            draw.text((x, y), text, font=font, fill=text_color)
+            # Draw "CHECK" centered directly onto the background
+            y_offset = (self.height - self._check_text.height) // 2
+            self._check_text.draw_on(img, 0, y_offset, text_color=text_color)
             
         elif self._alert_type == self.ALERT_QUEEN:
-            # Draw "YOUR" and "QUEEN" on two lines, centered
-            font = self._font_queen
-            
-            # First line: "YOUR"
-            text1 = "YOUR"
-            bbox1 = draw.textbbox((0, 0), text1, font=font)
-            text1_width = bbox1[2] - bbox1[0]
-            text1_height = bbox1[3] - bbox1[1]
-            
-            # Second line: "QUEEN"
-            text2 = "QUEEN"
-            bbox2 = draw.textbbox((0, 0), text2, font=font)
-            text2_width = bbox2[2] - bbox2[0]
-            text2_height = bbox2[3] - bbox2[1]
-            
-            # Calculate vertical positioning for two lines
-            total_text_height = text1_height + text2_height + 2  # 2px gap between lines
-            start_y = (self.height - total_text_height) // 2
-            
-            # Draw first line
-            x1 = (self.width - text1_width) // 2
-            draw.text((x1, start_y), text1, font=font, fill=text_color)
-            
-            # Draw second line
-            x2 = (self.width - text2_width) // 2
-            draw.text((x2, start_y + text1_height + 2), text2, font=font, fill=text_color)
+            # Draw "YOUR\nQUEEN" centered directly onto the background
+            self._queen_text.draw_on(img, 0, 0, text_color=text_color)
         
         return img

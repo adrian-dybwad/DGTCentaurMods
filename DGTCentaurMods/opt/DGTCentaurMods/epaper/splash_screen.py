@@ -5,7 +5,7 @@ Displays the knight logo with "UNIVERSAL" text below,
 and an updateable message at the bottom.
 """
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 from .framework.widget import Widget
 from .text import TextWidget, Justify
 from .status_bar import STATUS_BAR_HEIGHT
@@ -68,12 +68,17 @@ class SplashScreen(Widget):
         super().__init__(0, y_pos, 128, height, background_shade=background_shade)
         self.message = message
         self._logo = None
-        self._font = None
-        self._font_large = None
+        self._logo_mask = None
         self._load_resources()
         
         # Calculate text widget dimensions with margins for centering
         text_width = self.width - (self.TEXT_MARGIN * 2)
+        
+        # Create a TextWidget for "UNIVERSAL" title with centered justification
+        self._universal_text = TextWidget(
+            x=0, y=0, width=self.width, height=28,
+            text="UNIVERSAL", font_size=24, justify=Justify.CENTER, transparent=True
+        )
         
         # Create a TextWidget for the message with centered justification and wrapping
         self._text_widget = TextWidget(
@@ -103,7 +108,7 @@ class SplashScreen(Widget):
         self.request_update(full=False)
 
     def _load_resources(self):
-        """Load knight logo image and fonts."""
+        """Load knight logo image."""
         # Load the knight logo bitmap
         try:
             logo_path = AssetManager.get_resource_path("knight_logo.bmp")
@@ -136,21 +141,13 @@ class SplashScreen(Widget):
             # Create a simple placeholder
             self._logo = Image.new("1", (self.LOGO_SIZE, self.LOGO_SIZE), 255)
             self._logo_mask = None
-        
-        # Load fonts for "UNIVERSAL" text
-        try:
-            font_path = AssetManager.get_resource_path("Font.ttc")
-            self._font = ImageFont.truetype(font_path, 16)
-            self._font_large = ImageFont.truetype(font_path, 24)
-        except Exception as e:
-            log.debug(f"Failed to load font, using default: {e}")
-            self._font = ImageFont.load_default()
-            self._font_large = self._font
     
     def render(self) -> Image.Image:
-        """Render the splash screen with knight logo, UNIVERSAL text, and message."""
+        """Render the splash screen with knight logo, UNIVERSAL text, and message.
+        
+        Uses TextWidget for all text rendering.
+        """
         img = self.create_background_image()
-        draw = ImageDraw.Draw(img)
         
         # Draw knight logo centered horizontally with transparency
         logo_x = (self.width - self.LOGO_SIZE) // 2
@@ -159,19 +156,10 @@ class SplashScreen(Widget):
         else:
             img.paste(self._logo, (logo_x, self.LOGO_Y))
         
-        # Draw "UNIVERSAL" text centered with larger font
-        universal_text = "UNIVERSAL"
-        bbox = draw.textbbox((0, 0), universal_text, font=self._font_large)
-        text_width = bbox[2] - bbox[0]
-        x = (self.width - text_width) // 2
-        draw.text((x, self.UNIVERSAL_Y), universal_text, font=self._font_large, fill=0)
+        # Draw "UNIVERSAL" text directly onto the background
+        self._universal_text.draw_on(img, 0, self.UNIVERSAL_Y)
         
-        # Render message widget and paste with mask for transparency
-        text_img = self._text_widget.render()
-        text_mask = self._text_widget.get_mask()
-        if text_mask:
-            img.paste(text_img, (self.TEXT_MARGIN, self.TEXT_Y), text_mask)
-        else:
-            img.paste(text_img, (self.TEXT_MARGIN, self.TEXT_Y))
+        # Draw message text directly onto the background
+        self._text_widget.draw_on(img, self.TEXT_MARGIN, self.TEXT_Y)
         
         return img

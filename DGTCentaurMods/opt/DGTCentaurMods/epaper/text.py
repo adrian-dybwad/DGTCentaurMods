@@ -27,12 +27,25 @@ class Justify(Enum):
 
 
 class TextWidget(Widget):
-    """Text display widget with configurable background dithering, text wrapping, and justification."""
+    """Text display widget with configurable background dithering, text wrapping, justification, and bold.
+    
+    Uses a class-level font cache to avoid redundant font loading across instances.
+    
+    Performance optimizations:
+    - Class-level font cache: fonts are loaded once per (path, size) combination
+    - Pre-rendered text sprites: text is rendered once and cached until settings change
+    - Dirty flag tracking: only re-renders when text or settings actually change
+    - Blit-based draw_on(): cached sprite is copied directly without re-rasterizing
+    """
+    
+    # Class-level font cache: {(font_path, font_size): ImageFont}
+    # Shared across all TextWidget instances to avoid redundant font loading
+    _font_cache = {}
     
     def __init__(self, x: int, y: int, width: int, height: int, text: str = "", 
                  background: int = -1, font_size: int = 12, font_path: str = None,
                  wrapText: bool = False, justify: Justify = Justify.LEFT,
-                 transparent: bool = True):
+                 transparent: bool = True, bold: bool = False):
         """
         Initialize text widget.
         
@@ -56,6 +69,7 @@ class TextWidget(Widget):
             justify: Text justification (Justify.LEFT, Justify.CENTER, or Justify.RIGHT)
             transparent: If True (default), background is transparent and text appears
                         over parent widget's pixels. Overrides background=-1.
+            bold: If True, simulate bold by drawing text twice with 1px horizontal offset
         """
         super().__init__(x, y, width, height)
         self.text = text
@@ -69,28 +83,64 @@ class TextWidget(Widget):
         self.font_path = font_path
         self.wrapText = wrapText
         self.justify = justify
+        self.bold = bold
         self._font = self._load_font()
         self._mask = None  # Cached mask image
+        
+        # Pre-rendered text sprite cache
+        # Key: (text_color,) - we cache one sprite per text color used
+        # This allows efficient draw_on() calls that just blit the cached image
+        self._sprite_cache = {}  # {text_color: Image}
+        self._sprite_cache_key = None  # Hash of settings that affect sprite rendering
     
     def _load_font(self):
-        """Load font with Font.ttc as default."""
+        """Load font with Font.ttc as default.
+        
+        Uses class-level cache to avoid redundant font loading. The cache key
+        is (resolved_font_path, font_size), so the same font file at the same
+        size is only loaded once regardless of how many TextWidget instances
+        use it.
+        """
+        # Resolve the actual font path to use
+        resolved_path = self._resolve_font_path()
+        
+        # Check class-level cache
+        cache_key = (resolved_path, self.font_size)
+        if cache_key in TextWidget._font_cache:
+            return TextWidget._font_cache[cache_key]
+        
+        # Load the font
+        font = None
+        if resolved_path:
+            try:
+                font = ImageFont.truetype(resolved_path, self.font_size)
+            except Exception:
+                pass
+        
+        if font is None:
+            font = ImageFont.load_default()
+        
+        # Cache and return
+        TextWidget._font_cache[cache_key] = font
+        return font
+    
+    def _resolve_font_path(self) -> str:
+        """Resolve the font path to use, checking various fallback locations.
+        
+        Returns:
+            Resolved font path, or None if no font file found
+        """
         # If font_path is explicitly provided, use it
         if self.font_path and os.path.exists(self.font_path):
-            try:
-                return ImageFont.truetype(self.font_path, self.font_size)
-            except:
-                pass
+            return self.font_path
         
         # Default to Font.ttc using AssetManager if available
         if AssetManager is not None:
             try:
                 default_font_path = AssetManager.get_resource_path("Font.ttc")
                 if default_font_path and os.path.exists(default_font_path):
-                    try:
-                        return ImageFont.truetype(default_font_path, self.font_size)
-                    except:
-                        pass
-            except:
+                    return default_font_path
+            except Exception:
                 pass
         
         # Fallback to direct paths
@@ -103,26 +153,37 @@ class TextWidget(Widget):
         ]
         for path in font_paths:
             if os.path.exists(path):
-                try:
-                    return ImageFont.truetype(path, self.font_size)
-                except:
-                    pass
-        return ImageFont.load_default()
+                return path
+        
+        return None
+    
+    def _get_sprite_cache_key(self) -> tuple:
+        """Get a hashable key representing all settings that affect sprite rendering.
+        
+        If this key changes, all cached sprites must be invalidated.
+        """
+        return (self.text, self.width, self.height, self.font_size, 
+                self.wrapText, self.justify, self.bold)
+    
+    def _invalidate_caches(self) -> None:
+        """Invalidate all cached data (sprites, masks, rendered images)."""
+        self._last_rendered = None
+        self._mask = None
+        self._sprite_cache.clear()
+        self._sprite_cache_key = None
     
     def set_text(self, text: str) -> None:
         """Set the text to display."""
         if self.text != text:
             self.text = text
-            self._last_rendered = None
-            self._mask = None  # Invalidate mask cache
+            self._invalidate_caches()
             self.request_update(full=False)
     
     def set_wrap_text(self, wrapText: bool) -> None:
         """Enable or disable text wrapping."""
         if self.wrapText != wrapText:
             self.wrapText = wrapText
-            self._last_rendered = None
-            self._mask = None  # Invalidate mask cache
+            self._invalidate_caches()
             self.request_update(full=False)
     
     def set_background(self, background: int) -> None:
@@ -135,8 +196,7 @@ class TextWidget(Widget):
         if self.background != background:
             self.background = background
             self.transparent = (background == -1)
-            self._last_rendered = None
-            self._mask = None
+            self._invalidate_caches()
             self.request_update(full=False)
     
     def set_transparent(self, transparent: bool) -> None:
@@ -151,17 +211,44 @@ class TextWidget(Widget):
                 self.background = -1
             elif self.background == -1:
                 self.background = 0  # Default to white if was transparent
-            self._last_rendered = None
-            self._mask = None
+            self._invalidate_caches()
             self.request_update(full=False)
     
     def set_justify(self, justify: Justify) -> None:
         """Set text justification."""
         if self.justify != justify:
             self.justify = justify
-            self._last_rendered = None
-            self._mask = None  # Invalidate mask cache
+            self._invalidate_caches()
             self.request_update(full=False)
+    
+    def set_bold(self, bold: bool) -> None:
+        """Set whether text is rendered bold.
+        
+        Bold is simulated by drawing text twice with 1px horizontal offset.
+        
+        Args:
+            bold: If True, render text in bold
+        """
+        if self.bold != bold:
+            self.bold = bold
+            self._invalidate_caches()
+            self.request_update(full=False)
+    
+    def _draw_text(self, draw: ImageDraw.Draw, x: int, y: int, text: str, fill: int) -> None:
+        """Draw text with optional bold effect.
+        
+        Simulates bold by drawing text twice with 1px horizontal offset.
+        
+        Args:
+            draw: ImageDraw object
+            x: X position
+            y: Y position
+            text: Text to draw
+            fill: Color value (0 or 255)
+        """
+        draw.text((x, y), text, font=self._font, fill=fill)
+        if self.bold:
+            draw.text((x + 1, y), text, font=self._font, fill=fill)
     
     def _get_text_width(self, text: str, draw: ImageDraw.Draw) -> int:
         """Get the width of text in pixels.
@@ -261,6 +348,8 @@ class TextWidget(Widget):
     def _create_text_mask(self) -> Image.Image:
         """Create a mask image for transparent text compositing.
         
+        Respects bold setting for consistent mask generation.
+        
         Returns:
             1-bit image where white=opaque (text), black=transparent (background)
         """
@@ -277,11 +366,11 @@ class TextWidget(Widget):
                 if y_pos + line_height > self.height:
                     break
                 x_pos = self._get_x_position(line, draw)
-                # Draw text in white (opaque) on mask
-                draw.text((x_pos, y_pos - 1), line, font=self._font, fill=255)
+                # Draw text in white (opaque) on mask, respecting bold
+                self._draw_text(draw, x_pos, y_pos - 1, line, 255)
         else:
             x_pos = self._get_x_position(self.text, draw)
-            draw.text((x_pos, -1), self.text, font=self._font, fill=255)
+            self._draw_text(draw, x_pos, -1, self.text, 255)
         
         return mask
     
@@ -335,39 +424,131 @@ class TextWidget(Widget):
         
         return lines
     
+    def _render_text_sprite(self, text_color: int) -> Image.Image:
+        """Render text to a sprite image (no background, just text pixels).
+        
+        Creates a white image and draws text in the specified color.
+        The resulting image can be blitted onto target images.
+        
+        Args:
+            text_color: Text color (0=black, 255=white)
+            
+        Returns:
+            Pre-rendered text sprite image
+        """
+        # Create white background image
+        sprite = Image.new("1", (self.width, self.height), 255)
+        draw = ImageDraw.Draw(sprite)
+        
+        if self.wrapText:
+            wrapped_lines = self._wrap_text(self.text, self.width)
+            line_height = self.font_size + 2
+            max_lines = max(1, self.height // line_height)
+            
+            for idx, line in enumerate(wrapped_lines[:max_lines]):
+                y_pos = idx * line_height
+                if y_pos + line_height > self.height:
+                    break
+                x_pos = self._get_x_position(line, draw)
+                self._draw_text(draw, x_pos, y_pos - 1, line, text_color)
+        else:
+            x_pos = self._get_x_position(self.text, draw)
+            self._draw_text(draw, x_pos, -1, self.text, text_color)
+        
+        return sprite
+    
+    def _get_sprite(self, text_color: int) -> Image.Image:
+        """Get cached text sprite, rendering if necessary.
+        
+        Sprites are cached per text_color and invalidated when any rendering
+        setting changes (text, font, justification, etc.).
+        
+        Args:
+            text_color: Text color (0=black, 255=white)
+            
+        Returns:
+            Cached or newly rendered text sprite
+        """
+        # Check if cache is still valid
+        current_key = self._get_sprite_cache_key()
+        if self._sprite_cache_key != current_key:
+            # Settings changed, invalidate all cached sprites
+            self._sprite_cache.clear()
+            self._sprite_cache_key = current_key
+        
+        # Check if we have a cached sprite for this color
+        if text_color not in self._sprite_cache:
+            self._sprite_cache[text_color] = self._render_text_sprite(text_color)
+        
+        return self._sprite_cache[text_color]
+    
+    def draw_on(self, target: Image.Image, x: int, y: int, text_color: int = None) -> None:
+        """Draw text onto a target image using cached sprites.
+        
+        Uses pre-rendered text sprites for efficiency. The sprite is rendered
+        once and cached until text or settings change. Subsequent calls just
+        blit the cached image.
+        
+        Note: This method does NOT draw any background - it only draws the text.
+        The caller is responsible for any background rendering.
+        
+        Args:
+            target: Target image to draw onto
+            x: X offset on target image
+            y: Y offset on target image
+            text_color: Text color (0=black, 255=white). If None, auto-determines
+                       based on background setting.
+        """
+        # Determine text color if not specified
+        if text_color is None:
+            text_fill = 0 if self.background < 3 else 255
+        else:
+            text_fill = text_color
+        
+        # Get cached sprite (rendered on demand)
+        sprite = self._get_sprite(text_fill)
+        
+        # Create mask for transparent blitting (text pixels only)
+        # For black text on white: mask where sprite is black (text) = white (opaque)
+        # For white text on white: we need the inverse
+        if text_fill == 0:
+            # Black text: mask where pixels are black (0)
+            mask = Image.eval(sprite, lambda p: 255 if p == 0 else 0)
+        else:
+            # White text: mask where pixels are white (255) - but sprite bg is also white
+            # We need to use the text mask instead
+            mask = self._get_sprite_mask()
+        
+        # Blit sprite onto target with mask
+        target.paste(sprite, (x, y), mask)
+    
+    def _get_sprite_mask(self) -> Image.Image:
+        """Get mask for white text sprites.
+        
+        For white text, we can't distinguish text from background by color.
+        We use the cached mask instead.
+        
+        Returns:
+            Mask image where text pixels are white (opaque)
+        """
+        if self._mask is None:
+            self._mask = self._create_text_mask()
+        return self._mask
+    
     def render(self) -> Image.Image:
-        """Render text with background and justification.
+        """Render text with background, justification, and optional bold.
+        
+        Creates a new image and draws the text onto it. For better performance
+        when compositing onto a parent widget, use draw_on() instead.
         
         For transparent backgrounds, the text is rendered as black on white.
         The actual transparency is handled by get_mask() during compositing.
         """
         img = self._create_dither_pattern()
-        draw = ImageDraw.Draw(img)
         
-        # Determine text color based on background
-        # For transparent (-1) or backgrounds 0-2, use black text; for 3-5, use white text
+        # Use draw_on to render text onto the background image
+        # Pass text_color explicitly since background is already drawn
         text_fill = 0 if self.background < 3 else 255
-        
-        if self.wrapText:
-            # Wrap text to fit within widget width
-            wrapped_lines = self._wrap_text(self.text, self.width)
-            
-            # Calculate line height based on font size
-            # Use font size + 2 pixels for spacing
-            line_height = self.font_size + 2
-            
-            # Draw each line, respecting widget height
-            max_lines = max(1, self.height // line_height)
-            for idx, line in enumerate(wrapped_lines[:max_lines]):
-                y_pos = idx * line_height
-                # Stop if line would exceed widget height
-                if y_pos + line_height > self.height:
-                    break
-                x_pos = self._get_x_position(line, draw)
-                draw.text((x_pos, y_pos - 1), line, font=self._font, fill=text_fill)
-        else:
-            # Single line text with justification
-            x_pos = self._get_x_position(self.text, draw)
-            draw.text((x_pos, -1), self.text, font=self._font, fill=text_fill)
+        self.draw_on(img, 0, 0, text_color=text_fill)
         
         return img

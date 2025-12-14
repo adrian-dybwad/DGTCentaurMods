@@ -10,6 +10,7 @@ The widget height is 36 pixels, leaving room for the analysis widget below.
 
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget
+from .text import TextWidget, Justify
 import os
 import sys
 import threading
@@ -22,16 +23,6 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
-# Import AssetManager for font loading
-try:
-    from DGTCentaurMods.managers.asset import AssetManager
-except ImportError:
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    try:
-        from managers.asset import AssetManager
-    except ImportError:
-        AssetManager = None
-
 
 class ChessClockWidget(Widget):
     """
@@ -41,13 +32,17 @@ class ChessClockWidget(Widget):
     - Timed mode: Shows remaining time for both players with turn indicator
     - Compact/untimed mode: Shows "White Turn" or "Black Turn" centered
     
-    Layout (36 pixels height, 128 pixels width):
+    Uses TextWidget for all text rendering.
+    
+    Layout (72 pixels height, 128 pixels width):
     Timed mode:
-    - Left side: White time with indicator
-    - Right side: Black time with indicator
+    - Top section: [indicator] White  MM:SS
+    - Separator line
+    - Bottom section: [indicator] Black  MM:SS
     
     Compact mode:
-    - Centered text: "White Turn" or "Black Turn"
+    - Large indicator circle
+    - Centered text: "White's Turn" or "Black's Turn"
     """
     
     # Position directly below the board (board is at y=16, height=128)
@@ -61,9 +56,9 @@ class ChessClockWidget(Widget):
         
         Args:
             x: X position (default 0)
-            y: Y position (default 200, directly below board)
+            y: Y position (default 144, directly below board)
             width: Widget width (default 128)
-            height: Widget height (default 36)
+            height: Widget height (default 72)
             timed_mode: Whether to show times (True) or just turn indicator (False)
         """
         if y is None:
@@ -86,40 +81,34 @@ class ChessClockWidget(Widget):
         self._update_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         
-        # Fonts
-        self._font_time = self._load_font(16)  # For time display
-        self._font_label = self._load_font(10)  # For "White"/"Black" labels
-        self._font_turn = self._load_font(14)  # For "White Turn"/"Black Turn"
+        # Create TextWidgets for timed mode
+        # White label (left aligned, after indicator)
+        self._white_label = TextWidget(x=20, y=0, width=40, height=16, 
+                                        text="White", font_size=10, 
+                                        justify=Justify.LEFT, transparent=True)
+        # White time (right aligned)
+        self._white_time_text = TextWidget(x=60, y=0, width=64, height=20,
+                                           text="00:00", font_size=16,
+                                           justify=Justify.RIGHT, transparent=True)
+        # Black label
+        self._black_label = TextWidget(x=20, y=0, width=40, height=16,
+                                       text="Black", font_size=10,
+                                       justify=Justify.LEFT, transparent=True)
+        # Black time
+        self._black_time_text = TextWidget(x=60, y=0, width=64, height=20,
+                                           text="00:00", font_size=16,
+                                           justify=Justify.RIGHT, transparent=True)
+        
+        # Create TextWidget for compact mode (turn indicator text)
+        self._turn_text = TextWidget(x=0, y=0, width=width, height=20,
+                                     text="White's Turn", font_size=16,
+                                     justify=Justify.CENTER, transparent=True)
         
         # Track last state to avoid unnecessary updates
         self._last_white_time = None
         self._last_black_time = None
         self._last_active = None
         self._last_timed_mode = None
-    
-    def _load_font(self, size: int):
-        """Load font with fallbacks."""
-        if AssetManager is not None:
-            try:
-                font_path = AssetManager.get_resource_path("Font.ttc")
-                if font_path and os.path.exists(font_path):
-                    return ImageFont.truetype(font_path, size)
-            except Exception:
-                pass
-        
-        # Fallback paths
-        font_paths = [
-            '/opt/DGTCentaurMods/resources/Font.ttc',
-            'resources/Font.ttc',
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-        ]
-        for path in font_paths:
-            if os.path.exists(path):
-                try:
-                    return ImageFont.truetype(path, size)
-                except Exception:
-                    pass
-        return ImageFont.load_default()
     
     @property
     def timed_mode(self) -> bool:
@@ -346,11 +335,14 @@ class ChessClockWidget(Widget):
         """
         Render timed mode: stacked layout with white on top, black below.
         
+        Uses TextWidget for labels and times.
+        
         Layout (72 pixels height):
         - Top section: [indicator] White  MM:SS
         - Separator line
         - Bottom section: [indicator] Black  MM:SS
         """
+        img = draw._image  # Get the image from the draw context
         section_height = (self.height - 4) // 2  # -4 for top/middle separators
         
         # === WHITE SECTION (top) ===
@@ -366,14 +358,12 @@ class ChessClockWidget(Widget):
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=255, outline=0)
         
-        # "White" label
-        draw.text((20, white_y + 2), "White", font=self._font_label, fill=0)
+        # "White" label using TextWidget - draw directly onto image
+        self._white_label.draw_on(img, 20, white_y + 2)
         
-        # White time (right aligned, large font)
-        white_time_str = self._format_time(self._white_time)
-        time_bbox = draw.textbbox((0, 0), white_time_str, font=self._font_time)
-        time_width = time_bbox[2] - time_bbox[0]
-        draw.text((self.width - time_width - 4, white_y + 10), white_time_str, font=self._font_time, fill=0)
+        # White time using TextWidget - draw directly onto image
+        self._white_time_text.set_text(self._format_time(self._white_time))
+        self._white_time_text.draw_on(img, self.width - 68, white_y + 8)
         
         # Horizontal separator
         separator_y = self.height // 2
@@ -391,23 +381,25 @@ class ChessClockWidget(Widget):
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=255, outline=0)
         
-        # "Black" label
-        draw.text((20, black_y + 2), "Black", font=self._font_label, fill=0)
+        # "Black" label using TextWidget - draw directly onto image
+        self._black_label.draw_on(img, 20, black_y + 2)
         
-        # Black time (right aligned, large font)
-        black_time_str = self._format_time(self._black_time)
-        time_bbox = draw.textbbox((0, 0), black_time_str, font=self._font_time)
-        time_width = time_bbox[2] - time_bbox[0]
-        draw.text((self.width - time_width - 4, black_y + 10), black_time_str, font=self._font_time, fill=0)
+        # Black time using TextWidget - draw directly onto image
+        self._black_time_text.set_text(self._format_time(self._black_time))
+        self._black_time_text.draw_on(img, self.width - 68, black_y + 8)
     
     def _render_compact_mode(self, draw: ImageDraw.Draw) -> None:
         """
         Render compact mode: large centered turn indicator.
         
+        Uses TextWidget for turn text.
+        
         Layout (72 pixels height):
         - Large indicator circle (filled for black, empty for white)
         - "White's Turn" or "Black's Turn" text below
         """
+        img = draw._image  # Get the image from the draw context
+        
         # Determine text
         if self._active_color == 'black':
             turn_text = "Black's Turn"
@@ -431,9 +423,7 @@ class ChessClockWidget(Widget):
                          (indicator_x + indicator_size, indicator_y + indicator_size)], 
                         fill=255, outline=0, width=2)
         
-        # Turn text below indicator (centered)
-        text_bbox = draw.textbbox((0, 0), turn_text, font=self._font_time)
-        text_width = text_bbox[2] - text_bbox[0]
-        text_x = (self.width - text_width) // 2
+        # Turn text below indicator using TextWidget (centered) - draw directly
+        self._turn_text.set_text(turn_text)
         text_y = indicator_y + indicator_size + 6
-        draw.text((text_x, text_y), turn_text, font=self._font_time, fill=0)
+        self._turn_text.draw_on(img, 0, text_y)
