@@ -432,6 +432,25 @@ class DisplayManager:
         if self.clock_widget:
             self.clock_widget.stop()
     
+    def get_clock_times(self) -> tuple:
+        """Get the current clock times for both players.
+        
+        Returns:
+            Tuple of (white_seconds, black_seconds), or (None, None) if no clock
+        """
+        if self.clock_widget:
+            return self.clock_widget.get_final_times()
+        return (None, None)
+    
+    def set_on_flag(self, callback) -> None:
+        """Set callback for when a player's time expires (flag).
+        
+        Args:
+            callback: Function(color: str) where color is 'white' or 'black'
+        """
+        if self.clock_widget:
+            self.clock_widget.on_flag = callback
+    
     def set_brain_hint(self, piece_symbol: str) -> None:
         """Set the brain hint piece type for Hand+Brain mode.
         

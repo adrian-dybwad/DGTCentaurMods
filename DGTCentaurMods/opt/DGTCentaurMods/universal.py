@@ -384,7 +384,8 @@ def _get_incomplete_game() -> Optional[dict]:
     
     Returns:
         Dictionary with game data if found, None otherwise.
-        Dict contains: id, source, fen (last position), moves (list of move strings)
+        Dict contains: id, source, fen (last position), moves (list of move strings),
+                      white_clock, black_clock (seconds remaining, or None if not stored)
     """
     try:
         from sqlalchemy.orm import sessionmaker
@@ -412,9 +413,13 @@ def _get_incomplete_game() -> Optional[dict]:
                 log.debug(f"[Resume] Game {game.id} has no moves, cannot resume")
                 return None
             
-            # Get the last FEN position
+            # Get the last FEN position and clock times
             last_move = moves[-1]
             last_fen = last_move.fen
+            
+            # Get clock times from the last move (may be None for older games)
+            white_clock = getattr(last_move, 'white_clock', None)
+            black_clock = getattr(last_move, 'black_clock', None)
             
             # Extract move list (skip empty starting move if present)
             move_list = [m.move for m in moves if m.move]
@@ -426,6 +431,8 @@ def _get_incomplete_game() -> Optional[dict]:
             
             log.info(f"[Resume] Found incomplete game: id={game.id}, source={game.source}, "
                     f"moves={len(move_list)}, last_fen={last_fen[:30]}...")
+            if white_clock is not None and black_clock is not None:
+                log.info(f"[Resume] Clock times: white={white_clock}s, black={black_clock}s")
             
             return {
                 'id': game.id,
@@ -433,7 +440,9 @@ def _get_incomplete_game() -> Optional[dict]:
                 'fen': last_fen,
                 'moves': move_list,
                 'white': game.white,
-                'black': game.black
+                'black': game.black,
+                'white_clock': white_clock,
+                'black_clock': black_clock
             }
         finally:
             session.close()
@@ -497,6 +506,13 @@ def _resume_game(game_data: dict) -> bool:
         # Update the display to show the current position
         if protocol_manager:
             protocol_manager._update_display()
+        
+        # Restore clock times if available
+        white_clock = game_data.get('white_clock')
+        black_clock = game_data.get('black_clock')
+        if white_clock is not None and black_clock is not None and display_manager:
+            display_manager.set_clock_times(white_clock, black_clock)
+            log.info(f"[Resume] Clock times restored: white={white_clock}s, black={black_clock}s")
         
         # Check if physical board matches the resumed position
         current_physical_state = board.getChessState()
@@ -1083,19 +1099,19 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         indicate which side is resigning.
         """
         # Reset the kings-in-center menu flag (in case this was triggered by that menu)
-        protocol_manager.game_manager._kings_in_center_menu_active = False
+        protocol_manager.reset_kings_in_center_menu_flag()
         
         if result == "resign":
-            protocol_manager.game_manager.handle_resign()
+            protocol_manager.handle_resign()
             _return_to_menu("Resigned")
         elif result == "resign_white":
-            protocol_manager.game_manager.handle_resign(chess.WHITE)
+            protocol_manager.handle_resign(chess.WHITE)
             _return_to_menu("White Resigned")
         elif result == "resign_black":
-            protocol_manager.game_manager.handle_resign(chess.BLACK)
+            protocol_manager.handle_resign(chess.BLACK)
             _return_to_menu("Black Resigned")
         elif result == "draw":
-            protocol_manager.game_manager.handle_draw()
+            protocol_manager.handle_draw()
             _return_to_menu("Draw")
         elif result == "exit":
             board.shutdown(reason="User selected 'exit' from game menu")
@@ -1147,17 +1163,17 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     log.info(f"[App] ProtocolManager created: engine={None if is_two_player else engine_name}, elo={engine_elo}, color={player_color_setting}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
     
     # Wire up GameManager callbacks to DisplayManager
-    protocol_manager.game_manager.on_promotion_needed = display_manager.show_promotion_menu
+    protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)
     
     # For position games, skip the resign/draw menu and return directly
     if is_position_game:
-        protocol_manager.game_manager.on_back_pressed = _on_position_game_back
+        protocol_manager.set_on_back_pressed(_on_position_game_back)
     else:
         # In 2-player mode, show separate resign options for white and black
-        protocol_manager.game_manager.on_back_pressed = lambda: display_manager.show_back_menu(
+        protocol_manager.set_on_back_pressed(lambda: display_manager.show_back_menu(
             _on_back_menu_result, 
             is_two_player=protocol_manager.is_two_player_mode
-        )
+        ))
     
     # Kings-in-center gesture (DGT resign/draw) - only for 2-player mode
     # In engine games, moving kings to center would just trigger correction mode
@@ -1166,27 +1182,27 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         def _on_kings_in_center():
             board.beep(board.SOUND_GENERAL, event_type='game_event')  # Beep to confirm gesture recognized
             display_manager.show_back_menu(_on_back_menu_result, is_two_player=True)
-        protocol_manager.game_manager.on_kings_in_center = _on_kings_in_center
+        protocol_manager.set_on_kings_in_center(_on_kings_in_center)
         # Cancel callback simulates BACK key press to properly dismiss menu
-        protocol_manager.game_manager.on_kings_in_center_cancel = display_manager.cancel_menu
+        protocol_manager.set_on_kings_in_center_cancel(display_manager.cancel_menu)
     
     # King-lift resign gesture - works in any game mode for human player's king
     # When king is held off board for 3+ seconds, show resign confirmation
     def _on_king_lift_resign_result(result: str):
         """Handle result from king-lift resign menu."""
         # Reset the menu flag
-        protocol_manager.game_manager._king_lift_resign_menu_active = False
+        protocol_manager.reset_king_lift_resign_menu_flag()
         
         if result == "resign":
             # Get the color of the king that was lifted
-            king_color = protocol_manager.game_manager.move_state.king_lifted_color
+            king_color = protocol_manager.get_king_lifted_color()
             if king_color is not None:
-                protocol_manager.game_manager.handle_resign(king_color)
+                protocol_manager.handle_resign(king_color)
                 color_name = "White" if king_color == chess.WHITE else "Black"
                 _return_to_menu(f"{color_name} Resigned")
             else:
                 # Fallback - shouldn't happen but handle gracefully
-                protocol_manager.game_manager.handle_resign()
+                protocol_manager.handle_resign()
                 _return_to_menu("Resigned")
         # cancel is handled by DisplayManager (restores display)
     
@@ -1194,8 +1210,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         """Handle king-lift resign gesture."""
         display_manager.show_king_lift_resign_menu(king_color, _on_king_lift_resign_result)
     
-    protocol_manager.game_manager.on_king_lift_resign = _on_king_lift_resign
-    protocol_manager.game_manager.on_king_lift_resign_cancel = display_manager.cancel_menu
+    protocol_manager.set_on_king_lift_resign(_on_king_lift_resign)
+    protocol_manager.set_on_king_lift_resign_cancel(display_manager.cancel_menu)
     
     # Terminal position callback - triggered when correction mode exits on a position
     # that is already checkmate, stalemate, or insufficient material
@@ -1204,13 +1220,28 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         log.info(f"[App] Terminal position detected: {termination} ({result})")
         display_manager.show_game_over(result, termination)
     
-    protocol_manager.game_manager.on_terminal_position = _on_terminal_position
+    protocol_manager.set_on_terminal_position(_on_terminal_position)
     
     # Wire up check and queen threat alert callbacks
-    protocol_manager.game_manager.on_check = display_manager.show_check_alert
-    protocol_manager.game_manager.on_queen_threat = display_manager.show_queen_threat_alert
-    protocol_manager.game_manager.on_alert_clear = display_manager.hide_alert
+    protocol_manager.set_on_check(display_manager.show_check_alert)
+    protocol_manager.set_on_queen_threat(display_manager.show_queen_threat_alert)
+    protocol_manager.set_on_alert_clear(display_manager.hide_alert)
     
+    # Wire up clock callbacks to connect GameManager with DisplayManager's clock widget
+    # get_clock_times: retrieves current times for database storage
+    # set_clock_times: sets times (used by Lichess emulator to sync with server)
+    protocol_manager.set_clock_callbacks(display_manager.get_clock_times, display_manager.set_clock_times)
+    
+    # Wire up flag callback for when a player's time expires
+    def _on_flag(color: str):
+        """Handle time expiration - ends the game."""
+        log.info(f"[App] {color.capitalize()} flagged (time expired)")
+        protocol_manager.handle_flag(color)
+        display_manager.stop_clock()
+        # Game over will be shown via the event callback when handle_flag triggers termination event
+    
+    display_manager.set_on_flag(_on_flag)
+
     # Wire up event callback to handle game events
     from DGTCentaurMods.managers import EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
     _clock_started = False
@@ -1240,7 +1271,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         elif isinstance(event, str) and event.startswith("Termination."):
             # Game ended (checkmate, stalemate, resign, draw, etc.)
             termination_type = event[12:]  # Remove "Termination." prefix
-            result = protocol_manager.game_manager.get_result()
+            result = protocol_manager.get_result()
             log.info(f"[App] Game terminated: {termination_type}, result={result}")
             display_manager.stop_clock()
             display_manager.show_game_over(result, termination_type)
@@ -3047,11 +3078,10 @@ def key_callback(key_id):
             # - BACK with no game in progress (no moves made)
             # - BACK after game over (checkmate, stalemate, etc.)
             if key_id == board.Key.BACK:
-                outcome = protocol_manager.game_manager.chess_board.outcome(claim_draw=True)
-                if outcome is not None:
-                    log.info(f"[App] BACK after game over ({outcome.termination}) - returning to menu")
+                if protocol_manager.is_game_over():
+                    log.info("[App] BACK after game over - returning to menu")
                     _return_to_menu("Game over - BACK pressed")
-                elif not protocol_manager.game_manager.is_game_in_progress():
+                elif not protocol_manager.is_game_in_progress():
                     log.info("[App] BACK with no game - returning to menu")
                     _return_to_menu("BACK pressed")
             return

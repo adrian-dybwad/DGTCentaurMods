@@ -83,6 +83,10 @@ class ChessClockWidget(Widget):
         self._update_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         
+        # Callback for when time expires (flag)
+        # on_flag(color: str) where color is 'white' or 'black'
+        self.on_flag = None
+        
         # Create TextWidgets for timed mode
         # White label (left aligned, after indicator)
         self._white_label = TextWidget(x=20, y=0, width=40, height=16, 
@@ -260,6 +264,12 @@ class ChessClockWidget(Widget):
                 
                 if self._white_time == 0:
                     log.info("[ChessClockWidget] White's time expired (flag)")
+                    self._is_running = False  # Stop the clock
+                    if self.on_flag:
+                        try:
+                            self.on_flag('white')
+                        except Exception as e:
+                            log.error(f"[ChessClockWidget] Error in on_flag callback: {e}")
                     
             elif self._active_color == 'black' and self._black_time > 0:
                 self._black_time = max(0, self._black_time - int(elapsed))
@@ -268,6 +278,12 @@ class ChessClockWidget(Widget):
                 
                 if self._black_time == 0:
                     log.info("[ChessClockWidget] Black's time expired (flag)")
+                    self._is_running = False  # Stop the clock
+                    if self.on_flag:
+                        try:
+                            self.on_flag('black')
+                        except Exception as e:
+                            log.error(f"[ChessClockWidget] Error in on_flag callback: {e}")
     
     def _format_time(self, seconds: int) -> str:
         """

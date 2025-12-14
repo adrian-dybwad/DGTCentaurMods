@@ -149,10 +149,7 @@ PROMOTION_ROW_WHITE = 7
 PROMOTION_ROW_BLACK = 0
 INVALID_SQUARE = -1
 
-# Clock constants
-SECONDS_PER_MINUTE = 60
-CLOCK_DECREMENT_SECONDS = 2
-CLOCK_DISPLAY_LINE = 13
+# Display constants
 PROMOTION_DISPLAY_LINE = 13
 
 # Move constants
@@ -176,75 +173,6 @@ STARTING_POSITION_STATE = bytearray(
     b'\x01\x01\x01\x01\x01\x01\x01\x01'  # Rank 7 (squares 48-55)
     b'\x01\x01\x01\x01\x01\x01\x01\x01'  # Rank 8 (squares 56-63)
 )
-
-
-class ClockManager:
-    """Manages chess clock timing and display."""
-    
-    def __init__(self, display_line: int = CLOCK_DISPLAY_LINE):
-        self.white_time_seconds = 0
-        self.black_time_seconds = 0
-        self.display_line = display_line
-        self.is_running = False
-        self.clock_thread = None
-        self.should_stop = False
-    
-    def set_times(self, white_seconds: int, black_seconds: int):
-        """Set the clock times for both players."""
-        self.white_time_seconds = white_seconds
-        self.black_time_seconds = black_seconds
-    
-    def format_time(self, white_seconds: int, black_seconds: int) -> str:
-        """Format time display string for clock."""
-        white_minutes = white_seconds // SECONDS_PER_MINUTE
-        white_secs = white_seconds % SECONDS_PER_MINUTE
-        black_minutes = black_seconds // SECONDS_PER_MINUTE
-        black_secs = black_seconds % SECONDS_PER_MINUTE
-        return f"{white_minutes:02d}:{white_secs:02d}       {black_minutes:02d}:{black_secs:02d}"
-    
-    def _update_clock(self, current_turn: bool, is_starting_position: bool, showing_promotion: bool):
-        """Update clock times based on current turn."""
-        if current_turn == chess.WHITE and not is_starting_position:
-            if self.white_time_seconds > 0:
-                self.white_time_seconds = max(0, self.white_time_seconds - CLOCK_DECREMENT_SECONDS)
-        elif current_turn == chess.BLACK:
-            if self.black_time_seconds > 0:
-                self.black_time_seconds = max(0, self.black_time_seconds - CLOCK_DECREMENT_SECONDS)
-        
-        if not showing_promotion:
-            time_string = self.format_time(self.white_time_seconds, self.black_time_seconds)
-            # TODO: Replace with proper clock widget display
-            # The old widgets.write_text() no longer exists
-            log.debug(f"[ClockManager] Time: {time_string}")
-    
-    def start(self, current_turn_getter, is_starting_position_getter, showing_promotion_getter):
-        """Start the clock thread."""
-        if self.is_running:
-            return
-        
-        self.should_stop = False
-        self.is_running = True
-        
-        def clock_thread():
-            while not self.should_stop:
-                time.sleep(CLOCK_DECREMENT_SECONDS)
-                current_turn = current_turn_getter()
-                is_starting = is_starting_position_getter()
-                showing_promo = showing_promotion_getter()
-                self._update_clock(current_turn, is_starting, showing_promo)
-        
-        self.clock_thread = threading.Thread(target=clock_thread, daemon=True)
-        self.clock_thread.start()
-        
-        # Initial display
-        time_string = self.format_time(self.white_time_seconds, self.black_time_seconds)
-        # TODO: Replace with proper clock widget display
-        log.debug(f"[ClockManager] Initial time: {time_string}")
-    
-    def stop(self):
-        """Stop the clock thread."""
-        self.should_stop = True
-        self.is_running = False
 
 
 class MoveState:
@@ -414,7 +342,6 @@ class GameManager:
         # Logical chess board - this is the AUTHORITY for game state
         # Physical board must conform to this state
         self.chess_board = chess.Board()
-        self.clock_manager = ClockManager()
         self.move_state = MoveState()
         self.correction_mode = CorrectionMode()
         
@@ -466,6 +393,12 @@ class GameManager:
         self.on_king_lift_resign_cancel = None
         self._king_lift_resign_menu_active = False  # Track if the king-lift resign menu is showing
         self.on_terminal_position = None
+        
+        # Clock callbacks - set by universal.py to connect to DisplayManager's clock widget
+        # get_clock_times() -> (white_seconds, black_seconds): Get current clock times for DB storage
+        # set_clock_times(white_seconds, black_seconds) -> None: Set clock times (used by Lichess)
+        self.get_clock_times = None
+        self.set_clock_times = None
         
         # Player configuration - which color(s) are human players
         # In 2-player mode, both colors are human. In engine mode, only player_color is human.
@@ -586,6 +519,19 @@ class GameManager:
                 self.event_callback(EVENT_WHITE_TURN)
             else:
                 self.event_callback(EVENT_BLACK_TURN)
+    
+    def _get_clock_times_for_db(self) -> tuple:
+        """Get clock times for database storage.
+        
+        Returns:
+            Tuple of (white_seconds, black_seconds), or (None, None) if unavailable
+        """
+        if self.get_clock_times:
+            try:
+                return self.get_clock_times()
+            except Exception as e:
+                log.debug(f"[GameManager._get_clock_times_for_db] Error getting clock times: {e}")
+        return (None, None)
     
     def _update_game_result(self, result_string: str, termination: str, context: str = ""):
         """Update game result in database and trigger event callback."""
@@ -1456,10 +1402,13 @@ class GameManager:
         if self.database_session is not None and self.game_db_id >= 0:
             try:
                 models = _get_models()
+                white_clock, black_clock = self._get_clock_times_for_db()
                 game_move = models.GameMove(
                     gameid=self.game_db_id,
                     move=castling_uci,
-                    fen=str(self.chess_board.fen())
+                    fen=str(self.chess_board.fen()),
+                    white_clock=white_clock,
+                    black_clock=black_clock
                 )
                 self.database_session.add(game_move)
                 self.database_session.commit()
@@ -1482,7 +1431,8 @@ class GameManager:
                 self.database_session.flush()
                 if hasattr(game, 'id') and game.id is not None:
                     self.game_db_id = game.id
-                    # Create initial position move
+                    white_clock, black_clock = self._get_clock_times_for_db()
+                    # Create initial position move (no clock times for initial position)
                     initial_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
                     initial_move = models.GameMove(
                         gameid=self.game_db_id,
@@ -1494,7 +1444,9 @@ class GameManager:
                     game_move = models.GameMove(
                         gameid=self.game_db_id,
                         move=castling_uci,
-                        fen=str(self.chess_board.fen())
+                        fen=str(self.chess_board.fen()),
+                        white_clock=white_clock,
+                        black_clock=black_clock
                     )
                     self.database_session.add(game_move)
                     self.database_session.commit()
@@ -1661,10 +1613,13 @@ class GameManager:
         if self.database_session is not None and self.game_db_id >= 0:
             try:
                 models = _get_models()
+                white_clock, black_clock = self._get_clock_times_for_db()
                 game_move = models.GameMove(
                     gameid=self.game_db_id,
                     move=castling_uci,
-                    fen=str(self.chess_board.fen())
+                    fen=str(self.chess_board.fen()),
+                    white_clock=white_clock,
+                    black_clock=black_clock
                 )
                 self.database_session.add(game_move)
                 self.database_session.commit()
@@ -1877,7 +1832,7 @@ class GameManager:
                                 self.game_db_id = game.id
                                 log.info(f"[GameManager.async] New game created (id={self.game_db_id})")
                                 
-                                # Initial position record
+                                # Initial position record (no clock times for initial position)
                                 initial_move = models.GameMove(
                                     gameid=self.game_db_id,
                                     move='',
@@ -1887,10 +1842,13 @@ class GameManager:
                         
                         # Add this move
                         if self.game_db_id >= 0:
+                            white_clock, black_clock = self._get_clock_times_for_db()
                             game_move = models.GameMove(
                                 gameid=self.game_db_id,
                                 move=move_uci,
-                                fen=fen_after_move
+                                fen=fen_after_move,
+                                white_clock=white_clock,
+                                black_clock=black_clock
                             )
                             self.database_session.add(game_move)
                             self.database_session.commit()
@@ -2154,21 +2112,43 @@ class GameManager:
     
     def handle_draw(self) -> None:
         """Handle draw claim/agreement by the human player.
-        
+
         The human player (at the physical board) is claiming or agreeing to a draw.
         This records the game result as a draw.
         """
         log.info("[GameManager] Processing draw")
-        
+
         result = "1/2-1/2"
-        
+
         # Update database with result
         self._update_game_result(result, "Termination.DRAW", "handle_draw")
-        
+
         # Play sound and turn off LEDs
         board.beep(board.SOUND_GENERAL, event_type='game_event')
         board.ledsOff()
-    
+
+    def handle_flag(self, flagged_color: chess.Color) -> None:
+        """Handle time expiration (flag) for a player.
+
+        When a player's clock runs out, they lose on time.
+
+        Args:
+            flagged_color: The color of the player whose time expired (they lose)
+        """
+        if flagged_color == chess.WHITE:
+            result = "0-1"  # Black wins on time
+            log.info("[GameManager] White flagged - Black wins on time")
+        else:
+            result = "1-0"  # White wins on time
+            log.info("[GameManager] Black flagged - White wins on time")
+
+        # Update database with result
+        self._update_game_result(result, "Termination.TIME_FORFEIT", "handle_flag")
+
+        # Play sound and turn off LEDs
+        board.beep(board.SOUND_GENERAL, event_type='game_event')
+        board.ledsOff()
+
     def _reset_game(self):
         """Abandon current game and reset to starting position.
         
@@ -2221,10 +2201,8 @@ class GameManager:
             self.is_showing_promotion = False  # Clear promotion state
             self.is_in_menu = False  # Exit menu if open
             
-            # Step 6: Reset clock
-            self.clock_manager.stop()  # Stop clock if running
-            
-            # Step 7: Clear all board LEDs and turn off any indicators
+            # Step 6: Clear all board LEDs and turn off any indicators
+            # Note: Clock is managed by DisplayManager, reset via EVENT_NEW_GAME callback
             board.ledsOff()
             
             # Step 8: Reset game_db_id to -1 to indicate no active game in database
@@ -2353,22 +2331,16 @@ class GameManager:
         }
     
     def set_clock(self, white_seconds: int, black_seconds: int):
-        """Set the clock times for both players."""
-        self.clock_manager.set_times(white_seconds, black_seconds)
-    
-    def start_clock(self):
-        """Start the clock thread."""
-        def get_current_turn():
-            return self.chess_board.turn
+        """Set the clock times for both players.
         
-        def is_starting_position():
-            current_state = board.getChessState()
-            return self._is_starting_position(current_state)
-        
-        def is_showing_promotion():
-            return self.is_showing_promotion
-        
-        self.clock_manager.start(get_current_turn, is_starting_position, is_showing_promotion)
+        Calls the set_clock_times callback if set (connected to DisplayManager).
+        Used by Lichess emulator to update clock times from the server.
+        """
+        if self.set_clock_times:
+            try:
+                self.set_clock_times(white_seconds, black_seconds)
+            except Exception as e:
+                log.debug(f"[GameManager.set_clock] Error setting clock times: {e}")
     
     def computer_move(self, uci_move: str, forced: bool = True):
         """Set the computer move that the player is expected to make.
@@ -2551,7 +2523,7 @@ class GameManager:
         self.should_stop = True
         self._stop_event.set()  # Signal the event to wake up any sleeping thread
         board.ledsOff()
-        self.clock_manager.stop()
+        # Note: Clock is managed by DisplayManager, cleaned up when display manager is destroyed
         
         # Reset ready state
         with self._ready_lock:
@@ -2599,10 +2571,12 @@ def setClock(white, black):
 
 
 def startClock():
-    """Start the clock (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        _game_manager_instance.start_clock()
+    """Start the clock (backward compatibility function).
+    
+    Note: Clock is now managed by DisplayManager via event callbacks.
+    This function is kept for backward compatibility but is a no-op.
+    """
+    pass
 
 
 def computerMove(mv, forced=True):

@@ -52,6 +52,9 @@ class GameMove(Base):
     move_at = Column(DateTime, server_default=func.now())
     move = Column(String(10), nullable=True)
     fen = Column(String(255), nullable=True)
+    # Clock times in seconds remaining after this move (nullable for backward compatibility)
+    white_clock = Column(Integer, nullable=True)
+    black_clock = Column(Integer, nullable=True)
 
     game = relationship("Game")
 
@@ -60,3 +63,21 @@ class GameMove(Base):
 
 engine = create_engine(AssetManager.get_database_uri())
 Base.metadata.create_all(bind=engine)
+
+# Schema migration: Add clock columns if they don't exist (for existing databases)
+# SQLAlchemy's create_all() doesn't add columns to existing tables, so we do it manually
+try:
+    from sqlalchemy import text, inspect
+    inspector = inspect(engine)
+    columns = [col['name'] for col in inspector.get_columns('gameMove')]
+    
+    with engine.connect() as conn:
+        if 'white_clock' not in columns:
+            conn.execute(text('ALTER TABLE gameMove ADD COLUMN white_clock INTEGER'))
+            conn.commit()
+        if 'black_clock' not in columns:
+            conn.execute(text('ALTER TABLE gameMove ADD COLUMN black_clock INTEGER'))
+            conn.commit()
+except Exception:
+    # Migration may fail if table doesn't exist yet (first run) - that's ok
+    pass

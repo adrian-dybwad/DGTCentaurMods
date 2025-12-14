@@ -199,6 +199,112 @@ class ProtocolManager:
         """
         return self._is_two_player_mode
     
+    # =========================================================================
+    # GameManager Callback Delegation (Law of Demeter compliance)
+    # =========================================================================
+    
+    def set_on_check(self, callback):
+        """Set callback for check alerts. Callback(is_black_in_check, attacker_sq, king_sq)."""
+        self.game_manager.on_check = callback
+    
+    def set_on_queen_threat(self, callback):
+        """Set callback for queen threat alerts. Callback(is_black_threatened, attacker_sq, queen_sq)."""
+        self.game_manager.on_queen_threat = callback
+    
+    def set_on_alert_clear(self, callback):
+        """Set callback to clear alerts. Callback()."""
+        self.game_manager.on_alert_clear = callback
+    
+    def set_on_terminal_position(self, callback):
+        """Set callback for terminal positions. Callback(result, termination)."""
+        self.game_manager.on_terminal_position = callback
+    
+    def set_on_back_pressed(self, callback):
+        """Set callback for BACK button during game. Callback()."""
+        self.game_manager.on_back_pressed = callback
+    
+    def set_on_kings_in_center(self, callback):
+        """Set callback for kings-in-center gesture. Callback()."""
+        self.game_manager.on_kings_in_center = callback
+    
+    def set_on_kings_in_center_cancel(self, callback):
+        """Set callback when kings-in-center gesture is cancelled. Callback()."""
+        self.game_manager.on_kings_in_center_cancel = callback
+    
+    def set_on_king_lift_resign(self, callback):
+        """Set callback for king-lift resign gesture. Callback(color)."""
+        self.game_manager.on_king_lift_resign = callback
+    
+    def set_on_king_lift_resign_cancel(self, callback):
+        """Set callback to cancel king-lift resign. Callback()."""
+        self.game_manager.on_king_lift_resign_cancel = callback
+    
+    def set_clock_callbacks(self, get_times_callback, set_times_callback):
+        """Set clock time callbacks for database storage and Lichess sync.
+        
+        Args:
+            get_times_callback: () -> (white_seconds, black_seconds)
+            set_times_callback: (white_seconds, black_seconds) -> None
+        """
+        self.game_manager.get_clock_times = get_times_callback
+        self.game_manager.set_clock_times = set_times_callback
+    
+    def set_on_promotion_needed(self, callback):
+        """Set callback for promotion selection. Callback(is_white) -> piece_symbol."""
+        self.game_manager.on_promotion_needed = callback
+    
+    # =========================================================================
+    # GameManager Action Methods (Law of Demeter compliance)
+    # =========================================================================
+    
+    def handle_resign(self, color=None):
+        """Handle a resignation.
+        
+        Args:
+            color: chess.WHITE or chess.BLACK, or None for current player
+        """
+        self.game_manager.handle_resign(color)
+    
+    def handle_draw(self):
+        """Handle a draw agreement."""
+        self.game_manager.handle_draw()
+    
+    def handle_flag(self, color: str):
+        """Handle time expiration (flag) for a player.
+        
+        Args:
+            color: 'white' or 'black' - the player whose time expired
+        """
+        import chess
+        # The player whose time expired loses
+        losing_color = chess.WHITE if color == 'white' else chess.BLACK
+        self.game_manager.handle_flag(losing_color)
+    
+    def get_result(self) -> str:
+        """Get the game result string."""
+        return self.game_manager.get_result()
+    
+    def is_game_in_progress(self) -> bool:
+        """Check if a game is currently in progress."""
+        return self.game_manager.is_game_in_progress()
+    
+    def is_game_over(self) -> bool:
+        """Check if the current game is over (checkmate, stalemate, etc.)."""
+        outcome = self.game_manager.chess_board.outcome(claim_draw=True)
+        return outcome is not None
+    
+    def get_king_lifted_color(self):
+        """Get the color of the king that was lifted (for resign gesture)."""
+        return self.game_manager.move_state.king_lifted_color
+    
+    def reset_kings_in_center_menu_flag(self):
+        """Reset the kings-in-center menu active flag."""
+        self.game_manager._kings_in_center_menu_active = False
+    
+    def reset_king_lift_resign_menu_flag(self):
+        """Reset the king-lift resign menu active flag."""
+        self.game_manager._king_lift_resign_menu_active = False
+    
     def get_pending_response(self):
         """Get and clear the pending emulator response.
         
