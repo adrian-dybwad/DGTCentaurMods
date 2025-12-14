@@ -108,6 +108,11 @@ class LichessOpponent(Opponent):
         self._remote_moves: str = ''
         self._last_processed_moves: str = ''
         
+        # Track opponent moves being executed on board (to avoid sending back)
+        # When we receive an opponent move, we add it here. When the user
+        # physically executes it and on_player_move is called, we skip sending.
+        self._pending_opponent_moves: set = set()
+        
         # Threading
         self._should_stop = threading.Event()
         self._stream_thread: Optional[threading.Thread] = None
@@ -267,6 +272,9 @@ class LichessOpponent(Opponent):
         Called after the player's move is validated and applied locally.
         Sends the move to Lichess server.
         
+        Note: Skips sending if this move was received from the opponent
+        (i.e., the user physically executed the opponent's move on the board).
+        
         Args:
             move: The move the player made.
             board: Board state after the move.
@@ -276,6 +284,13 @@ class LichessOpponent(Opponent):
             return
         
         move_uci = move.uci()
+        
+        # Check if this is an opponent move being physically executed
+        if move_uci in self._pending_opponent_moves:
+            log.debug(f"[LichessOpponent] Skipping send - this is opponent move being executed: {move_uci}")
+            self._pending_opponent_moves.discard(move_uci)
+            return
+        
         log.info(f"[LichessOpponent] Sending player move: {move_uci}")
         
         try:
@@ -626,6 +641,10 @@ class LichessOpponent(Opponent):
                 return
         
         log.info(f"[LichessOpponent] Remote move from opponent: {last_move}")
+        
+        # Track this as a pending opponent move - will be physically executed on board
+        # and we should not re-send it when on_player_move is called
+        self._pending_opponent_moves.add(last_move)
         
         # Convert to chess.Move and deliver via callback
         try:
