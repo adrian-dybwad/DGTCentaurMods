@@ -3080,9 +3080,16 @@ def key_callback(key_id):
         
         # Handle app-level keys
         if key_id == board.Key.HELP:
-            # Toggle game analysis widget visibility
-            if display_manager:
-                display_manager.toggle_analysis()
+            # Show move hint (best move from analysis engine)
+            if display_manager and protocol_manager and protocol_manager.game_manager:
+                gm = protocol_manager.game_manager
+                hint_move = display_manager.get_hint_move(gm.chess_board)
+                if hint_move:
+                    # Show hint on display widget and LEDs
+                    display_manager.show_hint(hint_move)
+                    log.info(f"[App] Hint: {hint_move.uci()}")
+                else:
+                    log.info("[App] No hint available (analysis engine not ready)")
             _reset_unhandled_key_count()
             return
         

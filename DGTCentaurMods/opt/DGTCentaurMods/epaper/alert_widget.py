@@ -34,6 +34,7 @@ class AlertWidget(Widget):
     # Alert types
     ALERT_CHECK = "check"
     ALERT_QUEEN = "queen"
+    ALERT_HINT = "hint"
     
     def __init__(self, x: int = 0, y: int = 144, width: int = 128, height: int = 40):
         """
@@ -46,10 +47,11 @@ class AlertWidget(Widget):
             height: Widget height
         """
         super().__init__(x, y, width, height)
-        self._alert_type = None  # "check" or "queen"
+        self._alert_type = None  # "check", "queen", or "hint"
         self._is_black_threatened = False  # True if black piece is threatened
         self._attacker_square = None  # Square index (0-63) of attacking piece
         self._target_square = None  # Square index (0-63) of threatened piece
+        self._hint_text_value = ""  # Hint move text (e.g., "e2e4")
         self.visible = False  # Hidden by default (uses base class attribute)
         
         # Create TextWidgets for CHECK and YOUR QUEEN
@@ -62,6 +64,10 @@ class AlertWidget(Widget):
                                        text="YOUR\nQUEEN", font_size=18,
                                        justify=Justify.CENTER, wrapText=True,
                                        transparent=True)
+        # HINT: shows the suggested move
+        self._hint_text = TextWidget(x=0, y=0, width=width, height=height,
+                                      text="", font_size=28,
+                                      justify=Justify.CENTER, transparent=True)
     
     def show_check(self, is_black_in_check: bool, attacker_square: int, king_square: int) -> None:
         """Show CHECK alert and flash LEDs.
@@ -100,6 +106,28 @@ class AlertWidget(Widget):
         log.info(f"[AlertWidget] Showing QUEEN threat: {'black' if is_black_queen_threatened else 'white'} queen threatened, attacker={attacker_square}, queen={queen_square}")
         
         # Flash LEDs from attacker to queen
+        self._flash_leds()
+        
+        # Use base class show() to handle visibility and update
+        super().show()
+    
+    def show_hint(self, move_text: str, from_square: int, to_square: int) -> None:
+        """Show move hint with the suggested move.
+        
+        Args:
+            move_text: Move in readable format (e.g., "e2e4" or "Nf3")
+            from_square: Square index (0-63) of the piece to move
+            to_square: Square index (0-63) of the target square
+        """
+        self._alert_type = self.ALERT_HINT
+        self._hint_text_value = move_text
+        self._attacker_square = from_square
+        self._target_square = to_square
+        self._is_black_threatened = False  # Not used for hints
+        
+        log.info(f"[AlertWidget] Showing HINT: {move_text} ({from_square} -> {to_square})")
+        
+        # Flash LEDs from source to target
         self._flash_leds()
         
         # Use base class show() to handle visibility and update
@@ -163,5 +191,12 @@ class AlertWidget(Widget):
         elif self._alert_type == self.ALERT_QUEEN:
             # Draw "YOUR\nQUEEN" centered directly onto the background
             self._queen_text.draw_on(img, 0, 0, text_color=text_color)
+        
+        elif self._alert_type == self.ALERT_HINT:
+            # Draw hint move text centered - always white bg, black text
+            draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=255, outline=0)
+            self._hint_text.set_text(self._hint_text_value)
+            y_offset = (self.height - self._hint_text.height) // 2
+            self._hint_text.draw_on(img, 0, y_offset, text_color=0)
         
         return img

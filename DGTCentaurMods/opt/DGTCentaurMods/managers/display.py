@@ -389,6 +389,51 @@ class DisplayManager:
             except Exception as e:
                 log.debug(f"[DisplayManager] Error analyzing position: {e}")
     
+    def get_hint_move(self, board_obj, time_limit: float = 1.0):
+        """Get a hint move for the current position.
+        
+        Uses the analysis engine to find the best move.
+        
+        Args:
+            board_obj: chess.Board object to analyze
+            time_limit: Analysis time limit in seconds (default 1.0 for hints)
+            
+        Returns:
+            chess.Move object if a hint is available, None otherwise
+        """
+        if not self.analysis_engine:
+            log.warning("[DisplayManager] No analysis engine available for hint")
+            return None
+        
+        try:
+            import chess.engine
+            result = self.analysis_engine.play(board_obj, chess.engine.Limit(time=time_limit))
+            if result.move:
+                log.info(f"[DisplayManager] Hint move: {result.move.uci()}")
+                return result.move
+        except Exception as e:
+            log.warning(f"[DisplayManager] Error getting hint move: {e}")
+        
+        return None
+    
+    def show_hint(self, move) -> None:
+        """Show a hint move on the display and LEDs.
+        
+        Args:
+            move: chess.Move object to show as hint
+        """
+        if not move:
+            return
+        
+        if self.alert_widget:
+            # Format move as readable text
+            move_text = move.uci()
+            from_sq = move.from_square
+            to_sq = move.to_square
+            
+            self.alert_widget.show_hint(move_text, from_sq, to_sq)
+            log.info(f"[DisplayManager] Showing hint: {move_text}")
+    
     def toggle_analysis(self):
         """Toggle analysis widget visibility."""
         if self.analysis_widget:
