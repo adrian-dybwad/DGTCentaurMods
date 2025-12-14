@@ -310,21 +310,24 @@ def _load_game_settings():
         log.warning(f"[Settings] Error loading game settings: {e}, using defaults")
 
 
-def _save_game_setting(key: str, value: str):
+def _save_game_setting(key: str, value):
     """Save a single game setting to centaur.ini.
     
     Args:
-        key: Setting key (engine, elo, player_color)
-        value: Setting value
+        key: Setting key (engine, elo, player_color, show_board, etc.)
+        value: Setting value (string or boolean - booleans stored as 'true'/'false')
     """
-    global _game_settings
-    
     try:
         from DGTCentaurMods.board.settings import Settings
         
-        _game_settings[key] = value
-        Settings.write(SETTINGS_SECTION, key, value)
-        log.debug(f"[Settings] Saved {key}={value}")
+        # Convert to string for storage
+        if isinstance(value, bool):
+            str_value = 'true' if value else 'false'
+        else:
+            str_value = str(value)
+        
+        Settings.write(SETTINGS_SECTION, key, str_value)
+        log.debug(f"[Settings] Saved {key}={str_value}")
     except Exception as e:
         log.warning(f"[Settings] Error saving {key}={value}: {e}")
 
@@ -1485,12 +1488,13 @@ def _handle_display_settings():
             return None
         
         # Toggle the selected setting
-        if result in _game_settings:
+        if result in _game_settings and isinstance(_game_settings[result], bool):
             new_value = not _game_settings[result]
             _game_settings[result] = new_value
-            _save_game_setting(result, 'true' if new_value else 'false')
+            _save_game_setting(result, new_value)
             log.info(f"[Display] {result} changed to {new_value}")
             board.beep(board.SOUND_GENERAL, event_type='key_press')
+            # Continue loop to show updated menu
 
 
 def _handle_positions_menu(return_to_last_position: bool = False) -> bool:

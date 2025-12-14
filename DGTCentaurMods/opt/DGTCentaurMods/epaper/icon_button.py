@@ -448,6 +448,12 @@ class IconButtonWidget(Widget):
             self._draw_account_icon(draw, x, y, size, line_color)
         elif icon_name == "lichess":
             self._draw_lichess_icon(draw, x, y, size, line_color)
+        elif icon_name == "checkbox_checked":
+            self._draw_checkbox_icon(draw, x, y, size, line_color, checked=True)
+        elif icon_name == "checkbox_empty":
+            self._draw_checkbox_icon(draw, x, y, size, line_color, checked=False)
+        elif icon_name == "display":
+            self._draw_display_icon(draw, x, y, size, line_color)
         else:
             # Default: simple square placeholder
             draw.rectangle([left + 4, top + 4, right - 4, bottom - 4],
@@ -1758,3 +1764,82 @@ class IconButtonWidget(Widget):
         eye_r = max(1, int(1.5 * s))
         draw.ellipse([eye_x - eye_r, eye_y - eye_r, eye_x + eye_r, eye_y + eye_r],
                      fill=line_color)
+    
+    def _draw_checkbox_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                            size: int, line_color: int, checked: bool):
+        """Draw a checkbox icon (empty box or box with checkmark).
+        
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line color (0=black, 255=white)
+            checked: If True, draw checkmark inside the box
+        """
+        s = size / 36.0
+        line_width = max(2, int(2 * s))
+        
+        # Box dimensions
+        box_half = int(12 * s)
+        left = x - box_half
+        top = y - box_half
+        right = x + box_half
+        bottom = y + box_half
+        
+        # Draw the box outline
+        draw.rectangle([left, top, right, bottom], outline=line_color, width=line_width)
+        
+        if checked:
+            # Draw checkmark inside the box
+            # Checkmark goes from bottom-left area to top-right area
+            check_margin = int(4 * s)
+            # Start point (lower left)
+            p1_x = left + check_margin
+            p1_y = y + int(2 * s)
+            # Middle point (bottom of checkmark)
+            p2_x = x - int(2 * s)
+            p2_y = bottom - check_margin
+            # End point (upper right)
+            p3_x = right - check_margin
+            p3_y = top + check_margin
+            
+            # Draw the two lines of the checkmark
+            draw.line([(p1_x, p1_y), (p2_x, p2_y)], fill=line_color, width=line_width)
+            draw.line([(p2_x, p2_y), (p3_x, p3_y)], fill=line_color, width=line_width)
+    
+    def _draw_display_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                           size: int, line_color: int):
+        """Draw a display/monitor icon.
+        
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line color (0=black, 255=white)
+        """
+        s = size / 36.0
+        line_width = max(2, int(2 * s))
+        
+        # Monitor screen (rectangle)
+        screen_width = int(24 * s)
+        screen_height = int(16 * s)
+        screen_left = x - screen_width // 2
+        screen_right = x + screen_width // 2
+        screen_top = y - int(10 * s)
+        screen_bottom = screen_top + screen_height
+        
+        draw.rectangle([screen_left, screen_top, screen_right, screen_bottom],
+                      outline=line_color, width=line_width)
+        
+        # Stand (vertical line from bottom of screen)
+        stand_top = screen_bottom
+        stand_bottom = y + int(8 * s)
+        draw.line([(x, stand_top), (x, stand_bottom)], fill=line_color, width=line_width)
+        
+        # Base (horizontal line at bottom)
+        base_width = int(12 * s)
+        base_y = stand_bottom
+        draw.line([(x - base_width // 2, base_y), (x + base_width // 2, base_y)],
+                  fill=line_color, width=line_width)
