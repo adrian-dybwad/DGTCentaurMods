@@ -63,7 +63,8 @@ class ProtocolManager:
     def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False,
                  standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default",
                  display_update_callback=None, save_to_database=True,
-                 hand_brain_mode: bool = False, brain_hint_callback=None):
+                 hand_brain_mode: bool = False, brain_hint_callback=None,
+                 takeback_callback=None):
         """Initialize the ProtocolManager.
         
         Args:
@@ -87,11 +88,14 @@ class ProtocolManager:
             brain_hint_callback: Callback function(piece_symbol, squares) called with brain hint.
                                 piece_symbol is the suggested piece type (K,Q,R,B,N,P).
                                 squares is a list of square indices containing that piece type.
+            takeback_callback: Callback function() called when a takeback is detected.
+                              Used to sync analysis widget score history with game state.
         """
         self._sendMessage = sendMessage_callback
         self.compare_mode = compare_mode
         self._pending_response = None
         self._display_update_callback = display_update_callback
+        self._takeback_callback = takeback_callback
         self._external_event_callback = None  # Optional callback for game events
         
         # Store the hint but don't trust it - always verify from data
@@ -364,6 +368,10 @@ class ProtocolManager:
         """Handle takeback requests from the manager."""
         try:
             log.info("[ProtocolManager] _manager_takeback_callback")
+            
+            # Notify display to sync analysis history with game state
+            if self._takeback_callback:
+                self._takeback_callback()
             
             if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_takeback'):
                 self._millennium.handle_manager_takeback()

@@ -377,6 +377,18 @@ class DisplayManager:
         if self.brain_hint_widget:
             self.brain_hint_widget.clear()
     
+    def remove_last_analysis_score(self):
+        """Remove the last score from analysis history.
+        
+        Called on takeback to keep analysis history in sync with game state.
+        """
+        if self.analysis_widget:
+            try:
+                self.analysis_widget.remove_last_score()
+                log.debug("[DisplayManager] Removed last analysis score (takeback)")
+            except Exception as e:
+                log.warning(f"[DisplayManager] Error removing last analysis score: {e}")
+    
     def set_clock_times(self, white_seconds: int, black_seconds: int) -> None:
         """Set the chess clock times for both players.
         

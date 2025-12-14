@@ -1141,7 +1141,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         display_update_callback=update_display,
         save_to_database=save_to_database,
         hand_brain_mode=is_hand_brain,
-        brain_hint_callback=_on_brain_hint if is_hand_brain else None
+        brain_hint_callback=_on_brain_hint if is_hand_brain else None,
+        takeback_callback=display_manager.remove_last_analysis_score
     )
     log.info(f"[App] ProtocolManager created: engine={None if is_two_player else engine_name}, elo={engine_elo}, color={player_color_setting}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
     
@@ -1424,10 +1425,8 @@ def _handle_settings():
             
             for minutes in TIME_CONTROL_OPTIONS:
                 is_selected = (minutes == current_time)
-                if minutes == 0:
-                    label = "* Disabled" if is_selected else "Disabled"
-                else:
-                    label = f"* {minutes} min" if is_selected else f"{minutes} min"
+                # Icon indicates selection - no need for star prefix
+                label = "Disabled" if minutes == 0 else f"{minutes} min"
                 icon = "timer_checked" if is_selected else "timer"
                 
                 time_entries.append(
