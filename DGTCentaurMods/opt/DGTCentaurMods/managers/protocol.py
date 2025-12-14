@@ -715,7 +715,7 @@ class ProtocolManager:
             lichess_time_minutes=emulator_config.time_minutes,
             lichess_increment_seconds=emulator_config.increment_seconds,
             lichess_rated=emulator_config.rated,
-            lichess_color_preference=getattr(emulator_config, 'color', 'random'),
+            lichess_color_preference=getattr(emulator_config, 'color_preference', 'random'),
             lichess_game_id=getattr(emulator_config, 'game_id', ''),
             lichess_challenge_id=getattr(emulator_config, 'challenge_id', ''),
             lichess_challenge_direction=getattr(emulator_config, 'challenge_direction', 'in'),
