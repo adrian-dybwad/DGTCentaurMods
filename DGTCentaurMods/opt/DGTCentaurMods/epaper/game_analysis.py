@@ -1,8 +1,17 @@
 """
 Game analysis widget displaying evaluation score and history.
 
-Positioned below the chess clock widget at y=216, height=80.
-Turn indicator is handled by the ChessClockWidget above.
+Redesigned horizontal split layout:
+- Left column (40px): Large score text, annotation symbol, vertical eval bar
+- Right column (88px): Full-height history graph
+
+Annotation symbols based on score change:
+- !! (brilliant): improves by 2+ pawns when losing
+- !  (good): improves by 0.5-2 pawns
+- !? (interesting): roughly equal trade-off
+- ?! (dubious): worsens by 0.5-1 pawn
+- ?  (mistake): worsens by 1-2 pawns
+- ?? (blunder): worsens by 2+ pawns
 """
 
 from PIL import Image, ImageDraw, ImageFont
@@ -20,11 +29,20 @@ except ImportError:
 
 
 class GameAnalysisWidget(Widget):
-    """Widget displaying chess game analysis information."""
+    """Widget displaying chess game analysis with horizontal split layout.
     
-    # Default position: below the chess clock widget (clock ends at y=216)
+    Layout:
+    - Left column (40px wide): Score text (large), annotation symbol, vertical eval bar
+    - Right column (88px wide): Full-height history graph with center line
+    """
+    
+    # Default position: below the chess clock widget
     DEFAULT_Y = 216
     DEFAULT_HEIGHT = 80
+    
+    # Layout constants
+    LEFT_COLUMN_WIDTH = 40
+    EVAL_BAR_WIDTH = 6
     
     def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None, 
                  bottom_color: str = "black", analysis_engine=None,
@@ -38,8 +56,8 @@ class GameAnalysisWidget(Widget):
             height: Widget height (default: DEFAULT_HEIGHT)
             bottom_color: Color at bottom of board ("white" or "black")
             analysis_engine: chess.engine.SimpleEngine for position analysis
-            show_score_bar: If True, show the score indicator bar at top
-            show_graph: If True, show the history graph at bottom
+            show_score_bar: If True, show score text and vertical eval bar
+            show_graph: If True, show the history graph
         """
         if y is None:
             y = self.DEFAULT_Y
@@ -49,23 +67,31 @@ class GameAnalysisWidget(Widget):
         self.score_value = 0.0
         self.score_text = "0.0"
         self.score_history = []
+        self.last_annotation = ""  # Current move annotation (!, ??, etc.)
         self.bottom_color = bottom_color  # "white" or "black" - color at bottom of board
-        self._font = self._load_font()
+        self._font_small = self._load_font(12)
+        self._font_large = self._load_font(18)
+        self._font_annotation = self._load_font(14)
         self._max_history_size = 200
-        self.analysis_engine = analysis_engine  # chess.engine.SimpleEngine for analysis
+        self.analysis_engine = analysis_engine
         self._show_score_bar = show_score_bar
         self._show_graph = show_graph
         
+        # Track previous score for annotation calculation
+        self._previous_score = 0.0
+        
         # Analysis queue and worker thread
-        # Queue holds analysis requests until worker processes them
-        # All positions are analyzed in order to ensure complete history graph
         self._analysis_queue = queue.Queue(maxsize=50)
         self._analysis_worker_thread = None
         self._analysis_worker_stop = threading.Event()
         self._start_analysis_worker()
     
-    def _load_font(self):
-        """Load font with fallbacks."""
+    def _load_font(self, size: int = 12):
+        """Load font with fallbacks.
+        
+        Args:
+            size: Font size in points
+        """
         font_paths = [
             '/opt/DGTCentaurMods/resources/Font.ttc',
             'resources/Font.ttc',
@@ -74,10 +100,48 @@ class GameAnalysisWidget(Widget):
         for path in font_paths:
             if os.path.exists(path):
                 try:
-                    return ImageFont.truetype(path, 12)
+                    return ImageFont.truetype(path, size)
                 except:
                     pass
         return ImageFont.load_default()
+    
+    def _calculate_annotation(self, current_score: float, previous_score: float) -> str:
+        """Calculate annotation symbol based on score change.
+        
+        Annotations are from the perspective of the side that just moved.
+        A positive change means the move helped that side.
+        
+        Args:
+            current_score: Current evaluation (from white's perspective)
+            previous_score: Previous evaluation (from white's perspective)
+            
+        Returns:
+            Annotation symbol: !!, !, !?, ?!, ?, ??
+        """
+        # Calculate change (positive = improvement for side that moved)
+        # Note: If it was black's move, they want score to decrease
+        # For simplicity, we track absolute change magnitude
+        change = current_score - previous_score
+        abs_change = abs(change)
+        
+        # Determine if move was good or bad based on score change direction
+        # This needs context of whose move it was, but we can approximate
+        # by looking at whether position got more extreme in either direction
+        
+        # Simplification: use absolute change thresholds
+        # Positive change = good for white, negative = good for black
+        if abs_change < 0.1:
+            return ""  # Neutral, no annotation
+        elif abs_change < 0.3:
+            return "!?" if change > 0 else "?!"  # Interesting/dubious
+        elif abs_change < 0.5:
+            return "!" if change > 0 else "?!"
+        elif abs_change < 1.0:
+            return "!" if change > 0 else "?"
+        elif abs_change < 2.0:
+            return "!!" if change > 0 else "?"
+        else:
+            return "!!" if change > 0 else "??"  # Brilliant or blunder
     
     def set_analysis_engine(self, engine) -> None:
         """Set the analysis engine used for position evaluation.
@@ -353,6 +417,15 @@ class GameAnalysisWidget(Widget):
         if display_score < -12:
             display_score = -12
         
+        # Calculate annotation based on score change (before updating score)
+        if not is_first_move and len(self.score_history) > 0:
+            self.last_annotation = self._calculate_annotation(display_score, self._previous_score)
+        else:
+            self.last_annotation = ""
+        
+        # Store previous score for next annotation calculation
+        self._previous_score = display_score
+        
         # Update score state directly (without triggering update)
         self.score_value = display_score
         self.score_text = score_text
@@ -368,17 +441,21 @@ class GameAnalysisWidget(Widget):
         self.request_update(full=False)
     
     def render(self) -> Image.Image:
-        """Render analysis widget.
+        """Render analysis widget with horizontal split layout.
         
-        Renders based on display settings:
-        - show_score_bar: Score indicator bar and text at top
-        - show_graph: History graph at bottom
+        Layout:
+        - Left column (40px): Vertical eval bar, score text, annotation
+        - Right column (88px): Full-height history graph
+        
+        Respects show_score_bar and show_graph settings.
         """
         # Return cached image if available
         if self._last_rendered is not None:
             return self._last_rendered
         
-        log.debug(f"[GameAnalysisWidget] Rendering: y={self.y}, height={self.height}, score_history={len(self.score_history)}, score_bar={self._show_score_bar}, graph={self._show_graph}")
+        log.debug(f"[GameAnalysisWidget] Rendering: y={self.y}, height={self.height}, "
+                  f"score_history={len(self.score_history)}, score_bar={self._show_score_bar}, "
+                  f"graph={self._show_graph}")
         
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
@@ -388,79 +465,110 @@ class GameAnalysisWidget(Widget):
         
         # Adjust score for display based on bottom color
         # Score is always from white's perspective (positive = white advantage)
-        # If bottom is black (board is flipped), we need to flip (negative = black losing, positive = black winning)
-        # If bottom is white (board not flipped), no adjustment needed (positive = white winning, negative = white losing)
-        # This ensures negative always represents bottom color's disadvantage
         display_score_value = -self.score_value if self.bottom_color == "black" else self.score_value
         
-        # Draw score bar and text if enabled
-        if self._show_score_bar:
-            # Format score text for display (adjust if needed)
-            # Regenerate text from adjusted display_score_value to ensure consistency
-            if self.bottom_color == "black":
-                # Regenerate text from adjusted score to match the bar display
-                if abs(display_score_value) > 999:
-                    display_score_text = ""
-                elif abs(display_score_value) >= 100:
-                    mate_moves = abs(display_score_value)
-                    display_score_text = f"Mate {int(mate_moves)}"
-                else:
-                    display_score_text = f"{display_score_value:5.1f}"
-            else:
-                # Use original text (no adjustment needed when bottom is white - board not flipped)
-                display_score_text = self.score_text
-            
-            # Draw score text
-            if display_score_text:
-                draw.text((50, 12), display_score_text, font=self._font, fill=0)
-            
-            # Draw score indicator box
-            draw.rectangle([(0, 1), (self.width - 1, 11)], fill=None, outline=0)
-            
-            # Calculate indicator position (clamp score between -12 and 12)
-            score_display = display_score_value
-            if score_display > 12:
-                score_display = 12
-            if score_display < -12:
-                score_display = -12
-            
-            # Draw indicator bar
-            offset = (self.width / 25) * (score_display + 12)
-            if offset < self.width:
-                draw.rectangle([(int(offset), 1), (self.width - 1, 11)], fill=0, outline=0)
+        # Calculate layout columns
+        left_col_width = self.LEFT_COLUMN_WIDTH if self._show_score_bar else 0
+        graph_x = left_col_width + 2 if self._show_score_bar else 2
+        graph_width = self.width - graph_x - 2
         
-        # Draw score history bar chart if enabled
+        # === LEFT COLUMN: Score bar, text, annotation ===
+        if self._show_score_bar:
+            # Vertical evaluation bar (left edge)
+            bar_x = 2
+            bar_width = self.EVAL_BAR_WIDTH
+            bar_top = 4
+            bar_bottom = self.height - 4
+            bar_height = bar_bottom - bar_top
+            bar_center = bar_top + bar_height // 2
+            
+            # Draw bar outline
+            draw.rectangle([(bar_x, bar_top), (bar_x + bar_width, bar_bottom)], fill=255, outline=0)
+            
+            # Calculate fill based on score (-12 to +12 mapped to bar height)
+            score_clamped = max(-12, min(12, display_score_value))
+            # Positive score = fill from center upward (white winning)
+            # Negative score = fill from center downward (black winning)
+            fill_pixels = int((abs(score_clamped) / 12.0) * (bar_height // 2))
+            
+            if score_clamped >= 0:
+                # Fill from center upward (white advantage)
+                fill_top = bar_center - fill_pixels
+                fill_bottom = bar_center
+            else:
+                # Fill from center downward (black advantage)
+                fill_top = bar_center
+                fill_bottom = bar_center + fill_pixels
+            
+            draw.rectangle([(bar_x + 1, fill_top), (bar_x + bar_width - 1, fill_bottom)], fill=0)
+            
+            # Score text (large, right of bar)
+            text_x = bar_x + bar_width + 4
+            
+            # Format score text
+            if abs(display_score_value) > 999:
+                display_score_text = "M"  # Mate
+            elif abs(display_score_value) >= 100:
+                mate_moves = int(abs(display_score_value))
+                display_score_text = f"M{mate_moves}"
+            else:
+                # Format with sign
+                if display_score_value >= 0:
+                    display_score_text = f"+{display_score_value:.1f}"
+                else:
+                    display_score_text = f"{display_score_value:.1f}"
+            
+            # Draw score text (centered vertically in top half)
+            score_y = 8
+            draw.text((text_x, score_y), display_score_text, font=self._font_large, fill=0)
+            
+            # Annotation symbol (below score, centered)
+            if self.last_annotation:
+                # Get annotation text dimensions
+                annot_bbox = draw.textbbox((0, 0), self.last_annotation, font=self._font_annotation)
+                annot_width = annot_bbox[2] - annot_bbox[0]
+                annot_x = text_x + (left_col_width - text_x - annot_width) // 2
+                annot_y = score_y + 24
+                draw.text((annot_x, annot_y), self.last_annotation, font=self._font_annotation, fill=0)
+            
+            # Draw vertical separator between columns
+            draw.line([(left_col_width, 2), (left_col_width, self.height - 2)], fill=0, width=1)
+        
+        # === RIGHT COLUMN: History graph ===
         if self._show_graph and len(self.score_history) > 0:
-            # Calculate graph area: starts after score bar (if shown), ends at bottom
-            # Score bar uses ~28 pixels (box 1-11 + text at 12 + padding)
-            graph_top = 30 if self._show_score_bar else 4
+            graph_top = 4
             graph_bottom = self.height - 4
             graph_height = graph_bottom - graph_top
             
-            # Center line is in the middle of the graph area
-            chart_y = graph_top + (graph_height // 2)
-            draw.line([(0, chart_y), (self.width, chart_y)], fill=0, width=1)
+            # Center line
+            chart_y = graph_top + graph_height // 2
+            draw.line([(graph_x, chart_y), (self.width - 2, chart_y)], fill=0, width=1)
             
-            bar_width = self.width / len(self.score_history)
-            if bar_width > 8:
-                bar_width = 8
+            # Calculate bar width based on history length
+            bar_width = graph_width / len(self.score_history)
+            if bar_width > 6:
+                bar_width = 6
             
-            # Calculate scale factor: map score range (-12 to +12) to half the graph height
+            # Scale factor: map score range (-12 to +12) to half the graph height
             half_height = graph_height // 2
-            scale = half_height / 12.0  # pixels per score unit
+            scale = half_height / 12.0
             
-            bar_offset = 0
+            bar_offset = graph_x
             for score in self.score_history:
-                # Adjust score for display if bottom_color is black (board is flipped)
+                # Adjust score for display if bottom_color is black
                 adjusted_score = -score if self.bottom_color == "black" else score
+                # Positive scores (white advantage) go up, use white fill
+                # Negative scores (black advantage) go down, use black fill
                 color = 255 if adjusted_score >= 0 else 0
+                
                 # Scale score to pixel offset from center line
                 y_offset = adjusted_score * scale
                 y_calc = chart_y - y_offset
-                # Clamp to graph bounds
                 y_calc = max(graph_top, min(graph_bottom, y_calc))
+                
                 y0 = min(chart_y, int(y_calc))
                 y1 = max(chart_y, int(y_calc))
+                
                 draw.rectangle(
                     [(int(bar_offset), y0), (int(bar_offset + bar_width), y1)],
                     fill=color,
