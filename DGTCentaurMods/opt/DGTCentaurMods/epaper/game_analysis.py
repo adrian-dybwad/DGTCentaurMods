@@ -385,7 +385,7 @@ class GameAnalysisWidget(Widget):
             draw.text((50, 12), display_score_text, font=self._font, fill=0)
         
         # Draw score indicator box
-        draw.rectangle([(0, 1), (127, 11)], fill=None, outline=0)
+        draw.rectangle([(0, 1), (self.width - 1, 11)], fill=None, outline=0)
         
         # Calculate indicator position (clamp score between -12 and 12)
         score_display = display_score_value
@@ -395,17 +395,17 @@ class GameAnalysisWidget(Widget):
             score_display = -12
         
         # Draw indicator bar
-        offset = (128 / 25) * (score_display + 12)
-        if offset < 128:
-            draw.rectangle([(int(offset), 1), (127, 11)], fill=0, outline=0)
+        offset = (self.width / 25) * (score_display + 12)
+        if offset < self.width:
+            draw.rectangle([(int(offset), 1), (self.width - 1, 11)], fill=0, outline=0)
         
         # Draw score history bar chart
         # Position chart relative to widget height, leaving room for score bar at top
         if len(self.score_history) > 0:
             chart_y = self.height - 10  # 10 pixels from bottom
-            draw.line([(0, chart_y), (128, chart_y)], fill=0, width=1)
+            draw.line([(0, chart_y), (self.width, chart_y)], fill=0, width=1)
             
-            bar_width = 128 / len(self.score_history)
+            bar_width = self.width / len(self.score_history)
             if bar_width > 8:
                 bar_width = 8
             
