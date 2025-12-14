@@ -571,6 +571,10 @@ class ProtocolManager:
                 
                 self._standalone_engine = engine
                 log.info(f"[ProtocolManager] Standalone UCI engine ready: {self._standalone_engine_name} @ {self._engine_elo}")
+                
+                # Check if engine needs to move now (handles resume game where turn event
+                # was triggered before engine was ready)
+                self._check_standalone_engine_turn()
                     
             except Exception as e:
                 log.error(f"[ProtocolManager] Failed to initialize standalone engine: {e}")
