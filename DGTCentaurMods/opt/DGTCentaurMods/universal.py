@@ -215,7 +215,6 @@ from DGTCentaurMods.managers import (
     DisplayManager,
     MenuManager,
     MenuSelection,
-    MenuResult,
     is_break_result,
     find_entry_index,
     ConnectionManager,
@@ -2548,8 +2547,13 @@ def _handle_lichess_menu():
             ),
         ]
     
+    # Track if game was started successfully
+    game_started = False
+    
     def handle_selection(result: MenuSelection):
         """Handle Lichess menu selection."""
+        nonlocal game_started
+        
         if result.key == "NewGame":
             # Use current game settings for color and time
             color = _game_settings['player_color']
@@ -2570,7 +2574,8 @@ def _handle_lichess_menu():
             )
             
             if _start_lichess_game(config):
-                return MenuResult(should_exit=True, value=True)
+                game_started = True
+                return result  # Exit menu loop
             return None
         
         elif result.key == "Ongoing":
@@ -2581,7 +2586,8 @@ def _handle_lichess_menu():
                     game_id=game_id
                 )
                 if _start_lichess_game(config):
-                    return MenuResult(should_exit=True, value=True)
+                    game_started = True
+                    return result  # Exit menu loop
             return None
         
         elif result.key == "Challenges":
@@ -2593,7 +2599,8 @@ def _handle_lichess_menu():
                     challenge_direction=challenge['direction']
                 )
                 if _start_lichess_game(config):
-                    return MenuResult(should_exit=True, value=True)
+                    game_started = True
+                    return result  # Exit menu loop
             return None
         
         return None
@@ -2602,9 +2609,8 @@ def _handle_lichess_menu():
     
     if is_break_result(result):
         return result
-    if isinstance(result, MenuResult) and result.value:
-        return True
-    return None
+    
+    return game_started
 
 
 def _show_lichess_error(title: str, message: str, show_accounts_button: bool = False):
