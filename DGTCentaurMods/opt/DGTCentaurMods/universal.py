@@ -2496,14 +2496,30 @@ def _handle_lichess_menu():
     client, username, error = _get_lichess_client()
     if client is None:
         # Show appropriate error message based on error type
+        # Token-related errors show the "Go to Accounts" button
         if error == "no_token":
-            _show_lichess_error("No API Token", "Configure in\nSystem > Accounts")
+            result = _show_lichess_error(
+                "No API Token",
+                "Configure in\nSystem > Accounts",
+                show_accounts_button=True
+            )
         elif error == "invalid_token":
-            _show_lichess_error("Invalid Token", "Token expired or\nrevoked. Update in\nSystem > Accounts")
+            result = _show_lichess_error(
+                "Invalid Token",
+                "Token expired or\nrevoked",
+                show_accounts_button=True
+            )
         elif error == "no_berserk":
             _show_lichess_error("Missing Library", "berserk package\nnot installed")
+            result = None
         else:
             _show_lichess_error("Connection Error", "Could not reach\nLichess server")
+            result = None
+        
+        # If user chose to go to Accounts, open that menu
+        if result == "accounts":
+            _handle_accounts_menu()
+        
         return None
     
     def build_entries():
@@ -2591,21 +2607,27 @@ def _handle_lichess_menu():
     return None
 
 
-def _show_lichess_error(title: str, message: str):
+def _show_lichess_error(title: str, message: str, show_accounts_button: bool = False):
     """Show a Lichess error message on the display.
     
-    Uses an info box pattern with an OK button to dismiss.
+    Uses an info box pattern with OK and optional Accounts buttons.
     Similar to the WiFi and Bluetooth info displays.
     
     Args:
         title: Error title
         message: Error message (can be multi-line)
+        show_accounts_button: If True, show a button to navigate to Accounts menu
+        
+    Returns:
+        "accounts" if user pressed Accounts button, None otherwise
     """
     log.info(f"[Lichess] Showing error: {title} - {message}")
     
+    go_to_accounts = False
+    
     def build_entries():
         """Build error display entries."""
-        return [
+        entries = [
             # Info box showing error message
             IconMenuEntry(
                 key="Info",
@@ -2613,33 +2635,56 @@ def _show_lichess_error(title: str, message: str):
                 icon_name="lichess",
                 enabled=True,
                 selectable=False,
-                height_ratio=1.8,
+                height_ratio=1.5,
                 icon_size=36,
                 layout="vertical",
                 font_size=11,
                 border_width=1
             ),
-            # OK button to dismiss
-            IconMenuEntry(
-                key="OK",
-                label="OK",
-                icon_name="checkbox_checked",
+        ]
+        
+        if show_accounts_button:
+            entries.append(IconMenuEntry(
+                key="Accounts",
+                label="Go to Accounts",
+                icon_name="settings",
                 enabled=True,
                 selectable=True,
                 height_ratio=0.8,
                 layout="horizontal",
                 font_size=14
-            ),
-        ]
+            ))
+        
+        # OK button to dismiss
+        entries.append(IconMenuEntry(
+            key="OK",
+            label="OK",
+            icon_name="checkbox_checked",
+            enabled=True,
+            selectable=True,
+            height_ratio=0.8,
+            layout="horizontal",
+            font_size=14
+        ))
+        
+        return entries
     
     def handle_selection(result: MenuSelection):
-        """Handle OK button press - exit menu."""
+        """Handle button press."""
+        nonlocal go_to_accounts
+        if result.key == "Accounts":
+            go_to_accounts = True
+            return result  # Exit menu
         if result.key == "OK":
             return result  # Exit menu
         return None  # Continue loop
     
-    # Show menu with info box and OK button
-    _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=1)
+    # Show menu with info box and buttons
+    # Select Accounts button if shown, otherwise OK
+    initial = 1 if show_accounts_button else 1
+    _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=initial)
+    
+    return "accounts" if go_to_accounts else None
 
 
 def _show_lichess_ongoing_games(client) -> str:
