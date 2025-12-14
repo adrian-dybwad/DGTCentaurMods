@@ -205,7 +205,7 @@ class DisplayManager:
         
         Called when display menu changes settings during a game.
         """
-        from board.settings import Settings
+        from DGTCentaurMods.board.settings import Settings
         
         def load_bool(key: str, default: bool) -> bool:
             val = Settings.read('game', key, 'true' if default else 'false')
