@@ -2445,14 +2445,21 @@ def _get_lichess_client():
     """Get a berserk Lichess API client.
     
     Returns:
-        Tuple (client, username) if successful, (None, None) if token missing/invalid.
+        Tuple (client, username, error) where:
+        - client: berserk Client if successful, None otherwise
+        - username: Lichess username if successful, None otherwise
+        - error: Error type string if failed, None if successful
+            - "no_token": No token configured
+            - "invalid_token": Token is invalid or expired
+            - "no_berserk": berserk library not installed
+            - "network": Network or other connection error
     """
     from DGTCentaurMods.board import centaur
     
     token = centaur.get_lichess_api()
     if not token or token == "tokenhere":
         log.warning("[Lichess] No valid API token configured")
-        return None, None
+        return None, None, "no_token"
     
     try:
         import berserk
@@ -2462,13 +2469,18 @@ def _get_lichess_client():
         user_info = client.account.get()
         username = user_info.get('username', '')
         log.info(f"[Lichess] Authenticated as: {username}")
-        return client, username
+        return client, username, None
     except ImportError:
         log.error("[Lichess] berserk library not installed")
-        return None, None
+        return None, None, "no_berserk"
     except Exception as e:
-        log.error(f"[Lichess] API authentication failed: {e}")
-        return None, None
+        error_str = str(e).lower()
+        if "401" in error_str or "unauthorized" in error_str or "no such token" in error_str:
+            log.error(f"[Lichess] Invalid or expired token: {e}")
+            return None, None, "invalid_token"
+        else:
+            log.error(f"[Lichess] API authentication failed: {e}")
+            return None, None, "network"
 
 
 def _handle_lichess_menu():
@@ -2481,10 +2493,17 @@ def _handle_lichess_menu():
     from DGTCentaurMods.emulators.lichess import LichessConfig, LichessGameMode
     
     # First verify we have a valid token
-    client, username = _get_lichess_client()
+    client, username, error = _get_lichess_client()
     if client is None:
-        # Show error message
-        _show_lichess_error("No API Token", "Configure in\nSystem > Accounts")
+        # Show appropriate error message based on error type
+        if error == "no_token":
+            _show_lichess_error("No API Token", "Configure in\nSystem > Accounts")
+        elif error == "invalid_token":
+            _show_lichess_error("Invalid Token", "Token expired or\nrevoked. Update in\nSystem > Accounts")
+        elif error == "no_berserk":
+            _show_lichess_error("Missing Library", "berserk package\nnot installed")
+        else:
+            _show_lichess_error("Connection Error", "Could not reach\nLichess server")
         return None
     
     def build_entries():
@@ -2575,18 +2594,26 @@ def _handle_lichess_menu():
 def _show_lichess_error(title: str, message: str):
     """Show a Lichess error message on the display.
     
+    Uses a single-item menu to display the error. User presses BACK to dismiss.
+    
     Args:
         title: Error title
         message: Error message (can be multi-line)
     """
-    from DGTCentaurMods.epaper.text import TextWidget
+    # Use a single menu entry to display error - user dismisses with BACK
+    entries = [
+        IconMenuEntry(
+            key="error",
+            label=f"{title}\n{message}",
+            icon_name="lichess",
+            enabled=False,  # Can't select, just informational
+            font_size=12,
+            height_ratio=2.0
+        )
+    ]
     
-    # Create text widget for error display
-    widget = TextWidget(text=f"{title}\n\n{message}", font_size=16)
-    widget.render()
-    
-    # Wait for any key press
-    time.sleep(3)
+    # Show menu - will return on BACK press
+    _show_menu(entries)
 
 
 def _show_lichess_ongoing_games(client) -> str:
