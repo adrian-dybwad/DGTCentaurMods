@@ -107,8 +107,8 @@ class DisplayManager:
                  analysis_engine_path: str = None, on_exit: callable = None,
                  hand_brain_mode: bool = False, initial_fen: str = None,
                  time_control: int = 0, show_board: bool = True,
-                 show_clock: bool = True, show_score_bar: bool = True,
-                 show_graph: bool = True):
+                 show_clock: bool = True,
+                 show_graph: bool = True, analysis_mode: bool = True):
         """Initialize the display controller.
         
         Args:
@@ -121,20 +121,20 @@ class DisplayManager:
             time_control: Time per player in minutes (0 = disabled/untimed, shows turn only)
             show_board: If True, show the chess board widget
             show_clock: If True, show the clock/turn indicator widget
-            show_score_bar: If True, show the score bar in analysis widget
             show_graph: If True, show the history graph in analysis widget
+            analysis_mode: If True, create analysis engine/widget (may be hidden by show_analysis)
         """
         _load_widgets()
         
         self._flip_board = flip_board
         self._show_analysis = show_analysis
+        self._analysis_mode = analysis_mode  # Whether to create analysis engine/widget at all
         self._on_exit = on_exit
         self._hand_brain_mode = hand_brain_mode
         self._initial_fen = initial_fen or STARTING_FEN
         self._time_control = time_control  # Minutes per player (0 = disabled)
         self._show_board = show_board
         self._show_clock = show_clock
-        self._show_score_bar = show_score_bar
         self._show_graph = show_graph
         
         # Widgets
@@ -200,6 +200,26 @@ class DisplayManager:
         )
         self._engine_init_thread.start()
     
+    def _reload_display_settings(self):
+        """Reload display settings from config file.
+        
+        Called when display menu changes settings during a game.
+        """
+        from board.settings import Settings
+        
+        def load_bool(key: str, default: bool) -> bool:
+            val = Settings.read('game', key, 'true' if default else 'false')
+            return val.lower() == 'true'
+        
+        self._show_board = load_bool('show_board', True)
+        self._show_clock = load_bool('show_clock', True)
+        self._show_analysis = load_bool('show_analysis', True)
+        self._show_graph = load_bool('show_graph', True)
+        
+        log.info(f"[DisplayManager] Reloaded display settings: board={self._show_board}, "
+                 f"clock={self._show_clock}, analysis={self._show_analysis}, "
+                 f"graph={self._show_graph}")
+    
     def _init_widgets(self):
         """Create and add widgets to the display manager.
         
@@ -208,7 +228,15 @@ class DisplayManager:
         - Chess board: y=16, height=128
         - Clock widget: y=144, height=72 (prominent turn/time display)
         - Analysis widget: y=216, height=80 (eval bar and history)
+        
+        Widget creation rules:
+        - Clock widget: Always created if time_control > 0, hidden if show_clock=False
+        - Analysis widget: Always created if analysis mode enabled, hidden if show_analysis=False
+        - Board widget: Always created, hidden if show_board=False
         """
+        # Reload settings from config in case they changed (e.g., via display menu)
+        self._reload_display_settings()
+        
         board = _get_board()
         
         if not board.display_manager:
@@ -224,34 +252,28 @@ class DisplayManager:
         if self._flip_board:
             self.chess_board_widget.set_flip(True)
         
-        # Add widgets without blocking - display will catch up
-        # This allows game logic to start while display updates queue
+        # Always add board widget, but hide if show_board=False
+        board.display_manager.add_widget(self.chess_board_widget)
         if self._show_board:
-            board.display_manager.add_widget(self.chess_board_widget)
-            log.info("[DisplayManager] Chess board widget initialized")
+            log.info("[DisplayManager] Chess board widget initialized (visible)")
         else:
-            log.info("[DisplayManager] Chess board widget disabled")
+            self.chess_board_widget.hide()
+            log.info("[DisplayManager] Chess board widget initialized (hidden)")
         
         # Calculate dynamic layout based on which widgets are shown
         # Available space: y=144 to y=296 (152 pixels total)
         # Layout depends on what's enabled:
         # - Clock needs more space if timed mode, less if just turn indicator
-        # - Analysis needs more space if score bar enabled, less if just graph
+        # - Analysis uses fixed height when visible
         
-        # Determine analysis widget height based on what it shows
+        # Determine analysis widget height based on visibility
         if self._show_analysis:
-            if self._show_score_bar and self._show_graph:
-                # Full analysis: score bar (28px) + graph area (50px) + padding
+            if self._show_graph:
+                # Full analysis: score text + graph
                 analysis_height = 80
-            elif self._show_score_bar:
-                # Score bar only
-                analysis_height = 40
-            elif self._show_graph:
-                # Graph only
-                analysis_height = 54
             else:
-                # Nothing visible but widget exists
-                analysis_height = 0
+                # Score text only (no graph)
+                analysis_height = 54
         else:
             analysis_height = 0
         
@@ -278,28 +300,40 @@ class DisplayManager:
             initial_seconds = self._time_control * 60
             self.clock_widget.set_times(initial_seconds, initial_seconds)
         
-        if self._show_clock:
+        # Always add clock widget if timed mode, hidden if show_clock=False
+        # For untimed mode, only add if show_clock=True
+        if timed_mode:
             board.display_manager.add_widget(self.clock_widget)
-            log.info(f"[DisplayManager] Clock widget initialized (y={clock_y}, height={clock_height}, time_control={self._time_control} min)")
+            if self._show_clock:
+                log.info(f"[DisplayManager] Clock widget initialized (visible, y={clock_y}, height={clock_height}, time_control={self._time_control} min)")
+            else:
+                self.clock_widget.hide()
+                log.info(f"[DisplayManager] Clock widget initialized (hidden, y={clock_y}, height={clock_height}, time_control={self._time_control} min)")
+        elif self._show_clock:
+            board.display_manager.add_widget(self.clock_widget)
+            log.info(f"[DisplayManager] Clock widget initialized (visible, turn indicator only, y={clock_y}, height={clock_height})")
         else:
-            log.info("[DisplayManager] Clock widget disabled")
+            log.info("[DisplayManager] Clock widget disabled (untimed mode)")
         
-        # Create analysis widget below clock
-        # Pass display settings for score bar and graph
-        bottom_color = "black" if self.chess_board_widget.flip else "white"
-        self.analysis_widget = _GameAnalysisWidget(
-            x=0, y=analysis_y, width=128, height=analysis_height if analysis_height > 0 else 80,
-            bottom_color=bottom_color,
-            analysis_engine=self.analysis_engine,
-            show_score_bar=self._show_score_bar,
-            show_graph=self._show_graph
-        )
-        
-        if not self._show_analysis:
-            self.analysis_widget.hide()
-        
-        board.display_manager.add_widget(self.analysis_widget)
-        log.info(f"[DisplayManager] Analysis widget initialized (visible={self._show_analysis}, score_bar={self._show_score_bar}, graph={self._show_graph})")
+        # Create analysis widget below clock - only if analysis_mode is enabled
+        # The widget is created but may be hidden based on show_analysis setting
+        if self._analysis_mode:
+            bottom_color = "black" if self.chess_board_widget.flip else "white"
+            self.analysis_widget = _GameAnalysisWidget(
+                x=0, y=analysis_y, width=128, height=analysis_height if analysis_height > 0 else 80,
+                bottom_color=bottom_color,
+                analysis_engine=self.analysis_engine,
+                show_graph=self._show_graph
+            )
+            
+            if not self._show_analysis:
+                self.analysis_widget.hide()
+            
+            board.display_manager.add_widget(self.analysis_widget)
+            log.info(f"[DisplayManager] Analysis widget initialized (visible={self._show_analysis}, graph={self._show_graph})")
+        else:
+            self.analysis_widget = None
+            log.info("[DisplayManager] Analysis mode disabled - no analysis widget created")
         
         # Create alert widget for CHECK/QUEEN warnings (y=144, overlays clock widget)
         # Alert widget is hidden by default and shown when check or queen threat occurs

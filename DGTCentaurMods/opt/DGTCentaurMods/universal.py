@@ -282,11 +282,12 @@ _game_settings = {
     'elo': 'Default',          # Default ELO level
     'player_color': 'white',   # white, black, or random
     'time_control': 0,         # Time per player in minutes (0 = disabled/untimed)
+    # System settings (cannot be changed during a game)
+    'analysis_mode': True,     # Enable analysis engine (creates analysis widget even if hidden)
     # Display settings (widgets to show during game)
     'show_board': True,        # Show chess board widget
     'show_clock': True,        # Show clock/turn indicator widget
     'show_analysis': True,     # Show analysis widget (score bar + graph)
-    'show_score_bar': True,    # Show score bar in analysis widget
     'show_graph': True,        # Show history graph in analysis widget
 }
 
@@ -334,18 +335,21 @@ def _load_game_settings():
                 return False
             return True
         
+        # Load system settings (analysis mode)
+        _game_settings['analysis_mode'] = load_bool_setting('analysis_mode')
+        
         _game_settings['show_board'] = load_bool_setting('show_board')
         _game_settings['show_clock'] = load_bool_setting('show_clock')
         _game_settings['show_analysis'] = load_bool_setting('show_analysis')
-        _game_settings['show_score_bar'] = load_bool_setting('show_score_bar')
         _game_settings['show_graph'] = load_bool_setting('show_graph')
 
         log.info(f"[Settings] Loaded: engine={_game_settings['engine']}, "
                  f"elo={_game_settings['elo']}, color={_game_settings['player_color']}, "
-                 f"time_control={_game_settings['time_control']} min")
+                 f"time_control={_game_settings['time_control']} min, "
+                 f"analysis_mode={_game_settings['analysis_mode']}")
         log.info(f"[Settings] Display: board={_game_settings['show_board']}, "
                  f"clock={_game_settings['show_clock']}, analysis={_game_settings['show_analysis']}, "
-                 f"score_bar={_game_settings['show_score_bar']}, graph={_game_settings['show_graph']}")
+                 f"graph={_game_settings['show_graph']}")
     except Exception as e:
         log.warning(f"[Settings] Error loading game settings: {e}, using defaults")
 
@@ -961,12 +965,16 @@ def create_system_entries() -> List[IconMenuEntry]:
         timeout_label = f"Sleep Timer\n{timeout // 60} min"
         timeout_icon = "timer_checked"  # Checked box
     
+    # Analysis mode checkbox
+    analysis_mode_icon = "checkbox_checked" if _game_settings['analysis_mode'] else "checkbox_empty"
+    
     return [
         IconMenuEntry(key="Display", label="Display", icon_name="display", enabled=True),
         IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True),
         IconMenuEntry(key="Bluetooth", label="Bluetooth", icon_name="bluetooth", enabled=True),
         IconMenuEntry(key="Accounts", label="Accounts", icon_name="account", enabled=True),
         IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
+        IconMenuEntry(key="AnalysisMode", label="Analysis\nMode", icon_name=analysis_mode_icon, enabled=True),
         IconMenuEntry(key="Inactivity", label=timeout_label, icon_name=timeout_icon, enabled=True),
         IconMenuEntry(key="ResetSettings", label="Reset\nSettings", icon_name="cancel", enabled=True),
         IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
@@ -1048,9 +1056,10 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     else:
         player_color = chess.WHITE if player_color_setting == "white" else chess.BLACK
 
-    # Get analysis engine path
+    # Get analysis engine path (only if analysis mode is enabled)
     base_path = pathlib.Path(__file__).parent
-    analysis_engine_path = str((base_path / "engines/ct800").resolve())
+    analysis_mode = _game_settings['analysis_mode']
+    analysis_engine_path = str((base_path / "engines/ct800").resolve()) if analysis_mode else None
 
     # Create DisplayManager - handles all game widgets (chess board, analysis, clock)
     # Analysis runs in a background thread so it doesn't block move processing
@@ -1064,12 +1073,13 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         time_control=_game_settings['time_control'],
         show_board=_game_settings['show_board'],
         show_clock=_game_settings['show_clock'],
-        show_score_bar=_game_settings['show_score_bar'],
-        show_graph=_game_settings['show_graph']
+        show_graph=_game_settings['show_graph'],
+        analysis_mode=analysis_mode
     )
     log.info(f"[App] DisplayManager initialized (time_control={_game_settings['time_control']} min, "
+             f"analysis_mode={analysis_mode}, "
              f"board={_game_settings['show_board']}, clock={_game_settings['show_clock']}, "
-             f"analysis={_game_settings['show_analysis']}, score_bar={_game_settings['show_score_bar']}, "
+             f"analysis={_game_settings['show_analysis']}, "
              f"graph={_game_settings['show_graph']})")
 
     # Display update callback for ProtocolManager
@@ -1241,7 +1251,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         # Game over will be shown via the event callback when handle_flag triggers termination event
     
     display_manager.set_on_flag(_on_flag)
-
+    
     # Wire up event callback to handle game events
     from DGTCentaurMods.managers import EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
     _clock_started = False
@@ -1545,12 +1555,6 @@ def _handle_display_settings():
                 enabled=True
             ),
             IconMenuEntry(
-                key="show_score_bar",
-                label="Score Bar",
-                icon_name="checkbox_checked" if _game_settings['show_score_bar'] else "checkbox_empty",
-                enabled=_game_settings['show_analysis']  # Only enabled if analysis is on
-            ),
-            IconMenuEntry(
                 key="show_graph",
                 label="Graph",
                 icon_name="checkbox_checked" if _game_settings['show_graph'] else "checkbox_empty",
@@ -1619,12 +1623,12 @@ def _handle_reset_settings():
             _game_settings['elo'] = 'Default'
             _game_settings['player_color'] = 'white'
             _game_settings['time_control'] = 0
+            _game_settings['analysis_mode'] = True
             _game_settings['show_board'] = True
             _game_settings['show_clock'] = True
             _game_settings['show_analysis'] = True
-            _game_settings['show_score_bar'] = True
             _game_settings['show_graph'] = True
-            
+
             # Reload from file (which will use defaults since section is empty)
             _load_game_settings()
             
@@ -2363,6 +2367,13 @@ def _handle_system_menu():
             sub_result = _handle_sound_settings()
             if is_break_result(sub_result):
                 return sub_result
+        elif result.key == "AnalysisMode":
+            # Toggle analysis mode
+            _game_settings['analysis_mode'] = not _game_settings['analysis_mode']
+            _save_game_setting('analysis_mode', _game_settings['analysis_mode'])
+            log.info(f"[Settings] Analysis mode set to {_game_settings['analysis_mode']}")
+            # Menu will refresh with updated checkbox
+            return None
         elif result.key == "WiFi":
             sub_result = _handle_wifi_settings()
             if is_break_result(sub_result):
@@ -3066,6 +3077,15 @@ def key_callback(key_id):
             # Toggle game analysis widget visibility
             if display_manager:
                 display_manager.toggle_analysis()
+            _reset_unhandled_key_count()
+            return
+        
+        if key_id == board.Key.LONG_HELP:
+            # Long press HELP: Show display settings menu
+            _handle_display_menu()
+            # Apply changes by reinitializing widgets
+            if display_manager:
+                display_manager._init_widgets()
             _reset_unhandled_key_count()
             return
         

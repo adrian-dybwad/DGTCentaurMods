@@ -1,9 +1,9 @@
 """
 Game analysis widget displaying evaluation score and history.
 
-Redesigned horizontal split layout:
-- Left column (40px): Large score text, annotation symbol, vertical eval bar
-- Right column (88px): Full-height history graph
+Horizontal split layout:
+- Left column (44px): Score text, annotation symbol
+- Right column (82px): Full-height history graph
 
 Annotation symbols based on score change:
 - !! (brilliant): improves by 2+ pawns when losing
@@ -33,8 +33,8 @@ class GameAnalysisWidget(Widget):
     """Widget displaying chess game analysis with horizontal split layout.
     
     Layout:
-    - Left column (40px wide): Score text (large), annotation symbol
-    - Right column (88px wide): Full-height history graph with eval bar at end
+    - Left column (44px wide): Score text (large), annotation symbol
+    - Right column (82px wide): Full-height history graph
     
     Uses TextWidget for score and annotation display.
     """
@@ -44,12 +44,12 @@ class GameAnalysisWidget(Widget):
     DEFAULT_HEIGHT = 80
     
     # Layout constants
-    SCORE_COLUMN_WIDTH = 40  # Score text and annotation
-    EVAL_BAR_WIDTH = 4  # Vertical evaluation bar width
+    SCORE_COLUMN_WIDTH = 44  # Score text and annotation
+    GRAPH_WIDTH = 82  # History graph
     
     def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None, 
                  bottom_color: str = "black", analysis_engine=None,
-                 show_score_bar: bool = True, show_graph: bool = True):
+                 show_graph: bool = True):
         """Initialize the analysis widget.
         
         Args:
@@ -59,7 +59,6 @@ class GameAnalysisWidget(Widget):
             height: Widget height (default: DEFAULT_HEIGHT)
             bottom_color: Color at bottom of board ("white" or "black")
             analysis_engine: chess.engine.SimpleEngine for position analysis
-            show_score_bar: If True, show score text and vertical eval bar
             show_graph: If True, show the history graph
         """
         if y is None:
@@ -74,7 +73,6 @@ class GameAnalysisWidget(Widget):
         self.bottom_color = bottom_color  # "white" or "black" - color at bottom of board
         self._max_history_size = 200
         self.analysis_engine = analysis_engine
-        self._show_score_bar = show_score_bar
         self._show_graph = show_graph
         
         # Track previous score for annotation calculation
@@ -84,14 +82,14 @@ class GameAnalysisWidget(Widget):
         # These are rendered into the main widget's image during render()
         self._score_text_widget = TextWidget(
             x=0, y=4, 
-            width=self.SCORE_COLUMN_WIDTH, height=24,
-            text="+0.0", font_size=18, 
+            width=self.SCORE_COLUMN_WIDTH, height=26,
+            text="+0.0", font_size=20, 
             justify=Justify.CENTER, transparent=True
         )
         self._annotation_text_widget = TextWidget(
-            x=0, y=28,
-            width=self.SCORE_COLUMN_WIDTH, height=20,
-            text="", font_size=14,
+            x=0, y=30,
+            width=self.SCORE_COLUMN_WIDTH, height=24,
+            text="", font_size=22,
             justify=Justify.CENTER, transparent=True
         )
         
@@ -440,18 +438,15 @@ class GameAnalysisWidget(Widget):
         """Render analysis widget with horizontal split layout.
         
         Layout:
-        - Left column (40px): Vertical eval bar, score text, annotation
-        - Right column (88px): Full-height history graph
-        
-        Respects show_score_bar and show_graph settings.
+        - Left column (44px): Score text, annotation
+        - Right column (82px): Full-height history graph (includes all data points)
         """
         # Return cached image if available
         if self._last_rendered is not None:
             return self._last_rendered
         
         log.debug(f"[GameAnalysisWidget] Rendering: y={self.y}, height={self.height}, "
-                  f"score_history={len(self.score_history)}, score_bar={self._show_score_bar}, "
-                  f"graph={self._show_graph}")
+                  f"score_history={len(self.score_history)}, graph={self._show_graph}")
         
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
@@ -463,44 +458,41 @@ class GameAnalysisWidget(Widget):
         # Score is always from white's perspective (positive = white advantage)
         display_score_value = -self.score_value if self.bottom_color == "black" else self.score_value
         
-        # Calculate layout: Score text/annotation on left, graph+eval bar on right
-        # The eval bar is the rightmost element (latest value of graph)
-        left_col_width = self.SCORE_COLUMN_WIDTH if self._show_score_bar else 0
-        graph_x = left_col_width + 2 if self._show_score_bar else 2
-        graph_right = self.width - 2
-        graph_width = graph_right - graph_x
+        # Calculate layout: Score text/annotation on left, graph on right
+        left_col_width = self.SCORE_COLUMN_WIDTH
+        graph_x = left_col_width + 2
+        graph_width = self.GRAPH_WIDTH
+        graph_right = graph_x + graph_width
         
         # === LEFT COLUMN: Score text, annotation (center-justified) ===
-        if self._show_score_bar:
-            # Draw vertical separator between score column and graph
-            draw.line([(left_col_width, 2), (left_col_width, self.height - 2)], fill=0, width=1)
-            
-            # Format score text
-            if abs(display_score_value) > 999:
-                display_score_text = "M"  # Mate
-            elif abs(display_score_value) >= 100:
-                mate_moves = int(abs(display_score_value))
-                display_score_text = f"M{mate_moves}"
-            else:
-                # Format with sign
-                if display_score_value >= 0:
-                    display_score_text = f"+{display_score_value:.1f}"
-                else:
-                    display_score_text = f"{display_score_value:.1f}"
-            
-            # Draw score text directly onto image (center-justified)
-            self._score_text_widget.set_text(display_score_text)
-            self._score_text_widget.draw_on(img, 0, 4)
-            
-            # Draw annotation directly onto image (center-justified, below score)
-            if self.last_annotation:
-                self._annotation_text_widget.set_text(self.last_annotation)
-                self._annotation_text_widget.draw_on(img, 0, 32)
+        # Draw vertical separator between score column and graph
+        draw.line([(left_col_width, 2), (left_col_width, self.height - 2)], fill=0, width=1)
         
-        # === RIGHT SECTION: History graph (excluding last value, shown in eval bar) ===
-        # Draw all but the last score in history; the eval bar shows the current/last value
-        # Graph is right-justified: newest values are near the eval bar
-        history_to_draw = self.score_history[:-1] if len(self.score_history) > 1 else []
+        # Format score text
+        if abs(display_score_value) > 999:
+            display_score_text = "M"  # Mate
+        elif abs(display_score_value) >= 100:
+            mate_moves = int(abs(display_score_value))
+            display_score_text = f"M{mate_moves}"
+        else:
+            # Format with sign
+            if display_score_value >= 0:
+                display_score_text = f"+{display_score_value:.1f}"
+            else:
+                display_score_text = f"{display_score_value:.1f}"
+        
+        # Draw score text directly onto image (center-justified)
+        self._score_text_widget.set_text(display_score_text)
+        self._score_text_widget.draw_on(img, 0, 4)
+        
+        # Draw annotation directly onto image (center-justified, below score)
+        if self.last_annotation:
+            self._annotation_text_widget.set_text(self.last_annotation)
+            self._annotation_text_widget.draw_on(img, 0, 30)
+        
+        # === RIGHT SECTION: History graph (all data points including last) ===
+        # Graph is right-justified: newest values are at the right edge
+        history_to_draw = self.score_history
         
         if self._show_graph and len(history_to_draw) > 0:
             graph_top = 4
@@ -511,7 +503,7 @@ class GameAnalysisWidget(Widget):
             chart_y = graph_top + graph_height // 2
             draw.line([(graph_x, chart_y), (graph_right, chart_y)], fill=0, width=1)
             
-            # Calculate bar width based on history length (excluding last)
+            # Calculate bar width based on history length
             bar_width = graph_width / len(history_to_draw)
             if bar_width > 6:
                 bar_width = 6
@@ -551,33 +543,6 @@ class GameAnalysisWidget(Widget):
             graph_bottom = self.height - 4
             chart_y = graph_top + (graph_bottom - graph_top) // 2
             draw.line([(graph_x, chart_y), (graph_right, chart_y)], fill=0, width=1)
-        
-        # Draw eval bar at the right edge (latest value, continuation of graph)
-        if self._show_score_bar:
-            eval_bar_width = self.EVAL_BAR_WIDTH
-            bar_x = self.width - eval_bar_width - 2
-            bar_top = 4
-            bar_bottom = self.height - 4
-            bar_height = bar_bottom - bar_top
-            bar_center = bar_top + bar_height // 2
-            
-            # Draw bar outline
-            draw.rectangle([(bar_x, bar_top), (bar_x + eval_bar_width, bar_bottom)], fill=255, outline=0)
-            
-            # Calculate fill based on score (-12 to +12 mapped to bar height)
-            score_clamped = max(-12, min(12, display_score_value))
-            fill_pixels = int((abs(score_clamped) / 12.0) * (bar_height // 2))
-            
-            if score_clamped >= 0:
-                # Fill from center upward (white advantage)
-                fill_top = bar_center - fill_pixels
-                fill_bottom = bar_center
-            else:
-                # Fill from center downward (black advantage)
-                fill_top = bar_center
-                fill_bottom = bar_center + fill_pixels
-            
-            draw.rectangle([(bar_x + 1, fill_top), (bar_x + eval_bar_width - 1, fill_bottom)], fill=0)
         
         # Cache the rendered image
         self._last_rendered = img

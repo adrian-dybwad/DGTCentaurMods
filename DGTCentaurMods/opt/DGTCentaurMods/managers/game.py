@@ -2112,21 +2112,21 @@ class GameManager:
     
     def handle_draw(self) -> None:
         """Handle draw claim/agreement by the human player.
-
+        
         The human player (at the physical board) is claiming or agreeing to a draw.
         This records the game result as a draw.
         """
         log.info("[GameManager] Processing draw")
-
+        
         result = "1/2-1/2"
-
+        
         # Update database with result
         self._update_game_result(result, "Termination.DRAW", "handle_draw")
-
+        
         # Play sound and turn off LEDs
         board.beep(board.SOUND_GENERAL, event_type='game_event')
         board.ledsOff()
-
+    
     def handle_flag(self, flagged_color: chess.Color) -> None:
         """Handle time expiration (flag) for a player.
 

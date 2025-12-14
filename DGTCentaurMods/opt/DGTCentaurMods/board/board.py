@@ -894,7 +894,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                         log.info('[board.events] Shutdown cancelled (button released)')
                     key_pressed = None  # Already handled
                 
-                # Other key-down events: track for long-press full refresh
+                # Other key-down events: track for long-press handling
                 elif key_pressed is not None and key_pressed.value >= 0x80:
                     # This is a _DOWN event - start long-press detection
                     long_press_key = key_pressed
@@ -905,17 +905,23 @@ def eventsThread(keycallback, fieldcallback, tout):
                     while True:
                         time.sleep(0.05)
                         
-                        # Check if held long enough for full refresh
+                        # Check if held long enough for long-press action
                         if not long_press_triggered and (time.monotonic() - long_press_start) >= 1.0:
-                            log.info('[board.events] Long press detected, triggering full refresh')
                             beep(SOUND_GENERAL, event_type='key_press')
                             long_press_triggered = True
-                            # Trigger full display refresh
-                            if display_manager is not None:
-                                try:
-                                    display_manager.update(full=True)
-                                except Exception as e:
-                                    log.error(f"[board.events] Full refresh error: {e}")
+                            
+                            # HELP long-press: send LONG_HELP event to callback
+                            if long_press_key == Key.HELP_DOWN:
+                                log.info('[board.events] Long press HELP detected, sending LONG_HELP event')
+                                # Will be sent to callback after key-up
+                            else:
+                                # Other keys: trigger full display refresh
+                                log.info('[board.events] Long press detected, triggering full refresh')
+                                if display_manager is not None:
+                                    try:
+                                        display_manager.update(full=True)
+                                    except Exception as e:
+                                        log.error(f"[board.events] Full refresh error: {e}")
                         
                         # Check for key-up
                         next_key = controller.get_next_key(timeout=0.0)
@@ -925,8 +931,11 @@ def eventsThread(keycallback, fieldcallback, tout):
                             if next_key.value == base_code:
                                 # Matching key-up received
                                 if long_press_triggered:
-                                    # Long press already handled - don't pass to callback
-                                    key_pressed = None
+                                    # Long press - check if HELP (send LONG_HELP), else already handled
+                                    if long_press_key == Key.HELP_DOWN:
+                                        key_pressed = Key.LONG_HELP
+                                    else:
+                                        key_pressed = None
                                 else:
                                     # Short press - pass the key-up to callback
                                     key_pressed = next_key
