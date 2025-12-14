@@ -1,10 +1,11 @@
-# UCI Engine Opponent
+# UCI Engine Player
 #
 # This file is part of the DGTCentaurUniversal project
 # ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
 #
-# Implements a chess opponent using a UCI engine (Stockfish, Maia, etc.).
-# Extracted from ProtocolManager to follow the Opponent abstraction.
+# A player that uses a UCI chess engine (Stockfish, Maia, CT800, etc.)
+# to compute moves. The engine runs as a subprocess and communicates
+# via the UCI protocol.
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE.md for details.
@@ -14,21 +15,22 @@ import os
 import pathlib
 import threading
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Callable
+from typing import Optional, Dict
 
 import chess
 import chess.engine
 
 from DGTCentaurMods.board.logging import log
-from .base import Opponent, OpponentConfig, OpponentState
+from .base import Player, PlayerConfig, PlayerState, PlayerType
 
 
 @dataclass
-class EngineConfig(OpponentConfig):
-    """Configuration for UCI engine opponent.
+class EnginePlayerConfig(PlayerConfig):
+    """Configuration for UCI engine player.
     
     Attributes:
         name: Engine name for display.
+        color: The color this player plays.
         time_limit_seconds: Maximum time per move.
         engine_name: Name of the engine executable (e.g., "stockfish_pi").
         engine_path: Full path to engine executable. If None, searches in
@@ -36,36 +38,41 @@ class EngineConfig(OpponentConfig):
         elo_section: Section name from .uci config file for ELO settings.
         uci_options: Additional UCI options to configure.
     """
+    time_limit_seconds: float = 5.0
     engine_name: str = "stockfish_pi"
     engine_path: Optional[str] = None
     elo_section: str = "Default"
     uci_options: Dict[str, str] = field(default_factory=dict)
 
 
-class EngineOpponent(Opponent):
-    """UCI chess engine opponent.
-    
-    Plays against the user using a UCI-compatible chess engine like
-    Stockfish, Maia, CT800, etc.
+class EnginePlayer(Player):
+    """A player that uses a UCI chess engine to compute moves.
     
     The engine runs as a subprocess and communicates via UCI protocol.
     Engine initialization is done in a background thread to avoid
     blocking game startup.
     
+    Move Flow:
+    1. request_move() - engine starts computing in background
+    2. Engine finishes - stores pending_move, notifies for LED display
+    3. on_piece_event() - forms move from lift/place
+    4. If move matches pending_move - submits via callback
+    5. If move doesn't match - board needs correction, no submission
+    
     Thread Safety:
     - start() spawns initialization thread
-    - get_move() spawns thinking thread
+    - request_move() spawns thinking thread
     - stop() waits for threads to complete
     """
     
-    def __init__(self, config: Optional[EngineConfig] = None):
-        """Initialize the engine opponent.
+    def __init__(self, config: Optional[EnginePlayerConfig] = None):
+        """Initialize the engine player.
         
         Args:
             config: Engine configuration. If None, uses defaults.
         """
-        super().__init__(config or EngineConfig())
-        self._engine_config: EngineConfig = self._config
+        super().__init__(config or EnginePlayerConfig())
+        self._engine_config: EnginePlayerConfig = self._config
         
         # Engine process handle
         self._engine: Optional[chess.engine.SimpleEngine] = None
@@ -78,6 +85,17 @@ class EngineOpponent(Opponent):
         
         # UCI options loaded from config file
         self._uci_options: Dict[str, str] = {}
+        
+        # Pending move from engine computation (for LED display)
+        self._pending_move: Optional[chess.Move] = None
+        
+        # Track piece events to construct moves
+        self._lifted_square: Optional[int] = None
+    
+    @property
+    def player_type(self) -> PlayerType:
+        """Engine player type."""
+        return PlayerType.ENGINE
     
     @property
     def engine_name(self) -> str:
@@ -98,17 +116,17 @@ class EngineOpponent(Opponent):
         Returns:
             True if initialization started, False on immediate error.
         """
-        if self._state not in (OpponentState.UNINITIALIZED, OpponentState.STOPPED):
-            log.warning(f"[EngineOpponent] Cannot start - already in state {self._state}")
+        if self._state not in (PlayerState.UNINITIALIZED, PlayerState.STOPPED):
+            log.warning(f"[EnginePlayer] Cannot start - already in state {self._state}")
             return False
         
-        self._set_state(OpponentState.INITIALIZING)
+        self._set_state(PlayerState.INITIALIZING)
         self._report_status(f"Loading {self.engine_name}...")
         
         # Find engine path
         engine_path = self._resolve_engine_path()
         if not engine_path:
-            self._set_state(OpponentState.ERROR, f"Engine not found: {self.engine_name}")
+            self._set_state(PlayerState.ERROR, f"Engine not found: {self.engine_name}")
             return False
         
         # Load UCI options from config file (synchronous, fast)
@@ -118,24 +136,25 @@ class EngineOpponent(Opponent):
         # Start engine initialization in background
         def _init_engine():
             try:
-                log.info(f"[EngineOpponent] Starting engine: {engine_path}")
+                log.info(f"[EnginePlayer] Starting engine: {engine_path}")
                 engine = chess.engine.SimpleEngine.popen_uci(str(engine_path))
                 
                 # Apply UCI options
                 if self._uci_options:
-                    log.info(f"[EngineOpponent] Configuring with options: {self._uci_options}")
+                    log.info(f"[EnginePlayer] Configuring with options: {self._uci_options}")
                     engine.configure(self._uci_options)
                 
                 with self._lock:
                     self._engine = engine
-                    self._set_state(OpponentState.READY)
+                    self._set_state(PlayerState.READY)
                 
-                log.info(f"[EngineOpponent] Engine ready: {self.engine_name} @ {self.elo_section}")
+                color_name = 'White' if self._color == chess.WHITE else 'Black' if self._color == chess.BLACK else ''
+                log.info(f"[EnginePlayer] {color_name} engine ready: {self.engine_name} @ {self.elo_section}")
                 self._report_status(f"{self.engine_name} ready")
                 
             except Exception as e:
-                log.error(f"[EngineOpponent] Failed to initialize engine: {e}")
-                self._set_state(OpponentState.ERROR, str(e))
+                log.error(f"[EnginePlayer] Failed to initialize engine: {e}")
+                self._set_state(PlayerState.ERROR, str(e))
         
         self._init_thread = threading.Thread(
             target=_init_engine,
@@ -148,7 +167,7 @@ class EngineOpponent(Opponent):
     
     def stop(self) -> None:
         """Stop the engine and release resources."""
-        log.info(f"[EngineOpponent] Stopping engine: {self.engine_name}")
+        log.info(f"[EnginePlayer] Stopping engine: {self.engine_name}")
         
         # Wait for init thread if running
         if self._init_thread and self._init_thread.is_alive():
@@ -159,52 +178,54 @@ class EngineOpponent(Opponent):
             if self._engine:
                 try:
                     self._engine.quit()
-                    log.info(f"[EngineOpponent] Engine closed: {self.engine_name}")
+                    log.info(f"[EnginePlayer] Engine closed: {self.engine_name}")
                 except Exception as e:
-                    log.debug(f"[EngineOpponent] Error closing engine: {e}")
+                    log.debug(f"[EnginePlayer] Error closing engine: {e}")
                 self._engine = None
         
-        self._set_state(OpponentState.STOPPED)
+        self._set_state(PlayerState.STOPPED)
     
-    def get_move(self, board: chess.Board) -> Optional[chess.Move]:
-        """Compute and return the engine's move.
+    def request_move(self, board: chess.Board) -> None:
+        """Request the engine to compute a move.
         
-        Spawns a background thread for thinking. The move is delivered
-        via the move_callback when ready.
+        Spawns a background thread for thinking. When done, stores the
+        pending move and notifies via engine_move_callback for LED display.
+        The actual move submission happens via on_piece_event.
         
         Args:
             board: Current chess position.
-        
-        Returns:
-            None (move delivered asynchronously via callback).
         """
-        if self._state != OpponentState.READY:
-            log.warning(f"[EngineOpponent] get_move called but state is {self._state}")
-            return None
+        if self._state != PlayerState.READY:
+            log.warning(f"[EnginePlayer] request_move called but state is {self._state}")
+            return
         
         if self._thinking:
-            log.debug("[EngineOpponent] Already thinking, ignoring duplicate call")
-            return None
+            log.debug("[EnginePlayer] Already thinking, ignoring duplicate call")
+            return
         
         with self._lock:
             if not self._engine:
-                log.warning("[EngineOpponent] Engine not initialized")
-                return None
+                log.warning("[EnginePlayer] Engine not initialized")
+                return
+        
+        # Reset state for new turn
+        self._pending_move = None
+        self._lifted_square = None
         
         self._thinking = True
-        self._set_state(OpponentState.THINKING)
+        self._set_state(PlayerState.THINKING)
+        
+        # Copy board immediately to capture current state
+        board_copy = board.copy()
         
         def _think():
             try:
-                log.info(f"[EngineOpponent] {self.engine_name} thinking...")
+                log.info(f"[EnginePlayer] {self.engine_name} thinking...")
                 
                 # Re-apply UCI options before each move (some engines reset)
                 with self._lock:
                     if self._engine and self._uci_options:
                         self._engine.configure(self._uci_options)
-                
-                # Copy board to avoid race conditions
-                board_copy = board.copy()
                 
                 # Get engine move
                 time_limit = self._engine_config.time_limit_seconds
@@ -219,20 +240,23 @@ class EngineOpponent(Opponent):
                         move = None
                 
                 if move:
-                    log.info(f"[EngineOpponent] {self.engine_name} move: {move.uci()}")
-                    if self._move_callback:
-                        self._move_callback(move)
+                    log.info(f"[EnginePlayer] {self.engine_name} computed: {move.uci()}")
+                    self._pending_move = move
+                    
+                    # Notify for LED display
+                    if self._pending_move_callback:
+                        self._pending_move_callback(move)
                 else:
-                    log.warning("[EngineOpponent] Engine returned no move")
+                    log.warning("[EnginePlayer] Engine returned no move")
                     
             except Exception as e:
-                log.error(f"[EngineOpponent] Error getting move: {e}")
+                log.error(f"[EnginePlayer] Error getting move: {e}")
                 import traceback
                 traceback.print_exc()
             finally:
                 self._thinking = False
-                if self._state == OpponentState.THINKING:
-                    self._set_state(OpponentState.READY)
+                if self._state == PlayerState.THINKING:
+                    self._set_state(PlayerState.READY)
         
         self._think_thread = threading.Thread(
             target=_think,
@@ -240,32 +264,75 @@ class EngineOpponent(Opponent):
             daemon=True
         )
         self._think_thread.start()
-        
-        return None  # Move delivered via callback
     
-    def on_player_move(self, move: chess.Move, board: chess.Board) -> None:
-        """Notification that the player made a move.
+    def on_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
+        """Handle a piece event from the physical board.
         
-        Engine doesn't need to track this - it uses the board state
-        directly when computing moves.
+        Constructs a move from lift/place sequence. Only submits if
+        the move matches the engine's computed move. If it doesn't match,
+        the board state is wrong and needs correction.
+        
+        Args:
+            event_type: "lift" or "place"
+            square: The square index (0-63)
+            board: Current chess position
         """
-        log.debug(f"[EngineOpponent] Player moved: {move.uci()}")
+        if event_type == "lift":
+            self._lifted_square = square
+            log.debug(f"[EnginePlayer] Piece lifted from {chess.square_name(square)}")
+        
+        elif event_type == "place":
+            if self._lifted_square is not None:
+                # Form the move
+                move = chess.Move(self._lifted_square, square)
+                log.debug(f"[EnginePlayer] Move formed: {move.uci()}")
+                
+                # Reset lifted state
+                self._lifted_square = None
+                
+                # Only submit if it matches the pending move
+                if self._pending_move is None:
+                    log.warning(f"[EnginePlayer] Move formed but no pending move - engine still thinking?")
+                    return
+                
+                # Check if move matches (ignoring promotion for now - handle separately)
+                if move.from_square == self._pending_move.from_square and \
+                   move.to_square == self._pending_move.to_square:
+                    # Match! Submit the pending move (includes promotion if any)
+                    log.info(f"[EnginePlayer] Move matches pending: {self._pending_move.uci()}")
+                    if self._move_callback:
+                        self._move_callback(self._pending_move)
+                    else:
+                        log.warning("[EnginePlayer] No move callback set, cannot submit move")
+                else:
+                    # Doesn't match - board needs correction
+                    log.warning(f"[EnginePlayer] Move {move.uci()} does not match pending {self._pending_move.uci()} - correction needed")
+            else:
+                log.debug(f"[EnginePlayer] Piece placed on {chess.square_name(square)} but no lift tracked")
+    
+    def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
+        """Notification that a move was made.
+        
+        Clears pending state after a move is executed.
+        """
+        log.debug(f"[EnginePlayer] Move made: {move.uci()}")
+        self._pending_move = None
+        self._lifted_square = None
     
     def on_new_game(self) -> None:
         """Notification that a new game is starting.
         
         Resets engine state for the new game.
         """
-        log.info(f"[EngineOpponent] New game - resetting {self.engine_name}")
+        log.info(f"[EnginePlayer] New game - resetting {self.engine_name}")
         # The chess.engine library handles ucinewgame automatically
-        # but we could explicitly send it if needed
     
     def on_takeback(self, board: chess.Board) -> None:
         """Notification that a takeback occurred.
         
         Engine handles this automatically via the board state.
         """
-        log.debug("[EngineOpponent] Takeback - engine will use new position")
+        log.debug("[EnginePlayer] Takeback - engine will use new position")
     
     def get_info(self) -> dict:
         """Get information about this engine for display."""
@@ -289,7 +356,7 @@ class EngineOpponent(Opponent):
             path = pathlib.Path(self._engine_config.engine_path)
             if path.exists():
                 return path
-            log.warning(f"[EngineOpponent] Configured path not found: {path}")
+            log.warning(f"[EnginePlayer] Configured path not found: {path}")
         
         # Search standard locations
         base_path = pathlib.Path(__file__).parent.parent
@@ -298,7 +365,7 @@ class EngineOpponent(Opponent):
         if engine_path.exists():
             return engine_path
         
-        log.error(f"[EngineOpponent] Engine not found: {engine_path}")
+        log.error(f"[EnginePlayer] Engine not found: {engine_path}")
         return None
     
     def _load_uci_options(self, uci_file_path: str) -> None:
@@ -308,7 +375,7 @@ class EngineOpponent(Opponent):
             uci_file_path: Path to the .uci config file.
         """
         if not os.path.exists(uci_file_path):
-            log.warning(f"[EngineOpponent] UCI file not found: {uci_file_path}")
+            log.warning(f"[EnginePlayer] UCI file not found: {uci_file_path}")
             return
         
         config = configparser.ConfigParser()
@@ -318,7 +385,7 @@ class EngineOpponent(Opponent):
         section = self._engine_config.elo_section
         
         if config.has_section(section):
-            log.info(f"[EngineOpponent] Loading UCI options from section: {section}")
+            log.info(f"[EnginePlayer] Loading UCI options from section: {section}")
             for key, value in config.items(section):
                 self._uci_options[key] = value
             
@@ -328,9 +395,9 @@ class EngineOpponent(Opponent):
                 k: v for k, v in self._uci_options.items()
                 if k not in non_uci_fields
             }
-            log.info(f"[EngineOpponent] UCI options: {self._uci_options}")
+            log.info(f"[EnginePlayer] UCI options: {self._uci_options}")
         else:
-            log.warning(f"[EngineOpponent] Section '{section}' not found in {uci_file_path}")
+            log.warning(f"[EnginePlayer] Section '{section}' not found in {uci_file_path}")
             # Fall back to DEFAULT section
             if config.has_section("DEFAULT"):
                 for key, value in config.items("DEFAULT"):
@@ -341,28 +408,29 @@ class EngineOpponent(Opponent):
         self._uci_options.update(self._engine_config.uci_options)
 
 
-def create_engine_opponent(
+def create_engine_player(
+    color: chess.Color,
     engine_name: str = "stockfish_pi",
     elo_section: str = "Default",
     time_limit: float = 5.0
-) -> EngineOpponent:
-    """Factory function to create an engine opponent.
-    
-    Convenience function for common use case.
+) -> EnginePlayer:
+    """Factory function to create an engine player.
     
     Args:
+        color: The color this engine plays (WHITE or BLACK).
         engine_name: Name of the engine (e.g., "stockfish_pi", "maia").
         elo_section: ELO section from .uci config file.
         time_limit: Maximum thinking time per move in seconds.
     
     Returns:
-        Configured EngineOpponent instance.
+        Configured EnginePlayer instance.
     """
-    config = EngineConfig(
+    config = EnginePlayerConfig(
         name=f"{engine_name} ({elo_section})",
+        color=color,
         time_limit_seconds=time_limit,
         engine_name=engine_name,
         elo_section=elo_section,
     )
     
-    return EngineOpponent(config)
+    return EnginePlayer(config)

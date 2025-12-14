@@ -1,17 +1,17 @@
-# Lichess Opponent
+# Lichess Player
 #
 # This file is part of the DGTCentaurUniversal project
 # ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
 #
-# Implements a chess opponent using Lichess online play.
-# Connects to Lichess API for real-time games against human opponents.
+# A player that connects to Lichess for online games. Moves come from
+# the Lichess server (either from a remote human opponent or Lichess AI).
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE.md for details.
 
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional, Callable
 
@@ -19,7 +19,7 @@ import chess
 
 from DGTCentaurMods.board import board, centaur
 from DGTCentaurMods.board.logging import log
-from .base import Opponent, OpponentConfig, OpponentState
+from .base import Player, PlayerConfig, PlayerState, PlayerType
 
 
 class LichessGameMode(Enum):
@@ -30,18 +30,17 @@ class LichessGameMode(Enum):
 
 
 @dataclass
-class LichessConfig(OpponentConfig):
-    """Configuration for Lichess opponent.
+class LichessPlayerConfig(PlayerConfig):
+    """Configuration for Lichess player.
     
     Attributes:
         name: Display name.
-        time_limit_seconds: Not used for Lichess (server manages clock).
+        color: The color this player plays (set after game starts).
         mode: Game mode (NEW, ONGOING, or CHALLENGE).
         time_minutes: Time control in minutes (for NEW mode).
         increment_seconds: Increment in seconds (for NEW mode).
         rated: Whether game is rated (for NEW mode).
         color_preference: Preferred color when seeking ('white', 'black', 'random').
-                         This is a game-seeking preference, not stored state.
         rating_range: Rating range for matchmaking (for NEW mode).
         game_id: Game ID to resume (for ONGOING mode).
         challenge_id: Challenge ID to accept (for CHALLENGE mode).
@@ -58,31 +57,33 @@ class LichessConfig(OpponentConfig):
     challenge_direction: str = 'in'
 
 
-class LichessOpponent(Opponent):
-    """Lichess online opponent.
+class LichessPlayer(Player):
+    """A player that connects to Lichess for online games.
     
-    Plays against the user via Lichess API. Unlike engine opponents,
-    moves come from a remote human player via HTTP/WebSocket streaming.
+    This player represents the remote opponent. Moves come from the
+    Lichess server via HTTP streaming.
     
-    This is fundamentally different from local opponents:
-    - Moves arrive asynchronously via stream (not computed locally)
-    - Player's moves are sent to server (not just tracked locally)
-    - Game lifecycle managed by Lichess (resign, draw, abort)
+    Move Flow (when it's this player's turn):
+    1. Stream receives move from server, stores as pending_move
+    2. Notifies via lichess_move_callback for LED display
+    3. on_piece_event() forms move from lift/place
+    4. If move matches pending_move - submits via move_callback
+    5. If move doesn't match - board needs correction, no submission
     
     Thread Model:
     - start() authenticates and begins seek/stream
-    - Stream thread receives opponent moves and pushes via callback
-    - Player moves sent immediately to Lichess API
+    - Stream thread receives remote moves and stores them
+    - Piece events validate execution and submit
     """
     
-    def __init__(self, config: Optional[LichessConfig] = None):
-        """Initialize the Lichess opponent.
+    def __init__(self, config: Optional[LichessPlayerConfig] = None):
+        """Initialize the Lichess player.
         
         Args:
             config: Lichess configuration. If None, uses defaults.
         """
-        super().__init__(config or LichessConfig())
-        self._lichess_config: LichessConfig = self._config
+        super().__init__(config or LichessPlayerConfig())
+        self._lichess_config: LichessPlayerConfig = self._config
         
         # Lichess API client (berserk)
         self._client = None
@@ -90,7 +91,7 @@ class LichessOpponent(Opponent):
         
         # Game state
         self._game_id: Optional[str] = None
-        self._player_is_white: Optional[bool] = None
+        self._player_is_white: Optional[bool] = None  # Is the LOCAL player white?
         self._current_turn_is_white: bool = True
         
         # Player info
@@ -108,10 +109,11 @@ class LichessOpponent(Opponent):
         self._remote_moves: str = ''
         self._last_processed_moves: str = ''
         
-        # Track opponent moves being executed on board (to avoid sending back)
-        # When we receive an opponent move, we add it here. When the user
-        # physically executes it and on_player_move is called, we skip sending.
-        self._pending_opponent_moves: set = set()
+        # Pending move from server (for validation)
+        self._pending_move: Optional[chess.Move] = None
+        
+        # Track piece events to construct moves
+        self._lifted_square: Optional[int] = None
         
         # Threading
         self._should_stop = threading.Event()
@@ -122,14 +124,19 @@ class LichessOpponent(Opponent):
         # Board orientation
         self._board_flip: bool = False
         
-        # Callback for game events
+        # Callbacks for game events
         self._on_game_connected: Optional[Callable] = None
         self._clock_callback: Optional[Callable[[int, int], None]] = None
         self._game_info_callback: Optional[Callable[[str, str, str, str], None]] = None
     
     @property
+    def player_type(self) -> PlayerType:
+        """Lichess player type."""
+        return PlayerType.LICHESS
+    
+    @property
     def board_flip(self) -> bool:
-        """Whether board display should be flipped (True if playing black)."""
+        """Whether board display should be flipped (True if local player is black)."""
         return self._board_flip
     
     @property
@@ -158,27 +165,15 @@ class LichessOpponent(Opponent):
         return self._black_rating
     
     def set_on_game_connected(self, callback: Callable) -> None:
-        """Set callback for when game is connected and ready.
-        
-        Args:
-            callback: Function to call when game transitions to playing.
-        """
+        """Set callback for when game is connected and ready."""
         self._on_game_connected = callback
     
     def set_clock_callback(self, callback: Callable[[int, int], None]) -> None:
-        """Set callback for clock updates.
-        
-        Args:
-            callback: Function(white_time, black_time) in seconds.
-        """
+        """Set callback for clock updates (white_time, black_time in seconds)."""
         self._clock_callback = callback
     
     def set_game_info_callback(self, callback: Callable[[str, str, str, str], None]) -> None:
-        """Set callback for game info updates.
-        
-        Args:
-            callback: Function(white_player, white_rating, black_player, black_rating).
-        """
+        """Set callback for game info (white_player, white_rating, black_player, black_rating)."""
         self._game_info_callback = callback
     
     def start(self) -> bool:
@@ -190,15 +185,15 @@ class LichessOpponent(Opponent):
         Returns:
             True if connection started successfully, False on error.
         """
-        log.info("[LichessOpponent] Starting Lichess opponent")
-        self._set_state(OpponentState.INITIALIZING)
+        log.info("[LichessPlayer] Starting Lichess player")
+        self._set_state(PlayerState.INITIALIZING)
         self._report_status("Connecting to Lichess...")
         
         # Get API token
         self._token = centaur.get_lichess_api()
         if not self._token or self._token == "tokenhere":
-            log.error("[LichessOpponent] No valid API token configured")
-            self._set_state(OpponentState.ERROR, "No API token configured")
+            log.error("[LichessPlayer] No valid API token configured")
+            self._set_state(PlayerState.ERROR, "No API token configured")
             return False
         
         # Initialize berserk client
@@ -207,12 +202,12 @@ class LichessOpponent(Opponent):
             session = berserk.TokenSession(self._token)
             self._client = berserk.Client(session=session)
         except ImportError:
-            log.error("[LichessOpponent] berserk library not installed")
-            self._set_state(OpponentState.ERROR, "berserk not installed")
+            log.error("[LichessPlayer] berserk library not installed")
+            self._set_state(PlayerState.ERROR, "berserk not installed")
             return False
         except Exception as e:
-            log.error(f"[LichessOpponent] Failed to create berserk client: {e}")
-            self._set_state(OpponentState.ERROR, "API client error")
+            log.error(f"[LichessPlayer] Failed to create berserk client: {e}")
+            self._set_state(PlayerState.ERROR, "API client error")
             return False
         
         # Authenticate and get user info
@@ -220,10 +215,10 @@ class LichessOpponent(Opponent):
         try:
             user_info = self._client.account.get()
             self._username = user_info.get('username', '')
-            log.info(f"[LichessOpponent] Authenticated as: {self._username}")
+            log.info(f"[LichessPlayer] Authenticated as: {self._username}")
         except Exception as e:
-            log.error(f"[LichessOpponent] Authentication failed: {e}")
-            self._set_state(OpponentState.ERROR, "API token invalid")
+            log.error(f"[LichessPlayer] Authentication failed: {e}")
+            self._set_state(PlayerState.ERROR, "API token invalid")
             return False
         
         # Start appropriate game flow
@@ -238,7 +233,7 @@ class LichessOpponent(Opponent):
     
     def stop(self) -> None:
         """Stop the Lichess connection and cleanup."""
-        log.info("[LichessOpponent] Stopping Lichess opponent")
+        log.info("[LichessPlayer] Stopping Lichess player")
         self._should_stop.set()
         
         # Wait for threads to finish
@@ -247,135 +242,178 @@ class LichessOpponent(Opponent):
         if self._seek_thread and self._seek_thread.is_alive():
             self._seek_thread.join(timeout=2.0)
         
-        self._set_state(OpponentState.STOPPED)
-        log.info("[LichessOpponent] Lichess opponent stopped")
+        self._set_state(PlayerState.STOPPED)
+        log.info("[LichessPlayer] Lichess player stopped")
     
-    def get_move(self, board: chess.Board) -> Optional[chess.Move]:
-        """Get opponent's move.
+    def request_move(self, board: chess.Board) -> None:
+        """Request a move from this player.
         
-        For Lichess, moves arrive asynchronously via the stream thread.
-        This method returns None immediately - moves are delivered via
-        the move_callback when they arrive from Lichess.
+        If a pending move exists (received from server), displays LEDs.
+        Resets piece event tracking for the new turn.
         
         Args:
-            board: Current chess position (not used - Lichess tracks state).
-        
-        Returns:
-            None (moves delivered asynchronously).
+            board: Current chess position.
         """
-        log.debug("[LichessOpponent] get_move called - moves arrive via stream")
-        return None
+        self._lifted_square = None
+        
+        if self._pending_move:
+            log.info(f"[LichessPlayer] Displaying pending move: {self._pending_move.uci()}")
+            if self._pending_move_callback:
+                self._pending_move_callback(self._pending_move)
+        else:
+            log.debug("[LichessPlayer] request_move called - waiting for server move")
     
-    def on_player_move(self, move: chess.Move, board: chess.Board) -> None:
-        """Send player's move to Lichess.
+    def on_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
+        """Handle a piece event from the physical board.
         
-        Called after the player's move is validated and applied locally.
-        Sends the move to Lichess server.
-        
-        Note: Skips sending if this move was received from the opponent
-        (i.e., the user physically executed the opponent's move on the board).
+        Constructs a move from lift/place sequence. Only submits if
+        the move matches the server's move. If it doesn't match,
+        the board state is wrong and needs correction.
         
         Args:
-            move: The move the player made.
+            event_type: "lift" or "place"
+            square: The square index (0-63)
+            board: Current chess position
+        """
+        if event_type == "lift":
+            self._lifted_square = square
+            log.debug(f"[LichessPlayer] Piece lifted from {chess.square_name(square)}")
+        
+        elif event_type == "place":
+            if self._lifted_square is not None:
+                # Form the move
+                move = chess.Move(self._lifted_square, square)
+                log.debug(f"[LichessPlayer] Move formed: {move.uci()}")
+                
+                # Reset lifted state
+                self._lifted_square = None
+                
+                # Only submit if it matches the pending move
+                if self._pending_move is None:
+                    log.warning(f"[LichessPlayer] Move formed but no pending move from server")
+                    return
+                
+                # Check if move matches
+                if move.from_square == self._pending_move.from_square and \
+                   move.to_square == self._pending_move.to_square:
+                    # Match! Submit the pending move (includes promotion if any)
+                    log.info(f"[LichessPlayer] Move matches server: {self._pending_move.uci()}")
+                    if self._move_callback:
+                        self._move_callback(self._pending_move)
+                    else:
+                        log.warning("[LichessPlayer] No move callback set, cannot submit move")
+                else:
+                    # Doesn't match - board needs correction
+                    log.warning(f"[LichessPlayer] Move {move.uci()} does not match server {self._pending_move.uci()} - correction needed")
+            else:
+                log.debug(f"[LichessPlayer] Piece placed on {chess.square_name(square)} but no lift tracked")
+    
+    def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
+        """Notification that a move was made on the board.
+        
+        Clears pending state. For the local player's moves, sends to Lichess.
+        
+        Args:
+            move: The move that was made.
             board: Board state after the move.
         """
-        if self._state != OpponentState.READY:
-            log.warning(f"[LichessOpponent] Cannot send move - state is {self._state}")
+        # Clear pending state
+        self._pending_move = None
+        self._lifted_square = None
+        
+        # If this was the remote player's move (this player's move), don't send to server
+        # The move came FROM the server, so we don't echo it back
+        # on_move_made is called for ALL moves, so we need to check whose move it was
+        # The board.turn is now the NEXT player's turn, so if it's our color, the last move was opponent's
+        if board.turn == self._color:
+            # Last move was opponent's (local player's) - they made a move, send it to server
+            log.info(f"[LichessPlayer] Sending local player's move to server: {move.uci()}")
+            self._send_move_to_server(move)
+        else:
+            # Last move was ours (remote player's) - came from server, don't echo
+            log.debug(f"[LichessPlayer] Our move executed: {move.uci()}")
+    
+    def _send_move_to_server(self, move: chess.Move) -> None:
+        """Send a move to the Lichess server.
+        
+        Args:
+            move: The move to send.
+        """
+        if self._state != PlayerState.READY:
+            log.warning(f"[LichessPlayer] Cannot send move - state is {self._state}")
             return
         
         move_uci = move.uci()
         
-        # Check if this is an opponent move being physically executed
-        if move_uci in self._pending_opponent_moves:
-            log.debug(f"[LichessOpponent] Skipping send - this is opponent move being executed: {move_uci}")
-            self._pending_opponent_moves.discard(move_uci)
-            return
-        
-        log.info(f"[LichessOpponent] Sending player move: {move_uci}")
-        
         retries = 3
         for attempt in range(retries):
             try:
-                # make_move returns None on success, raises exception on failure
                 self._client.board.make_move(self._game_id, move_uci)
-                log.debug(f"[LichessOpponent] Move sent successfully")
+                log.debug("[LichessPlayer] Move sent successfully")
                 return
             except Exception as e:
-                log.warning(f"[LichessOpponent] Move attempt {attempt + 1} failed: {e}")
+                log.warning(f"[LichessPlayer] Move attempt {attempt + 1} failed: {e}")
                 if attempt < retries - 1:
                     time.sleep(0.5)
         
-        log.error(f"[LichessOpponent] Failed to send move after {retries} attempts")
+        log.error(f"[LichessPlayer] Failed to send move after {retries} attempts")
     
     def on_new_game(self) -> None:
-        """Notification that a new game is starting.
-        
-        For Lichess, this is handled by the game stream.
-        """
-        log.info("[LichessOpponent] New game notification")
+        """Notification that a new game is starting."""
+        log.info("[LichessPlayer] New game notification")
     
-    def on_resign(self) -> None:
+    def on_resign(self, color: chess.Color) -> None:
         """Resign the current game."""
         if not self._game_id or not self._client:
-            log.warning("[LichessOpponent] Cannot resign - no active game")
+            log.warning("[LichessPlayer] Cannot resign - no active game")
             return
         
-        if self._state != OpponentState.READY:
-            log.info(f"[LichessOpponent] Cannot resign - state is {self._state}")
+        if self._state != PlayerState.READY:
+            log.info(f"[LichessPlayer] Cannot resign - state is {self._state}")
             return
         
-        log.info("[LichessOpponent] Resigning game")
+        log.info("[LichessPlayer] Resigning game")
         try:
             self._client.board.resign_game(self._game_id)
         except Exception as e:
-            log.error(f"[LichessOpponent] Failed to resign: {e}")
+            log.error(f"[LichessPlayer] Failed to resign: {e}")
     
     def on_draw_offer(self) -> None:
         """Offer a draw to the opponent."""
         if not self._game_id or not self._client:
-            log.warning("[LichessOpponent] Cannot offer draw - no active game")
+            log.warning("[LichessPlayer] Cannot offer draw - no active game")
             return
         
-        log.info("[LichessOpponent] Offering draw")
+        log.info("[LichessPlayer] Offering draw")
         try:
             self._client.board.offer_draw(self._game_id)
         except Exception as e:
-            log.error(f"[LichessOpponent] Failed to offer draw: {e}")
+            log.error(f"[LichessPlayer] Failed to offer draw: {e}")
     
     def abort_game(self) -> None:
         """Abort the current game (only valid in first few moves)."""
         if not self._game_id or not self._client:
-            log.warning("[LichessOpponent] Cannot abort - no active game")
+            log.warning("[LichessPlayer] Cannot abort - no active game")
             return
         
-        if self._state != OpponentState.READY:
-            log.info(f"[LichessOpponent] Cannot abort - state is {self._state}")
+        if self._state != PlayerState.READY:
+            log.info(f"[LichessPlayer] Cannot abort - state is {self._state}")
             return
         
-        log.info("[LichessOpponent] Aborting game")
+        log.info("[LichessPlayer] Aborting game")
         try:
             self._client.board.abort_game(self._game_id)
         except Exception as e:
-            log.error(f"[LichessOpponent] Failed to abort: {e}")
-    
-    # Aliases for compatibility with emulator API
-    def resign_game(self) -> None:
-        """Alias for on_resign() for compatibility."""
-        self.on_resign()
-    
-    def offer_draw(self) -> None:
-        """Alias for on_draw_offer() for compatibility."""
-        self.on_draw_offer()
+            log.error(f"[LichessPlayer] Failed to abort: {e}")
     
     def supports_takeback(self) -> bool:
         """Lichess doesn't support takeback from external boards."""
         return False
     
     def get_info(self) -> dict:
-        """Get information about this opponent."""
+        """Get information about this player."""
         info = super().get_info()
         info.update({
-            'type': 'lichess',
             'game_id': self._game_id,
             'username': self._username,
             'white_player': self._white_player,
@@ -392,7 +430,7 @@ class LichessOpponent(Opponent):
     
     def _start_new_game(self) -> bool:
         """Start seeking a new game."""
-        log.info(f"[LichessOpponent] Seeking: {self._lichess_config.time_minutes}+{self._lichess_config.increment_seconds}")
+        log.info(f"[LichessPlayer] Seeking: {self._lichess_config.time_minutes}+{self._lichess_config.increment_seconds}")
         self._report_status("Finding opponent...")
         
         self._seek_thread = threading.Thread(
@@ -426,12 +464,12 @@ class LichessOpponent(Opponent):
                 
         except Exception as e:
             if not self._should_stop.is_set():
-                log.error(f"[LichessOpponent] Seek failed: {e}")
-                self._set_state(OpponentState.ERROR, "Seek failed")
+                log.error(f"[LichessPlayer] Seek failed: {e}")
+                self._set_state(PlayerState.ERROR, "Seek failed")
     
     def _find_and_start_game(self):
         """Find the most recent matching game and start streaming."""
-        log.info("[LichessOpponent] Looking for started game...")
+        log.info("[LichessPlayer] Looking for started game...")
         
         max_attempts = 30
         for attempt in range(max_attempts):
@@ -444,25 +482,25 @@ class LichessOpponent(Opponent):
                     game_id = game.get('gameId')
                     if game_id:
                         self._game_id = game_id
-                        log.info(f"[LichessOpponent] Found game: {game_id}")
+                        log.info(f"[LichessPlayer] Found game: {game_id}")
                         self._start_game_stream()
                         return
             except Exception as e:
-                log.warning(f"[LichessOpponent] Error checking ongoing games: {e}")
+                log.warning(f"[LichessPlayer] Error checking ongoing games: {e}")
             
             time.sleep(0.5)
         
-        log.error("[LichessOpponent] Could not find started game")
-        self._set_state(OpponentState.ERROR, "Game not found")
+        log.error("[LichessPlayer] Could not find started game")
+        self._set_state(PlayerState.ERROR, "Game not found")
     
     def _start_ongoing_game(self) -> bool:
         """Resume an ongoing game."""
         self._game_id = self._lichess_config.game_id
         if not self._game_id:
-            log.error("[LichessOpponent] No game_id provided for ONGOING mode")
+            log.error("[LichessPlayer] No game_id provided for ONGOING mode")
             return False
         
-        log.info(f"[LichessOpponent] Resuming game: {self._game_id}")
+        log.info(f"[LichessPlayer] Resuming game: {self._game_id}")
         self._start_game_stream()
         return True
     
@@ -470,10 +508,10 @@ class LichessOpponent(Opponent):
         """Accept or wait for a challenge."""
         challenge_id = self._lichess_config.challenge_id
         if not challenge_id:
-            log.error("[LichessOpponent] No challenge_id provided")
+            log.error("[LichessPlayer] No challenge_id provided")
             return False
         
-        log.info(f"[LichessOpponent] Handling challenge: {challenge_id}")
+        log.info(f"[LichessPlayer] Handling challenge: {challenge_id}")
         self._report_status("Accepting challenge...")
         
         try:
@@ -485,13 +523,13 @@ class LichessOpponent(Opponent):
             return True
             
         except Exception as e:
-            log.error(f"[LichessOpponent] Challenge handling failed: {e}")
-            self._set_state(OpponentState.ERROR, "Challenge failed")
+            log.error(f"[LichessPlayer] Challenge handling failed: {e}")
+            self._set_state(PlayerState.ERROR, "Challenge failed")
             return False
     
     def _start_game_stream(self):
         """Start the game state streaming thread."""
-        log.info(f"[LichessOpponent] Starting game stream: {self._game_id}")
+        log.info(f"[LichessPlayer] Starting game stream: {self._game_id}")
         
         self._stream_thread = threading.Thread(
             target=self._game_stream_thread,
@@ -502,7 +540,7 @@ class LichessOpponent(Opponent):
     
     def _game_stream_thread(self):
         """Background thread for streaming game state from Lichess."""
-        log.info(f"[LichessOpponent] Stream thread started for {self._game_id}")
+        log.info(f"[LichessPlayer] Stream thread started for {self._game_id}")
         
         try:
             game_stream = self._client.board.stream_game_state(self._game_id)
@@ -515,14 +553,14 @@ class LichessOpponent(Opponent):
                 
         except Exception as e:
             if not self._should_stop.is_set():
-                log.error(f"[LichessOpponent] Stream error: {e}")
-                self._set_state(OpponentState.ERROR, "Stream disconnected")
+                log.error(f"[LichessPlayer] Stream error: {e}")
+                self._set_state(PlayerState.ERROR, "Stream disconnected")
         
-        log.info("[LichessOpponent] Stream thread ended")
+        log.info("[LichessPlayer] Stream thread ended")
     
     def _process_game_state(self, state: dict):
         """Process a game state update from Lichess stream."""
-        log.debug(f"[LichessOpponent] State update: {state}")
+        log.debug(f"[LichessPlayer] State update: {state}")
         
         # Skip non-game messages
         if 'chatLine' in str(state) or 'opponentGone' in str(state):
@@ -566,15 +604,20 @@ class LichessOpponent(Opponent):
         if self._white_player == self._username:
             self._player_is_white = True
             self._board_flip = False
+            # This player represents the remote opponent (Black)
+            self._color = chess.BLACK
         else:
             self._player_is_white = False
             self._board_flip = True
+            # This player represents the remote opponent (White)
+            self._color = chess.WHITE
         
-        log.info(f"[LichessOpponent] Players: {self._white_player} ({self._white_rating}) vs "
+        log.info(f"[LichessPlayer] Players: {self._white_player} ({self._white_rating}) vs "
                  f"{self._black_player} ({self._black_rating})")
-        log.info(f"[LichessOpponent] Playing as: {'White' if self._player_is_white else 'Black'}")
+        log.info(f"[LichessPlayer] Local user is: {'White' if self._player_is_white else 'Black'}")
+        log.info(f"[LichessPlayer] This player instance represents: {'White' if self._color == chess.WHITE else 'Black'}")
         
-        self._set_state(OpponentState.READY)
+        self._set_state(PlayerState.READY)
         
         # Notify game info callback
         if self._game_info_callback:
@@ -588,7 +631,7 @@ class LichessOpponent(Opponent):
             try:
                 self._on_game_connected()
             except Exception as e:
-                log.warning(f"[LichessOpponent] Error in on_game_connected: {e}")
+                log.warning(f"[LichessPlayer] Error in on_game_connected: {e}")
     
     def _process_time_update(self, state: dict):
         """Process clock time update."""
@@ -606,7 +649,7 @@ class LichessOpponent(Opponent):
                 self._clock_callback(self._white_time, self._black_time)
                 
         except Exception as e:
-            log.warning(f"[LichessOpponent] Error processing time: {e}")
+            log.warning(f"[LichessPlayer] Error processing time: {e}")
     
     def _check_for_remote_move(self):
         """Check if there's a new remote move to process."""
@@ -628,28 +671,26 @@ class LichessOpponent(Opponent):
         move_count = len(moves_list)
         last_move_was_white = (move_count % 2 == 1)
         
-        # Check if this is our own move echoed back
+        # Check if this is the local user's own move echoed back
         if self._player_is_white is not None:
             if self._player_is_white and last_move_was_white:
-                log.debug(f"[LichessOpponent] Ignoring echo of our move: {last_move}")
+                log.debug(f"[LichessPlayer] Ignoring echo of local move: {last_move}")
                 return
             elif not self._player_is_white and not last_move_was_white:
-                log.debug(f"[LichessOpponent] Ignoring echo of our move: {last_move}")
+                log.debug(f"[LichessPlayer] Ignoring echo of local move: {last_move}")
                 return
         
-        log.info(f"[LichessOpponent] Remote move from opponent: {last_move}")
+        log.info(f"[LichessPlayer] Remote move from server: {last_move}")
         
-        # Track this as a pending opponent move - will be physically executed on board
-        # and we should not re-send it when on_player_move is called
-        self._pending_opponent_moves.add(last_move)
-        
-        # Convert to chess.Move and deliver via callback
+        # Store as pending move - will be submitted after piece events confirm
         try:
-            move = chess.Move.from_uci(last_move)
-            if self._move_callback:
-                self._move_callback(move)
+            self._pending_move = chess.Move.from_uci(last_move)
+            
+            # Notify for LED display
+            if self._pending_move_callback:
+                self._pending_move_callback(self._pending_move)
         except Exception as e:
-            log.error(f"[LichessOpponent] Invalid move from Lichess: {last_move}: {e}")
+            log.error(f"[LichessPlayer] Invalid move from Lichess: {last_move}: {e}")
     
     def _check_game_status(self, status: str, state: dict):
         """Check game status and handle game end conditions."""
@@ -658,11 +699,11 @@ class LichessOpponent(Opponent):
         terminal_states = ['mate', 'resign', 'draw', 'aborted', 'outoftime', 'timeout', 'stalemate']
         
         if status in terminal_states:
-            log.info(f"[LichessOpponent] Game ended: {status}")
-            self._set_state(OpponentState.STOPPED)
+            log.info(f"[LichessPlayer] Game ended: {status}")
+            self._set_state(PlayerState.STOPPED)
 
 
-def create_lichess_opponent(
+def create_lichess_player(
     mode: LichessGameMode = LichessGameMode.NEW,
     time_minutes: int = 10,
     increment_seconds: int = 5,
@@ -670,8 +711,8 @@ def create_lichess_opponent(
     color: str = 'random',
     game_id: str = '',
     challenge_id: str = '',
-) -> LichessOpponent:
-    """Factory function to create a Lichess opponent.
+) -> LichessPlayer:
+    """Factory function to create a Lichess player.
     
     Args:
         mode: Game mode (NEW, ONGOING, CHALLENGE).
@@ -683,9 +724,9 @@ def create_lichess_opponent(
         challenge_id: Challenge ID for CHALLENGE mode.
     
     Returns:
-        Configured LichessOpponent instance.
+        Configured LichessPlayer instance.
     """
-    config = LichessConfig(
+    config = LichessPlayerConfig(
         name="Lichess",
         mode=mode,
         time_minutes=time_minutes,
@@ -696,4 +737,4 @@ def create_lichess_opponent(
         challenge_id=challenge_id,
     )
     
-    return LichessOpponent(config)
+    return LichessPlayer(config)

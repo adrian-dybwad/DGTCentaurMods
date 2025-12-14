@@ -277,10 +277,23 @@ _args = None
 
 # Game settings (user-configurable via settings menu)
 # These are loaded from centaur.ini on startup and saved when changed
+# Player settings are stored in [PlayerOne] and [PlayerTwo] sections
+_player1_settings = {
+    'color': 'white',           # Color Player 1 plays: 'white' or 'black'
+    'type': 'human',            # Player type: 'human', 'engine', 'lichess'
+    'engine': 'stockfish_pi',   # Engine name (when type is 'engine')
+    'elo': 'Default',           # Engine ELO level (when type is 'engine')
+}
+
+_player2_settings = {
+    'type': 'engine',           # Player type: 'human', 'engine', 'lichess'
+    'engine': 'stockfish_pi',   # Engine name (when type is 'engine')
+    'elo': 'Default',           # Engine ELO level (when type is 'engine')
+}
+
+# General game settings (stored in [game] section)
 _game_settings = {
-    'engine': 'stockfish_pi',  # Default engine
-    'elo': 'Default',          # Default ELO level
-    'player_color': 'white',   # white, black, or random
+    # Time control
     'time_control': 0,         # Time per player in minutes (0 = disabled/untimed)
     # System settings (cannot be changed during a game)
     'analysis_mode': True,     # Enable analysis engine (creates analysis widget even if hidden)
@@ -294,8 +307,10 @@ _game_settings = {
 # Available time control options (in minutes)
 TIME_CONTROL_OPTIONS = [0, 1, 3, 5, 10, 15, 30, 60, 90]
 
-# Settings section name in centaur.ini
+# Settings section names in centaur.ini
 SETTINGS_SECTION = 'game'
+PLAYER1_SECTION = 'PlayerOne'
+PLAYER2_SECTION = 'PlayerTwo'
 
 # Cached engine data
 _available_engines: List[str] = []
@@ -309,17 +324,27 @@ _engine_elo_levels: dict = {}  # engine_name -> list of ELO levels
 def _load_game_settings():
     """Load game settings from centaur.ini.
     
-    Reads engine, elo, and player_color from the [game] section.
+    Reads player settings from [PlayerOne] and [PlayerTwo] sections.
+    Reads general settings from [game] section.
     Uses defaults if not present.
     """
-    global _game_settings
+    global _player1_settings, _player2_settings, _game_settings
     
     try:
         from DGTCentaurMods.board.settings import Settings
         
-        _game_settings['engine'] = Settings.read(SETTINGS_SECTION, 'engine', 'stockfish_pi')
-        _game_settings['elo'] = Settings.read(SETTINGS_SECTION, 'elo', 'Default')
-        _game_settings['player_color'] = Settings.read(SETTINGS_SECTION, 'player_color', 'white')
+        # Player 1 settings (from [PlayerOne] section)
+        _player1_settings['color'] = Settings.read(PLAYER1_SECTION, 'color', 'white')
+        _player1_settings['type'] = Settings.read(PLAYER1_SECTION, 'type', 'human')
+        _player1_settings['engine'] = Settings.read(PLAYER1_SECTION, 'engine', 'stockfish_pi')
+        _player1_settings['elo'] = Settings.read(PLAYER1_SECTION, 'elo', 'Default')
+        
+        # Player 2 settings (from [PlayerTwo] section)
+        _player2_settings['type'] = Settings.read(PLAYER2_SECTION, 'type', 'engine')
+        _player2_settings['engine'] = Settings.read(PLAYER2_SECTION, 'engine', 'stockfish_pi')
+        _player2_settings['elo'] = Settings.read(PLAYER2_SECTION, 'elo', 'Default')
+        
+        # Time control (from [game] section)
         time_control_str = Settings.read(SETTINGS_SECTION, 'time_control', '0')
         try:
             _game_settings['time_control'] = int(time_control_str)
@@ -343,10 +368,12 @@ def _load_game_settings():
         _game_settings['show_analysis'] = load_bool_setting('show_analysis')
         _game_settings['show_graph'] = load_bool_setting('show_graph')
 
-        log.info(f"[Settings] Loaded: engine={_game_settings['engine']}, "
-                 f"elo={_game_settings['elo']}, color={_game_settings['player_color']}, "
-                 f"time_control={_game_settings['time_control']} min, "
-                 f"analysis_mode={_game_settings['analysis_mode']}")
+        log.info(f"[Settings] Player1: type={_player1_settings['type']}, color={_player1_settings['color']}, "
+                 f"engine={_player1_settings['engine']}, elo={_player1_settings['elo']}")
+        log.info(f"[Settings] Player2: type={_player2_settings['type']}, "
+                 f"engine={_player2_settings['engine']}, elo={_player2_settings['elo']}")
+        log.info(f"[Settings] Game: time={_game_settings['time_control']} min, "
+                 f"analysis={_game_settings['analysis_mode']}")
         log.info(f"[Settings] Display: board={_game_settings['show_board']}, "
                  f"clock={_game_settings['show_clock']}, analysis={_game_settings['show_analysis']}, "
                  f"graph={_game_settings['show_graph']}")
@@ -354,11 +381,47 @@ def _load_game_settings():
         log.warning(f"[Settings] Error loading game settings: {e}, using defaults")
 
 
-def _save_game_setting(key: str, value):
-    """Save a single game setting to centaur.ini.
+def _save_player1_setting(key: str, value):
+    """Save a Player 1 setting to centaur.ini [PlayerOne] section.
     
     Args:
-        key: Setting key (engine, elo, player_color, show_board, etc.)
+        key: Setting key (color, type, engine, elo)
+        value: Setting value
+    """
+    global _player1_settings
+    try:
+        from DGTCentaurMods.board.settings import Settings
+        str_value = str(value)
+        Settings.write(PLAYER1_SECTION, key, str_value)
+        _player1_settings[key] = value
+        log.debug(f"[Settings] Saved PlayerOne.{key}={str_value}")
+    except Exception as e:
+        log.warning(f"[Settings] Error saving PlayerOne.{key}={value}: {e}")
+
+
+def _save_player2_setting(key: str, value):
+    """Save a Player 2 setting to centaur.ini [PlayerTwo] section.
+    
+    Args:
+        key: Setting key (type, engine, elo)
+        value: Setting value
+    """
+    global _player2_settings
+    try:
+        from DGTCentaurMods.board.settings import Settings
+        str_value = str(value)
+        Settings.write(PLAYER2_SECTION, key, str_value)
+        _player2_settings[key] = value
+        log.debug(f"[Settings] Saved PlayerTwo.{key}={str_value}")
+    except Exception as e:
+        log.warning(f"[Settings] Error saving PlayerTwo.{key}={value}: {e}")
+
+
+def _save_game_setting(key: str, value):
+    """Save a general game setting to centaur.ini [game] section.
+    
+    Args:
+        key: Setting key (time_control, analysis_mode, show_board, etc.)
         value: Setting value (string or boolean - booleans stored as 'true'/'false')
     """
     try:
@@ -371,9 +434,9 @@ def _save_game_setting(key: str, value):
             str_value = str(value)
         
         Settings.write(SETTINGS_SECTION, key, str_value)
-        log.debug(f"[Settings] Saved {key}={str_value}")
+        log.debug(f"[Settings] Saved game.{key}={str_value}")
     except Exception as e:
-        log.warning(f"[Settings] Error saving {key}={value}: {e}")
+        log.warning(f"[Settings] Error saving game.{key}={value}: {e}")
 
 
 # ============================================================================
@@ -926,19 +989,45 @@ def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEnt
     return entries
 
 
+def _get_player_type_label(player_type: str) -> str:
+    """Get display label for player type."""
+    type_labels = {
+        'human': 'Human',
+        'engine': 'Engine',
+        'lichess': 'Lichess'
+    }
+    return type_labels.get(player_type, player_type.capitalize())
+
+
+def _get_players_summary() -> str:
+    """Get a summary string for current player configuration.
+
+    Returns a string like "Human vs Engine" or "Human vs Lichess".
+    """
+    p1_type = _get_player_type_label(_player1_settings['type'])
+    p2_type = _get_player_type_label(_player2_settings['type'])
+
+    # If player is engine, show which engine
+    if _player1_settings['type'] == 'engine':
+        p1_type = _player1_settings['engine'].capitalize()
+    if _player2_settings['type'] == 'engine':
+        p2_type = _player2_settings['engine'].capitalize()
+
+    return f"{p1_type}\nvs {p2_type}"
+
+
 def create_settings_entries() -> List[IconMenuEntry]:
     """Create entries for the settings submenu.
     
-    Uses current values from _game_settings for engine, elo, color, and timed_mode.
+    Uses current values from _game_settings.
     Multi-line labels are used to show the setting name and current value.
     Time control shows current setting and opens a selection menu.
 
     Returns:
         List of IconMenuEntry for settings menu
     """
-    engine_label = f"{_game_settings['engine'].capitalize()}"
-    elo_label = f"ELO {_game_settings['elo']}"
-    color_label = f"{_game_settings['player_color'].capitalize()}"
+    # Players summary for the Players menu item
+    players_label = _get_players_summary()
     
     # Time control: show current setting, icon indicates enabled/disabled
     time_control = _game_settings['time_control']
@@ -951,11 +1040,8 @@ def create_settings_entries() -> List[IconMenuEntry]:
     
     return [
         IconMenuEntry(key="Positions", label="Positions", icon_name="positions", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="Engine", label=engine_label, icon_name="engine", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="ELO", label=elo_label, icon_name="elo", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="Color", label=color_label, icon_name="color", enabled=True, font_size=12, height_ratio=0.8),
+        IconMenuEntry(key="Players", label=players_label, icon_name="universal_logo", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="TimeControl", label=time_label, icon_name=time_icon, enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="Lichess", label="Lichess", icon_name="lichess", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=12, height_ratio=0.8),
     ]
 
@@ -1043,31 +1129,60 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     # Position games are practice and should not be saved
     save_to_database = not is_position_game
     
-    # Get current game settings
-    engine_name = _game_settings['engine']
-    engine_elo = _game_settings['elo']
-    player_color_setting = _game_settings['player_color']
+    # Get player settings
+    player1_color = _player1_settings['color']
+    player1_type = _player1_settings['type']
+    player1_engine = _player1_settings['engine']
+    player1_elo = _player1_settings['elo']
     
-    # Check if this is 2-player mode (no engine opponent)
-    is_two_player = player_color_setting == "2player"
-    
-    # Check if this is Hand+Brain mode (engine provides piece hints, plays opponent)
-    is_hand_brain = player_color_setting == "handbrain"
+    player2_type = _player2_settings['type']
+    player2_engine = _player2_settings['engine']
+    player2_elo = _player2_settings['elo']
 
-    # Determine player color for standalone engine
-    if is_two_player:
-        # In 2-player mode, human plays both sides, no engine opponent
-        player_color = chess.WHITE  # Doesn't matter, engine won't play
-        log.info("[App] 2-player mode: no engine opponent")
-    elif is_hand_brain:
-        # In Hand+Brain mode, human plays white by default, engine plays black
-        player_color = chess.WHITE
-        log.info("[App] Hand+Brain mode: engine provides hints and plays black")
-    elif player_color_setting == "random":
-        player_color = chess.WHITE if random.randint(0, 1) == 0 else chess.BLACK
-        log.info(f"[App] Random color selected: {'white' if player_color == chess.WHITE else 'black'}")
+    # Player 1 is at the bottom of the board
+    # Determine which color each player plays
+    player1_is_white = (player1_color == 'white')
+
+    # Create players based on settings
+    from DGTCentaurMods.players import HumanPlayer, EnginePlayer, EnginePlayerConfig, LichessPlayer, LichessPlayerConfig, LichessGameMode
+
+    def create_player(player_type: str, color: chess.Color, engine_name: str, engine_elo: str):
+        """Create a player based on type and color."""
+        if player_type == 'human':
+            return HumanPlayer()
+        elif player_type == 'engine':
+            config = EnginePlayerConfig(
+                name=f"{engine_name} ({engine_elo})",
+                color=color,
+                engine_name=engine_name,
+                elo_section=engine_elo,
+                time_limit_seconds=5.0
+            )
+            return EnginePlayer(config)
+        elif player_type == 'lichess':
+            config = LichessPlayerConfig(
+                name="Lichess",
+                color=color,
+                mode=LichessGameMode.NEW,
+            )
+            return LichessPlayer(config)
+        else:
+            log.warning(f"[App] Unknown player type: {player_type}, defaulting to human")
+            return HumanPlayer()
+    
+    # Create White and Black players
+    if player1_is_white:
+        white_player = create_player(player1_type, chess.WHITE, player1_engine, player1_elo)
+        black_player = create_player(player2_type, chess.BLACK, player2_engine, player2_elo)
     else:
-        player_color = chess.WHITE if player_color_setting == "white" else chess.BLACK
+        white_player = create_player(player2_type, chess.WHITE, player2_engine, player2_elo)
+        black_player = create_player(player1_type, chess.BLACK, player1_engine, player1_elo)
+    
+    log.info(f"[App] Created players: {white_player.name} (White) vs {black_player.name} (Black)")
+    
+    # Check for special modes
+    is_two_player = (player1_type == 'human' and player2_type == 'human')
+    is_hand_brain = False  # TODO: implement hand+brain as an option
 
     # Get analysis engine path (only if analysis mode is enabled)
     base_path = pathlib.Path(__file__).parent
@@ -1175,21 +1290,23 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     # Create ProtocolManager with user-configured settings
     # Note: Key and field events are routed through universal.py's callbacks
-    # In 2-player mode, don't pass an engine name so no engine opponent is used
     protocol_manager = ProtocolManager(
         sendMessage_callback=sendMessage,
         client_type=None,
         compare_mode=relay_mode,
-        standalone_engine_name=None if is_two_player else engine_name,
-        player_color=player_color,
-        engine_elo=engine_elo,
+        white_player=white_player,
+        black_player=black_player,
         display_update_callback=update_display,
         save_to_database=save_to_database,
-        hand_brain_mode=is_hand_brain,
         suggestion_callback=_on_suggestion if is_hand_brain else None,
         takeback_callback=_on_takeback
     )
-    log.info(f"[App] ProtocolManager created: engine={None if is_two_player else engine_name}, elo={engine_elo}, color={player_color_setting}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
+    log.info(f"[App] ProtocolManager created: White={white_player.name}, Black={black_player.name}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
+    
+    # Start players
+    if not protocol_manager.start_players():
+        log.error("[App] Failed to start players")
+        # Continue anyway - human players always succeed, engines may take time
     
     # Wire up GameManager callbacks to DisplayManager
     protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)
@@ -1396,99 +1513,16 @@ def _handle_settings():
             _shutdown("Shutdown")
             return
         
-        if result == "Engine":
-            # Engine selection submenu
-            engines = _load_available_engines()
-            engine_entries = []
-            for engine in engines:
-                # Mark current selection
-                label = f"* {engine}" if engine == _game_settings['engine'] else engine
-                engine_entries.append(
-                    IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
-                )
-            
-            engine_result = _show_menu(engine_entries)
-            if is_break_result(engine_result):
+        if result == "Players":
+            players_result = _handle_players_menu()
+            if is_break_result(players_result):
                 app_state = AppState.MENU
-                return engine_result
-            if engine_result not in ["BACK", "SHUTDOWN", "HELP"]:
-                old_engine = _game_settings['engine']
-                _save_game_setting('engine', engine_result)
-                log.info(f"[Settings] Engine changed: {old_engine} -> {engine_result}")
-                # Reset ELO to Default when engine changes
-                _save_game_setting('elo', 'Default')
-                board.beep(board.SOUND_GENERAL, event_type='key_press')
-        
-        elif result == "ELO":
-            # ELO selection submenu (depends on selected engine)
-            current_engine = _game_settings['engine']
-            elo_levels = _get_engine_elo_levels(current_engine)
-            elo_entries = []
-            for elo in elo_levels:
-                # Mark current selection
-                label = f"* {elo}" if elo == _game_settings['elo'] else elo
-                elo_entries.append(
-                    IconMenuEntry(key=elo, label=label, icon_name="elo", enabled=True)
-                )
-            
-            elo_result = _show_menu(elo_entries)
-            if is_break_result(elo_result):
-                app_state = AppState.MENU
-                return elo_result
-            if elo_result not in ["BACK", "SHUTDOWN", "HELP"]:
-                old_elo = _game_settings['elo']
-                _save_game_setting('elo', elo_result)
-                log.info(f"[Settings] ELO changed: {old_elo} -> {elo_result}")
-                board.beep(board.SOUND_GENERAL, event_type='key_press')
-        
-        elif result == "Color":
-            # Player color selection submenu
-            color_entries = [
-                IconMenuEntry(
-                    key="white",
-                    label="* White" if _game_settings['player_color'] == 'white' else "White",
-                    icon_name="white_piece",
-                    enabled=True
-                ),
-                IconMenuEntry(
-                    key="black",
-                    label="* Black" if _game_settings['player_color'] == 'black' else "Black",
-                    icon_name="black_piece",
-                    enabled=True
-                ),
-                IconMenuEntry(
-                    key="random",
-                    label="* Random" if _game_settings['player_color'] == 'random' else "Random",
-                    icon_name="random",
-                    enabled=True
-                ),
-                IconMenuEntry(
-                    key="2player",
-                    label="* 2 Player" if _game_settings['player_color'] == '2player' else "2 Player",
-                    icon_name="universal_logo",
-                    enabled=True
-                ),
-                IconMenuEntry(
-                    key="handbrain",
-                    label="* Hand+Brain" if _game_settings['player_color'] == 'handbrain' else "Hand+Brain",
-                    icon_name="engine",
-                    enabled=True
-                ),
-            ]
-            
-            color_result = _show_menu(color_entries)
-            if is_break_result(color_result):
-                app_state = AppState.MENU
-                return color_result
-            if color_result in ["white", "black", "random", "2player", "handbrain"]:
-                old_color = _game_settings['player_color']
-                _save_game_setting('player_color', color_result)
-                log.info(f"[Settings] Player color changed: {old_color} -> {color_result}")
-                board.beep(board.SOUND_GENERAL, event_type='key_press')
-                # Start game immediately after selecting color/game type
+                return players_result
+            if players_result == "START_GAME":
+                # Player configuration complete, start game
                 app_state = AppState.MENU
                 _start_game_mode()
-                return  # Exit settings to enter game mode
+                return
         
         elif result == "TimeControl":
             # Time control selection submenu
@@ -1530,20 +1564,492 @@ def _handle_settings():
                 # Position was loaded, exit settings and go to game
                 return
         
-        elif result == "Lichess":
-            lichess_result = _handle_lichess_menu()
-            if is_break_result(lichess_result):
-                app_state = AppState.MENU
-                return lichess_result
-            if lichess_result:
-                # Lichess game started, exit settings
-                return
-        
         elif result == "System":
             system_result = _handle_system_menu()
             if is_break_result(system_result):
                 app_state = AppState.MENU
                 return system_result
+
+
+def _handle_players_menu():
+    """Handle the Players submenu.
+
+    Shows Player One and Player Two configuration options.
+    Player One (bottom of board) can set color and type.
+    Player Two can set type.
+
+    Returns:
+        "START_GAME" if configuration complete and user wants to play.
+        Break result if user triggered a break action.
+        None if user pressed BACK.
+    """
+    while True:
+        # Create player summary labels
+        p1_color = _player1_settings['color'].capitalize()
+        p1_type = _get_player_type_label(_player1_settings['type'])
+        p2_type = _get_player_type_label(_player2_settings['type'])
+
+        # If engine, show engine name
+        if _player1_settings['type'] == 'engine':
+            p1_type = _player1_settings['engine']
+        if _player2_settings['type'] == 'engine':
+            p2_type = _player2_settings['engine']
+
+        entries = [
+            IconMenuEntry(
+                key="Player1",
+                label=f"Player 1\n{p1_type} ({p1_color})",
+                icon_name="white_piece" if _player1_settings['color'] == 'white' else "black_piece",
+                enabled=True
+            ),
+            IconMenuEntry(
+                key="Player2",
+                label=f"Player 2\n{p2_type}",
+                icon_name="universal_logo",
+                enabled=True
+            ),
+            IconMenuEntry(
+                key="StartGame",
+                label="Start\nGame",
+                icon_name="play",
+                enabled=True
+            ),
+        ]
+
+        result = _show_menu(entries)
+
+        if is_break_result(result):
+            return result
+        
+        if result == "BACK":
+            return None
+        
+        if result == "Player1":
+            p1_result = _handle_player1_menu()
+            if is_break_result(p1_result):
+                return p1_result
+        
+        elif result == "Player2":
+            p2_result = _handle_player2_menu()
+            if is_break_result(p2_result):
+                return p2_result
+        
+        elif result == "StartGame":
+            board.beep(board.SOUND_GENERAL, event_type='key_press')
+            return "START_GAME"
+
+
+def _handle_player1_menu():
+    """Handle Player 1 configuration submenu.
+
+    Player 1 is at the bottom of the board. Can set:
+    - Color (White/Black)
+    - Type (Human/Engine/Lichess)
+    - Engine and ELO (if type is engine)
+
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    while True:
+        p1_color = _player1_settings['color'].capitalize()
+        p1_type = _get_player_type_label(_player1_settings['type'])
+
+        entries = [
+            IconMenuEntry(
+                key="Color",
+                label=f"Color\n{p1_color}",
+                icon_name="white_piece" if _player1_settings['color'] == 'white' else "black_piece",
+                enabled=True
+            ),
+            IconMenuEntry(
+                key="Type",
+                label=f"Type\n{p1_type}",
+                icon_name="universal_logo",
+                enabled=True
+            ),
+        ]
+
+        # If engine type, add engine selection
+        if _player1_settings['type'] == 'engine':
+            entries.append(IconMenuEntry(
+                key="Engine",
+                label=f"Engine\n{_player1_settings['engine']}",
+                icon_name="engine",
+                enabled=True
+            ))
+            entries.append(IconMenuEntry(
+                key="ELO",
+                label=f"ELO\n{_player1_settings['elo']}",
+                icon_name="elo",
+                enabled=True
+            ))
+
+        # If Lichess type, add Lichess settings
+        if _player1_settings['type'] == 'lichess':
+            entries.append(IconMenuEntry(
+                key="LichessSettings",
+                label="Lichess\nSettings",
+                icon_name="lichess",
+                enabled=True
+            ))
+
+        result = _show_menu(entries)
+        
+        if is_break_result(result):
+            return result
+        
+        if result == "BACK":
+            return None
+        
+        if result == "Color":
+            color_result = _handle_player1_color_selection()
+            if is_break_result(color_result):
+                return color_result
+        
+        elif result == "Type":
+            type_result = _handle_player1_type_selection()
+            if is_break_result(type_result):
+                return type_result
+        
+        elif result == "Engine":
+            engine_result = _handle_player1_engine_selection()
+            if is_break_result(engine_result):
+                return engine_result
+        
+        elif result == "ELO":
+            elo_result = _handle_player1_elo_selection()
+            if is_break_result(elo_result):
+                return elo_result
+        
+        elif result == "LichessSettings":
+            lichess_result = _handle_lichess_menu()
+            if is_break_result(lichess_result):
+                return lichess_result
+
+
+def _handle_player2_menu():
+    """Handle Player 2 configuration submenu.
+    
+    Player 2 is at the top of the board. Can set:
+    - Type (Human/Engine/Lichess)
+    - Engine and ELO (if type is engine)
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    while True:
+        p2_type = _get_player_type_label(_player2_settings['type'])
+        
+        entries = [
+            IconMenuEntry(
+                key="Type",
+                label=f"Type\n{p2_type}",
+                icon_name="universal_logo",
+                enabled=True
+            ),
+        ]
+        
+        # If engine type, add engine selection
+        if _player2_settings['type'] == 'engine':
+            entries.append(IconMenuEntry(
+                key="Engine",
+                label=f"Engine\n{_player2_settings['engine']}",
+                icon_name="engine",
+                enabled=True
+            ))
+            entries.append(IconMenuEntry(
+                key="ELO",
+                label=f"ELO\n{_player2_settings['elo']}",
+                icon_name="elo",
+                enabled=True
+            ))
+        
+        # If Lichess type, add Lichess settings
+        if _player2_settings['type'] == 'lichess':
+            entries.append(IconMenuEntry(
+                key="LichessSettings",
+                label="Lichess\nSettings",
+                icon_name="lichess",
+                enabled=True
+            ))
+        
+        result = _show_menu(entries)
+        
+        if is_break_result(result):
+            return result
+        
+        if result == "BACK":
+            return None
+        
+        if result == "Type":
+            type_result = _handle_player2_type_selection()
+            if is_break_result(type_result):
+                return type_result
+        
+        elif result == "Engine":
+            engine_result = _handle_player2_engine_selection()
+            if is_break_result(engine_result):
+                return engine_result
+        
+        elif result == "ELO":
+            elo_result = _handle_player2_elo_selection()
+            if is_break_result(elo_result):
+                return elo_result
+        
+        elif result == "LichessSettings":
+            lichess_result = _handle_lichess_menu()
+            if is_break_result(lichess_result):
+                return lichess_result
+
+
+def _handle_player1_color_selection():
+    """Handle color selection for Player 1.
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    current_color = _player1_settings['color']
+    
+    entries = [
+        IconMenuEntry(
+            key="white",
+            label="* White" if current_color == 'white' else "White",
+            icon_name="white_piece",
+            enabled=True
+        ),
+        IconMenuEntry(
+            key="black",
+            label="* Black" if current_color == 'black' else "Black",
+            icon_name="black_piece",
+            enabled=True
+        ),
+    ]
+    
+    result = _show_menu(entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result in ["white", "black"]:
+        old_color = _player1_settings['color']
+        _save_player1_setting('color', result)
+        log.info(f"[Settings] Player1 color changed: {old_color} -> {result}")
+        board.beep(board.SOUND_GENERAL, event_type='key_press')
+    
+    return None
+
+
+def _handle_player1_type_selection():
+    """Handle type selection for Player 1.
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    current_type = _player1_settings['type']
+    
+    entries = [
+        IconMenuEntry(
+            key="human",
+            label="* Human" if current_type == 'human' else "Human",
+            icon_name="universal_logo",
+            enabled=True
+        ),
+        IconMenuEntry(
+            key="engine",
+            label="* Engine" if current_type == 'engine' else "Engine",
+            icon_name="engine",
+            enabled=True
+        ),
+        IconMenuEntry(
+            key="lichess",
+            label="* Lichess" if current_type == 'lichess' else "Lichess",
+            icon_name="lichess",
+            enabled=True
+        ),
+    ]
+    
+    result = _show_menu(entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result in ["human", "engine", "lichess"]:
+        old_type = _player1_settings['type']
+        _save_player1_setting('type', result)
+        log.info(f"[Settings] Player1 type changed: {old_type} -> {result}")
+        board.beep(board.SOUND_GENERAL, event_type='key_press')
+    
+    return None
+
+
+def _handle_player1_engine_selection():
+    """Handle engine selection for Player 1.
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    engines = _load_available_engines()
+    engine_entries = []
+    for engine in engines:
+        label = f"* {engine}" if engine == _player1_settings['engine'] else engine
+        engine_entries.append(
+            IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
+        )
+    
+    result = _show_menu(engine_entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result not in ["BACK", "SHUTDOWN", "HELP"]:
+        old_engine = _player1_settings['engine']
+        _save_player1_setting('engine', result)
+        log.info(f"[Settings] Player1 engine changed: {old_engine} -> {result}")
+        # Reset ELO to Default when engine changes
+        _save_player1_setting('elo', 'Default')
+        board.beep(board.SOUND_GENERAL, event_type='key_press')
+    
+    return None
+
+
+def _handle_player1_elo_selection():
+    """Handle ELO selection for Player 1.
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    current_engine = _player1_settings['engine']
+    elo_levels = _get_engine_elo_levels(current_engine)
+    elo_entries = []
+    for elo in elo_levels:
+        label = f"* {elo}" if elo == _player1_settings['elo'] else elo
+        elo_entries.append(
+            IconMenuEntry(key=elo, label=label, icon_name="elo", enabled=True)
+        )
+    
+    result = _show_menu(elo_entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result not in ["BACK", "SHUTDOWN", "HELP"]:
+        old_elo = _player1_settings['elo']
+        _save_player1_setting('elo', result)
+        log.info(f"[Settings] Player1 ELO changed: {old_elo} -> {result}")
+        board.beep(board.SOUND_GENERAL, event_type='key_press')
+    
+    return None
+
+
+def _handle_player2_type_selection():
+    """Handle type selection for Player 2.
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    current_type = _player2_settings['type']
+    
+    entries = [
+        IconMenuEntry(
+            key="human",
+            label="* Human" if current_type == 'human' else "Human",
+            icon_name="universal_logo",
+            enabled=True
+        ),
+        IconMenuEntry(
+            key="engine",
+            label="* Engine" if current_type == 'engine' else "Engine",
+            icon_name="engine",
+            enabled=True
+        ),
+        IconMenuEntry(
+            key="lichess",
+            label="* Lichess" if current_type == 'lichess' else "Lichess",
+            icon_name="lichess",
+            enabled=True
+        ),
+    ]
+    
+    result = _show_menu(entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result in ["human", "engine", "lichess"]:
+        old_type = _player2_settings['type']
+        _save_player2_setting('type', result)
+        log.info(f"[Settings] Player2 type changed: {old_type} -> {result}")
+        board.beep(board.SOUND_GENERAL, event_type='key_press')
+    
+    return None
+
+
+def _handle_player2_engine_selection():
+    """Handle engine selection for Player 2.
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    engines = _load_available_engines()
+    engine_entries = []
+    for engine in engines:
+        label = f"* {engine}" if engine == _player2_settings['engine'] else engine
+        engine_entries.append(
+            IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
+        )
+    
+    result = _show_menu(engine_entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result not in ["BACK", "SHUTDOWN", "HELP"]:
+        old_engine = _player2_settings['engine']
+        _save_player2_setting('engine', result)
+        log.info(f"[Settings] Player2 engine changed: {old_engine} -> {result}")
+        # Reset ELO to Default when engine changes
+        _save_player2_setting('elo', 'Default')
+        board.beep(board.SOUND_GENERAL, event_type='key_press')
+    
+    return None
+
+
+def _handle_player2_elo_selection():
+    """Handle ELO selection for Player 2.
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    current_engine = _player2_settings['engine']
+    elo_levels = _get_engine_elo_levels(current_engine)
+    elo_entries = []
+    for elo in elo_levels:
+        label = f"* {elo}" if elo == _player2_settings['elo'] else elo
+        elo_entries.append(
+            IconMenuEntry(key=elo, label=label, icon_name="elo", enabled=True)
+        )
+    
+    result = _show_menu(elo_entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result not in ["BACK", "SHUTDOWN", "HELP"]:
+        old_elo = _player2_settings['elo']
+        _save_player2_setting('elo', result)
+        log.info(f"[Settings] Player2 ELO changed: {old_elo} -> {result}")
+        board.beep(board.SOUND_GENERAL, event_type='key_press')
+    
+    return None
 
 
 def _handle_display_settings():
@@ -1635,17 +2141,24 @@ def _handle_reset_settings():
             config = configparser.ConfigParser()
             config.read(Settings.configfile)
             
-            # Clear all options in the [game] section
-            if config.has_section(SETTINGS_SECTION):
-                for key in list(config.options(SETTINGS_SECTION)):
-                    config.remove_option(SETTINGS_SECTION, key)
-                Settings.write_config(config)
-                log.info("[Settings] Cleared all game settings from centaur.ini")
-            
+            # Clear all player and game settings sections
+            for section in [SETTINGS_SECTION, PLAYER1_SECTION, PLAYER2_SECTION]:
+                if config.has_section(section):
+                    for key in list(config.options(section)):
+                        config.remove_option(section, key)
+            Settings.write_config(config)
+            log.info("[Settings] Cleared all game/player settings from centaur.ini")
+
             # Reset in-memory settings to defaults
-            _game_settings['engine'] = 'stockfish_pi'
-            _game_settings['elo'] = 'Default'
-            _game_settings['player_color'] = 'white'
+            _player1_settings['color'] = 'white'
+            _player1_settings['type'] = 'human'
+            _player1_settings['engine'] = 'stockfish_pi'
+            _player1_settings['elo'] = 'Default'
+            
+            _player2_settings['type'] = 'engine'
+            _player2_settings['engine'] = 'stockfish_pi'
+            _player2_settings['elo'] = 'Default'
+            
             _game_settings['time_control'] = 0
             _game_settings['analysis_mode'] = True
             _game_settings['show_board'] = True
@@ -1653,7 +2166,7 @@ def _handle_reset_settings():
             _game_settings['show_analysis'] = True
             _game_settings['show_graph'] = True
 
-            # Reload from file (which will use defaults since section is empty)
+            # Reload from file (which will use defaults since sections are empty)
             _load_game_settings()
             
             board.beep(board.SOUND_GENERAL, event_type='key_press')
@@ -2489,7 +3002,7 @@ def _handle_lichess_menu():
         True if a Lichess game was started, break result if break action,
         None/False otherwise.
     """
-    from DGTCentaurMods.opponents.lichess import LichessConfig, LichessGameMode
+    from DGTCentaurMods.players.lichess import LichessPlayerConfig as LichessConfig, LichessGameMode
     
     # First verify we have a valid token
     client, username, error = _get_lichess_client()
@@ -2556,10 +3069,8 @@ def _handle_lichess_menu():
         
         if result.key == "NewGame":
             # Use current game settings for color and time
-            color = _game_settings['player_color']
-            # Map 2player/handbrain to random for Lichess
-            if color in ['2player', 'handbrain']:
-                color = 'random'
+            # For Lichess, the local player's color is determined by player1_color
+            color = _player1_settings['color']
             
             time_minutes = _game_settings['time_control']
             if time_minutes == 0:
@@ -2872,7 +3383,7 @@ def _start_lichess_game(lichess_config) -> bool:
         True if game started successfully, False otherwise
     """
     global app_state, protocol_manager, display_manager
-    from DGTCentaurMods.opponents.lichess import LichessGameMode
+    from DGTCentaurMods.players.lichess import LichessGameMode
     
     log.info(f"[App] Starting Lichess game (mode={lichess_config.mode})")
     app_state = AppState.GAME
@@ -2953,9 +3464,34 @@ def _start_lichess_game(lichess_config) -> bool:
             _cleanup_game()
             app_state = AppState.SETTINGS
     
-    # Create ProtocolManager in Lichess mode
+    # Create Lichess player for the remote opponent
+    # The human is the local player, Lichess provides the remote opponent
+    from DGTCentaurMods.players import HumanPlayer, LichessPlayer, LichessPlayerConfig
+    
+    # Create LichessPlayer from the lichess_config
+    lichess_player_config = LichessPlayerConfig(
+        name="Lichess",
+        mode=lichess_config.mode,
+        time_minutes=lichess_config.time_minutes,
+        increment_seconds=lichess_config.increment_seconds,
+        rated=lichess_config.rated,
+        color_preference=getattr(lichess_config, 'color_preference', 'random'),
+        game_id=getattr(lichess_config, 'game_id', ''),
+        challenge_id=getattr(lichess_config, 'challenge_id', ''),
+        challenge_direction=getattr(lichess_config, 'challenge_direction', 'in'),
+    )
+    lichess_player = LichessPlayer(lichess_player_config)
+    human_player = HumanPlayer()
+    
+    # Players will be assigned colors after Lichess connection determines color
+    # For now, put Lichess as black (will be updated when game info arrives)
+    white_player = human_player
+    black_player = lichess_player
+    
+    # Create ProtocolManager with Lichess player
     protocol_manager = ProtocolManager(
-        lichess_config=lichess_config,
+        white_player=white_player,
+        black_player=black_player,
         display_update_callback=update_display,
         save_to_database=True,
     )

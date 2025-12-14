@@ -9,10 +9,8 @@
 # Manages protocol parsing and routing for chess app connections
 # (Millennium, Pegasus, Chessnut). Bridges external protocols to GameManager.
 #
-# Opponent and Assistant integrations are handled via the opponents/ and
-# assistants/ modules, which provide clean abstractions for different
-# types of chess opponents (engine, Lichess, human) and assistants
-# (Hand+Brain, hints).
+# Player integrations are handled via the players/ module, which provides
+# clean abstractions for different player types (Human, Engine, Lichess).
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE.md for details.
@@ -37,11 +35,11 @@ log.debug(f"[protocol import] chessnut: {(_t.time() - _s)*1000:.0f}ms"); _s = _t
 from DGTCentaurMods.managers.game import GameManager, EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
 log.debug(f"[protocol import] game: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
-# Import Opponent and Assistant managers
-from DGTCentaurMods.managers.opponent import OpponentManager, OpponentManagerConfig, OpponentType
+# Import Player and Assistant managers
+from DGTCentaurMods.players import PlayerManager, HumanPlayer, EnginePlayer, EnginePlayerConfig
 from DGTCentaurMods.managers.assistant import AssistantManager, AssistantManagerConfig, AssistantType
 from DGTCentaurMods.assistants import Suggestion, SuggestionType
-log.debug(f"[protocol import] opponent/assistant managers: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+log.debug(f"[protocol import] players/assistant managers: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
 import chess
 import threading
@@ -59,8 +57,10 @@ class ProtocolManager:
     
     Bridges external app protocols to the internal GameManager for chess logic.
     
-    In relay mode (compare_mode=True), emulator responses are buffered for comparison
-    with shadow host responses instead of being sent directly to the client.
+    Uses PlayerManager to manage both white and black players. Each player can be:
+    - HumanPlayer: moves come from physical board
+    - EnginePlayer: moves come from UCI engine
+    - LichessPlayer: moves come from Lichess server
     """
     
     # Client type constants
@@ -70,11 +70,18 @@ class ProtocolManager:
     CLIENT_CHESSNUT = "chessnut"
     CLIENT_LICHESS = "lichess"
     
-    def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False,
-                 standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default",
-                 display_update_callback=None, save_to_database=True,
-                 hand_brain_mode: bool = False, suggestion_callback=None,
-                 takeback_callback=None, lichess_config=None):
+    def __init__(
+        self,
+        sendMessage_callback=None,
+        client_type=None,
+        compare_mode=False,
+        white_player=None,
+        black_player=None,
+        display_update_callback=None,
+        save_to_database=True,
+        suggestion_callback=None,
+        takeback_callback=None,
+    ):
         """Initialize the ProtocolManager.
         
         Args:
@@ -87,22 +94,16 @@ class ProtocolManager:
                         - CLIENT_UNKNOWN or None: Auto-detect from incoming data (RFCOMM)
             compare_mode: If True, buffer emulator responses for comparison with
                          shadow host instead of sending directly. Used in relay mode.
-            standalone_engine_name: Name of UCI engine to use when no app connected
-                                   (e.g., "stockfish_pi", "maia", "ct800")
-            player_color: Which color the human plays (chess.WHITE or chess.BLACK)
-            engine_elo: ELO section name from .uci config file (e.g., "1350", "1700", "Default")
+            white_player: Player instance for White. If None, creates HumanPlayer.
+            black_player: Player instance for Black. If None, creates HumanPlayer.
             display_update_callback: Callback function(fen) for updating display with position
             save_to_database: If True, save game moves to database. If False, disable database
                              (for position/practice games that shouldn't be saved)
-            hand_brain_mode: If True, provide piece type suggestions when it's
-                            the player's turn. Engine still plays opponent moves.
             suggestion_callback: Callback function(piece_symbol, squares) called with suggestion.
                                 piece_symbol is the suggested piece type (K,Q,R,B,N,P).
                                 squares is a list of square indices containing that piece type.
             takeback_callback: Callback function() called when a takeback is detected.
                               Used to sync analysis widget score history with game state.
-            lichess_config: Optional LichessConfig for Lichess online play mode.
-                           When provided, creates Lichess emulator instead of byte-stream emulators.
         """
         self._sendMessage = sendMessage_callback
         self.compare_mode = compare_mode
@@ -121,77 +122,86 @@ class ProtocolManager:
         self.is_chessnut = False
         self.is_lichess = False
         
-        # Player color - tracked by the game coordinator
-        self._player_color = player_color
-        
         # Suggestion callback for assistants (Hand+Brain, hints, etc.)
         self._suggestion_callback = suggestion_callback
         
-        # OpponentManager and AssistantManager - encapsulate opponent/assistant creation
-        self._opponent_manager: Optional[OpponentManager] = None
+        # Player manager for white and black players
+        self._player_manager: Optional[PlayerManager] = None
+        
+        # Assistant manager for Hand+Brain, hints, etc.
         self._assistant_manager: Optional[AssistantManager] = None
         
         # Game manager shared by all emulators
         self.game_manager = GameManager(save_to_database=save_to_database)
         
-        # Set player color for resign gesture detection
-        # In 2-player mode (no engine), player_color is None (both colors are human)
-        # In engine mode, player_color is the human's color
-        if standalone_engine_name is None and lichess_config is None:
-            self.game_manager.player_color = None  # Both colors are human
-        else:
-            self.game_manager.player_color = player_color
-        
         # Emulator instances - always create all emulators for auto-detection
-        # The hint from BLE characteristic is unreliable as apps may connect to any service
         self._millennium = None
         self._pegasus = None
         self._chessnut = None
         
-        # If Lichess mode, create Lichess opponent (not byte-stream emulators)
-        if lichess_config is not None:
-            self._create_lichess_opponent_manager(lichess_config)
+        # Check if Lichess mode (either player is Lichess)
+        from DGTCentaurMods.players import LichessPlayer
+        is_lichess = (isinstance(white_player, LichessPlayer) or 
+                      isinstance(black_player, LichessPlayer))
+        
+        if is_lichess:
+            self.client_type = self.CLIENT_LICHESS
+            self.is_lichess = True
         else:
-            # Always create all emulators for auto-detection from actual data
-            # The client_type hint from BLE service UUID is unreliable
+            # Create all emulators for auto-detection from actual data
             log.info(f"[ProtocolManager] Creating emulators for auto-detection (hint: {client_type or 'none'})")
             
-            # Create Millennium emulator
             self._millennium = Millennium(
                 sendMessage_callback=self._handle_emulator_response,
                 manager=self.game_manager
             )
             log.info("[ProtocolManager] Created Millennium emulator")
             
-            # Create Pegasus emulator
             self._pegasus = Pegasus(
                 sendMessage_callback=self._handle_emulator_response,
                 manager=self.game_manager
             )
             log.info("[ProtocolManager] Created Pegasus emulator")
             
-            # Create Chessnut emulator
             self._chessnut = Chessnut(
                 sendMessage_callback=self._handle_emulator_response,
                 manager=self.game_manager
             )
             log.info("[ProtocolManager] Created Chessnut emulator")
         
-        # Track 2-player mode (no engine opponent)
-        self._is_two_player_mode = standalone_engine_name is None and lichess_config is None
+        # Create players if not provided
+        if white_player is None:
+            white_player = HumanPlayer()
+        if black_player is None:
+            black_player = HumanPlayer()
         
-        # Create OpponentManager if configured (engine or human)
-        if standalone_engine_name:
-            self._create_engine_opponent_manager(standalone_engine_name, engine_elo)
-        elif lichess_config is None:
-            # 2-player mode - human opponent
-            self._create_human_opponent_manager()
+        # Create PlayerManager
+        self._player_manager = PlayerManager(
+            white_player=white_player,
+            black_player=black_player,
+            move_callback=self._on_player_move,
+            status_callback=lambda msg: log.info(f"[Player] {msg}")
+        )
         
-        # Create AssistantManager if configured
-        if hand_brain_mode and standalone_engine_name:
-            self._create_hand_brain_assistant_manager(standalone_engine_name, engine_elo)
+        # Update GameManager with player info
+        self.game_manager.set_player_manager(self._player_manager)
+        
+        # Set up Lichess-specific callbacks if needed
+        if is_lichess:
+            self._setup_lichess_callbacks()
         
         self.subscribe_manager()
+        
+        log.info(f"[ProtocolManager] Initialized with White={white_player.name}, Black={black_player.name}")
+    
+    def _setup_lichess_callbacks(self):
+        """Set up callbacks for Lichess player."""
+        from DGTCentaurMods.players import LichessPlayer
+        
+        for player in [self._player_manager.white_player, self._player_manager.black_player]:
+            if isinstance(player, LichessPlayer):
+                player.set_clock_callback(self._on_lichess_clock_update)
+                player.set_game_info_callback(self._on_lichess_game_info)
     
     def _handle_emulator_response(self, data):
         """Handle response generated by an emulator.
@@ -211,12 +221,19 @@ class ProtocolManager:
     
     @property
     def is_two_player_mode(self) -> bool:
-        """Check if the game is in 2-player mode (no engine opponent).
+        """Check if the game is in 2-player mode (both players are human).
         
         Returns:
-            True if 2-player mode (human vs human), False if engine is playing
+            True if 2-player mode (human vs human), False otherwise
         """
-        return self._is_two_player_mode
+        if self._player_manager:
+            return self._player_manager.is_two_human
+        return True
+    
+    @property
+    def player_manager(self) -> Optional[PlayerManager]:
+        """Get the player manager."""
+        return self._player_manager
     
     # =========================================================================
     # GameManager Callback Delegation (Law of Demeter compliance)
@@ -272,6 +289,12 @@ class ProtocolManager:
             color: chess.WHITE or chess.BLACK, or None for current player
         """
         self.game_manager.handle_resign(color)
+        
+        # Notify players of resignation
+        if self._player_manager:
+            resign_color = color if color is not None else self.game_manager.chess_board.turn
+            self._player_manager.white_player.on_resign(resign_color)
+            self._player_manager.black_player.on_resign(resign_color)
     
     def handle_draw(self):
         """Handle a draw agreement."""
@@ -283,8 +306,6 @@ class ProtocolManager:
         Args:
             color: 'white' or 'black' - the player whose time expired
         """
-        import chess
-        # The player whose time expired loses
         losing_color = chess.WHITE if color == 'white' else chess.BLACK
         self.game_manager.handle_flag(losing_color)
     
@@ -361,7 +382,7 @@ class ProtocolManager:
         Before protocol is confirmed, forwards to ALL emulators so that
         whichever one is active will respond correctly.
         
-        Also handles opponent turn and assistant suggestion triggers.
+        Also handles player turn and assistant suggestion triggers.
         
         Args:
             event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
@@ -385,7 +406,6 @@ class ProtocolManager:
                 self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif not self.is_lichess:
                 # Protocol not yet confirmed - forward to ALL emulators
-                # Each emulator will only act if it has reporting enabled
                 log.debug("[ProtocolManager] Protocol not confirmed, forwarding event to all emulators")
                 if self._millennium and hasattr(self._millennium, 'handle_manager_event'):
                     self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
@@ -394,15 +414,12 @@ class ProtocolManager:
                 if self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
                     self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
             
-            # Handle opponent and assistant events (works regardless of app connection)
+            # Handle player and assistant events
             if event == EVENT_NEW_GAME:
-                # Reset opponent and assistant state on new game
                 self._handle_new_game()
             elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
-                # Turn events are triggered AFTER the player's move is confirmed
-                # Check if opponent should move
-                self._check_opponent_turn()
-                # Check if assistant should provide suggestion (e.g., Hand+Brain)
+                # Turn events are triggered AFTER the move is confirmed
+                self._request_current_player_move()
                 self._check_assistant_suggestion()
             
             # Notify external event callback
@@ -422,9 +439,7 @@ class ProtocolManager:
     def _manager_move_callback(self, move):
         """Handle moves from the manager.
         
-        Forwards to byte-stream emulators and notifies opponent of player moves.
-        Note: Opponent turn is triggered by turn events (EVENT_WHITE_TURN, EVENT_BLACK_TURN)
-        which occur AFTER the move is confirmed, not by this callback.
+        Forwards to byte-stream emulators and notifies players of moves.
         
         Args:
             move: Chess move object
@@ -449,10 +464,10 @@ class ProtocolManager:
                 if self._chessnut and hasattr(self._chessnut, 'handle_manager_move'):
                     self._chessnut.handle_manager_move(move)
             
-            # Notify opponent manager of player move (for stateful opponents like Lichess)
-            if self._opponent_manager:
+            # Notify players of the move
+            if self._player_manager:
                 chess_move = chess.Move.from_uci(str(move)) if not isinstance(move, chess.Move) else move
-                self._opponent_manager.notify_player_move(chess_move, self.game_manager.chess_board)
+                self._player_manager.on_move_made(chess_move, self.game_manager.chess_board)
             
             # Update display with current position
             self._update_display()
@@ -479,7 +494,6 @@ class ProtocolManager:
                 self._pegasus.handle_manager_key(key)
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_key'):
                 self._chessnut.handle_manager_key(key)
-            # Note: Lichess key handling is done at the app level (universal.py)
         except Exception as e:
             log.error(f"[ProtocolManager] Error in _manager_key_callback: {e}")
             import traceback
@@ -494,9 +508,9 @@ class ProtocolManager:
             if self._takeback_callback:
                 self._takeback_callback()
             
-            # Notify opponent manager of takeback
-            if self._opponent_manager:
-                self._opponent_manager.on_takeback(self.game_manager.chess_board)
+            # Notify players of takeback
+            if self._player_manager:
+                self._player_manager.on_takeback(self.game_manager.chess_board)
 
             # Notify assistant manager of takeback
             if self._assistant_manager:
@@ -562,7 +576,6 @@ class ProtocolManager:
             return self._chessnut.parse_byte(byte_value)
         
         # Auto-detect: try emulators in priority order based on hint
-        # Build priority order - hinted protocol first, then others
         emulators_to_try = []
         
         if self._client_type_hint == self.CLIENT_MILLENNIUM:
@@ -584,7 +597,6 @@ class ProtocolManager:
                 (self._pegasus, "Pegasus", self.CLIENT_PEGASUS),
             ]
         else:
-            # No hint - default order
             emulators_to_try = [
                 (self._millennium, "Millennium", self.CLIENT_MILLENNIUM),
                 (self._pegasus, "Pegasus", self.CLIENT_PEGASUS),
@@ -599,7 +611,6 @@ class ProtocolManager:
                 
                 self.client_type = client_type
                 
-                # Set the appropriate flag and free unused emulators
                 if client_type == self.CLIENT_MILLENNIUM:
                     self.is_millennium = True
                     self._pegasus = None
@@ -618,11 +629,7 @@ class ProtocolManager:
         return False
 
     def reset_parser(self):
-        """Reset the packet parser state for all active emulators.
-        
-        Clears any accumulated buffer and resets parser to initial state.
-        Useful when starting a new communication session or recovering from errors.
-        """
+        """Reset the packet parser state for all active emulators."""
         if self._millennium:
             self._millennium.reset_parser()
         if self._pegasus:
@@ -631,11 +638,7 @@ class ProtocolManager:
             self._chessnut.reset()
 
     def _update_display(self):
-        """Update the e-paper display with the current board position.
-        
-        Calls the display update callback if one was provided during initialization.
-        The callback receives the current FEN string from the game manager.
-        """
+        """Update the e-paper display with the current board position."""
         if self._display_update_callback and self.game_manager:
             try:
                 fen = self.game_manager.chess_board.fen()
@@ -660,120 +663,83 @@ class ProtocolManager:
             traceback.print_exc()
     
     # =========================================================================
-    # OpponentManager and AssistantManager Creation Methods
+    # Player Management
     # =========================================================================
     
-    def _create_engine_opponent_manager(self, engine_name: str, elo_section: str):
-        """Create an engine opponent using OpponentManager.
+    def start_players(self) -> bool:
+        """Start all configured players.
+        
+        Returns:
+            True if all players started successfully.
+        """
+        if self._player_manager:
+            return self._player_manager.start()
+        return False
+    
+    def stop_players(self) -> None:
+        """Stop all players and release resources."""
+        if self._player_manager:
+            self._player_manager.stop()
+    
+    def _on_player_move(self, move: chess.Move):
+        """Handle move from a non-human player (engine, Lichess).
+        
+        This is called when a player provides a move (via PlayerManager).
+        Routes to GameManager as a forced move.
         
         Args:
-            engine_name: Name of the UCI engine (e.g., "stockfish_pi").
-            elo_section: ELO section from .uci config file.
+            move: The player's move.
         """
-        log.info(f"[ProtocolManager] Creating engine opponent: {engine_name} @ {elo_section}")
-        
-        config = OpponentManagerConfig(
-            opponent_type=OpponentType.ENGINE,
-            engine_name=engine_name,
-            elo_section=elo_section,
-            time_limit=5.0
-        )
-        
-        self._opponent_manager = OpponentManager(
-            config,
-            move_callback=self._on_opponent_move,
-            status_callback=lambda msg: log.info(f"[Opponent] {msg}")
-        )
-        self._opponent_manager.start()
-        
-        log.info("[ProtocolManager] Engine opponent manager created and starting")
-    
-    def _create_human_opponent_manager(self):
-        """Create a human opponent (two-player mode) using OpponentManager."""
-        log.info("[ProtocolManager] Creating human opponent (two-player mode)")
-        
-        config = OpponentManagerConfig(opponent_type=OpponentType.HUMAN)
-        self._opponent_manager = OpponentManager(config)
-        self._opponent_manager.start()
-        
-        log.info("[ProtocolManager] Human opponent manager created")
-    
-    def _create_lichess_opponent_manager(self, emulator_config):
-        """Create a Lichess opponent using OpponentManager.
-        
-        Args:
-            emulator_config: LichessConfig from emulator (legacy format).
-        """
-        log.info(f"[ProtocolManager] Creating Lichess opponent (mode: {emulator_config.mode})")
-        
-        # Map mode enum to string for OpponentManagerConfig
-        mode_name = emulator_config.mode.name if hasattr(emulator_config.mode, 'name') else str(emulator_config.mode)
-        
-        config = OpponentManagerConfig(
-            opponent_type=OpponentType.LICHESS,
-            lichess_mode=mode_name,
-            lichess_time_minutes=emulator_config.time_minutes,
-            lichess_increment_seconds=emulator_config.increment_seconds,
-            lichess_rated=emulator_config.rated,
-            lichess_color_preference=getattr(emulator_config, 'color_preference', 'random'),
-            lichess_game_id=getattr(emulator_config, 'game_id', ''),
-            lichess_challenge_id=getattr(emulator_config, 'challenge_id', ''),
-            lichess_challenge_direction=getattr(emulator_config, 'challenge_direction', 'in'),
-        )
-        
-        self._opponent_manager = OpponentManager(
-            config,
-            move_callback=self._on_opponent_move,
-            status_callback=lambda msg: log.info(f"[Lichess] {msg}"),
-            clock_callback=self._on_lichess_clock_update,
-            game_info_callback=self._on_lichess_game_info
-        )
-        
-        self.client_type = self.CLIENT_LICHESS
-        self.is_lichess = True
-        
-        log.info("[ProtocolManager] Lichess opponent manager created")
-    
-    def _create_hand_brain_assistant_manager(self, engine_name: str, elo_section: str):
-        """Create a Hand+Brain assistant using AssistantManager.
-        
-        Args:
-            engine_name: Name of the UCI engine for analysis.
-            elo_section: ELO section from .uci config file.
-        """
-        log.info(f"[ProtocolManager] Creating Hand+Brain assistant: {engine_name}")
-        
-        config = AssistantManagerConfig(
-            assistant_type=AssistantType.HAND_BRAIN,
-            engine_name=engine_name,
-            elo_section=elo_section,
-            time_limit=2.0
-        )
-        
-        self._assistant_manager = AssistantManager(
-            config,
-            suggestion_callback=self._on_assistant_suggestion,
-            status_callback=lambda msg: log.info(f"[Brain] {msg}")
-        )
-        self._assistant_manager.start()
-        
-        log.info("[ProtocolManager] Hand+Brain assistant manager created and starting")
-    
-    def _on_opponent_move(self, move: chess.Move):
-        """Handle move from opponent (engine or Lichess).
-        
-        Converts the move to the format expected by GameManager.
-        
-        Args:
-            move: The opponent's move.
-        """
-        log.info(f"[ProtocolManager] Opponent move received: {move.uci()}")
+        log.info(f"[ProtocolManager] Player move received: {move.uci()}")
         self.game_manager.computer_move(move.uci(), forced=True)
+    
+    def _handle_new_game(self):
+        """Handle new game event - notify players and assistants."""
+        if self._player_manager:
+            self._player_manager.on_new_game()
+        if self._assistant_manager:
+            self._assistant_manager.on_new_game()
+    
+    def _request_current_player_move(self):
+        """Request a move from the current player.
+        
+        Called when turn changes. For human players, does nothing.
+        For engines/Lichess, starts move computation.
+        """
+        if self.is_app_connected() and not self.is_lichess:
+            return  # External app is connected, it handles moves
+        
+        if not self._player_manager:
+            return
+        
+        if not self._player_manager.is_ready:
+            return
+        
+        chess_board = self.game_manager.chess_board
+        
+        if chess_board.is_game_over():
+            return
+        
+        log.debug("[ProtocolManager] Requesting move from current player")
+        self._player_manager.request_move(chess_board)
+    
+    # =========================================================================
+    # Assistant Management
+    # =========================================================================
+    
+    def set_assistant_manager(self, assistant_manager: AssistantManager):
+        """Set the assistant manager for suggestions (Hand+Brain, hints).
+        
+        Args:
+            assistant_manager: The AssistantManager instance.
+        """
+        self._assistant_manager = assistant_manager
+        
+        # Wire suggestion callback
+        assistant_manager.set_suggestion_callback(self._on_assistant_suggestion)
     
     def _on_assistant_suggestion(self, suggestion: Suggestion):
         """Handle suggestion from assistant (Hand+Brain).
-        
-        Routes the suggestion to the appropriate callback.
         
         Args:
             suggestion: The assistant's suggestion.
@@ -784,6 +750,42 @@ class ProtocolManager:
                 self._suggestion_callback(suggestion.piece_type or "", suggestion.squares)
         elif suggestion.suggestion_type == SuggestionType.MOVE:
             log.info(f"[ProtocolManager] Suggestion: move {suggestion.move.uci() if suggestion.move else 'none'}")
+    
+    def _check_assistant_suggestion(self):
+        """Check if assistant should provide a suggestion.
+        
+        Called when turn changes. For auto-suggest assistants (like Hand+Brain),
+        requests a suggestion when it's the player's turn.
+        """
+        if not self._assistant_manager:
+            return
+        
+        if not self._assistant_manager.is_active:
+            return
+        
+        if not self._assistant_manager.auto_suggest:
+            return
+        
+        chess_board = self.game_manager.chess_board
+        
+        # Only show suggestions for human players (they need to decide a move)
+        # Engine/Lichess players already know what move to make
+        if self._player_manager:
+            from DGTCentaurMods.players import PlayerType
+            current_player = self._player_manager.get_current_player(chess_board)
+            if current_player.player_type != PlayerType.HUMAN:
+                self._assistant_manager.clear_suggestion()
+                return
+        
+        if chess_board.is_game_over():
+            return
+        
+        log.debug("[ProtocolManager] Requesting suggestion from assistant manager")
+        self._assistant_manager.request_suggestion(chess_board, chess_board.turn)
+    
+    # =========================================================================
+    # Lichess-Specific Methods
+    # =========================================================================
     
     def _on_lichess_clock_update(self, white_time: int, black_time: int):
         """Handle clock update from Lichess.
@@ -813,24 +815,14 @@ class ProtocolManager:
     def start_lichess(self) -> bool:
         """Start the Lichess connection and game.
         
-        Must be called after construction when using Lichess mode.
-        
         Returns:
             True if Lichess started successfully, False on error.
         """
-        if not self._opponent_manager or not self._opponent_manager.is_lichess:
-            log.error("[ProtocolManager] Cannot start Lichess - no Lichess opponent configured")
-            return False
-        
-        return self._opponent_manager.start()
+        return self.start_players()
     
     def stop_lichess(self):
-        """Stop the Lichess connection.
-        
-        Call this to cleanly disconnect from Lichess.
-        """
-        if self._opponent_manager and self._opponent_manager.is_lichess:
-            self._opponent_manager.stop()
+        """Stop the Lichess connection."""
+        self.stop_players()
     
     def is_lichess_connected(self) -> bool:
         """Check if Lichess game is active.
@@ -838,19 +830,24 @@ class ProtocolManager:
         Returns:
             True if connected to a Lichess game, False otherwise.
         """
-        if self._opponent_manager and self._opponent_manager.is_lichess:
-            return self._opponent_manager.is_ready
+        if self._player_manager and self.is_lichess:
+            return self._player_manager.is_ready
         return False
     
     @property
     def lichess_board_flip(self) -> bool:
-        """Get board flip state for Lichess (True if playing as black).
+        """Get board flip state for Lichess (True if local human plays black).
         
         Returns:
             True if board should be flipped (playing as black).
         """
-        if self._opponent_manager:
-            return self._opponent_manager.board_flip
+        from DGTCentaurMods.players import LichessPlayer
+        
+        if self._player_manager:
+            # Check which player is Lichess and return its board_flip
+            for player in [self._player_manager.white_player, self._player_manager.black_player]:
+                if isinstance(player, LichessPlayer):
+                    return player.board_flip
         return False
     
     def set_lichess_on_game_connected(self, callback):
@@ -859,26 +856,45 @@ class ProtocolManager:
         Args:
             callback: Function to call when game transitions to playing.
         """
-        if self._opponent_manager and self._opponent_manager.is_lichess:
-            self._opponent_manager.set_game_connected_callback(callback)
+        from DGTCentaurMods.players import LichessPlayer
+        
+        if self._player_manager:
+            for player in [self._player_manager.white_player, self._player_manager.black_player]:
+                if isinstance(player, LichessPlayer):
+                    player.set_on_game_connected(callback)
     
     def lichess_resign(self):
         """Resign the current Lichess game."""
-        if self._opponent_manager:
-            self._opponent_manager.resign()
+        from DGTCentaurMods.players import LichessPlayer
+        
+        if self._player_manager:
+            for player in [self._player_manager.white_player, self._player_manager.black_player]:
+                if isinstance(player, LichessPlayer):
+                    player.on_resign(chess.WHITE)  # Lichess handles the actual resign
+                    return
     
     def lichess_abort(self):
         """Abort the current Lichess game."""
-        if self._opponent_manager:
-            self._opponent_manager.abort()
+        from DGTCentaurMods.players import LichessPlayer
+        
+        if self._player_manager:
+            for player in [self._player_manager.white_player, self._player_manager.black_player]:
+                if isinstance(player, LichessPlayer):
+                    player.abort_game()
+                    return
     
     def lichess_offer_draw(self):
         """Offer a draw in the current Lichess game."""
-        if self._opponent_manager:
-            self._opponent_manager.offer_draw()
+        from DGTCentaurMods.players import LichessPlayer
+        
+        if self._player_manager:
+            for player in [self._player_manager.white_player, self._player_manager.black_player]:
+                if isinstance(player, LichessPlayer):
+                    player.on_draw_offer()
+                    return
     
     # =========================================================================
-    # Opponent and Assistant Turn Handling
+    # App Connection Management
     # =========================================================================
     
     def is_app_connected(self) -> bool:
@@ -888,93 +904,14 @@ class ProtocolManager:
             True if a chess app is connected (Millennium, Pegasus, Chessnut, or Lichess)
         """
         return self.is_millennium or self.is_pegasus or self.is_chessnut or self.is_lichess
-    
-    def _handle_new_game(self):
-        """Handle new game event - notify opponent and assistant managers.
-        
-        Resets state when a new game starts (board reset to starting position).
-        """
-        if self._opponent_manager:
-            self._opponent_manager.on_new_game()
-        if self._assistant_manager:
-            self._assistant_manager.on_new_game()
-    
-    def _check_opponent_turn(self):
-        """Check if opponent should move and trigger thinking if needed.
-        
-        Called when turn changes. Determines if it's the opponent's turn
-        based on player color and current board turn.
-        """
-        if self.is_app_connected():
-            return  # App is connected, don't use local opponent
-        
-        if not self._opponent_manager:
-            return  # No opponent configured
-        
-        if not self._opponent_manager.is_ready:
-            return  # Opponent not ready yet
-        
-        # Get current board state
-        chess_board = self.game_manager.chess_board
-        
-        # Check if it's the opponent's turn (not the player's turn)
-        if chess_board.turn == self._player_color:
-            return  # Player's turn, not opponent's
-        
-        # Check if game is over
-        if chess_board.is_game_over():
-            return
-        
-        # Ask opponent for a move
-        log.debug("[ProtocolManager] Requesting move from opponent manager")
-        self._opponent_manager.request_move(chess_board)
-    
-    def _check_assistant_suggestion(self):
-        """Check if assistant should provide a suggestion.
-        
-        Called when turn changes. For auto-suggest assistants (like Hand+Brain),
-        requests a suggestion when it's the player's turn.
-        """
-        if not self._assistant_manager:
-            return  # No assistant configured
-        
-        if not self._assistant_manager.is_active:
-            return  # Assistant not active
-        
-        if not self._assistant_manager.auto_suggest:
-            return  # Not an auto-suggest assistant
-        
-        # Get current board state
-        chess_board = self.game_manager.chess_board
-        
-        # Check if it's the player's turn
-        if chess_board.turn != self._player_color:
-            # Clear suggestion when it's opponent's turn
-            self._assistant_manager.clear_suggestion()
-            return
-        
-        # Check if game is over
-        if chess_board.is_game_over():
-            return
-        
-        # Request suggestion for player's color
-        log.debug("[ProtocolManager] Requesting suggestion from assistant manager")
-        self._assistant_manager.request_suggestion(chess_board, self._player_color)
 
     def on_app_connected(self):
-        """Called when an app connects - pause local opponent.
-        
-        The protocol detection flags will be set by receive_data() which will
-        naturally stop the local opponent from playing.
-        """
-        log.info("[ProtocolManager] App connected - local opponent paused")
+        """Called when an app connects - pause local player moves."""
+        log.info("[ProtocolManager] App connected - local players paused")
     
     def on_app_disconnected(self):
-        """Called when app disconnects - resume local opponent.
-        
-        Resets protocol detection flags so the local opponent can resume playing.
-        """
-        log.info("[ProtocolManager] App disconnected - local opponent may resume")
+        """Called when app disconnects - resume local players."""
+        log.info("[ProtocolManager] App disconnected - local players may resume")
         # Reset protocol detection flags
         self.is_millennium = False
         self.is_pegasus = False
@@ -995,22 +932,18 @@ class ProtocolManager:
             manager=self.game_manager
         )
         
-        # Check if opponent should play now
-        self._check_opponent_turn()
+        # Request move from current player
+        self._request_current_player_move()
     
     def cleanup(self):
-        """Clean up resources including opponent, assistant, and game manager.
-
-        Properly stops the game manager thread, closes opponent and assistant managers.
-        """
-        # Stop opponent manager if active
-        if self._opponent_manager:
+        """Clean up resources including players, assistants, and game manager."""
+        # Stop players
+        if self._player_manager:
             try:
-                self._opponent_manager.stop()
-                log.info("[ProtocolManager] Opponent manager stopped")
+                self._player_manager.stop()
+                log.info("[ProtocolManager] Players stopped")
             except Exception as e:
-                log.debug(f"[ProtocolManager] Error stopping opponent manager: {e}")
-            self._opponent_manager = None
+                log.debug(f"[ProtocolManager] Error stopping players: {e}")
         
         # Stop assistant manager if active
         if self._assistant_manager:

@@ -397,10 +397,10 @@ class GameManager:
         #           show_check_alert, show_queen_threat, clear_alerts, analyze_position
         self.display_bridge = None
         
-        # Player configuration - which color(s) are human players
-        # In 2-player mode, both colors are human. In engine mode, only player_color is human.
-        # Set by ProtocolManager after initialization.
-        self.player_color = None  # chess.WHITE, chess.BLACK, or None (meaning both are human)
+        # Player manager reference - manages both white and black players.
+        # Must be set via set_player_manager() before game starts.
+        # Provides: get_player(color), request_move(), on_move_made(), on_piece_event()
+        self._player_manager = None
         
         # Thread control
         self.should_stop = False
@@ -502,8 +502,12 @@ class GameManager:
         return from_square, to_square
     
     def _calculate_legal_squares(self, source_square: int) -> list:
-        """Calculate legal destination squares for a piece at the given square."""
-        legal_destinations = [source_square]  # Include source square
+        """Calculate legal destination squares for a piece at the given square.
+        
+        Returns all legal chess moves from this square, regardless of player type.
+        All moves are validated against chess rules - even engine moves should be legal.
+        """
+        legal_destinations = [source_square]  # Include source square (put piece back)
         for move in self.chess_board.legal_moves:
             if move.from_square == source_square:
                 legal_destinations.append(move.to_square)
@@ -990,8 +994,48 @@ class GameManager:
             if current_expected_state is not None:
                 self._provide_correction_guidance(current_physical_state, current_expected_state)
     
+    def _handle_king_lift_resign(self, field: int, piece_color):
+        """Handle king-lift resign detection.
+        
+        If a player's king is lifted, starts a 3-second timer. If the king is held
+        off the board for 3 seconds, shows the resign menu for that color.
+        
+        This is a board-level UI feature, separate from move formation.
+        
+        Args:
+            field: The square where a piece was lifted.
+            piece_color: The color of the piece (True=White, False=Black, None=empty).
+        """
+        piece_at_field = self.chess_board.piece_at(field)
+        if piece_at_field is not None and piece_at_field.piece_type == chess.KING:
+            king_color = piece_at_field.color
+            
+            # Check if this player can be resigned via the board
+            can_resign_this_king = True
+            if self._player_manager:
+                player = self._player_manager.get_player(king_color)
+                can_resign_this_king = player.can_resign()
+            
+            if can_resign_this_king:
+                # Cancel any existing timer and start a new one
+                self.move_state._cancel_king_lift_timer()
+                self.move_state.king_lifted_square = field
+                self.move_state.king_lifted_color = king_color
+                
+                # Start 3-second timer for resign menu
+                def _king_lift_timeout():
+                    log.info(f"[GameManager] King held off board for 3 seconds - showing resign menu for {'White' if king_color == chess.WHITE else 'Black'}")
+                    self._king_lift_resign_menu_active = True
+                    if self.on_king_lift_resign:
+                        self.on_king_lift_resign(king_color)
+                
+                self.move_state.king_lift_timer = threading.Timer(3.0, _king_lift_timeout)
+                self.move_state.king_lift_timer.daemon = True
+                self.move_state.king_lift_timer.start()
+                log.debug(f"[GameManager._handle_king_lift_resign] King lifted from {chess.square_name(field)}, started 3-second resign timer")
+    
     def _handle_piece_lift(self, field: int, piece_color):
-        """Handle piece lift event.
+        """Handle piece lift event (legacy - used when no PlayerManager).
         
         For castling support, tracks when a rook is lifted from a castling position.
         This allows rook-first castling where the player moves the rook before the king.
@@ -1099,17 +1143,19 @@ class GameManager:
         if not is_current_player_piece:
             self.move_state.opponent_source_square = field
         
-        # King-lift resign detection: if a human player's king is lifted, start 3-second timer
-        # This works in any game mode but only for human players (not engine's king)
+        # King-lift resign detection: if a player's king is lifted, start 3-second timer
+        # Only for players that can be resigned via the board interface
         piece_at_field = self.chess_board.piece_at(field)
         if piece_at_field is not None and piece_at_field.piece_type == chess.KING:
             king_color = piece_at_field.color
-            # Check if this is a human player's king
-            # In 2-player mode (player_color is None), both colors are human
-            # In engine mode, only player_color is human
-            is_human_king = (self.player_color is None or king_color == self.player_color)
             
-            if is_human_king:
+            # Check if this player can be resigned via the board
+            can_resign_this_king = True
+            if self._player_manager:
+                player = self._player_manager.get_player(king_color)
+                can_resign_this_king = player.can_resign()
+            
+            if can_resign_this_king:
                 # Cancel any existing timer and start a new one
                 self.move_state._cancel_king_lift_timer()
                 self.move_state.king_lifted_square = field
@@ -1127,23 +1173,9 @@ class GameManager:
                 self.move_state.king_lift_timer.start()
                 log.debug(f"[GameManager._handle_piece_lift] King lifted from {chess.square_name(field)}, started 3-second resign timer")
         
-        # Handle forced moves (engine's turn)
-        # When there's a forced move, the opponent (engine) has determined the move.
-        # The human must execute exactly that move. Only the forced move piece can
-        # be moved, and only to the forced target. Any other board changes trigger
-        # correction mode via board state comparison.
-        if self.move_state.is_forced_move and self.move_state.computer_move_uci:
-            forced_source = chess.parse_square(self.move_state.computer_move_uci[0:2])
-            forced_target = chess.parse_square(self.move_state.computer_move_uci[2:4])
-            
-            if field == forced_source:
-                self.move_state.legal_destination_squares = [forced_target]
-                self.move_state.source_square = field
-                self.move_state.source_piece_color = piece_color
-            # Don't set up legal moves for any other piece during forced moves
-            return
-        
-        # Normal move handling (player's turn or 2-player mode)
+        # Move construction from board events
+        # For human players: legal moves are all legal chess moves for the piece
+        # For non-human players: the "legal" move is what that player requested
         # If we're tracking a potential castling rook, don't set source_square here.
         # The source_square will be set in _handle_piece_place when the rook is placed,
         # allowing the castling tracking logic to check castling_rook_source first.
@@ -2063,19 +2095,37 @@ class GameManager:
         
         is_lift = (piece_event == 0)
         
-        if is_lift:
-            self._handle_piece_lift(field, piece_color)
-            self.correction_mode.clear_exit_flag()
-        elif is_place:
-            self._handle_piece_place(field, piece_color)
+        # Route piece events to PlayerManager for move formation
+        # Players receive events, form moves, and submit via callback
+        if self._player_manager:
+            event_type = "lift" if is_lift else "place"
+            self._player_manager.on_piece_event(event_type, field, self.chess_board)
             
-            # After any PLACE, check if board is now in starting position (game reset)
-            # This handles the case where pieces are rearranged to starting position
-            current_state = board.getChessState()
-            if self._is_starting_position(current_state):
-                log.warning("[GameManager.receive_field] Starting position detected after PLACE - resetting game")
-                self._reset_game()
-                return
+            if is_lift:
+                # Handle board-level concerns that stay in GameManager
+                self._handle_king_lift_resign(field, piece_color)
+                self.correction_mode.clear_exit_flag()
+            elif is_place:
+                # After any PLACE, check if board is now in starting position (game reset)
+                current_state = board.getChessState()
+                if self._is_starting_position(current_state):
+                    log.warning("[GameManager.receive_field] Starting position detected after PLACE - resetting game")
+                    self._reset_game()
+                    return
+        else:
+            # Fallback to legacy handling if no PlayerManager (shouldn't happen)
+            log.warning("[GameManager.receive_field] No PlayerManager set, using legacy handling")
+            if is_lift:
+                self._handle_piece_lift(field, piece_color)
+                self.correction_mode.clear_exit_flag()
+            elif is_place:
+                self._handle_piece_place(field, piece_color)
+                
+                current_state = board.getChessState()
+                if self._is_starting_position(current_state):
+                    log.warning("[GameManager.receive_field] Starting position detected after PLACE - resetting game")
+                    self._reset_game()
+                    return
     
     def receive_key(self, key_pressed):
         """Handle key press events.
@@ -2117,27 +2167,79 @@ class GameManager:
         """
         return len(self.chess_board.move_stack) > 0
     
-    def handle_resign(self, player_color: chess.Color = None) -> None:
-        """Handle game resignation by the human player.
+    def set_player_manager(self, player_manager) -> None:
+        """Set the player manager for this game.
         
-        The human player (at the physical board) is resigning. The result is recorded
-        as a loss for the specified color, or the current turn if not specified.
+        The PlayerManager handles both white and black players and provides
+        the interface for querying player capabilities and requesting moves.
+        
+        Wires up the move callback so players submit moves to GameManager.
         
         Args:
-            player_color: Color of the player resigning. If None, defaults to current turn.
+            player_manager: The PlayerManager instance managing both players.
+        """
+        from DGTCentaurMods.players import PlayerManager
+        
+        if not isinstance(player_manager, PlayerManager):
+            raise TypeError("player_manager must be a PlayerManager instance")
+        
+        self._player_manager = player_manager
+        
+        # Wire move callback - all players submit moves through this
+        player_manager.set_move_callback(self._on_player_move)
+        
+        log.info(f"[GameManager] Player manager set: White={player_manager.white_player.name} "
+                 f"({player_manager.white_player.player_type.name}), "
+                 f"Black={player_manager.black_player.name} "
+                 f"({player_manager.black_player.player_type.name})")
+    
+    @property
+    def player_manager(self):
+        """Get the player manager for this game."""
+        return self._player_manager
+    
+    def _on_player_move(self, move: chess.Move) -> None:
+        """Callback when a player submits a move.
+        
+        All players (human, engine, Lichess) submit moves through this callback.
+        The move is validated against chess rules and executed if legal,
+        or correction mode is entered if invalid.
+        
+        Args:
+            move: The move submitted by the player.
+        """
+        log.info(f"[GameManager._on_player_move] Received move: {move.uci()}")
+        
+        # Check if the move is legal
+        if move in self.chess_board.legal_moves:
+            log.info(f"[GameManager._on_player_move] Legal move, executing: {move.uci()}")
+            self._execute_move(move)
+        else:
+            log.warning(f"[GameManager._on_player_move] Illegal move: {move.uci()}, entering correction mode")
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
+            self._enter_correction_mode()
+    
+    def handle_resign(self, resigning_color: chess.Color = None) -> None:
+        """Handle game resignation.
+        
+        The player of the specified color is resigning. The result is recorded
+        as a loss for that color.
+        
+        Args:
+            resigning_color: Color of the player resigning. If None, defaults to current turn.
         """
         log.info("[GameManager] Processing resignation")
         
         # Determine which color is resigning
-        if player_color is None:
-            player_color = self.chess_board.turn
+        if resigning_color is None:
+            resigning_color = self.chess_board.turn
         
-        # Human resigns, so human loses
-        if player_color == chess.WHITE:
-            result = "0-1"  # Black wins (human was white)
+        # Resigning player loses
+        if resigning_color == chess.WHITE:
+            result = "0-1"  # Black wins
             log.info("[GameManager] White resigned - Black wins")
         else:
-            result = "1-0"  # White wins (human was black)
+            result = "1-0"  # White wins
             log.info("[GameManager] Black resigned - White wins")
         
         # Update database with result
