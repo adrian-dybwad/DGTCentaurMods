@@ -677,12 +677,16 @@ class Lichess:
                 self.manager.event_callback(f"Termination.{status.upper()}")
     
     # =========================================================================
-    # Game Actions
+    # Game Actions - Public API
     # =========================================================================
     
-    def _resign_game(self):
-        """Resign the current game."""
+    def resign_game(self):
+        """Resign the current game.
+        
+        Called when user chooses to resign from the back menu.
+        """
         if not self._game_id or not self._client:
+            log.warning("[Lichess] Cannot resign - no active game")
             return
         
         log.info("[Lichess] Resigning game")
@@ -691,9 +695,29 @@ class Lichess:
         except Exception as e:
             log.error(f"[Lichess] Failed to resign: {e}")
     
-    def _offer_draw(self):
-        """Offer a draw to the opponent."""
+    def abort_game(self):
+        """Abort the current game.
+        
+        Called when user chooses to abort from the back menu.
+        Can only abort in the first few moves.
+        """
         if not self._game_id or not self._client:
+            log.warning("[Lichess] Cannot abort - no active game")
+            return
+        
+        log.info("[Lichess] Aborting game")
+        try:
+            self._client.board.abort_game(self._game_id)
+        except Exception as e:
+            log.error(f"[Lichess] Failed to abort: {e}")
+    
+    def offer_draw(self):
+        """Offer a draw to the opponent.
+        
+        Called when user chooses draw from the back menu.
+        """
+        if not self._game_id or not self._client:
+            log.warning("[Lichess] Cannot offer draw - no active game")
             return
         
         log.info("[Lichess] Offering draw")

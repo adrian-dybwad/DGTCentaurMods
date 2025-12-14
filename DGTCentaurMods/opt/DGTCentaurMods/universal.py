@@ -2907,6 +2907,34 @@ def _start_lichess_game(lichess_config) -> bool:
     # Set up display bridge for consolidated display operations
     protocol_manager.set_display_bridge(display_manager)
     
+    # Wire up GameManager callbacks to DisplayManager
+    protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)
+    
+    # Lichess games: BACK shows resign/abort menu
+    def _on_lichess_back_menu_result(action: str):
+        """Handle Lichess back menu result (resign/abort/cancel)."""
+        if action == "resign":
+            log.info("[App] User resigned Lichess game")
+            if protocol_manager and protocol_manager._lichess:
+                protocol_manager._lichess.resign_game()
+            _return_to_menu("Lichess resign")
+        elif action == "abort":
+            log.info("[App] User aborted Lichess game")
+            if protocol_manager and protocol_manager._lichess:
+                protocol_manager._lichess.abort_game()
+            _return_to_menu("Lichess abort")
+        elif action == "draw":
+            log.info("[App] User offered draw in Lichess game")
+            if protocol_manager and protocol_manager._lichess:
+                protocol_manager._lichess.offer_draw()
+            # Don't exit - continue game, opponent may accept or decline
+        # cancel: do nothing, return to game
+    
+    protocol_manager.set_on_back_pressed(lambda: display_manager.show_back_menu(
+        _on_lichess_back_menu_result,
+        is_two_player=False
+    ))
+    
     # Start the Lichess connection
     if not protocol_manager.start_lichess():
         log.error("[App] Failed to start Lichess connection")
