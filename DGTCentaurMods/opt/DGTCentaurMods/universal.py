@@ -1266,6 +1266,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         global _switch_to_normal_game, _is_position_game
         if event == EVENT_NEW_GAME:
             display_manager.reset_analysis()
+            display_manager.reset_clock()
             # Reset clock started flag for new game
             _clock_started = False
             # If we're in a position game and the starting position is set up,

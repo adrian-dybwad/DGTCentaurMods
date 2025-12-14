@@ -511,6 +511,20 @@ class DisplayManager:
         if self.clock_widget:
             self.clock_widget.stop()
     
+    def reset_clock(self) -> None:
+        """Reset the chess clock to initial time and stop it.
+        
+        Called when a new game starts to reset clock state.
+        The clock will not start until the first move is made.
+        """
+        if self.clock_widget and self._time_control > 0:
+            # Stop the clock first
+            self.clock_widget.stop()
+            # Reset to initial time
+            initial_seconds = self._time_control * 60
+            self.clock_widget.set_times(initial_seconds, initial_seconds)
+            log.info(f"[DisplayManager] Clock reset to {self._time_control} min per player")
+    
     def get_clock_times(self) -> tuple:
         """Get the current clock times for both players.
 
