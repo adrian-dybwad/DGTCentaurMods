@@ -123,9 +123,13 @@ class Player(ABC):
         self._color: Optional[chess.Color] = config.color if config else None
         
         # Callbacks set by the game coordinator
-        self._move_callback: Optional[Callable[[chess.Move], None]] = None
+        self._move_callback: Optional[Callable[[chess.Move], bool]] = None
         self._pending_move_callback: Optional[Callable[[chess.Move], None]] = None
         self._status_callback: Optional[Callable[[str], None]] = None
+        self._error_callback: Optional[Callable[[str], None]] = None
+        
+        # Track lifted square for move formation
+        self._lifted_square: Optional[int] = None
     
     # =========================================================================
     # Properties
@@ -203,14 +207,17 @@ class Player(ABC):
     # Callback Management
     # =========================================================================
     
-    def set_move_callback(self, callback: Callable[[chess.Move], None]) -> None:
+    def set_move_callback(self, callback: Callable[[chess.Move], bool]) -> None:
         """Set callback for when player submits a move.
-        
+
         All players use this callback to submit moves to the game.
-        The callback is invoked when piece events form and validate a move.
-        
+        The callback is invoked when piece events form a move.
+
         Args:
-            callback: Function to call with the player's move.
+            callback: Function(move) -> bool. Returns True if move was
+                     accepted (valid), False if rejected (invalid).
+                     Players like Lichess need the return value to know
+                     if the move should be sent to the server.
         """
         self._move_callback = callback
     
@@ -239,6 +246,29 @@ class Player(ABC):
             callback: Function to call with status text.
         """
         self._status_callback = callback
+    
+    def set_error_callback(self, callback: Callable[[str], None]) -> None:
+        """Set callback for error conditions that require correction mode.
+        
+        Called when the player detects an error condition that the game
+        should handle, such as:
+        - Place event without corresponding lift (extra piece on board)
+        - Non-matching piece events for engine/Lichess moves
+        
+        Args:
+            callback: Function to call with error type string.
+                     Error types: "place_without_lift", "move_mismatch"
+        """
+        self._error_callback = callback
+    
+    def _report_error(self, error_type: str) -> None:
+        """Report an error condition via the callback if set.
+        
+        Args:
+            error_type: Type of error (e.g., "place_without_lift").
+        """
+        if self._error_callback:
+            self._error_callback(error_type)
     
     # =========================================================================
     # State Management (Protected)
@@ -311,27 +341,48 @@ class Player(ABC):
         """
         pass
     
-    @abstractmethod
     def on_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
         """Handle a piece event from the physical board.
+
+        Called when a piece is lifted or placed on the board.
+        Forms a move from lift/place sequence and submits via callback.
         
-        Called when a piece is lifted or placed on the board during
-        this player's turn. The player uses these events to:
+        Error cases (call error_callback):
+        - Place without lift (extra piece on board)
+        - Place on same square as lift (piece put back)
         
-        - Human: Construct a move from lift/place sequence
-        - Engine/Lichess: Validate that the physical execution matches
-          the requested move
+        Success cases (call move_callback):
+        - Lift followed by place on different square
         
-        When the player determines a move is complete, it calls
-        move_callback with the move. The game then validates and
-        executes it (or enters correction mode if invalid).
-        
+        Subclasses can override for additional behavior (e.g., engine
+        validating the move matches its computed move).
+
         Args:
             event_type: "lift" or "place"
             square: The square index (0-63) where the event occurred
             board: Current chess position (before the move)
         """
-        pass
+        if event_type == "lift":
+            self._lifted_square = square
+        
+        elif event_type == "place":
+            if self._lifted_square is None:
+                # Place without lift - error
+                self._report_error("place_without_lift")
+                return
+            
+            from_sq = self._lifted_square
+            self._lifted_square = None
+            
+            if square == from_sq:
+                # Piece placed back on same square - error (not a move)
+                self._report_error("piece_returned")
+                return
+            
+            # Valid lift/place sequence - form move and submit
+            move = chess.Move(from_sq, square)
+            if self._move_callback:
+                self._move_callback(move)
     
     @abstractmethod
     def on_move_made(self, move: chess.Move, board: chess.Board) -> None:

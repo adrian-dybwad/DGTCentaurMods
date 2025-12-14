@@ -52,9 +52,7 @@ class HumanPlayer(Player):
             config: Configuration. If None, uses defaults.
         """
         super().__init__(config or HumanPlayerConfig())
-        
-        # Track piece events to construct moves
-        self._lifted_square: Optional[int] = None
+        # Piece tracking is handled in base class
     
     @property
     def player_type(self) -> PlayerType:
@@ -81,7 +79,6 @@ class HumanPlayer(Player):
         Nothing to clean up.
         """
         log.debug("[HumanPlayer] Stopping")
-        self._lifted_square = None
         self._set_state(PlayerState.STOPPED)
     
     def request_move(self, board: chess.Board) -> None:
@@ -98,36 +95,15 @@ class HumanPlayer(Player):
     def on_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
         """Handle a piece event from the physical board.
         
-        Constructs a move from lift/place sequence:
-        - lift: remember the square
-        - place: form move from lifted square to placed square, submit
+        Base class handles all logic - just add debug logging here.
         
         Args:
             event_type: "lift" or "place"
             square: The square index (0-63)
             board: Current chess position
         """
-        if event_type == "lift":
-            self._lifted_square = square
-            log.debug(f"[HumanPlayer] Piece lifted from {chess.square_name(square)}")
-        
-        elif event_type == "place":
-            if self._lifted_square is not None:
-                # Form the move
-                move = chess.Move(self._lifted_square, square)
-                log.info(f"[HumanPlayer] Move formed: {move.uci()}")
-                
-                # Reset state
-                from_sq = self._lifted_square
-                self._lifted_square = None
-                
-                # Submit the move
-                if self._move_callback:
-                    self._move_callback(move)
-                else:
-                    log.warning("[HumanPlayer] No move callback set, cannot submit move")
-            else:
-                log.debug(f"[HumanPlayer] Piece placed on {chess.square_name(square)} but no lift tracked")
+        log.debug(f"[HumanPlayer] {event_type} on {chess.square_name(square)}")
+        super().on_piece_event(event_type, square, board)
     
     def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
         """Notification that a move was made.
@@ -137,8 +113,6 @@ class HumanPlayer(Player):
             board: Board state after the move.
         """
         log.debug(f"[HumanPlayer] Move made: {move.uci()}")
-        # Reset state after move is made
-        self._lifted_square = None
     
     def on_new_game(self) -> None:
         """Notification that a new game is starting."""

@@ -57,9 +57,10 @@ class PlayerManager:
         self,
         white_player: Player,
         black_player: Player,
-        move_callback: Optional[Callable[[chess.Move], None]] = None,
+        move_callback: Optional[Callable[[chess.Move], bool]] = None,
         pending_move_callback: Optional[Callable[[chess.Move], None]] = None,
         status_callback: Optional[Callable[[str], None]] = None,
+        error_callback: Optional[Callable[[str], None]] = None,
     ):
         """Initialize the player manager.
         
@@ -69,12 +70,14 @@ class PlayerManager:
             move_callback: Called when any player submits a move.
             pending_move_callback: Called when a player has a pending move (for LEDs).
             status_callback: Called with status messages.
+            error_callback: Called when a player reports an error (e.g., place without lift).
         """
         self._white_player = white_player
         self._black_player = black_player
         self._move_callback = move_callback
         self._pending_move_callback = pending_move_callback
         self._status_callback = status_callback
+        self._error_callback = error_callback
         
         # Set colors
         self._white_player.color = chess.WHITE
@@ -102,18 +105,23 @@ class PlayerManager:
         if self._status_callback:
             self._white_player.set_status_callback(self._status_callback)
             self._black_player.set_status_callback(self._status_callback)
+        
+        # Error callback
+        if self._error_callback:
+            self._white_player.set_error_callback(self._error_callback)
+            self._black_player.set_error_callback(self._error_callback)
     
     # =========================================================================
     # Callback Setters
     # =========================================================================
     
-    def set_move_callback(self, callback: Callable[[chess.Move], None]) -> None:
+    def set_move_callback(self, callback: Callable[[chess.Move], bool]) -> None:
         """Set callback for when a player submits a move.
         
         All players submit moves via this callback after piece events.
         
         Args:
-            callback: Function(move) called when player submits a move.
+            callback: Function(move) -> bool. Returns True if accepted, False if rejected.
         """
         self._move_callback = callback
         self._white_player.set_move_callback(callback)
@@ -140,6 +148,19 @@ class PlayerManager:
         self._status_callback = callback
         self._white_player.set_status_callback(callback)
         self._black_player.set_status_callback(callback)
+    
+    def set_error_callback(self, callback: Callable[[str], None]) -> None:
+        """Set callback for player error conditions.
+        
+        Called when a player detects an error that requires correction mode,
+        such as place-without-lift (extra piece on board).
+        
+        Args:
+            callback: Function(error_type) for error conditions.
+        """
+        self._error_callback = callback
+        self._white_player.set_error_callback(callback)
+        self._black_player.set_error_callback(callback)
     
     # =========================================================================
     # Lifecycle Methods

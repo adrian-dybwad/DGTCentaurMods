@@ -2056,60 +2056,38 @@ class GameManager:
             
             return  # Skip all other processing while menu is active (PLACE events)
         
-        # Skip takeback and correction mode checks if late castling is in progress
-        # During late castling, the board is intentionally in a transitional state
-        if not self.move_state.late_castling_in_progress:
-            # Check for takeback FIRST, before any other processing including correction mode
-            # Takeback detection must work regardless of correction mode state
-            # 
-            # Optimization: Only check for takeback when no move is in progress (orphan PLACE).
-            # If player has lifted a piece (source_square >= 0), they're making a move, not taking back.
-            # This avoids a blocking getChessState() call on every normal move.
-            if is_place and len(self.chess_board.move_stack) > 0 and self.move_state.source_square < 0:
-                is_takeback = self._check_takeback()
-                if is_takeback:
-                    # Takeback was successful, reset move state and return
-                    # Exit correction mode if active since takeback resolved the issue
-                    if self.correction_mode.is_active:
-                        log.info("[GameManager.receive_field] Takeback detected during correction mode, exiting correction mode")
-                        self._exit_correction_mode()
-                    self.move_state.reset()
-                    board.ledsOff()
-                    return
-            
-            # Handle correction mode (only if takeback was not detected)
-            if self.correction_mode.is_active:
-                self._handle_field_event_in_correction_mode(piece_event, field, time_in_seconds)
-                return
+        # Handle correction mode - piece events help correct the board
+        if self.correction_mode.is_active:
+            self._handle_field_event_in_correction_mode(piece_event, field, time_in_seconds)
+            return
         
-        # Starting position detection: Only check when there's no active move in progress
-        # (i.e., orphan PLACE event). During normal play (LIFT followed by PLACE), skip
-        # this check to avoid blocking the serial queue with getChessState().
-        # This allows players to reset by setting up the starting position, but only
-        # detects it when pieces are being moved without a prior LIFT.
-        if is_place and self.move_state.source_square < 0 and self.move_state.opponent_source_square < 0:
-            current_state = board.getChessState()
-            if self._is_starting_position(current_state):
-                log.warning("[GameManager.receive_field] Starting position detected - abandoning current game")
-                self._reset_game()
-                return
-        
-        is_lift = (piece_event == 0)
-        
-        # Route piece events to PlayerManager for move formation
-        # Players receive events, form moves, and submit via callback
-        # PlayerManager is always set via ProtocolManager
+        # Route piece events to PlayerManager - nothing else
+        # Player forms move from lift/place and calls move_callback or error_callback
         if not self._player_manager:
             log.error("[GameManager.receive_field] No PlayerManager set - this should never happen")
             return
         
+        is_lift = (piece_event == 0)
         event_type = "lift" if is_lift else "place"
         self._player_manager.on_piece_event(event_type, field, self.chess_board)
         
+        # Handle king-lift resign (board-level concern)
         if is_lift:
-            # Handle board-level concerns that stay in GameManager
             self._handle_king_lift_resign(field, piece_color)
-            self.correction_mode.clear_exit_flag()
+        else:
+            # Cancel king-lift resign timer on any piece placement
+            if self.move_state.king_lift_timer is not None:
+                self.move_state._cancel_king_lift_timer()
+                log.debug("[GameManager._process_field_event] Cancelled king-lift resign timer on PLACE")
+                
+                if self._king_lift_resign_menu_active:
+                    log.info("[GameManager._process_field_event] King placed - cancelling resign menu")
+                    self._king_lift_resign_menu_active = False
+                    if self.on_king_lift_resign_cancel:
+                        self.on_king_lift_resign_cancel()
+                
+                self.move_state.king_lifted_square = INVALID_SQUARE
+                self.move_state.king_lifted_color = None
     
     def receive_key(self, key_pressed):
         """Handle key press events.
@@ -2171,6 +2149,9 @@ class GameManager:
         
         # Wire move callback - all players submit moves through this
         player_manager.set_move_callback(self._on_player_move)
+        
+        # Wire error callback - players report errors like place-without-lift
+        player_manager.set_error_callback(self._on_player_error)
         
         log.info(f"[GameManager] Player manager set: White={player_manager.white_player.name} "
                  f"({player_manager.white_player.player_type.name}), "
@@ -2256,9 +2237,9 @@ class GameManager:
             termination=termination
         )
 
-    def _on_player_move(self, move: chess.Move) -> None:
+    def _on_player_move(self, move: chess.Move) -> bool:
         """Callback when a player submits a move.
-        
+
         All players (human, engine, Lichess) submit moves through this callback.
         The move is validated against chess rules and executed if legal,
         or correction mode is entered if invalid.
@@ -2269,30 +2250,148 @@ class GameManager:
         
         Args:
             move: The move submitted by the player.
+            
+        Returns:
+            True if move was accepted (legal), False if rejected (illegal).
+            Players like Lichess need this to know if move should be sent to server.
         """
         log.info(f"[GameManager._on_player_move] Received move: {move.uci()}")
         
+        # Handle promotion: if move is a pawn to last rank without promotion piece,
+        # check if adding a promotion piece makes it legal
+        move_to_execute = move
+        if move.promotion is None:
+            promotion_move = self._check_and_handle_promotion(move)
+            if promotion_move:
+                move_to_execute = promotion_move
+                log.info(f"[GameManager._on_player_move] Promotion handled: {move.uci()} -> {move_to_execute.uci()}")
+        
         # Check if the move is legal
-        if move in self.chess_board.legal_moves:
-            log.info(f"[GameManager._on_player_move] Legal move, executing: {move.uci()}")
-            self._execute_complete_move(move)
-        else:
-            # Check for late castling pattern (only if current player supports it)
-            # Late castling: player moved rook first (e.g., h1f1), then king (e.g., e1g1)
-            # Not supported for online play where moves cannot be undone
-            late_castling_move = None
-            if self._player_manager:
-                current_player = self._player_manager.current_player
-                if current_player and current_player.supports_late_castling():
-                    late_castling_move = self._detect_late_castling(move)
+        if move_to_execute in self.chess_board.legal_moves:
+            log.info(f"[GameManager._on_player_move] Legal move, executing: {move_to_execute.uci()}")
+            self._execute_complete_move(move_to_execute)
+            return True
+        
+        # Check for late castling pattern (only if current player supports it)
+        # Late castling: player moved rook first (e.g., h1f1), then king (e.g., e1g1)
+        # Not supported for online play where moves cannot be undone
+        late_castling_move = None
+        if self._player_manager:
+            current_player = self._player_manager.current_player
+            if current_player and current_player.supports_late_castling():
+                late_castling_move = self._detect_late_castling(move_to_execute)
+        
+        if late_castling_move:
+            log.info(f"[GameManager._on_player_move] Late castling detected: {move_to_execute.uci()} -> {late_castling_move.uci()}")
+            self._execute_late_castling_from_move(late_castling_move)
+            return True
+        
+        # Illegal move - enter correction mode
+        log.warning(f"[GameManager._on_player_move] Illegal move: {move_to_execute.uci()}, entering correction mode")
+        board.beep(board.SOUND_WRONG_MOVE, event_type='error')
+        self._enter_correction_mode()
+        return False
+    
+    def _check_and_handle_promotion(self, move: chess.Move) -> Optional[chess.Move]:
+        """Check if a move is a pawn promotion and handle promotion piece selection.
+        
+        If the move is a pawn moving to the last rank without a promotion piece,
+        shows the promotion menu and returns a new move with the selected piece.
+        
+        Args:
+            move: The submitted move (without promotion piece)
             
-            if late_castling_move:
-                log.info(f"[GameManager._on_player_move] Late castling detected: {move.uci()} -> {late_castling_move.uci()}")
-                self._execute_late_castling_from_move(late_castling_move)
-            else:
-                log.warning(f"[GameManager._on_player_move] Illegal move: {move.uci()}, entering correction mode")
-                board.beep(board.SOUND_WRONG_MOVE, event_type='error')
-                self._enter_correction_mode()
+        Returns:
+            A new Move with promotion piece if this is a promotion, None otherwise.
+        """
+        # Check if this could be a promotion move
+        piece = self.chess_board.piece_at(move.from_square)
+        if piece is None or piece.piece_type != chess.PAWN:
+            return None
+        
+        # Check if pawn is moving to promotion rank
+        to_rank = chess.square_rank(move.to_square)
+        is_white_promotion = piece.color == chess.WHITE and to_rank == 7
+        is_black_promotion = piece.color == chess.BLACK and to_rank == 0
+        
+        if not (is_white_promotion or is_black_promotion):
+            return None
+        
+        # This is a promotion - get the promotion piece from user
+        log.info(f"[GameManager._check_and_handle_promotion] Promotion detected for {move.uci()}")
+        board.beep(board.SOUND_GENERAL, event_type='game_event')
+        
+        self.is_showing_promotion = True
+        
+        if self.on_promotion_needed:
+            promotion_choice = self.on_promotion_needed(is_white_promotion)
+        else:
+            # Default to queen if no callback
+            log.warning("[GameManager._check_and_handle_promotion] No promotion callback, defaulting to queen")
+            promotion_choice = "q"
+        
+        self.is_showing_promotion = False
+        
+        # Map promotion choice to chess piece type
+        promotion_map = {
+            'q': chess.QUEEN,
+            'r': chess.ROOK,
+            'b': chess.BISHOP,
+            'n': chess.KNIGHT,
+        }
+        promotion_piece = promotion_map.get(promotion_choice.lower(), chess.QUEEN)
+        
+        # Create new move with promotion
+        promotion_move = chess.Move(move.from_square, move.to_square, promotion=promotion_piece)
+        log.info(f"[GameManager._check_and_handle_promotion] Created promotion move: {promotion_move.uci()}")
+        
+        return promotion_move
+    
+    def _on_player_error(self, error_type: str) -> None:
+        """Handle an error reported by a player.
+
+        Called when a player detects an error condition:
+        - place_without_lift: Check for starting position or takeback, else correction mode
+        - piece_returned: Piece placed back on lift square - just clear LEDs, no action
+        - move_mismatch: Piece events don't match expected move - correction mode
+
+        Args:
+            error_type: Type of error that occurred.
+        """
+        log.debug(f"[GameManager._on_player_error] Player reported: {error_type}")
+
+        if error_type == "piece_returned":
+            # Piece placed back on same square - not an error, just cancel
+            board.ledsOff()
+            return
+        
+        if error_type == "place_without_lift":
+            # Check for starting position first
+            current_state = board.getChessState()
+            if self._is_starting_position(current_state):
+                log.info("[GameManager._on_player_error] Starting position detected - resetting game")
+                self._reset_game()
+                return
+            
+            # Check for takeback (board matches previous position)
+            if len(self.chess_board.move_stack) > 0:
+                is_takeback = self._check_takeback()
+                if is_takeback:
+                    log.info("[GameManager._on_player_error] Takeback detected")
+                    self.move_state.reset()
+                    board.ledsOff()
+                    return
+            
+            # Not starting position or takeback - extra piece, enter correction mode
+            log.warning("[GameManager._on_player_error] Extra piece on board - entering correction mode")
+            board.beep(board.SOUND_WRONG_MOVE, event_type='error')
+            self._enter_correction_mode()
+            return
+        
+        # Other errors (move_mismatch, unknown) - correction mode
+        log.warning(f"[GameManager._on_player_error] Error: {error_type} - entering correction mode")
+        board.beep(board.SOUND_WRONG_MOVE, event_type='error')
+        self._enter_correction_mode()
     
     def _detect_late_castling(self, king_move: chess.Move) -> Optional[chess.Move]:
         """Detect if a king move is part of a late castling sequence.
