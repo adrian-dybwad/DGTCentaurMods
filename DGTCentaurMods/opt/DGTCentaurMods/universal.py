@@ -1212,21 +1212,37 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     protocol_manager.game_manager.on_alert_clear = display_manager.hide_alert
     
     # Wire up event callback to handle game events
-    from DGTCentaurMods.managers import EVENT_NEW_GAME
+    from DGTCentaurMods.managers import EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
+    _clock_started = False
     def _on_game_event(event):
+        nonlocal _clock_started
         global _switch_to_normal_game, _is_position_game
         if event == EVENT_NEW_GAME:
             display_manager.reset_analysis()
+            # Reset clock started flag for new game
+            _clock_started = False
             # If we're in a position game and the starting position is set up,
             # signal transition to normal game mode
             if _is_position_game:
                 log.info("[App] Starting position detected in position game - signaling switch to normal game")
                 _switch_to_normal_game = True
+        elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
+            # Handle turn events for clock management
+            active_color = "white" if event == EVENT_WHITE_TURN else "black"
+            if not _clock_started:
+                # Start the clock on the first turn event (game has truly started)
+                display_manager.start_clock(active_color)
+                _clock_started = True
+                log.debug(f"[App] Clock started, {active_color} to move")
+            else:
+                # Switch clock on subsequent turn events
+                display_manager.switch_clock_turn()
         elif isinstance(event, str) and event.startswith("Termination."):
             # Game ended (checkmate, stalemate, resign, draw, etc.)
             termination_type = event[12:]  # Remove "Termination." prefix
             result = protocol_manager.game_manager.get_result()
             log.info(f"[App] Game terminated: {termination_type}, result={result}")
+            display_manager.stop_clock()
             display_manager.show_game_over(result, termination_type)
     protocol_manager._external_event_callback = _on_game_event
     
