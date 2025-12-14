@@ -350,18 +350,10 @@ class ChessClockWidget(Widget):
         section_height = (self.height - 4) // 2  # -4 for top/middle separators
         
         # Determine which color goes on top based on flip setting
-        # flip=False: White on top (player's pieces at bottom of board)
-        # flip=True: Black on top (player's pieces at bottom of board)
+        # The top clock matches the top of the board, bottom clock matches bottom
+        # flip=False: Black on top (opponent), White on bottom (player)
+        # flip=True: White on top (opponent), Black on bottom (player)
         if self._flip:
-            top_color = 'black'
-            bottom_color = 'white'
-            top_label = self._black_label
-            bottom_label = self._white_label
-            top_time_widget = self._black_time_text
-            bottom_time_widget = self._white_time_text
-            top_time = self._black_time
-            bottom_time = self._white_time
-        else:
             top_color = 'white'
             bottom_color = 'black'
             top_label = self._white_label
@@ -370,6 +362,15 @@ class ChessClockWidget(Widget):
             bottom_time_widget = self._black_time_text
             top_time = self._white_time
             bottom_time = self._black_time
+        else:
+            top_color = 'black'
+            bottom_color = 'white'
+            top_label = self._black_label
+            bottom_label = self._white_label
+            top_time_widget = self._black_time_text
+            bottom_time_widget = self._white_time_text
+            top_time = self._black_time
+            bottom_time = self._white_time
         
         # === TOP SECTION ===
         top_y = 4
