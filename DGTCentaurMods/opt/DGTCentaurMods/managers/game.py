@@ -2061,13 +2061,15 @@ class GameManager:
             self._handle_field_event_in_correction_mode(piece_event, field, time_in_seconds)
             return
         
-        # Route piece events to PlayerManager - nothing else
-        # Player forms move from lift/place and calls move_callback or error_callback
+        is_lift = (piece_event == 0)
+        
+        # If no PlayerManager, handle piece events directly
+        # Check for starting position or matching game state
         if not self._player_manager:
-            log.error("[GameManager.receive_field] No PlayerManager set - this should never happen")
+            if not is_lift:  # Only check on PLACE events
+                self._handle_piece_event_without_player(field)
             return
         
-        is_lift = (piece_event == 0)
         event_type = "lift" if is_lift else "place"
         self._player_manager.on_piece_event(event_type, field, self.chess_board)
         
@@ -2088,6 +2090,35 @@ class GameManager:
                 
                 self.move_state.king_lifted_square = INVALID_SQUARE
                 self.move_state.king_lifted_color = None
+    
+    def _handle_piece_event_without_player(self, field: int) -> None:
+        """Handle piece events when no player is active.
+        
+        Used during setup or when no game is in progress.
+        Checks for starting position or board matching current game state.
+        
+        Args:
+            field: The square where the piece was placed.
+        """
+        current_state = board.getChessState()
+        
+        # Check for starting position
+        if self._is_starting_position(current_state):
+            log.info("[GameManager._handle_piece_event_without_player] Starting position detected")
+            self._reset_game()
+            return
+        
+        # Check if board matches current game state
+        expected_state = self._chess_board_to_state(self.chess_board)
+        if expected_state is not None and current_state is not None:
+            if self._validate_board_state(current_state, expected_state):
+                log.debug("[GameManager._handle_piece_event_without_player] Board matches game state")
+                board.ledsOff()
+                return
+        
+        # Board doesn't match - enter correction mode
+        log.debug(f"[GameManager._handle_piece_event_without_player] Board mismatch on {chess.square_name(field)}")
+        # Don't beep or enter correction for minor movements during setup
     
     def receive_key(self, key_pressed):
         """Handle key press events.
@@ -2277,7 +2308,7 @@ class GameManager:
         # Not supported for online play where moves cannot be undone
         late_castling_move = None
         if self._player_manager:
-            current_player = self._player_manager.current_player
+            current_player = self._player_manager.get_current_player(self.chess_board)
             if current_player and current_player.supports_late_castling():
                 late_castling_move = self._detect_late_castling(move_to_execute)
         
