@@ -1154,9 +1154,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         _return_to_positions_menu = True
         app_state = AppState.SETTINGS
 
-    # Brain hint callback for Hand+Brain mode
-    def _on_brain_hint(piece_symbol: str, squares: list):
-        """Handle brain hint from engine analysis.
+    # Suggestion callback for assistant modes (Hand+Brain, hints)
+    def _on_suggestion(piece_symbol: str, squares: list):
+        """Handle suggestion from assistant (engine analysis).
         
         Updates the display with the suggested piece type and lights up
         squares containing that piece type.
@@ -1186,7 +1186,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         display_update_callback=update_display,
         save_to_database=save_to_database,
         hand_brain_mode=is_hand_brain,
-        brain_hint_callback=_on_brain_hint if is_hand_brain else None,
+        suggestion_callback=_on_suggestion if is_hand_brain else None,
         takeback_callback=_on_takeback
     )
     log.info(f"[App] ProtocolManager created: engine={None if is_two_player else engine_name}, elo={engine_elo}, color={player_color_setting}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
@@ -2489,7 +2489,7 @@ def _handle_lichess_menu():
         True if a Lichess game was started, break result if break action,
         None/False otherwise.
     """
-    from DGTCentaurMods.emulators.lichess import LichessConfig, LichessGameMode
+    from DGTCentaurMods.opponents.lichess import LichessConfig, LichessGameMode
     
     # First verify we have a valid token
     client, username, error = _get_lichess_client()
@@ -2872,26 +2872,33 @@ def _start_lichess_game(lichess_config) -> bool:
         True if game started successfully, False otherwise
     """
     global app_state, protocol_manager, display_manager
-    from DGTCentaurMods.emulators.lichess import LichessGameMode, LichessGameState
+    from DGTCentaurMods.opponents.lichess import LichessGameMode
     
     log.info(f"[App] Starting Lichess game (mode={lichess_config.mode})")
     app_state = AppState.GAME
     
+    # Get analysis engine path (only if analysis mode is enabled)
+    import pathlib
+    base_path = pathlib.Path(__file__).parent
+    analysis_mode = _game_settings['analysis_mode']
+    analysis_engine_path = str((base_path / "engines/ct800").resolve()) if analysis_mode else None
+    
     # Create DisplayManager first (this initializes game widgets)
     display_manager = DisplayManager(
         flip_board=False,  # Will be updated based on player color
-        show_analysis=False,
-        analysis_engine_path=None,
+        show_analysis=_game_settings['show_analysis'],
+        analysis_engine_path=analysis_engine_path,
         on_exit=lambda: _return_to_menu("Lichess exit"),
         hand_brain_mode=False,
         initial_fen=None,
-        time_control=0,  # Lichess manages its own clock
+        time_control=0,  # Lichess manages its own clock (display shows turn indicator only)
         show_board=_game_settings['show_board'],
         show_clock=True,  # Show clock for Lichess (time comes from server)
-        show_graph=False,
-        analysis_mode=False
+        show_graph=_game_settings['show_graph'],
+        analysis_mode=analysis_mode
     )
-    log.info("[App] DisplayManager initialized for Lichess")
+    log.info(f"[App] DisplayManager initialized for Lichess (analysis_mode={analysis_mode}, "
+             f"show_analysis={_game_settings['show_analysis']}, show_graph={_game_settings['show_graph']})")
     
     # Show waiting screen while seeking/connecting (overlay on top of DisplayManager)
     waiting_message = "Finding Game..."
@@ -2942,8 +2949,7 @@ def _start_lichess_game(lichess_config) -> bool:
             # Still waiting - cancel and return to Lichess menu
             log.info("[App] User cancelled Lichess seek")
             user_cancelled = True
-            if protocol_manager and protocol_manager._lichess:
-                protocol_manager._lichess.stop()
+            protocol_manager.stop_lichess()
             _cleanup_game()
             app_state = AppState.SETTINGS
     
@@ -2961,26 +2967,22 @@ def _start_lichess_game(lichess_config) -> bool:
     protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)
     
     # Set callback for when game is connected
-    if protocol_manager._lichess:
-        protocol_manager._lichess.set_on_game_connected(on_game_connected)
+    protocol_manager.set_lichess_on_game_connected(on_game_connected)
     
     # Lichess games: BACK behavior depends on state
     def _on_lichess_back_menu_result(action: str):
         """Handle Lichess back menu result (resign/abort/cancel)."""
         if action == "resign":
             log.info("[App] User resigned Lichess game")
-            if protocol_manager and protocol_manager._lichess:
-                protocol_manager._lichess.resign_game()
+            protocol_manager.lichess_resign()
             _return_to_menu("Lichess resign")
         elif action == "abort":
             log.info("[App] User aborted Lichess game")
-            if protocol_manager and protocol_manager._lichess:
-                protocol_manager._lichess.abort_game()
+            protocol_manager.lichess_abort()
             _return_to_menu("Lichess abort")
         elif action == "draw":
             log.info("[App] User offered draw in Lichess game")
-            if protocol_manager and protocol_manager._lichess:
-                protocol_manager._lichess.offer_draw()
+            protocol_manager.lichess_offer_draw()
             # Don't exit - continue game, opponent may accept or decline
         # cancel: do nothing, return to game
     

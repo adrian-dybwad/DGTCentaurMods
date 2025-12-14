@@ -226,10 +226,16 @@ class ChessClockWidget(Widget):
         log.info(f"[ChessClockWidget] Resumed, active: {active_color}")
     
     def switch_turn(self) -> None:
-        """Switch which player's clock is running."""
+        """Switch which player's clock is running.
+        
+        If active_color is None (clock not started), defaults to white.
+        """
         if self._active_color == 'white':
             self._active_color = 'black'
         elif self._active_color == 'black':
+            self._active_color = 'white'
+        else:
+            # None or invalid - default to white
             self._active_color = 'white'
         
         self._last_rendered = None

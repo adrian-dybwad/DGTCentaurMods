@@ -482,11 +482,19 @@ class DisplayManager:
     def start_clock(self, active_color: str = 'white') -> None:
         """Start the chess clock.
         
+        For timed games (time_control > 0), starts the countdown.
+        For untimed games (turn indicator mode), sets the active player.
+        
         Args:
-            active_color: Which player's clock starts running
+            active_color: Which player's clock starts running / is active
         """
-        if self.clock_widget and self._time_control > 0:
-            self.clock_widget.start(active_color)
+        if self.clock_widget:
+            if self._time_control > 0:
+                # Timed mode: start the countdown
+                self.clock_widget.start(active_color)
+            else:
+                # Untimed mode: just set the active color for turn indicator
+                self.clock_widget.set_active(active_color)
     
     def switch_clock_turn(self) -> None:
         """Switch which player's clock is running."""

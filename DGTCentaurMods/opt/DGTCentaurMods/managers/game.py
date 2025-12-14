@@ -793,6 +793,14 @@ class GameManager:
             # if it's the engine's turn. This handles resuming games where the engine
             # needs to make a move after the board is corrected.
             self._switch_turn_with_event()
+        
+        # Restore check/threat indicators if applicable
+        # This ensures the check LED (fromTo from attacker to king) is shown after
+        # correction mode exits if the position has a check
+        try:
+            self._detect_check_and_threats()
+        except Exception as e:
+            log.debug(f"[GameManager._exit_correction_mode] Error detecting check/threats: {e}")
     
     def _check_kings_in_center_from_state(self, missing_squares: list, extra_squares: list) -> bool:
         """Check if the misplaced piece state indicates a kings-in-center gesture.

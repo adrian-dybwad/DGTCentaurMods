@@ -19,7 +19,8 @@ Includes:
 - Chessnut: Chessnut Air protocol (BLE)
 - Millennium: Millennium ChessLink protocol (BLE/RFCOMM)
 - Pegasus: DGT Pegasus protocol (BLE)
-- Lichess: Lichess online play (HTTP/WebSocket API)
+
+Note: Lichess has moved to DGTCentaurMods.opponents.lichess as LichessOpponent.
 """
 
 import time as _t
@@ -35,8 +36,5 @@ _logger.debug(f"[emulators init] millennium: {(_t.time() - _s)*1000:.0f}ms"); _s
 
 from .pegasus import Pegasus
 _logger.debug(f"[emulators init] pegasus: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-# Lichess is imported lazily to avoid loading berserk when not needed
-# Use: from DGTCentaurMods.emulators.lichess import Lichess, LichessConfig, LichessGameMode
 
 __all__ = ['Chessnut', 'Millennium', 'Pegasus']

@@ -7,7 +7,12 @@
 # ( https://github.com/EdNekebno/DGTCentaur )
 #
 # Manages protocol parsing and routing for chess app connections
-# (Millennium, Pegasus, Chessnut, Lichess). Bridges external protocols to GameManager.
+# (Millennium, Pegasus, Chessnut). Bridges external protocols to GameManager.
+#
+# Opponent and Assistant integrations are handled via the opponents/ and
+# assistants/ modules, which provide clean abstractions for different
+# types of chess opponents (engine, Lichess, human) and assistants
+# (Hand+Brain, hints).
 #
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE.md for details.
@@ -32,12 +37,15 @@ log.debug(f"[protocol import] chessnut: {(_t.time() - _s)*1000:.0f}ms"); _s = _t
 from DGTCentaurMods.managers.game import GameManager, EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
 log.debug(f"[protocol import] game: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
+# Import Opponent and Assistant managers
+from DGTCentaurMods.managers.opponent import OpponentManager, OpponentManagerConfig, OpponentType
+from DGTCentaurMods.managers.assistant import AssistantManager, AssistantManagerConfig, AssistantType
+from DGTCentaurMods.assistants import Suggestion, SuggestionType
+log.debug(f"[protocol import] opponent/assistant managers: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
+
 import chess
-import chess.engine
-import pathlib
-import os
-import configparser
 import threading
+from typing import Optional
 log.debug(f"[protocol import] stdlib: {(_t.time() - _s)*1000:.0f}ms")
 
 
@@ -65,7 +73,7 @@ class ProtocolManager:
     def __init__(self, sendMessage_callback=None, client_type=None, compare_mode=False,
                  standalone_engine_name=None, player_color=chess.WHITE, engine_elo="Default",
                  display_update_callback=None, save_to_database=True,
-                 hand_brain_mode: bool = False, brain_hint_callback=None,
+                 hand_brain_mode: bool = False, suggestion_callback=None,
                  takeback_callback=None, lichess_config=None):
         """Initialize the ProtocolManager.
         
@@ -86,9 +94,9 @@ class ProtocolManager:
             display_update_callback: Callback function(fen) for updating display with position
             save_to_database: If True, save game moves to database. If False, disable database
                              (for position/practice games that shouldn't be saved)
-            hand_brain_mode: If True, provide brain hints (piece type suggestions) when it's
+            hand_brain_mode: If True, provide piece type suggestions when it's
                             the player's turn. Engine still plays opponent moves.
-            brain_hint_callback: Callback function(piece_symbol, squares) called with brain hint.
+            suggestion_callback: Callback function(piece_symbol, squares) called with suggestion.
                                 piece_symbol is the suggested piece type (K,Q,R,B,N,P).
                                 squares is a list of square indices containing that piece type.
             takeback_callback: Callback function() called when a takeback is detected.
@@ -113,19 +121,15 @@ class ProtocolManager:
         self.is_chessnut = False
         self.is_lichess = False
         
-        # UCI standalone engine settings (for standalone play without app)
-        self._standalone_engine = None
-        self._standalone_engine_name = standalone_engine_name
+        # Player color - tracked by the game coordinator
         self._player_color = player_color
-        self._engine_elo = engine_elo
-        self._uci_options = {}
-        self._engine_init_thread = None  # Thread for async engine initialization
-        self._engine_thinking = False  # Flag to prevent duplicate engine thinking threads
         
-        # Hand+Brain mode settings
-        self._hand_brain_mode = hand_brain_mode
-        self._brain_hint_callback = brain_hint_callback
-        self._brain_thinking = False  # Flag to prevent duplicate brain thinking threads
+        # Suggestion callback for assistants (Hand+Brain, hints, etc.)
+        self._suggestion_callback = suggestion_callback
+        
+        # OpponentManager and AssistantManager - encapsulate opponent/assistant creation
+        self._opponent_manager: Optional[OpponentManager] = None
+        self._assistant_manager: Optional[AssistantManager] = None
         
         # Game manager shared by all emulators
         self.game_manager = GameManager(save_to_database=save_to_database)
@@ -133,7 +137,7 @@ class ProtocolManager:
         # Set player color for resign gesture detection
         # In 2-player mode (no engine), player_color is None (both colors are human)
         # In engine mode, player_color is the human's color
-        if standalone_engine_name is None:
+        if standalone_engine_name is None and lichess_config is None:
             self.game_manager.player_color = None  # Both colors are human
         else:
             self.game_manager.player_color = player_color
@@ -143,12 +147,10 @@ class ProtocolManager:
         self._millennium = None
         self._pegasus = None
         self._chessnut = None
-        self._lichess = None
-        self._lichess_config = lichess_config
         
-        # If Lichess mode, create only Lichess emulator (no byte-stream emulators)
+        # If Lichess mode, create Lichess opponent (not byte-stream emulators)
         if lichess_config is not None:
-            self._create_lichess_emulator(lichess_config)
+            self._create_lichess_opponent_manager(lichess_config)
         else:
             # Always create all emulators for auto-detection from actual data
             # The client_type hint from BLE service UUID is unreliable
@@ -176,13 +178,18 @@ class ProtocolManager:
             log.info("[ProtocolManager] Created Chessnut emulator")
         
         # Track 2-player mode (no engine opponent)
-        self._is_two_player_mode = standalone_engine_name is None
+        self._is_two_player_mode = standalone_engine_name is None and lichess_config is None
         
-        # Initialize standalone UCI engine if configured
+        # Create OpponentManager if configured (engine or human)
         if standalone_engine_name:
-            self._initialize_standalone_engine()
-            # If player is black, engine needs to move first after game starts
-            # This will be triggered when we receive the first EVENT_WHITE_TURN
+            self._create_engine_opponent_manager(standalone_engine_name, engine_elo)
+        elif lichess_config is None:
+            # 2-player mode - human opponent
+            self._create_human_opponent_manager()
+        
+        # Create AssistantManager if configured
+        if hand_brain_mode and standalone_engine_name:
+            self._create_hand_brain_assistant_manager(standalone_engine_name, engine_elo)
         
         self.subscribe_manager()
     
@@ -354,6 +361,8 @@ class ProtocolManager:
         Before protocol is confirmed, forwards to ALL emulators so that
         whichever one is active will respond correctly.
         
+        Also handles opponent turn and assistant suggestion triggers.
+        
         Args:
             event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
             piece_event: Piece event type
@@ -363,14 +372,9 @@ class ProtocolManager:
         try:
             log.debug(f"[ProtocolManager] _manager_event_callback: {event} piece_event={piece_event}, field={field}")
             log.debug(f"[ProtocolManager] Flags: is_millennium={self.is_millennium}, is_pegasus={self.is_pegasus}, is_chessnut={self.is_chessnut}, is_lichess={self.is_lichess}")
-            log.debug(f"[ProtocolManager] Emulators: _millennium={self._millennium is not None}, _pegasus={self._pegasus is not None}, _chessnut={self._chessnut is not None}, _lichess={self._lichess is not None}")
             
-            # If Lichess mode, route to Lichess emulator
-            if self.is_lichess and self._lichess:
-                log.debug("[ProtocolManager] Routing event to Lichess")
-                self._lichess.handle_manager_event(event, piece_event, field, time_in_seconds)
-            # If protocol is confirmed, only forward to the active emulator
-            elif self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_event'):
+            # Route to byte-stream emulators if connected
+            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_event'):
                 log.debug("[ProtocolManager] Routing event to Millennium")
                 self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_event'):
@@ -379,7 +383,7 @@ class ProtocolManager:
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
                 log.debug("[ProtocolManager] Routing event to Chessnut")
                 self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
-            else:
+            elif not self.is_lichess:
                 # Protocol not yet confirmed - forward to ALL emulators
                 # Each emulator will only act if it has reporting enabled
                 log.debug("[ProtocolManager] Protocol not confirmed, forwarding event to all emulators")
@@ -389,16 +393,17 @@ class ProtocolManager:
                     self._pegasus.handle_manager_event(event, piece_event, field, time_in_seconds)
                 if self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
                     self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
-                
-                # Handle standalone engine events (no app connected)
-                if event == EVENT_NEW_GAME:
-                    # Reset engine state on new game
-                    self._handle_new_game()
-                elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
-                    # Turn events are triggered AFTER the player's move is confirmed
-                    self._check_standalone_engine_turn()
-                    # In Hand+Brain mode, provide brain hint when it's the player's turn
-                    self._check_brain_hint()
+            
+            # Handle opponent and assistant events (works regardless of app connection)
+            if event == EVENT_NEW_GAME:
+                # Reset opponent and assistant state on new game
+                self._handle_new_game()
+            elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
+                # Turn events are triggered AFTER the player's move is confirmed
+                # Check if opponent should move
+                self._check_opponent_turn()
+                # Check if assistant should provide suggestion (e.g., Hand+Brain)
+                self._check_assistant_suggestion()
             
             # Notify external event callback
             if self._external_event_callback:
@@ -417,8 +422,8 @@ class ProtocolManager:
     def _manager_move_callback(self, move):
         """Handle moves from the manager.
         
-        Before protocol is confirmed, forwards to ALL emulators.
-        Note: Standalone engine is triggered by turn events (EVENT_WHITE_TURN, EVENT_BLACK_TURN)
+        Forwards to byte-stream emulators and notifies opponent of player moves.
+        Note: Opponent turn is triggered by turn events (EVENT_WHITE_TURN, EVENT_BLACK_TURN)
         which occur AFTER the move is confirmed, not by this callback.
         
         Args:
@@ -427,16 +432,14 @@ class ProtocolManager:
         try:
             log.debug(f"[ProtocolManager] _manager_move_callback: {move}")
             
-            # If Lichess mode, route to Lichess emulator
-            if self.is_lichess and self._lichess:
-                self._lichess.handle_manager_move(move)
-            elif self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_move'):
+            # Route to byte-stream emulators
+            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_move'):
                 self._millennium.handle_manager_move(move)
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_move'):
                 self._pegasus.handle_manager_move(move)
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_move'):
                 self._chessnut.handle_manager_move(move)
-            else:
+            elif not self.is_lichess:
                 # Protocol not yet confirmed - forward to ALL emulators
                 log.debug("[ProtocolManager] Protocol not confirmed, forwarding move to all emulators")
                 if self._millennium and hasattr(self._millennium, 'handle_manager_move'):
@@ -445,8 +448,11 @@ class ProtocolManager:
                     self._pegasus.handle_manager_move(move)
                 if self._chessnut and hasattr(self._chessnut, 'handle_manager_move'):
                     self._chessnut.handle_manager_move(move)
-                # Note: Standalone engine is triggered by turn events, not move events
-                # Turn events happen AFTER the player's move is acknowledged with LEDs
+            
+            # Notify opponent manager of player move (for stateful opponents like Lichess)
+            if self._opponent_manager:
+                chess_move = chess.Move.from_uci(str(move)) if not isinstance(move, chess.Move) else move
+                self._opponent_manager.notify_player_move(chess_move, self.game_manager.chess_board)
             
             # Update display with current position
             self._update_display()
@@ -458,7 +464,7 @@ class ProtocolManager:
     def _manager_key_callback(self, key):
         """Handle key presses forwarded from GameManager.
         
-        Forwards key events to active emulators that need to know about them.
+        Forwards key events to active byte-stream emulators.
         
         Args:
             key: Key that was pressed (board.Key enum value)
@@ -466,15 +472,14 @@ class ProtocolManager:
         try:
             log.debug(f"[ProtocolManager] _manager_key_callback: {key}")
             
-            # Forward to active emulator
-            if self.is_lichess and self._lichess:
-                self._lichess.handle_manager_key(key)
-            elif self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_key'):
+            # Forward to active byte-stream emulator
+            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_key'):
                 self._millennium.handle_manager_key(key)
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_key'):
                 self._pegasus.handle_manager_key(key)
             elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_key'):
                 self._chessnut.handle_manager_key(key)
+            # Note: Lichess key handling is done at the app level (universal.py)
         except Exception as e:
             log.error(f"[ProtocolManager] Error in _manager_key_callback: {e}")
             import traceback
@@ -489,9 +494,16 @@ class ProtocolManager:
             if self._takeback_callback:
                 self._takeback_callback()
             
-            if self.is_lichess and self._lichess:
-                self._lichess.handle_manager_takeback()
-            elif self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_takeback'):
+            # Notify opponent manager of takeback
+            if self._opponent_manager:
+                self._opponent_manager.on_takeback(self.game_manager.chess_board)
+
+            # Notify assistant manager of takeback
+            if self._assistant_manager:
+                self._assistant_manager.on_takeback(self.game_manager.chess_board)
+            
+            # Forward to byte-stream emulators
+            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_takeback'):
                 self._millennium.handle_manager_takeback()
             elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_takeback'):
                 self._pegasus.handle_manager_takeback()
@@ -648,55 +660,155 @@ class ProtocolManager:
             traceback.print_exc()
     
     # =========================================================================
-    # Lichess Online Play Methods
+    # OpponentManager and AssistantManager Creation Methods
     # =========================================================================
     
-    def _create_lichess_emulator(self, config):
-        """Create Lichess emulator for online play.
-        
-        Unlike byte-stream emulators, Lichess uses HTTP/WebSocket API.
-        The emulator manages its own connection lifecycle.
+    def _create_engine_opponent_manager(self, engine_name: str, elo_section: str):
+        """Create an engine opponent using OpponentManager.
         
         Args:
-            config: LichessConfig with game parameters
+            engine_name: Name of the UCI engine (e.g., "stockfish_pi").
+            elo_section: ELO section from .uci config file.
         """
-        from DGTCentaurMods.emulators.lichess import Lichess
+        log.info(f"[ProtocolManager] Creating engine opponent: {engine_name} @ {elo_section}")
         
-        log.info(f"[ProtocolManager] Creating Lichess emulator (mode: {config.mode})")
+        config = OpponentManagerConfig(
+            opponent_type=OpponentType.ENGINE,
+            engine_name=engine_name,
+            elo_section=elo_section,
+            time_limit=5.0
+        )
         
-        self._lichess = Lichess(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self.game_manager,
-            config=config,
-            display_callback=self._lichess_display_callback
+        self._opponent_manager = OpponentManager(
+            config,
+            move_callback=self._on_opponent_move,
+            status_callback=lambda msg: log.info(f"[Opponent] {msg}")
+        )
+        self._opponent_manager.start()
+        
+        log.info("[ProtocolManager] Engine opponent manager created and starting")
+    
+    def _create_human_opponent_manager(self):
+        """Create a human opponent (two-player mode) using OpponentManager."""
+        log.info("[ProtocolManager] Creating human opponent (two-player mode)")
+        
+        config = OpponentManagerConfig(opponent_type=OpponentType.HUMAN)
+        self._opponent_manager = OpponentManager(config)
+        self._opponent_manager.start()
+        
+        log.info("[ProtocolManager] Human opponent manager created")
+    
+    def _create_lichess_opponent_manager(self, emulator_config):
+        """Create a Lichess opponent using OpponentManager.
+        
+        Args:
+            emulator_config: LichessConfig from emulator (legacy format).
+        """
+        log.info(f"[ProtocolManager] Creating Lichess opponent (mode: {emulator_config.mode})")
+        
+        # Map mode enum to string for OpponentManagerConfig
+        mode_name = emulator_config.mode.name if hasattr(emulator_config.mode, 'name') else str(emulator_config.mode)
+        
+        config = OpponentManagerConfig(
+            opponent_type=OpponentType.LICHESS,
+            lichess_mode=mode_name,
+            lichess_time_minutes=emulator_config.time_minutes,
+            lichess_increment_seconds=emulator_config.increment_seconds,
+            lichess_rated=emulator_config.rated,
+            lichess_color_preference=getattr(emulator_config, 'color', 'random'),
+            lichess_game_id=getattr(emulator_config, 'game_id', ''),
+            lichess_challenge_id=getattr(emulator_config, 'challenge_id', ''),
+            lichess_challenge_direction=getattr(emulator_config, 'challenge_direction', 'in'),
+        )
+        
+        self._opponent_manager = OpponentManager(
+            config,
+            move_callback=self._on_opponent_move,
+            status_callback=lambda msg: log.info(f"[Lichess] {msg}"),
+            clock_callback=self._on_lichess_clock_update,
+            game_info_callback=self._on_lichess_game_info
         )
         
         self.client_type = self.CLIENT_LICHESS
         self.is_lichess = True
         
-        log.info("[ProtocolManager] Created Lichess emulator")
+        log.info("[ProtocolManager] Lichess opponent manager created")
     
-    def _lichess_display_callback(self, lines: dict):
-        """Handle display updates from Lichess emulator.
-        
-        Converts Lichess display line updates to FEN-based display updates
-        if a display callback is configured.
+    def _create_hand_brain_assistant_manager(self, engine_name: str, elo_section: str):
+        """Create a Hand+Brain assistant using AssistantManager.
         
         Args:
-            lines: Dict mapping line numbers to text strings
+            engine_name: Name of the UCI engine for analysis.
+            elo_section: ELO section from .uci config file.
         """
-        # For now, just log the updates
-        # Full display integration would require changes to how DisplayManager works
-        for line_num, text in lines.items():
-            log.debug(f"[ProtocolManager] Lichess display line {line_num}: {text}")
+        log.info(f"[ProtocolManager] Creating Hand+Brain assistant: {engine_name}")
         
-        # Update position display if we have a callback
-        if self._display_update_callback and self.game_manager:
-            try:
-                fen = self.game_manager.chess_board.fen()
-                self._display_update_callback(fen)
-            except Exception as e:
-                log.debug(f"[ProtocolManager] Error updating display from Lichess: {e}")
+        config = AssistantManagerConfig(
+            assistant_type=AssistantType.HAND_BRAIN,
+            engine_name=engine_name,
+            elo_section=elo_section,
+            time_limit=2.0
+        )
+        
+        self._assistant_manager = AssistantManager(
+            config,
+            suggestion_callback=self._on_assistant_suggestion,
+            status_callback=lambda msg: log.info(f"[Brain] {msg}")
+        )
+        self._assistant_manager.start()
+        
+        log.info("[ProtocolManager] Hand+Brain assistant manager created and starting")
+    
+    def _on_opponent_move(self, move: chess.Move):
+        """Handle move from opponent (engine or Lichess).
+        
+        Converts the move to the format expected by GameManager.
+        
+        Args:
+            move: The opponent's move.
+        """
+        log.info(f"[ProtocolManager] Opponent move received: {move.uci()}")
+        self.game_manager.computer_move(move.uci(), forced=True)
+    
+    def _on_assistant_suggestion(self, suggestion: Suggestion):
+        """Handle suggestion from assistant (Hand+Brain).
+        
+        Routes the suggestion to the appropriate callback.
+        
+        Args:
+            suggestion: The assistant's suggestion.
+        """
+        if suggestion.suggestion_type == SuggestionType.PIECE_TYPE:
+            log.info(f"[ProtocolManager] Suggestion: piece type {suggestion.piece_type} (squares: {suggestion.squares})")
+            if self._suggestion_callback:
+                self._suggestion_callback(suggestion.piece_type or "", suggestion.squares)
+        elif suggestion.suggestion_type == SuggestionType.MOVE:
+            log.info(f"[ProtocolManager] Suggestion: move {suggestion.move.uci() if suggestion.move else 'none'}")
+    
+    def _on_lichess_clock_update(self, white_time: int, black_time: int):
+        """Handle clock update from Lichess.
+        
+        Args:
+            white_time: White's remaining time in seconds.
+            black_time: Black's remaining time in seconds.
+        """
+        if self.game_manager:
+            self.game_manager.set_clock(white_time, black_time)
+    
+    def _on_lichess_game_info(self, white_player: str, white_rating: str,
+                               black_player: str, black_rating: str):
+        """Handle game info update from Lichess.
+        
+        Args:
+            white_player: White player's username.
+            white_rating: White player's rating.
+            black_player: Black player's username.
+            black_rating: Black player's rating.
+        """
+        if self.game_manager:
+            white_str = f"{white_player}({white_rating})"
+            black_str = f"{black_player}({black_rating})"
+            self.game_manager.set_game_info("", "", "", white_str, black_str)
     
     def start_lichess(self) -> bool:
         """Start the Lichess connection and game.
@@ -706,19 +818,19 @@ class ProtocolManager:
         Returns:
             True if Lichess started successfully, False on error.
         """
-        if not self._lichess:
-            log.error("[ProtocolManager] Cannot start Lichess - no Lichess emulator configured")
+        if not self._opponent_manager or not self._opponent_manager.is_lichess:
+            log.error("[ProtocolManager] Cannot start Lichess - no Lichess opponent configured")
             return False
         
-        return self._lichess.start()
+        return self._opponent_manager.start()
     
     def stop_lichess(self):
         """Stop the Lichess connection.
         
         Call this to cleanly disconnect from Lichess.
         """
-        if self._lichess:
-            self._lichess.stop()
+        if self._opponent_manager and self._opponent_manager.is_lichess:
+            self._opponent_manager.stop()
     
     def is_lichess_connected(self) -> bool:
         """Check if Lichess game is active.
@@ -726,8 +838,8 @@ class ProtocolManager:
         Returns:
             True if connected to a Lichess game, False otherwise.
         """
-        if self._lichess:
-            return self._lichess.is_connected()
+        if self._opponent_manager and self._opponent_manager.is_lichess:
+            return self._opponent_manager.is_ready
         return False
     
     @property
@@ -737,105 +849,37 @@ class ProtocolManager:
         Returns:
             True if board should be flipped (playing as black).
         """
-        if self._lichess:
-            return self._lichess.board_flip
+        if self._opponent_manager:
+            return self._opponent_manager.board_flip
         return False
     
-    # =========================================================================
-    # UCI Standalone Engine Methods
-    # =========================================================================
-    
-    def _initialize_standalone_engine(self):
-        """Initialize the UCI standalone engine asynchronously.
-        
-        The standalone engine plays when no chess app is connected, allowing
-        the board to be used standalone against a chess engine.
-        
-        Engine initialization is done in a background thread to avoid blocking
-        game startup. The engine will be available shortly after the game starts.
-        """
-        if not self._standalone_engine_name:
-            return
-        
-        # Go up one level from managers/ to find the engines/ folder
-        base_path = pathlib.Path(__file__).parent.parent
-        engine_path = base_path / "engines" / self._standalone_engine_name
-        uci_file_path = str(engine_path) + ".uci"
-        
-        if not engine_path.exists():
-            log.error(f"[ProtocolManager] Standalone engine not found: {engine_path}")
-            log.error(f"[ProtocolManager] Standalone play will not be available")
-            return
-        
-        # Load UCI options from config file (fast, can be done sync)
-        self._load_uci_options(uci_file_path)
-        
-        def _init_engine():
-            """Background thread for engine initialization."""
-            try:
-                log.info(f"[ProtocolManager] Starting standalone engine initialization: {self._standalone_engine_name}")
-                engine = chess.engine.SimpleEngine.popen_uci(str(engine_path))
-                
-                # Apply UCI options (ELO settings)
-                if self._uci_options:
-                    log.info(f"[ProtocolManager] Configuring engine with options: {self._uci_options}")
-                    engine.configure(self._uci_options)
-                
-                self._standalone_engine = engine
-                log.info(f"[ProtocolManager] Standalone UCI engine ready: {self._standalone_engine_name} @ {self._engine_elo}")
-                
-                # Check if engine needs to move now (handles resume game where turn event
-                # was triggered before engine was ready)
-                self._check_standalone_engine_turn()
-                    
-            except Exception as e:
-                log.error(f"[ProtocolManager] Failed to initialize standalone engine: {e}")
-                import traceback
-                traceback.print_exc()
-                self._standalone_engine = None
-        
-        # Start engine initialization in background
-        self._engine_init_thread = threading.Thread(
-            target=_init_engine,
-            name="standalone-engine-init",
-            daemon=True
-        )
-        self._engine_init_thread.start()
-    
-    def _load_uci_options(self, uci_file_path: str):
-        """Load UCI options from configuration file.
+    def set_lichess_on_game_connected(self, callback):
+        """Set callback for when Lichess game is connected and ready.
         
         Args:
-            uci_file_path: Path to the .uci config file (e.g., engines/stockfish_pi.uci)
+            callback: Function to call when game transitions to playing.
         """
-        if not os.path.exists(uci_file_path):
-            log.warning(f"[ProtocolManager] UCI file not found: {uci_file_path}, using defaults")
-            return
-        
-        config = configparser.ConfigParser()
-        config.optionxform = str  # Preserve case for UCI option names
-        config.read(uci_file_path)
-        
-        section = self._engine_elo
-        
-        if config.has_section(section):
-            log.info(f"[ProtocolManager] Loading UCI options from section: {section}")
-            for key, value in config.items(section):
-                self._uci_options[key] = value
-            
-            # Filter out non-UCI metadata fields
-            non_uci_fields = ['Description']
-            self._uci_options = {
-                k: v for k, v in self._uci_options.items()
-                if k not in non_uci_fields
-            }
-            log.info(f"[ProtocolManager] UCI options: {self._uci_options}")
-        else:
-            log.warning(f"[ProtocolManager] Section '{section}' not found in {uci_file_path}")
-            if config.has_section("DEFAULT"):
-                for key, value in config.items("DEFAULT"):
-                    if key != 'Description':
-                        self._uci_options[key] = value
+        if self._opponent_manager and self._opponent_manager.is_lichess:
+            self._opponent_manager.set_game_connected_callback(callback)
+    
+    def lichess_resign(self):
+        """Resign the current Lichess game."""
+        if self._opponent_manager:
+            self._opponent_manager.resign()
+    
+    def lichess_abort(self):
+        """Abort the current Lichess game."""
+        if self._opponent_manager:
+            self._opponent_manager.abort()
+    
+    def lichess_offer_draw(self):
+        """Offer a draw in the current Lichess game."""
+        if self._opponent_manager:
+            self._opponent_manager.offer_draw()
+    
+    # =========================================================================
+    # Opponent and Assistant Turn Handling
+    # =========================================================================
     
     def is_app_connected(self) -> bool:
         """Check if any chess app protocol has been detected.
@@ -846,192 +890,91 @@ class ProtocolManager:
         return self.is_millennium or self.is_pegasus or self.is_chessnut or self.is_lichess
     
     def _handle_new_game(self):
-        """Handle new game event for standalone engine.
+        """Handle new game event - notify opponent and assistant managers.
         
-        Resets engine state when a new game starts (board reset to starting position).
+        Resets state when a new game starts (board reset to starting position).
         """
-        if not self._standalone_engine:
-            return
-        
-        log.info("[ProtocolManager] New game detected - resetting standalone engine state")
-        
-        # Send ucinewgame to reset engine's internal state
-        try:
-            # The chess.engine library handles ucinewgame automatically on new positions
-            # but we log this for clarity
-            log.info("[ProtocolManager] Engine state will be reset on next move")
-        except Exception as e:
-            log.error(f"[ProtocolManager] Error resetting engine state: {e}")
+        if self._opponent_manager:
+            self._opponent_manager.on_new_game()
+        if self._assistant_manager:
+            self._assistant_manager.on_new_game()
     
-    def _check_standalone_engine_turn(self):
-        """If no app connected and it's engine's turn, start engine thinking in background.
+    def _check_opponent_turn(self):
+        """Check if opponent should move and trigger thinking if needed.
         
-        This enables standalone play against a chess engine when no app is connected.
-        The engine move is displayed via LEDs and the player must execute it on the board.
-        
-        Engine thinking is done in a separate thread to avoid blocking the event callback queue.
-        This ensures piece events (like removing captured pawns) are processed immediately.
+        Called when turn changes. Determines if it's the opponent's turn
+        based on player color and current board turn.
         """
         if self.is_app_connected():
-            return  # App is connected, don't use standalone engine
+            return  # App is connected, don't use local opponent
         
-        if not self._standalone_engine:
-            return  # No standalone engine configured
+        if not self._opponent_manager:
+            return  # No opponent configured
         
-        # Get current board state from manager
+        if not self._opponent_manager.is_ready:
+            return  # Opponent not ready yet
+        
+        # Get current board state
         chess_board = self.game_manager.chess_board
         
-        # Check if it's the engine's turn
-        engine_color = chess.BLACK if self._player_color == chess.WHITE else chess.WHITE
-        if chess_board.turn != engine_color:
-            return  # Not engine's turn
+        # Check if it's the opponent's turn (not the player's turn)
+        if chess_board.turn == self._player_color:
+            return  # Player's turn, not opponent's
         
         # Check if game is over
         if chess_board.is_game_over():
             return
         
-        # Check if engine is already thinking (avoid duplicate threads)
-        if hasattr(self, '_engine_thinking') and self._engine_thinking:
-            return
-        
-        # Start engine thinking in background thread
-        self._engine_thinking = True
-        
-        def _engine_think():
-            """Background thread for engine thinking."""
-            try:
-                log.info(f"[ProtocolManager] Standalone engine ({self._standalone_engine_name} @ {self._engine_elo}) thinking...")
-                
-                # Re-apply UCI options before each move
-                if self._uci_options:
-                    self._standalone_engine.configure(self._uci_options)
-                
-                # Copy the board to avoid race conditions
-                board_copy = chess_board.copy()
-                
-                # Get engine move with time limit
-                result = self._standalone_engine.play(board_copy, chess.engine.Limit(time=5.0))
-                move = result.move
-                
-                if move:
-                    log.info(f"[ProtocolManager] Standalone engine move: {move.uci()}")
-                    # Use manager.computer_move to set up the forced move with LEDs
-                    # This lights up the from/to squares and waits for player to execute the move
-                    self.game_manager.computer_move(move.uci(), forced=True)
-                    log.info(f"[ProtocolManager] Waiting for player to execute move {move.uci()} on board")
-            except Exception as e:
-                log.error(f"[ProtocolManager] Error getting standalone engine move: {e}")
-                import traceback
-                traceback.print_exc()
-            finally:
-                self._engine_thinking = False
-        
-        thread = threading.Thread(target=_engine_think, daemon=True)
-        thread.start()
+        # Ask opponent for a move
+        log.debug("[ProtocolManager] Requesting move from opponent manager")
+        self._opponent_manager.request_move(chess_board)
     
-    def _check_brain_hint(self):
-        """Generate brain hint for Hand+Brain mode when it's the player's turn.
+    def _check_assistant_suggestion(self):
+        """Check if assistant should provide a suggestion.
         
-        In Hand+Brain mode, the engine suggests which piece type to move by analyzing
-        the position and extracting the piece type from the best move. The player then
-        chooses which specific piece of that type to move and where.
-        
-        Uses the standalone engine for analysis. If no engine is available or it's
-        not the player's turn, does nothing.
+        Called when turn changes. For auto-suggest assistants (like Hand+Brain),
+        requests a suggestion when it's the player's turn.
         """
-        if not self._hand_brain_mode:
-            return  # Not in Hand+Brain mode
+        if not self._assistant_manager:
+            return  # No assistant configured
         
-        if not self._brain_hint_callback:
-            return  # No callback to report hints
+        if not self._assistant_manager.is_active:
+            return  # Assistant not active
         
-        if not self._standalone_engine:
-            return  # No engine for analysis
+        if not self._assistant_manager.auto_suggest:
+            return  # Not an auto-suggest assistant
         
         # Get current board state
         chess_board = self.game_manager.chess_board
         
         # Check if it's the player's turn
         if chess_board.turn != self._player_color:
-            # Clear hint when it's engine's turn
-            try:
-                self._brain_hint_callback("", [])
-            except Exception:
-                pass
+            # Clear suggestion when it's opponent's turn
+            self._assistant_manager.clear_suggestion()
             return
         
         # Check if game is over
         if chess_board.is_game_over():
             return
         
-        # Check if brain is already thinking (avoid duplicate threads)
-        if hasattr(self, '_brain_thinking') and self._brain_thinking:
-            return
-        
-        # Start brain thinking in background thread
-        self._brain_thinking = True
-        
-        def _brain_think():
-            """Background thread for brain hint generation."""
-            try:
-                log.info("[ProtocolManager] Brain analyzing position for piece hint...")
-                
-                # Copy the board to avoid race conditions
-                board_copy = chess_board.copy()
-                
-                # Get best move from engine
-                result = self._standalone_engine.play(board_copy, chess.engine.Limit(time=2.0))
-                move = result.move
-                
-                if move:
-                    # Extract source square and piece type
-                    source_square = move.from_square
-                    piece = board_copy.piece_at(source_square)
-                    
-                    if piece:
-                        piece_symbol = piece.symbol().upper()
-                        piece_type = piece.piece_type
-                        piece_color = piece.color
-                        
-                        # Find all squares with same piece type and color
-                        squares_with_piece = []
-                        for sq in range(64):
-                            p = board_copy.piece_at(sq)
-                            if p and p.piece_type == piece_type and p.color == piece_color:
-                                squares_with_piece.append(sq)
-                        
-                        log.info(f"[ProtocolManager] Brain says: {piece_symbol} (squares: {squares_with_piece})")
-                        
-                        # Call the callback with piece symbol and squares
-                        try:
-                            self._brain_hint_callback(piece_symbol, squares_with_piece)
-                        except Exception as e:
-                            log.warning(f"[ProtocolManager] Error in brain hint callback: {e}")
-                        
-            except Exception as e:
-                log.error(f"[ProtocolManager] Error generating brain hint: {e}")
-                import traceback
-                traceback.print_exc()
-            finally:
-                self._brain_thinking = False
-        
-        thread = threading.Thread(target=_brain_think, daemon=True, name="brain-hint")
-        thread.start()
+        # Request suggestion for player's color
+        log.debug("[ProtocolManager] Requesting suggestion from assistant manager")
+        self._assistant_manager.request_suggestion(chess_board, self._player_color)
 
     def on_app_connected(self):
-        """Called when an app connects - pause standalone engine.
+        """Called when an app connects - pause local opponent.
         
         The protocol detection flags will be set by receive_data() which will
-        naturally stop the standalone engine from playing.
+        naturally stop the local opponent from playing.
         """
-        log.info("[ProtocolManager] App connected - standalone engine paused")
+        log.info("[ProtocolManager] App connected - local opponent paused")
     
     def on_app_disconnected(self):
-        """Called when app disconnects - resume standalone engine.
+        """Called when app disconnects - resume local opponent.
         
-        Resets protocol detection flags so the standalone engine can resume playing.
+        Resets protocol detection flags so the local opponent can resume playing.
         """
-        log.info("[ProtocolManager] App disconnected - standalone engine may resume")
+        log.info("[ProtocolManager] App disconnected - local opponent may resume")
         # Reset protocol detection flags
         self.is_millennium = False
         self.is_pegasus = False
@@ -1052,45 +995,36 @@ class ProtocolManager:
             manager=self.game_manager
         )
         
-        # Check if engine should play now
-        self._check_standalone_engine_turn()
+        # Check if opponent should play now
+        self._check_opponent_turn()
     
     def cleanup(self):
-        """Clean up resources including UCI engine, Lichess, and game manager.
+        """Clean up resources including opponent, assistant, and game manager.
 
-        Properly stops the game manager thread, closes Lichess connection,
-        and closes the UCI engine.
+        Properly stops the game manager thread, closes opponent and assistant managers.
         """
-        # Stop Lichess emulator if active
-        if self._lichess:
+        # Stop opponent manager if active
+        if self._opponent_manager:
             try:
-                self._lichess.stop()
-                log.info("[ProtocolManager] Lichess emulator stopped")
+                self._opponent_manager.stop()
+                log.info("[ProtocolManager] Opponent manager stopped")
             except Exception as e:
-                log.debug(f"[ProtocolManager] Error stopping Lichess emulator: {e}")
-            self._lichess = None
+                log.debug(f"[ProtocolManager] Error stopping opponent manager: {e}")
+            self._opponent_manager = None
         
-        # Wait for engine init thread if still running (brief wait)
-        if self._engine_init_thread is not None and self._engine_init_thread.is_alive():
+        # Stop assistant manager if active
+        if self._assistant_manager:
             try:
-                self._engine_init_thread.join(timeout=1.0)
-            except Exception:
-                pass
+                self._assistant_manager.stop()
+                log.info("[ProtocolManager] Assistant manager stopped")
+            except Exception as e:
+                log.debug(f"[ProtocolManager] Error stopping assistant manager: {e}")
+            self._assistant_manager = None
         
-        # Unsubscribe from game manager first (stops game thread)
+        # Unsubscribe from game manager (stops game thread)
         if self.game_manager:
             try:
                 self.game_manager.unsubscribe_game()
                 log.info("[ProtocolManager] Unsubscribed from game manager")
             except Exception as e:
                 log.error(f"[ProtocolManager] Error unsubscribing from game manager: {e}")
-
-        # Close standalone engine
-        if self._standalone_engine:
-            try:
-                self._standalone_engine.quit()
-                log.info("[ProtocolManager] Standalone engine closed")
-            except Exception as e:
-                # "event loop dead" is expected during signal-based shutdown
-                log.debug(f"[ProtocolManager] Error closing standalone engine: {e}")
-            self._standalone_engine = None
