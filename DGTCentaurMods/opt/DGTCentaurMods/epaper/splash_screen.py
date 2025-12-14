@@ -9,13 +9,30 @@ from PIL import Image
 from .framework.widget import Widget
 from .text import TextWidget, Justify
 from .status_bar import STATUS_BAR_HEIGHT
-from .resources import get_resource_path
+from typing import Optional, Tuple
 
 try:
     from DGTCentaurMods.board.logging import log
 except ImportError:
     import logging
     log = logging.getLogger(__name__)
+
+
+# Module-level knight logo and mask, set by application at startup
+_knight_logo: Optional[Tuple[Image.Image, Image.Image]] = None
+
+
+def set_knight_logo(logo: Image.Image, mask: Image.Image) -> None:
+    """Set the module-level knight logo and mask.
+    
+    Called once at application startup to provide the logo.
+    
+    Args:
+        logo: PIL Image of the knight logo
+        mask: PIL Image mask for transparency
+    """
+    global _knight_logo
+    _knight_logo = (logo, mask)
 
 
 class SplashScreen(Widget):
@@ -43,13 +60,16 @@ class SplashScreen(Widget):
     TEXT_HEIGHT = 88  # Height for 4 lines of text at font size 18
     
     def __init__(self, message: str = "Press [OK]", background_shade: int = 4,
-                 leave_room_for_status_bar: bool = True):
+                 leave_room_for_status_bar: bool = True,
+                 logo: Image.Image = None, logo_mask: Image.Image = None):
         """Initialize splash screen widget.
         
         Args:
             message: Initial message to display
             background_shade: Dithered background shade 0-16 (default 4 = ~25% grey)
             leave_room_for_status_bar: If True, start below status bar; if False, use full screen
+            logo: Optional knight logo image. If None, uses module-level logo.
+            logo_mask: Optional mask for logo transparency.
         """
         if leave_room_for_status_bar:
             y_pos = STATUS_BAR_HEIGHT
@@ -59,9 +79,17 @@ class SplashScreen(Widget):
             height = 296
         super().__init__(0, y_pos, 128, height, background_shade=background_shade)
         self.message = message
-        self._logo = None
-        self._logo_mask = None
-        self._load_resources()
+        
+        # Use provided logo or module-level logo
+        if logo is not None:
+            self._logo = logo
+            self._logo_mask = logo_mask
+        elif _knight_logo is not None:
+            self._logo, self._logo_mask = _knight_logo
+        else:
+            log.error("No knight logo provided and none set at module level")
+            self._logo = Image.new("1", (self.LOGO_SIZE, self.LOGO_SIZE), 255)
+            self._logo_mask = None
         
         # Calculate text widget dimensions with margins for centering
         text_width = self.width - (self.TEXT_MARGIN * 2)
@@ -98,41 +126,6 @@ class SplashScreen(Widget):
         log.info("=" * 60)
         
         self.request_update(full=False)
-
-    def _load_resources(self):
-        """Load knight logo image."""
-        # Load the knight logo bitmap
-        try:
-            logo_path = get_resource_path("knight_logo.bmp")
-            full_logo = Image.open(logo_path)
-            # Resize to target size (use LANCZOS for older Pillow compatibility)
-            try:
-                resample = Image.Resampling.LANCZOS
-            except AttributeError:
-                resample = Image.LANCZOS  # Pillow < 9.1.0
-            self._logo = full_logo.resize(
-                (self.LOGO_SIZE, self.LOGO_SIZE), 
-                resample
-            )
-            # Ensure it's in mode '1'
-            if self._logo.mode != '1':
-                self._logo = self._logo.convert('1')
-            
-            # Create mask where black pixels (knight) are opaque, white is transparent
-            # In mode '1': 0=black, 255=white
-            # For mask: 255=opaque, 0=transparent
-            self._logo_mask = Image.new("1", self._logo.size, 0)
-            logo_pixels = self._logo.load()
-            mask_pixels = self._logo_mask.load()
-            for y in range(self._logo.height):
-                for x in range(self._logo.width):
-                    if logo_pixels[x, y] == 0:  # Black pixel in logo
-                        mask_pixels[x, y] = 255  # Opaque in mask
-        except Exception as e:
-            log.error(f"Failed to load knight logo: {e}")
-            # Create a simple placeholder
-            self._logo = Image.new("1", (self.LOGO_SIZE, self.LOGO_SIZE), 255)
-            self._logo_mask = None
     
     def render(self) -> Image.Image:
         """Render the splash screen with knight logo, UNIVERSAL text, and message.

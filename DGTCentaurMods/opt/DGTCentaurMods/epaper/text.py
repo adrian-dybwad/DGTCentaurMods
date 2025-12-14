@@ -4,9 +4,11 @@ Text display widget.
 
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget, DITHER_PATTERNS
-from .resources import get_resource_path
 from enum import Enum
-import os
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from DGTCentaurMods.resources import ResourceLoader
 
 
 class Justify(Enum):
@@ -16,24 +18,33 @@ class Justify(Enum):
     RIGHT = "right"
 
 
+# Module-level resource loader, set by application at startup
+_resource_loader: "ResourceLoader" = None
+
+
+def set_resource_loader(loader: "ResourceLoader") -> None:
+    """Set the module-level resource loader.
+    
+    Called once at application startup to provide font loading capability.
+    """
+    global _resource_loader
+    _resource_loader = loader
+
+
 class TextWidget(Widget):
     """Text display widget with configurable background dithering, text wrapping, justification, and bold.
     
-    Uses a class-level font cache to avoid redundant font loading across instances.
+    Fonts can be provided directly via the `font` parameter, or loaded via the
+    module-level resource loader if set.
     
     Performance optimizations:
-    - Class-level font cache: fonts are loaded once per (path, size) combination
     - Pre-rendered text sprites: text is rendered once and cached until settings change
     - Dirty flag tracking: only re-renders when text or settings actually change
     - Blit-based draw_on(): cached sprite is copied directly without re-rasterizing
     """
     
-    # Class-level font cache: {(font_path, font_size): ImageFont}
-    # Shared across all TextWidget instances to avoid redundant font loading
-    _font_cache = {}
-    
     def __init__(self, x: int, y: int, width: int, height: int, text: str = "", 
-                 background: int = -1, font_size: int = 12, font_path: str = None,
+                 background: int = -1, font_size: int = 12, font: ImageFont.FreeTypeFont = None,
                  wrapText: bool = False, justify: Justify = Justify.LEFT,
                  transparent: bool = True, bold: bool = False):
         """
@@ -53,8 +64,8 @@ class TextWidget(Widget):
                 3 = medium dither (~50% black, checkerboard)
                 4 = heavy dither (~67% black)
                 5 = solid black
-            font_size: Font size in points
-            font_path: Optional path to font file (defaults to Font.ttc if None)
+            font_size: Font size in points (used if font not provided)
+            font: Optional PIL ImageFont object. If provided, font_size is ignored.
             wrapText: If True, wrap text to fit within widget width and height
             justify: Text justification (Justify.LEFT, Justify.CENTER, or Justify.RIGHT)
             transparent: If True (default), background is transparent and text appears
@@ -70,11 +81,10 @@ class TextWidget(Widget):
         else:
             self.background = max(-1, min(5, background))
         self.font_size = font_size
-        self.font_path = font_path
         self.wrapText = wrapText
         self.justify = justify
         self.bold = bold
-        self._font = self._load_font()
+        self._font = font if font is not None else self._load_font()
         self._mask = None  # Cached mask image
         
         # Pre-rendered text sprite cache
@@ -84,60 +94,13 @@ class TextWidget(Widget):
         self._sprite_cache_key = None  # Hash of settings that affect sprite rendering
     
     def _load_font(self):
-        """Load font with Font.ttc as default.
+        """Load font from the module-level resource loader.
         
-        Uses class-level cache to avoid redundant font loading. The cache key
-        is (resolved_font_path, font_size), so the same font file at the same
-        size is only loaded once regardless of how many TextWidget instances
-        use it.
+        Falls back to PIL default font if no loader is configured.
         """
-        # Resolve the actual font path to use
-        resolved_path = self._resolve_font_path()
-        
-        # Check class-level cache
-        cache_key = (resolved_path, self.font_size)
-        if cache_key in TextWidget._font_cache:
-            return TextWidget._font_cache[cache_key]
-        
-        # Load the font
-        font = None
-        if resolved_path:
-            try:
-                font = ImageFont.truetype(resolved_path, self.font_size)
-            except Exception:
-                pass
-        
-        if font is None:
-            font = ImageFont.load_default()
-        
-        # Cache and return
-        TextWidget._font_cache[cache_key] = font
-        return font
-    
-    def _resolve_font_path(self) -> str:
-        """Resolve the font path to use, checking various fallback locations.
-        
-        Returns:
-            Resolved font path, or None if no font file found
-        """
-        # If font_path is explicitly provided, use it
-        if self.font_path and os.path.exists(self.font_path):
-            return self.font_path
-        
-        # Default to Font.ttc using local resource resolver
-        default_font_path = get_resource_path("Font.ttc")
-        if default_font_path and os.path.exists(default_font_path):
-            return default_font_path
-        
-        # Fallback to system fonts
-        fallback_paths = [
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-        ]
-        for path in fallback_paths:
-            if os.path.exists(path):
-                return path
-        
-        return None
+        if _resource_loader is not None:
+            return _resource_loader.get_font(self.font_size)
+        return ImageFont.load_default()
     
     def _get_sprite_cache_key(self) -> tuple:
         """Get a hashable key representing all settings that affect sprite rendering.

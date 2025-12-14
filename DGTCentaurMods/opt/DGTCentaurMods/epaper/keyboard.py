@@ -13,15 +13,30 @@ Usage:
 
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget
-from .resources import get_resource_path
-from typing import Optional, Callable
+from typing import Optional, Callable, TYPE_CHECKING
 import threading
+
+if TYPE_CHECKING:
+    from DGTCentaurMods.resources import ResourceLoader
 
 try:
     from DGTCentaurMods.board.logging import log
 except ImportError:
     import logging
     log = logging.getLogger(__name__)
+
+
+# Module-level resource loader, set by application at startup
+_resource_loader: "ResourceLoader" = None
+
+
+def set_resource_loader(loader: "ResourceLoader") -> None:
+    """Set the module-level resource loader for fonts.
+    
+    Called once at application startup.
+    """
+    global _resource_loader
+    _resource_loader = loader
 
 
 # Display dimensions
@@ -109,19 +124,12 @@ class KeyboardWidget(Widget):
         self._load_fonts()
     
     def _load_fonts(self):
-        """Load fonts for rendering."""
-        try:
-            font_path = get_resource_path("Font.ttc")
-            if font_path:
-                self._font = ImageFont.truetype(font_path, 16)
-                self._font_small = ImageFont.truetype(font_path, 12)
-                self._font_tiny = ImageFont.truetype(font_path, 10)
-            else:
-                self._font = ImageFont.load_default()
-                self._font_small = self._font
-                self._font_tiny = self._font
-        except Exception as e:
-            log.error(f"[Keyboard] Failed to load fonts: {e}")
+        """Load fonts from module-level resource loader."""
+        if _resource_loader is not None:
+            self._font = _resource_loader.get_font(16)
+            self._font_small = _resource_loader.get_font(12)
+            self._font_tiny = _resource_loader.get_font(10)
+        else:
             self._font = ImageFont.load_default()
             self._font_small = self._font
             self._font_tiny = self._font

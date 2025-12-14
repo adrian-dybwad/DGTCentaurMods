@@ -8,16 +8,31 @@ button menus on the small e-paper display.
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget, DITHER_PATTERNS
 from .text import TextWidget, Justify
-from .resources import get_resource_path
-from typing import Optional
+from typing import Optional, Tuple, Dict
 import math
-import os
 
 try:
     from DGTCentaurMods.board.logging import log
 except ImportError:
     import logging
     log = logging.getLogger(__name__)
+
+
+# Module-level knight logo cache by size, set by application at startup
+_knight_logos: Dict[int, Tuple[Image.Image, Image.Image]] = {}
+
+
+def set_knight_logo(size: int, logo: Image.Image, mask: Image.Image) -> None:
+    """Set a knight logo at a specific size.
+    
+    Called at application startup to provide pre-sized logos for icons.
+    
+    Args:
+        size: The size (width/height) of this logo
+        logo: PIL Image of the knight logo at this size
+        mask: PIL Image mask for transparency
+    """
+    _knight_logos[size] = (logo, mask)
 
 
 class IconButtonWidget(Widget):
@@ -581,51 +596,26 @@ class IconButtonWidget(Widget):
             line_color: Stroke/fill color (0=black, 255=white)
             selected: Whether button is selected (inverts colors)
         """
-        try:
-            # Load the pre-rendered knight bitmap
-            logo_path = get_resource_path("knight_logo.bmp")
-            
-            logo = Image.open(logo_path)
-            
-            # Resize to target size (use LANCZOS for older Pillow compatibility)
-            if logo.size[0] != size or logo.size[1] != size:
-                try:
-                    resample = Image.Resampling.LANCZOS
-                except AttributeError:
-                    resample = Image.LANCZOS  # Pillow < 9.1.0
-                logo = logo.resize((size, size), resample)
-            
-            # Ensure it's in mode '1' (1-bit)
-            if logo.mode != '1':
-                logo = logo.convert('1')
-            
-            # Create mask where black pixels are opaque, white is transparent
-            # In mode '1': 0=black, 255=white
-            # For mask: 255=opaque, 0=transparent
-            mask = Image.new("1", logo.size, 0)
-            logo_pixels = logo.load()
-            mask_pixels = mask.load()
-            for py in range(logo.height):
-                for px in range(logo.width):
-                    if logo_pixels[px, py] == 0:  # Black pixel
-                        mask_pixels[px, py] = 255  # Opaque
-            
-            # If selected, invert the logo (but keep mask the same)
-            if selected:
-                logo = Image.eval(logo, lambda p: 255 - p)
-            
-            # Calculate position (centered)
-            paste_x = x - size // 2
-            paste_y = y - size // 2
-            
-            # Get the underlying image from the draw object and paste with mask
-            target_img = draw._image
-            target_img.paste(logo, (paste_x, paste_y), mask)
-            
-        except Exception as e:
+        # Check module-level logo cache
+        if size not in _knight_logos:
             # Fallback to simple knight icon if bitmap not available
-            log.warning(f"Could not load knight_logo.bmp: {e}, using fallback")
+            log.debug(f"Knight logo size {size} not in cache, using fallback")
             self._draw_knight_icon(draw, x, y, size, line_color, selected)
+            return
+        
+        logo, mask = _knight_logos[size]
+        
+        # If selected, invert the logo (but keep mask the same)
+        if selected:
+            logo = Image.eval(logo, lambda p: 255 - p)
+        
+        # Calculate position (centered)
+        paste_x = x - size // 2
+        paste_y = y - size // 2
+        
+        # Get the underlying image from the draw object and paste with mask
+        target_img = draw._image
+        target_img.paste(logo, (paste_x, paste_y), mask)
     
     def _draw_gear_icon(self, draw: ImageDraw.Draw, x: int, y: int,
                         size: int, line_color: int):

@@ -4,8 +4,7 @@ Chess board widget displaying a chess position from FEN.
 
 from PIL import Image, ImageDraw
 from .framework.widget import Widget
-from .resources import get_resource_path
-import os
+from typing import Optional
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -15,152 +14,81 @@ except ImportError:
     log = logging.getLogger(__name__)
 
 
+# Module-level chess sprites, set by application at startup
+_chess_sprites: Optional[Image.Image] = None
+
+
+def set_chess_sprites(sprites: Image.Image) -> None:
+    """Set the module-level chess sprites.
+    
+    Called once at application startup to provide chess piece sprites.
+    
+    Args:
+        sprites: PIL Image containing chess piece sprite sheet (1-bit mode)
+    """
+    global _chess_sprites
+    _chess_sprites = sprites
+
+
 class ChessBoardWidget(Widget):
-    """Chess board widget that renders a position from FEN string."""
+    """Chess board widget that renders a position from FEN string.
     
-    # Class-level cache for chesssprites - loaded once and shared by all instances
-    _cached_chess_font = None
-    _cache_loaded = False
+    Chess sprites can be provided directly via constructor or set at module level.
+    """
     
-    @classmethod
-    def preload_sprites(cls):
-        """Preload chess sprites into class cache.
+    def __init__(self, x: int, y: int, fen: str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 
+                 flip: bool = False, sprites: Image.Image = None):
+        """Initialize chess board widget.
         
-        Call this during startup to avoid loading delay when first game starts.
-        Safe to call multiple times - only loads once.
+        Args:
+            x: X position
+            y: Y position
+            fen: FEN string for initial position
+            flip: If True, flip board (black at bottom)
+            sprites: Optional chess piece sprite sheet. If None, uses module-level sprites.
         """
-        if cls._cache_loaded:
-            return
-        
-        log.info("[ChessBoardWidget] Preloading chesssprites into cache")
-        try:
-            font_path = get_resource_path("chesssprites.bmp")
-            if font_path and os.path.exists(font_path):
-                loaded_image = Image.open(font_path)
-                # Convert to "1" mode (1-bit monochrome) immediately
-                if loaded_image.mode != "1":
-                    if loaded_image.mode != "L":
-                        loaded_image = loaded_image.convert("L")
-                    cls._cached_chess_font = loaded_image.point(lambda x: 0 if x < 128 else 255, mode="1")
-                else:
-                    cls._cached_chess_font = loaded_image
-                log.info(f"[ChessBoardWidget] Chesssprites cached: {cls._cached_chess_font.size}")
-            else:
-                log.warning(f"[ChessBoardWidget] Chesssprites not found at: {font_path}")
-        except Exception as e:
-            log.error(f"[ChessBoardWidget] Error preloading chesssprites: {e}")
-        finally:
-            cls._cache_loaded = True
-    
-    def __init__(self, x: int, y: int, fen: str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", flip: bool = False):
         super().__init__(x, y, 128, 128)
         self.fen = fen
         self.flip = flip
-        self._chess_font = None
         self._min_square_index = 0  # Start rendering from this square
         self._max_square_index = 64  # Render up to this square
         self._render_only_file = None  # If set, only render squares in this file (0-7)
         self._render_only_rank = None  # If set, only render squares in this rank (0-7)
-        self._load_chess_font()
+        
+        # Use provided sprites or module-level sprites
+        self._chess_font = sprites if sprites is not None else _chess_sprites
+        
+        if self._chess_font is None:
+            log.error("[ChessBoardWidget] No chess sprites provided and none set at module level")
+        else:
+            self._validate_sprites()
     
-    def _load_chess_font(self):
-        """Load chess piece sprite sheet.
-        
-        Uses class-level cache if available (from preload_sprites).
-        Falls back to loading from disk if cache is empty.
-        """
-        # Use cached sprites if available
-        if ChessBoardWidget._cached_chess_font is not None:
-            self._chess_font = ChessBoardWidget._cached_chess_font
-            log.debug("[ChessBoardWidget] Using cached chesssprites")
+    def _validate_sprites(self):
+        """Validate chess sprite dimensions."""
+        if self._chess_font is None:
             return
+            
+        width, height = self._chess_font.size
+        log.debug(f"[ChessBoardWidget] Chess sprites: {width}x{height}")
         
-        # Cache not available - load from disk (slower path)
-        log.info("Attempting to load chesssprites sprite sheet (cache miss)")
-        
-        try:
-            font_path = get_resource_path("chesssprites.bmp")
-            log.info(f"Resolved chesssprites path: {font_path}")
-            
-            if not font_path:
-                log.error("get_resource_path() returned empty path for chesssprites bmp")
-                self._chess_font = None
-                return
-            
-            if not os.path.exists(font_path):
-                log.error(f"Chesssprites file not found at path: {font_path}")
-                self._chess_font = None
-                return
-            
-            log.info(f"Chesssprites file exists, attempting to open: {font_path}")
-            
-            try:
-                loaded_image = Image.open(font_path)
-                log.info(f"Successfully opened chesssprites image")
-                
-                # Convert to "1" mode (1-bit monochrome) immediately to ensure deterministic rendering
-                # Use threshold=128 (no dithering) to ensure deterministic conversion
-                # Dithering can produce different results for the same input, causing flicker
-                if loaded_image.mode != "1":
-                    log.info(f"Converting chesssprites from {loaded_image.mode} to 1-bit monochrome (threshold=128, no dithering)")
-                    # Convert to grayscale first, then threshold at 128 for deterministic 1-bit conversion
-                    if loaded_image.mode != "L":
-                        loaded_image = loaded_image.convert("L")
-                    # Use point transform with threshold for deterministic conversion (no dithering)
-                    self._chess_font = loaded_image.point(lambda x: 0 if x < 128 else 255, mode="1")
-                else:
-                    self._chess_font = loaded_image
-                
-                # Store in class cache for future instances
-                ChessBoardWidget._cached_chess_font = self._chess_font
-                ChessBoardWidget._cache_loaded = True
-                
-            except IOError as e:
-                log.error(f"IOError opening chesssprites file {font_path}: {e}")
-                self._chess_font = None
-                return
-            except OSError as e:
-                log.error(f"OSError opening chesssprites file {font_path}: {e}")
-                self._chess_font = None
-                return
-            except Exception as e:
-                log.error(f"Unexpected error opening chesssprites file {font_path}: {type(e).__name__}: {e}")
-                self._chess_font = None
-                return
-            
-            # Validate image dimensions
-            if self._chess_font is not None:
-                width, height = self._chess_font.size
-                mode = self._chess_font.mode
-                log.info(f"Chesssprites image loaded: {width}x{height}, mode={mode}")
-                
-                # Sprite sheet should be at least 208x32 (13 pieces * 16px width, 2 rows * 16px height)
-                # CRITICAL: Must have at least 32px height (2 rows) for light (y=0-16) and dark (y=16-32) squares
-                if height < 32:
-                    log.error(
-                        f"Chesssprites image height {height}px is insufficient! "
-                        f"Required: 32px (2 rows of 16px each). "
-                        f"Dark squares will fail to render (require y=16-32). "
-                        f"This will cause rendering failures."
-                    )
-                    self._chess_font = None
-                    return
-                elif height < 48:
-                    log.warning(
-                        f"Chesssprites image height {height}px is less than expected 48px. "
-                        f"Expected 3 rows (48px) but minimum 2 rows (32px) is acceptable."
-                    )
-                
-                if width < 208:
-                    log.warning(
-                        f"Chesssprites image width {width}px is smaller than expected "
-                        f"(minimum 208px for all pieces). Some pieces may be missing."
-                    )
-                else:
-                    log.debug(f"Chesssprites image dimensions validated: {width}x{height}")
-        except Exception as e:
-            log.error(f"Unexpected error in _load_chess_font(): {type(e).__name__}: {e}", exc_info=True)
+        # Sprite sheet must be at least 32px height (2 rows) for light and dark squares
+        if height < 32:
+            log.error(
+                f"Chesssprites image height {height}px is insufficient! "
+                f"Required: 32px (2 rows of 16px each)."
+            )
             self._chess_font = None
+        elif height < 48:
+            log.warning(
+                f"Chesssprites image height {height}px is less than expected 48px. "
+                f"Expected 3 rows (48px) but minimum 2 rows (32px) is acceptable."
+            )
+        
+        if width < 208:
+            log.warning(
+                f"Chesssprites image width {width}px is smaller than expected "
+                f"(minimum 208px for all pieces). Some pieces may be missing."
+            )
     
     def _expand_fen(self, fen_board: str) -> list:
         """Expand FEN board string to 64 characters."""
