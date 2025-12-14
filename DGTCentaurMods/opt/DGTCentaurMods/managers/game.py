@@ -832,6 +832,11 @@ class GameManager:
             log.info(f"[GameManager._exit_correction_mode] Showing hint LEDs: {chess.square_name(from_sq)} -> {chess.square_name(to_sq)}")
             # Clear the hint after showing it once
             self._pending_hint_squares = None
+        else:
+            # No forced move or pending hint - trigger turn event so engine can move
+            # if it's the engine's turn. This handles resuming games where the engine
+            # needs to make a move after the board is corrected.
+            self._switch_turn_with_event()
     
     def _check_kings_in_center_from_state(self, missing_squares: list, extra_squares: list) -> bool:
         """Check if the misplaced piece state indicates a kings-in-center gesture.
