@@ -1423,12 +1423,12 @@ def _handle_settings():
             current_time = _game_settings['time_control']
             
             for minutes in TIME_CONTROL_OPTIONS:
+                is_selected = (minutes == current_time)
                 if minutes == 0:
-                    label = "* Disabled" if current_time == 0 else "Disabled"
-                    icon = "timer"
+                    label = "* Disabled" if is_selected else "Disabled"
                 else:
-                    label = f"* {minutes} min" if current_time == minutes else f"{minutes} min"
-                    icon = "timer_checked"
+                    label = f"* {minutes} min" if is_selected else f"{minutes} min"
+                icon = "timer_checked" if is_selected else "timer"
                 
                 time_entries.append(
                     IconMenuEntry(key=str(minutes), label=label, icon_name=icon, enabled=True)
@@ -2771,6 +2771,9 @@ def client_reader():
         client_connected = False
 
 
+_cleanup_done = False  # Guard against running cleanup twice
+
+
 def cleanup_and_exit(reason: str = "Normal exit"):
     """Clean up connections and resources, then exit the process.
     
@@ -2788,19 +2791,20 @@ def cleanup_and_exit(reason: str = "Normal exit"):
     """
     global kill, running, client_sock, server_sock, client_connected, mainloop
     global protocol_manager, display_manager, rfcomm_manager, ble_manager, relay_manager
+    global _cleanup_done
+    
+    # Guard against running cleanup twice (signal handler + finally block)
+    if _cleanup_done:
+        log.debug(f"Cleanup already done, skipping: {reason}")
+        return
+    _cleanup_done = True
     
     try:
         log.info(f"Exiting: {reason}")
         kill = 1
         running = False
         
-        # Show exiting splash screen (full screen, no status bar)
-        try:
-            board.display_manager.clear_widgets(addStatusBar=False)
-            exit_splash = SplashScreen(message="Exiting...", leave_room_for_status_bar=False)
-            board.display_manager.add_widget(exit_splash)
-        except Exception as e:
-            log.debug(f"Error showing exit splash: {e}")
+        # Skip splash screen on exit - creating widgets slows shutdown
         
         # Stop RFCOMM manager pairing thread
         if rfcomm_manager is not None:
@@ -2825,16 +2829,11 @@ def cleanup_and_exit(reason: str = "Normal exit"):
             except Exception as e:
                 log.debug(f"Error cleaning up game handler: {e}")
         
-        # Clear splash screen message before cleanup
-        try:
-            exit_splash.set_message("")
-        except Exception:
-            pass
-        
         # Clean up display manager (analysis engine and widgets)
+        # Pass for_shutdown=True to skip creating new widgets
         if display_manager is not None:
             try:
-                display_manager.cleanup()
+                display_manager.cleanup(for_shutdown=True)
                 log.debug("Display manager cleaned up")
             except Exception as e:
                 log.debug(f"Error cleaning up display manager: {e}")

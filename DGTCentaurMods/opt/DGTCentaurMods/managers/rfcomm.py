@@ -127,7 +127,7 @@ class RfcommManager:
         self._discovery_thread: Optional[threading.Thread] = None
         self._pairing_thread: Optional[threading.Thread] = None
         self._discovery_running = False
-        self._pairing_running = False
+        self._stop_event = threading.Event()  # Interruptible stop signal for pairing thread
     
     def __enter__(self):
         """Context manager entry - enables Bluetooth automatically"""
@@ -615,13 +615,15 @@ class RfcommManager:
         Returns:
             Thread object for the pairing thread
         """
-        self._pairing_running = True
+        self._stop_event.clear()
         
         def pair_loop():
             # Small delay to ensure bt-agent has started from start_pairing() before
             # we call keep_discoverable(). This prevents bluetoothctl commands from
             # interfering with bt-agent's initial pairing setup
-            time.sleep(2.5)
+            # Use Event.wait() for interruptible sleep
+            if self._stop_event.wait(2.5):
+                return  # Stop requested during initial delay
             
             # Keep device discoverable from the start, not just after pairing
             # This ensures Android devices can discover the service during scanning
@@ -629,7 +631,7 @@ class RfcommManager:
             self.keep_discoverable()
             last_discoverable_check = time.time()
             
-            while self._pairing_running:
+            while not self._stop_event.is_set():
                 paired = self.start_pairing(timeout=timeout)  # Run indefinitely if timeout=0
                 if paired:
                     # Pairing succeeded - bt-agent is still running
@@ -639,8 +641,10 @@ class RfcommManager:
                     # Set discoverable immediately after pairing
                     self.keep_discoverable()
                     last_discoverable_check = time.time()
-                    while self._pairing_running:
-                        time.sleep(10)  # Check every 10 seconds
+                    while not self._stop_event.is_set():
+                        # Use Event.wait() for interruptible 10-second sleep
+                        if self._stop_event.wait(10):
+                            return  # Stop requested
                         # Keep device discoverable every 30 seconds
                         last_discoverable_check = self._maintain_discoverability(last_discoverable_check)
                         
@@ -651,7 +655,9 @@ class RfcommManager:
                     # Pairing failed or timed out - restart quickly
                     # Keep device discoverable during retry
                     last_discoverable_check = self._maintain_discoverability(last_discoverable_check)
-                time.sleep(0.1)
+                # Use Event.wait() for interruptible short sleep
+                if self._stop_event.wait(0.1):
+                    return  # Stop requested
         
         thread = threading.Thread(target=pair_loop, daemon=True)
         thread.start()
@@ -659,10 +665,14 @@ class RfcommManager:
         return thread
     
     def stop_pairing_thread(self):
-        """Stop the pairing thread if running"""
-        self._pairing_running = False
+        """Stop the pairing thread if running.
+        
+        Uses Event to immediately interrupt any sleep and signal the thread to exit.
+        The thread will exit within milliseconds of this call.
+        """
+        self._stop_event.set()
         if self._pairing_thread and self._pairing_thread.is_alive():
-            self._pairing_thread.join(timeout=2)
+            self._pairing_thread.join(timeout=0.5)  # Brief wait, thread should exit immediately
     
     def get_paired_devices(self) -> List[Dict[str, str]]:
         """

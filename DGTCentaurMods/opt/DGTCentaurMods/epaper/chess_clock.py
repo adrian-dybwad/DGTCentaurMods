@@ -50,7 +50,7 @@ class ChessClockWidget(Widget):
     DEFAULT_HEIGHT = 72
     
     def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None,
-                 timed_mode: bool = True):
+                 timed_mode: bool = True, flip: bool = False):
         """
         Initialize chess clock widget.
         
@@ -60,6 +60,7 @@ class ChessClockWidget(Widget):
             width: Widget width (default 128)
             height: Widget height (default 72)
             timed_mode: Whether to show times (True) or just turn indicator (False)
+            flip: If True, show Black on top (matching flipped board perspective)
         """
         if y is None:
             y = self.DEFAULT_Y
@@ -70,6 +71,7 @@ class ChessClockWidget(Widget):
         
         # Mode
         self._timed_mode = timed_mode
+        self._flip = flip
         
         # Time state (in seconds)
         self._white_time = 0
@@ -333,60 +335,84 @@ class ChessClockWidget(Widget):
     
     def _render_timed_mode(self, draw: ImageDraw.Draw) -> None:
         """
-        Render timed mode: stacked layout with white on top, black below.
+        Render timed mode: stacked layout matching board orientation.
         
         Uses TextWidget for labels and times.
+        When flip=False (default): White on top, Black on bottom
+        When flip=True: Black on top, White on bottom (matching flipped board)
         
         Layout (72 pixels height):
-        - Top section: [indicator] White  MM:SS
+        - Top section: [indicator] [TopColor]  MM:SS
         - Separator line
-        - Bottom section: [indicator] Black  MM:SS
+        - Bottom section: [indicator] [BottomColor]  MM:SS
         """
         img = draw._image  # Get the image from the draw context
         section_height = (self.height - 4) // 2  # -4 for top/middle separators
         
-        # === WHITE SECTION (top) ===
-        white_y = 4
+        # Determine which color goes on top based on flip setting
+        # flip=False: White on top (player's pieces at bottom of board)
+        # flip=True: Black on top (player's pieces at bottom of board)
+        if self._flip:
+            top_color = 'black'
+            bottom_color = 'white'
+            top_label = self._black_label
+            bottom_label = self._white_label
+            top_time_widget = self._black_time_text
+            bottom_time_widget = self._white_time_text
+            top_time = self._black_time
+            bottom_time = self._white_time
+        else:
+            top_color = 'white'
+            bottom_color = 'black'
+            top_label = self._white_label
+            bottom_label = self._black_label
+            top_time_widget = self._white_time_text
+            bottom_time_widget = self._black_time_text
+            top_time = self._white_time
+            bottom_time = self._black_time
+        
+        # === TOP SECTION ===
+        top_y = 4
         
         # Indicator circle (larger for visibility)
         indicator_size = 12
-        indicator_y = white_y + (section_height - indicator_size) // 2
-        if self._active_color == 'white':
+        indicator_y = top_y + (section_height - indicator_size) // 2
+        if self._active_color == top_color:
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=255, outline=0)
         
-        # "White" label using TextWidget - draw directly onto image
-        self._white_label.draw_on(img, 20, white_y + 2)
+        # Top label using TextWidget - draw directly onto image
+        top_label.draw_on(img, 20, top_y + 2)
         
-        # White time using TextWidget - draw directly onto image
-        self._white_time_text.set_text(self._format_time(self._white_time))
-        self._white_time_text.draw_on(img, self.width - 68, white_y + 8)
+        # Top time using TextWidget - draw directly onto image
+        top_time_widget.set_text(self._format_time(top_time))
+        top_time_widget.draw_on(img, self.width - 68, top_y + 8)
         
         # Horizontal separator
         separator_y = self.height // 2
         draw.line([(0, separator_y), (self.width, separator_y)], fill=0, width=1)
         
-        # === BLACK SECTION (bottom) ===
-        black_y = separator_y + 4
+        # === BOTTOM SECTION ===
+        bottom_y = separator_y + 4
         
         # Indicator circle
-        indicator_y = black_y + (section_height - indicator_size) // 2
-        if self._active_color == 'black':
+        indicator_y = bottom_y + (section_height - indicator_size) // 2
+        if self._active_color == bottom_color:
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=255, outline=0)
         
-        # "Black" label using TextWidget - draw directly onto image
-        self._black_label.draw_on(img, 20, black_y + 2)
+        # Bottom label using TextWidget - draw directly onto image
+        bottom_label.draw_on(img, 20, bottom_y + 2)
         
-        # Black time using TextWidget - draw directly onto image
-        self._black_time_text.set_text(self._format_time(self._black_time))
-        self._black_time_text.draw_on(img, self.width - 68, black_y + 8)
+        # Bottom time using TextWidget - draw directly onto image
+        bottom_time_widget.set_text(self._format_time(bottom_time))
+        bottom_time_widget.draw_on(img, self.width - 68, bottom_y + 8)
     
     def _render_compact_mode(self, draw: ImageDraw.Draw) -> None:
         """

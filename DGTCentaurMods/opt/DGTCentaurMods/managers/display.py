@@ -267,10 +267,11 @@ class DisplayManager:
         
         # Create clock widget directly below board
         # Shows times if time_control > 0, otherwise shows turn indicator only
+        # flip matches board orientation so clock top matches board top
         timed_mode = self._time_control > 0
         self.clock_widget = _ChessClockWidget(
             x=0, y=clock_y, width=128, height=clock_height,
-            timed_mode=timed_mode
+            timed_mode=timed_mode, flip=self._flip_board
         )
         # Set initial times if timed mode is enabled
         if self._time_control > 0:
@@ -864,8 +865,12 @@ class DisplayManager:
         except Exception as e:
             log.error(f"[DisplayManager] Error showing game over: {e}")
     
-    def cleanup(self):
-        """Clean up resources (analysis engine, widgets) and clear display."""
+    def cleanup(self, for_shutdown: bool = False):
+        """Clean up resources (analysis engine, widgets) and clear display.
+        
+        Args:
+            for_shutdown: If True, skip creating new widgets (faster shutdown)
+        """
         log.info("[DisplayManager] Cleaning up")
         
         board = _get_board()
@@ -899,10 +904,10 @@ class DisplayManager:
                 log.debug(f"[DisplayManager] Error quitting analysis engine: {e}")
             self.analysis_engine = None
         
-        # Clear all widgets from display to prevent stale rendering
+        # Clear widgets - skip creating status bar during shutdown
         if board.display_manager:
             try:
-                board.display_manager.clear_widgets(addStatusBar=True)
+                board.display_manager.clear_widgets(addStatusBar=not for_shutdown)
                 log.debug("[DisplayManager] Widgets cleared from display")
             except Exception as e:
                 log.debug(f"[DisplayManager] Error clearing widgets: {e}")
