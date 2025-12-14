@@ -206,6 +206,25 @@ class ChessClockWidget(Widget):
         self._last_rendered = None
         self.request_update(full=False)
     
+    def resume(self, active_color: str) -> None:
+        """Resume the clock after a pause.
+        
+        Unlike start(), this doesn't create a new thread - just sets the active color
+        so the existing clock thread resumes counting down.
+        
+        Args:
+            active_color: Which player's clock should resume ('white' or 'black')
+        """
+        if not self._is_running:
+            # Clock was stopped, not just paused - need to start fresh
+            self.start(active_color)
+            return
+        
+        self._active_color = active_color
+        self._last_rendered = None
+        self.request_update(full=False)
+        log.info(f"[ChessClockWidget] Resumed, active: {active_color}")
+    
     def switch_turn(self) -> None:
         """Switch which player's clock is running."""
         if self._active_color == 'white':

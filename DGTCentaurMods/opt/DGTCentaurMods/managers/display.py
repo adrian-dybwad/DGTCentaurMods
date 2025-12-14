@@ -21,14 +21,10 @@ import pathlib
 import chess
 import chess.engine
 
-try:
-    from DGTCentaurMods.board.logging import log
-except ImportError:
-    import logging
-    log = logging.getLogger(__name__)
+from DGTCentaurMods.board import board
+from DGTCentaurMods.board.logging import log
 
-# Lazy imports to avoid circular dependencies
-_board_module = None
+# Lazy imports for widgets to avoid loading all epaper modules at startup
 _widgets_loaded = False
 _ChessBoardWidget = None
 _GameAnalysisWidget = None
@@ -39,15 +35,6 @@ _SplashScreen = None
 _BrainHintWidget = None
 _GameOverWidget = None
 _AlertWidget = None
-
-
-def _get_board():
-    """Lazily import and return the board module."""
-    global _board_module
-    if _board_module is None:
-        from DGTCentaurMods.board import board
-        _board_module = board
-    return _board_module
 
 
 def _load_widgets():
@@ -242,7 +229,7 @@ class DisplayManager:
         # Reload settings from config in case they changed (e.g., via display menu)
         self._reload_display_settings()
         
-        board = _get_board()
+
         
         if not board.display_manager:
             log.error("[DisplayManager] No epaper manager available")
@@ -558,7 +545,7 @@ class DisplayManager:
             return
         
         self._is_paused = True
-        board = _get_board()
+
         
         # Remember which clock was active so we can resume it
         if self.clock_widget:
@@ -620,7 +607,7 @@ class DisplayManager:
             return
         
         self._is_paused = False
-        board = _get_board()
+
         
         # Remove pause widget
         if self.pause_widget:
@@ -629,7 +616,7 @@ class DisplayManager:
         
         # Resume clock with previously active color
         if self.clock_widget and self._paused_active_color:
-            self.clock_widget.start(self._paused_active_color)
+            self.clock_widget.resume(self._paused_active_color)
             log.info(f"[DisplayManager] Clock resumed for {self._paused_active_color}")
         
         self._paused_active_color = None
@@ -649,7 +636,7 @@ class DisplayManager:
         Called on new game to ensure clean state.
         """
         if self._is_paused:
-            board = _get_board()
+    
             # Remove pause widget if present
             if self.pause_widget:
                 board.display_manager.remove_widget(self.pause_widget)
@@ -771,7 +758,7 @@ class DisplayManager:
         Returns:
             Promotion piece letter ('q', 'r', 'b', 'n')
         """
-        board = _get_board()
+
         
         # Create menu entries with chess piece icons
         color_suffix = "w" if is_white else "b"
@@ -842,7 +829,7 @@ class DisplayManager:
                       'resign', 'resign_white', 'resign_black', 'draw', 'cancel', or 'exit'
             is_two_player: If True, show separate resign options for white and black
         """
-        board = _get_board()
+
         
         log.info(f"[DisplayManager] Showing back menu (two_player={is_two_player})")
         
@@ -935,7 +922,7 @@ class DisplayManager:
         """
         if self._menu_active and self._current_menu:
             log.info("[DisplayManager] Cancelling menu via simulated BACK key")
-            board = _get_board()
+    
             self._current_menu.handle_key(board.Key.BACK)
     
     def show_king_lift_resign_menu(self, king_color, on_result: callable):
@@ -948,7 +935,7 @@ class DisplayManager:
             on_result: Callback function(result: str) with result:
                       'resign' or 'cancel'
         """
-        board = _get_board()
+
         
         color_name = "White" if king_color else "Black"
         # Use same resign icons as kings-in-center: resign_white for white, resign_black for black
@@ -1047,7 +1034,7 @@ class DisplayManager:
     
     def _restore_game_display(self):
         """Restore the normal game display widgets after menu."""
-        board = _get_board()
+
         
         try:
             if board.display_manager:
@@ -1097,7 +1084,7 @@ class DisplayManager:
         Args:
             message: Message to display
         """
-        board = _get_board()
+
         
         try:
             if board.display_manager:
@@ -1126,7 +1113,7 @@ class DisplayManager:
             move_count: Number of moves played in the game
         """
         _load_widgets()
-        board = _get_board()
+
         
         try:
             log.info(f"[DisplayManager] Showing game over: result={result}, termination={termination_type}")
@@ -1171,7 +1158,7 @@ class DisplayManager:
         """
         log.info("[DisplayManager] Cleaning up")
         
-        board = _get_board()
+
         
         # Wait for engine init thread if still running (brief wait)
         if self._engine_init_thread is not None and self._engine_init_thread.is_alive():
