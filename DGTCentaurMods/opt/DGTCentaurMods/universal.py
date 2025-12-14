@@ -253,6 +253,12 @@ _game_settings = {
     'elo': 'Default',          # Default ELO level
     'player_color': 'white',   # white, black, or random
     'time_control': 0,         # Time per player in minutes (0 = disabled/untimed)
+    # Display settings (widgets to show during game)
+    'show_board': True,        # Show chess board widget
+    'show_clock': True,        # Show clock/turn indicator widget
+    'show_analysis': True,     # Show analysis widget (score bar + graph)
+    'show_score_bar': True,    # Show score bar in analysis widget
+    'show_graph': True,        # Show history graph in analysis widget
 }
 
 # Available time control options (in minutes)
@@ -290,6 +296,13 @@ def _load_game_settings():
         except ValueError:
             _game_settings['time_control'] = 0
         
+        # Load display settings (booleans stored as 'true'/'false' strings)
+        _game_settings['show_board'] = Settings.read(SETTINGS_SECTION, 'show_board', 'true').lower() == 'true'
+        _game_settings['show_clock'] = Settings.read(SETTINGS_SECTION, 'show_clock', 'true').lower() == 'true'
+        _game_settings['show_analysis'] = Settings.read(SETTINGS_SECTION, 'show_analysis', 'true').lower() == 'true'
+        _game_settings['show_score_bar'] = Settings.read(SETTINGS_SECTION, 'show_score_bar', 'true').lower() == 'true'
+        _game_settings['show_graph'] = Settings.read(SETTINGS_SECTION, 'show_graph', 'true').lower() == 'true'
+
         log.info(f"[Settings] Loaded: engine={_game_settings['engine']}, "
                  f"elo={_game_settings['elo']}, color={_game_settings['player_color']}, "
                  f"time_control={_game_settings['time_control']} min")
@@ -867,6 +880,7 @@ def create_settings_entries() -> List[IconMenuEntry]:
         IconMenuEntry(key="ELO", label=elo_label, icon_name="elo", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="Color", label=color_label, icon_name="color", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="TimeControl", label=time_label, icon_name=time_icon, enabled=True, font_size=12, height_ratio=0.8),
+        IconMenuEntry(key="Display", label="Display", icon_name="display", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=12, height_ratio=0.8),
     ]
 
@@ -982,14 +996,21 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     # Analysis runs in a background thread so it doesn't block move processing
     display_manager = DisplayManager(
         flip_board=False,
-        show_analysis=True,
+        show_analysis=_game_settings['show_analysis'],
         analysis_engine_path=analysis_engine_path,
         on_exit=lambda: _return_to_menu("Menu exit"),
         hand_brain_mode=is_hand_brain,
         initial_fen=starting_fen,
-        time_control=_game_settings['time_control']
+        time_control=_game_settings['time_control'],
+        show_board=_game_settings['show_board'],
+        show_clock=_game_settings['show_clock'],
+        show_score_bar=_game_settings['show_score_bar'],
+        show_graph=_game_settings['show_graph']
     )
-    log.info(f"[App] DisplayManager initialized (time_control={_game_settings['time_control']} min)")
+    log.info(f"[App] DisplayManager initialized (time_control={_game_settings['time_control']} min, "
+             f"board={_game_settings['show_board']}, clock={_game_settings['show_clock']}, "
+             f"analysis={_game_settings['show_analysis']}, score_bar={_game_settings['show_score_bar']}, "
+             f"graph={_game_settings['show_graph']})")
 
     # Display update callback for ProtocolManager
     def update_display(fen):
@@ -1385,6 +1406,14 @@ def _handle_settings():
                     pass
             # Stay in settings menu to allow further configuration
         
+        elif result == "Display":
+            # Display settings submenu
+            display_result = _handle_display_settings()
+            if is_break_result(display_result):
+                app_state = AppState.MENU
+                return display_result
+            # Stay in settings menu
+        
         elif result == "Positions":
             position_result = _handle_positions_menu()
             if is_break_result(position_result):
@@ -1399,6 +1428,69 @@ def _handle_settings():
             if is_break_result(system_result):
                 app_state = AppState.MENU
                 return system_result
+
+
+def _handle_display_settings():
+    """Handle the Display settings submenu.
+    
+    Shows checkboxes for each widget that can be shown/hidden during game.
+    Settings take effect on the next game start.
+    
+    Returns:
+        Break result if user triggered a break action, None otherwise
+    """
+    global _game_settings
+    
+    while True:
+        # Build entries with current settings
+        entries = [
+            IconMenuEntry(
+                key="show_board",
+                label="Board",
+                icon_name="checkbox_checked" if _game_settings['show_board'] else "checkbox_empty",
+                enabled=True
+            ),
+            IconMenuEntry(
+                key="show_clock",
+                label="Clock",
+                icon_name="checkbox_checked" if _game_settings['show_clock'] else "checkbox_empty",
+                enabled=True
+            ),
+            IconMenuEntry(
+                key="show_analysis",
+                label="Analysis",
+                icon_name="checkbox_checked" if _game_settings['show_analysis'] else "checkbox_empty",
+                enabled=True
+            ),
+            IconMenuEntry(
+                key="show_score_bar",
+                label="Score Bar",
+                icon_name="checkbox_checked" if _game_settings['show_score_bar'] else "checkbox_empty",
+                enabled=_game_settings['show_analysis']  # Only enabled if analysis is on
+            ),
+            IconMenuEntry(
+                key="show_graph",
+                label="Graph",
+                icon_name="checkbox_checked" if _game_settings['show_graph'] else "checkbox_empty",
+                enabled=_game_settings['show_analysis']  # Only enabled if analysis is on
+            ),
+        ]
+        
+        result = _show_menu(entries)
+        
+        if is_break_result(result):
+            return result
+        
+        if result == "BACK":
+            return None
+        
+        # Toggle the selected setting
+        if result in _game_settings:
+            new_value = not _game_settings[result]
+            _game_settings[result] = new_value
+            _save_game_setting(result, 'true' if new_value else 'false')
+            log.info(f"[Display] {result} changed to {new_value}")
+            board.beep(board.SOUND_GENERAL, event_type='key_press')
 
 
 def _handle_positions_menu(return_to_last_position: bool = False) -> bool:

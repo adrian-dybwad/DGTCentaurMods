@@ -106,7 +106,9 @@ class DisplayManager:
     def __init__(self, flip_board: bool = False, show_analysis: bool = True,
                  analysis_engine_path: str = None, on_exit: callable = None,
                  hand_brain_mode: bool = False, initial_fen: str = None,
-                 time_control: int = 0):
+                 time_control: int = 0, show_board: bool = True,
+                 show_clock: bool = True, show_score_bar: bool = True,
+                 show_graph: bool = True):
         """Initialize the display controller.
         
         Args:
@@ -117,6 +119,10 @@ class DisplayManager:
             hand_brain_mode: If True, show brain hint widget for Hand+Brain variant
             initial_fen: FEN string for initial position. If None, uses starting position.
             time_control: Time per player in minutes (0 = disabled/untimed, shows turn only)
+            show_board: If True, show the chess board widget
+            show_clock: If True, show the clock/turn indicator widget
+            show_score_bar: If True, show the score bar in analysis widget
+            show_graph: If True, show the history graph in analysis widget
         """
         _load_widgets()
         
@@ -126,6 +132,10 @@ class DisplayManager:
         self._hand_brain_mode = hand_brain_mode
         self._initial_fen = initial_fen or STARTING_FEN
         self._time_control = time_control  # Minutes per player (0 = disabled)
+        self._show_board = show_board
+        self._show_clock = show_clock
+        self._show_score_bar = show_score_bar
+        self._show_graph = show_graph
         
         # Widgets
         self.chess_board_widget = None
@@ -216,8 +226,11 @@ class DisplayManager:
         
         # Add widgets without blocking - display will catch up
         # This allows game logic to start while display updates queue
-        board.display_manager.add_widget(self.chess_board_widget)
-        log.info("[DisplayManager] Chess board widget initialized")
+        if self._show_board:
+            board.display_manager.add_widget(self.chess_board_widget)
+            log.info("[DisplayManager] Chess board widget initialized")
+        else:
+            log.info("[DisplayManager] Chess board widget disabled")
         
         # Create clock widget directly below board (y=144, height=72)
         # Shows times if time_control > 0, otherwise shows turn indicator only
@@ -231,22 +244,28 @@ class DisplayManager:
             initial_seconds = self._time_control * 60
             self.clock_widget.set_times(initial_seconds, initial_seconds)
         
-        board.display_manager.add_widget(self.clock_widget)
-        log.info(f"[DisplayManager] Clock widget initialized (time_control={self._time_control} min)")
+        if self._show_clock:
+            board.display_manager.add_widget(self.clock_widget)
+            log.info(f"[DisplayManager] Clock widget initialized (time_control={self._time_control} min)")
+        else:
+            log.info("[DisplayManager] Clock widget disabled")
         
         # Create analysis widget below clock (y=216, height=80)
+        # Pass display settings for score bar and graph
         bottom_color = "black" if self.chess_board_widget.flip else "white"
         self.analysis_widget = _GameAnalysisWidget(
             x=0, y=216, width=128, height=80,
             bottom_color=bottom_color,
-            analysis_engine=self.analysis_engine
+            analysis_engine=self.analysis_engine,
+            show_score_bar=self._show_score_bar,
+            show_graph=self._show_graph
         )
         
         if not self._show_analysis:
             self.analysis_widget.hide()
         
         board.display_manager.add_widget(self.analysis_widget)
-        log.info(f"[DisplayManager] Analysis widget initialized (visible={self._show_analysis})")
+        log.info(f"[DisplayManager] Analysis widget initialized (visible={self._show_analysis}, score_bar={self._show_score_bar}, graph={self._show_graph})")
         
         # Create alert widget for CHECK/QUEEN warnings (y=144, overlays clock widget)
         # Alert widget is hidden by default and shown when check or queen threat occurs

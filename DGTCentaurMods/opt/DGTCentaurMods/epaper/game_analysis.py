@@ -21,7 +21,20 @@ class GameAnalysisWidget(Widget):
     DEFAULT_HEIGHT = 80
     
     def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None, 
-                 bottom_color: str = "black", analysis_engine=None):
+                 bottom_color: str = "black", analysis_engine=None,
+                 show_score_bar: bool = True, show_graph: bool = True):
+        """Initialize the analysis widget.
+        
+        Args:
+            x: X position on display
+            y: Y position on display (default: DEFAULT_Y)
+            width: Widget width
+            height: Widget height (default: DEFAULT_HEIGHT)
+            bottom_color: Color at bottom of board ("white" or "black")
+            analysis_engine: chess.engine.SimpleEngine for position analysis
+            show_score_bar: If True, show the score indicator bar at top
+            show_graph: If True, show the history graph at bottom
+        """
         if y is None:
             y = self.DEFAULT_Y
         if height is None:
@@ -34,6 +47,8 @@ class GameAnalysisWidget(Widget):
         self._font = self._load_font()
         self._max_history_size = 200
         self.analysis_engine = analysis_engine  # chess.engine.SimpleEngine for analysis
+        self._show_score_bar = show_score_bar
+        self._show_graph = show_graph
         
         # Analysis queue and worker thread
         # Queue holds analysis requests until worker processes them
@@ -347,12 +362,17 @@ class GameAnalysisWidget(Widget):
         self.request_update(full=False)
     
     def render(self) -> Image.Image:
-        """Render analysis widget."""
+        """Render analysis widget.
+        
+        Renders based on display settings:
+        - show_score_bar: Score indicator bar and text at top
+        - show_graph: History graph at bottom
+        """
         # Return cached image if available
         if self._last_rendered is not None:
             return self._last_rendered
         
-        log.debug(f"[GameAnalysisWidget] Rendering: y={self.y}, height={self.height}, score_history={len(self.score_history)}")
+        log.debug(f"[GameAnalysisWidget] Rendering: y={self.y}, height={self.height}, score_history={len(self.score_history)}, score_bar={self._show_score_bar}, graph={self._show_graph}")
         
         img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
@@ -367,43 +387,44 @@ class GameAnalysisWidget(Widget):
         # This ensures negative always represents bottom color's disadvantage
         display_score_value = -self.score_value if self.bottom_color == "black" else self.score_value
         
-        # Format score text for display (adjust if needed)
-        # Regenerate text from adjusted display_score_value to ensure consistency
-        if self.bottom_color == "black":
-            # Regenerate text from adjusted score to match the bar display
-            if abs(display_score_value) > 999:
-                display_score_text = ""
-            elif abs(display_score_value) >= 100:
-                mate_moves = abs(display_score_value)
-                display_score_text = f"Mate {int(mate_moves)}"
+        # Draw score bar and text if enabled
+        if self._show_score_bar:
+            # Format score text for display (adjust if needed)
+            # Regenerate text from adjusted display_score_value to ensure consistency
+            if self.bottom_color == "black":
+                # Regenerate text from adjusted score to match the bar display
+                if abs(display_score_value) > 999:
+                    display_score_text = ""
+                elif abs(display_score_value) >= 100:
+                    mate_moves = abs(display_score_value)
+                    display_score_text = f"Mate {int(mate_moves)}"
+                else:
+                    display_score_text = f"{display_score_value:5.1f}"
             else:
-                display_score_text = f"{display_score_value:5.1f}"
-        else:
-            # Use original text (no adjustment needed when bottom is white - board not flipped)
-            display_score_text = self.score_text
+                # Use original text (no adjustment needed when bottom is white - board not flipped)
+                display_score_text = self.score_text
+            
+            # Draw score text
+            if display_score_text:
+                draw.text((50, 12), display_score_text, font=self._font, fill=0)
+            
+            # Draw score indicator box
+            draw.rectangle([(0, 1), (self.width - 1, 11)], fill=None, outline=0)
+            
+            # Calculate indicator position (clamp score between -12 and 12)
+            score_display = display_score_value
+            if score_display > 12:
+                score_display = 12
+            if score_display < -12:
+                score_display = -12
+            
+            # Draw indicator bar
+            offset = (self.width / 25) * (score_display + 12)
+            if offset < self.width:
+                draw.rectangle([(int(offset), 1), (self.width - 1, 11)], fill=0, outline=0)
         
-        # Draw score text
-        if display_score_text:
-            draw.text((50, 12), display_score_text, font=self._font, fill=0)
-        
-        # Draw score indicator box
-        draw.rectangle([(0, 1), (self.width - 1, 11)], fill=None, outline=0)
-        
-        # Calculate indicator position (clamp score between -12 and 12)
-        score_display = display_score_value
-        if score_display > 12:
-            score_display = 12
-        if score_display < -12:
-            score_display = -12
-        
-        # Draw indicator bar
-        offset = (self.width / 25) * (score_display + 12)
-        if offset < self.width:
-            draw.rectangle([(int(offset), 1), (self.width - 1, 11)], fill=0, outline=0)
-        
-        # Draw score history bar chart
-        # Position chart relative to widget height, leaving room for score bar at top
-        if len(self.score_history) > 0:
+        # Draw score history bar chart if enabled
+        if self._show_graph and len(self.score_history) > 0:
             chart_y = self.height - 10  # 10 pixels from bottom
             draw.line([(0, chart_y), (self.width, chart_y)], fill=0, width=1)
             
