@@ -92,9 +92,9 @@ class DisplayManager:
     DisplayManager orchestrates game-specific widgets at a higher level.
     
     Layout (below status bar at y=16):
-    - Chess board: y=16, height=184 (23 squares * 8)
-    - Clock widget: y=200, height=36 (turn indicator / time)
-    - Analysis widget: y=236, height=60 (eval bar and history)
+    - Chess board: y=16, height=128 (16 pixels per square * 8)
+    - Clock widget: y=144, height=72 (turn indicator / time - prominent display)
+    - Analysis widget: y=216, height=80 (eval bar and history graph)
     
     Attributes:
         chess_board_widget: The chess board display widget
@@ -195,9 +195,9 @@ class DisplayManager:
         
         Layout:
         - Status bar: y=0, height=16
-        - Chess board: y=16, height=184
-        - Clock widget: y=200, height=36
-        - Analysis widget: y=236, height=60
+        - Chess board: y=16, height=128
+        - Clock widget: y=144, height=72 (prominent turn/time display)
+        - Analysis widget: y=216, height=80 (eval bar and history)
         """
         board = _get_board()
         
@@ -219,11 +219,11 @@ class DisplayManager:
         board.display_manager.add_widget(self.chess_board_widget)
         log.info("[DisplayManager] Chess board widget initialized")
         
-        # Create clock widget directly below board (y=200, height=36)
+        # Create clock widget directly below board (y=144, height=72)
         # Shows times if time_control > 0, otherwise shows turn indicator only
         timed_mode = self._time_control > 0
         self.clock_widget = _ChessClockWidget(
-            x=0, y=200, width=128, height=36,
+            x=0, y=144, width=128, height=72,
             timed_mode=timed_mode
         )
         # Set initial times if timed mode is enabled
@@ -234,10 +234,10 @@ class DisplayManager:
         board.display_manager.add_widget(self.clock_widget)
         log.info(f"[DisplayManager] Clock widget initialized (time_control={self._time_control} min)")
         
-        # Create analysis widget below clock (y=236, height=60)
+        # Create analysis widget below clock (y=216, height=80)
         bottom_color = "black" if self.chess_board_widget.flip else "white"
         self.analysis_widget = _GameAnalysisWidget(
-            x=0, y=236, width=128, height=60,
+            x=0, y=216, width=128, height=80,
             bottom_color=bottom_color,
             analysis_engine=self.analysis_engine
         )
@@ -248,15 +248,15 @@ class DisplayManager:
         board.display_manager.add_widget(self.analysis_widget)
         log.info(f"[DisplayManager] Analysis widget initialized (visible={self._show_analysis})")
         
-        # Create alert widget for CHECK/QUEEN warnings (y=200, overlays clock widget)
+        # Create alert widget for CHECK/QUEEN warnings (y=144, overlays clock widget)
         # Alert widget is hidden by default and shown when check or queen threat occurs
-        self.alert_widget = _AlertWidget(0, 200, 128, 40)
+        self.alert_widget = _AlertWidget(0, 144, 128, 40)
         board.display_manager.add_widget(self.alert_widget)
         log.info("[DisplayManager] Alert widget initialized (hidden)")
         
-        # Create brain hint widget for Hand+Brain mode (y=200, replaces clock)
+        # Create brain hint widget for Hand+Brain mode (y=144, replaces clock)
         if self._hand_brain_mode:
-            self.brain_hint_widget = _BrainHintWidget(0, 200, 128, 36)
+            self.brain_hint_widget = _BrainHintWidget(0, 144, 128, 72)
             # Hide clock widget in hand+brain mode, brain hint takes its place
             if self.clock_widget:
                 self.clock_widget.hide()
@@ -765,9 +765,9 @@ class DisplayManager:
         """
         Show the game over widget, replacing the clock widget.
         
-        The board remains visible. The game over widget occupies y=200, height=56
-        to display the winner, termination reason, and times. The analysis widget
-        is repositioned below (y=256, height=40) to show the evaluation history.
+        The board remains visible. The game over widget occupies y=144, height=72
+        (same as clock) to display the winner, termination reason, and times.
+        The analysis widget stays in place (y=216, height=80) showing eval history.
         
         Args:
             result: Game result string (e.g., "1-0", "0-1", "1/2-1/2")
@@ -790,20 +790,14 @@ class DisplayManager:
                 # Even in untimed mode, hide the clock (turn indicator)
                 self.clock_widget.hide()
             
-            # Reposition analysis widget below game over widget (y=256, h=40)
-            # This provides more space for game over info while keeping the eval graph
-            if self.analysis_widget:
-                self.analysis_widget.y = 256
-                self.analysis_widget.height = 40
-                self.analysis_widget._last_rendered = None  # Force re-render at new size
-                self.analysis_widget.request_update(full=False)
+            # Analysis widget stays in place - game over widget is same size as clock
             
             # Hide brain hint widget if present
             if self.brain_hint_widget:
                 self.brain_hint_widget.hide()
             
             if board.display_manager:
-                # Create game over widget (y=200, height=56)
+                # Create game over widget (y=144, height=72 - same as clock)
                 game_over_widget = _GameOverWidget()
                 game_over_widget.set_result(result, termination_type, move_count, final_times)
                 

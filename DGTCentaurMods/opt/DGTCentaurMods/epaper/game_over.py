@@ -1,9 +1,9 @@
 """
 Game over widget displaying winner, termination reason, and final times.
 
-This widget replaces the clock widget at game end (y=200, height=56).
-The analysis widget is repositioned below it (y=256, h=40) to show the
-evaluation history graph. Together they fill the space below the board.
+This widget replaces the clock widget at game end (y=144, height=72).
+The analysis widget stays in place (y=216, h=80) to show the
+evaluation history graph.
 """
 
 from PIL import Image, ImageDraw, ImageFont
@@ -32,9 +32,9 @@ class GameOverWidget(Widget):
     is repositioned below (y=256, h=40) to show the evaluation history graph.
     """
     
-    # Default position: replaces clock widget with expanded height
-    DEFAULT_Y = 200
-    DEFAULT_HEIGHT = 56
+    # Default position: replaces clock widget (board ends at y=144)
+    DEFAULT_Y = 144
+    DEFAULT_HEIGHT = 72
     
     def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None):
         """
@@ -189,10 +189,11 @@ class GameOverWidget(Widget):
         """
         Render game over widget.
         
-        Layout (56 pixels height):
-        - Line 1 (y=2): Winner (e.g., "White wins", "Black wins", "Draw")
-        - Line 2 (y=20): Termination reason (e.g., "Checkmate", "Resignation")
-        - Line 3 (y=38): Move count and/or times (e.g., "42 moves  W:5:23 B:3:17")
+        Layout (72 pixels height):
+        - Line 1 (y=4): Winner (e.g., "White wins", "Black wins", "Draw")
+        - Line 2 (y=24): Termination reason (e.g., "Checkmate", "Resignation")
+        - Line 3 (y=44): Move count (e.g., "42 moves")
+        - Line 4 (y=58): Final times if available (e.g., "W:5:23 B:3:17")
         """
         if self._last_rendered is not None:
             return self._last_rendered
@@ -208,32 +209,32 @@ class GameOverWidget(Widget):
             winner_bbox = draw.textbbox((0, 0), self.winner, font=self._font_large)
             winner_width = winner_bbox[2] - winner_bbox[0]
             winner_x = (self.width - winner_width) // 2
-            draw.text((winner_x, 2), self.winner, font=self._font_large, fill=0)
+            draw.text((winner_x, 4), self.winner, font=self._font_large, fill=0)
         
         # Line 2: Termination reason (centered, medium font)
         if self.termination:
             term_bbox = draw.textbbox((0, 0), self.termination, font=self._font_medium)
             term_width = term_bbox[2] - term_bbox[0]
             term_x = (self.width - term_width) // 2
-            draw.text((term_x, 20), self.termination, font=self._font_medium, fill=0)
+            draw.text((term_x, 24), self.termination, font=self._font_medium, fill=0)
         
-        # Line 3: Move count and/or times (centered, small font)
-        line3_parts = []
-        
+        # Line 3: Move count (centered, small font)
         if self.move_count > 0:
-            line3_parts.append(f"{self.move_count} moves")
+            moves_text = f"{self.move_count} moves"
+            moves_bbox = draw.textbbox((0, 0), moves_text, font=self._font_small)
+            moves_width = moves_bbox[2] - moves_bbox[0]
+            moves_x = (self.width - moves_width) // 2
+            draw.text((moves_x, 44), moves_text, font=self._font_small, fill=0)
         
+        # Line 4: Final times if available (centered, small font)
         if self.white_time is not None and self.black_time is not None:
             white_str = self._format_time(self.white_time)
             black_str = self._format_time(self.black_time)
-            line3_parts.append(f"W:{white_str} B:{black_str}")
-        
-        if line3_parts:
-            line3 = "  ".join(line3_parts)
-            line3_bbox = draw.textbbox((0, 0), line3, font=self._font_small)
-            line3_width = line3_bbox[2] - line3_bbox[0]
-            line3_x = (self.width - line3_width) // 2
-            draw.text((line3_x, 38), line3, font=self._font_small, fill=0)
+            time_text = f"W:{white_str}  B:{black_str}"
+            time_bbox = draw.textbbox((0, 0), time_text, font=self._font_small)
+            time_width = time_bbox[2] - time_bbox[0]
+            time_x = (self.width - time_width) // 2
+            draw.text((time_x, 58), time_text, font=self._font_small, fill=0)
         
         self._last_rendered = img
         return img

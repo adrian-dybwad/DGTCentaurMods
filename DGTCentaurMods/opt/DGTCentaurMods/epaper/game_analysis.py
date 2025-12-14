@@ -1,7 +1,7 @@
 """
 Game analysis widget displaying evaluation score and history.
 
-Positioned below the chess clock widget at y=236, height=60.
+Positioned below the chess clock widget at y=216, height=80.
 Turn indicator is handled by the ChessClockWidget above.
 """
 
@@ -16,9 +16,9 @@ import chess
 class GameAnalysisWidget(Widget):
     """Widget displaying chess game analysis information."""
     
-    # Default position: below the chess clock widget
-    DEFAULT_Y = 236
-    DEFAULT_HEIGHT = 60
+    # Default position: below the chess clock widget (clock ends at y=216)
+    DEFAULT_Y = 216
+    DEFAULT_HEIGHT = 80
     
     def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None, 
                  bottom_color: str = "black", analysis_engine=None):

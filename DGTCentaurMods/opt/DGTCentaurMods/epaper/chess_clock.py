@@ -50,9 +50,9 @@ class ChessClockWidget(Widget):
     - Centered text: "White Turn" or "Black Turn"
     """
     
-    # Position directly below the board
-    DEFAULT_Y = 200
-    DEFAULT_HEIGHT = 36
+    # Position directly below the board (board is at y=16, height=128)
+    DEFAULT_Y = 144
+    DEFAULT_HEIGHT = 72
     
     def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None,
                  timed_mode: bool = True):
@@ -344,18 +344,21 @@ class ChessClockWidget(Widget):
     
     def _render_timed_mode(self, draw: ImageDraw.Draw) -> None:
         """
-        Render timed mode: both clocks side by side.
+        Render timed mode: stacked layout with white on top, black below.
         
-        Layout:
-        |[o] White  05:23 | [o] Black  04:17|
+        Layout (72 pixels height):
+        - Top section: [indicator] White  MM:SS
+        - Separator line
+        - Bottom section: [indicator] Black  MM:SS
         """
-        half_width = self.width // 2
-        center_y = (self.height - 2) // 2  # -2 for top separator
+        section_height = (self.height - 4) // 2  # -4 for top/middle separators
         
-        # === WHITE SIDE (left half) ===
-        # Indicator circle
-        indicator_size = 8
-        indicator_y = center_y - indicator_size // 2 + 2
+        # === WHITE SECTION (top) ===
+        white_y = 4
+        
+        # Indicator circle (larger for visibility)
+        indicator_size = 12
+        indicator_y = white_y + (section_height - indicator_size) // 2
         if self._active_color == 'white':
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
@@ -363,78 +366,74 @@ class ChessClockWidget(Widget):
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=255, outline=0)
         
-        # "W" label (compact)
-        draw.text((16, 4), "W", font=self._font_label, fill=0)
+        # "White" label
+        draw.text((20, white_y + 2), "White", font=self._font_label, fill=0)
         
-        # White time
+        # White time (right aligned, large font)
         white_time_str = self._format_time(self._white_time)
-        draw.text((16, 16), white_time_str, font=self._font_time, fill=0)
+        time_bbox = draw.textbbox((0, 0), white_time_str, font=self._font_time)
+        time_width = time_bbox[2] - time_bbox[0]
+        draw.text((self.width - time_width - 4, white_y + 10), white_time_str, font=self._font_time, fill=0)
         
-        # Vertical separator
-        draw.line([(half_width, 2), (half_width, self.height - 2)], fill=0, width=1)
+        # Horizontal separator
+        separator_y = self.height // 2
+        draw.line([(0, separator_y), (self.width, separator_y)], fill=0, width=1)
         
-        # === BLACK SIDE (right half) ===
-        black_x = half_width + 4
+        # === BLACK SECTION (bottom) ===
+        black_y = separator_y + 4
         
         # Indicator circle
+        indicator_y = black_y + (section_height - indicator_size) // 2
         if self._active_color == 'black':
-            draw.ellipse([(black_x, indicator_y), (black_x + indicator_size, indicator_y + indicator_size)], 
+            draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
-            draw.ellipse([(black_x, indicator_y), (black_x + indicator_size, indicator_y + indicator_size)], 
+            draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=255, outline=0)
         
-        # "B" label (compact)
-        draw.text((black_x + 12, 4), "B", font=self._font_label, fill=0)
+        # "Black" label
+        draw.text((20, black_y + 2), "Black", font=self._font_label, fill=0)
         
-        # Black time
+        # Black time (right aligned, large font)
         black_time_str = self._format_time(self._black_time)
-        draw.text((black_x + 12, 16), black_time_str, font=self._font_time, fill=0)
+        time_bbox = draw.textbbox((0, 0), black_time_str, font=self._font_time)
+        time_width = time_bbox[2] - time_bbox[0]
+        draw.text((self.width - time_width - 4, black_y + 10), black_time_str, font=self._font_time, fill=0)
     
     def _render_compact_mode(self, draw: ImageDraw.Draw) -> None:
         """
-        Render compact mode: centered turn indicator text.
+        Render compact mode: large centered turn indicator.
         
-        Layout:
-        |        [o] White Turn        |
-        or
-        |        [o] Black Turn        |
+        Layout (72 pixels height):
+        - Large indicator circle (filled for black, empty for white)
+        - "White's Turn" or "Black's Turn" text below
         """
         # Determine text
         if self._active_color == 'black':
-            turn_text = "Black Turn"
+            turn_text = "Black's Turn"
         else:
             # Default to white if None or 'white'
-            turn_text = "White Turn"
+            turn_text = "White's Turn"
         
-        # Calculate text width for centering
-        text_bbox = draw.textbbox((0, 0), turn_text, font=self._font_turn)
-        text_width = text_bbox[2] - text_bbox[0]
-        text_height = text_bbox[3] - text_bbox[1]
+        # Large indicator circle at top center
+        indicator_size = 28
+        indicator_x = (self.width - indicator_size) // 2
+        indicator_y = 8
         
-        # Total width including indicator
-        indicator_size = 10
-        gap = 6
-        total_width = indicator_size + gap + text_width
-        
-        # Center everything
-        start_x = (self.width - total_width) // 2
-        center_y = (self.height + 2) // 2  # +2 for top separator offset
-        
-        # Draw indicator
-        indicator_y = center_y - indicator_size // 2
         if self._active_color == 'black':
             # Filled circle for black
-            draw.ellipse([(start_x, indicator_y), 
-                         (start_x + indicator_size, indicator_y + indicator_size)], 
+            draw.ellipse([(indicator_x, indicator_y), 
+                         (indicator_x + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
-            # Empty circle for white
-            draw.ellipse([(start_x, indicator_y), 
-                         (start_x + indicator_size, indicator_y + indicator_size)], 
-                        fill=255, outline=0)
+            # Empty circle for white (with thick border)
+            draw.ellipse([(indicator_x, indicator_y), 
+                         (indicator_x + indicator_size, indicator_y + indicator_size)], 
+                        fill=255, outline=0, width=2)
         
-        # Draw text
-        text_x = start_x + indicator_size + gap
-        text_y = center_y - text_height // 2 - 2
-        draw.text((text_x, text_y), turn_text, font=self._font_turn, fill=0)
+        # Turn text below indicator (centered)
+        text_bbox = draw.textbbox((0, 0), turn_text, font=self._font_time)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_x = (self.width - text_width) // 2
+        text_y = indicator_y + indicator_size + 6
+        draw.text((text_x, text_y), turn_text, font=self._font_time, fill=0)
