@@ -9,21 +9,13 @@ from PIL import Image
 from .framework.widget import Widget
 from .text import TextWidget, Justify
 from .status_bar import STATUS_BAR_HEIGHT
-import os
-import sys
+from .resources import get_resource_path
 
 try:
     from DGTCentaurMods.board.logging import log
 except ImportError:
     import logging
     log = logging.getLogger(__name__)
-
-# Import AssetManager - use direct module import to avoid circular import
-try:
-    from DGTCentaurMods.managers.asset import AssetManager
-except ImportError:
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from managers.asset import AssetManager
 
 
 class SplashScreen(Widget):
@@ -111,7 +103,7 @@ class SplashScreen(Widget):
         """Load knight logo image."""
         # Load the knight logo bitmap
         try:
-            logo_path = AssetManager.get_resource_path("knight_logo.bmp")
+            logo_path = get_resource_path("knight_logo.bmp")
             full_logo = Image.open(logo_path)
             # Resize to target size (use LANCZOS for older Pillow compatibility)
             try:

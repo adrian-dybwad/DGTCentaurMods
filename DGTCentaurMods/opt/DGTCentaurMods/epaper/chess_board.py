@@ -4,8 +4,8 @@ Chess board widget displaying a chess position from FEN.
 
 from PIL import Image, ImageDraw
 from .framework.widget import Widget
+from .resources import get_resource_path
 import os
-import sys
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -13,15 +13,6 @@ except ImportError:
     # Fallback for direct execution
     import logging
     log = logging.getLogger(__name__)
-
-# Import AssetManager - use direct module import to avoid circular import
-# (managers/__init__.py imports ProtocolManager which imports emulators which imports board)
-try:
-    from DGTCentaurMods.managers.asset import AssetManager
-except ImportError:
-    # Fallback for direct execution
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from managers.asset import AssetManager
 
 
 class ChessBoardWidget(Widget):
@@ -43,7 +34,7 @@ class ChessBoardWidget(Widget):
         
         log.info("[ChessBoardWidget] Preloading chesssprites into cache")
         try:
-            font_path = AssetManager.get_resource_path("chesssprites.bmp")
+            font_path = get_resource_path("chesssprites.bmp")
             if font_path and os.path.exists(font_path):
                 loaded_image = Image.open(font_path)
                 # Convert to "1" mode (1-bit monochrome) immediately
@@ -88,11 +79,11 @@ class ChessBoardWidget(Widget):
         log.info("Attempting to load chesssprites sprite sheet (cache miss)")
         
         try:
-            font_path = AssetManager.get_resource_path("chesssprites.bmp")
+            font_path = get_resource_path("chesssprites.bmp")
             log.info(f"Resolved chesssprites path: {font_path}")
             
             if not font_path:
-                log.error("AssetManager.get_resource_path() returned empty path for chesssprites bmp")
+                log.error("get_resource_path() returned empty path for chesssprites bmp")
                 self._chess_font = None
                 return
             

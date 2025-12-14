@@ -8,20 +8,16 @@ button menus on the small e-paper display.
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget, DITHER_PATTERNS
 from .text import TextWidget, Justify
+from .resources import get_resource_path
 from typing import Optional
 import math
+import os
 
 try:
     from DGTCentaurMods.board.logging import log
 except ImportError:
     import logging
     log = logging.getLogger(__name__)
-
-# Import AssetManager - use direct module import to avoid circular import
-try:
-    from DGTCentaurMods.managers.asset import AssetManager
-except ImportError:
-    AssetManager = None
 
 
 class IconButtonWidget(Widget):
@@ -587,10 +583,7 @@ class IconButtonWidget(Widget):
         """
         try:
             # Load the pre-rendered knight bitmap
-            if AssetManager:
-                logo_path = AssetManager.get_resource_path("knight_logo.bmp")
-            else:
-                logo_path = "resources/knight_logo.bmp"
+            logo_path = get_resource_path("knight_logo.bmp")
             
             logo = Image.open(logo_path)
             

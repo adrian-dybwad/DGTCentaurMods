@@ -4,19 +4,9 @@ Text display widget.
 
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget, DITHER_PATTERNS
+from .resources import get_resource_path
 from enum import Enum
 import os
-import sys
-
-# Import AssetManager - use direct module import to avoid circular import
-try:
-    from DGTCentaurMods.managers.asset import AssetManager
-except ImportError:
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    try:
-        from managers.asset import AssetManager
-    except ImportError:
-        AssetManager = None
 
 
 class Justify(Enum):
@@ -134,24 +124,16 @@ class TextWidget(Widget):
         if self.font_path and os.path.exists(self.font_path):
             return self.font_path
         
-        # Default to Font.ttc using AssetManager if available
-        if AssetManager is not None:
-            try:
-                default_font_path = AssetManager.get_resource_path("Font.ttc")
-                if default_font_path and os.path.exists(default_font_path):
-                    return default_font_path
-            except Exception:
-                pass
+        # Default to Font.ttc using local resource resolver
+        default_font_path = get_resource_path("Font.ttc")
+        if default_font_path and os.path.exists(default_font_path):
+            return default_font_path
         
-        # Fallback to direct paths
-        font_paths = [
-            '/opt/DGTCentaurMods/resources/Font.ttc',
-            'resources/Font.ttc',
-            '/opt/DGTCentaurMods/resources/fixed_01.ttf',
-            'resources/fixed_01.ttf',
+        # Fallback to system fonts
+        fallback_paths = [
             '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
         ]
-        for path in font_paths:
+        for path in fallback_paths:
             if os.path.exists(path):
                 return path
         

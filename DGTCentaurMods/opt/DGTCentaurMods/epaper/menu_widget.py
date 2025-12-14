@@ -11,12 +11,6 @@ from dataclasses import dataclass
 import threading
 from DGTCentaurMods.board.logging import log
 
-# Import AssetManager - use direct module import to avoid circular import
-try:
-    from DGTCentaurMods.managers.asset import AssetManager
-except ImportError:
-    AssetManager = None
-
 # Constants matching menu.py
 STATUS_BAR_HEIGHT = 16
 TITLE_GAP = 8

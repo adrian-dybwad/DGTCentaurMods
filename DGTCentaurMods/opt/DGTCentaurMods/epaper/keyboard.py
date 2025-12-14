@@ -13,6 +13,7 @@ Usage:
 
 from PIL import Image, ImageDraw, ImageFont
 from .framework.widget import Widget
+from .resources import get_resource_path
 from typing import Optional, Callable
 import threading
 
@@ -21,12 +22,6 @@ try:
 except ImportError:
     import logging
     log = logging.getLogger(__name__)
-
-# Import AssetManager - use direct module import to avoid circular import
-try:
-    from DGTCentaurMods.managers.asset import AssetManager
-except ImportError:
-    AssetManager = None
 
 
 # Display dimensions
@@ -116,10 +111,11 @@ class KeyboardWidget(Widget):
     def _load_fonts(self):
         """Load fonts for rendering."""
         try:
-            if AssetManager:
-                self._font = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 16)
-                self._font_small = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 12)
-                self._font_tiny = ImageFont.truetype(AssetManager.get_resource_path("Font.ttc"), 10)
+            font_path = get_resource_path("Font.ttc")
+            if font_path:
+                self._font = ImageFont.truetype(font_path, 16)
+                self._font_small = ImageFont.truetype(font_path, 12)
+                self._font_tiny = ImageFont.truetype(font_path, 10)
             else:
                 self._font = ImageFont.load_default()
                 self._font_small = self._font
