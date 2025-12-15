@@ -84,12 +84,12 @@ class Widget(ABC):
         self._last_rendered: Optional[Image.Image] = None
         self._scheduler: Optional['Scheduler'] = None
         self._update_callback: Optional[Callable[[bool], object]] = None
-        log.trace(f"Widget.__init__(): Created {self.__class__.__name__} instance id={id(self)} at ({x}, {y}) size {width}x{height}")
+        log.debug(f"Widget.__init__(): Created {self.__class__.__name__} instance id={id(self)} at ({x}, {y}) size {width}x{height}")
     
     def set_scheduler(self, scheduler: 'Scheduler') -> None:
         """Set the scheduler for this widget to trigger updates."""
         self._scheduler = scheduler
-        log.trace(f"Widget.set_scheduler(): {self.__class__.__name__} id={id(self)} scheduler set")
+        log.debug(f"Widget.set_scheduler(): {self.__class__.__name__} id={id(self)} scheduler set")
     
     def set_update_callback(self, callback: Callable[[bool], object]) -> None:
         """Set a callback to trigger Manager.update() when widget state changes.
@@ -98,7 +98,7 @@ class Widget(ABC):
         This allows widgets to trigger full update cycles that render all widgets.
         """
         self._update_callback = callback
-        log.trace(f"Widget.set_update_callback(): {self.__class__.__name__} id={id(self)} update callback set")
+        log.debug(f"Widget.set_update_callback(): {self.__class__.__name__} id={id(self)} update callback set")
             
     def get_scheduler(self) -> Optional['Scheduler']:
         """Get the scheduler for this widget."""
@@ -129,19 +129,19 @@ class Widget(ABC):
         """
         # Ignore update requests from hidden widgets (unless forced)
         if not self.visible and not forced:
-            log.trace(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (widget is hidden)")
+            log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (widget is hidden)")
             return None
         
         if full:
             log.warning(f"Widget.request_update(): {self.__class__.__name__} requesting FULL refresh (will cause flashing)")
         else:
-            log.trace(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} requesting partial update")
+            log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} requesting partial update")
         
         if self._update_callback is not None:
             return self._update_callback(full)
         
         # No callback available - cannot update without Manager
-        log.trace(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (no update callback)")
+        log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (no update callback)")
         return None
     
     def set_background_shade(self, shade: int) -> None:
@@ -170,9 +170,33 @@ class Widget(ABC):
             A new 1-bit image with the dithered background pattern applied.
         """
         img = Image.new("1", (self.width, self.height), 255)
+        self.apply_background(img, 0, 0)
+        return img
+    
+    def apply_background(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Apply dithered background pattern to a region of an existing image.
         
+        Draws the widget's dithered background pattern directly onto the
+        target image at the specified coordinates. This avoids creating
+        intermediate images when widgets draw onto a shared canvas.
+        
+        Uses an 8x8 Bayer matrix for ordered dithering, which provides
+        smoother gradients and less obvious tiling than 4x4 patterns.
+        
+        Args:
+            img: Target image to draw the background onto.
+            draw_x: X coordinate on target image where background starts.
+            draw_y: Y coordinate on target image where background starts.
+        """
         if self._background_shade == 0:
-            return img  # Pure white, no dithering needed
+            # Pure white background - fill the region with white
+            from PIL import ImageDraw
+            draw = ImageDraw.Draw(img)
+            draw.rectangle(
+                [(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)],
+                fill=255
+            )
+            return
         
         pattern = DITHER_PATTERNS.get(self._background_shade, DITHER_PATTERNS[0])
         pixels = img.load()
@@ -180,9 +204,9 @@ class Widget(ABC):
             pattern_row = pattern[y % 8]
             for x in range(self.width):
                 if pattern_row[x % 8] == 1:
-                    pixels[x, y] = 0  # Black pixel
-        
-        return img
+                    pixels[draw_x + x, draw_y + y] = 0  # Black pixel
+                else:
+                    pixels[draw_x + x, draw_y + y] = 255  # White pixel
     
     @abstractmethod
     def render(self) -> Image.Image:
@@ -202,7 +226,7 @@ class Widget(ABC):
         if not self.visible:
             self.visible = True
             self._last_rendered = None  # Force re-render
-            log.debug(f"Widget.show(): {self.__class__.__name__} id={id(self)} now visible")
+            log.info(f"Widget.show(): {self.__class__.__name__} id={id(self)} now visible")
             self.request_update(full=False, forced=True)
     
     def hide(self) -> None:
@@ -217,7 +241,7 @@ class Widget(ABC):
         if self.visible:
             self.visible = False
             self._last_rendered = None
-            log.debug(f"Widget.hide(): {self.__class__.__name__} id={id(self)} now hidden")
+            log.info(f"Widget.hide(): {self.__class__.__name__} id={id(self)} now hidden")
             self.request_update(full=False, forced=True)
     
     def stop(self) -> None:
@@ -230,4 +254,4 @@ class Widget(ABC):
         This method is called by Manager.shutdown() to ensure proper cleanup
         of all widgets before the display is shut down.
         """
-        log.trace(f"Widget.stop(): {self.__class__.__name__} id={id(self)} stop() called")
+        log.debug(f"Widget.stop(): {self.__class__.__name__} id={id(self)} stop() called")
