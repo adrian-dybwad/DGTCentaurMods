@@ -84,12 +84,12 @@ class Widget(ABC):
         self._last_rendered: Optional[Image.Image] = None
         self._scheduler: Optional['Scheduler'] = None
         self._update_callback: Optional[Callable[[bool], object]] = None
-        log.debug(f"Widget.__init__(): Created {self.__class__.__name__} instance id={id(self)} at ({x}, {y}) size {width}x{height}")
+        log.trace(f"Widget.__init__(): Created {self.__class__.__name__} instance id={id(self)} at ({x}, {y}) size {width}x{height}")
     
     def set_scheduler(self, scheduler: 'Scheduler') -> None:
         """Set the scheduler for this widget to trigger updates."""
         self._scheduler = scheduler
-        log.debug(f"Widget.set_scheduler(): {self.__class__.__name__} id={id(self)} scheduler set")
+        log.trace(f"Widget.set_scheduler(): {self.__class__.__name__} id={id(self)} scheduler set")
     
     def set_update_callback(self, callback: Callable[[bool], object]) -> None:
         """Set a callback to trigger Manager.update() when widget state changes.
@@ -98,7 +98,7 @@ class Widget(ABC):
         This allows widgets to trigger full update cycles that render all widgets.
         """
         self._update_callback = callback
-        log.debug(f"Widget.set_update_callback(): {self.__class__.__name__} id={id(self)} update callback set")
+        log.trace(f"Widget.set_update_callback(): {self.__class__.__name__} id={id(self)} update callback set")
             
     def get_scheduler(self) -> Optional['Scheduler']:
         """Get the scheduler for this widget."""
@@ -129,19 +129,19 @@ class Widget(ABC):
         """
         # Ignore update requests from hidden widgets (unless forced)
         if not self.visible and not forced:
-            log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (widget is hidden)")
+            log.trace(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (widget is hidden)")
             return None
         
         if full:
             log.warning(f"Widget.request_update(): {self.__class__.__name__} requesting FULL refresh (will cause flashing)")
         else:
-            log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} requesting partial update")
+            log.trace(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} requesting partial update")
         
         if self._update_callback is not None:
             return self._update_callback(full)
         
         # No callback available - cannot update without Manager
-        log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (no update callback)")
+        log.trace(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (no update callback)")
         return None
     
     def set_background_shade(self, shade: int) -> None:
@@ -202,7 +202,7 @@ class Widget(ABC):
         if not self.visible:
             self.visible = True
             self._last_rendered = None  # Force re-render
-            log.info(f"Widget.show(): {self.__class__.__name__} id={id(self)} now visible")
+            log.debug(f"Widget.show(): {self.__class__.__name__} id={id(self)} now visible")
             self.request_update(full=False, forced=True)
     
     def hide(self) -> None:
@@ -217,7 +217,7 @@ class Widget(ABC):
         if self.visible:
             self.visible = False
             self._last_rendered = None
-            log.info(f"Widget.hide(): {self.__class__.__name__} id={id(self)} now hidden")
+            log.debug(f"Widget.hide(): {self.__class__.__name__} id={id(self)} now hidden")
             self.request_update(full=False, forced=True)
     
     def stop(self) -> None:
@@ -230,4 +230,4 @@ class Widget(ABC):
         This method is called by Manager.shutdown() to ensure proper cleanup
         of all widgets before the display is shut down.
         """
-        log.debug(f"Widget.stop(): {self.__class__.__name__} id={id(self)} stop() called")
+        log.trace(f"Widget.stop(): {self.__class__.__name__} id={id(self)} stop() called")
