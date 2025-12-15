@@ -143,12 +143,14 @@ class EnginePlayer(Player):
                 
                 with self._lock:
                     self._engine = engine
-                    self._set_state(PlayerState.READY)
                 
                 color_name = 'White' if self._color == chess.WHITE else 'Black' if self._color == chess.BLACK else ''
                 log.info(f"[EnginePlayer] {color_name} engine ready: {self.engine_name} @ {self.elo_section}")
                 self._report_status(f"{self.engine_name} ready")
-                # Queued move request is processed by base class _set_state
+                
+                # Set state OUTSIDE lock - _set_state may call _do_request_move
+                # which needs to acquire the lock
+                self._set_state(PlayerState.READY)
                 
             except Exception as e:
                 log.error(f"[EnginePlayer] Failed to initialize engine: {e}")
