@@ -1036,9 +1036,10 @@ def create_settings_entries() -> List[IconMenuEntry]:
         time_icon = "timer_checked"
     
     return [
-        IconMenuEntry(key="Positions", label="Positions", icon_name="positions", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="Players", label=players_label, icon_name="players", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="TimeControl", label=time_label, icon_name=time_icon, enabled=True, font_size=12, height_ratio=0.8),
+        IconMenuEntry(key="Positions", label="Positions", icon_name="positions", enabled=True, font_size=12, height_ratio=0.8),
+        IconMenuEntry(key="Chromecast", label="Chromecast", icon_name="cast", enabled=True, font_size=12, height_ratio=0.8),
         IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=12, height_ratio=0.8),
     ]
 
@@ -1569,6 +1570,12 @@ def _handle_settings():
             if position_result:
                 # Position was loaded, exit settings and go to game
                 return
+        
+        elif result == "Chromecast":
+            chromecast_result = _handle_chromecast_menu()
+            if is_break_result(chromecast_result):
+                app_state = AppState.MENU
+                return chromecast_result
         
         elif result == "System":
             system_result = _handle_system_menu()
@@ -2895,6 +2902,141 @@ def _handle_sound_settings():
     return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=4)
 
 
+def _handle_chromecast_menu():
+    """Handle Chromecast menu - discover and stream to Chromecast devices.
+    
+    Discovers available Chromecast devices on the network, presents a menu
+    for selection, and launches the cchandler background process to stream
+    the board display to the selected device.
+    
+    Returns:
+        Break result if interrupted, None otherwise.
+    """
+    import subprocess
+    import pathlib
+    
+    # Kill any existing cchandler processes
+    try:
+        subprocess.run(
+            ["pkill", "-f", "cchandler.py"],
+            capture_output=True,
+            timeout=5
+        )
+    except Exception:
+        pass  # Ignore errors from pkill
+    
+    # Show discovering message
+    board.display_manager.clear_widgets()
+    promise = board.display_manager.add_widget(SplashScreen(message="Discovering\nChromecasts..."))
+    if promise:
+        try:
+            promise.result(timeout=2.0)
+        except Exception:
+            pass
+    
+    # Discover Chromecasts
+    try:
+        import pychromecast
+        chromecasts, browser = pychromecast.get_chromecasts()
+    except ImportError:
+        log.error("[Chromecast] pychromecast library not installed")
+        board.display_manager.clear_widgets()
+        promise = board.display_manager.add_widget(SplashScreen(message="pychromecast\nnot installed"))
+        if promise:
+            try:
+                promise.result(timeout=2.0)
+            except Exception:
+                pass
+        time.sleep(2)
+        return None
+    except Exception as e:
+        log.error(f"[Chromecast] Discovery failed: {e}")
+        board.display_manager.clear_widgets()
+        promise = board.display_manager.add_widget(SplashScreen(message="Discovery\nfailed"))
+        if promise:
+            try:
+                promise.result(timeout=2.0)
+            except Exception:
+                pass
+        time.sleep(2)
+        return None
+    
+    # Build menu of available Chromecasts (cast type only, not audio devices)
+    cast_entries = []
+    for cc in chromecasts:
+        if cc.device.cast_type == 'cast':
+            friendly_name = cc.device.friendly_name
+            cast_entries.append(
+                IconMenuEntry(key=friendly_name, label=friendly_name, icon_name="cast", enabled=True)
+            )
+    
+    # Stop the browser to clean up resources
+    try:
+        browser.stop_discovery()
+    except Exception:
+        pass
+    
+    if not cast_entries:
+        log.info("[Chromecast] No Chromecast devices found")
+        board.display_manager.clear_widgets()
+        promise = board.display_manager.add_widget(SplashScreen(message="No Chromecasts\nfound"))
+        if promise:
+            try:
+                promise.result(timeout=2.0)
+            except Exception:
+                pass
+        time.sleep(2)
+        return None
+    
+    log.info(f"[Chromecast] Found {len(cast_entries)} device(s)")
+    
+    # Show menu to select Chromecast
+    result = _menu_manager.show_menu(cast_entries)
+    
+    if result.is_break or result.key == "BACK":
+        return result if result.is_break else None
+    
+    # Launch cchandler in background for selected Chromecast
+    selected_name = result.key
+    cchandler_path = str(pathlib.Path(__file__).parent / 'cchandler.py')
+    
+    try:
+        # Start cchandler as a background process
+        subprocess.Popen(
+            [sys.executable, cchandler_path, selected_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+        log.info(f"[Chromecast] Started streaming to: {selected_name}")
+        
+        # Show feedback
+        board.display_manager.clear_widgets()
+        # Truncate long names
+        display_name = selected_name[:18] if len(selected_name) > 18 else selected_name
+        promise = board.display_manager.add_widget(SplashScreen(message=f"Streaming to\n{display_name}"))
+        if promise:
+            try:
+                promise.result(timeout=2.0)
+            except Exception:
+                pass
+        time.sleep(2)
+        board.beep(board.SOUND_GENERAL)
+        
+    except Exception as e:
+        log.error(f"[Chromecast] Failed to start cchandler: {e}")
+        board.display_manager.clear_widgets()
+        promise = board.display_manager.add_widget(SplashScreen(message="Failed to\nstart stream"))
+        if promise:
+            try:
+                promise.result(timeout=2.0)
+            except Exception:
+                pass
+        time.sleep(2)
+    
+    return None
+
+
 def _handle_system_menu():
     """Handle system submenu (display, sound, WiFi, Bluetooth, sleep timer, reset, shutdown, reboot)."""
     
@@ -2923,6 +3065,10 @@ def _handle_system_menu():
                 return sub_result
         elif result.key == "Bluetooth":
             sub_result = _handle_bluetooth_settings()
+            if is_break_result(sub_result):
+                return sub_result
+        elif result.key == "Chromecast":
+            sub_result = _handle_chromecast_menu()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Accounts":

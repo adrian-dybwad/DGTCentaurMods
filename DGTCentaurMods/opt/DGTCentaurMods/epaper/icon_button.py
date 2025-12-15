@@ -479,6 +479,8 @@ class IconButtonWidget(Widget):
             self._draw_checkbox_icon(draw, x, y, size, line_color, checked=False)
         elif icon_name == "display":
             self._draw_display_icon(draw, x, y, size, line_color)
+        elif icon_name == "cast":
+            self._draw_cast_icon(draw, x, y, size, line_color)
         else:
             # Default: simple square placeholder
             draw.rectangle([left + 4, top + 4, right - 4, bottom - 4],
@@ -1895,3 +1897,50 @@ class IconButtonWidget(Widget):
         base_y = stand_bottom
         draw.line([(x - base_width // 2, base_y), (x + base_width // 2, base_y)],
                   fill=line_color, width=line_width)
+
+    def _draw_cast_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                        size: int, line_color: int):
+        """Draw a Chromecast/cast icon (TV with wireless signal).
+
+        Shows a rounded rectangle (TV screen) with wireless arc signals
+        emanating from the bottom-left corner, representing casting.
+
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line color (0=black, 255=white)
+        """
+        s = size / 36.0
+        line_width = max(2, int(2 * s))
+
+        # TV/screen rectangle (rounded corners simulated with rectangle)
+        screen_width = int(28 * s)
+        screen_height = int(20 * s)
+        screen_left = x - screen_width // 2
+        screen_right = x + screen_width // 2
+        screen_top = y - screen_height // 2
+        screen_bottom = y + screen_height // 2
+
+        draw.rectangle([screen_left, screen_top, screen_right, screen_bottom],
+                      outline=line_color, width=line_width)
+
+        # Wireless signal arcs from bottom-left corner
+        # Origin of the signal
+        signal_x = screen_left + int(4 * s)
+        signal_y = screen_bottom - int(4 * s)
+
+        # Draw concentric arcs (3 arcs for wireless signal)
+        for i, radius in enumerate([int(4 * s), int(8 * s), int(12 * s)]):
+            # Draw arc in bottom-left quadrant (270 to 360 degrees = bottom-right quarter)
+            bbox = [signal_x - radius, signal_y - radius,
+                    signal_x + radius, signal_y + radius]
+            # Arc from 270 degrees (pointing up) to 360 degrees (pointing right)
+            draw.arc(bbox, start=270, end=360, fill=line_color, width=line_width)
+
+        # Small filled circle at signal origin
+        dot_r = max(1, int(2 * s))
+        draw.ellipse([signal_x - dot_r, signal_y - dot_r,
+                     signal_x + dot_r, signal_y + dot_r],
+                    fill=line_color)
