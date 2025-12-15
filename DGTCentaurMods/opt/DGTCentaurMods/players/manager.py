@@ -236,15 +236,12 @@ class PlayerManager:
         Notifies the current player it's their turn. They should prepare
         to receive piece events and eventually submit a move.
         
+        The player's base class handles queuing if not yet ready.
+        
         Args:
             board: Current board position.
         """
         player = self.get_current_player(board)
-        
-        if not player.is_ready:
-            log.warning(f"[PlayerManager] {player.name} not ready, cannot request move")
-            return
-        
         log.debug(f"[PlayerManager] Requesting move from {player.name}")
         player.request_move(board)
     
