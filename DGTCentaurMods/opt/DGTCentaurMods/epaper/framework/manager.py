@@ -13,12 +13,9 @@ from .widget import Widget
 from .waveshare import epdconfig
 from ..status_bar import StatusBarWidget
 
-try:
-    from DGTCentaurMods.board.logging import log
-except ImportError:
-    import logging
-    log = logging.getLogger(__name__)
-
+import logging
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
 
 class Manager:
     """Main coordinator for the ePaper framework.
