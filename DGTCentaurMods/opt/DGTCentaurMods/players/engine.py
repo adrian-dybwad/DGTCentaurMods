@@ -206,7 +206,7 @@ class EnginePlayer(Player):
         
         # Reset state for new turn
         self._pending_move = None
-        self._lifted_square = None
+        self._lifted_squares = []
         
         self._thinking = True
         self._set_state(PlayerState.THINKING)
@@ -261,50 +261,33 @@ class EnginePlayer(Player):
         )
         self._think_thread.start()
     
-    def on_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
-        """Handle a piece event from the physical board.
+    def _on_move_formed(self, move: chess.Move) -> None:
+        """Validate formed move matches engine's computed move.
         
-        Constructs a move from lift/place sequence. Only submits if
-        the move matches the engine's computed move. If it doesn't match,
-        the board state is wrong and needs correction.
+        Only submits if the move matches the pending move. If it doesn't
+        match, the board state is wrong and needs correction.
         
         Args:
-            event_type: "lift" or "place"
-            square: The square index (0-63)
-            board: Current chess position
+            move: The formed move from piece events.
         """
-        if event_type == "lift":
-            self._lifted_square = square
-            log.debug(f"[EnginePlayer] Piece lifted from {chess.square_name(square)}")
+        log.debug(f"[EnginePlayer] Move formed: {move.uci()}")
         
-        elif event_type == "place":
-            if self._lifted_square is not None:
-                # Form the move
-                move = chess.Move(self._lifted_square, square)
-                log.debug(f"[EnginePlayer] Move formed: {move.uci()}")
-                
-                # Reset lifted state
-                self._lifted_square = None
-                
-                # Only submit if it matches the pending move
-                if self._pending_move is None:
-                    log.warning(f"[EnginePlayer] Move formed but no pending move - engine still thinking?")
-                    return
-                
-                # Check if move matches (ignoring promotion for now - handle separately)
-                if move.from_square == self._pending_move.from_square and \
-                   move.to_square == self._pending_move.to_square:
-                    # Match! Submit the pending move (includes promotion if any)
-                    log.info(f"[EnginePlayer] Move matches pending: {self._pending_move.uci()}")
-                    if self._move_callback:
-                        self._move_callback(self._pending_move)
-                    else:
-                        log.warning("[EnginePlayer] No move callback set, cannot submit move")
-                else:
-                    # Doesn't match - board needs correction
-                    log.warning(f"[EnginePlayer] Move {move.uci()} does not match pending {self._pending_move.uci()} - correction needed")
+        if self._pending_move is None:
+            log.warning(f"[EnginePlayer] Move formed but no pending move - engine still thinking?")
+            return
+        
+        # Check if move matches (ignoring promotion - use pending move's promotion)
+        if move.from_square == self._pending_move.from_square and \
+           move.to_square == self._pending_move.to_square:
+            # Match! Submit the pending move (includes promotion if any)
+            log.info(f"[EnginePlayer] Move matches pending: {self._pending_move.uci()}")
+            if self._move_callback:
+                self._move_callback(self._pending_move)
             else:
-                log.debug(f"[EnginePlayer] Piece placed on {chess.square_name(square)} but no lift tracked")
+                log.warning("[EnginePlayer] No move callback set, cannot submit move")
+        else:
+            # Doesn't match - board needs correction
+            log.warning(f"[EnginePlayer] Move {move.uci()} does not match pending {self._pending_move.uci()} - correction needed")
     
     def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
         """Notification that a move was made.
@@ -313,7 +296,7 @@ class EnginePlayer(Player):
         """
         log.debug(f"[EnginePlayer] Move made: {move.uci()}")
         self._pending_move = None
-        self._lifted_square = None
+        self._lifted_squares = []
     
     def on_new_game(self) -> None:
         """Notification that a new game is starting.

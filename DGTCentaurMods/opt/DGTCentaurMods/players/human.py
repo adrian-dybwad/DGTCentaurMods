@@ -89,7 +89,7 @@ class HumanPlayer(Player):
         Args:
             board: Current chess position.
         """
-        self._lifted_square = None
+        self._lifted_squares = []
         log.debug("[HumanPlayer] Turn started, waiting for piece events")
     
     def on_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:

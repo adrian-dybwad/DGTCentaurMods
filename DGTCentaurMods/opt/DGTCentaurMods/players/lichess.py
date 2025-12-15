@@ -259,7 +259,7 @@ class LichessPlayer(Player):
         Args:
             board: Current chess position.
         """
-        self._lifted_square = None
+        self._lifted_squares = []
         
         if self._pending_move:
             log.info(f"[LichessPlayer] Displaying pending move: {self._pending_move.uci()}")
@@ -268,50 +268,33 @@ class LichessPlayer(Player):
         else:
             log.debug("[LichessPlayer] request_move called - waiting for server move")
     
-    def on_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
-        """Handle a piece event from the physical board.
+    def _on_move_formed(self, move: chess.Move) -> None:
+        """Validate formed move matches server's move.
         
-        Constructs a move from lift/place sequence. Only submits if
-        the move matches the server's move. If it doesn't match,
-        the board state is wrong and needs correction.
+        Only submits if the move matches the pending move from server.
+        If it doesn't match, the board state is wrong and needs correction.
         
         Args:
-            event_type: "lift" or "place"
-            square: The square index (0-63)
-            board: Current chess position
+            move: The formed move from piece events.
         """
-        if event_type == "lift":
-            self._lifted_square = square
-            log.debug(f"[LichessPlayer] Piece lifted from {chess.square_name(square)}")
+        log.debug(f"[LichessPlayer] Move formed: {move.uci()}")
         
-        elif event_type == "place":
-            if self._lifted_square is not None:
-                # Form the move
-                move = chess.Move(self._lifted_square, square)
-                log.debug(f"[LichessPlayer] Move formed: {move.uci()}")
-                
-                # Reset lifted state
-                self._lifted_square = None
-                
-                # Only submit if it matches the pending move
-                if self._pending_move is None:
-                    log.warning(f"[LichessPlayer] Move formed but no pending move from server")
-                    return
-                
-                # Check if move matches
-                if move.from_square == self._pending_move.from_square and \
-                   move.to_square == self._pending_move.to_square:
-                    # Match! Submit the pending move (includes promotion if any)
-                    log.info(f"[LichessPlayer] Move matches server: {self._pending_move.uci()}")
-                    if self._move_callback:
-                        self._move_callback(self._pending_move)
-                    else:
-                        log.warning("[LichessPlayer] No move callback set, cannot submit move")
-                else:
-                    # Doesn't match - board needs correction
-                    log.warning(f"[LichessPlayer] Move {move.uci()} does not match server {self._pending_move.uci()} - correction needed")
+        if self._pending_move is None:
+            log.warning(f"[LichessPlayer] Move formed but no pending move from server")
+            return
+        
+        # Check if move matches (ignoring promotion - use pending move's promotion)
+        if move.from_square == self._pending_move.from_square and \
+           move.to_square == self._pending_move.to_square:
+            # Match! Submit the pending move (includes promotion if any)
+            log.info(f"[LichessPlayer] Move matches server: {self._pending_move.uci()}")
+            if self._move_callback:
+                self._move_callback(self._pending_move)
             else:
-                log.debug(f"[LichessPlayer] Piece placed on {chess.square_name(square)} but no lift tracked")
+                log.warning("[LichessPlayer] No move callback set, cannot submit move")
+        else:
+            # Doesn't match - board needs correction
+            log.warning(f"[LichessPlayer] Move {move.uci()} does not match server {self._pending_move.uci()} - correction needed")
     
     def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
         """Notification that a move was made on the board.

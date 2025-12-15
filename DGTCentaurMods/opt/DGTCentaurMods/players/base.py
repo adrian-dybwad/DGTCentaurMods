@@ -19,7 +19,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Optional, Callable
+from typing import Optional, Callable, List
 
 import chess
 
@@ -128,8 +128,10 @@ class Player(ABC):
         self._status_callback: Optional[Callable[[str], None]] = None
         self._error_callback: Optional[Callable[[str], None]] = None
         
-        # Track lifted square for move formation
-        self._lifted_square: Optional[int] = None
+        # Track lifted squares for move formation.
+        # For captures, two pieces are lifted (moving piece + captured piece).
+        # Order doesn't matter - when placed, we determine source from context.
+        self._lifted_squares: List[int] = []
         
         # Queued board position (if request_move called before player ready)
         self._pending_board: Optional[chess.Board] = None
@@ -379,28 +381,31 @@ class Player(ABC):
         Called by request_move() after state validation passes.
         Override this in subclasses, not request_move().
         
-        Default implementation resets lifted square for piece event tracking.
+        Default implementation resets lifted squares for piece event tracking.
         
         Args:
             board: Current chess position.
         """
-        self._lifted_square = None
+        self._lifted_squares = []
     
     def on_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
         """Handle a piece event from the physical board.
 
         Called when a piece is lifted or placed on the board.
-        Forms a move from lift/place sequence and submits via callback.
+        Forms a move from lift/place sequence and calls _on_move_formed().
+        
+        For captures, two pieces are lifted (order doesn't matter):
+        - The moving piece (from source square)
+        - The captured piece (from target square)
+        When the moving piece is placed on the target, we determine which
+        lifted square was the source (the one that's not the target).
         
         Error cases (call error_callback):
-        - Place without lift (extra piece on board)
-        - Place on same square as lift (piece put back)
+        - Place without any lifts (extra piece on board)
+        - All lifted pieces placed back (no move made)
         
-        Success cases (call move_callback):
-        - Lift followed by place on different square
-        
-        Subclasses can override for additional behavior (e.g., engine
-        validating the move matches its computed move).
+        Success cases (call _on_move_formed):
+        - Lift(s) followed by place on a different square
 
         Args:
             event_type: "lift" or "place"
@@ -408,26 +413,51 @@ class Player(ABC):
             board: Current chess position (before the move)
         """
         if event_type == "lift":
-            self._lifted_square = square
+            # Track all lifted squares (up to 2 for captures)
+            if square not in self._lifted_squares:
+                self._lifted_squares.append(square)
         
         elif event_type == "place":
-            if self._lifted_square is None:
-                # Place without lift - error
+            if not self._lifted_squares:
+                # Place without any lifts - extra piece on board
                 self._report_error("place_without_lift")
                 return
             
-            from_sq = self._lifted_square
-            self._lifted_square = None
-            
-            if square == from_sq:
-                # Piece placed back on same square - error (not a move)
-                self._report_error("piece_returned")
-                return
-            
-            # Valid lift/place sequence - form move and submit
-            move = chess.Move(from_sq, square)
-            if self._move_callback:
-                self._move_callback(move)
+            if len(self._lifted_squares) == 1:
+                # Single piece lifted
+                from_sq = self._lifted_squares[0]
+                if square == from_sq:
+                    # Piece placed back - no move
+                    self._lifted_squares = []
+                    self._report_error("piece_returned")
+                    return
+                # Normal move
+                self._lifted_squares = []
+                self._on_move_formed(chess.Move(from_sq, square))
+            else:
+                # Two pieces lifted (capture scenario)
+                if square in self._lifted_squares:
+                    # Placing on one of the lifted squares = capture move
+                    # The OTHER lifted square is the source
+                    from_sq = [sq for sq in self._lifted_squares if sq != square][0]
+                else:
+                    # Placing on a third square - unusual, take first lifted as source
+                    from_sq = self._lifted_squares[0]
+                self._lifted_squares = []
+                self._on_move_formed(chess.Move(from_sq, square))
+    
+    def _on_move_formed(self, move: chess.Move) -> None:
+        """Called when a move is formed from piece events.
+        
+        Default implementation submits via move_callback.
+        Subclasses can override to add validation (e.g., engine/Lichess
+        checking if the move matches their expected move).
+        
+        Args:
+            move: The formed move.
+        """
+        if self._move_callback:
+            self._move_callback(move)
     
     @abstractmethod
     def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
