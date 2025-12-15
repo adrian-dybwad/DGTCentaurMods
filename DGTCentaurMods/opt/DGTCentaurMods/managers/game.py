@@ -2252,6 +2252,9 @@ class GameManager:
         # Capture state needed for async operations
         fen_after_move = str(self.chess_board.fen())
         
+        # Update FEN log for Chromecast/video display
+        AssetManager.write_fen_log(fen_after_move)
+        
         # Check game outcome
         game_ended = False
         result_string = None
@@ -2734,6 +2737,9 @@ class GameManager:
         board.ledsOff()
         log.info("[GameManager._game_thread] Ready to receive events from app coordinator")
         
+        # Write initial FEN for Chromecast/video display
+        AssetManager.write_fen_log(self.chess_board.fen())
+        
         # Note: GameManager no longer subscribes to board events directly.
         # Events are routed from the app coordinator (universal.py) through
         # ProtocolManager.receive_key() and ProtocolManager.receive_field() methods.
@@ -3094,6 +3100,7 @@ def resetBoard():
     global _game_manager_instance
     if _game_manager_instance is not None:
         _game_manager_instance.chess_board.reset()
+        AssetManager.write_fen_log(_game_manager_instance.chess_board.fen())
 
 
 def setBoard(board_obj):
@@ -3101,4 +3108,5 @@ def setBoard(board_obj):
     global _game_manager_instance
     if _game_manager_instance is not None:
         _game_manager_instance.chess_board = board_obj
+        AssetManager.write_fen_log(board_obj.fen())
 
