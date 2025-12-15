@@ -1340,11 +1340,17 @@ def generateVideoFrame():
         draw_chess_board(draw, x_offset, 0, sqsize)
         render_chess_pieces(image, curfen, piece_images, x_offset, y_offset, sqsize)
         
-        newmoddate = os.stat(AssetManager.get_epaper_static_jpg_path())[8]
-        if newmoddate != moddate:
-            sc = Image.open(AssetManager.get_epaper_static_jpg_path())
-            moddate = newmoddate
-        image.paste(sc, (x_offset + 1216 - 130, 635))
+        try:
+            epaper_jpg_path = AssetManager.get_epaper_static_jpg_path()
+            if os.path.isfile(epaper_jpg_path):
+                newmoddate = os.stat(epaper_jpg_path)[8]
+                if newmoddate != moddate:
+                    sc = Image.open(epaper_jpg_path)
+                    moddate = newmoddate
+        except Exception:
+            pass  # Keep using previous sc if file access fails
+        if sc is not None:
+            image.paste(sc, (x_offset + 1216 - 130, 635))
         image.paste(logo, (x_offset + 1216 - 130, 0), logo)
         output = io.BytesIO()
         image = image.convert("RGB")
@@ -1354,10 +1360,62 @@ def generateVideoFrame():
             b'Content-Type: image/jpeg\r\n'
             b'Content-Length: ' + f"{len(cnn)}".encode() + b'\r\n'
             b'\r\n' + cnn + b'\r\n')
+        # Small delay to pace frame generation (~2 fps is sufficient for chess display)
+        time.sleep(0.5)
 
 @app.route('/video')
 def video_feed():
     return Response(generateVideoFrame(),mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/frame.jpg')
+def single_frame():
+    """Serve a single JPEG frame of the current board state.
+    
+    Used by Chromecast which doesn't support MJPEG streams.
+    Returns the composite image with chess board and epaper display.
+    """
+    global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo, sc, moddate
+    piece_images = {
+        'r': rb, 'b': bb, 'n': nb, 'q': qb, 'k': kb, 'p': pb,
+        'R': rw, 'B': bw, 'N': nw, 'Q': qw, 'K': kw, 'P': pw
+    }
+    x_offset = 345
+    y_offset = 16
+    sqsize = 130.9
+    
+    curfen = parse_fen_to_board_string(AssetManager.get_current_fen())
+    image = Image.new(mode="RGBA", size=(1920, 1080), color=(255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([(x_offset, 0), (x_offset + 1329 - 100, 1080)], fill=(33, 33, 33), outline=(33, 33, 33))
+    draw.rectangle([(x_offset + 9, 9), (x_offset + 1220 - 149, 1071)], fill=(225, 225, 225), outline=(225, 225, 225))
+    draw.rectangle([(x_offset + 12, 12), (x_offset + 1216 - 149, 1067)], fill=(33, 33, 33), outline=(33, 33, 33))
+    
+    draw_chess_board(draw, x_offset, 0, sqsize)
+    render_chess_pieces(image, curfen, piece_images, x_offset, y_offset, sqsize)
+    
+    # Load epaper screenshot
+    try:
+        epaper_jpg_path = AssetManager.get_epaper_static_jpg_path()
+        if os.path.isfile(epaper_jpg_path):
+            epaper_img = Image.open(epaper_jpg_path)
+            image.paste(epaper_img, (x_offset + 1216 - 130, 635))
+    except Exception:
+        pass
+    
+    image.paste(logo, (x_offset + 1216 - 130, 0), logo)
+    
+    # Convert to JPEG and return
+    output = io.BytesIO()
+    image = image.convert("RGB")
+    image.save(output, "JPEG", quality=80)
+    output.seek(0)
+    
+    response = Response(output.getvalue(), mimetype='image/jpeg')
+    # Prevent caching so Chromecast gets fresh frames
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 def fenToImage(fen):
     global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo
