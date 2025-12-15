@@ -36,7 +36,7 @@ class Manager:
         self._background = None  # Optional BackgroundWidget for dithered backgrounds
         self._initialized = False
         self._shutting_down = False
-        log.warning(f"Manager.__init__() completed - Manager id: {id(self)}, EPD id: {id(self._epd)}")
+        log.debug(f"Manager.__init__() completed - Manager id: {id(self)}, EPD id: {id(self._epd)}")
     
     def initialize(self, background_shade: int = 4) -> Future:
         """Initialize the display.
@@ -240,7 +240,7 @@ class Manager:
             Future: A Future that completes when the display refresh finishes.
         """
         if full:
-            log.warning(f"Manager.update() called with full=True (will cause flashing refresh)")
+            log.debug(f"Manager.update() called with full=True (will cause flashing refresh)")
         
         if not self._initialized or self._shutting_down:
             from concurrent.futures import Future
