@@ -176,9 +176,12 @@ class BluetoothStatusWidget(Widget):
         sx = icon_w / 10.0
         sy = icon_h / 14.0
         
-        # Center of icon area
-        cx = icon_x + icon_w // 2
+        # Vertical center of icon area
         cy = icon_y + icon_h // 2
+        
+        # The vertical line position: shift left to balance visual weight
+        # since arrows only extend to the right. Place at ~1/3 of icon width.
+        cx = icon_x + icon_w // 3
         
         # Bluetooth runic "B" shape
         top_y = icon_y
