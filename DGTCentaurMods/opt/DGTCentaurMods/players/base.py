@@ -130,6 +130,9 @@ class Player(ABC):
         
         # Track lifted square for move formation
         self._lifted_square: Optional[int] = None
+        
+        # Queued board position (if request_move called before player ready)
+        self._pending_board: Optional[chess.Board] = None
     
     # =========================================================================
     # Properties
@@ -277,15 +280,28 @@ class Player(ABC):
     def _set_state(self, state: PlayerState, error: Optional[str] = None) -> None:
         """Update the player state.
         
+        If transitioning to READY and a move request was queued,
+        processes it now.
+        
         Args:
             state: New state.
             error: Error message if state is ERROR.
         """
+        old_state = self._state
         self._state = state
         if state == PlayerState.ERROR:
             self._error_message = error
         else:
             self._error_message = None
+        
+        # Process queued move request when becoming ready
+        if state == PlayerState.READY and old_state == PlayerState.INITIALIZING:
+            if self._pending_board is not None:
+                from DGTCentaurMods.board.logging import log
+                log.info(f"[Player] {self.name} now ready, processing queued move request")
+                pending_board = self._pending_board
+                self._pending_board = None
+                self._do_request_move(pending_board)
     
     def _report_status(self, message: str) -> None:
         """Report a status message via the callback if set.
@@ -325,21 +341,50 @@ class Player(ABC):
         """
         pass
     
-    @abstractmethod
     def request_move(self, board: chess.Board) -> None:
         """Request the player to provide a move.
         
         Called when it's this player's turn. The player should prepare
         to receive piece events and eventually submit a move via callback.
         
-        - Human: May show "your turn" indicator, waits for piece events
-        - Engine: Starts computing, will submit move when ready
-        - Lichess: Waits for server, will submit move when received
+        If the player is still initializing, queues the request and
+        processes it when the player becomes ready.
+        
+        Subclasses should override _do_request_move() for their specific logic.
         
         Args:
             board: Current chess position.
         """
-        pass
+        # Queue the request if still initializing
+        if self._state == PlayerState.INITIALIZING:
+            from DGTCentaurMods.board.logging import log
+            log.info(f"[Player] {self.name} still initializing, queueing move request")
+            self._pending_board = board.copy()
+            return
+        
+        if self._state != PlayerState.READY:
+            from DGTCentaurMods.board.logging import log
+            log.warning(f"[Player] {self.name} request_move called but state is {self._state}")
+            return
+        
+        # Clear queued request since we're processing now
+        self._pending_board = None
+        
+        # Call subclass implementation
+        self._do_request_move(board)
+    
+    def _do_request_move(self, board: chess.Board) -> None:
+        """Subclass-specific move request handling.
+        
+        Called by request_move() after state validation passes.
+        Override this in subclasses, not request_move().
+        
+        Default implementation resets lifted square for piece event tracking.
+        
+        Args:
+            board: Current chess position.
+        """
+        self._lifted_square = None
     
     def on_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
         """Handle a piece event from the physical board.

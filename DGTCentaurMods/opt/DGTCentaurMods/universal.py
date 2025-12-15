@@ -604,14 +604,11 @@ def _resume_game(game_data: dict) -> bool:
                 gm._provide_correction_guidance(current_physical_state, expected_logical_state)
             else:
                 log.info("[Resume] Physical board matches resumed position")
-                # Board is correct - trigger turn event to prompt engine if it's engine's turn
-                if gm.event_callback is not None:
-                    if gm.chess_board.turn == chess.WHITE:
-                        log.info("[Resume] Triggering WHITE turn event")
-                        gm.event_callback(EVENT_WHITE_TURN)
-                    else:
-                        log.info("[Resume] Triggering BLACK turn event")
-                        gm.event_callback(EVENT_BLACK_TURN)
+                # Board is correct - trigger turn event and prompt current player
+                # Uses _switch_turn_with_event which also calls request_move on the player
+                # If engine is still initializing, the request will be queued
+                log.info(f"[Resume] Triggering {'WHITE' if gm.chess_board.turn == chess.WHITE else 'BLACK'} turn")
+                gm._switch_turn_with_event()
         else:
             log.warning("[Resume] Could not validate physical board state")
         

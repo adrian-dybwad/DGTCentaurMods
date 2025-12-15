@@ -88,9 +88,6 @@ class EnginePlayer(Player):
         
         # Pending move from engine computation (for LED display)
         self._pending_move: Optional[chess.Move] = None
-        
-        # Track piece events to construct moves
-        self._lifted_square: Optional[int] = None
     
     @property
     def player_type(self) -> PlayerType:
@@ -151,6 +148,7 @@ class EnginePlayer(Player):
                 color_name = 'White' if self._color == chess.WHITE else 'Black' if self._color == chess.BLACK else ''
                 log.info(f"[EnginePlayer] {color_name} engine ready: {self.engine_name} @ {self.elo_section}")
                 self._report_status(f"{self.engine_name} ready")
+                # Queued move request is processed by base class _set_state
                 
             except Exception as e:
                 log.error(f"[EnginePlayer] Failed to initialize engine: {e}")
@@ -185,20 +183,16 @@ class EnginePlayer(Player):
         
         self._set_state(PlayerState.STOPPED)
     
-    def request_move(self, board: chess.Board) -> None:
+    def _do_request_move(self, board: chess.Board) -> None:
         """Request the engine to compute a move.
         
         Spawns a background thread for thinking. When done, stores the
-        pending move and notifies via engine_move_callback for LED display.
+        pending move and notifies via pending_move_callback for LED display.
         The actual move submission happens via on_piece_event.
         
         Args:
             board: Current chess position.
         """
-        if self._state != PlayerState.READY:
-            log.warning(f"[EnginePlayer] request_move called but state is {self._state}")
-            return
-        
         if self._thinking:
             log.debug("[EnginePlayer] Already thinking, ignoring duplicate call")
             return

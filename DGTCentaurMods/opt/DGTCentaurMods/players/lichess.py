@@ -112,9 +112,6 @@ class LichessPlayer(Player):
         # Pending move from server (for validation)
         self._pending_move: Optional[chess.Move] = None
         
-        # Track piece events to construct moves
-        self._lifted_square: Optional[int] = None
-        
         # Threading
         self._should_stop = threading.Event()
         self._stream_thread: Optional[threading.Thread] = None
@@ -253,7 +250,7 @@ class LichessPlayer(Player):
         self._set_state(PlayerState.STOPPED)
         log.info("[LichessPlayer] Lichess player stopped")
     
-    def request_move(self, board: chess.Board) -> None:
+    def _do_request_move(self, board: chess.Board) -> None:
         """Request a move from this player.
         
         If a pending move exists (received from server), displays LEDs.

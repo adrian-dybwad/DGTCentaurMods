@@ -81,7 +81,7 @@ class HumanPlayer(Player):
         log.debug("[HumanPlayer] Stopping")
         self._set_state(PlayerState.STOPPED)
     
-    def request_move(self, board: chess.Board) -> None:
+    def _do_request_move(self, board: chess.Board) -> None:
         """Called when it's this player's turn.
         
         Resets state to prepare for receiving piece events.
