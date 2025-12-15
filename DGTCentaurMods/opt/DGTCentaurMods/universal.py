@@ -281,12 +281,14 @@ _args = None
 _player1_settings = {
     'color': 'white',           # Color Player 1 plays: 'white' or 'black'
     'type': 'human',            # Player type: 'human', 'engine', 'lichess'
+    'name': '',                 # Player name (for human type, empty = use default)
     'engine': 'stockfish_pi',   # Engine name (when type is 'engine')
     'elo': 'Default',           # Engine ELO level (when type is 'engine')
 }
 
 _player2_settings = {
     'type': 'engine',           # Player type: 'human', 'engine', 'lichess'
+    'name': '',                 # Player name (for human type, empty = use default)
     'engine': 'stockfish_pi',   # Engine name (when type is 'engine')
     'elo': 'Default',           # Engine ELO level (when type is 'engine')
 }
@@ -336,11 +338,13 @@ def _load_game_settings():
         # Player 1 settings (from [PlayerOne] section)
         _player1_settings['color'] = Settings.read(PLAYER1_SECTION, 'color', 'white')
         _player1_settings['type'] = Settings.read(PLAYER1_SECTION, 'type', 'human')
+        _player1_settings['name'] = Settings.read(PLAYER1_SECTION, 'name', '')
         _player1_settings['engine'] = Settings.read(PLAYER1_SECTION, 'engine', 'stockfish_pi')
         _player1_settings['elo'] = Settings.read(PLAYER1_SECTION, 'elo', 'Default')
         
         # Player 2 settings (from [PlayerTwo] section)
         _player2_settings['type'] = Settings.read(PLAYER2_SECTION, 'type', 'engine')
+        _player2_settings['name'] = Settings.read(PLAYER2_SECTION, 'name', '')
         _player2_settings['engine'] = Settings.read(PLAYER2_SECTION, 'engine', 'stockfish_pi')
         _player2_settings['elo'] = Settings.read(PLAYER2_SECTION, 'elo', 'Default')
         
@@ -369,8 +373,10 @@ def _load_game_settings():
         _game_settings['show_graph'] = load_bool_setting('show_graph')
 
         log.info(f"[Settings] Player1: type={_player1_settings['type']}, color={_player1_settings['color']}, "
+                 f"name={_player1_settings['name'] or '(default)'}, "
                  f"engine={_player1_settings['engine']}, elo={_player1_settings['elo']}")
         log.info(f"[Settings] Player2: type={_player2_settings['type']}, "
+                 f"name={_player2_settings['name'] or '(default)'}, "
                  f"engine={_player2_settings['engine']}, elo={_player2_settings['elo']}")
         log.info(f"[Settings] Game: time={_game_settings['time_control']} min, "
                  f"analysis={_game_settings['analysis_mode']}")
@@ -1131,10 +1137,12 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     # Get player settings
     player1_color = _player1_settings['color']
     player1_type = _player1_settings['type']
+    player1_name = _player1_settings['name']
     player1_engine = _player1_settings['engine']
     player1_elo = _player1_settings['elo']
     
     player2_type = _player2_settings['type']
+    player2_name = _player2_settings['name']
     player2_engine = _player2_settings['engine']
     player2_elo = _player2_settings['elo']
 
@@ -1143,12 +1151,23 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     player1_is_white = (player1_color == 'white')
 
     # Create players based on settings
-    from DGTCentaurMods.players import HumanPlayer, EnginePlayer, EnginePlayerConfig, LichessPlayer, LichessPlayerConfig, LichessGameMode
+    from DGTCentaurMods.players import HumanPlayer, HumanPlayerConfig, EnginePlayer, EnginePlayerConfig, LichessPlayer, LichessPlayerConfig, LichessGameMode
 
-    def create_player(player_type: str, color: chess.Color, engine_name: str, engine_elo: str):
-        """Create a player based on type and color."""
+    def create_player(player_type: str, color: chess.Color, player_name: str, engine_name: str, engine_elo: str):
+        """Create a player based on type and color.
+        
+        Args:
+            player_type: 'human', 'engine', or 'lichess'
+            color: chess.WHITE or chess.BLACK
+            player_name: Custom name for human players (empty string uses default)
+            engine_name: Engine name (for engine type)
+            engine_elo: Engine ELO level (for engine type)
+        """
         if player_type == 'human':
-            return HumanPlayer()
+            # Use custom name if provided, otherwise default to 'Human'
+            name = player_name if player_name else "Human"
+            config = HumanPlayerConfig(name=name, color=color)
+            return HumanPlayer(config)
         elif player_type == 'engine':
             config = EnginePlayerConfig(
                 name=f"{engine_name} ({engine_elo})",
@@ -1159,6 +1178,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             )
             return EnginePlayer(config)
         elif player_type == 'lichess':
+            # Name will be updated after Lichess authentication
             config = LichessPlayerConfig(
                 name="Lichess",
                 color=color,
@@ -1171,11 +1191,11 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     # Create White and Black players
     if player1_is_white:
-        white_player = create_player(player1_type, chess.WHITE, player1_engine, player1_elo)
-        black_player = create_player(player2_type, chess.BLACK, player2_engine, player2_elo)
+        white_player = create_player(player1_type, chess.WHITE, player1_name, player1_engine, player1_elo)
+        black_player = create_player(player2_type, chess.BLACK, player2_name, player2_engine, player2_elo)
     else:
-        white_player = create_player(player2_type, chess.WHITE, player2_engine, player2_elo)
-        black_player = create_player(player1_type, chess.BLACK, player1_engine, player1_elo)
+        white_player = create_player(player2_type, chess.WHITE, player2_name, player2_engine, player2_elo)
+        black_player = create_player(player1_type, chess.BLACK, player1_name, player1_engine, player1_elo)
     
     log.info(f"[App] Created players: {white_player.name} (White) vs {black_player.name} (Black)")
     
@@ -1690,6 +1710,16 @@ def _handle_player1_menu():
             ),
         ]
 
+        # If human type, add name entry
+        if _player1_settings['type'] == 'human':
+            name_display = _player1_settings['name'] or 'Human'
+            entries.append(IconMenuEntry(
+                key="Name",
+                label=f"Name\n{name_display}",
+                icon_name="universal_logo",
+                enabled=True
+            ))
+
         # If engine type, add engine selection
         if _player1_settings['type'] == 'engine':
             entries.append(IconMenuEntry(
@@ -1732,6 +1762,11 @@ def _handle_player1_menu():
             if is_break_result(type_result):
                 return type_result
         
+        elif result == "Name":
+            name_result = _handle_player1_name_input()
+            if is_break_result(name_result):
+                return name_result
+        
         elif result == "Engine":
             engine_result = _handle_player1_engine_selection()
             if is_break_result(engine_result):
@@ -1771,6 +1806,16 @@ def _handle_player2_menu():
             ),
         ]
         
+        # If human type, add name entry
+        if _player2_settings['type'] == 'human':
+            name_display = _player2_settings['name'] or 'Human'
+            entries.append(IconMenuEntry(
+                key="Name",
+                label=f"Name\n{name_display}",
+                icon_name="universal_logo",
+                enabled=True
+            ))
+        
         # If engine type, add engine selection
         if _player2_settings['type'] == 'engine':
             entries.append(IconMenuEntry(
@@ -1807,6 +1852,11 @@ def _handle_player2_menu():
             type_result = _handle_player2_type_selection()
             if is_break_result(type_result):
                 return type_result
+        
+        elif result == "Name":
+            name_result = _handle_player2_name_input()
+            if is_break_result(name_result):
+                return name_result
         
         elif result == "Engine":
             engine_result = _handle_player2_engine_selection()
@@ -1963,6 +2013,102 @@ def _handle_player1_elo_selection():
         _save_player1_setting('elo', result)
         log.info(f"[Settings] Player1 ELO changed: {old_elo} -> {result}")
         board.beep(board.SOUND_GENERAL, event_type='key_press')
+    
+    return None
+
+
+def _handle_player1_name_input():
+    """Handle name input for Player 1.
+    
+    Opens a keyboard widget for the user to enter their name.
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    global _active_keyboard_widget
+    
+    log.info("[Settings] Opening keyboard for Player 1 name entry")
+    
+    # Clear display and show keyboard widget
+    board.display_manager.clear_widgets(addStatusBar=False)
+    
+    # Create keyboard widget with current name as initial text
+    current_name = _player1_settings['name']
+    keyboard = KeyboardWidget(title="Player 1 Name", max_length=20)
+    keyboard.text = current_name if current_name else ""
+    
+    _active_keyboard_widget = keyboard
+    
+    # Add widget to display
+    promise = board.display_manager.add_widget(keyboard)
+    if promise:
+        try:
+            promise.result(timeout=2.0)
+        except Exception:
+            pass
+    
+    try:
+        # Wait for input (blocking)
+        result = keyboard.wait_for_input(timeout=300.0)
+        
+        if result is not None:
+            # User confirmed - save the name (empty string allowed to reset to default)
+            _save_player1_setting('name', result)
+            log.info(f"[Settings] Player 1 name saved: '{result or '(default)'}'")
+            board.beep(board.SOUND_GENERAL)
+        else:
+            log.info("[Settings] Player 1 name entry cancelled")
+    finally:
+        _active_keyboard_widget = None
+    
+    return None
+
+
+def _handle_player2_name_input():
+    """Handle name input for Player 2.
+    
+    Opens a keyboard widget for the user to enter their name.
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    global _active_keyboard_widget
+    
+    log.info("[Settings] Opening keyboard for Player 2 name entry")
+    
+    # Clear display and show keyboard widget
+    board.display_manager.clear_widgets(addStatusBar=False)
+    
+    # Create keyboard widget with current name as initial text
+    current_name = _player2_settings['name']
+    keyboard = KeyboardWidget(title="Player 2 Name", max_length=20)
+    keyboard.text = current_name if current_name else ""
+    
+    _active_keyboard_widget = keyboard
+    
+    # Add widget to display
+    promise = board.display_manager.add_widget(keyboard)
+    if promise:
+        try:
+            promise.result(timeout=2.0)
+        except Exception:
+            pass
+    
+    try:
+        # Wait for input (blocking)
+        result = keyboard.wait_for_input(timeout=300.0)
+        
+        if result is not None:
+            # User confirmed - save the name (empty string allowed to reset to default)
+            _save_player2_setting('name', result)
+            log.info(f"[Settings] Player 2 name saved: '{result or '(default)'}'")
+            board.beep(board.SOUND_GENERAL)
+        else:
+            log.info("[Settings] Player 2 name entry cancelled")
+    finally:
+        _active_keyboard_widget = None
     
     return None
 
@@ -2172,10 +2318,12 @@ def _handle_reset_settings():
             # Reset in-memory settings to defaults
             _player1_settings['color'] = 'white'
             _player1_settings['type'] = 'human'
+            _player1_settings['name'] = ''
             _player1_settings['engine'] = 'stockfish_pi'
             _player1_settings['elo'] = 'Default'
             
             _player2_settings['type'] = 'engine'
+            _player2_settings['name'] = ''
             _player2_settings['engine'] = 'stockfish_pi'
             _player2_settings['elo'] = 'Default'
             
@@ -3161,9 +3309,12 @@ def _show_support_qr():
         from PIL import ImageDraw, ImageFont
         from DGTCentaurMods.resources import ResourceLoader
         
-        # Create a full-screen image
-        canvas = Image.new('L', (128, 296), 255)
+        # Get the framebuffer canvas to draw on
+        canvas = board.display_manager._framebuffer.get_canvas()
+        
+        # Clear canvas to white first
         draw = ImageDraw.Draw(canvas)
+        draw.rectangle((0, 0, 128, 296), fill=255)
         
         # Load fonts using ResourceLoader
         loader = ResourceLoader("/opt/DGTCentaurMods/resources", "/home/pi/resources")
@@ -3173,10 +3324,10 @@ def _show_support_qr():
         # Draw title
         draw.text((64, 15), "Get Support", font=small_font, fill=0, anchor="mm")
         
-        # Paste QR code (centered)
+        # Paste QR code (centered) - convert to mode "1" for 1-bit display
         qr_x = (128 - 100) // 2
         qr_y = 35
-        canvas.paste(qr_img, (qr_x, qr_y))
+        canvas.paste(qr_img.convert("1"), (qr_x, qr_y))
         
         # Draw app name and version below QR
         draw.text((64, 150), "DGTCentaur", font=small_font, fill=0, anchor="mm")
@@ -3187,8 +3338,13 @@ def _show_support_qr():
         # Draw instruction at bottom
         draw.text((64, 280), "Press any button", font=version_font, fill=0, anchor="mm")
         
-        # Display directly
-        board.display_manager._framebuffer.push(canvas)
+        # Submit update to display the canvas
+        promise = board.display_manager.update()
+        if promise:
+            try:
+                promise.result(timeout=2.0)
+            except Exception:
+                pass
     else:
         # Fallback to splash screen if QR not available
         message = f"DGTCentaurMods\nv{version}\n\nVisit:\ngithub.com/\nEdNekebno/\nDGTCentaurMods"

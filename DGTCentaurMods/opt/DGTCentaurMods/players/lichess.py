@@ -266,6 +266,8 @@ class LichessPlayer(Player):
         try:
             user_info = self._client.account.get()
             self._username = user_info.get('username', '')
+            # Update config name to use Lichess username
+            self._config.name = self._username if self._username else "Lichess"
             log.info(f"[LichessPlayer] Authenticated as: {self._username}")
         except Exception as e:
             log.error(f"[LichessPlayer] Authentication failed: {e}")
