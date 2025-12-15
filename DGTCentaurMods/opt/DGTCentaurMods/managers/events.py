@@ -27,6 +27,9 @@ EVENT_RESIGN_GAME = 5
 EVENT_LIFT_PIECE = 6
 EVENT_PLACE_PIECE = 7
 
+# Player events
+EVENT_PLAYER_READY = 8
+
 __all__ = [
     'EVENT_NEW_GAME',
     'EVENT_BLACK_TURN',
@@ -35,4 +38,5 @@ __all__ = [
     'EVENT_RESIGN_GAME',
     'EVENT_LIFT_PIECE',
     'EVENT_PLACE_PIECE',
+    'EVENT_PLAYER_READY',
 ]

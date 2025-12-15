@@ -127,6 +127,7 @@ class Player(ABC):
         self._pending_move_callback: Optional[Callable[[chess.Move], None]] = None
         self._status_callback: Optional[Callable[[str], None]] = None
         self._error_callback: Optional[Callable[[str], None]] = None
+        self._ready_callback: Optional[Callable[[], None]] = None
         
         # Track lifted squares for move formation.
         # For captures, two pieces are lifted (moving piece + captured piece).
@@ -266,6 +267,18 @@ class Player(ABC):
         """
         self._error_callback = callback
     
+    def set_ready_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for when player becomes ready.
+        
+        Called when the player transitions to READY state. Used by
+        PlayerManager to know when all players are ready and to
+        trigger the first move request for non-human players.
+        
+        Args:
+            callback: Function to call when player becomes ready.
+        """
+        self._ready_callback = callback
+    
     def _report_error(self, error_type: str) -> None:
         """Report an error condition via the callback if set.
         
@@ -296,8 +309,13 @@ class Player(ABC):
         else:
             self._error_message = None
         
-        # Process queued move request when becoming ready
+        # When becoming ready, fire ready callback and process queued move
         if state == PlayerState.READY and old_state == PlayerState.INITIALIZING:
+            # Fire ready callback first
+            if self._ready_callback:
+                self._ready_callback()
+            
+            # Process queued move request
             if self._pending_board is not None:
                 from DGTCentaurMods.board.logging import log
                 log.info(f"[Player] {self.name} now ready, processing queued move request")

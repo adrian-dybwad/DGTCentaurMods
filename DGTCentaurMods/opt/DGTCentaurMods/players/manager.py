@@ -61,6 +61,7 @@ class PlayerManager:
         pending_move_callback: Optional[Callable[[chess.Move], None]] = None,
         status_callback: Optional[Callable[[str], None]] = None,
         error_callback: Optional[Callable[[str], None]] = None,
+        ready_callback: Optional[Callable[[], None]] = None,
     ):
         """Initialize the player manager.
         
@@ -71,6 +72,7 @@ class PlayerManager:
             pending_move_callback: Called when a player has a pending move (for LEDs).
             status_callback: Called with status messages.
             error_callback: Called when a player reports an error (e.g., place without lift).
+            ready_callback: Called when all players are ready.
         """
         self._white_player = white_player
         self._black_player = black_player
@@ -78,6 +80,8 @@ class PlayerManager:
         self._pending_move_callback = pending_move_callback
         self._status_callback = status_callback
         self._error_callback = error_callback
+        self._ready_callback = ready_callback
+        self._ready_fired = False  # Only fire once
         
         # Set colors
         self._white_player.color = chess.WHITE
@@ -110,6 +114,25 @@ class PlayerManager:
         if self._error_callback:
             self._white_player.set_error_callback(self._error_callback)
             self._black_player.set_error_callback(self._error_callback)
+        
+        # Ready callback - fire manager callback when both players ready
+        self._white_player.set_ready_callback(self._on_player_ready)
+        self._black_player.set_ready_callback(self._on_player_ready)
+    
+    def _on_player_ready(self) -> None:
+        """Handle a player becoming ready.
+        
+        Fires the manager's ready callback when both players are ready.
+        Only fires once.
+        """
+        if self._ready_fired:
+            return
+        
+        if self.is_ready:
+            self._ready_fired = True
+            log.info("[PlayerManager] All players ready")
+            if self._ready_callback:
+                self._ready_callback()
     
     # =========================================================================
     # Callback Setters

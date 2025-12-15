@@ -180,7 +180,8 @@ class ProtocolManager:
             white_player=white_player,
             black_player=black_player,
             move_callback=self._on_player_move,
-            status_callback=lambda msg: log.info(f"[Player] {msg}")
+            status_callback=lambda msg: log.info(f"[Player] {msg}"),
+            ready_callback=self._on_all_players_ready
         )
         
         # Update GameManager with player info
@@ -702,6 +703,24 @@ class ProtocolManager:
             self._player_manager.on_new_game()
         if self._assistant_manager:
             self._assistant_manager.on_new_game()
+    
+    def _on_all_players_ready(self):
+        """Handle all players becoming ready.
+        
+        Called by PlayerManager when both players are ready.
+        Triggers the first move request if White is not human.
+        """
+        from DGTCentaurMods.players import PlayerType
+        
+        if not self._player_manager:
+            return
+        
+        white_player = self._player_manager.get_player(chess.WHITE)
+        if white_player.player_type != PlayerType.HUMAN:
+            log.info("[ProtocolManager] All players ready, requesting first move from White")
+            self._request_current_player_move()
+        else:
+            log.debug("[ProtocolManager] All players ready, waiting for human to move")
     
     def _request_current_player_move(self):
         """Request a move from the current player.
