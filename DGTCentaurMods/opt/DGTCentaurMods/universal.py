@@ -3066,24 +3066,60 @@ def _handle_chromecast_menu():
     """Handle Chromecast menu - discover and stream to Chromecast devices.
     
     Discovers available Chromecast devices on the network, presents a menu
-    for selection, and launches the cchandler background process to stream
-    the board display to the selected device.
+    for selection, and starts streaming via the ChromecastStatusWidget.
+    
+    The menu also shows a "Stop Streaming" option if currently streaming.
     
     Returns:
         Break result if interrupted, None otherwise.
     """
-    import subprocess
-    import pathlib
+    from DGTCentaurMods.epaper import get_chromecast_widget
     
-    # Kill any existing cchandler processes
-    try:
-        subprocess.run(
-            ["pkill", "-f", "cchandler.py"],
-            capture_output=True,
-            timeout=5
-        )
-    except Exception:
-        pass  # Ignore errors from pkill
+    # Get the Chromecast widget from the status bar
+    cc_widget = get_chromecast_widget()
+    if cc_widget is None:
+        log.error("[Chromecast] ChromecastStatusWidget not available")
+        board.display_manager.clear_widgets()
+        promise = board.display_manager.add_widget(SplashScreen(message="Chromecast\nnot available"))
+        if promise:
+            try:
+                promise.result(timeout=2.0)
+            except Exception:
+                pass
+        time.sleep(2)
+        return None
+    
+    # If currently streaming, show option to stop
+    if cc_widget.visible:
+        device = cc_widget.device_name or "Unknown"
+        display_device = device[:16] if len(device) > 16 else device
+        
+        entries = [
+            IconMenuEntry(key="STOP", label=f"Stop: {display_device}", icon_name="cast", enabled=True),
+            IconMenuEntry(key="CHANGE", label="Change Device", icon_name="cast", enabled=True),
+        ]
+        
+        result = _show_menu(entries)
+        
+        if is_break_result(result):
+            return result
+        if result in ["BACK", "SHUTDOWN", "HELP"]:
+            return None
+        
+        if result == "STOP":
+            cc_widget.stop_streaming()
+            log.info("[Chromecast] Streaming stopped by user")
+            board.display_manager.clear_widgets()
+            promise = board.display_manager.add_widget(SplashScreen(message="Streaming\nstopped"))
+            if promise:
+                try:
+                    promise.result(timeout=2.0)
+                except Exception:
+                    pass
+            time.sleep(1)
+            board.beep(board.SOUND_GENERAL)
+            return None
+        # If "CHANGE", fall through to device discovery
     
     # Show discovering message
     board.display_manager.clear_widgets()
@@ -3158,43 +3194,29 @@ def _handle_chromecast_menu():
     if result in ["BACK", "SHUTDOWN", "HELP"]:
         return None
     
-    # Launch cchandler in background for selected Chromecast
+    # Start streaming via the widget
     selected_name = result
-    cchandler_path = str(pathlib.Path(__file__).parent / 'cchandler.py')
     
-    try:
-        # Start cchandler as a background process
-        subprocess.Popen(
-            [sys.executable, cchandler_path, selected_name],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True
-        )
-        log.info(f"[Chromecast] Started streaming to: {selected_name}")
-        
-        # Show feedback
-        board.display_manager.clear_widgets()
-        # Truncate long names
-        display_name = selected_name[:18] if len(selected_name) > 18 else selected_name
-        promise = board.display_manager.add_widget(SplashScreen(message=f"Streaming to\n{display_name}"))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
-        board.beep(board.SOUND_GENERAL)
-        
-    except Exception as e:
-        log.error(f"[Chromecast] Failed to start cchandler: {e}")
-        board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(message="Failed to\nstart stream"))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
+    # Stop any existing stream first
+    if cc_widget.visible:
+        cc_widget.stop_streaming()
+    
+    # Start streaming to selected device
+    cc_widget.start_streaming(selected_name)
+    log.info(f"[Chromecast] Started streaming to: {selected_name}")
+    
+    # Show feedback
+    board.display_manager.clear_widgets()
+    # Truncate long names
+    display_name = selected_name[:18] if len(selected_name) > 18 else selected_name
+    promise = board.display_manager.add_widget(SplashScreen(message=f"Streaming to\n{display_name}"))
+    if promise:
+        try:
+            promise.result(timeout=2.0)
+        except Exception:
+            pass
+    time.sleep(2)
+    board.beep(board.SOUND_GENERAL)
     
     return None
 

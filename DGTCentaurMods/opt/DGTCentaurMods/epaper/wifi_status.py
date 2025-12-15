@@ -145,6 +145,12 @@ class WiFiStatusWidget(Widget):
                 # Get WiFi state and signal strength
                 state, signal_strength = self._get_wifi_status()
                 
+                # Update visibility based on WiFi enabled state
+                should_be_visible = state != WIFI_DISABLED
+                if self.visible != should_be_visible:
+                    self.visible = should_be_visible
+                    log.debug(f"WiFi widget visibility changed: {should_be_visible}")
+                
                 # Update if state or signal changed or hook notified
                 if state != self._last_state or signal_strength != self._last_signal_strength or hook_notified:
                     self._last_rendered = None

@@ -24,11 +24,19 @@ class BatteryWidget(Widget):
     
     Manages its own state by polling the board controller every 5 seconds.
     Automatically starts polling when added to display and stops when removed.
+    
+    Args:
+        x: X position
+        y: Y position
+        width: Widget width in pixels (default 20)
+        height: Widget height in pixels (default 14)
+        level: Initial battery level (0-20)
+        charger_connected: Initial charger connection state
     """
     
-    def __init__(self, x: int, y: int, level: int = None, charger_connected: bool = False):
-        # 30 pixels wide (x=98 to x=128), 14 pixels tall (with 1px margin top/bottom)
-        super().__init__(x, y, 30, 14)
+    def __init__(self, x: int, y: int, width: int = 20, height: int = 14,
+                 level: int = None, charger_connected: bool = False):
+        super().__init__(x, y, width, height)
         self.level = level
         self.charger_connected = charger_connected
         self._poll_thread = None
@@ -125,8 +133,8 @@ class BatteryWidget(Widget):
     def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
         """Draw battery indicator with level bars and charging flash icon.
         
-        Widget is 30x14 pixels. Battery body uses most of the width with a
-        terminal nub on the right.
+        Scales to fit the configured widget width and height.
+        Battery body uses most of the width with a terminal nub on the right.
         
         When charging, displays a lightning bolt overlay with XOR effect -
         white over black level bars and black over white background.
@@ -135,21 +143,28 @@ class BatteryWidget(Widget):
         
         batterylevel = self.level if self.level is not None else 10
         
-        # Battery dimensions - use available space
-        # Main body: 25 pixels wide, 12 pixels tall (centered vertically)
-        body_left = draw_x + 0
+        # Scale factor based on width (20 is the new base size)
+        w = self.width
+        h = self.height
+        
+        # Battery dimensions - scale to fit widget
+        # Terminal nub is ~3px wide, body takes the rest
+        term_width = max(2, int(w * 0.15))
+        body_width = w - term_width - 1
+        
+        body_left = draw_x
         body_top = draw_y + 1
-        body_right = draw_x + 24
-        body_bottom = draw_y + 12
+        body_right = draw_x + body_width
+        body_bottom = draw_y + h - 2
         
         # Battery terminal (nub on right)
         term_left = body_right
-        term_top = draw_y + 4
-        term_right = draw_x + 28
-        term_bottom = draw_y + 9
+        term_top = draw_y + max(2, h // 4)
+        term_right = draw_x + w - 1
+        term_bottom = draw_y + h - max(2, h // 4) - 1
         
         # Clear background first
-        draw.rectangle([draw_x, draw_y, draw_x + self.width - 1, draw_y + self.height - 1], fill=255)
+        draw.rectangle([draw_x, draw_y, draw_x + w - 1, draw_y + h - 1], fill=255)
         
         # Draw battery outline
         draw.rectangle([body_left, body_top, body_right, body_bottom], outline=0, width=1)
@@ -171,41 +186,46 @@ class BatteryWidget(Widget):
         
         # Draw charging lightning bolt if connected
         if self.charger_connected:
-            # Lightning bolt - draw as two triangles forming classic zigzag
-            # Centered in battery body (inner area)
-            cx = (inner_left + inner_right) // 2  # center of fill area
-            cy = (inner_top + inner_bottom) // 2  # vertical center
+            # Lightning bolt - scaled to fit battery body
+            cx = (inner_left + inner_right) // 2
+            cy = (inner_top + inner_bottom) // 2
+            
+            # Scale bolt size based on inner dimensions
+            bolt_h = inner_bottom - inner_top
+            bolt_w = min(inner_width // 2, bolt_h)
             
             # Create bolt mask (temporary image for XOR operation)
-            bolt_mask = Image.new("1", (self.width, self.height), 0)
+            bolt_mask = Image.new("1", (w, h), 0)
             bolt_draw = ImageDraw.Draw(bolt_mask)
             
-            # Top triangle: points down-left from top-right (relative to widget origin)
             rel_cx = cx - draw_x
             rel_cy = cy - draw_y
             rel_inner_top = inner_top - draw_y
             rel_inner_bottom = inner_bottom - draw_y
             
+            # Scale bolt points
+            sx = bolt_w / 10.0  # horizontal scale
+            sy = bolt_h / 8.0   # vertical scale
+            
             top_triangle = [
-                (rel_cx + 5, rel_inner_top),
-                (rel_cx - 3, rel_cy),
-                (rel_cx + 2, rel_cy),
+                (rel_cx + int(4 * sx), rel_inner_top),
+                (rel_cx - int(2 * sx), rel_cy),
+                (rel_cx + int(1 * sx), rel_cy),
             ]
             bolt_draw.polygon(top_triangle, fill=1)
             
-            # Bottom triangle: points down from middle-right to bottom-left
             bottom_triangle = [
-                (rel_cx + 3, rel_cy - 1),
-                (rel_cx - 5, rel_inner_bottom),
-                (rel_cx - 2, rel_cy - 1),
+                (rel_cx + int(2 * sx), rel_cy - 1),
+                (rel_cx - int(4 * sx), rel_inner_bottom),
+                (rel_cx - int(1 * sx), rel_cy - 1),
             ]
             bolt_draw.polygon(bottom_triangle, fill=1)
             
-            # XOR the bolt onto the image - inverts color where bolt is drawn
+            # XOR the bolt onto the image
             img_pixels = img.load()
             bolt_pixels = bolt_mask.load()
-            for y in range(self.height):
-                for x in range(self.width):
+            for y in range(h):
+                for x in range(w):
                     if bolt_pixels[x, y] == 1:
                         current = img_pixels[draw_x + x, draw_y + y]
                         img_pixels[draw_x + x, draw_y + y] = 255 if current == 0 else 0
