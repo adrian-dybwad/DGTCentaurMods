@@ -481,6 +481,10 @@ class IconButtonWidget(Widget):
             self._draw_display_icon(draw, x, y, size, line_color)
         elif icon_name == "cast":
             self._draw_cast_icon(draw, x, y, size, line_color)
+        elif icon_name == "info":
+            self._draw_info_icon(draw, x, y, size, line_color)
+        elif icon_name == "download":
+            self._draw_download_icon(draw, x, y, size, line_color)
         else:
             # Default: simple square placeholder
             draw.rectangle([left + 4, top + 4, right - 4, bottom - 4],
@@ -1944,3 +1948,73 @@ class IconButtonWidget(Widget):
         draw.ellipse([signal_x - dot_r, signal_y - dot_r,
                      signal_x + dot_r, signal_y + dot_r],
                     fill=line_color)
+
+    def _draw_info_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                        size: int, line_color: int):
+        """Draw an info icon (circle with 'i' inside).
+
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line color (0=black, 255=white)
+        """
+        s = size / 36.0
+        line_width = max(2, int(2 * s))
+
+        # Outer circle
+        radius = int(14 * s)
+        draw.ellipse([x - radius, y - radius, x + radius, y + radius],
+                    outline=line_color, width=line_width)
+
+        # Dot above the 'i' stem
+        dot_y = y - int(6 * s)
+        dot_r = max(2, int(2.5 * s))
+        draw.ellipse([x - dot_r, dot_y - dot_r, x + dot_r, dot_y + dot_r],
+                    fill=line_color)
+
+        # 'i' stem (vertical line below the dot)
+        stem_top = y - int(1 * s)
+        stem_bottom = y + int(8 * s)
+        draw.line([(x, stem_top), (x, stem_bottom)], fill=line_color, width=line_width)
+
+    def _draw_download_icon(self, draw: ImageDraw.Draw, x: int, y: int,
+                            size: int, line_color: int):
+        """Draw a download icon (arrow pointing down into tray).
+
+        Args:
+            draw: ImageDraw object
+            x: X center position
+            y: Y center position
+            size: Icon size in pixels
+            line_color: Line color (0=black, 255=white)
+        """
+        s = size / 36.0
+        line_width = max(2, int(2 * s))
+
+        # Arrow stem (vertical line)
+        arrow_top = y - int(10 * s)
+        arrow_mid = y + int(4 * s)
+        draw.line([(x, arrow_top), (x, arrow_mid)], fill=line_color, width=line_width)
+
+        # Arrow head (V shape pointing down)
+        arrow_width = int(6 * s)
+        draw.line([(x - arrow_width, arrow_mid - arrow_width), (x, arrow_mid)],
+                 fill=line_color, width=line_width)
+        draw.line([(x + arrow_width, arrow_mid - arrow_width), (x, arrow_mid)],
+                 fill=line_color, width=line_width)
+
+        # Tray (U shape at bottom)
+        tray_top = y + int(6 * s)
+        tray_bottom = y + int(12 * s)
+        tray_width = int(10 * s)
+        # Left side
+        draw.line([(x - tray_width, tray_top), (x - tray_width, tray_bottom)],
+                 fill=line_color, width=line_width)
+        # Bottom
+        draw.line([(x - tray_width, tray_bottom), (x + tray_width, tray_bottom)],
+                 fill=line_color, width=line_width)
+        # Right side
+        draw.line([(x + tray_width, tray_top), (x + tray_width, tray_bottom)],
+                 fill=line_color, width=line_width)
