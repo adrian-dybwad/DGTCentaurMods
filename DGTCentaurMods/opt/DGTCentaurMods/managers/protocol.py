@@ -417,6 +417,9 @@ class ProtocolManager:
             # Handle player and assistant events
             if event == EVENT_NEW_GAME:
                 self._handle_new_game()
+                # Request first move for engine vs engine games
+                self._request_current_player_move()
+                self._check_assistant_suggestion()
             elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
                 # Turn events are triggered AFTER the move is confirmed
                 self._request_current_player_move()
