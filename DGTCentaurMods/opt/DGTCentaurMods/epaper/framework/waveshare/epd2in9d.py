@@ -36,7 +36,7 @@ from PIL import Image
 import RPi.GPIO as GPIO
 
 # Display resolution
-EPD_WIDTH       = 120
+EPD_WIDTH       = 130
 EPD_HEIGHT      = 296
 
 class EPD:
