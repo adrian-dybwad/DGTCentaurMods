@@ -1371,11 +1371,20 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     # Wire up flag callback for when a player's time expires
     def _on_flag(color: str):
-        """Handle time expiration - ends the game."""
-        log.info(f"[App] {color.capitalize()} flagged (time expired)")
-        protocol_manager.handle_flag(color)
-        display_manager.stop_clock()
-        # Game over will be shown via the event callback when handle_flag triggers termination event
+        """Handle time expiration - ends the game.
+        
+        This callback is called from the clock's timer thread. The flag handling
+        is dispatched to a separate thread to avoid the timer thread trying to
+        join itself when stop_clock() is called.
+        """
+        def _handle_flag():
+            log.info(f"[App] {color.capitalize()} flagged (time expired)")
+            protocol_manager.handle_flag(color)
+            display_manager.stop_clock()
+            # Game over will be shown via the event callback when handle_flag triggers termination event
+        
+        import threading
+        threading.Thread(target=_handle_flag, name="FlagHandler", daemon=True).start()
     
     display_manager.set_on_flag(_on_flag)
     
