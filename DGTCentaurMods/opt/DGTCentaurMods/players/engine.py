@@ -104,6 +104,11 @@ class EnginePlayer(Player):
         """ELO section being used."""
         return self._engine_config.elo_section
     
+    @property
+    def pending_move(self) -> Optional[chess.Move]:
+        """The computed move waiting to be executed on the board."""
+        return self._pending_move
+    
     def start(self) -> bool:
         """Initialize and start the engine.
         
@@ -273,7 +278,9 @@ class EnginePlayer(Player):
         log.debug(f"[EnginePlayer] Move formed: {move.uci()}")
         
         if self._pending_move is None:
-            log.warning(f"[EnginePlayer] Move formed but no pending move - engine still thinking?")
+            # Engine still computing - user moved pieces prematurely
+            log.warning(f"[EnginePlayer] Move formed but no pending move - engine still thinking")
+            self._report_error("move_mismatch")
             return
         
         # Check if move matches (ignoring promotion - use pending move's promotion)
@@ -287,7 +294,8 @@ class EnginePlayer(Player):
                 log.warning("[EnginePlayer] No move callback set, cannot submit move")
         else:
             # Doesn't match - board needs correction
-            log.warning(f"[EnginePlayer] Move {move.uci()} does not match pending {self._pending_move.uci()} - correction needed")
+            log.warning(f"[EnginePlayer] Move {move.uci()} does not match pending {self._pending_move.uci()}")
+            self._report_error("move_mismatch")
     
     def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
         """Notification that a move was made.

@@ -131,6 +131,11 @@ class LichessPlayer(Player):
         """Lichess player type."""
         return PlayerType.LICHESS
     
+    @property
+    def pending_move(self) -> Optional[chess.Move]:
+        """The move from Lichess server waiting to be executed on the board."""
+        return self._pending_move
+    
     def supports_late_castling(self) -> bool:
         """Lichess does not support late castling.
         
@@ -280,7 +285,9 @@ class LichessPlayer(Player):
         log.debug(f"[LichessPlayer] Move formed: {move.uci()}")
         
         if self._pending_move is None:
+            # No move from server yet - user moved pieces prematurely
             log.warning(f"[LichessPlayer] Move formed but no pending move from server")
+            self._report_error("move_mismatch")
             return
         
         # Check if move matches (ignoring promotion - use pending move's promotion)
@@ -294,7 +301,8 @@ class LichessPlayer(Player):
                 log.warning("[LichessPlayer] No move callback set, cannot submit move")
         else:
             # Doesn't match - board needs correction
-            log.warning(f"[LichessPlayer] Move {move.uci()} does not match server {self._pending_move.uci()} - correction needed")
+            log.warning(f"[LichessPlayer] Move {move.uci()} does not match server {self._pending_move.uci()}")
+            self._report_error("move_mismatch")
     
     def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
         """Notification that a move was made on the board.

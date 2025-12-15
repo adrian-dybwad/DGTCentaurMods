@@ -209,6 +209,20 @@ class Player(ABC):
         """
         return True
     
+    @property
+    def pending_move(self) -> Optional[chess.Move]:
+        """The pending move this player wants executed on the board.
+        
+        For engine/Lichess players, this is the computed/received move
+        waiting for the human to execute on the physical board.
+        
+        For human players, this is always None (humans decide as they move).
+        
+        Returns:
+            The pending move, or None if no move is pending.
+        """
+        return None
+    
     # =========================================================================
     # Callback Management
     # =========================================================================

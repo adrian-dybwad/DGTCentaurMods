@@ -2414,7 +2414,14 @@ class GameManager:
         log.debug(f"[GameManager._on_player_error] Player reported: {error_type}")
 
         if error_type == "piece_returned":
-            # Piece placed back on same square - not an error, just cancel
+            # Piece placed back on same square - not an error, just cancel the attempt
+            # If the current player has a pending move (engine/Lichess), re-display it
+            if self._player_manager:
+                pending = self._player_manager.get_current_pending_move(self.chess_board)
+                if pending:
+                    log.debug(f"[GameManager._on_player_error] Re-displaying pending move: {pending.uci()}")
+                    board.ledFromTo(pending.from_square, pending.to_square, repeat=0)
+                    return
             board.ledsOff()
             return
         

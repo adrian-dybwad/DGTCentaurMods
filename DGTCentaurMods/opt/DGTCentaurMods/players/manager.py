@@ -253,6 +253,20 @@ class PlayerManager:
         """
         return self.get_player(board.turn)
     
+    def get_current_pending_move(self, board: chess.Board) -> Optional[chess.Move]:
+        """Get the pending move from the current player, if any.
+        
+        For engine/Lichess players, this returns the computed move waiting
+        to be executed on the physical board. For humans, returns None.
+        
+        Args:
+            board: Current board position.
+            
+        Returns:
+            The pending move, or None if no move is pending.
+        """
+        return self.get_current_player(board).pending_move
+    
     def request_move(self, board: chess.Board) -> None:
         """Request a move from the current player.
         
@@ -260,11 +274,18 @@ class PlayerManager:
         to receive piece events and eventually submit a move.
         
         The player's base class handles queuing if not yet ready.
+        If the player is already thinking, this is a no-op.
         
         Args:
             board: Current board position.
         """
         player = self.get_current_player(board)
+        
+        # Skip if player is already thinking (avoids redundant calls)
+        if player.is_thinking:
+            log.debug(f"[PlayerManager] {player.name} already thinking, skipping request")
+            return
+        
         log.debug(f"[PlayerManager] Requesting move from {player.name}")
         player.request_move(board)
     
