@@ -292,6 +292,8 @@ class AssetManager:
         """Write the provided Pillow Image to web/static/epaper.jpg and return the path.
         
         The image will be converted to a JPEG-compatible mode if needed.
+        The image is rotated 180 degrees before saving to correct orientation
+        for Chromecast streaming.
         
         Args:
             image: PIL Image to save
@@ -309,6 +311,8 @@ class AssetManager:
             raise TypeError("write_epaper_static_jpg expects a PIL Image")
         if img.mode not in ("L", "RGB"):
             img = img.convert("L")
+        # Rotate 180 degrees to correct orientation for streaming
+        img = img.rotate(180)
         img.save(path, format="JPEG")
         return path
 
