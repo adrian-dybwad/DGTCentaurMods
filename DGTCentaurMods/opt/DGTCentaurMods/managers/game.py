@@ -2331,10 +2331,17 @@ class GameManager:
             self._execute_late_castling_from_move(late_castling_move)
             return True
         
-        # Illegal move - enter correction mode
+        # Illegal move - enter correction mode and show guidance
         log.warning(f"[GameManager._on_player_move] Illegal move: {move_to_execute.uci()}, entering correction mode")
         board.beep(board.SOUND_WRONG_MOVE, event_type='error')
         self._enter_correction_mode()
+        
+        # Provide immediate guidance to show which pieces need to be corrected
+        current_state = board.getBoardState()
+        expected_state = self._chess_board_to_state(self.chess_board)
+        if current_state is not None and expected_state is not None:
+            self._provide_correction_guidance(current_state, expected_state)
+        
         return False
     
     def _check_and_handle_promotion(self, move: chess.Move) -> Optional[chess.Move]:
