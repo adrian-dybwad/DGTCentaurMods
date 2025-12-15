@@ -915,6 +915,58 @@ class ProtocolManager:
                     player.on_draw_offer()
                     return
     
+    def set_lichess_game_over_callback(self, callback):
+        """Set callback for Lichess game over events.
+        
+        Args:
+            callback: Function(result, termination, winner) called when game ends.
+        """
+        from DGTCentaurMods.players import LichessPlayer
+        
+        if self._player_manager:
+            for player in [self._player_manager.white_player, self._player_manager.black_player]:
+                if isinstance(player, LichessPlayer):
+                    player.set_game_over_callback(callback)
+    
+    def set_lichess_takeback_offer_callback(self, callback):
+        """Set callback for Lichess takeback offers from opponent.
+        
+        Args:
+            callback: Function(accept_fn, decline_fn) called when opponent offers takeback.
+        """
+        from DGTCentaurMods.players import LichessPlayer
+        
+        if self._player_manager:
+            for player in [self._player_manager.white_player, self._player_manager.black_player]:
+                if isinstance(player, LichessPlayer):
+                    player.set_takeback_offer_callback(callback)
+    
+    def set_lichess_draw_offer_callback(self, callback):
+        """Set callback for Lichess draw offers from opponent.
+        
+        Args:
+            callback: Function(accept_fn, decline_fn) called when opponent offers draw.
+        """
+        from DGTCentaurMods.players import LichessPlayer
+        
+        if self._player_manager:
+            for player in [self._player_manager.white_player, self._player_manager.black_player]:
+                if isinstance(player, LichessPlayer):
+                    player.set_draw_offer_callback(callback)
+    
+    def set_lichess_info_message_callback(self, callback):
+        """Set callback for Lichess informational messages.
+        
+        Args:
+            callback: Function(message) called with info messages to display.
+        """
+        from DGTCentaurMods.players import LichessPlayer
+        
+        if self._player_manager:
+            for player in [self._player_manager.white_player, self._player_manager.black_player]:
+                if isinstance(player, LichessPlayer):
+                    player.set_info_message_callback(callback)
+    
     # =========================================================================
     # App Connection Management
     # =========================================================================

@@ -125,6 +125,10 @@ class LichessPlayer(Player):
         self._on_game_connected: Optional[Callable] = None
         self._clock_callback: Optional[Callable[[int, int], None]] = None
         self._game_info_callback: Optional[Callable[[str, str, str, str], None]] = None
+        self._game_over_callback: Optional[Callable[[str, str, Optional[str]], None]] = None
+        self._takeback_offer_callback: Optional[Callable[[Callable, Callable], None]] = None
+        self._draw_offer_callback: Optional[Callable[[Callable, Callable], None]] = None
+        self._info_message_callback: Optional[Callable[[str], None]] = None
     
     @property
     def player_type(self) -> PlayerType:
@@ -185,6 +189,43 @@ class LichessPlayer(Player):
     def set_game_info_callback(self, callback: Callable[[str, str, str, str], None]) -> None:
         """Set callback for game info (white_player, white_rating, black_player, black_rating)."""
         self._game_info_callback = callback
+    
+    def set_game_over_callback(self, callback: Callable[[str, str, Optional[str]], None]) -> None:
+        """Set callback for game over (result, termination_type, winner).
+        
+        Args:
+            callback: Called when game ends with (result, termination, winner).
+                result: "1-0", "0-1", or "1/2-1/2"
+                termination: "mate", "resign", "timeout", "draw", etc.
+                winner: "white", "black", or None for draw
+        """
+        self._game_over_callback = callback
+    
+    def set_takeback_offer_callback(self, callback: Callable[[Callable, Callable], None]) -> None:
+        """Set callback for takeback offer from opponent.
+        
+        Args:
+            callback: Called with (accept_fn, decline_fn) when opponent offers takeback.
+                Caller should show menu and call accept_fn() or decline_fn().
+        """
+        self._takeback_offer_callback = callback
+    
+    def set_draw_offer_callback(self, callback: Callable[[Callable, Callable], None]) -> None:
+        """Set callback for draw offer from opponent.
+        
+        Args:
+            callback: Called with (accept_fn, decline_fn) when opponent offers draw.
+                Caller should show menu and call accept_fn() or decline_fn().
+        """
+        self._draw_offer_callback = callback
+    
+    def set_info_message_callback(self, callback: Callable[[str], None]) -> None:
+        """Set callback for informational messages to display.
+        
+        Args:
+            callback: Called with message string to show on display.
+        """
+        self._info_message_callback = callback
     
     def start(self) -> bool:
         """Start the Lichess connection and game.
@@ -386,6 +427,65 @@ class LichessPlayer(Player):
         except Exception as e:
             log.error(f"[LichessPlayer] Failed to offer draw: {e}")
     
+    def accept_draw(self) -> None:
+        """Accept a draw offer from opponent."""
+        if not self._game_id or not self._client:
+            log.warning("[LichessPlayer] Cannot accept draw - no active game")
+            return
+        
+        log.info("[LichessPlayer] Accepting draw")
+        try:
+            # In Lichess API, offering draw while opponent has offered = accept
+            self._client.board.offer_draw(self._game_id)
+        except Exception as e:
+            log.error(f"[LichessPlayer] Failed to accept draw: {e}")
+    
+    def decline_draw(self) -> None:
+        """Decline a draw offer from opponent."""
+        if not self._game_id or not self._client:
+            log.warning("[LichessPlayer] Cannot decline draw - no active game")
+            return
+        
+        log.info("[LichessPlayer] Declining draw")
+        try:
+            self._client.board.decline_draw(self._game_id)
+        except Exception as e:
+            log.error(f"[LichessPlayer] Failed to decline draw: {e}")
+    
+    def accept_takeback(self) -> None:
+        """Accept a takeback offer from opponent."""
+        if not self._game_id or not self._client:
+            log.warning("[LichessPlayer] Cannot accept takeback - no active game")
+            return
+        
+        log.info("[LichessPlayer] Accepting takeback")
+        try:
+            # Accept takeback via Lichess API
+            self._client.board.handle_takeback_offer(self._game_id, accept=True)
+        except Exception as e:
+            log.error(f"[LichessPlayer] Failed to accept takeback: {e}")
+    
+    def decline_takeback(self) -> None:
+        """Decline a takeback offer from opponent."""
+        if not self._game_id or not self._client:
+            log.warning("[LichessPlayer] Cannot decline takeback - no active game")
+            return
+        
+        log.info("[LichessPlayer] Declining takeback")
+        try:
+            self._client.board.handle_takeback_offer(self._game_id, accept=False)
+            # Send a polite message
+            try:
+                self._client.board.post_message(
+                    self._game_id,
+                    "Sorry, this external board doesn't handle takebacks well",
+                    spectator=False
+                )
+            except Exception:
+                pass  # Message is optional
+        except Exception as e:
+            log.error(f"[LichessPlayer] Failed to decline takeback: {e}")
+    
     def abort_game(self) -> None:
         """Abort the current game (only valid in first few moves)."""
         if not self._game_id or not self._client:
@@ -558,8 +658,17 @@ class LichessPlayer(Player):
         """Process a game state update from Lichess stream."""
         log.debug(f"[LichessPlayer] State update: {state}")
         
-        # Skip non-game messages
-        if 'chatLine' in str(state) or 'opponentGone' in str(state):
+        # Handle chat line messages (skip for game state purposes)
+        if 'chatLine' in str(state):
+            return
+        
+        # Handle opponent gone notification
+        if 'opponentGone' in str(state):
+            return
+        
+        # Handle text messages (takeback requests, draw offers)
+        if 'text' in state:
+            self._handle_text_message(state.get('text', ''))
             return
         
         # Extract player info from initial state
@@ -572,10 +681,20 @@ class LichessPlayer(Player):
             moves = inner_state.get('moves', '')
             status = inner_state.get('status', '')
             self._process_time_update(inner_state)
+            # Check for takeback/draw offers in nested state
+            if 'wtakeback' in inner_state or 'btakeback' in inner_state:
+                self._handle_takeback_state(inner_state)
+            if 'wdraw' in inner_state or 'bdraw' in inner_state:
+                self._handle_draw_state(inner_state)
         else:
             moves = state.get('moves', '')
             status = state.get('status', '')
             self._process_time_update(state)
+            # Check for takeback/draw offers
+            if 'wtakeback' in state or 'btakeback' in state:
+                self._handle_takeback_state(state)
+            if 'wdraw' in state or 'bdraw' in state:
+                self._handle_draw_state(state)
         
         moves = str(moves) if moves else ''
         
@@ -586,6 +705,76 @@ class LichessPlayer(Player):
         
         # Check game status
         self._check_game_status(status, state)
+    
+    def _handle_text_message(self, message: str):
+        """Handle text messages from Lichess (takeback, draw offers).
+        
+        Args:
+            message: The text message from Lichess.
+        """
+        log.info(f"[LichessPlayer] Text message: {message}")
+        
+        message_lower = message.lower()
+        
+        if 'takeback' in message_lower:
+            # Opponent is requesting a takeback
+            if self._takeback_offer_callback:
+                log.info("[LichessPlayer] Takeback offer received, calling callback")
+                self._takeback_offer_callback(self.accept_takeback, self.decline_takeback)
+            else:
+                # No callback - auto decline
+                log.info("[LichessPlayer] No takeback callback, declining")
+                self.decline_takeback()
+        
+        elif 'offers draw' in message_lower or 'draw offer' in message_lower:
+            # Opponent is offering a draw
+            if self._draw_offer_callback:
+                log.info("[LichessPlayer] Draw offer received, calling callback")
+                self._draw_offer_callback(self.accept_draw, self.decline_draw)
+            else:
+                # No callback - show info message but don't auto-accept/decline
+                if self._info_message_callback:
+                    self._info_message_callback("Draw offered")
+    
+    def _handle_takeback_state(self, state: dict):
+        """Handle takeback offer state from Lichess.
+        
+        Args:
+            state: State dict containing wtakeback/btakeback.
+        """
+        # Check if opponent has offered takeback
+        opponent_offered = False
+        if self._player_is_white:
+            # We are white, opponent is black
+            opponent_offered = state.get('btakeback', False)
+        else:
+            # We are black, opponent is white  
+            opponent_offered = state.get('wtakeback', False)
+        
+        if opponent_offered:
+            if self._takeback_offer_callback:
+                log.info("[LichessPlayer] Opponent takeback offer in state, calling callback")
+                self._takeback_offer_callback(self.accept_takeback, self.decline_takeback)
+    
+    def _handle_draw_state(self, state: dict):
+        """Handle draw offer state from Lichess.
+        
+        Args:
+            state: State dict containing wdraw/bdraw.
+        """
+        # Check if opponent has offered draw
+        opponent_offered = False
+        if self._player_is_white:
+            # We are white, opponent is black
+            opponent_offered = state.get('bdraw', False)
+        else:
+            # We are black, opponent is white
+            opponent_offered = state.get('wdraw', False)
+        
+        if opponent_offered:
+            if self._draw_offer_callback:
+                log.info("[LichessPlayer] Opponent draw offer in state, calling callback")
+                self._draw_offer_callback(self.accept_draw, self.decline_draw)
     
     def _extract_player_info(self, state: dict):
         """Extract player information from game state."""
@@ -689,13 +878,61 @@ class LichessPlayer(Player):
             log.error(f"[LichessPlayer] Invalid move from Lichess: {last_move}: {e}")
     
     def _check_game_status(self, status: str, state: dict):
-        """Check game status and handle game end conditions."""
+        """Check game status and handle game end conditions.
+        
+        Fires game over callback with result, termination type, and winner.
+        """
         status = str(status).lower()
         
         terminal_states = ['mate', 'resign', 'draw', 'aborted', 'outoftime', 'timeout', 'stalemate']
         
         if status in terminal_states:
             log.info(f"[LichessPlayer] Game ended: {status}")
+            
+            # Extract winner from state
+            winner = state.get('winner')
+            if winner:
+                winner = str(winner).lower()
+            
+            # Determine result string
+            if status == 'draw' or status == 'stalemate':
+                result = "1/2-1/2"
+            elif winner == 'white':
+                result = "1-0"
+            elif winner == 'black':
+                result = "0-1"
+            else:
+                # Aborted or unclear - treat as draw
+                result = "1/2-1/2" if status != 'aborted' else None
+            
+            # Map status to termination type
+            termination_map = {
+                'mate': 'CHECKMATE',
+                'resign': 'RESIGN',
+                'draw': 'DRAW',
+                'aborted': 'ABORTED',
+                'outoftime': 'TIMEOUT',
+                'timeout': 'TIMEOUT',
+                'stalemate': 'STALEMATE',
+            }
+            termination = termination_map.get(status, status.upper())
+            
+            log.info(f"[LichessPlayer] Game result: {result}, termination: {termination}, winner: {winner}")
+            
+            # Play sound effect
+            try:
+                from DGTCentaurMods.board import board
+                board.beep(board.SOUND_WRONG_MOVE)
+            except Exception:
+                pass
+            
+            # Fire game over callback
+            if self._game_over_callback and result:
+                try:
+                    self._game_over_callback(result, termination, winner)
+                except Exception as e:
+                    log.error(f"[LichessPlayer] Error in game_over_callback: {e}")
+            
             self._set_state(PlayerState.STOPPED)
 
 

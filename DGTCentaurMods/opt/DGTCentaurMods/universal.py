@@ -3511,6 +3511,68 @@ def _start_lichess_game(lichess_config) -> bool:
     # Set callback for when game is connected
     protocol_manager.set_lichess_on_game_connected(on_game_connected)
     
+    # Info overlay widget for displaying messages like "Draw offered"
+    from DGTCentaurMods.epaper import InfoOverlayWidget
+    _info_overlay = InfoOverlayWidget()
+    board.display_manager.add_widget(_info_overlay)
+    
+    # Lichess callbacks
+    def _on_lichess_game_over(result: str, termination: str, winner):
+        """Handle Lichess game over event."""
+        log.info(f"[App] Lichess game over: result={result}, termination={termination}, winner={winner}")
+        display_manager.stop_clock()
+        move_count = len(protocol_manager.game_manager.chess_board.move_stack) if protocol_manager.game_manager else 0
+        display_manager.show_game_over(result, termination, move_count)
+    
+    def _on_lichess_takeback_offer(accept_fn, decline_fn):
+        """Handle takeback offer from opponent - show confirmation menu."""
+        log.info("[App] Lichess takeback offer received")
+        board.beep(board.SOUND_GENERAL)
+        
+        # Show confirmation menu
+        entries = [
+            IconMenuEntry(key="accept", label="Accept\nTakeback", icon_name="undo"),
+            IconMenuEntry(key="decline", label="Decline", icon_name="cancel"),
+        ]
+        result = _menu_manager.show_menu(entries)
+        
+        if result.key == "accept":
+            log.info("[App] User accepted takeback")
+            accept_fn()
+        else:
+            log.info("[App] User declined takeback")
+            decline_fn()
+    
+    def _on_lichess_draw_offer(accept_fn, decline_fn):
+        """Handle draw offer from opponent - show confirmation menu."""
+        log.info("[App] Lichess draw offer received")
+        board.beep(board.SOUND_GENERAL)
+        
+        # Show confirmation menu
+        entries = [
+            IconMenuEntry(key="accept", label="Accept\nDraw", icon_name="draw"),
+            IconMenuEntry(key="decline", label="Decline", icon_name="cancel"),
+        ]
+        result = _menu_manager.show_menu(entries)
+        
+        if result.key == "accept":
+            log.info("[App] User accepted draw")
+            accept_fn()
+        else:
+            log.info("[App] User declined draw")
+            decline_fn()
+    
+    def _on_lichess_info_message(message: str):
+        """Handle info message from Lichess - show overlay."""
+        log.info(f"[App] Lichess info message: {message}")
+        _info_overlay.show_message(message, duration_seconds=5.0)
+    
+    # Wire up Lichess callbacks
+    protocol_manager.set_lichess_game_over_callback(_on_lichess_game_over)
+    protocol_manager.set_lichess_takeback_offer_callback(_on_lichess_takeback_offer)
+    protocol_manager.set_lichess_draw_offer_callback(_on_lichess_draw_offer)
+    protocol_manager.set_lichess_info_message_callback(_on_lichess_info_message)
+    
     # Lichess games: BACK behavior depends on state
     def _on_lichess_back_menu_result(action: str):
         """Handle Lichess back menu result (resign/abort/cancel)."""
@@ -3536,7 +3598,11 @@ def _start_lichess_game(lichess_config) -> bool:
     _clock_started = False
     
     def _on_lichess_game_event(event):
-        """Handle game events for Lichess - updates clock widget on turn changes."""
+        """Handle game events for Lichess - updates clock widget on turn changes.
+        
+        Game over is handled separately by _on_lichess_game_over callback
+        which receives authoritative data from the Lichess stream.
+        """
         nonlocal _clock_started
         
         if event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
@@ -3549,13 +3615,8 @@ def _start_lichess_game(lichess_config) -> bool:
             else:
                 # Switch clock on subsequent turn events
                 display_manager.switch_clock_turn()
-        elif isinstance(event, str) and event.startswith("Termination."):
-            # Game ended
-            termination_type = event[12:]
-            result = protocol_manager.get_result()
-            log.info(f"[App] Lichess game terminated: {termination_type}, result={result}")
-            display_manager.stop_clock()
-            display_manager.show_game_over(result, termination_type)
+            # Hide info overlay on new moves
+            _info_overlay.hide()
     
     # Register event callback for clock/turn updates
     protocol_manager._external_event_callback = _on_lichess_game_event
