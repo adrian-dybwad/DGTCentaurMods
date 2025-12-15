@@ -268,6 +268,9 @@ _last_position_category = None  # Remember last selected category name for direc
 # Keyboard state (for WiFi password entry etc.)
 _active_keyboard_widget = None
 
+# About widget state (for support QR screen)
+_active_about_widget = None
+
 # Socket references
 server_sock = None
 client_sock = None
@@ -3280,90 +3283,47 @@ def _handle_about_menu():
 
 
 def _show_support_qr():
-    """Display support QR code screen.
+    """Display support QR code screen using AboutWidget.
     
     Shows a QR code linking to the DGTCentaurMods support page.
-    Waits for user input to dismiss.
+    Waits for user button press to dismiss (with timeout).
     """
+    global _active_about_widget
+    
     from PIL import Image
     from DGTCentaurMods.managers.asset import AssetManager
+    from DGTCentaurMods.epaper.about_widget import AboutWidget
     
     version = _get_installed_version()
     
     # Try to load QR code image
+    qr_img = None
     try:
         qr_path = AssetManager.get_resource_path("qr-support.png")
         if qr_path:
-            qr_img = Image.open(qr_path).resize((100, 100))
-        else:
-            qr_img = None
+            qr_img = Image.open(qr_path)
     except Exception as e:
         log.debug(f"[About] Failed to load QR image: {e}")
-        qr_img = None
     
-    # Create a custom display using SplashScreen or direct drawing
-    board.display_manager.clear_widgets()
+    # Create and display the AboutWidget
+    board.display_manager.clear_widgets(addStatusBar=False)
     
-    if qr_img:
-        # Create composite image with QR code and text
-        from PIL import ImageDraw, ImageFont
-        from DGTCentaurMods.resources import ResourceLoader
-        
-        # Get the framebuffer canvas to draw on
-        canvas = board.display_manager._framebuffer.get_canvas()
-        
-        # Clear canvas to white first
-        draw = ImageDraw.Draw(canvas)
-        draw.rectangle((0, 0, 128, 296), fill=255)
-        
-        # Load fonts using ResourceLoader
-        loader = ResourceLoader("/opt/DGTCentaurMods/resources", "/home/pi/resources")
-        small_font = loader.get_font(12)
-        version_font = loader.get_font(10)
-        
-        # Draw title
-        draw.text((64, 15), "Get Support", font=small_font, fill=0, anchor="mm")
-        
-        # Paste QR code (centered) - convert to mode "1" for 1-bit display
-        qr_x = (128 - 100) // 2
-        qr_y = 35
-        canvas.paste(qr_img.convert("1"), (qr_x, qr_y))
-        
-        # Draw app name and version below QR
-        draw.text((64, 150), "DGTCentaur", font=small_font, fill=0, anchor="mm")
-        draw.text((64, 165), "Mods", font=small_font, fill=0, anchor="mm")
-        if version:
-            draw.text((64, 185), f"v{version}", font=version_font, fill=0, anchor="mm")
-        
-        # Draw instruction at bottom
-        draw.text((64, 280), "Press any button", font=version_font, fill=0, anchor="mm")
-        
-        # Submit update to display the canvas
-        promise = board.display_manager.update()
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-    else:
-        # Fallback to splash screen if QR not available
-        message = f"DGTCentaurMods\nv{version}\n\nVisit:\ngithub.com/\nEdNekebno/\nDGTCentaurMods"
-        promise = board.display_manager.add_widget(SplashScreen(message=message))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
+    about_widget = AboutWidget(qr_image=qr_img, version=version)
+    _active_about_widget = about_widget
     
-    # Wait for button press (with timeout)
-    timeout = time.time() + 30
-    while time.time() < timeout:
-        time.sleep(0.1)
-        # Check for any button press via the connection manager
-        # For now, just use a fixed timeout
-        break  # Exit after displaying
+    promise = board.display_manager.add_widget(about_widget)
+    if promise:
+        try:
+            promise.result(timeout=2.0)
+        except Exception:
+            pass
     
-    time.sleep(3)  # Show for 3 seconds
+    try:
+        # Wait for user to dismiss (button press handled by key_callback)
+        # The about widget will be dismissed when any button is pressed
+        about_widget.wait_for_dismiss(timeout=30.0)
+    finally:
+        _active_about_widget = None
 
 
 def _handle_update_menu(update_system):
@@ -5054,7 +5014,7 @@ def key_callback(key_id):
     too many unhandled keys (indicating a broken state), the app forces
     recovery by returning to the main menu.
     """
-    global running, kill, display_manager, app_state, _menu_manager, _active_keyboard_widget
+    global running, kill, display_manager, app_state, _menu_manager, _active_keyboard_widget, _active_about_widget
     
     log.info(f"[App] Key event received: {key_id}, app_state={app_state}")
     
@@ -5067,7 +5027,13 @@ def key_callback(key_id):
         _reset_unhandled_key_count()
         return
     
-    # Priority 1: Active keyboard widget gets key events
+    # Priority 1: Active about widget - any key dismisses it
+    if _active_about_widget is not None:
+        _active_about_widget.dismiss()
+        _reset_unhandled_key_count()
+        return
+    
+    # Priority 2: Active keyboard widget gets key events
     if _active_keyboard_widget is not None:
         handled = _active_keyboard_widget.handle_key(key_id)
         if handled:
