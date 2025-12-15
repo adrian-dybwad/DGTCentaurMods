@@ -22,9 +22,10 @@ from .keyboard import KeyboardWidget
 from .brain_hint import BrainHintWidget
 from .alert_widget import AlertWidget
 from .chess_clock import ChessClockWidget
+from .info_overlay import InfoOverlayWidget
 
 __all__ = ['Manager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'Justify', 'BallWidget', 
            'ChessBoardWidget', 'GameAnalysisWidget', 'CheckerboardWidget', 'BackgroundWidget',
            'SplashScreen', 'StatusBarWidget', 'WiFiStatusWidget', 'GameOverWidget', 'MenuArrowWidget',
            'IconButtonWidget', 'IconMenuWidget', 'IconMenuEntry', 'KeyboardWidget', 'BrainHintWidget',
-           'AlertWidget', 'ChessClockWidget']
+           'AlertWidget', 'ChessClockWidget', 'InfoOverlayWidget']
