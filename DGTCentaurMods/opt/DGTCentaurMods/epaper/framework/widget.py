@@ -9,11 +9,9 @@ from typing import Optional, TYPE_CHECKING, Callable
 if TYPE_CHECKING:
     from .scheduler import Scheduler
 
-try:
-    from DGTCentaurMods.board.logging import log
-except ImportError:
-    import logging
-    log = logging.getLogger(__name__)
+import logging
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
 
 
 # 8x8 Bayer matrix for ordered dithering threshold values (0-63)
