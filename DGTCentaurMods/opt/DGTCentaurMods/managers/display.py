@@ -95,7 +95,8 @@ class DisplayManager:
                  hand_brain_mode: bool = False, initial_fen: str = None,
                  time_control: int = 0, show_board: bool = True,
                  show_clock: bool = True,
-                 show_graph: bool = True, analysis_mode: bool = True):
+                 show_graph: bool = True, analysis_mode: bool = True,
+                 white_name: str = "", black_name: str = ""):
         """Initialize the display controller.
         
         Args:
@@ -110,6 +111,8 @@ class DisplayManager:
             show_clock: If True, show the clock/turn indicator widget
             show_graph: If True, show the history graph in analysis widget
             analysis_mode: If True, create analysis engine/widget (may be hidden by show_analysis)
+            white_name: Name for white player (displayed in clock widget)
+            black_name: Name for black player (displayed in clock widget)
         """
         _load_widgets()
         
@@ -123,6 +126,8 @@ class DisplayManager:
         self._show_board = show_board
         self._show_clock = show_clock
         self._show_graph = show_graph
+        self._white_name = white_name
+        self._black_name = black_name
         
         # Widgets
         self.chess_board_widget = None
@@ -285,7 +290,8 @@ class DisplayManager:
         timed_mode = self._time_control > 0
         self.clock_widget = _ChessClockWidget(
             x=0, y=clock_y, width=128, height=clock_height,
-            timed_mode=timed_mode, flip=self._flip_board
+            timed_mode=timed_mode, flip=self._flip_board,
+            white_name=self._white_name, black_name=self._black_name
         )
         # Set initial times if timed mode is enabled
         if self._time_control > 0:
@@ -380,6 +386,21 @@ class DisplayManager:
                 )
             except Exception as e:
                 log.debug(f"[DisplayManager] Error analyzing position: {e}")
+    
+    def set_player_names(self, white_name: str, black_name: str) -> None:
+        """Set the player names displayed in the clock widget.
+        
+        Can be called after initialization when player names become available
+        (e.g., after Lichess game info is received).
+        
+        Args:
+            white_name: Name for white player
+            black_name: Name for black player
+        """
+        self._white_name = white_name
+        self._black_name = black_name
+        if self.clock_widget:
+            self.clock_widget.set_player_names(white_name, black_name)
     
     def get_hint_move(self, board_obj, time_limit: float = 1.0):
         """Get a hint move for the current position.

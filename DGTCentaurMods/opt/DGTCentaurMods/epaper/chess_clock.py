@@ -50,7 +50,8 @@ class ChessClockWidget(Widget):
     DEFAULT_HEIGHT = 72
     
     def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None,
-                 timed_mode: bool = True, flip: bool = False):
+                 timed_mode: bool = True, flip: bool = False,
+                 white_name: str = "", black_name: str = ""):
         """
         Initialize chess clock widget.
         
@@ -61,6 +62,8 @@ class ChessClockWidget(Widget):
             height: Widget height (default 72)
             timed_mode: Whether to show times (True) or just turn indicator (False)
             flip: If True, show Black on top (matching flipped board perspective)
+            white_name: Optional name for white player (displayed under "White")
+            black_name: Optional name for black player (displayed under "Black")
         """
         if y is None:
             y = self.DEFAULT_Y
@@ -72,6 +75,10 @@ class ChessClockWidget(Widget):
         # Mode
         self._timed_mode = timed_mode
         self._flip = flip
+        
+        # Player names (displayed under color labels)
+        self._white_name = white_name
+        self._black_name = black_name
         
         # Time state (in seconds)
         self._white_time = 0
@@ -92,6 +99,10 @@ class ChessClockWidget(Widget):
         self._white_label = TextWidget(x=20, y=0, width=40, height=16, 
                                         text="White", font_size=10, 
                                         justify=Justify.LEFT, transparent=True)
+        # White player name (smaller, under the label)
+        self._white_name_text = TextWidget(x=20, y=0, width=60, height=12,
+                                           text="", font_size=8,
+                                           justify=Justify.LEFT, transparent=True)
         # White time (right aligned)
         self._white_time_text = TextWidget(x=60, y=0, width=64, height=20,
                                            text="00:00", font_size=16,
@@ -100,15 +111,24 @@ class ChessClockWidget(Widget):
         self._black_label = TextWidget(x=20, y=0, width=40, height=16,
                                        text="Black", font_size=10,
                                        justify=Justify.LEFT, transparent=True)
+        # Black player name (smaller, under the label)
+        self._black_name_text = TextWidget(x=20, y=0, width=60, height=12,
+                                           text="", font_size=8,
+                                           justify=Justify.LEFT, transparent=True)
         # Black time
         self._black_time_text = TextWidget(x=60, y=0, width=64, height=20,
                                            text="00:00", font_size=16,
                                            justify=Justify.RIGHT, transparent=True)
         
-        # Create TextWidget for compact mode (turn indicator text)
+        # Create TextWidgets for compact mode
+        # Turn indicator text (color)
         self._turn_text = TextWidget(x=0, y=0, width=width, height=20,
                                      text="White's Turn", font_size=16,
                                      justify=Justify.CENTER, transparent=True)
+        # Player name text (below turn indicator)
+        self._turn_name_text = TextWidget(x=0, y=0, width=width, height=14,
+                                          text="", font_size=10,
+                                          justify=Justify.CENTER, transparent=True)
         
         # Track last state to avoid unnecessary updates
         self._last_white_time = None
@@ -143,6 +163,50 @@ class ChessClockWidget(Widget):
     def active_color(self) -> Optional[str]:
         """Which player's clock is active ('white', 'black', or None)."""
         return self._active_color
+    
+    @property
+    def white_name(self) -> str:
+        """White player's name."""
+        return self._white_name
+    
+    @white_name.setter
+    def white_name(self, value: str) -> None:
+        """Set white player's name."""
+        if self._white_name != value:
+            self._white_name = value
+            self._last_rendered = None
+            self.request_update(full=False)
+    
+    @property
+    def black_name(self) -> str:
+        """Black player's name."""
+        return self._black_name
+    
+    @black_name.setter
+    def black_name(self, value: str) -> None:
+        """Set black player's name."""
+        if self._black_name != value:
+            self._black_name = value
+            self._last_rendered = None
+            self.request_update(full=False)
+    
+    def set_player_names(self, white_name: str, black_name: str) -> None:
+        """Set both player names at once.
+        
+        Args:
+            white_name: White player's name
+            black_name: Black player's name
+        """
+        changed = False
+        if self._white_name != white_name:
+            self._white_name = white_name
+            changed = True
+        if self._black_name != black_name:
+            self._black_name = black_name
+            changed = True
+        if changed:
+            self._last_rendered = None
+            self.request_update(full=False)
     
     def set_times(self, white_seconds: int, black_seconds: int) -> None:
         """
@@ -383,6 +447,10 @@ class ChessClockWidget(Widget):
             bottom_color = 'black'
             top_label = self._white_label
             bottom_label = self._black_label
+            top_name_widget = self._white_name_text
+            bottom_name_widget = self._black_name_text
+            top_name = self._white_name
+            bottom_name = self._black_name
             top_time_widget = self._white_time_text
             bottom_time_widget = self._black_time_text
             top_time = self._white_time
@@ -392,6 +460,10 @@ class ChessClockWidget(Widget):
             bottom_color = 'white'
             top_label = self._black_label
             bottom_label = self._white_label
+            top_name_widget = self._black_name_text
+            bottom_name_widget = self._white_name_text
+            top_name = self._black_name
+            bottom_name = self._white_name
             top_time_widget = self._black_time_text
             bottom_time_widget = self._white_time_text
             top_time = self._black_time
@@ -411,11 +483,18 @@ class ChessClockWidget(Widget):
                         fill=255, outline=0)
         
         # Top label using TextWidget - draw directly onto image
-        top_label.draw_on(img, draw_x + 20, top_y + 2)
+        top_label.draw_on(img, draw_x + 20, top_y)
+        
+        # Top player name (if set) - drawn below the color label
+        if top_name:
+            # Truncate long names
+            display_name = top_name[:10] if len(top_name) > 10 else top_name
+            top_name_widget.set_text(display_name)
+            top_name_widget.draw_on(img, draw_x + 20, top_y + 12)
         
         # Top time using TextWidget - draw directly onto image
         top_time_widget.set_text(self._format_time(top_time))
-        top_time_widget.draw_on(img, draw_x + self.width - 68, top_y + 8)
+        top_time_widget.draw_on(img, draw_x + self.width - 68, top_y + 6)
         
         # Horizontal separator
         separator_y = draw_y + self.height // 2
@@ -434,11 +513,18 @@ class ChessClockWidget(Widget):
                         fill=255, outline=0)
         
         # Bottom label using TextWidget - draw directly onto image
-        bottom_label.draw_on(img, draw_x + 20, bottom_y + 2)
+        bottom_label.draw_on(img, draw_x + 20, bottom_y)
+        
+        # Bottom player name (if set) - drawn below the color label
+        if bottom_name:
+            # Truncate long names
+            display_name = bottom_name[:10] if len(bottom_name) > 10 else bottom_name
+            bottom_name_widget.set_text(display_name)
+            bottom_name_widget.draw_on(img, draw_x + 20, bottom_y + 12)
         
         # Bottom time using TextWidget - draw directly onto image
         bottom_time_widget.set_text(self._format_time(bottom_time))
-        bottom_time_widget.draw_on(img, draw_x + self.width - 68, bottom_y + 8)
+        bottom_time_widget.draw_on(img, draw_x + self.width - 68, bottom_y + 6)
     
     def _render_compact_mode(self, img: Image.Image, draw: ImageDraw.Draw, draw_x: int, draw_y: int) -> None:
         """
@@ -449,13 +535,16 @@ class ChessClockWidget(Widget):
         Layout (72 pixels height):
         - Large indicator circle (filled for black, empty for white)
         - "White's Turn" or "Black's Turn" text below
+        - Player name below turn text (if set)
         """
-        # Determine text
+        # Determine text and player name
         if self._active_color == 'black':
             turn_text = "Black's Turn"
+            player_name = self._black_name
         else:
             # Default to white if None or 'white'
             turn_text = "White's Turn"
+            player_name = self._white_name
         
         # Large indicator circle at top center
         indicator_size = 28
@@ -475,5 +564,13 @@ class ChessClockWidget(Widget):
         
         # Turn text below indicator using TextWidget (centered) - draw directly
         self._turn_text.set_text(turn_text)
-        text_y = indicator_y + indicator_size + 6
+        text_y = indicator_y + indicator_size + 4
         self._turn_text.draw_on(img, draw_x, text_y)
+        
+        # Player name below turn text (if set)
+        if player_name:
+            # Truncate long names
+            display_name = player_name[:15] if len(player_name) > 15 else player_name
+            self._turn_name_text.set_text(display_name)
+            name_y = text_y + 18
+            self._turn_name_text.draw_on(img, draw_x, name_y)
