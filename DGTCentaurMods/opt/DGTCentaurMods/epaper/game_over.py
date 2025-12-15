@@ -11,7 +11,10 @@ from .framework.widget import Widget
 from .text import TextWidget, Justify
 import os
 import sys
+import logging
 from typing import Optional, Tuple
+
+log = logging.getLogger(__name__)
 
 
 class GameOverWidget(Widget):
@@ -112,6 +115,21 @@ class GameOverWidget(Widget):
         if changed:
             self._last_rendered = None
             self.request_update(full=False)
+    
+    def show(self) -> None:
+        """Show game over widget and turn off LEDs.
+        
+        When the game ends, any pending move or check/threat LEDs
+        should be turned off to indicate the game is finished.
+        """
+        try:
+            from DGTCentaurMods.board import board
+            board.ledsOff()
+            log.debug("[GameOverWidget] LEDs turned off on game over")
+        except Exception as e:
+            log.error(f"[GameOverWidget] Error turning off LEDs: {e}")
+        
+        super().show()
     
     def _format_termination(self, termination: str) -> str:
         """

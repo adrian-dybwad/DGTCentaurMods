@@ -2464,7 +2464,14 @@ class GameManager:
             move: The pending move to display.
         """
         log.info(f"[GameManager._on_pending_move] Pending move: {move.uci()}")
-        board.ledFromTo(move.from_square, move.to_square, repeat=0)
+        try:
+            log.debug(f"[GameManager._on_pending_move] Calling ledFromTo({move.from_square}, {move.to_square})")
+            board.ledFromTo(move.from_square, move.to_square, repeat=0)
+            log.debug(f"[GameManager._on_pending_move] ledFromTo completed")
+        except Exception as e:
+            log.error(f"[GameManager._on_pending_move] Error calling ledFromTo: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _detect_late_castling(self, king_move: chess.Move) -> Optional[chess.Move]:
         """Detect if a king move is part of a late castling sequence.

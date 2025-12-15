@@ -85,7 +85,7 @@ class AlertWidget(Widget):
         log.info(f"[AlertWidget] Showing CHECK: {'black' if is_black_in_check else 'white'} king in check, attacker={attacker_square}, king={king_square}")
         
         # Flash LEDs from attacker to king
-        self._flash_leds()
+        self._flash_leds(intensity=1, speed=5, repeat=2)
         
         # Use base class show() to handle visibility and update
         super().show()
@@ -106,7 +106,7 @@ class AlertWidget(Widget):
         log.info(f"[AlertWidget] Showing QUEEN threat: {'black' if is_black_queen_threatened else 'white'} queen threatened, attacker={attacker_square}, queen={queen_square}")
         
         # Flash LEDs from attacker to queen
-        self._flash_leds()
+        self._flash_leds(intensity=1, speed=5, repeat=1)
         
         # Use base class show() to handle visibility and update
         super().show()
@@ -128,7 +128,7 @@ class AlertWidget(Widget):
         log.info(f"[AlertWidget] Showing HINT: {move_text} ({from_square} -> {to_square})")
         
         # Flash LEDs from source to target
-        self._flash_leds()
+        self._flash_leds(intensity=5, speed=5, repeat=2)
         
         # Use base class show() to handle visibility and update
         super().show()
@@ -143,7 +143,7 @@ class AlertWidget(Widget):
             # Use base class hide() to handle visibility and update
             super().hide()
     
-    def _flash_leds(self) -> None:
+    def _flash_leds(self, intensity: int = 5, speed: int = 3, repeat: int = 0) -> None:
         """Flash LEDs from attacker square to target square."""
         if self._attacker_square is None or self._target_square is None:
             return
@@ -152,7 +152,7 @@ class AlertWidget(Widget):
             # Import board module for LED control
             from DGTCentaurMods.board import board
             # Flash from attacker to target with repeat=0 (continuous until next LED command)
-            board.ledFromTo(self._attacker_square, self._target_square, intensity=5, speed=3, repeat=0)
+            board.ledFromTo(self._attacker_square, self._target_square, intensity=intensity, speed=speed, repeat=repeat)
         except Exception as e:
             log.error(f"[AlertWidget] Error flashing LEDs: {e}")
     

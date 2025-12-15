@@ -204,13 +204,17 @@ class EnginePlayer(Player):
             log.debug("[EnginePlayer] Already thinking, ignoring duplicate call")
             return
         
+        # If we already have a pending move waiting for execution, don't restart
+        if self._pending_move is not None:
+            log.debug(f"[EnginePlayer] Already have pending move {self._pending_move.uci()}, ignoring request")
+            return
+        
         with self._lock:
             if not self._engine:
                 log.warning("[EnginePlayer] Engine not initialized")
                 return
         
         # Reset state for new turn
-        self._pending_move = None
         self._lifted_squares = []
         
         self._thinking = True

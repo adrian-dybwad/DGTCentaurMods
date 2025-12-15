@@ -314,9 +314,19 @@ def ledArray(inarray, speed = 3, intensity=5, repeat=1):
     controller.ledArray(inarray, speed, intensity, repeat)
 
 def ledFromTo(lfrom, lto, intensity=5, speed=3, repeat=1):
-    # Light up a from and to LED for move indication
-    # Note the call to this function is 0 for a1 and runs to 63 for h8
-    # but the electronics runs 0x00 from a8 right and down to 0x3F for h1
+    """Light up a from and to LED for move indication.
+    
+    Note the call to this function is 0 for a1 and runs to 63 for h8
+    but the electronics runs 0x00 from a8 right and down to 0x3F for h1.
+    
+    Args:
+        lfrom: Source square (0-63, chess library format)
+        lto: Target square (0-63, chess library format)
+        intensity: LED brightness (1-5)
+        speed: Flash speed (1-5)
+        repeat: Number of repetitions (0=continuous)
+    """
+    log.debug(f"[board.ledFromTo] from={lfrom} to={lto} intensity={intensity} speed={speed} repeat={repeat}")
     controller.ledFromTo(rotateField(lfrom), rotateField(lto), intensity, speed, repeat)
 
 def led(num, intensity=5, speed=3, repeat=1):
