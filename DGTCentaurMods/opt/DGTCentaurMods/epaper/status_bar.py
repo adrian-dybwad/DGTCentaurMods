@@ -25,41 +25,49 @@ except ImportError:
 class StatusBarWidget(Widget):
     """Status bar widget displaying time, Chromecast, WiFi, Bluetooth, and battery icons.
     
-    Layout (128px wide, 16px tall) - right-aligned icons:
-    - Clock: x=2, width=56 (HH:MM format)
-    - Chromecast: x=60, width=14 (only visible when streaming)
-    - WiFi: x=76, width=14
-    - Bluetooth: x=92, width=14
-    - Battery: x=108, width=20
+    Layout rules (128px wide, 16px tall):
+    - All widgets are 16px tall (full height)
+    - Clock: 2.5x wider than tall = 40px, starts at x=0
+    - Chromecast: square = 16x16 (only visible when streaming)
+    - WiFi: square = 16x16
+    - Bluetooth: 3/4 as wide as tall = 12x16
+    - Battery: 5/4 as wide as tall = 20x16, right-aligned at x=128
     
-    When Chromecast is streaming, the cast icon appears at x=60, right before WiFi.
+    Positions calculated from right edge:
+    - Battery: x=108, ends at 128
+    - Bluetooth: x=96
+    - WiFi: x=80
+    - Chromecast: x=64 (when visible)
+    - Clock: x=0
+    
+    Each widget controls its own visibility based on its state.
     """
     
-    # Fixed positions (right-aligned icons) - total: 128px
-    CHROMECAST_X = 60   # Chromecast position (14px wide, only when streaming)
-    WIFI_X = 76         # WiFi position (14px wide)
-    BLUETOOTH_X = 92    # Bluetooth position (14px wide)
-    BATTERY_X = 108     # Battery at far right (20px wide, ends at 128)
+    # Positions calculated from right edge, all widgets 16px tall
+    BATTERY_X = 108     # 20px wide, ends at 128
+    BLUETOOTH_X = 96    # 12px wide
+    WIFI_X = 80         # 16px wide
+    CHROMECAST_X = 64   # 16px wide (only when streaming)
     
     def __init__(self, x: int = 0, y: int = 0):
         super().__init__(x, y, 128, STATUS_BAR_HEIGHT)
         
-        # Create clock widget with HH:MM format, 14pt font
+        # Create clock widget: 2.5x wider than tall = 40x16, starts at x=0
         font_path = '/opt/DGTCentaurMods/resources/Font.ttc'
         if not os.path.exists(font_path):
             font_path = 'resources/Font.ttc'
-        self._clock_widget = ClockWidget(2, 0, width=56, height=16, 
+        self._clock_widget = ClockWidget(0, 0, width=40, height=16, 
                                          font_size=14, font_path=font_path,
                                          show_seconds=False)
         
         # Chromecast status widget (hidden when not streaming)
-        self._chromecast_widget = ChromecastStatusWidget(self.CHROMECAST_X, 1, size=14)
+        self._chromecast_widget = ChromecastStatusWidget(self.CHROMECAST_X, 0, size=16)
         set_chromecast_widget(self._chromecast_widget)
         
-        # Other status widgets
-        self._wifi_widget = WiFiStatusWidget(self.WIFI_X, 1, size=14)
-        self._bluetooth_widget = BluetoothStatusWidget(self.BLUETOOTH_X, 1, size=14)
-        self._battery_widget = BatteryWidget(self.BATTERY_X, 1, width=20, height=14)
+        # Other status widgets - all 16px tall to fill status bar
+        self._wifi_widget = WiFiStatusWidget(self.WIFI_X, 0, size=16)
+        self._bluetooth_widget = BluetoothStatusWidget(self.BLUETOOTH_X, 0, width=12, height=16)
+        self._battery_widget = BatteryWidget(self.BATTERY_X, 0, width=20, height=16)
         
         # Collect all child widgets for unified lifecycle management
         self._child_widgets: List[Widget] = [

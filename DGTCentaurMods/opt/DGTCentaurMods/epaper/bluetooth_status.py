@@ -36,13 +36,15 @@ class BluetoothStatusWidget(Widget):
     Args:
         x: X position
         y: Y position
-        size: Widget size in pixels (default 14 for status bar)
+        width: Widget width in pixels (default 12)
+        height: Widget height in pixels (default 16)
         auto_update: If True, starts background thread for automatic updates
     """
     
-    def __init__(self, x: int, y: int, size: int = 14, auto_update: bool = True):
-        super().__init__(x, y, size, size)
-        self._size = size
+    def __init__(self, x: int, y: int, width: int = 12, height: int = 16, auto_update: bool = True):
+        super().__init__(x, y, width, height)
+        self._width = width
+        self._height = height
         self._last_state: Optional[int] = None
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -155,6 +157,7 @@ class BluetoothStatusWidget(Widget):
         """Draw a Bluetooth icon.
         
         The icon is a stylized "B" shape with angular notches.
+        Scales to fit within width x height.
         
         Args:
             draw: ImageDraw object
@@ -162,47 +165,50 @@ class BluetoothStatusWidget(Widget):
             draw_y: Y offset on target image
             connected: If True, draw with thicker lines (connected state)
         """
-        s = self._size / 14.0  # Scale factor
+        w = self._width
+        h = self._height
+        
+        # Scale factors based on dimensions
+        sx = w / 12.0   # horizontal scale (12 is base width)
+        sy = h / 16.0   # vertical scale (16 is base height)
         
         # Center of icon
-        cx = draw_x + self._size // 2
-        cy = draw_y + self._size // 2
+        cx = draw_x + w // 2
+        cy = draw_y + h // 2
         
         # Bluetooth runic "B" shape
-        # Vertical line in center
-        top_y = draw_y + int(1 * s)
-        bottom_y = draw_y + int(13 * s)
+        top_y = draw_y + int(1 * sy)
+        bottom_y = draw_y + h - int(1 * sy)
         
-        width = 2 if connected else 1
+        line_width = 2 if connected else 1
         
         # Main vertical line
-        draw.line([(cx, top_y), (cx, bottom_y)], fill=0, width=width)
+        draw.line([(cx, top_y), (cx, bottom_y)], fill=0, width=line_width)
         
-        # Top arrow (points to upper right, reflects back)
-        # From center-top, go to upper-right corner, then back to center-middle
-        arrow_right = cx + int(4 * s)
-        mid_y = cy
+        # Arrow points to the right
+        arrow_right = cx + int(4 * sx)
         
         # Top arrow: center-top -> right corner -> center-middle
-        draw.line([(cx, top_y), (arrow_right, mid_y - int(3 * s))], fill=0, width=width)
-        draw.line([(arrow_right, mid_y - int(3 * s)), (cx, mid_y)], fill=0, width=width)
+        draw.line([(cx, top_y), (arrow_right, cy - int(3 * sy))], fill=0, width=line_width)
+        draw.line([(arrow_right, cy - int(3 * sy)), (cx, cy)], fill=0, width=line_width)
         
         # Bottom arrow: center-bottom -> right corner -> center-middle
-        draw.line([(cx, bottom_y), (arrow_right, mid_y + int(3 * s))], fill=0, width=width)
-        draw.line([(arrow_right, mid_y + int(3 * s)), (cx, mid_y)], fill=0, width=width)
+        draw.line([(cx, bottom_y), (arrow_right, cy + int(3 * sy))], fill=0, width=line_width)
+        draw.line([(arrow_right, cy + int(3 * sy)), (cx, cy)], fill=0, width=line_width)
     
     def _draw_disabled_cross(self, draw: ImageDraw.Draw, draw_x: int, draw_y: int) -> None:
         """Draw a cross overlay to indicate Bluetooth is disabled."""
-        s = self._size / 14.0
-        margin = int(2 * s)
-        width = max(1, int(1.5 * s))
+        w = self._width
+        h = self._height
+        margin = 2
+        line_width = 1
         
         draw.line([draw_x + margin, draw_y + margin, 
-                   draw_x + self._size - margin, draw_y + self._size - margin], 
-                  fill=0, width=width)
-        draw.line([draw_x + self._size - margin, draw_y + margin, 
-                   draw_x + margin, draw_y + self._size - margin], 
-                  fill=0, width=width)
+                   draw_x + w - margin, draw_y + h - margin], 
+                  fill=0, width=line_width)
+        draw.line([draw_x + w - margin, draw_y + margin, 
+                   draw_x + margin, draw_y + h - margin], 
+                  fill=0, width=line_width)
     
     def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
         """Draw Bluetooth status icon."""
