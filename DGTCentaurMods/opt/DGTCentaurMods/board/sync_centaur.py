@@ -20,7 +20,10 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 from types import SimpleNamespace
 
-from DGTCentaurMods.board.logging import log
+import logging
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+
 from DGTCentaurMods.board import time_utils
 
 # Unified command registry
