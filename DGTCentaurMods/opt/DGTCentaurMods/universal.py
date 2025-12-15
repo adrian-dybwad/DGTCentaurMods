@@ -3066,32 +3066,21 @@ def _handle_chromecast_menu():
     """Handle Chromecast menu - discover and stream to Chromecast devices.
     
     Discovers available Chromecast devices on the network, presents a menu
-    for selection, and starts streaming via the ChromecastStatusWidget.
+    for selection, and starts streaming via the ChromecastService.
     
     The menu also shows a "Stop Streaming" option if currently streaming.
     
     Returns:
         Break result if interrupted, None otherwise.
     """
-    from DGTCentaurMods.epaper import get_chromecast_widget
+    from DGTCentaurMods.services import get_chromecast_service
     
-    # Get the Chromecast widget from the status bar
-    cc_widget = get_chromecast_widget()
-    if cc_widget is None:
-        log.error("[Chromecast] ChromecastStatusWidget not available")
-        board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(message="Chromecast\nnot available"))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
-        return None
+    # Get the Chromecast service singleton
+    cc_service = get_chromecast_service()
     
     # If currently streaming, show option to stop
-    if cc_widget.visible:
-        device = cc_widget.device_name or "Unknown"
+    if cc_service.is_active:
+        device = cc_service.device_name or "Unknown"
         display_device = device[:16] if len(device) > 16 else device
         
         entries = [
@@ -3107,7 +3096,7 @@ def _handle_chromecast_menu():
             return None
         
         if result == "STOP":
-            cc_widget.stop_streaming()
+            cc_service.stop_streaming()
             log.info("[Chromecast] Streaming stopped by user")
             board.display_manager.clear_widgets()
             promise = board.display_manager.add_widget(SplashScreen(message="Streaming\nstopped"))
@@ -3194,15 +3183,15 @@ def _handle_chromecast_menu():
     if result in ["BACK", "SHUTDOWN", "HELP"]:
         return None
     
-    # Start streaming via the widget
+    # Start streaming via the service
     selected_name = result
     
     # Stop any existing stream first
-    if cc_widget.visible:
-        cc_widget.stop_streaming()
+    if cc_service.is_active:
+        cc_service.stop_streaming()
     
     # Start streaming to selected device
-    cc_widget.start_streaming(selected_name)
+    cc_service.start_streaming(selected_name)
     log.info(f"[Chromecast] Started streaming to: {selected_name}")
     
     # Show feedback

@@ -15,7 +15,7 @@ from .splash_screen import SplashScreen
 from .status_bar import StatusBarWidget
 from .wifi_status import WiFiStatusWidget
 from .bluetooth_status import BluetoothStatusWidget
-from .chromecast_status import ChromecastStatusWidget, get_chromecast_widget
+from .chromecast_status import ChromecastStatusWidget
 from .game_over import GameOverWidget
 from .menu_arrow import MenuArrowWidget
 from .icon_button import IconButtonWidget
@@ -29,6 +29,6 @@ from .info_overlay import InfoOverlayWidget
 __all__ = ['Manager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'Justify', 'BallWidget', 
            'ChessBoardWidget', 'GameAnalysisWidget', 'CheckerboardWidget', 'BackgroundWidget',
            'SplashScreen', 'StatusBarWidget', 'WiFiStatusWidget', 'BluetoothStatusWidget',
-           'ChromecastStatusWidget', 'get_chromecast_widget', 'GameOverWidget', 'MenuArrowWidget',
+           'ChromecastStatusWidget', 'GameOverWidget', 'MenuArrowWidget',
            'IconButtonWidget', 'IconMenuWidget', 'IconMenuEntry', 'KeyboardWidget', 'BrainHintWidget',
            'AlertWidget', 'ChessClockWidget', 'InfoOverlayWidget']

@@ -8,7 +8,7 @@ from .clock import ClockWidget
 from .wifi_status import WiFiStatusWidget
 from .bluetooth_status import BluetoothStatusWidget
 from .battery import BatteryWidget
-from .chromecast_status import ChromecastStatusWidget, set_chromecast_widget
+from .chromecast_status import ChromecastStatusWidget
 import os
 from typing import List
 
@@ -60,16 +60,15 @@ class StatusBarWidget(Widget):
                                          font_size=14, font_path=font_path,
                                          show_seconds=False)
         
-        # Chromecast status widget (hidden when not streaming)
+        # Chromecast status widget (observes the ChromecastService singleton)
         self._chromecast_widget = ChromecastStatusWidget(self.CHROMECAST_X, 0, size=16)
-        set_chromecast_widget(self._chromecast_widget)
         
         # Other status widgets - all 16px tall to fill status bar
         self._wifi_widget = WiFiStatusWidget(self.WIFI_X, 0, size=16)
         self._bluetooth_widget = BluetoothStatusWidget(self.BLUETOOTH_X, 0, width=12, height=16)
         self._battery_widget = BatteryWidget(self.BATTERY_X, 0, width=20, height=16)
         
-        # Collect all child widgets for unified lifecycle management
+        # Collect child widgets for unified lifecycle management
         self._child_widgets: List[Widget] = [
             self._clock_widget,
             self._chromecast_widget,
@@ -116,11 +115,6 @@ class StatusBarWidget(Widget):
                 widget.stop()
             except Exception as e:
                 log.debug(f"Error stopping {widget.__class__.__name__}: {e}")
-    
-    @property
-    def chromecast_widget(self) -> ChromecastStatusWidget:
-        """Access the Chromecast status widget for starting/stopping streams."""
-        return self._chromecast_widget
     
     def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
         """Draw status bar with all visible child widgets.
