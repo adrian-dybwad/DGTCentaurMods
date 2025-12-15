@@ -479,21 +479,3 @@ class TextWidget(Widget):
         if self._mask is None:
             self._mask = self._create_text_mask()
         return self._mask
-    
-    def render(self) -> Image.Image:
-        """Render text with background, justification, and optional bold.
-        
-        Creates a new image and draws the text onto it. For better performance
-        when compositing onto a parent widget, use draw_on() instead.
-        
-        For transparent backgrounds, the text is rendered as black on white.
-        The actual transparency is handled by get_mask() during compositing.
-        """
-        img = self._create_dither_pattern()
-        
-        # Use draw_on to render text onto the background image
-        # Pass text_color explicitly since background is already drawn
-        text_fill = 0 if self.background < 3 else 255
-        self.draw_on(img, 0, 0, text_color=text_fill)
-        
-        return img

@@ -31,7 +31,6 @@ class BackgroundWidget(Widget):
             shade: Grayscale level 0-16 (0=white, 8=50% gray, 16=black)
         """
         super().__init__(0, 0, width, height, background_shade=shade)
-        self._cached_image = None
     
     def set_shade(self, shade: int) -> None:
         """Set the background shade level.
@@ -42,14 +41,8 @@ class BackgroundWidget(Widget):
         shade = max(0, min(16, shade))
         if shade != self._background_shade:
             self._background_shade = shade
-            self._cached_image = None
             self.request_update(full=False)
     
-    def render(self) -> Image.Image:
-        """Render the dithered background pattern."""
-        # Use cached image if available
-        if self._cached_image is not None:
-            return self._cached_image
-        
-        self._cached_image = self.create_background_image()
-        return self._cached_image
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw the dithered background pattern onto the target image."""
+        self.draw_background(img, draw_x, draw_y)

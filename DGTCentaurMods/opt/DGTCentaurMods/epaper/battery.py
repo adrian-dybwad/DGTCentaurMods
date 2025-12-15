@@ -122,8 +122,8 @@ class BatteryWidget(Widget):
             self._last_rendered = None
             self.request_update(full=False)
     
-    def render(self) -> Image.Image:
-        """Render battery indicator with level bars and charging flash icon.
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw battery indicator with level bars and charging flash icon.
         
         Widget is 30x14 pixels. Battery body uses most of the width with a
         terminal nub on the right.
@@ -131,24 +131,25 @@ class BatteryWidget(Widget):
         When charging, displays a lightning bolt overlay with XOR effect -
         white over black level bars and black over white background.
         """
-        # Widget is 30x14
-        img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
         batterylevel = self.level if self.level is not None else 10
         
         # Battery dimensions - use available space
         # Main body: 25 pixels wide, 12 pixels tall (centered vertically)
-        body_left = 0
-        body_top = 1
-        body_right = 24
-        body_bottom = 12
+        body_left = draw_x + 0
+        body_top = draw_y + 1
+        body_right = draw_x + 24
+        body_bottom = draw_y + 12
         
         # Battery terminal (nub on right)
         term_left = body_right
-        term_top = 4
-        term_right = 28
-        term_bottom = 9
+        term_top = draw_y + 4
+        term_right = draw_x + 28
+        term_bottom = draw_y + 9
+        
+        # Clear background first
+        draw.rectangle([draw_x, draw_y, draw_x + self.width - 1, draw_y + self.height - 1], fill=255)
         
         # Draw battery outline
         draw.rectangle([body_left, body_top, body_right, body_bottom], outline=0, width=1)
@@ -175,31 +176,36 @@ class BatteryWidget(Widget):
             cx = (inner_left + inner_right) // 2  # center of fill area
             cy = (inner_top + inner_bottom) // 2  # vertical center
             
-            # Create bolt mask
+            # Create bolt mask (temporary image for XOR operation)
             bolt_mask = Image.new("1", (self.width, self.height), 0)
             bolt_draw = ImageDraw.Draw(bolt_mask)
             
-            # Top triangle: points down-left from top-right
+            # Top triangle: points down-left from top-right (relative to widget origin)
+            rel_cx = cx - draw_x
+            rel_cy = cy - draw_y
+            rel_inner_top = inner_top - draw_y
+            rel_inner_bottom = inner_bottom - draw_y
+            
             top_triangle = [
-                (cx + 5, inner_top),        # top right corner
-                (cx - 3, cy),               # middle left point
-                (cx + 2, cy),               # middle right 
+                (rel_cx + 5, rel_inner_top),
+                (rel_cx - 3, rel_cy),
+                (rel_cx + 2, rel_cy),
             ]
             bolt_draw.polygon(top_triangle, fill=1)
             
             # Bottom triangle: points down from middle-right to bottom-left
             bottom_triangle = [
-                (cx + 3, cy - 1),           # upper right
-                (cx - 5, inner_bottom),     # bottom left point
-                (cx - 2, cy - 1),           # upper left
+                (rel_cx + 3, rel_cy - 1),
+                (rel_cx - 5, rel_inner_bottom),
+                (rel_cx - 2, rel_cy - 1),
             ]
             bolt_draw.polygon(bottom_triangle, fill=1)
             
             # XOR the bolt onto the image - inverts color where bolt is drawn
+            img_pixels = img.load()
+            bolt_pixels = bolt_mask.load()
             for y in range(self.height):
                 for x in range(self.width):
-                    if bolt_mask.getpixel((x, y)) == 1:
-                        current = img.getpixel((x, y))
-                        img.putpixel((x, y), 255 if current == 0 else 0)
-        
-        return img
+                    if bolt_pixels[x, y] == 1:
+                        current = img_pixels[draw_x + x, draw_y + y]
+                        img_pixels[draw_x + x, draw_y + y] = 255 if current == 0 else 0

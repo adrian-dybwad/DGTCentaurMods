@@ -86,47 +86,17 @@ class StatusBarWidget(Widget):
         except Exception as e:
             log.debug(f"Error stopping battery widget: {e}")
     
-    def render(self) -> Image.Image:
-        """Render status bar with time, WiFi status, and battery icon."""
-        img = Image.new("1", (self.width, self.height), 255)
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw status bar with time, WiFi status, and battery icon."""
+        # Draw background (white)
+        self.draw_background(img, draw_x, draw_y)
         
         # Draw time using ClockWidget
-        clock_image = self._clock_widget.render()
-        img.paste(clock_image, (self._clock_widget.x, self._clock_widget.y))
+        self._clock_widget.draw_on(img, draw_x + self._clock_widget.x, draw_y + self._clock_widget.y)
         
         # Draw WiFi status icon (to the left of battery)
-        wifi_icon = self._wifi_widget.render()
-        img.paste(wifi_icon, (80, 0))
+        self._wifi_widget.draw_on(img, draw_x + 80, draw_y + 0)
         
         # Draw battery icon using BatteryWidget (polls its own state)
-        battery_icon = self._battery_widget.render()
-        img.paste(battery_icon, (98, 1))
-        
-        return img
-    
-    def get_mask(self) -> Image.Image:
-        """Get mask for transparent background.
-        
-        Creates a mask where content (text, icons) is opaque (255)
-        and background is transparent (0).
-        
-        Returns:
-            Mask image where 255=opaque, 0=transparent
-        """
-        # Render the content first
-        content = self.render()
-        
-        # Create mask: black pixels in content become opaque (255) in mask
-        # white pixels in content become transparent (0) in mask
-        mask = Image.new("1", (self.width, self.height), 0)
-        content_pixels = content.load()
-        mask_pixels = mask.load()
-        
-        for y in range(self.height):
-            for x in range(self.width):
-                # If pixel is black (content), make it opaque in mask
-                if content_pixels[x, y] == 0:
-                    mask_pixels[x, y] = 255
-        
-        return mask
+        self._battery_widget.draw_on(img, draw_x + 98, draw_y + 1)
 

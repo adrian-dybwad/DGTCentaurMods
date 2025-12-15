@@ -335,9 +335,9 @@ class ChessClockWidget(Widget):
         else:
             return f"{minutes:02d}:{secs:02d}"
     
-    def render(self) -> Image.Image:
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
         """
-        Render the chess clock widget.
+        Draw the chess clock widget onto the target image.
         
         Timed mode layout (side by side):
         - Left: [indicator] White  MM:SS
@@ -346,35 +346,20 @@ class ChessClockWidget(Widget):
         Compact mode layout (centered):
         - [indicator] White Turn  or  [indicator] Black Turn
         """
-        # Check cache
-        if self._last_rendered is not None:
-            if (self._last_white_time == self._white_time and
-                self._last_black_time == self._black_time and
-                self._last_active == self._active_color and
-                self._last_timed_mode == self._timed_mode):
-                return self._last_rendered
-        
-        img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
+        # Draw background
+        self.draw_background(img, draw_x, draw_y)
+        
         # DEBUG: Draw 1px border around widget extent
-        draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=None, outline=0)
+        draw.rectangle([(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)], fill=None, outline=0)
         
         if self._timed_mode:
-            self._render_timed_mode(draw)
+            self._render_timed_mode(img, draw, draw_x, draw_y)
         else:
-            self._render_compact_mode(draw)
-        
-        # Cache state
-        self._last_white_time = self._white_time
-        self._last_black_time = self._black_time
-        self._last_active = self._active_color
-        self._last_timed_mode = self._timed_mode
-        self._last_rendered = img
-        
-        return img
+            self._render_compact_mode(img, draw, draw_x, draw_y)
     
-    def _render_timed_mode(self, draw: ImageDraw.Draw) -> None:
+    def _render_timed_mode(self, img: Image.Image, draw: ImageDraw.Draw, draw_x: int, draw_y: int) -> None:
         """
         Render timed mode: stacked layout matching board orientation.
         
@@ -387,7 +372,6 @@ class ChessClockWidget(Widget):
         - Separator line
         - Bottom section: [indicator] [BottomColor]  MM:SS
         """
-        img = draw._image  # Get the image from the draw context
         section_height = (self.height - 4) // 2  # -4 for top/middle separators
         
         # Determine which color goes on top based on flip setting
@@ -414,28 +398,28 @@ class ChessClockWidget(Widget):
             bottom_time = self._white_time
         
         # === TOP SECTION ===
-        top_y = 4
+        top_y = draw_y + 4
         
         # Indicator circle (larger for visibility)
         indicator_size = 12
         indicator_y = top_y + (section_height - indicator_size) // 2
         if self._active_color == top_color:
-            draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
+            draw.ellipse([(draw_x + 4, indicator_y), (draw_x + 4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
-            draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
+            draw.ellipse([(draw_x + 4, indicator_y), (draw_x + 4 + indicator_size, indicator_y + indicator_size)], 
                         fill=255, outline=0)
         
         # Top label using TextWidget - draw directly onto image
-        top_label.draw_on(img, 20, top_y + 2)
+        top_label.draw_on(img, draw_x + 20, top_y + 2)
         
         # Top time using TextWidget - draw directly onto image
         top_time_widget.set_text(self._format_time(top_time))
-        top_time_widget.draw_on(img, self.width - 68, top_y + 8)
+        top_time_widget.draw_on(img, draw_x + self.width - 68, top_y + 8)
         
         # Horizontal separator
-        separator_y = self.height // 2
-        draw.line([(0, separator_y), (self.width, separator_y)], fill=0, width=1)
+        separator_y = draw_y + self.height // 2
+        draw.line([(draw_x, separator_y), (draw_x + self.width, separator_y)], fill=0, width=1)
         
         # === BOTTOM SECTION ===
         bottom_y = separator_y + 4
@@ -443,20 +427,20 @@ class ChessClockWidget(Widget):
         # Indicator circle
         indicator_y = bottom_y + (section_height - indicator_size) // 2
         if self._active_color == bottom_color:
-            draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
+            draw.ellipse([(draw_x + 4, indicator_y), (draw_x + 4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
-            draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
+            draw.ellipse([(draw_x + 4, indicator_y), (draw_x + 4 + indicator_size, indicator_y + indicator_size)], 
                         fill=255, outline=0)
         
         # Bottom label using TextWidget - draw directly onto image
-        bottom_label.draw_on(img, 20, bottom_y + 2)
+        bottom_label.draw_on(img, draw_x + 20, bottom_y + 2)
         
         # Bottom time using TextWidget - draw directly onto image
         bottom_time_widget.set_text(self._format_time(bottom_time))
-        bottom_time_widget.draw_on(img, self.width - 68, bottom_y + 8)
+        bottom_time_widget.draw_on(img, draw_x + self.width - 68, bottom_y + 8)
     
-    def _render_compact_mode(self, draw: ImageDraw.Draw) -> None:
+    def _render_compact_mode(self, img: Image.Image, draw: ImageDraw.Draw, draw_x: int, draw_y: int) -> None:
         """
         Render compact mode: large centered turn indicator.
         
@@ -466,8 +450,6 @@ class ChessClockWidget(Widget):
         - Large indicator circle (filled for black, empty for white)
         - "White's Turn" or "Black's Turn" text below
         """
-        img = draw._image  # Get the image from the draw context
-        
         # Determine text
         if self._active_color == 'black':
             turn_text = "Black's Turn"
@@ -477,8 +459,8 @@ class ChessClockWidget(Widget):
         
         # Large indicator circle at top center
         indicator_size = 28
-        indicator_x = (self.width - indicator_size) // 2
-        indicator_y = 8
+        indicator_x = draw_x + (self.width - indicator_size) // 2
+        indicator_y = draw_y + 8
         
         if self._active_color == 'black':
             # Filled circle for black
@@ -494,4 +476,4 @@ class ChessClockWidget(Widget):
         # Turn text below indicator using TextWidget (centered) - draw directly
         self._turn_text.set_text(turn_text)
         text_y = indicator_y + indicator_size + 6
-        self._turn_text.draw_on(img, 0, text_y)
+        self._turn_text.draw_on(img, draw_x, text_y)

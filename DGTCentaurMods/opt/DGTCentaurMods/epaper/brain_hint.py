@@ -62,26 +62,15 @@ class BrainHintWidget(Widget):
         """Clear the hint display."""
         self.set_piece("")
     
-    def render(self) -> Image.Image:
-        """Render the brain hint widget using TextWidgets.
-        
-        Returns:
-            PIL Image with the rendered widget
-        """
-        # Return cached image if available
-        if self._last_rendered is not None:
-            return self._last_rendered
-        
-        img = Image.new("1", (self.width, self.height), 255)
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw the brain hint widget using TextWidgets."""
+        # Draw background
+        self.draw_background(img, draw_x, draw_y)
         
         if self._piece_letter:
             # Draw "BRAIN:" label at top directly onto image
-            self._label_text.draw_on(img, 0, 2)
+            self._label_text.draw_on(img, draw_x, draw_y + 2)
             
             # Draw large piece letter centered directly onto image
             self._piece_text.set_text(self._piece_letter)
-            self._piece_text.draw_on(img, 0, 16)
-        
-        # Cache the rendered image
-        self._last_rendered = img
-        return img
+            self._piece_text.draw_on(img, draw_x, draw_y + 16)

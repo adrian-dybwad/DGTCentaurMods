@@ -251,9 +251,8 @@ class Manager:
         # Get canvas and render background
         canvas = self._framebuffer.get_canvas()
         if self._background is not None:
-            # Use dithered background
-            bg_image = self._background.render()
-            canvas.paste(bg_image, (0, 0))
+            # Use dithered background widget
+            self._background.draw_on(canvas, 0, 0)
         else:
             # Plain white background
             from PIL import ImageDraw
@@ -267,28 +266,18 @@ class Manager:
                 modal_widget = widget
                 break
         
-        # Render all visible non-modal widgets in z-order (first = bottom, last = top)
+        # Draw all visible non-modal widgets in z-order (first = bottom, last = top)
         for widget in self._widgets:
             if not widget.visible:
                 continue
             if widget.is_modal:
-                continue  # Modal rendered last, on top
-            widget_image = widget.render()
+                continue  # Modal drawn last, on top
             log.debug(f"Manager._do_update(): Rendering {widget.__class__.__name__} at ({widget.x}, {widget.y}) size {widget.width}x{widget.height}")
-            mask = widget.get_mask()
-            if mask:
-                canvas.paste(widget_image, (widget.x, widget.y), mask)
-            else:
-                canvas.paste(widget_image, (widget.x, widget.y))
+            widget.draw_on(canvas, widget.x, widget.y)
         
-        # Render modal widget last (on top of everything)
+        # Draw modal widget last (on top of everything)
         if modal_widget:
-            widget_image = modal_widget.render()
-            mask = modal_widget.get_mask()
-            if mask:
-                canvas.paste(widget_image, (modal_widget.x, modal_widget.y), mask)
-            else:
-                canvas.paste(widget_image, (modal_widget.x, modal_widget.y))
+            modal_widget.draw_on(canvas, modal_widget.x, modal_widget.y)
         
         # CRITICAL: Capture snapshot of framebuffer state at this exact moment
         # This ensures each update request carries its own image state, so rapid

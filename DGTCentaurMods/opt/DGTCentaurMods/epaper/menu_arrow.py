@@ -79,32 +79,29 @@ class MenuArrowWidget(Widget):
         """
         return idx * self.row_height
     
-    def render(self) -> Image.Image:
-        """Render the arrow column with arrow at current selection."""
-        img = Image.new("1", (self.width, self.height), 255)  # White background
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw the arrow column with arrow at current selection."""
         draw = ImageDraw.Draw(img)
         
         # Clear entire arrow box area
-        draw.rectangle((0, 0, self.width, self.height), fill=255, outline=255)
+        draw.rectangle((draw_x, draw_y, draw_x + self.width - 1, draw_y + self.height - 1), fill=255, outline=255)
         
         # Draw arrow at selected position (within the arrow box)
         if self.num_entries > 0 and self.selected_index < self.num_entries:
-            selected_top = self._row_top(self.selected_index)
+            selected_top = draw_y + self._row_top(self.selected_index)
             # Arrow is drawn on the left side, leaving space for vertical line on right
             arrow_width = self.width - 1  # Leave 1 pixel for vertical line
             draw.polygon(
                 [
-                    (2, selected_top + 2),
-                    (2, selected_top + self.row_height - 2),
-                    (arrow_width - 3, selected_top + (self.row_height // 2)),
+                    (draw_x + 2, selected_top + 2),
+                    (draw_x + 2, selected_top + self.row_height - 2),
+                    (draw_x + arrow_width - 3, selected_top + (self.row_height // 2)),
                 ],
                 fill=0,
             )
         
         # Draw vertical line on the rightmost side of the widget
-        draw.line((self.width - 1, 0, self.width - 1, self.height - 1), fill=0, width=1)
-        
-        return img
+        draw.line((draw_x + self.width - 1, draw_y, draw_x + self.width - 1, draw_y + self.height - 1), fill=0, width=1)
     
     def handle_key(self, key_id):
         """Handle key press events. Called from menu's keyPressed function."""

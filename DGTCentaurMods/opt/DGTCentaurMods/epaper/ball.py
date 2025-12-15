@@ -28,9 +28,7 @@ class BallWidget(Widget):
         draw.ellipse([0, 0, self.width - 1, self.height - 1], fill=255)
         return mask
     
-    def render(self) -> Image.Image:
-        """Render ball."""
-        img = Image.new("1", (self.width, self.height), 255)
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw ball onto the target image."""
         draw = ImageDraw.Draw(img)
-        draw.ellipse([0, 0, self.width - 1, self.height - 1], fill=0)
-        return img
+        draw.ellipse([draw_x, draw_y, draw_x + self.width - 1, draw_y + self.height - 1], fill=0)

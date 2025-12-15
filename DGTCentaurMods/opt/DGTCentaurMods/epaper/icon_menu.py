@@ -365,24 +365,14 @@ class IconMenuWidget(Widget):
             return self.entries[self.selected_index].key
         return None
     
-    def render(self) -> Image.Image:
-        """Render the menu with all buttons.
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw the menu with all buttons onto the target image."""
+        # Draw background
+        self.draw_background(img, draw_x, draw_y)
         
-        Returns:
-            PIL Image with rendered menu
-        """
-        img = self.create_background_image()
-        
-        # Render each button with mask for transparent margins
+        # Draw each button
         for button in self._buttons:
-            button_img = button.render()
-            button_mask = button.get_mask()
-            if button_mask:
-                img.paste(button_img, (button.x, button.y), button_mask)
-            else:
-                img.paste(button_img, (button.x, button.y))
-        
-        return img
+            button.draw_on(img, draw_x + button.x, draw_y + button.y)
     
     def handle_key(self, key_id) -> bool:
         """Handle key press events.

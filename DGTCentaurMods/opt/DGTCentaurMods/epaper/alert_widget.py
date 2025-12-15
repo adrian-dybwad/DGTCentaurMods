@@ -157,16 +157,15 @@ class AlertWidget(Widget):
             log.error(f"[AlertWidget] Error flashing LEDs: {e}")
     
     
-    def render(self) -> Image.Image:
-        """Render alert widget using TextWidgets.
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw alert widget using TextWidgets.
         
-        Returns transparent (all white) image if not visible.
-        Otherwise renders CHECK or YOUR QUEEN with appropriate colors.
+        Draws nothing if not visible. Otherwise draws CHECK or YOUR QUEEN with appropriate colors.
         """
-        img = Image.new("1", (self.width, self.height), 255)
-        
         if not self.visible or self._alert_type is None:
-            return img
+            # Just draw white background
+            self.draw_background(img, draw_x, draw_y)
+            return
         
         draw = ImageDraw.Draw(img)
         
@@ -181,22 +180,20 @@ class AlertWidget(Widget):
             text_color = 0  # Black text
         
         # Draw background
-        draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=bg_color, outline=0)
+        draw.rectangle([(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)], fill=bg_color, outline=0)
         
         if self._alert_type == self.ALERT_CHECK:
             # Draw "CHECK" centered directly onto the background
             y_offset = (self.height - self._check_text.height) // 2
-            self._check_text.draw_on(img, 0, y_offset, text_color=text_color)
+            self._check_text.draw_on(img, draw_x, draw_y + y_offset, text_color=text_color)
             
         elif self._alert_type == self.ALERT_QUEEN:
             # Draw "YOUR\nQUEEN" centered directly onto the background
-            self._queen_text.draw_on(img, 0, 0, text_color=text_color)
+            self._queen_text.draw_on(img, draw_x, draw_y, text_color=text_color)
         
         elif self._alert_type == self.ALERT_HINT:
             # Draw hint move text centered - always white bg, black text
-            draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=255, outline=0)
+            draw.rectangle([(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)], fill=255, outline=0)
             self._hint_text.set_text(self._hint_text_value)
             y_offset = (self.height - self._hint_text.height) // 2
-            self._hint_text.draw_on(img, 0, y_offset, text_color=0)
-        
-        return img
+            self._hint_text.draw_on(img, draw_x, draw_y + y_offset, text_color=0)

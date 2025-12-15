@@ -168,41 +168,31 @@ class MenuWidget(Widget):
             self._last_rendered = None
             self.request_update(full=False)
     
-    def render(self) -> Image.Image:
-        """Render the complete menu including title, entries, arrow, and description."""
-        img = self.create_background_image()
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw the complete menu including title, entries, arrow, and description."""
+        # Draw background
+        self.draw_background(img, draw_x, draw_y)
         
-        # Helper to paste widget with mask support for transparency
-        def paste_widget(widget):
-            widget_img = widget.render()
-            mask = widget.get_mask()
-            if mask:
-                img.paste(widget_img, (widget.x, widget.y), mask)
-            else:
-                img.paste(widget_img, (widget.x, widget.y))
-        
-        # Render title widget if present (positions are already relative to widget)
+        # Draw child widgets (positions are already relative to widget, add offset)
         if self._title_widget:
-            paste_widget(self._title_widget)
+            self._title_widget.draw_on(img, draw_x + self._title_widget.x, draw_y + self._title_widget.y)
         
-        # Render entry widgets (positions are already relative to widget)
+        # Draw entry widgets
         for entry_widget in self._entry_widgets:
-            paste_widget(entry_widget)
+            entry_widget.draw_on(img, draw_x + entry_widget.x, draw_y + entry_widget.y)
         
-        # Render arrow widget (positions are already relative to widget)
+        # Draw arrow widget
         if self._arrow_widget:
-            paste_widget(self._arrow_widget)
+            self._arrow_widget.draw_on(img, draw_x + self._arrow_widget.x, draw_y + self._arrow_widget.y)
         
-        # Create description widget (transparent by default)
+        # Draw description widget if there's a description
         desc_top = self.body_top + (len(self.entries) * self.row_height) + DESCRIPTION_GAP
         desc_width = self.width - 10  # Leave 5px margin on each side
         initial_desc = self._get_description_for_index(self.selected_index)
         if initial_desc:
             _description_widget = TextWidget(5, desc_top, desc_width, 150, initial_desc,
                                                   font_size=14, wrapText=True)
-            paste_widget(_description_widget)
-        
-        return img
+            _description_widget.draw_on(img, draw_x + 5, draw_y + desc_top)
     
     def handle_key(self, key_id):
         """Handle key press events. Delegates to arrow widget."""

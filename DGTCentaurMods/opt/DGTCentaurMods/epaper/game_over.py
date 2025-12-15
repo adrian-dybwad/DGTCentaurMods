@@ -181,9 +181,9 @@ class GameOverWidget(Widget):
         
         return f"{minutes}:{secs:02d}"
     
-    def render(self) -> Image.Image:
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
         """
-        Render game over widget using TextWidgets.
+        Draw game over widget using TextWidgets.
         
         Layout (72 pixels height):
         - Line 1 (y=4): Winner (e.g., "White wins", "Black wins", "Draw")
@@ -191,36 +191,32 @@ class GameOverWidget(Widget):
         - Line 3 (y=44): Move count (e.g., "42 moves")
         - Line 4 (y=58): Final times if available (e.g., "W:5:23 B:3:17")
         """
-        if self._last_rendered is not None:
-            return self._last_rendered
-        
-        img = Image.new("1", (self.width, self.height), 255)
         draw = ImageDraw.Draw(img)
         
+        # Draw background
+        self.draw_background(img, draw_x, draw_y)
+        
         # Draw separator line at top
-        draw.line([(0, 0), (self.width, 0)], fill=0, width=1)
+        draw.line([(draw_x, draw_y), (draw_x + self.width, draw_y)], fill=0, width=1)
         
         # Line 1: Winner (centered, large font)
         if self.winner:
             self._winner_text.set_text(self.winner)
-            self._winner_text.draw_on(img, 0, 4)
+            self._winner_text.draw_on(img, draw_x, draw_y + 4)
         
         # Line 2: Termination reason (centered, medium font)
         if self.termination:
             self._termination_text.set_text(self.termination)
-            self._termination_text.draw_on(img, 0, 24)
+            self._termination_text.draw_on(img, draw_x, draw_y + 24)
         
         # Line 3: Move count (centered, small font)
         if self.move_count > 0:
             self._moves_text.set_text(f"{self.move_count} moves")
-            self._moves_text.draw_on(img, 0, 44)
+            self._moves_text.draw_on(img, draw_x, draw_y + 44)
         
         # Line 4: Final times if available (centered, small font)
         if self.white_time is not None and self.black_time is not None:
             white_str = self._format_time(self.white_time)
             black_str = self._format_time(self.black_time)
             self._times_text.set_text(f"W:{white_str}  B:{black_str}")
-            self._times_text.draw_on(img, 0, 58)
-        
-        self._last_rendered = img
-        return img
+            self._times_text.draw_on(img, draw_x, draw_y + 58)

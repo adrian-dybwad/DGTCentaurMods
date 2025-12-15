@@ -156,29 +156,12 @@ class Widget(ABC):
             self._last_rendered = None
             self.request_update(full=False)
     
-    def create_background_image(self) -> Image.Image:
-        """Create a new image with the widget's dithered background.
-        
-        Subclasses should call this at the start of render() instead of
-        Image.new("1", (self.width, self.height), 255) to get a dithered
-        background based on background_shade.
-        
-        Uses an 8x8 Bayer matrix for ordered dithering, which provides
-        smoother gradients and less obvious tiling than 4x4 patterns.
-        
-        Returns:
-            A new 1-bit image with the dithered background pattern applied.
-        """
-        img = Image.new("1", (self.width, self.height), 255)
-        self.apply_background(img, 0, 0)
-        return img
-    
-    def apply_background(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Apply dithered background pattern to a region of an existing image.
+    def draw_background(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw dithered background pattern onto a region of the target image.
         
         Draws the widget's dithered background pattern directly onto the
-        target image at the specified coordinates. This avoids creating
-        intermediate images when widgets draw onto a shared canvas.
+        target image at the specified coordinates. Widgets should call this
+        at the start of draw_on() to apply their background.
         
         Uses an 8x8 Bayer matrix for ordered dithering, which provides
         smoother gradients and less obvious tiling than 4x4 patterns.
@@ -209,13 +192,18 @@ class Widget(ABC):
                     pixels[draw_x + x, draw_y + y] = 255  # White pixel
     
     @abstractmethod
-    def render(self) -> Image.Image:
-        """Render the widget content. Must return an image of size (width, height)."""
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw the widget content onto the target image.
+        
+        Widgets should first call self.draw_background(img, draw_x, draw_y)
+        to apply their background, then draw their content.
+        
+        Args:
+            img: Target image to draw onto.
+            draw_x: X coordinate on target image where widget starts.
+            draw_y: Y coordinate on target image where widget starts.
+        """
         pass
-    
-    def get_mask(self) -> Optional[Image.Image]:
-        """Get a mask for transparent compositing. Returns None if not needed."""
-        return None
     
     def show(self) -> None:
         """Show the widget (make it visible).

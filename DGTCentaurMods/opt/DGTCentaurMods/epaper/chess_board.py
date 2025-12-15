@@ -205,23 +205,12 @@ class ChessBoardWidget(Widget):
             self._render_only_rank = rank
             self._last_rendered = None  # Invalidate cache
     
-    def render(self) -> Image.Image:
-        """Render chess board."""
-        # Return cached image if FEN, filters, and range haven't changed
-        # Note: Cache is invalidated when filters/range change via setter methods
-        if self._last_rendered is not None:
-            # Debug: Check if cached image bytes are stable
-            cached_bytes = self._last_rendered.tobytes()
-            cached_hash = hash(cached_bytes)
-            log.debug(f"ChessBoardWidget.render(): Returning cached image, bytes hash={cached_hash}, size={len(cached_bytes)}")
-            return self._last_rendered
-        
-        img = Image.new("1", (self.width, self.height), 255)
-        
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw chess board onto the target image."""
         if self._chess_font is None:
             log.warning("Cannot render chess board: chess font not loaded")
-            self._last_rendered = img
-            return img
+            self.draw_background(img, draw_x, draw_y)
+            return
         
         # Parse FEN
         try:
@@ -229,8 +218,8 @@ class ChessBoardWidget(Widget):
             log.debug(f"Rendering chess board from FEN: {fen_board}")
         except (AttributeError, IndexError) as e:
             log.error(f"Error parsing FEN string '{self.fen}': {type(e).__name__}: {e}")
-            self._last_rendered = img
-            return img
+            self.draw_background(img, draw_x, draw_y)
+            return
         
         # Expand FEN to 64 characters
         try:
@@ -238,19 +227,19 @@ class ChessBoardWidget(Widget):
             log.debug(f"FEN expanded to {len(ordered)} squares")
         except ValueError as e:
             log.error(f"Invalid FEN board string '{fen_board}': {e}")
-            self._last_rendered = img
-            return img
+            self.draw_background(img, draw_x, draw_y)
+            return
         except Exception as e:
             log.error(f"Unexpected error expanding FEN '{fen_board}': {type(e).__name__}: {e}")
-            self._last_rendered = img
-            return img
+            self.draw_background(img, draw_x, draw_y)
+            return
         
         draw = ImageDraw.Draw(img)
         sheet_width, sheet_height = self._chess_font.size
         
         # Draw board outline first
         try:
-            draw.rectangle([(0, 0), (127, 127)], fill=None, outline=0)
+            draw.rectangle([(draw_x, draw_y), (draw_x + 127, draw_y + 127)], fill=None, outline=0)
             log.debug("Drew board outline")
         except Exception as e:
             log.error(f"Error drawing board outline: {type(e).__name__}: {e}")
@@ -283,8 +272,8 @@ class ChessBoardWidget(Widget):
                 is_dark = self._is_dark_square(square_index)
                 py = 16 if is_dark else 0
                 
-                x = dest_file * 16
-                y = dest_rank * 16
+                x = draw_x + dest_file * 16
+                y = draw_y + dest_rank * 16
                 
                 # Always draw square background (empty square sprite at x=0)
                 # Row 0 (y=0-16): light squares
@@ -356,12 +345,5 @@ class ChessBoardWidget(Widget):
                 )
                 continue
         
-        log.info(f"ChessBoardWidget.render(): Rendered {squares_rendered} squares (rank_filter={self._render_only_rank}, file_filter={self._render_only_file}, range=[{self._min_square_index}, {self._max_square_index}))")
-        
-        # Cache the rendered image
-        self._last_rendered = img
-        rendered_bytes = img.tobytes()
-        rendered_hash = hash(rendered_bytes)
-        log.info(f"ChessBoardWidget.render(): Created new image, bytes hash={rendered_hash}, size={len(rendered_bytes)}")
-        return img
+        log.info(f"ChessBoardWidget.draw_on(): Rendered {squares_rendered} squares (rank_filter={self._render_only_rank}, file_filter={self._render_only_file}, range=[{self._min_square_index}, {self._max_square_index}))")
 

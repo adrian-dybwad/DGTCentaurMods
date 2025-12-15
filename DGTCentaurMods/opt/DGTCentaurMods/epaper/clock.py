@@ -121,9 +121,8 @@ class ClockWidget(Widget):
         self._font = ImageFont.load_default()
         return self._font
     
-    def render(self) -> Image.Image:
-        """Render current time."""
-        img = Image.new("1", (self.width, self.height), 255)
+    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw current time onto the target image."""
         draw = ImageDraw.Draw(img)
         now = datetime.now()
         time_str = now.strftime(self.format)
@@ -135,5 +134,7 @@ class ClockWidget(Widget):
         if self._font is None:
             self._load_font()
         
-        draw.text((0, -1), time_str, font=self._font, fill=0)
-        return img
+        # Clear background
+        draw.rectangle([draw_x, draw_y, draw_x + self.width - 1, draw_y + self.height - 1], fill=255)
+        
+        draw.text((draw_x, draw_y - 1), time_str, font=self._font, fill=0)
