@@ -5298,7 +5298,7 @@ def main():
     
     # Subscribe to board events - universal.py is the single subscriber and routes events
     if startup_splash:
-        startup_splash.set_message("Board events")
+        startup_splash.set_message("Events...")
     board.subscribeEvents(key_callback, field_callback)  # Uses INACTIVITY_TIMEOUT_SECONDS default
     
     # Register signal handlers
@@ -5309,7 +5309,7 @@ def main():
     global ble_manager
     if not args.no_ble:
         if startup_splash:
-            startup_splash.set_message("Bluetooth LE")
+            startup_splash.set_message("Bluetooth...")
         log.info("Initializing BLE manager...")
         ble_manager = BleManager(
             device_name=args.device_name,
@@ -5443,7 +5443,7 @@ def main():
     # Connect to shadow target if relay mode
     if relay_mode:
         if startup_splash:
-            startup_splash.set_message("Relay mode")
+            startup_splash.set_message("Relay...")
         log.info("=" * 60)
         log.info(f"RELAY MODE - Connecting to {shadow_target_name}")
         log.info("=" * 60)
@@ -5509,7 +5509,7 @@ def main():
     incomplete_game = _get_incomplete_game()
     if incomplete_game:
         if startup_splash:
-            startup_splash.set_message("Resuming game...")
+            startup_splash.set_message("Resuming...")
             time.sleep(0.5)
         
         if _resume_game(incomplete_game):
@@ -5518,13 +5518,13 @@ def main():
         else:
             log.warning("[App] Failed to resume game, showing menu")
             if startup_splash:
-                startup_splash.set_message("Ready")
+                startup_splash.set_message("Ready!")
                 time.sleep(0.3)
             app_state = AppState.MENU
     else:
         # Show ready message before menu
         if startup_splash:
-            startup_splash.set_message("Ready")
+            startup_splash.set_message("Ready!")
             time.sleep(0.3)
         app_state = AppState.MENU
     
