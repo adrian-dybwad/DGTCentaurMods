@@ -36,14 +36,11 @@ from PIL import Image
 import RPi.GPIO as GPIO
 
 # Display resolution
-EPD_WIDTH       = 128
+EPD_WIDTH       = 120
 EPD_HEIGHT      = 296
-
-logger = logging.getLogger(__name__)
 
 class EPD:
     def __init__(self):
-        logger.warning(f"EPD.__init__() called - CREATING NEW EPD instance with id: {id(self)}")
         self.reset_pin = epdconfig.RST_PIN
         self.dc_pin = epdconfig.DC_PIN
         self.busy_pin = epdconfig.BUSY_PIN
