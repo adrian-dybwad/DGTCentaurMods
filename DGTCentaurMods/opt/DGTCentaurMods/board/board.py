@@ -545,16 +545,64 @@ def sleep():
 #
 # Board response - functions related to get something from the board
 #
+def _raw_to_chess_state(board_data_raw, caller_name: str):
+    """
+    Transform raw hardware board data to chess library index order.
+    
+    Internal helper that converts hardware order (0=a8, 1=b8, ..., 63=h1)
+    to chess order (0=a1, 1=b1, ..., 63=h8).
+    
+    Args:
+        board_data_raw: Raw bytes from getBoardState (64 bytes)
+        caller_name: Name of calling function for error logging
+    
+    Returns:
+        list: 64-element list with 1 for occupied squares, 0 for empty, or None on error.
+    """
+    if board_data_raw is None:
+        return None
+    
+    try:
+        board_data = list[int](board_data_raw)
+    except (TypeError, ValueError) as e:
+        log.error(f"[board.{caller_name}] Failed to convert board data to list: {e}, data type: {type(board_data_raw)}")
+        return None
+    
+    if len(board_data) != 64:
+        log.error(f"[board.{caller_name}] Invalid board data length: {len(board_data)}, expected 64")
+        return None
+    
+    # Transform: raw index i maps to chess index
+    # Raw order: 0=a8, 1=b8, ..., 63=h1
+    # Chess order: 0=a1, 1=b1, ..., 63=h8
+    # Raw index i: row = i//8, col = i%8
+    # Chess index: row = 7 - (i//8), col = i%8
+    chess_state = [0] * 64
+    for i in range(64):
+        raw_row = i // 8
+        col = i % 8
+        chess_row = 7 - raw_row
+        chess_idx = chess_row * 8 + col
+        chess_state[chess_idx] = 1 if board_data[i] != 0 else 0
+    
+    return chess_state
+
+
 def getBoardState(max_retries=2, retry_delay=0.1):
     """
-    Get the current board state from the DGT Centaur.
+    Get the current board state from the DGT Centaur in raw hardware order.
+    
+    WARNING: Returns data in hardware index order (0=a8, 1=b8, ..., 63=h1),
+    NOT chess library order. For code that uses chess.Board or chess.square_name(),
+    use getChessState() instead which transforms to chess order (0=a1, 1=b1, ..., 63=h8).
     
     Args:
         max_retries: Maximum number of retry attempts on timeout or checksum failure (default: 2)
         retry_delay: Delay in seconds between retries (default: 0.1)
     
     Returns:
-        bytes: Raw board state data (64 bytes) or None if all attempts fail
+        bytes: Raw board state data (64 bytes) in hardware order, or None if all attempts fail.
+               Each byte is 1 if a piece is present, 0 if empty.
         
     Note:
         Retries are performed on timeout or checksum failure. This ensures
@@ -572,54 +620,44 @@ def getBoardState(max_retries=2, retry_delay=0.1):
             log.error(f"[board.getBoardState] All {max_retries + 1} attempts failed (timeout or checksum failure)")
     return None
 
+
 def getBoardStateLowPriority():
     """
-    Get the current board state using the low-priority queue.
+    Get the current board state using the low-priority queue in raw hardware order.
+    
+    WARNING: Returns data in hardware index order (0=a8, 1=b8, ..., 63=h1),
+    NOT chess library order. For code that uses chess.Board or chess.square_name(),
+    use getChessStateLowPriority() instead.
     
     This version yields to polling commands - it's only processed when the
     main serial queue is empty. Use this for validation that should not
     delay piece event detection.
     
     Returns:
-        bytes: Raw board state data (64 bytes) or None if skipped/timeout
+        bytes: Raw board state data (64 bytes) in hardware order, or None if skipped/timeout.
+               Each byte is 1 if a piece is present, 0 if empty.
     """
     return controller.request_response_low_priority(command.DGT_BUS_SEND_STATE)
 
 
 def getChessStateLowPriority():
     """
-    Get the current chess board state using the low-priority queue.
+    Get the current board state transformed to chess library index order, using low-priority queue.
+    
+    Transforms hardware order (0=a8, 1=b8, ..., 63=h1) to chess order (0=a1, 1=b1, ..., 63=h8).
+    Use this function when comparing with chess.Board positions or using chess.square_name().
     
     This version yields to polling commands - it's only processed when the
     main serial queue is empty. Use this for validation that should not
     delay piece event detection.
     
     Returns:
-        list: 64-element list with 1 for occupied squares, 0 for empty, or None if skipped
+        list: 64-element list with 1 for occupied squares, 0 for empty, or None if skipped.
     """
     board_data_raw = getBoardStateLowPriority()
     if board_data_raw is None:
         return None
-    
-    try:
-        board_data = list[int](board_data_raw)
-    except (TypeError, ValueError) as e:
-        log.error(f"[board.getChessStateLowPriority] Failed to convert board data to list: {e}")
-        return None
-    
-    if len(board_data) != 64:
-        log.error(f"[board.getChessStateLowPriority] Invalid board data length: {len(board_data)}")
-        return None
-    
-    chess_state = [0] * 64
-    for i in range(64):
-        raw_row = i // 8
-        col = i % 8
-        chess_row = 7 - raw_row
-        chess_idx = chess_row * 8 + col
-        chess_state[chess_idx] = 1 if board_data[i] != 0 else 0
-    
-    return chess_state
+    return _raw_to_chess_state(board_data_raw, "getChessStateLowPriority")
 
 
 def getMetaProperty(key: str):
@@ -645,36 +683,30 @@ def getMetaProperty(key: str):
     return board_meta_properties.get(key)
 
 def getChessState(field=None):
-   # Transform: raw index i maps to chess index
-    # Raw order: 0=a8, 1=b8, ..., 63=h1
-    # Chess order: 0=a1, 1=b1, ..., 63=h8
-    # 
-    # Raw index i: row = i//8, col = i%8
-    # Chess index: row = 7 - (i//8), col = i%8
+    """
+    Get the current board state transformed to chess library index order.
+    
+    Transforms hardware order (0=a8, 1=b8, ..., 63=h1) to chess order (0=a1, 1=b1, ..., 63=h8).
+    Use this function when comparing with chess.Board positions or using chess.square_name().
+    
+    Args:
+        field: Optional square index (0-63 in chess order). If provided, returns only
+               the state of that square (1 or 0). If None, returns the full 64-element list.
+    
+    Returns:
+        list: 64-element list with 1 for occupied squares, 0 for empty (if field is None).
+        int: 1 or 0 for the specified square (if field is provided).
+        None: If board state could not be read.
+    """
     board_data_raw = getBoardState()
     if board_data_raw is None:
         log.warning("[board.getChessState] getBoardState() returned None, likely due to timeout or queue full")
         return None
     
-    try:
-        board_data = list[int](board_data_raw)
-    except (TypeError, ValueError) as e:
-        log.error(f"[board.getChessState] Failed to convert board data to list: {e}, data type: {type(board_data_raw)}")
+    chess_state = _raw_to_chess_state(board_data_raw, "getChessState")
+    if chess_state is None:
         return None
     
-    chess_state = [0] * 64
-    
-    if len(board_data) != 64:
-        log.error(f"[board.getChessState] Invalid board data length: {len(board_data)}, expected 64")
-        return None
-    
-    for i in range(64):
-        raw_row = i // 8
-        raw_col = i % 8
-        chess_row = 7 - raw_row  # Invert rows
-        chess_col = raw_col      # Keep columns
-        chess_idx = chess_row * 8 + chess_col
-        chess_state[chess_idx] = board_data[i]
     if field is not None:
         return chess_state[field]
     return chess_state
