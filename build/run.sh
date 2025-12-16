@@ -107,7 +107,7 @@ fi
 # Parse command line arguments
 # Supports special modes (e.g., "sf" for Stockfish, engine names for UCI mode)
 # and general Python module execution
-DEFAULT_MODULE="DGTCentaurMods.menu"
+DEFAULT_MODULE="DGTCentaurMods.universal"
 
 # List of available engines (lowercase for case-insensitive matching)
 AVAILABLE_ENGINES=("ct800" "maia" "rodentiv" "zahak")
