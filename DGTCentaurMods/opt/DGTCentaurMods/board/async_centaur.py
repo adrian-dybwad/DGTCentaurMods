@@ -106,9 +106,16 @@ class CommandSpec:
 DGT_PIECE_EVENT_RESP = 0x8e # This identifies a piece detection event
 
 COMMANDS: Dict[str, CommandSpec] = {
+
+    "DGT_BUS_SEND_94":        CommandSpec(0x94, 0xb1), # Sent after initial init but before ADDR1 ADDR2 is populated. This is a SHORT command.
+
+    "DGT_BUS_SEND_87":        CommandSpec(0x87, 0x87), # Sent after initial init but before ADDR1 ADDR2 is populated. This is a SHORT command.
+    "DGT_BUS_SEND_SNAPSHOT_F0":  CommandSpec(0xf0, 0xF0, b'\x7f'), # Sent after initial ledsOff().
+    "DGT_BUS_SEND_SNAPSHOT_F4":  CommandSpec(0xf4, 0xF4, b'\x7f'), # Sent after F0 is called.
+    "DGT_BUS_SEND_96":  CommandSpec(0x96, 0xb2), # Sent after F4 is called. This is a SHORT command.
+
     #"DGT_BUS_SEND_STATE_NOCS": CommandSpec(0x42, 0x86, b'\x7f'),
     "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83, None),
-    #"DGT_BUS_SEND_SNAPSHOT":  CommandSpec(0xf0, 0xF0, b'\x7f'),
     #"DGT_DISCOVERY_REQ":      CommandSpec(0x46, 0x93, None),
     #"DGT_DISCOVERY_ACK":      CommandSpec(0x87, 0x87, None),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85, None),
@@ -726,10 +733,33 @@ class AsyncCentaur:
         """
         Non-blocking: return the last key-up event as Key and reset it.
         Returns None if no key-up has been recorded since last call.
+        
+        NOTE: This method is deprecated for event handling. Use get_next_key()
+        or consume from key_up_queue directly to avoid missing rapid key presses.
         """
         last_key_pressed = self._last_key
         self._last_key = None
         return last_key_pressed
+
+    def get_next_key(self, timeout=0.0):
+        """
+        Get the next key from the queue (non-blocking by default).
+        
+        Args:
+            timeout: Time to wait for a key (0.0 = non-blocking, None = blocking)
+        
+        Returns:
+            Key object or None if no key available
+        """
+        try:
+            if timeout is None:
+                return self.key_up_queue.get()
+            elif timeout == 0.0:
+                return self.key_up_queue.get_nowait()
+            else:
+                return self.key_up_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
 
     
 
@@ -1125,7 +1155,7 @@ class AsyncCentaur:
             self.listener_running = False
             t = getattr(self, "listener_thread", None)
             if t and t.is_alive():
-                t.join(timeout=1.0)
+                t.join(timeout=2.0)
         except Exception:
             pass
 
@@ -1200,6 +1230,15 @@ class AsyncCentaur:
             pass
 
         self._last_key = None
+
+    def getBoardMeta(self):
+        """
+        Get the board metadata (trademark/serial number) from the DGT Centaur.
+        
+        Returns:
+            bytes: Board metadata/trademark data or None if request fails
+        """
+        return self.request_response(command.DGT_SEND_TRADEMARK)
 
     def beep(self, sound_name: str):
         self.sendPacket(sound_name)

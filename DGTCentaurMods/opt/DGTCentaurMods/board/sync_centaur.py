@@ -1,30 +1,13 @@
 # DGT Centaur Synchronous Board Controller
 #
-# This file is part of the DGTCentaur Mods open source software
+# This file is part of the DGTCentaurUniversal project
+# ( https://github.com/adrian-dybwad/DGTCentaurUniversal )
+#
+# This project started as a fork of DGTCentaur Mods by EdNekebno
 # ( https://github.com/EdNekebno/DGTCentaur )
 #
-# SyncCentaur (sync_centaur.py) was written by Adrian Dybwad 
-# with help from Cursor AI. The most amazing tool I've ever used.
-# https://github.com/adrian-dybwad/DGTCentaurMods 
-# Perhaps it will be merged into the main project some day!
-#
-# DGTCentaur Mods is free software: you can redistribute
-# it and/or modify it under the terms of the GNU General Public
-# License as published by the Free Software Foundation, either
-# version 3 of the License, or (at your option) any later version.
-#
-# DGTCentaur Mods is distributed in the hope that it will
-# be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
-# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this file.  If not, see
-#
-# https://github.com/EdNekebno/DGTCentaur/blob/master/LICENSE.md
-#
-# This and any other notices must remain intact and unaltered in any
-# distribution, modification, variant, or derivative of this software.
+# Licensed under the GNU General Public License v3.0 or later.
+# See LICENSE.md for details.
 
 import serial
 import time
@@ -32,27 +15,35 @@ import queue
 import sys
 import os
 import threading
+from collections import deque
 from dataclasses import dataclass
 from typing import Dict, Optional
 from types import SimpleNamespace
 
-from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.board import time_utils
+import logging
+log = logging.getLogger(__name__)
+#log.setLevel(logging.INFO)
 
+from DGTCentaurMods.board import time_utils
 
 # Unified command registry
 @dataclass(frozen=True)
 class CommandSpec:
     cmd: bytes
-    expected_resp_type: int
+    expected_resp_type: int = None
     default_data: Optional[bytes] = None
 
-DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
 
 COMMANDS: Dict[str, CommandSpec] = {
-    "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83, None),
-    "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85, None),
-    "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5, None),
+    "DGT_BUS_SEND_87":        CommandSpec(0x87, 0x87), # Sent after initial init but before ADDR1 ADDR2 is populated. This is a SHORT command.
+    "DGT_BUS_SEND_SNAPSHOT_F0":  CommandSpec(0xf0, 0xF0, b'\x7f'), # Sent after initial ledsOff().
+    "DGT_BUS_SEND_SNAPSHOT_F4":  CommandSpec(0xf4, 0xF4, b'\x7f'), # Sent after F0 is called.
+    "DGT_BUS_SEND_96":  CommandSpec(0x96, 0xb2), # Sent after F4 is called. This is a SHORT command.
+
+    "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83),
+    "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85),
+    "DGT_BUS_POLL_KEYS":      CommandSpec(0x94, 0xB1),
+    "DGT_SEND_BATTERY_INFO":  CommandSpec(0x98, 0xB5),
     "SOUND_GENERAL":          CommandSpec(0xb1, None, b'\x4c\x08'),
     "SOUND_FACTORY":          CommandSpec(0xb1, None, b'\x4c\x40'),
     "SOUND_POWER_OFF":        CommandSpec(0xb1, None, b'\x4c\x08\x48\x08'),
@@ -60,11 +51,11 @@ COMMANDS: Dict[str, CommandSpec] = {
     "SOUND_WRONG":            CommandSpec(0xb1, None, b'\x4e\x0c\x48\x10'),
     "SOUND_WRONG_MOVE":       CommandSpec(0xb1, None, b'\x48\x08'),
     "DGT_SLEEP":              CommandSpec(0xb2, 0xB1, b'\x0a'),
-    "LED_OFF_CMD":            CommandSpec(0xb0, None, b'\x00'),
-    "LED_FLASH_CMD":          CommandSpec(0xb0, None, b'\x05\x0a\x00\x01'),
-    "DGT_NOTIFY_EVENTS":      CommandSpec(0x58, 0xa3, None),
-    "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90, None),
-    "DGT_SEND_TRADEMARK":     CommandSpec(0x97, 0xb4, None),
+    "LED_CMD":          CommandSpec(0xb0),
+    "DGT_NOTIFY_EVENTS_58":   CommandSpec(0x58),
+    "DGT_NOTIFY_EVENTS_43":   CommandSpec(0x43),
+    "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90),
+    "DGT_SEND_TRADEMARK":     CommandSpec(0x97, 0xb4),
 }
 
 # Fast lookups
@@ -79,10 +70,19 @@ globals().update({f"{name}_DATA": spec.default_data for name, spec in COMMANDS.i
 # Explicit definitions for linter (already exported above, but needed for static analysis)
 DGT_BUS_SEND_CHANGES_RESP = COMMANDS["DGT_BUS_SEND_CHANGES"].expected_resp_type
 DGT_BUS_SEND_STATE_RESP = COMMANDS["DGT_BUS_SEND_STATE"].expected_resp_type
-DGT_NOTIFY_EVENTS_RESP = COMMANDS["DGT_NOTIFY_EVENTS"].expected_resp_type
+DGT_BUS_POLL_KEYS_RESP = COMMANDS["DGT_BUS_POLL_KEYS"].expected_resp_type
 
-# Export name namespace for commands, e.g. command.LED_OFF_CMD -> "LED_OFF_CMD"
+# Export name namespace for commands, e.g. command.LED_CMD -> "LED_CMD"
 command = SimpleNamespace(**{name: name for name in COMMANDS.keys()})
+
+DGT_NOTIFY_EVENTS = None # command.DGT_NOTIFY_EVENTS_43
+
+if DGT_NOTIFY_EVENTS is not None:
+    DGT_PIECE_EVENT_RESP = 0x8e  # Identifies a piece detection event
+    DGT_KEY_EVENTS_RESP = 0xa3 # Identifies a key event
+else:
+    DGT_PIECE_EVENT_RESP = 0x85
+    DGT_KEY_EVENTS_RESP = 0xB1
 
 # Start-of-packet type bytes derived from registry (responses) + discovery types
 OTHER_START_TYPES = {0x87, 0x93}
@@ -96,15 +96,27 @@ DGT_BUTTON_CODES = {
     0x40: "HELP",
     0x04: "PLAY",
     0x06: "LONG_PLAY",
+    0x46: "LONG_HELP",  # Synthetic code for long-press of HELP (0x40 + 0x06 offset)
 }
 
 from enum import IntEnum
+
+# Key codes: base codes for key-up events, base + 0x80 for key-down events
+# This allows a single queue to carry both event types
+KEY_DOWN_OFFSET = 0x80
+
 KEY_NAME_BY_CODE = dict(DGT_BUTTON_CODES)
 KEY_CODE_BY_NAME = {v: k for k, v in KEY_NAME_BY_CODE.items()}
-Key = IntEnum('Key', {name: code for name, code in KEY_CODE_BY_NAME.items()})
+
+# Create Key enum with both key-up and key-down variants
+# Key-up: BACK=0x01, PLAY=0x04, etc.
+# Key-down: BACK_DOWN=0x81, PLAY_DOWN=0x84, etc.
+_key_members = {name: code for name, code in KEY_CODE_BY_NAME.items()}
+_key_members.update({f"{name}_DOWN": code + KEY_DOWN_OFFSET for name, code in KEY_CODE_BY_NAME.items()})
+Key = IntEnum('Key', _key_members)
 
 
-__all__ = ['SyncCentaur', 'DGT_BUS_SEND_CHANGES', 'DGT_SEND_BATTERY_INFO', 'DGT_BUTTON_CODES', 'command']
+__all__ = ['SyncCentaur', 'DGT_BUS_SEND_CHANGES', 'DGT_SEND_BATTERY_INFO', 'DGT_BUTTON_CODES', 'command', 'DGT_BUS_SEND_STATE_RESP', 'DGT_BUS_SEND_CHANGES_RESP', 'DGT_BUS_POLL_KEYS_RESP']
 
 
 class SyncCentaur:
@@ -144,17 +156,45 @@ class SyncCentaur:
         # Key event handling
         self.key_up_queue = queue.Queue(maxsize=128)
         self._last_key = None
+        self._discard_stale_keys = True  # Discard key events until first empty poll response
         
         # Single waiter for blocking request_response
         self._waiter_lock = threading.Lock()
         self._response_waiter = None  # dict with keys: expected_type:int, queue:Queue
         
+        # Serial write lock for thread-safe immediate sends
+        # Commands without expected responses (beep, LED) can bypass the queue
+        self._serial_write_lock = threading.Lock()
+        
         # Request queue for FIFO serialization
-        self._request_queue = queue.Queue()
+        # Limit queue size to prevent unbounded memory growth
+        # Increased size to handle polling commands during high load
+        self._request_queue = queue.Queue(maxsize=200)
         self._request_processor_thread = None
+        self._last_command = None
+        
+        # Low-priority queue for validation commands (e.g., DGT_BUS_SEND_STATE for getChessState)
+        # These yield to the main queue - only processed when main queue is empty
+        # This ensures polling commands are never delayed by validation requests
+        self._low_priority_queue = queue.Queue(maxsize=10)
+        
+        # Track last n commands for special command deduplication
+        # n = number of special commands (DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS)
+        self._special_commands = {"DGT_BUS_SEND_CHANGES", "DGT_BUS_POLL_KEYS"}
+        self._last_n_commands = deque(maxlen=len(self._special_commands))  # Track last 2 commands
+        
+        # Fire-and-forget commands that don't need responses - can be sent immediately
+        self._immediate_commands = {"SOUND_GENERAL", "SOUND_FACTORY", "SOUND_POWER_OFF", 
+                                    "SOUND_POWER_ON", "SOUND_WRONG", "SOUND_WRONG_MOVE", "LED_CMD"}
+        
+        # polling thread
+        self._polling_thread = None
         
         # Piece event listener (marker 0x40/0x41 0..63, time_in_seconds)
         self._piece_listener = None
+        
+        # Failure callback for checksum mismatch reconciliation
+        self._failure_callback = None
         
         # Dedicated worker for piece event callbacks
         try:
@@ -166,7 +206,7 @@ class SyncCentaur:
             self._callback_queue = None
         
         if auto_init:
-            init_thread = threading.Thread(target=self.run_background, daemon=False)
+            init_thread = threading.Thread(target=self.run_background, daemon=True)
             init_thread.start()
     
     def run_background(self, start_key_polling=False):
@@ -174,6 +214,7 @@ class SyncCentaur:
         self._closed = False
         self.listener_running = True
         self.ready = False
+        self._discard_stale_keys = True  # Reset for re-initialization
         self._initialize()
         
         # Start listener thread FIRST so it's ready to capture responses
@@ -185,7 +226,6 @@ class SyncCentaur:
         self._request_processor_thread.start()
         
         # THEN send discovery commands
-        log.info("Starting discovery...")
         self._discover_board_address()
     
     def wait_ready(self, timeout=60):
@@ -214,25 +254,30 @@ class SyncCentaur:
             self.ser = serial.Serial("/dev/pts/2", baudrate=1000000, timeout=5.0)
         else:
             try:
-                self.ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=0.2)
+                self.ser = serial.Serial("/dev/serial0", baudrate=1000000, timeout=5.0)
                 self.ser.isOpen()
             except:
                 self.ser.close()
                 self.ser.open()
         
-        log.info("Serial port opened successfully")
-    
     def _listener_thread(self):
-        """Continuously listen for data on the serial port"""
+        """Continuously listen for data on the serial port."""
         log.info("Listening for serial data...")
         while self.listener_running:
             try:
+                # Check if serial port is still valid
+                if self.ser is None or not self.ser.is_open:
+                    break
                 byte = self.ser.read(1)
                 if not byte:
                     continue
                 self.processResponse(byte[0])
+            except (OSError, TypeError, AttributeError):
+                # Expected during shutdown when serial port is closed
+                break
             except Exception as e:
-                log.error(f"Listener error: {e}")
+                if self.listener_running:
+                    log.error(f"Listener error: {e}")
     
     def processResponse(self, byte):
         """
@@ -266,7 +311,7 @@ class SyncCentaur:
                             hex_row = ' '.join(f'{b:02x}' for b in self.response_buffer[:-1])
                             log.warning(f"[ORPHANED] {hex_row}")
                             self.response_buffer = bytearray(self.response_buffer[-(HEADER_DATA_BYTES):])
-                            log.info(f"After trimming: self.response_buffer: {self.response_buffer}")
+                            log.debug(f"After trimming: self.response_buffer: {self.response_buffer}")
     
     def _try_packet_detection(self, byte):
         """Handle checksum-validated packets, returns True if packet complete"""
@@ -282,14 +327,31 @@ class SyncCentaur:
                         self.on_packet_complete(self.response_buffer)
                         return True
                     else:
-                        if self.response_buffer[0] == DGT_NOTIFY_EVENTS_RESP:
-                            log.info(f"DGT_NOTIFY_EVENTS_RESP: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                        if self.response_buffer[0] == DGT_KEY_EVENTS_RESP:
+                            log.debug(f"DGT_KEY_EVENTS_RESP: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
                             self.handle_key_payload(self.response_buffer[1:])
                             self.response_buffer = bytearray()
                             self.packet_count += 1
                             return True
                         else:
-                            log.info(f"checksum mismatch: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                            log.error(f"[SyncCentaur] checksum mismatch: {' '.join(f'{b:02x}' for b in self.response_buffer)}")
+                            # Check if there's a waiting request for this packet type
+                            # Deliver failure response to unblock waiting request
+                            packet_type = self.response_buffer[0]
+                            self._deliver_failure_to_waiter(packet_type)
+                            
+                            # If this is a board state response (0x83), notify failure callback
+                            # This allows the piece listener/game manager to reconcile state
+                            if packet_type == DGT_BUS_SEND_STATE_RESP:
+                                if self._failure_callback is not None:
+                                    try:
+                                        self._failure_callback()
+                                    except Exception as e:
+                                        log.error(f"[SyncCentaur] Error in failure callback: {e}")
+                                        import traceback
+                                        traceback.print_exc()
+                                else:
+                                    log.warning(f"[SyncCentaur] No failure callback set, checksum mismatch for packet type 0x{packet_type:02x}")
                             self.response_buffer = bytearray()
                             return False
                 else:
@@ -305,7 +367,8 @@ class SyncCentaur:
         
         try:
             truncated_packet = packet[:50]
-            log.info(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
+            if packet[0] != DGT_PIECE_EVENT_RESP and packet[0] != DGT_KEY_EVENTS_RESP:
+                log.debug(f"[P{self.packet_count:03d}] on_packet_complete: {' '.join(f'{b:02x}' for b in truncated_packet)}")
             # Handle discovery or route to handler
             if not self.ready:
                 self._discover_board_address(packet)
@@ -317,13 +380,18 @@ class SyncCentaur:
             
             self._route_packet_to_handler(packet)
         finally:
-            if packet[0] == DGT_PIECE_EVENT_RESP:
-                self.sendPacket(command.DGT_BUS_SEND_CHANGES)
-            else:
-                self.sendPacket(command.DGT_NOTIFY_EVENTS)
+            if DGT_NOTIFY_EVENTS is not None:
+                if packet[0] == DGT_PIECE_EVENT_RESP:
+                    self.sendCommand(command.DGT_BUS_SEND_CHANGES)
+                else:
+                    self.sendCommand(DGT_NOTIFY_EVENTS)
     
     def _try_deliver_to_waiter(self, packet):
-        """Try to deliver packet to waiting request, returns True if delivered"""
+        """Try to deliver packet to waiting request, returns True if delivered
+        
+        Critical: Only clear the waiter AFTER successfully putting the payload in the queue.
+        If put_nowait fails, the waiter must remain set so the request can timeout properly.
+        """
         try:
             with self._waiter_lock:
                 if self._response_waiter is not None:
@@ -331,29 +399,68 @@ class SyncCentaur:
                     if expected_type == packet[0]:
                         payload = self._extract_payload(packet)
                         q = self._response_waiter.get('queue')
-                        self._response_waiter = None
                         if q is not None:
                             try:
                                 q.put_nowait(payload)
-                            except Exception:
-                                pass
-                            return True
-        except Exception:
-            pass
+                                # Only clear waiter after successful delivery
+                                self._response_waiter = None
+                                return True
+                            except queue.Full:
+                                log.error(f"[SyncCentaur._try_deliver_to_waiter] Queue full, cannot deliver response for packet type 0x{packet[0]:02x}. Waiter remains set.")
+                                # Don't clear waiter - let request timeout properly
+                                return False
+                            except Exception as e:
+                                log.error(f"[SyncCentaur._try_deliver_to_waiter] Error delivering response: {e}")
+                                # Don't clear waiter - let request timeout properly
+                                return False
+        except Exception as e:
+            log.error(f"[SyncCentaur._try_deliver_to_waiter] Error in waiter delivery: {e}")
         return False
+    
+    def _deliver_failure_to_waiter(self, packet_type):
+        """Deliver failure response to waiting request when checksum mismatch occurs.
+        
+        Args:
+            packet_type: The expected packet type that failed (e.g., 0x83 for DGT_BUS_SEND_STATE_RESP)
+        """
+        try:
+            with self._waiter_lock:
+                if self._response_waiter is not None:
+                    expected_type = self._response_waiter.get('expected_type')
+                    if expected_type == packet_type:
+                        # Deliver a special failure marker to indicate checksum mismatch
+                        # Use a sentinel value that can be detected by request_response
+                        q = self._response_waiter.get('queue')
+                        self._response_waiter = None
+                        if q is not None:
+                            try:
+                                # Use a special sentinel to indicate failure
+                                # request_response will detect this and handle accordingly
+                                q.put_nowait(b'__CHECKSUM_FAILURE__')
+                                log.warning(f"[SyncCentaur._deliver_failure_to_waiter] Delivered failure response for packet type 0x{packet_type:02x}")
+                            except Exception as e:
+                                log.error(f"[SyncCentaur._deliver_failure_to_waiter] Failed to deliver failure response: {e}")
+        except Exception as e:
+            log.error(f"[SyncCentaur._deliver_failure_to_waiter] Error delivering failure: {e}")
     
     def _route_packet_to_handler(self, packet):
         """Route packet to appropriate handler based on type"""
         try:
             payload = self._extract_payload(packet)
-            if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
-                self.handle_board_payload(payload)
-            elif packet[0] == DGT_PIECE_EVENT_RESP:
-                log.debug(f"Piece event detected (0x8e), waiting for DGT_BUS_SEND_CHANGES response")
-            elif packet[0] == DGT_BUS_SEND_STATE_RESP:
-                log.debug(f"Unsolicited board state packet (0x83) - no active waiter")
-            else:
-                log.info(f"Unknown packet type: {' '.join(f'{b:02x}' for b in packet)}")
+            # Handle key poll responses even when empty (to clear _discard_stale_keys)
+            if packet[0] == DGT_BUS_POLL_KEYS_RESP:
+                if DGT_NOTIFY_EVENTS is None:
+                    self.handle_key_payload(payload)
+            elif len(payload) > 0:
+                if packet[0] == DGT_BUS_SEND_CHANGES_RESP:
+                    self.handle_board_payload(payload)
+                elif packet[0] == DGT_PIECE_EVENT_RESP:
+                    if DGT_NOTIFY_EVENTS is None:
+                        self.handle_board_payload(payload)
+                elif packet[0] == DGT_BUS_SEND_STATE_RESP:
+                    log.debug(f"Unsolicited board state packet (0x83) - no active waiter")
+                else:
+                    log.warning(f"Unknown packet type: {' '.join(f'{b:02x}' for b in packet)}")
         except Exception as e:
             log.error(f"Error: {e}")
     
@@ -365,7 +472,7 @@ class SyncCentaur:
                 time_in_seconds = time_utils.decode_time(payload)
                 time_str = f"  [TIME: {time_utils.format_time_display(time_in_seconds)}]"
                 hex_row = ' '.join(f'{b:02x}' for b in payload)
-                log.info(f"[P{self.packet_count:03d}] {hex_row}{time_str}")
+                log.debug(f"[P{self.packet_count:03d}] {hex_row}{time_str}")
                 self._draw_piece_events_from_payload(payload)
                 # Dispatch to registered listeners with parsed events
                 try:
@@ -376,7 +483,7 @@ class SyncCentaur:
                             piece_event = 0 if piece_event == 0x40 else 1
                             field_hex = payload[i + 1]
                             try:
-                                log.info(f"[P{self.packet_count:03d}] piece_event={piece_event == 0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={time_in_seconds} {time_str}")
+                                log.debug(f"[P{self.packet_count:03d}] piece_event={piece_event == 0 and 'LIFT' or 'PLACE'} field_hex={field_hex} time_in_seconds={time_in_seconds} {time_str}")
                                 if self._piece_listener is not None:
                                     args = (piece_event, field_hex, time_in_seconds)
                                     cq = getattr(self, '_callback_queue', None)
@@ -387,6 +494,8 @@ class SyncCentaur:
                                             log.error("[SyncCentaur] callback queue full, dropping piece event")
                                     else:
                                         self._piece_listener(*args)
+                                else:
+                                    log.debug(f"No piece listener registered to handle event {piece_event} {field_hex} {time_in_seconds} {time_str}")
                             except Exception as e:
                                 log.error(f"Error processing piece event: {e}")
                                 import traceback
@@ -402,25 +511,60 @@ class SyncCentaur:
             log.error(f"Error: {e}")
     
     def handle_key_payload(self, payload: bytes):
-        """Handle key press events"""
+        """Handle key press events (both key-down and key-up).
+        
+        Both key-down and key-up events are queued. Key-down events use codes
+        with KEY_DOWN_OFFSET added (e.g., PLAY_DOWN = 0x84 vs PLAY = 0x04).
+        
+        Discards stale key events when _discard_stale_keys is True. This flag is set
+        during discovery and cleared when a key poll response contains no key events,
+        indicating the board's key buffer has been drained.
+        
+        When draining stale events, immediately sends another poll command to speed up
+        the drain process instead of waiting for the next polling cycle.
+        """
         try:
-            log.info(f"[P{self.packet_count:03d}] handle_key_payload: {' '.join(f'{b:02x}' for b in payload)}")
-            if len(payload) > 0:
-                hex_row = ' '.join(f'{b:02x}' for b in payload)
-                log.info(f"[P{self.packet_count:03d}] {hex_row}")
-                idx, code_val, is_down = self._find_key_event_in_payload(payload)
-                if idx is not None:
-                    self._draw_key_event_from_payload(payload, idx, code_val, is_down)
+            # Empty payload means no key events - clear the stale flag
+            if len(payload) == 0:
+                if self._discard_stale_keys:
+                    log.debug("Key buffer drained (empty payload), enabling key event processing")
+                    self._discard_stale_keys = False
+                return
+            
+            log.debug(f"[P{self.packet_count:03d}] handle_key_payload: {' '.join(f'{b:02x}' for b in payload)}")
+            hex_row = ' '.join(f'{b:02x}' for b in payload)
+            log.debug(f"[P{self.packet_count:03d}] {hex_row}")
+            idx, code_val, is_down = self._find_key_event_in_payload(payload)
+            if idx is not None:
+                self._draw_key_event_from_payload(payload, idx, code_val, is_down)
+                
+                # Discard ALL stale key events (both key-down and key-up) until flag is cleared
+                if self._discard_stale_keys:
+                    log.debug(f"Discarding stale key event: code=0x{code_val:02x} {'DOWN' if is_down else 'UP'}")
+                    # Only poll again on key-up to drain faster (key-down will be followed by key-up)
                     if not is_down:
-                        key = Key(code_val)
-                        log.info(f"key name: {key.name} value: {key.value}")
-                        self._last_key = key
-                        try:
-                            self.key_up_queue.put_nowait(key)
-                        except queue.Full:
-                            pass
-                else:
-                    log.info(f"No key event found in payload: {' '.join(f'{b:02x}' for b in payload)}")
+                        self._send_command(command.DGT_BUS_POLL_KEYS)
+                    return
+                
+                # Queue both key-down and key-up events
+                # Key-down uses code + KEY_DOWN_OFFSET, key-up uses base code
+                key_code = code_val + KEY_DOWN_OFFSET if is_down else code_val
+                key = Key(key_code)
+                log.debug(f"key name: {key.name} value: {key.value}")
+                
+                # Only update _last_key for key-up events (backwards compatibility)
+                if not is_down:
+                    self._last_key = key
+                
+                try:
+                    self.key_up_queue.put_nowait(key)
+                except queue.Full:
+                    pass
+            else:
+                # No key event found in non-empty payload - this means the key buffer is empty
+                if self._discard_stale_keys:
+                    log.debug("Key buffer drained, enabling key event processing")
+                    self._discard_stale_keys = False
         except Exception as e:
             log.error(f"Error: {e}")
     
@@ -439,28 +583,113 @@ class SyncCentaur:
             except Exception as e:
                 log.error(f"[SyncCentaur] callback worker loop error: {e}")
     
-    def _request_processor(self):
-        """Process requests from FIFO queue"""
+    def _polling_worker(self):
+        """Poll for events in a loop"""
+        consecutive_failures = 0
         while self.listener_running:
             try:
-                request = self._request_queue.get(timeout=0.1)
+                # Wait for board to be ready before polling
+                if not self.ready:
+                    time.sleep(0.1)
+                    continue
+                
+                # Poll for keys
+                self.sendCommand(command.DGT_BUS_POLL_KEYS)
+                # Poll for piece events
+                self.sendCommand(command.DGT_BUS_SEND_CHANGES)
+
+                # Reset failure counter on success
+                consecutive_failures = 0
+                
+                # Small delay to avoid hammering the board
+                time.sleep(0.05)
+            except Exception as e:
+                consecutive_failures += 1
+                log.error(f"[SyncCentaur] polling worker error: {e}")
+                
+                # If queue is consistently full, increase delay to allow queue to drain
+                if consecutive_failures > 10:
+                    log.warning(f"[SyncCentaur] Polling worker has {consecutive_failures} consecutive failures, increasing delay")
+                    time.sleep(1.0)
+                else:
+                    time.sleep(0.1)
+    
+    def _request_processor(self):
+        """Process requests from FIFO queue with priority support.
+        
+        Main queue (polling, normal commands) has priority over low-priority queue
+        (validation commands like getChessState). Low-priority requests are only
+        processed when the main queue is empty, ensuring polling is never delayed.
+        """
+        while self.listener_running:
+            try:
+                # Try main queue first (non-blocking check)
+                request = None
+                try:
+                    request = self._request_queue.get_nowait()
+                except queue.Empty:
+                    # Main queue empty - check low-priority queue
+                    try:
+                        request = self._low_priority_queue.get_nowait()
+                    except queue.Empty:
+                        # Both queues empty - wait briefly on main queue
+                        try:
+                            request = self._request_queue.get(timeout=0.05)
+                        except queue.Empty:
+                            continue
+                
                 if request is None:
                     continue
                 
                 command_name, data, timeout, result_queue = request
                 
+                # Remove from tracking when command is actually processed
+                # (This ensures tracking reflects what's actually in the queue)
+                if command_name in self._special_commands and command_name in self._last_n_commands:
+                    # Remove the oldest occurrence if it exists
+                    try:
+                        self._last_n_commands.remove(command_name)
+                    except ValueError:
+                        pass  # Not in deque (shouldn't happen, but safe)
+                
                 try:
-                    payload = self._execute_request(command_name, data, timeout)
-                    result_queue.put(('success', payload))
+                    # Check if serial port is still valid before executing
+                    if self.ser is None or not self.ser.is_open:
+                        if result_queue is not None:
+                            result_queue.put(('error', Exception("Serial port closed")))
+                        break  # Exit processor loop
+                    
+                    # For blocking requests (request_response), create internal queue for waiter mechanism
+                    # For non-blocking requests (sendCommand), pass None to skip waiter
+                    if result_queue is not None:
+                        # Create internal queue for waiter mechanism
+                        internal_queue = queue.Queue(maxsize=1)
+                        payload = self._execute_request(command_name, data, timeout, internal_queue)
+                        result_queue.put(('success', payload))
+                    else:
+                        # For non-blocking (sendCommand), pass None to skip waiter
+                        payload = self._execute_request(command_name, data, timeout, None)
+                except (OSError, AttributeError):
+                    # Expected during shutdown when serial port is closed
+                    break
                 except Exception as e:
-                    result_queue.put(('error', e))
-            except queue.Empty:
-                continue
+                    if result_queue is not None:
+                        result_queue.put(('error', e))
+                    elif self.listener_running:
+                        log.error(f"Error executing queued command {command_name}: {e}")
             except Exception as e:
                 log.error(f"Request processor error: {e}")
     
-    def _execute_request(self, command_name: str, data: Optional[bytes], timeout: float):
-        """Execute a single request synchronously"""
+    def _execute_request(self, command_name: str, data: Optional[bytes], timeout: float, result_queue: Optional[queue.Queue] = None):
+        """Execute a single request synchronously
+        
+        Args:
+            command_name: command name to send
+            data: optional payload bytes
+            timeout: timeout for response (only used if result_queue is provided)
+            result_queue: if None (from sendCommand), don't set up waiter - let response route normally.
+                         if provided (from request_response), set up waiter and wait for response.
+        """
         spec = CMD_BY_NAME.get(command_name)
         if not spec:
             raise KeyError(f"Unknown command name: {command_name}")
@@ -470,11 +699,15 @@ class SyncCentaur:
         
         # If no response expected, just send and return
         if expected_type is None:
-            self.sendPacket(command_name, eff_data)
+            self._send_command(command_name, eff_data)
             return b''
         
-        # Create waiter
-        result_queue = queue.Queue(maxsize=1)
+        # If result_queue is None (from sendCommand), don't set up waiter - let response route normally
+        if result_queue is None:
+            self._send_command(command_name, eff_data)
+            return b''  # Response will be handled by _route_packet_to_handler
+        
+        # Create waiter for blocking requests (request_response)
         with self._waiter_lock:
             if self._response_waiter is not None:
                 log.warning("Warning: waiter still set")
@@ -482,21 +715,27 @@ class SyncCentaur:
             self._response_waiter = {'expected_type': expected_type, 'queue': result_queue}
         
         # Send command
-        self.sendPacket(command_name, eff_data)
+        self._send_command(command_name, eff_data)
         
         # Wait for response
         try:
             payload = result_queue.get(timeout=timeout)
+            # Check for checksum failure marker
+            if payload == b'__CHECKSUM_FAILURE__':
+                log.warning(f"[SyncCentaur._execute_request] Checksum failure detected for {command_name}")
+                # Return None to indicate failure, but also trigger reconciliation callback if available
+                # The caller (getBoardState/getChessState) will handle None appropriately
+                return None
             return payload
         except queue.Empty:
             # Timeout
             with self._waiter_lock:
                 if self._response_waiter is not None and self._response_waiter.get('queue') is result_queue:
                     self._response_waiter = None
-            log.info(f"Request timeout for {command_name}")
+            log.error(f"Request timeout for {command_name}")
             return None
     
-    def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=10.0, callback=None, raw_len: Optional[int]=None, retries=0):
+    def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0, retry_delay=0.1):
         """
         Send a command and wait for response (blocking, FIFO queued).
         
@@ -506,27 +745,83 @@ class SyncCentaur:
             timeout: seconds to wait for response
             callback: not supported (for compatibility only)
             raw_len: not supported (for compatibility only)
-            retries: not supported (for compatibility only)
+            retries: number of retry attempts on timeout (default 0 = no retries)
+            retry_delay: delay in seconds between retries (default 0.1)
             
         Returns:
-            bytes: payload of response or None on timeout
+            bytes: payload of response or None on timeout after all retries
         """
         if not isinstance(command_name, str):
             raise TypeError("request_response requires a command name (str)")
         
-        # Queue the request
+        # For special commands, check if they already exist in the last n places in the queue
+        # where n is the number of special commands (2)
+        if command_name in self._special_commands:
+            if command_name in self._last_n_commands:
+                log.debug(f"[SyncCentaur.request_response] Skipping {command_name} - already in last {len(self._special_commands)} queue positions")
+                # Return None to indicate the command was skipped (caller should handle this)
+                return None
+        
+        for attempt in range(retries + 1):
+            # Queue the request
+            result_queue = queue.Queue(maxsize=1)
+            self._request_queue.put((command_name, data, timeout, result_queue))
+            
+            # Update tracking of last n commands
+            self._last_n_commands.append(command_name)
+            
+            # Wait for result
+            try:
+                status, result = result_queue.get(timeout=timeout + 5.0)
+                if status == 'success':
+                    return result
+                else:
+                    raise result
+            except queue.Empty:
+                if attempt < retries:
+                    log.warning(f"[SyncCentaur.request_response] Timeout for {command_name} (attempt {attempt + 1}/{retries + 1}), retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                else:
+                    log.error(f"[SyncCentaur.request_response] Timeout for {command_name} after {retries + 1} attempts")
+        
+        return None
+    
+    def request_response_low_priority(self, command_name: str, data: Optional[bytes]=None, timeout=10.0):
+        """
+        Send a command and wait for response using the low-priority queue.
+        
+        Low-priority requests yield to the main queue - they are only processed
+        when the main queue (polling commands) is empty. Use this for validation
+        commands like DGT_BUS_SEND_STATE that should not delay piece event detection.
+        
+        Args:
+            command_name: command name to send
+            data: optional payload bytes
+            timeout: seconds to wait for response
+            
+        Returns:
+            bytes: payload of response or None on timeout/queue full
+        """
+        if not isinstance(command_name, str):
+            raise TypeError("request_response_low_priority requires a command name (str)")
+        
+        # Queue the request in low-priority queue
         result_queue = queue.Queue(maxsize=1)
-        self._request_queue.put((command_name, data, timeout, result_queue))
+        try:
+            self._low_priority_queue.put_nowait((command_name, data, timeout, result_queue))
+        except queue.Full:
+            log.debug(f"[SyncCentaur.request_response_low_priority] Low-priority queue full, skipping {command_name}")
+            return None
         
         # Wait for result
         try:
-            status, result = result_queue.get(timeout=timeout + 1.0)
+            status, result = result_queue.get(timeout=timeout + 5.0)
             if status == 'success':
                 return result
             else:
                 raise result
         except queue.Empty:
-            log.error(f"Request queue timeout for {command_name}")
+            log.debug(f"[SyncCentaur.request_response_low_priority] Timeout for {command_name}")
             return None
     
     def wait_for_key_up(self, timeout=None, accept=None):
@@ -554,30 +849,124 @@ class SyncCentaur:
                     return key
     
     def get_and_reset_last_key(self):
-        """Non-blocking: return the last key-up event and reset it"""
+        """
+        Non-blocking: return the last key-up event and reset it.
+        
+        NOTE: This method is deprecated for event handling. Use get_next_key()
+        or consume from key_up_queue directly to avoid missing rapid key presses.
+        """
         last_key = self._last_key
         self._last_key = None
         return last_key
     
-    def sendPacket(self, command_name: str, data: Optional[bytes] = None):
+    def get_next_key(self, timeout=0.0):
+        """
+        Get the next key from the queue (non-blocking by default).
+        
+        Args:
+            timeout: Time to wait for a key (0.0 = non-blocking, None = blocking)
+        
+        Returns:
+            Key object or None if no key available
+        """
+        try:
+            if timeout is None:
+                return self.key_up_queue.get()
+            elif timeout == 0.0:
+                return self.key_up_queue.get_nowait()
+            else:
+                return self.key_up_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+    
+    def _send_command(self, command_name: str, data: Optional[bytes] = None):
         """
         Send a packet to the board using a command name.
         
         Args:
-            command_name: command name in COMMANDS (e.g., "LED_OFF_CMD")
+            command_name: command name in COMMANDS (e.g., "LED_CMD")
             data: bytes for data payload; if None, use default_data from the named command if available
         """
         if not isinstance(command_name, str):
-            raise TypeError("sendPacket requires a command name (str), e.g. command.LED_OFF_CMD")
+            raise TypeError("sendPacket requires a command name (str), e.g. command.LED_CMD")
         spec = CMD_BY_NAME.get(command_name)
         if not spec:
             raise KeyError(f"Unknown command name: {command_name}")
         eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
         tosend = self.buildPacket(spec.cmd, eff_data)
-        log.info(f"sendPacket: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
-        self.ser.write(tosend)
-        if self.ready and spec.expected_resp_type is None and command_name != command.DGT_NOTIFY_EVENTS:
-            self.sendPacket(command.DGT_NOTIFY_EVENTS)
+        if command_name != command.DGT_BUS_SEND_CHANGES and command_name != command.DGT_BUS_POLL_KEYS:
+            log.debug(f"_send_command: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
+        
+        # Thread-safe serial write
+        with self._serial_write_lock:
+            self.ser.write(tosend)
+        
+        if DGT_NOTIFY_EVENTS is not None and self.ready and spec.expected_resp_type is None and command_name != DGT_NOTIFY_EVENTS:
+            self.sendCommand(DGT_NOTIFY_EVENTS)
+    
+    def sendCommand(self, command_name: str, data: Optional[bytes] = None, timeout: float = 10.0):
+        """
+        Send a command asynchronously without waiting for a response.
+        
+        Fire-and-forget commands (beep, LED) are sent immediately via serial.
+        Commands that need responses are queued for the request processor.
+        
+        Args:
+            command_name: command name in COMMANDS (e.g., "LED_CMD")
+            data: bytes for data payload; if None, use default_data from the named command if available
+            timeout: timeout for the command execution (used internally, not returned to caller)
+        """
+        if not isinstance(command_name, str):
+            raise TypeError("sendCommand requires a command name (str), e.g. command.LED_CMD")
+        spec = CMD_BY_NAME.get(command_name)
+        if not spec:
+            raise KeyError(f"Unknown command name: {command_name}")
+        
+        # Fire-and-forget commands (no expected response) - send immediately
+        # This bypasses the queue for minimum latency (beep, LED)
+        if command_name in self._immediate_commands:
+            self._send_immediate(command_name, data)
+            return
+        
+        # For special commands, check if they already exist in the last n places in the queue
+        # where n is the number of special commands (2: DGT_BUS_SEND_CHANGES, DGT_BUS_POLL_KEYS)
+        # This prevents queue flooding when the board is slow to respond
+        if command_name in self._special_commands:
+            if command_name in self._last_n_commands:
+                log.debug(f"[SyncCentaur.sendCommand] Skipping {command_name} - already in last {len(self._special_commands)} queue positions")
+                return
+        
+        # Queue the command without a result queue (non-blocking, no return value)
+        try:
+            self._request_queue.put_nowait((command_name, data, timeout, None))
+            self._last_command = command_name
+            # Update tracking of last n commands for deduplication
+            self._last_n_commands.append(command_name)
+        except queue.Full:
+            log.error(f"Request queue full, cannot queue command {command_name}")
+    
+    def _send_immediate(self, command_name: str, data: Optional[bytes] = None):
+        """Send a fire-and-forget command immediately via serial, bypassing the queue.
+        
+        Used for commands that don't expect responses (beep, LED) to minimize latency.
+        Thread-safe via serial write lock.
+        
+        Args:
+            command_name: command name in COMMANDS
+            data: optional payload bytes
+        """
+        spec = CMD_BY_NAME.get(command_name)
+        if not spec:
+            raise KeyError(f"Unknown command name: {command_name}")
+        
+        eff_data = data if data is not None else (spec.default_data if spec.default_data is not None else None)
+        tosend = self.buildPacket(spec.cmd, eff_data)
+        
+        log.debug(f"_send_immediate: {command_name} ({spec.cmd:02x}) {' '.join(f'{b:02x}' for b in tosend[:16])}")
+        
+        with self._serial_write_lock:
+            if self.ser is not None and self.ser.is_open:
+                self.ser.write(tosend)
     
     def buildPacket(self, command, data):
         """Build a complete packet with command, addresses, data, and checksum"""
@@ -620,50 +1009,100 @@ class SyncCentaur:
         
         # Called from run_background() with no packet
         if packet is None:
-            log.info("Discovery: STARTING")
-            self.sendPacket(command.DGT_RETURN_BUSADRES)
+            log.info("Discovery starting")
+            self.ser.write(bytes([0x4d]))
+            self.ser.write(bytes([0x4e]))
+            self._send_command(command.DGT_BUS_SEND_87)
+            #self.sendPacket(command.DGT_RETURN_BUSADRES)
             return
         
-        log.info(f"Discovery: packet: {' '.join(f'{b:02x}' for b in packet)}")
+        log.debug(f"Discovery: packet: {' '.join(f'{b:02x}' for b in packet)}")
         # Called from processResponse() with a complete packet
-        if packet[0] == 0x90:
+        if packet[0] == 0x87:
             if self.addr1 == 0x00 and self.addr2 == 0x00:
+                self._send_command(command.DGT_BUS_SEND_87)
                 self.addr1 = packet[3]
                 self.addr2 = packet[4]
             else:
                 if self.addr1 == packet[3] and self.addr2 == packet[4]:
+                    # Flush stale piece events from the board buffer
+                    self._send_command(command.DGT_BUS_SEND_CHANGES)
+                    
+                    # _discard_stale_keys is already True (set in __init__ and run_background)
+                    # Key events will be discarded until handle_key_payload sees an empty poll response
+                    self._last_key = None
+
                     self.ready = True
-                    self.sendPacket(command.DGT_NOTIFY_EVENTS)
-                    log.info(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
+                    if DGT_NOTIFY_EVENTS is not None:
+                        self.sendCommand(DGT_NOTIFY_EVENTS)
+                    else:
+                        # Start key polling thread
+                        self._polling_thread = threading.Thread(target=self._polling_worker, name="polling", daemon=True)
+                        self._polling_thread.start()
+        
+                    log.debug(f"Discovery: READY - addr1={hex(self.addr1)}, addr2={hex(self.addr2)}")
+
+                    self.ledsOff()
+                    self.beep(command.SOUND_POWER_ON)
                 else:
-                    log.info(f"Discovery: ERROR - addr1={hex(self.addr1)}, addr2={hex(self.addr2)} does not match packet {packet[3]} {packet[4]}")
+                    log.error(f"Discovery: ERROR - addr1={hex(self.addr1)}, addr2={hex(self.addr2)} does not match packet {packet[3]} {packet[4]}")
                     self.addr1 = 0x00
                     self.addr2 = 0x00
-                    log.info("Discovery: RETRY")
-                    self.sendPacket(command.DGT_RETURN_BUSADRES)
+                    log.warning("Discovery: RETRY")
+                    self._send_command(command.DGT_BUS_SEND_87)
                     return
     
     def cleanup(self, leds_off: bool = True):
-        """Idempotent cleanup coordinator"""
+        """Idempotent cleanup coordinator.
+        
+        Order of cleanup is important:
+        1. Signal listener to stop (set flag)
+        2. Turn off LEDs (while serial still works)
+        3. Close serial port (unblocks listener thread read)
+        4. Join listener thread (should exit quickly now)
+        5. Clear waiters
+        """
+        log.info("[SyncCentaur] Starting cleanup...")
         if getattr(self, "_closed", False):
+            log.info("[SyncCentaur] Already cleaned up, skipping")
             return
-        self._cleanup_listener()
+        
+        # Signal listener to stop
+        log.info("[SyncCentaur] Signaling listener to stop...")
+        self.listener_running = False
+        
         if leds_off:
+            log.info("[SyncCentaur] Turning off LEDs...")
             self._cleanup_leds()
-        self._cleanup_waiters()
+        
+        # Close serial port first - this unblocks ser.read() in listener thread
+        log.info("[SyncCentaur] Closing serial port...")
         self._cleanup_serial()
+        
+        # Now join listener thread (should exit quickly since serial is closed)
+        log.info("[SyncCentaur] Joining listener thread...")
+        self._cleanup_listener()
+        
+        log.info("[SyncCentaur] Clearing waiters...")
+        self._cleanup_waiters()
         self._closed = True
-        log.info("SyncCentaur cleaned up")
+        log.info("[SyncCentaur] Cleanup complete")
     
     def _cleanup_listener(self):
-        """Stop and join listener thread"""
+        """Join listener thread (should exit quickly since serial is closed)."""
         try:
-            self.listener_running = False
             t = getattr(self, "listener_thread", None)
             if t and t.is_alive():
-                t.join(timeout=1.0)
-        except Exception:
-            pass
+                log.info("[SyncCentaur] Listener thread is alive, joining with 1s timeout...")
+                t.join(timeout=1.0)  # Short timeout since serial is already closed
+                if t.is_alive():
+                    log.warning("[SyncCentaur] Listener thread did not exit within timeout")
+                else:
+                    log.info("[SyncCentaur] Listener thread joined successfully")
+            else:
+                log.info("[SyncCentaur] Listener thread was not running")
+        except Exception as e:
+            log.error(f"[SyncCentaur] Error joining listener thread: {e}")
     
     def _cleanup_leds(self):
         """Turn off LEDs"""
@@ -717,40 +1156,68 @@ class SyncCentaur:
         self._last_key = None
     
     def beep(self, sound_name: str):
-        self.sendPacket(sound_name)
+        self.sendCommand(sound_name)
     
     def ledsOff(self):
-        self.sendPacket(command.LED_OFF_CMD)
+        data = bytearray([0x00])
+        self.sendCommand(command.LED_CMD, data)
     
-    def ledArray(self, inarray, speed=3, intensity=5):
+    def ledArray(self, inarray, speed=3, intensity=5, repeat=1):
         data = bytearray([0x05])
         data.append(speed)
-        data.append(0)
+        data.append(repeat)
         data.append(intensity)
         for i in range(0, len(inarray)):
             data.append(inarray[i])
-        self.sendPacket(command.LED_FLASH_CMD, data)
+        self.sendCommand(command.LED_CMD, data)
     
-    def ledFromTo(self, lfrom, lto, intensity=5):
-        data = bytearray([0x05, 0x03, 0x00])
+    def ledFromTo(self, lfrom, lto, intensity=5, speed=3, repeat=1):
+        data = bytearray([0x05])
+        data.append(speed)
+        data.append(repeat)
         data.append(intensity)
         data.append(lfrom)
         data.append(lto)
-        self.sendPacket(command.LED_FLASH_CMD, data)
+        self.sendCommand(command.LED_CMD, data)
     
-    def led(self, num, intensity=5):
-        data = bytearray([0x05, 0x0a, 0x01])
+    def led(self, num, intensity=5, speed=3, repeat=1):
+        data = bytearray([0x05])
+        data.append(speed)
+        data.append(repeat)
         data.append(intensity)
         data.append(num)
-        self.sendPacket(command.LED_FLASH_CMD, data)
+        self.sendCommand(command.LED_CMD, data)
     
-    def ledFlash(self):
-        self.sendPacket(command.LED_FLASH_CMD)
+    def ledFlash(self, speed=3, repeat=1, intensity=5):
+        data = bytearray([0x05]) # , 0x0a, 0x00, 0x01
+        data.append(speed)
+        data.append(repeat)
+        data.append(intensity)
+        self.sendCommand(command.LED_CMD, data)
     
-    def sleep(self):
-        """Sleep the controller"""
-        log.info(f"sleep")
-        self.sendPacket(command.DGT_SLEEP)
+    def sleep(self, retries: int = 3, retry_delay: float = 0.5) -> bool:
+        """Sleep the controller with confirmation.
+        
+        Sends the sleep command and waits for acknowledgment from the controller.
+        This ensures the controller actually receives the sleep command before
+        the system powers down, preventing battery drain.
+        
+        Args:
+            retries: number of retry attempts on timeout (default 3)
+            retry_delay: delay in seconds between retries (default 0.5)
+            
+        Returns:
+            True if sleep command acknowledged, False if all attempts failed
+        """
+        log.info(f"[SyncCentaur.sleep] Sending sleep command with {retries} retries")
+        response = self.request_response(command.DGT_SLEEP, timeout=2.0, retries=retries, retry_delay=retry_delay)
+        if response is not None:
+            # Log the raw response bytes for debugging
+            response_hex = ' '.join(f'{b:02x}' for b in response) if response else '(empty)'
+            log.info(f"[SyncCentaur.sleep] Controller sleep acknowledged, response: {response_hex}")
+            return True
+        log.error("[SyncCentaur.sleep] Failed to sleep controller after all retry attempts")
+        return False
             
     def _draw_piece_events_from_payload(self, payload: bytes):
         """Print a compact list of piece events extracted from the payload"""
@@ -768,7 +1235,7 @@ class SyncCentaur:
                     i += 1
             if events:
                 prefix = f"[P{self.packet_count:03d}] "
-                log.info(prefix + " ".join(events))
+                log.debug(prefix + " ".join(events))
         except Exception as e:
             log.error(f"Error in _draw_piece_events_from_payload: {e}")
     
@@ -792,5 +1259,5 @@ class SyncCentaur:
         """Print a single-line key event indicator"""
         base_name = DGT_BUTTON_CODES.get(code_val, f"0x{code_val:02x}")
         prefix = f"[P{self.packet_count:03d}] "
-        log.info(prefix + f"{base_name} {'↓' if is_down else '↑'}")
+        log.debug(prefix + f"{base_name} {'↓' if is_down else '↑'}")
         return True

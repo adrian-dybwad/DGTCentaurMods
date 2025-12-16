@@ -21,7 +21,8 @@
 
 from flask import Flask, render_template, Response, request, redirect, send_file, abort
 from DGTCentaurMods.db import models
-from DGTCentaurMods.display.ui_components import AssetManager
+from DGTCentaurMods.paths import get_current_fen, get_current_placement, get_resource_path
+from DGTCentaurMods.paths import EPAPER_STATIC_JPG
 from .chessboard import LiveBoard
 from . import centaurflask
 from PIL import Image, ImageDraw, ImageFont
@@ -37,451 +38,1089 @@ import io
 import chess
 import chess.pgn
 import json
-from DGTCentaurMods.config import paths
+import urllib.parse
+import base64
+import pwd
+import subprocess
+from xml.sax.saxutils import escape
+
+# Conditionally import crypt (removed in Python 3.13+, may not be available)
+try:
+    import crypt
+    HAS_CRYPT = True
+except ImportError:
+    HAS_CRYPT = False
+
+# Conditionally import spwd (removed in Python 3.13+, may not be available)
+try:
+    import spwd
+    HAS_SPWD = True
+except ImportError:
+    HAS_SPWD = False
+
+# Try to import PAM for authentication (alternative to crypt/spwd)
+HAS_PAM = False
+try:
+    import pam
+    HAS_PAM = True
+except ImportError as e:
+    try:
+        # Some systems may have it as PAM (uppercase)
+        import PAM as pam
+        HAS_PAM = True
+    except ImportError:
+        # Log to stderr so it's visible at startup
+        import sys
+        print(f"Warning: PAM module not available: {e}. Install with: sudo apt-get install python3-pam", file=sys.stderr)
+        HAS_PAM = False
 
 app = Flask(__name__)
 app.config['UCI_UPLOAD_EXTENSIONS'] = ['.txt']
 app.config['UCI_UPLOAD_PATH'] = str(pathlib.Path(__file__).parent.resolve()) + "/../engines/"
 
+# WebDAV security constants
+WEBDAV_BASE_PATH = "/home/pi"
+
+def verify_webdav_authentication():
+    """
+    Verifies HTTP Basic Authentication for WebDAV requests.
+    Checks that the user is a valid local system user and password is correct.
+    
+    Returns:
+        Tuple (is_authenticated, username) where is_authenticated is True if
+        the request has valid credentials for a local system user, username is
+        the authenticated username or None.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    
+    if not auth_header.startswith("Basic "):
+        return (False, None)
+    
+    try:
+        # Decode Basic Auth credentials
+        encoded_credentials = auth_header[6:]  # Remove "Basic "
+        
+        # Decode base64
+        try:
+            decoded_bytes = base64.b64decode(encoded_credentials, validate=True)
+            decoded_credentials = decoded_bytes.decode("utf-8")
+        except Exception as e:
+            app.logger.warning(f"WebDAV auth: Base64 decode failed: {e}")
+            return (False, None)
+        
+        # Split username and password
+        if ":" not in decoded_credentials:
+            app.logger.warning(f"WebDAV auth: Invalid credential format")
+            return (False, None)
+        
+        username, password = decoded_credentials.split(":", 1)
+        username = username.strip()
+        password = password.strip()
+        
+        if not username:
+            return (False, None)
+        
+        # Detect macOS Finder placeholder credentials and reject early
+        if username.lower().startswith("no user") or (len(username) > 0 and len(password) == 0 and username.lower() in ["", "guest", "anonymous"]):
+            return (False, None)
+        
+        # Reject empty passwords for security
+        if len(password) == 0:
+            return (False, None)
+    except Exception as e:
+        app.logger.warning(f"WebDAV auth: Failed to decode credentials: {e}")
+        return (False, None)
+    
+    # Verify user exists in system
+    try:
+        pwd_entry = pwd.getpwnam(username)
+    except KeyError:
+        return (False, None)
+    
+    # Verify password using available authentication method
+    password_valid = False
+    
+    # Try PAM authentication first (most reliable on Linux systems)
+    if HAS_PAM:
+        try:
+            p = pam.pam()
+            if p.authenticate(username, password):
+                password_valid = True
+        except Exception:
+            pass
+    
+    # If PAM not available, try crypt-based verification
+    if not password_valid:
+        try:
+            hashed_password = None
+            
+            # Try shadow password first if available
+            if HAS_SPWD:
+                try:
+                    spwd_entry = spwd.getspnam(username)
+                    hashed_password = spwd_entry.sp_pwd
+                except (KeyError, PermissionError, OSError):
+                    pass
+            
+            # Fall back to regular password database if shadow not available or accessible
+            if hashed_password is None:
+                hashed_password = pwd_entry.pw_passwd
+                # If password hash is 'x', it means password is in shadow file
+                # If spwd is not available, we'll need to use subprocess fallback
+                if hashed_password == 'x':
+                    hashed_password = None  # Set to None to skip crypt verification and use subprocess
+            
+            # Only check for empty/disabled passwords if hashed_password is not None
+            # (None means we're skipping crypt verification to use subprocess fallback)
+            if hashed_password is not None:
+                # Empty password hash means no password set - deny for security
+                if not hashed_password or hashed_password == '*':
+                    return (False, None)
+            
+            # Use crypt module if available (and hashed_password is not None)
+            if HAS_CRYPT and hashed_password is not None:
+                try:
+                    if hashed_password.startswith('$'):
+                        # Modern crypt format (SHA-256, SHA-512, etc.)
+                        computed = crypt.crypt(password, hashed_password)
+                        if computed == hashed_password:
+                            password_valid = True
+                    else:
+                        # Traditional DES crypt (deprecated but still used)
+                        computed = crypt.crypt(password, hashed_password[:2])
+                        if computed == hashed_password:
+                            password_valid = True
+                except Exception:
+                    pass
+        
+        except Exception:
+            pass
+    
+    # Final fallback: use subprocess to verify via system authentication
+    # This is less reliable as su may require TTY
+    if not password_valid:
+        proc = None
+        try:
+            # Use expect-like approach via subprocess
+            proc = subprocess.Popen(
+                ['su', username, '-c', 'echo SUCCESS'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            stdout, stderr = proc.communicate(input=password + '\n', timeout=2)
+            # If authentication succeeded, we should see "SUCCESS" in output
+            if proc.returncode == 0 and 'SUCCESS' in stdout:
+                password_valid = True
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError, OSError):
+            pass
+        finally:
+            # Ensure subprocess resources are cleaned up
+            if proc is not None:
+                try:
+                    # Close pipes if they're still open
+                    if proc.stdin and not proc.stdin.closed:
+                        proc.stdin.close()
+                    if proc.stdout and not proc.stdout.closed:
+                        proc.stdout.close()
+                    if proc.stderr and not proc.stderr.closed:
+                        proc.stderr.close()
+                    # Terminate process if still running
+                    if proc.poll() is None:
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=1)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                            proc.wait()
+                except Exception:
+                    pass
+    
+    if password_valid:
+        return (True, username)
+    
+    return (False, None)
+
+def require_webdav_authentication():
+    """
+    Checks if WebDAV request is authenticated. If not, returns 401 response.
+    
+    Returns:
+        Response object with 401 status if not authenticated, None if authenticated
+    """
+    is_authenticated, username = verify_webdav_authentication()
+    if not is_authenticated:
+        response = Response('Authentication required', mimetype='text/plain', status=401)
+        response.headers['WWW-Authenticate'] = 'Basic realm="WebDAV"'
+        # Add CORS headers if needed for browser-based clients
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PROPFIND, MOVE, MKCOL, LOCK, UNLOCK, PROPPATCH'
+        response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type, Depth'
+        return response
+    return None
+
+def sanitize_path(request_path):
+    """
+    Sanitizes and validates a request path to prevent path traversal attacks.
+    
+    Args:
+        request_path: The raw path from the request
+        
+    Returns:
+        A tuple (is_valid, sanitized_path) where is_valid is True if the path
+        is safe, and sanitized_path is the normalized path.
+    """
+    if not request_path:
+        return (False, None)
+    
+    # Remove newlines and other control characters
+    sanitized = request_path.replace("\n", "").replace("\r", "").replace("\t", "")
+    
+    # Decode URL encoding to detect encoded path traversal attempts
+    try:
+        sanitized = urllib.parse.unquote(sanitized)
+    except Exception:
+        return (False, None)
+    
+    # Check for path traversal attempts before normalization
+    if ".." in request_path or ".." in sanitized:
+        return (False, None)
+    
+    # Normalize the path (resolves ., and multiple slashes)
+    try:
+        # Join with base path first, then normalize
+        base_path = pathlib.Path(WEBDAV_BASE_PATH).resolve()
+        # Remove leading slash for pathlib.joinpath
+        path_part = sanitized.lstrip("/")
+        if not path_part:
+            path_part = "."
+        
+        full_path = base_path / path_part
+        normalized = full_path.resolve()
+        
+        # Ensure the normalized path doesn't escape the base directory
+        try:
+            normalized.relative_to(base_path)
+        except ValueError:
+            # Path escapes the base directory
+            return (False, None)
+        
+        # Get relative path from base
+        relative_path = normalized.relative_to(base_path)
+        relative_str = str(relative_path)
+        
+        # Return as absolute path starting with /
+        return (True, "/" + relative_str if relative_str != "." else "/")
+    except Exception:
+        return (False, None)
+
+def escape_xml(text):
+    """
+    Escapes XML special characters to prevent XML injection attacks.
+    
+    Args:
+        text: The text to escape
+        
+    Returns:
+        Escaped text safe for XML
+    """
+    if text is None:
+        return ""
+    return escape(str(text), {"'": "&apos;", '"': "&quot;"})
+
+def normalize_path(path):
+    """
+    Normalizes a path by removing trailing slashes.
+    
+    Args:
+        path: The path to normalize
+        
+    Returns:
+        Normalized path
+    """
+    if path != "/" and path[-1:] == "/":
+        return path[:len(path)-1]
+    return path
+
+def format_date_iso(timestamp):
+    """
+    Formats a timestamp as ISO 8601 date string.
+    
+    Args:
+        timestamp: Unix timestamp or datetime
+        
+    Returns:
+        ISO 8601 formatted date string
+    """
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.localtime(timestamp))
+
+def format_date_rfc(timestamp):
+    """
+    Formats a timestamp as RFC 1123 date string.
+    
+    Args:
+        timestamp: Unix timestamp or datetime
+        
+    Returns:
+        RFC 1123 formatted date string
+    """
+    return time.strftime('%a, %d %b %Y %H:%M:%S %Z', time.localtime(timestamp))
+
+def build_file_properties_xml(file_path, href_path):
+    """
+    Builds XML properties for a file or directory.
+    
+    Args:
+        file_path: Full filesystem path to the file/directory
+        href_path: WebDAV path for href (will be escaped)
+        
+    Returns:
+        XML string with file properties
+    """
+    props = []
+    props.append('<D:response>')
+    props.append('<D:href>' + escape_xml(href_path) + '</D:href>')
+    props.append('<D:propstat>')
+    props.append('<D:prop>')
+    
+    if os.path.isfile(file_path):
+        props.append('<D:getcontentlength>' + str(os.path.getsize(file_path)) + '</D:getcontentlength>')
+    
+    props.append('<D:resourcetype>')
+    if os.path.isdir(file_path):
+        props.append('<D:collection/>')
+    props.append('</D:resourcetype>')
+    
+    props.append('<D:creationdate>' + format_date_iso(os.path.getctime(file_path)) + '</D:creationdate>')
+    props.append('<D:lastmodified>' + format_date_rfc(os.path.getmtime(file_path)) + '</D:lastmodified>')
+    
+    props.append('</D:prop>')
+    props.append('<D:status>HTTP/1.1 200 OK</D:status>')
+    props.append('</D:propstat>')
+    props.append('</D:response>')
+    
+    return '\n'.join(props)
+
+def build_collection_properties_xml(href_path, creation_date=None, last_modified=None):
+    """
+    Builds XML properties for a virtual collection (like /PGNs).
+    
+    Args:
+        href_path: WebDAV path for href (will be escaped)
+        creation_date: Optional creation date string (ISO format)
+        last_modified: Optional last modified date string (RFC format)
+        
+    Returns:
+        XML string with collection properties
+    """
+    if creation_date is None:
+        creation_date = '2003-07-01T01:01:00Z'
+    if last_modified is None:
+        last_modified = 'Thu, 21 Sep 2023 18:50:14 BST'
+    
+    props = []
+    props.append('<D:response>')
+    props.append('<D:href>' + escape_xml(href_path) + '</D:href>')
+    props.append('<D:propstat>')
+    props.append('<D:prop>')
+    props.append('<D:resourcetype>')
+    props.append('<D:collection/>')
+    props.append('</D:resourcetype>')
+    props.append('<D:creationdate>' + creation_date + '</D:creationdate>')
+    props.append('<D:lastmodified>' + last_modified + '</D:lastmodified>')
+    props.append('</D:prop>')
+    props.append('<D:status>HTTP/1.1 200 OK</D:status>')
+    props.append('</D:propstat>')
+    props.append('</D:response>')
+    
+    return '\n'.join(props)
+
+def build_pgn_properties_xml(gameitem, href_base="/PGNs/"):
+    """
+    Builds XML properties for a PGN file entry.
+    
+    Args:
+        gameitem: Dictionary with game data (id, source, event, created_at)
+        href_base: Base path for href (default "/PGNs/")
+        
+    Returns:
+        XML string with PGN file properties
+    """
+    pgn_name = gameitem["id"] + "_" + gameitem["source"] + "_" + gameitem["event"].replace(" ", "_") + '.pgn'
+    safe_pgn_name = escape_xml(pgn_name)
+    href_path = href_base + safe_pgn_name
+    
+    created_at = gameitem["created_at"]
+    creation_date_iso = created_at.replace(" ", "T") + "Z"
+    
+    props = []
+    props.append('<D:response>')
+    props.append('<D:href>' + href_path + '</D:href>')
+    props.append('<D:propstat>')
+    props.append('<D:prop>')
+    props.append('<D:getcontentlength>0</D:getcontentlength>')
+    props.append('<D:resourcetype></D:resourcetype>')
+    props.append('<D:creationdate>' + creation_date_iso + '</D:creationdate>')
+    props.append('<D:lastmodified>' + created_at + '</D:lastmodified>')
+    props.append('</D:prop>')
+    props.append('<D:status>HTTP/1.1 200 OK</D:status>')
+    props.append('</D:propstat>')
+    props.append('</D:response>')
+    
+    return '\n'.join(props)
+
+def build_multistatus_xml(responses):
+    """
+    Builds a complete WebDAV multistatus XML response.
+    
+    Args:
+        responses: List of XML response strings
+        
+    Returns:
+        Complete multistatus XML string
+    """
+    xml = ['<?xml version="1.0" encoding="utf-8" ?><D:multistatus xmlns:D="DAV:">']
+    xml.extend(responses)
+    xml.append('</D:multistatus>')
+    return '\n'.join(xml)
+
+def get_game_data_from_session(session, game_id):
+    """
+    Retrieves game data from the database session.
+    
+    Args:
+        session: SQLAlchemy session
+        game_id: Game ID to retrieve
+        
+    Returns:
+        Tuple of game data or None if not found
+    """
+    gamedata = session.execute(
+        select(models.Game.created_at, models.Game.source, models.Game.event, 
+               models.Game.site, models.Game.round, models.Game.white, 
+               models.Game.black, models.Game.result, models.Game.id).
+        where(models.Game.id == game_id)
+    ).first()
+    return gamedata
+
+def build_gameitem_from_gamedata(gamedata):
+    """
+    Builds a gameitem dictionary from database gamedata tuple.
+    
+    Args:
+        gamedata: Tuple from database query
+        
+    Returns:
+        Dictionary with game item data
+    """
+    gameitem = {}
+    gameitem["id"] = str(gamedata[8])
+    gameitem["created_at"] = str(gamedata[0])
+    src = os.path.basename(str(gamedata[1]))
+    if src.endswith('.py'):
+        src = src[:-3]
+    gameitem["source"] = src
+    gameitem["event"] = str(gamedata[2])
+    gameitem["site"] = str(gamedata[3])
+    gameitem["round"] = str(gamedata[4])
+    gameitem["white"] = str(gamedata[5])
+    gameitem["black"] = str(gamedata[6])
+    gameitem["result"] = str(gamedata[7])
+    return gameitem
+
+def join_path(base_path, *parts):
+    """
+    Safely joins path components, handling edge cases.
+    
+    Args:
+        base_path: Base path (should not end with /)
+        *parts: Additional path components
+        
+    Returns:
+        Joined path string
+    """
+    if base_path == "/":
+        return "/" + "/".join(str(p) for p in parts if p)
+    else:
+        parts_str = "/".join(str(p) for p in parts if p)
+        if parts_str:
+            return base_path + "/" + parts_str
+        return base_path
+
+def get_engine_path():
+    """
+    Gets the engine directory path.
+    
+    Returns:
+        Path string to the engines directory
+    """
+    return str(pathlib.Path(__file__).parent.resolve()) + "/../engines/"
+
+def extract_game_id_from_path(path):
+    """
+    Extracts game ID from a PGN path string.
+    
+    Args:
+        path: Path like "/PGNs/123_source_event.pgn"
+        
+    Returns:
+        Game ID as integer if valid, None otherwise
+    """
+    if not path or len(path) < 7:
+        return None
+    idnum = path[6:]  # Skip "/PGNs/"
+    idnum = idnum[:idnum.find("_")] if "_" in idnum else idnum[:idnum.find(".")]
+    if idnum.isdigit():
+        return int(idnum)
+    return None
+
+def parse_fen_to_board_string(fen):
+    """
+    Converts FEN notation to a board string representation.
+    
+    Args:
+        fen: FEN string
+        
+    Returns:
+        Board string with pieces in order
+    """
+    board = fen.replace("/", "")
+    # Replace numbers with spaces
+    for num in range(1, 9):
+        board = board.replace(str(num), " " * num)
+    return board
+
+def paste_chess_piece(image, piece_char, piece_image, x_offset, y_offset, col, row, sqsize):
+    """
+    Pastes a chess piece image onto the board if the piece character matches.
+    
+    Args:
+        image: PIL Image to paste onto
+        piece_char: Character representing the piece ('r', 'b', 'n', 'q', 'k', 'p', or uppercase)
+        piece_image: PIL Image of the piece to paste
+        x_offset: X offset for board position
+        y_offset: Y offset for board position
+        col: Column (0-7)
+        row: Row (0-7)
+        sqsize: Size of each square
+    """
+    x_pos = x_offset + 18 + int(col * sqsize + 1)
+    y_pos = y_offset + 16 + int(row * sqsize + 1)
+    image.paste(piece_image, (x_pos, y_pos), piece_image)
+
+def draw_chess_board(draw, x_offset, y_offset, sqsize):
+    """
+    Draws a chess board background with alternating square colors.
+    
+    Args:
+        draw: PIL ImageDraw object
+        x_offset: X offset for board position
+        y_offset: Y offset for board position
+        sqsize: Size of each square
+    """
+    col = 229
+    xp = x_offset + 16
+    yp = y_offset + 16
+    for r in range(0, 8):
+        if r / 2 == r // 2:
+            col = 229
+        else:
+            col = 178
+        for c in range(0, 8):
+            draw.rectangle([(xp, yp), (xp + sqsize, yp + sqsize)], fill=(col, col, col), outline=(col, col, col))
+            xp = xp + sqsize
+            if col == 178:
+                col = 229
+            else:
+                col = 178
+        yp = yp + sqsize
+        xp = x_offset + 16
+
+def render_chess_pieces(image, curfen, piece_images, x_offset, y_offset, sqsize):
+    """
+    Renders chess pieces onto the board image based on FEN board string.
+    
+    Args:
+        image: PIL Image to render onto
+        curfen: Board string from FEN (64 characters)
+        piece_images: Dictionary mapping piece chars to PIL Images
+        x_offset: X offset for board position
+        y_offset: Y offset for board position
+        sqsize: Size of each square
+    """
+    row = 0
+    col = 0
+    for r in range(0, 64):
+        item = curfen[r]
+        if item in piece_images:
+            paste_chess_piece(image, item, piece_images[item], x_offset, y_offset, col, row, sqsize)
+        col = col + 1
+        if col == 8:
+            col = 0
+            row = row + 1
+
+def convert_menu_option(value):
+    """
+    Converts menu option from true/false to checked/unchecked.
+    
+    Args:
+        value: "true", "false", "checked", or "unchecked"
+        
+    Returns:
+        "checked" or "unchecked"
+    """
+    if value == "true":
+        return "checked"
+    elif value == "false":
+        return "unchecked"
+    return value
+
+def get_menu_option_display(getter_func):
+    """
+    Gets menu option display value (checked or empty string).
+    
+    Args:
+        getter_func: Function that returns "checked" or "unchecked"
+        
+    Returns:
+        "checked" or ""
+    """
+    value = getter_func() or "checked"
+    if value == "unchecked":
+        return ""
+    return value
+
+def build_chess_game_from_id(session, game_id):
+    """
+    Builds a chess.pgn.Game object from a game ID in the database.
+    
+    Args:
+        session: SQLAlchemy session
+        game_id: Game ID to retrieve
+        
+    Returns:
+        chess.pgn.Game object or None if not found
+    """
+    gamedata = session.execute(
+        select(models.Game.created_at, models.Game.source, models.Game.event, 
+               models.Game.site, models.Game.round, models.Game.white, 
+               models.Game.black, models.Game.result).
+        where(models.Game.id == game_id)
+    ).first()
+    
+    if not gamedata:
+        return None
+    
+    g = chess.pgn.Game()
+    
+    # Build source name
+    src = os.path.basename(str(gamedata[1]))
+    if src.endswith('.py'):
+        src = src[:-3]
+    
+    # Set headers
+    g.headers["Source"] = src
+    g.headers["Date"] = str(gamedata[0])
+    g.headers["Event"] = str(gamedata[2])
+    g.headers["Site"] = str(gamedata[3])
+    g.headers["Round"] = str(gamedata[4])
+    g.headers["White"] = str(gamedata[5])
+    g.headers["Black"] = str(gamedata[6])
+    g.headers["Result"] = str(gamedata[7])
+    
+    # Clean up None values
+    for key in g.headers:
+        if g.headers[key] == "None":
+            g.headers[key] = ""
+    
+    # Get moves
+    moves = session.execute(
+        select(models.GameMove.move_at, models.GameMove.move, models.GameMove.fen).
+        where(models.GameMove.gameid == game_id)
+    ).all()
+    
+    # Add moves to game
+    node = None
+    for i, move_data in enumerate(moves):
+        if move_data[1]:  # If move is not empty
+            if i == 0:
+                node = g.add_variation(chess.Move.from_uci(move_data[1]))
+            else:
+                node = node.add_variation(chess.Move.from_uci(move_data[1]))
+    
+    return g
+
+def get_db_session():
+    """
+    Creates and returns a new database session.
+    
+    Returns:
+        SQLAlchemy session object
+    """
+    Session = sessionmaker(bind=models.engine)
+    return Session()
+
+def generate_pgn_string(game_id):
+    """
+    Generates a PGN string for a given game ID.
+    
+    Args:
+        game_id: Game ID to export
+        
+    Returns:
+        PGN string or None if game not found
+    """
+    session = get_db_session()
+    try:
+        g = build_chess_game_from_id(session, game_id)
+        if not g:
+            return None
+        
+        exporter = chess.pgn.StringExporter(headers=True, variations=True, comments=True)
+        return g.accept(exporter)
+    except Exception:
+        return None
+    finally:
+        session.close()
+
 @app.before_request
 def handle_preflight():
-    # Override the OPTIONS response so that the webdav methods are available
+    # WebDAV methods that require authentication
+    webdav_methods = ["PROPFIND", "DELETE", "PUT", "MOVE", "MKCOL", "LOCK", "UNLOCK", "PROPPATCH"]
+    
+    # OPTIONS method doesn't require auth (needed for WebDAV discovery)
     if request.method == "OPTIONS":
         res = Response()
         res.headers['Allow'] = 'OPTIONS, GET, HEAD, PROPFIND, DELETE, PUT, MOVE, MKCOL, LOCK, UNLOCK, PROPPATCH'
         res.headers['DAV'] = "1,2"
         return res
+    
+    # Check authentication for all WebDAV methods except OPTIONS
+    if request.method in webdav_methods:
+        auth_response = require_webdav_authentication()
+        if auth_response:
+            return auth_response
+    
+    # GET method for WebDAV (when User-Agent indicates WebDAV client)
+    if request.method == "GET":
+        user_agent = request.headers.get("User-Agent", "").lower()
+        # Only require auth for WebDAV GET requests
+        if user_agent.find("webdav") >= 0 or user_agent.find("cyberduck") >= 0:
+            auth_response = require_webdav_authentication()
+            if auth_response:
+                return auth_response
 
     # Override PROPFIND
-    if request.method == "PROPFIND":                            
-        res = Response()
-        #if request.headers["Depth"] == 0:            
-        thispath = request.path.replace("\n","")        
-        if thispath != "/" and thispath[-1:] == "/":            
-            thispath = thispath[:len(thispath)-1]        
-        if request.path == "/":            
-            response = '<?xml version=\"1.0\" encoding=\"utf-8\" ?><D:multistatus xmlns:D=\"DAV:\">\n'
-            response = response + '<D:response>\n'
-            response = response + '<D:href>/</D:href>\n'
-            response = response + '<D:propstat>\n'
-            response = response + '<D:prop>\n'
-            response = response + '<D:getcontentlength>'
-            response = response + '0'
-            response = response + '</D:getcontentlength>\n'
-            response = response + '<D:resourcetype>\n'
-            response = response + '<D:collection/>\n'
-            response = response + '</D:resourcetype>\n'
-            response = response + '<D:creationdate>'
-            response = response + time.strftime('%Y-%m-%dT%H:%M:%SZ',time.localtime(os.path.getctime("/home/pi")));            
-            response = response + '</D:creationdate>\n'
-            response = response + '<D:lastmodified>'
-            response = response + time.strftime('%a, %d %b %Y %H:%M:%S %Z',time.localtime(os.path.getctime("/home/pi")));
-            response = response + '</D:lastmodified>\n'
-            response = response + '</D:prop>\n'
-            response = response + '<D:status>HTTP/1.1 200 OK</D:status>\n'
-            response = response + '</D:propstat>\n'
-            response = response + '</D:response>\n'
-            if int(request.headers["Depth"]) == 1:
-                if os.path.isdir("/home/pi" + thispath):
-                    for fn in os.listdir("/home/pi" + thispath):                    
-                        response = response + "<D:response>\n"
-                        response = response + '<D:href>' + thispath + fn + '</D:href>\n'
-                        response = response + "<D:propstat>\n"
-                        response = response + "<D:prop>\n"
-                        if os.path.isfile("/home/pi" + thispath + fn):
-                            response = response + "<D:getcontentlength>"
-                            response = response + str(os.path.getsize("/home/pi" + thispath + fn))
-                            response = response + "</D:getcontentlength>\n"
-                        response = response + "<D:resourcetype>\n"
-                        if os.path.isdir("/home/pi" + thispath + fn):
-                            response = response + "<D:collection/>\n"
-                        response = response + "</D:resourcetype>\n"
-                        response = response + "<D:creationdate>"
-                        response = response + time.strftime('%Y-%m-%dT%H:%M:%SZ',time.localtime(os.path.getctime("/home/pi" + thispath + fn)))
-                        response = response + "</D:creationdate>\n"
-                        response = response + "<D:lastmodified>"
-                        response = response + time.strftime('%a, %d %b %Y %H:%M:%S %Z',time.localtime(os.path.getmtime("/home/pi" + thispath + fn)))
-                        response = response + "</D:lastmodified>\n"
-                        response = response + "</D:prop>\n"
-                        response = response + "<D:status>HTTP/1.1 200 OK</D:status>\n"
-                        response = response + "</D:propstat>\n"
-                        response = response + "</D:response>\n"; 
-                    # Now also here create a fake PNGs directory
-                    response = response + "<D:response>\n"
-                    response = response + '<D:href>' + "/PGNs" + '</D:href>\n'
-                    response = response + "<D:propstat>\n"
-                    response = response + "<D:prop>\n"                                       
-                    response = response + "<D:resourcetype>\n"
-                    response = response + "<D:collection/>\n"
-                    response = response + "</D:resourcetype>\n"
-                    response = response + "<D:creationdate>"
-                    response = response + '2003-07-01T01:01:00Z'
-                    response = response + "</D:creationdate>\n"
-                    response = response + "<D:lastmodified>"
-                    response = response + 'Thu, 21 Sep 2023 18:50:14 BST'
-                    response = response + "</D:lastmodified>\n"
-                    response = response + "</D:prop>\n"
-                    response = response + "<D:status>HTTP/1.1 200 OK</D:status>\n"
-                    response = response + "</D:propstat>\n"
-                    response = response + "</D:response>\n"
-            response = response + '</D:multistatus>\n'                       
-            return Response(response, mimetype='application/xml', status=207)
+    if request.method == "PROPFIND":
+        # Sanitize and validate the path
+        is_valid, thispath = sanitize_path(request.path)
+        if not is_valid:
+            return Response('', mimetype='application/xml', status=403)
+        
+        thispath = normalize_path(thispath)
+        
+        if thispath == "/":
+            responses = []
+            # Root directory properties - build as collection with explicit 0 size
+            root_props = build_collection_properties_xml(
+                "/", 
+                creation_date=format_date_iso(os.path.getctime(WEBDAV_BASE_PATH)),
+                last_modified=format_date_rfc(os.path.getctime(WEBDAV_BASE_PATH))
+            )
+            # Insert getcontentlength after resourcetype
+            root_props = root_props.replace(
+                '</D:resourcetype>',
+                '</D:resourcetype>\n<D:getcontentlength>0</D:getcontentlength>'
+            )
+            responses.append(root_props)
+            
+            # Depth 1: list contents
+            if int(request.headers.get("Depth", 0)) == 1:
+                full_base_dir = WEBDAV_BASE_PATH + thispath
+                if os.path.isdir(full_base_dir):
+                    for fn in os.listdir(full_base_dir):
+                        full_file_path = join_path(WEBDAV_BASE_PATH, fn)
+                        href_path = join_path(thispath, fn)
+                        responses.append(build_file_properties_xml(full_file_path, href_path))
+                
+                # Add virtual PGNs directory
+                responses.append(build_collection_properties_xml("/PGNs"))
+            
+            xml_response = build_multistatus_xml(responses)
+            return Response(xml_response, mimetype='application/xml', status=207)
         elif thispath == "/PGNs":
             # Return a list of PGN games
-            response = '<?xml version=\"1.0\" encoding=\"utf-8\" ?><D:multistatus xmlns:D=\"DAV:\">\n'
-            response = response + "<D:response>\n"
-            response = response + '<D:href>' + "/PGNs" + '</D:href>\n'
-            response = response + "<D:propstat>\n"
-            response = response + "<D:prop>\n"                               
-            response = response + "<D:resourcetype>\n"
-            response = response + "<D:collection/>\n"
-            response = response + "</D:resourcetype>\n"
-            response = response + "<D:creationdate>"
-            response = response + '2003-07-01T01:01:00Z'
-            response = response + "</D:creationdate>\n"
-            response = response + "<D:lastmodified>"
-            response = response + 'Thu, 21 Sep 2023 18:50:14 BST'
-            response = response + "</D:lastmodified>\n"
-            response = response + "</D:prop>\n"
-            response = response + "<D:status>HTTP/1.1 200 OK</D:status>\n"
-            response = response + "</D:propstat>\n"
-            response = response + "</D:response>\n"
-            if int(request.headers["Depth"]) == 1:
-                Session = sessionmaker(bind=models.engine)
-                session = Session()
-                gamedata = session.execute(
-                    select(models.Game.created_at, models.Game.source, models.Game.event, models.Game.site, models.Game.round,
-                        models.Game.white, models.Game.black, models.Game.result, models.Game.id).
-                        order_by(models.Game.id.desc())
-                ).all()
-                games = {}
+            responses = []
+            responses.append(build_collection_properties_xml("/PGNs"))
+            
+            # Depth 1: list PGN files
+            if int(request.headers.get("Depth", 0)) == 1:
+                session = get_db_session()
                 try:
-                    for x in range(0,100):
-                        gameitem = {}
-                        gameitem["id"] = str(gamedata[x][8])
-                        gameitem["created_at"] = str(gamedata[x][0])
-                        src = os.path.basename(str(gamedata[x][1]))
-                        if src.endswith('.py'):
-                            src = src[:-3]
-                        gameitem["source"] = src
-                        gameitem["event"] = str(gamedata[x][2])
-                        gameitem["site"] = str(gamedata[x][3])
-                        gameitem["round"] = str(gamedata[x][4])
-                        gameitem["white"] = str(gamedata[x][5])
-                        gameitem["black"] = str(gamedata[x][6])
-                        gameitem["result"] = str(gamedata[x][7])
-                        response = response + "<D:response>\n"
-                        response = response + '<D:href>' + "/PGNs/" + gameitem["id"] + "_" + gameitem["source"] + "_" + gameitem["event"].replace(" ","_") + '.pgn</D:href>\n'
-                        response = response + "<D:propstat>\n"
-                        response = response + "<D:prop>\n"                    
-                        response = response + "<D:getcontentlength>"
-                        response = response + "0"
-                        response = response + "</D:getcontentlength>\n"
-                        response = response + "<D:resourcetype>\n"
-                        response = response + "</D:resourcetype>\n"
-                        response = response + "<D:creationdate>"
-                        #response = response + '2003-07-01T01:01:00:00Z'
-                        response = response + gameitem["created_at"].replace(" ","T") + "Z"
-                        #response = response + time.strftime('%Y-%m-%dT%H:%M:%SZ',time.localtime(os.path.getctime("/home/pi" + thispath + fn)))
-                        response = response + "</D:creationdate>\n"
-                        response = response + "<D:lastmodified>"
-                        #response = response + 'Thu, 21 Sep 2023 18:50:14 BST'
-                        response = response + gameitem["created_at"]
-                        #response = response + time.strftime('%a, %d %b %Y %H:%M:%S %Z',time.localtime(os.path.getmtime("/home/pi" + thispath + fn)))
-                        response = response + "</D:lastmodified>\n"
-                        response = response + "</D:prop>\n"
-                        response = response + "<D:status>HTTP/1.1 200 OK</D:status>\n"
-                        response = response + "</D:propstat>\n"
-                        response = response + "</D:response>\n";                     
-                except:
+                    gamedata = session.execute(
+                        select(models.Game.created_at, models.Game.source, models.Game.event, 
+                               models.Game.site, models.Game.round, models.Game.white, 
+                               models.Game.black, models.Game.result, models.Game.id).
+                        order_by(models.Game.id.desc())
+                    ).all()
+                    
+                    for x in range(min(100, len(gamedata))):
+                        gameitem = build_gameitem_from_gamedata(gamedata[x])
+                        responses.append(build_pgn_properties_xml(gameitem))
+                except Exception:
                     pass
-                session.close()
-            response = response + '</D:multistatus>\n'            
-            return Response(response, mimetype='application/xml', status=207)
+                finally:
+                    session.close()
+            
+            xml_response = build_multistatus_xml(responses)
+            return Response(xml_response, mimetype='application/xml', status=207)
         elif thispath.find("/PGNs/") >= 0:
             # A PGN file properties request
-            response = '<?xml version=\"1.0\" encoding=\"utf-8\" ?><D:multistatus xmlns:D=\"DAV:\">\n'
-            idnum = thispath[6:]
-            idnum = idnum[:idnum.find("_")]
-            if idnum.isdigit():
-                idnum = int(idnum)
-                Session = sessionmaker(bind=models.engine)
-                session = Session()
-                gamedata = session.execute(
-                    select(models.Game.created_at, models.Game.source, models.Game.event, models.Game.site, models.Game.round,
-                        models.Game.white, models.Game.black, models.Game.result, models.Game.id).                        
-                        where(models.Game.id == idnum)                        
-                ).first()                
-                games = {}
-                try:                    
-                    gameitem = {}
-                    gameitem["id"] = str(gamedata[8])
-                    gameitem["created_at"] = str(gamedata[0])
-                    src = os.path.basename(str(gamedata[1]))
-                    if src.endswith('.py'):
-                        src = src[:-3]
-                    gameitem["source"] = src
-                    gameitem["event"] = str(gamedata[2])
-                    gameitem["site"] = str(gamedata[3])
-                    gameitem["round"] = str(gamedata[4])
-                    gameitem["white"] = str(gamedata[5])
-                    gameitem["black"] = str(gamedata[6])
-                    gameitem["result"] = str(gamedata[7])
-                    response = response + "<D:response>\n"
-                    response = response + '<D:href>' + "/PGNs/" + gameitem["id"] + "_" + gameitem["source"] + "_" + gameitem["event"].replace(" ","_") + '.pgn</D:href>\n'
-                    response = response + "<D:propstat>\n"
-                    response = response + "<D:prop>\n"                    
-                    response = response + "<D:getcontentlength>"
-                    response = response + "0"
-                    response = response + "</D:getcontentlength>\n"
-                    response = response + "<D:resourcetype>\n"
-                    response = response + "</D:resourcetype>\n"
-                    response = response + "<D:creationdate>"
-                    #response = response + '2003-07-01T01:01:00:00Z'
-                    response = response + gameitem["created_at"].replace(" ","T") + "Z"
-                    #response = response + time.strftime('%Y-%m-%dT%H:%M:%SZ',time.localtime(os.path.getctime("/home/pi" + thispath + fn)))
-                    response = response + "</D:creationdate>\n"
-                    response = response + "<D:lastmodified>"
-                    #response = response + 'Thu, 21 Sep 2023 18:50:14 BST'
-                    response = response + gameitem["created_at"]
-                    #response = response + time.strftime('%a, %d %b %Y %H:%M:%S %Z',time.localtime(os.path.getmtime("/home/pi" + thispath + fn)))
-                    response = response + "</D:lastmodified>\n"
-                    response = response + "</D:prop>\n"
-                    response = response + "<D:status>HTTP/1.1 200 OK</D:status>\n"
-                    response = response + "</D:propstat>\n"
-                    response = response + "</D:response>\n";                     
-                except:
-                    pass
-                session.close()
-                response = response + '</D:multistatus>\n'                      
-                return Response(response, mimetype='application/xml', status=207)
-            else:
-                return Response("", mimetype='text/plain', status=404)            
+            idnum = extract_game_id_from_path(thispath)
+            
+            if idnum is None:
+                return Response("", mimetype='text/plain', status=404)
+            session = get_db_session()
+            try:
+                gamedata = get_game_data_from_session(session, idnum)
+                if not gamedata:
+                    return Response("", mimetype='text/plain', status=404)
+                
+                gameitem = build_gameitem_from_gamedata(gamedata)
+                responses = [build_pgn_properties_xml(gameitem)]
+                xml_response = build_multistatus_xml(responses)
+                return Response(xml_response, mimetype='application/xml', status=207)
+            except Exception:
+                return Response("", mimetype='text/plain', status=404)
+            finally:
+                session.close()            
         else:
-            if os.path.exists("/home/pi" + thispath) and request.path.find("..") < 0:
-                # If a file or directory exists then return the propfind records
-                response = '<?xml version=\"1.0\" encoding=\"utf-8\" ?><D:multistatus xmlns:D=\"DAV:\">\n'
-                response = response + '<D:response>\n'
-                response = response + '<D:href>'
-                response = response + thispath
-                response = response + '</D:href>\n'
-                response = response + '<D:propstat>\n'
-                response = response + '<D:prop>\n'
-                response = response + '<D:getcontentlength>'
-                response = response + str(os.path.getsize("/home/pi" + thispath));
-                response = response + '</D:getcontentlength>\n'
-                response = response + '<D:resourcetype>\n'
-                if os.path.isdir("/home/pi" + thispath):
-                    response = response + '<D:collection/>\n'
-                response = response + '</D:resourcetype>\n'
-                response = response + '<D:creationdate>'
-                response = response + time.strftime('%Y-%m-%dT%H:%M:%SZ',time.localtime(os.path.getctime("/home/pi" + thispath)))
-                response = response + '</D:creationdate>\n'
-                response = response + '<D:lastmodified>'
-                response = response + time.strftime('%a, %d %b %Y %H:%M:%S %Z',time.localtime(os.path.getmtime("/home/pi" + thispath)))
-                response = response + '</D:lastmodified>\n'
-                response = response + '</D:prop>\n'
-                response = response + '<D:status>HTTP/1.1 200 OK</D:status>\n'
-                response = response + '</D:propstat>\n'
-                response = response + '</D:response>\n'
-                if int(request.headers["Depth"]) == 1:
-                    if os.path.isdir("/home/pi" + thispath):
-                        for fn in os.listdir("/home/pi" + thispath):
-                            response = response + "<D:response>\n"
-                            response = response + '<D:href>' + thispath + "/" + fn + '</D:href>\n'
-                            response = response + "<D:propstat>\n"
-                            response = response + "<D:prop>\n"
-                            if os.path.isfile("/home/pi" + thispath + "/" + fn):
-                                response = response + "<D:getcontentlength>"
-                                response = response + str(os.path.getsize("/home/pi" + thispath + "/" + fn))
-                                response = response + "</D:getcontentlength>\n"
-                            response = response + "<D:resourcetype>\n"
-                            if os.path.isdir("/home/pi" + thispath + "/" + fn):
-                                response = response + "<D:collection/>\n"
-                            response = response + "</D:resourcetype>\n"
-                            response = response + "<D:creationdate>"
-                            response = response + time.strftime('%Y-%m-%dT%H:%M:%SZ',time.localtime(os.path.getctime("/home/pi" + thispath + "/" + fn)))
-                            response = response + "</D:creationdate>\n"
-                            response = response + "<D:lastmodified>"
-                            response = response + time.strftime('%a, %d %b %Y %H:%M:%S %Z',time.localtime(os.path.getmtime("/home/pi" + thispath + "/" + fn)))
-                            response = response + "</D:lastmodified>\n"
-                            response = response + "</D:prop>\n"
-                            response = response + "<D:status>HTTP/1.1 200 OK</D:status>\n"
-                            response = response + "</D:propstat>\n"
-                            response = response + "</D:response>\n"
-                response = response + '</D:multistatus>\n'
-                return Response(response, mimetype='application/xml', status=207)
-            else:
-                # If it is not found then return a 404
+            # Regular file or directory
+            full_path = WEBDAV_BASE_PATH + thispath
+            if not os.path.exists(full_path):
                 return Response('', mimetype='application/xml', status=404)
-        return res        
+            
+            responses = []
+            responses.append(build_file_properties_xml(full_path, thispath))
+            
+            # Depth 1: list directory contents
+            if int(request.headers.get("Depth", 0)) == 1 and os.path.isdir(full_path):
+                for fn in os.listdir(full_path):
+                    full_file_path = join_path(full_path, fn)
+                    href_path = join_path(thispath, fn)
+                    responses.append(build_file_properties_xml(full_file_path, href_path))
+            
+            xml_response = build_multistatus_xml(responses)
+            return Response(xml_response, mimetype='application/xml', status=207)        
     
     if request.method == "DELETE":
         # Deletes file or folder
-        if request.path != "/" and request.path.find("..") < 0:
-            try:
-                os.remove("/home/pi" + request.path)
-            except:
-                pass
-            try:
-                os.rmdir("/home/pi" + request.path)
-            except:
-                pass
+        is_valid, sanitized_path = sanitize_path(request.path)
+        if not is_valid or sanitized_path == "/":
+            return Response('', mimetype='application/xml', status=403)
+        full_path = WEBDAV_BASE_PATH + sanitized_path
+        try:
+            if os.path.isfile(full_path):
+                os.remove(full_path)
+            elif os.path.isdir(full_path):
+                os.rmdir(full_path)
+        except Exception:
+            pass
         res = Response()
         return res   
     
     if request.method == "MOVE":     
-        destination = request.headers["Destination"]
-        destination = destination[7:]
-        destination = destination[destination.find("/"):]
-        if request.path != "/" and request.path.find("..") < 0:
-            os.rename("/home/pi" + request.path, "/home/pi" + destination)        
+        # Validate source path
+        is_valid_src, sanitized_src = sanitize_path(request.path)
+        if not is_valid_src or sanitized_src == "/":
+            return Response('', mimetype='application/xml', status=403)
+        
+        # Validate destination path
+        destination = request.headers.get("Destination", "")
+        if not destination:
+            return Response('', mimetype='application/xml', status=400)
+        
+        # Extract path from destination header (format: http://host/path or /path)
+        if destination.startswith("http://") or destination.startswith("https://"):
+            destination = destination[destination.find("/", 8):]
+        elif not destination.startswith("/"):
+            destination = "/" + destination
+        
+        is_valid_dst, sanitized_dst = sanitize_path(destination)
+        if not is_valid_dst or sanitized_dst == "/":
+            return Response('', mimetype='application/xml', status=403)
+        
+        try:
+            os.rename(WEBDAV_BASE_PATH + sanitized_src, WEBDAV_BASE_PATH + sanitized_dst)
+        except Exception:
+            pass
         res = Response(status = 200)
         return res 
 
     if request.method == "PUT":    
-        if request.path != "/" and request.path.find("..") < 0:      
-            if request.path.find("/PGNs/") >= 0:
-                return Response(status = 404)      
-            f = open("/home/pi" + request.path, "wb")        
-            f.write(request.data)
-            f.close()
+        is_valid, sanitized_path = sanitize_path(request.path)
+        if not is_valid or sanitized_path == "/":
+            return Response('', mimetype='application/xml', status=403)
+        
+        # Block writes to PGNs directory
+        if sanitized_path.find("/PGNs/") >= 0:
+            return Response('', mimetype='application/xml', status=404)
+        
+        full_path = WEBDAV_BASE_PATH + sanitized_path
+        try:
+            # Create parent directories if needed
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, "wb") as f:
+                f.write(request.data)
+            
             # If this file was called /777.txt then run chmod 777 on any path in it
-            if request.path == "/777.txt":
-                f = open("/home/pi/777.txt")                
-                lines = f.readlines()
-                for x in lines:
-                    try:
-                        os.chmod(x, 0o0777)
-                    except:
-                        pass
-                f.close()
+            if sanitized_path == "/777.txt":
+                try:
+                    with open(WEBDAV_BASE_PATH + "/777.txt", "r") as f:
+                        lines = f.readlines()
+                        for x in lines:
+                            try:
+                                # Validate path in file before chmod
+                                path_line = x.strip()
+                                is_valid_chmod_path, chmod_path = sanitize_path(path_line)
+                                if is_valid_chmod_path and chmod_path != "/":
+                                    os.chmod(WEBDAV_BASE_PATH + chmod_path, 0o0777)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+        except Exception:
+            return Response('', mimetype='application/xml', status=500)
+        
         res = Response(status = 201)
         return res         
     
     if request.method == "MKCOL":
         # Makes a folder
-        if request.path != "/" and request.path.find("..") < 0:
-            os.makedirs("/home/pi" + request.path, exist_ok=True)
+        is_valid, sanitized_path = sanitize_path(request.path)
+        if not is_valid or sanitized_path == "/":
+            return Response('', mimetype='application/xml', status=403)
+        full_path = WEBDAV_BASE_PATH + sanitized_path
+        try:
+            os.makedirs(full_path, exist_ok=True)
+        except Exception:
+            return Response('', mimetype='application/xml', status=500)
         res = Response()
         return res  
     
-    if request.method == "LOCK":                
-        s = str(request.data)        
-        lockscope = s.find("<D:lockscope>") + 13
-        lockscopee = s.find("</D:lockscope>")
-        lockscope = s[lockscope:lockscopee]
-        locktype = s.find("<D:locktype>") + 12
-        locktypee = s.find("</D:locktype>")
-        locktype = s[locktype:locktypee]
-        lockowner = s.find("<D:owner>") + 9
-        lockownere = s.find("</D:owner>")
-        lockowner = s[lockowner:lockownere]
-        # Lie to windows about the lock :)
-        r = "<?xml version=\"1.0\" encoding=\"utf-8\" ?><D:multistatus xmlns:D=\"DAV:\">\n";
-        r = r + "<D:response>\n";
-        r = r + "<D:href>" + request.path + "</D:href>\n";
-        r = r + "<D:propstat>\n";
-        r = r + "<D:prop>\n";
-        r = r + "<D:lockdiscovery>\n";
-        r = r + "<D:activelock>\n";
-        r = r + locktype + "\n";
-        r = r + lockscope + "\n";
-        r = r + "<D:depth>Infinity</D:depth>\n";
-        r = r + lockowner + "\n";
-        r = r + "<D:timeout>Second-3600</D:timeout>\n";
-        r = r + "<D:locktoken>\n";
-        r = r + "<D:href>opaquelocktoken:e71d4fae-5dec-22d6-fea5-00a0c91e6be4</D:href>\n";
-        r = r + "</D:locktoken>\n"; 
-        r = r + "</D:activelock>\n";
-        r = r + "</D:lockdiscovery>\n";
-        r = r + "</D:prop>\n";
-        r = r + "<D:status>HTTP/1.1 200 OK</D:status>\n";
-        r = r + "</D:propstat>\n";
-        r = r + "</D:response>\n";
-        r = r + "</D:multistatus>\n";
-        return Response(r, mimetype='application/xml', status=207)
+    if request.method == "LOCK":
+        # Validate path
+        is_valid, sanitized_path = sanitize_path(request.path)
+        if not is_valid:
+            return Response('', mimetype='application/xml', status=403)
+        
+        # Extract lock data from request
+        s = str(request.data)
+        def extract_xml_tag(content, tag):
+            start_tag = "<D:" + tag + ">"
+            end_tag = "</D:" + tag + ">"
+            start_idx = content.find(start_tag)
+            if start_idx < 0:
+                return ""
+            start_idx += len(start_tag)
+            end_idx = content.find(end_tag, start_idx)
+            if end_idx < 0:
+                return ""
+            return content[start_idx:end_idx]
+        
+        locktype = escape_xml(extract_xml_tag(s, "locktype"))
+        lockscope = escape_xml(extract_xml_tag(s, "lockscope"))
+        lockowner = escape_xml(extract_xml_tag(s, "owner"))
+        safe_path = escape_xml(sanitized_path)
+        
+        # Build lock response XML
+        lock_response = []
+        lock_response.append('<D:response>')
+        lock_response.append('<D:href>' + safe_path + '</D:href>')
+        lock_response.append('<D:propstat>')
+        lock_response.append('<D:prop>')
+        lock_response.append('<D:lockdiscovery>')
+        lock_response.append('<D:activelock>')
+        lock_response.append(locktype)
+        lock_response.append(lockscope)
+        lock_response.append('<D:depth>Infinity</D:depth>')
+        lock_response.append(lockowner)
+        lock_response.append('<D:timeout>Second-3600</D:timeout>')
+        lock_response.append('<D:locktoken>')
+        lock_response.append('<D:href>opaquelocktoken:e71d4fae-5dec-22d6-fea5-00a0c91e6be4</D:href>')
+        lock_response.append('</D:locktoken>')
+        lock_response.append('</D:activelock>')
+        lock_response.append('</D:lockdiscovery>')
+        lock_response.append('</D:prop>')
+        lock_response.append('<D:status>HTTP/1.1 200 OK</D:status>')
+        lock_response.append('</D:propstat>')
+        lock_response.append('</D:response>')
+        
+        xml_response = build_multistatus_xml(['\n'.join(lock_response)])
+        return Response(xml_response, mimetype='application/xml', status=207)
     
     if request.method == "UNLOCK":        
         return Response("", mimetype='text/html', status=204)     
     
-    if request.method == "PROPPATCH":        
-        r = "<?xml version=\"1.0\" encoding=\"utf-8\" ?><D:multistatus xmlns:D=\"DAV:\">\n";
-        r = r + "<D:response>\n";
-        r = r + "<D:href>" + request.path + "</D:href>\n";
-        r = r + "<D:propstat>\n";              
-        r = r + "<D:status>HTTP/1.1 200 OK</D:status>\n";
-        r = r + "</D:propstat>\n";
-        r = r + "</D:response>\n";
-        r = r + "</D:multistatus>\n";
-        return Response(r, mimetype='application/xml', status=207)        
+    if request.method == "PROPPATCH":
+        # Validate path
+        is_valid, sanitized_path = sanitize_path(request.path)
+        if not is_valid:
+            return Response('', mimetype='application/xml', status=403)
+        
+        # Build simple success response
+        prop_response = []
+        prop_response.append('<D:response>')
+        prop_response.append('<D:href>' + escape_xml(sanitized_path) + '</D:href>')
+        prop_response.append('<D:propstat>')
+        prop_response.append('<D:status>HTTP/1.1 200 OK</D:status>')
+        prop_response.append('</D:propstat>')
+        prop_response.append('</D:response>')
+        
+        xml_response = build_multistatus_xml(['\n'.join(prop_response)])
+        return Response(xml_response, mimetype='application/xml', status=207)        
 
     if request.method == "GET":       
         # a webdav request
-        if request.path != "/" and request.path.find("..") < 0:
-            if request.path.find("/PGNs/") >= 0 and request.path != "/PGNs/desktop.ini":
-                # PNG file                
-                thispath = request.path
-                idnum = thispath[6:]
-                idnum = idnum[:idnum.find("_")]
-                if idnum.isdigit():
-                    idnum = int(idnum)
-                    Session = sessionmaker(bind=models.engine)
-                    session = Session()
-                    g= chess.pgn.Game()
-                    gamedata = session.execute(
-                        select(models.Game.created_at, models.Game.source, models.Game.event, models.Game.site, models.Game.round, models.Game.white, models.Game.black, models.Game.result).
-                            where(models.Game.id == idnum)
-                    ).first()                    
-                    src = os.path.basename(str(gamedata[1]))
-                    if src.endswith('.py'):
-                        src = src[:-3]
-                    g.headers["Source"] = src
-                    g.headers["Date"] = str(gamedata[0])
-                    g.headers["Event"] = str(gamedata[2])
-                    g.headers["Site"] = str(gamedata[3])
-                    g.headers["Round"] = str(gamedata[4])
-                    g.headers["White"] = str(gamedata[5])
-                    g.headers["Black"] = str(gamedata[6])
-                    g.headers["Result"] = str(gamedata[7])
-                    for key in g.headers:
-                            if g.headers[key] == "None":
-                                g.headers[key] = ""                    
-                    moves = session.execute(
-                        select(models.GameMove.move_at, models.GameMove.move, models.GameMove.fen).
-                            where(models.GameMove.gameid == idnum)
-                    ).all()
-                    first = 1
-                    node = None
-                    for x in range(0,len(moves)):
-                        if moves[x][1] != '':
-                            if first == 1:
-                                node = g.add_variation(chess.Move.from_uci(moves[x][1]))
-                                first = 0
-                            else:
-                                node = node.add_variation(chess.Move.from_uci(moves[x][1]))
-                    exporter = chess.pgn.StringExporter(headers=True, variations=True, comments=True)
-                    pgn_string = g.accept(exporter)
-                    session.close()                    
-                    return Response(pgn_string, mimetype='application/xml', status=207)
-                else:
-                    return Response("", mimetype='text/plain', status=404)
-            else:
-                if request.headers["User-Agent"].lower().find("webdav") >= 0 or request.headers["User-Agent"].lower().find("cyberduck") >= 0:
-                    f = open("/home/pi" + request.path, "rb")
-                    contents = f.read()
-                    f.close()                
-                    resp = Response(contents, mimetype='application/binary', status=200)   
-                    return resp          
+        is_valid, sanitized_path = sanitize_path(request.path)
+        if not is_valid:
+            return Response("", mimetype='text/plain', status=403)
+        
+        if sanitized_path.find("/PGNs/") >= 0 and sanitized_path != "/PGNs/desktop.ini":
+            # PGN file
+            game_id = extract_game_id_from_path(sanitized_path)
+            if game_id is None:
+                return Response("", mimetype='text/plain', status=404)
+            
+            pgn_string = generate_pgn_string(game_id)
+            if pgn_string is None:
+                return Response("", mimetype='text/plain', status=404)
+            
+            return Response(pgn_string, mimetype='application/xml', status=207)
+        else:
+            user_agent = request.headers.get("User-Agent", "").lower()
+            if user_agent.find("webdav") >= 0 or user_agent.find("cyberduck") >= 0:
+                full_path = WEBDAV_BASE_PATH + sanitized_path
+                try:
+                    if os.path.isfile(full_path):
+                        with open(full_path, "rb") as f:
+                            contents = f.read()
+                        resp = Response(contents, mimetype='application/binary', status=200)   
+                        return resp
+                    else:
+                        return Response("", mimetype='text/plain', status=404)
+                except Exception:
+                    return Response("", mimetype='text/plain', status=500)          
 
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template('index.html', fen=paths.get_current_placement())
+    return render_template('index.html', fen=get_current_placement())
 
 @app.route("/fen")
 def fen():
-    return paths.get_current_placement()
+    return get_current_placement()
 
 @app.route("/rodentivtuner")
 def tuner():
@@ -520,29 +1159,25 @@ def pgn():
 
 @app.route("/configure")
 def configure():
-    # Get the lichessapikey		
-    showEngines = centaurflask.get_menuEngines() or "checked"
-    if centaurflask.get_menuEngines() == "unchecked":
-        showEngines = ""
-    showHandBrain = centaurflask.get_menuHandBrain() or "checked"
-    if centaurflask.get_menuHandBrain() == "unchecked":
-        showHandBrain = ""
-    show1v1Analysis = centaurflask.get_menu1v1Analysis() or "checked"
-    if centaurflask.get_menu1v1Analysis() == "unchecked":
-        show1v1Analysis = ""
-    showEmulateEB = centaurflask.get_menuEmulateEB() or "checked"
-    if centaurflask.get_menuEmulateEB() == "unchecked":
-        showEmulateEB = ""
-    showCast = centaurflask.get_menuCast() or "checked"
-    if centaurflask.get_menuCast() == "unchecked":
-        showCast = ""
-    showSettings = centaurflask.get_menuSettings() or "checked"
-    if centaurflask.get_menuSettings() == "unchecked":
-        showSettings = ""
-    showAbout = centaurflask.get_menuAbout() or "checked"	
-    if centaurflask.get_menuCast() == "unchecked":
-        showAbout = ""
-    return render_template('configure.html', lichesskey=centaurflask.get_lichess_api(), lichessrange=centaurflask.get_lichess_range(),menuEngines = showEngines, menuHandBrain = showHandBrain, menu1v1Analysis = show1v1Analysis,menuEmulateEB = showEmulateEB, menuCast = showCast, menuSettings = showSettings, menuAbout = showAbout)
+    # Get the lichessapikey
+    showEngines = get_menu_option_display(centaurflask.get_menuEngines)
+    showHandBrain = get_menu_option_display(centaurflask.get_menuHandBrain)
+    show1v1Analysis = get_menu_option_display(centaurflask.get_menu1v1Analysis)
+    showEmulateEB = get_menu_option_display(centaurflask.get_menuEmulateEB)
+    showCast = get_menu_option_display(centaurflask.get_menuCast)
+    showSettings = get_menu_option_display(centaurflask.get_menuSettings)
+    showAbout = get_menu_option_display(centaurflask.get_menuAbout)
+    
+    return render_template('configure.html', 
+                         lichesskey=centaurflask.get_lichess_api(), 
+                         lichessrange=centaurflask.get_lichess_range(),
+                         menuEngines=showEngines, 
+                         menuHandBrain=showHandBrain, 
+                         menu1v1Analysis=show1v1Analysis,
+                         menuEmulateEB=showEmulateEB, 
+                         menuCast=showCast, 
+                         menuSettings=showSettings, 
+                         menuAbout=showAbout)
 
 @app.route("/support")
 def support():
@@ -577,42 +1212,14 @@ def lichessrange(newrange):
     return "ok"
 
 @app.route("/menuoptions/<engines>/<handbrain>/<analysis>/<emulateeb>/<cast>/<settings>/<about>")
-def menuoptions(engines,handbrain,analysis,emulateeb,cast,settings,about):
-    if engines == "true":
-        engines = "checked"
-    if engines == "false":
-        engines = "unchecked"
-    if handbrain == "true":
-        handbrain = "checked"
-    if handbrain == "false":
-        handbrain = "unchecked"
-    if analysis == "true":
-        analysis = "checked"
-    if analysis == "false":
-        analysis = "unchecked"
-    if emulateeb == "true":
-        emulateeb = "checked"
-    if emulateeb == "false":
-        emulateeb = "unchecked"
-    if cast == "true":
-        cast = "checked"
-    if cast == "false":
-        cast = "unchecked"
-    if settings == "true":
-        settings = "checked"
-    if settings == "false":
-        settings = "unchecked"
-    if about == "true":
-        about = "checked"
-    if about == "false":
-        about = "unchecked"
-    centaurflask.set_menuEngines(engines)
-    centaurflask.set_menuHandBrain(handbrain)
-    centaurflask.set_menu1v1Analysis(analysis)
-    centaurflask.set_menuEmulateEB(emulateeb)
-    centaurflask.set_menuCast(cast)
-    centaurflask.set_menuSettings(settings)
-    centaurflask.set_menuAbout(about)
+def menuoptions(engines, handbrain, analysis, emulateeb, cast, settings, about):
+    centaurflask.set_menuEngines(convert_menu_option(engines))
+    centaurflask.set_menuHandBrain(convert_menu_option(handbrain))
+    centaurflask.set_menu1v1Analysis(convert_menu_option(analysis))
+    centaurflask.set_menuEmulateEB(convert_menu_option(emulateeb))
+    centaurflask.set_menuCast(convert_menu_option(cast))
+    centaurflask.set_menuSettings(convert_menu_option(settings))
+    centaurflask.set_menuAbout(convert_menu_option(about))
     return "ok"
 
 @app.route("/analyse/<gameid>")
@@ -621,60 +1228,48 @@ def analyse(gameid):
 
 @app.route("/deletegame/<gameid>")
 def deletegame(gameid):
-    Session = sessionmaker(bind=models.engine)
-    session = Session()
-    stmt = delete(models.GameMove).where(models.GameMove.gameid == gameid)
-    session.execute(stmt)
-    stmt = delete(models.Game).where(models.Game.id == gameid)
-    session.execute(stmt)
-    session.commit()
-    session.close()
+    session = get_db_session()
+    try:
+        stmt = delete(models.GameMove).where(models.GameMove.gameid == gameid)
+        session.execute(stmt)
+        stmt = delete(models.Game).where(models.Game.id == gameid)
+        session.execute(stmt)
+        session.commit()
+    finally:
+        session.close()
     return "ok"
 
 @app.route("/getgames/<page>")
 def getGames(page):
     # Return batches of 10 games by listing games in reverse order
-    Session = sessionmaker(bind=models.engine)
-    session = Session()
-    gamedata = session.execute(
-        select(models.Game.created_at, models.Game.source, models.Game.event, models.Game.site, models.Game.round,
-               models.Game.white, models.Game.black, models.Game.result, models.Game.id).
-            order_by(models.Game.id.desc())
-    ).all()
-    t = (int(page) * 10) - 10
-    games = {}
+    session = get_db_session()
     try:
-        for x in range(0,10):
-            gameitem = {}
-            gameitem["id"] = str(gamedata[x+t][8])
-            gameitem["created_at"] = str(gamedata[x+t][0])
-            src = os.path.basename(str(gamedata[x + t][1]))
-            if src.endswith('.py'):
-                src = src[:-3]
-            gameitem["source"] = src
-            gameitem["event"] = str(gamedata[x + t][2])
-            gameitem["site"] = str(gamedata[x + t][3])
-            gameitem["round"] = str(gamedata[x + t][4])
-            gameitem["white"] = str(gamedata[x + t][5])
-            gameitem["black"] = str(gamedata[x + t][6])
-            gameitem["result"] = str(gamedata[x + t][7])
-            games[x] = gameitem
-    except:
-        pass
-    session.close()
-    return json.dumps(games)
+        gamedata = session.execute(
+            select(models.Game.created_at, models.Game.source, models.Game.event, models.Game.site, models.Game.round,
+                   models.Game.white, models.Game.black, models.Game.result, models.Game.id).
+                order_by(models.Game.id.desc())
+        ).all()
+        t = (int(page) * 10) - 10
+        games = {}
+        try:
+            for x in range(0, 10):
+                if x + t < len(gamedata):
+                    gameitem = build_gameitem_from_gamedata(gamedata[x + t])
+                    games[x] = gameitem
+        except Exception:
+            pass
+        return json.dumps(games)
+    finally:
+        session.close()
 
 @app.route("/engines")
 def engines():
     # Return a list of engines and uci files. Essentially the contents our our engines folder
     files = {}
-    enginepath = str(pathlib.Path(__file__).parent.resolve()) + "/../engines/"
+    enginepath = get_engine_path()
     enginefiles = os.listdir(enginepath)
-    x = 0
-    for f in enginefiles:
-        fn = str(f)
-        files[x] = fn
-        x = x + 1
+    for x, f in enumerate(enginefiles):
+        files[x] = str(f)
     return json.dumps(files)
 
 @app.route("/uploadengine", methods=['POST'])
@@ -684,152 +1279,73 @@ def uploadengine():
     file = request.files['file']
     if file.filename == '':
         return
-    file.save(os.path.join(str(pathlib.Path(__file__).parent.resolve()) + "/../engines/",file.filename))
-    os.chmod(os.path.join(str(pathlib.Path(__file__).parent.resolve()) + "/../engines/",file.filename),0o777)
+    enginepath = get_engine_path()
+    filepath = os.path.join(enginepath, file.filename)
+    file.save(filepath)
+    os.chmod(filepath, 0o777)
     return redirect("/configure")
 
 @app.route("/delengine/<enginename>")
 def delengine(enginename):
-    os.remove(os.path.join(str(pathlib.Path(__file__).parent.resolve()) + "/../engines/", enginename))
+    enginepath = get_engine_path()
+    os.remove(os.path.join(enginepath, enginename))
     return "ok"
 
 @app.route("/getpgn/<gameid>")
 def makePGN(gameid):
     # Export a PGN of the specified game
-    Session = sessionmaker(bind=models.engine)
-    session = Session()
-    g= chess.pgn.Game()
-    gamedata = session.execute(
-        select(models.Game.created_at, models.Game.source, models.Game.event, models.Game.site, models.Game.round, models.Game.white, models.Game.black, models.Game.result).
-            where(models.Game.id == gameid)
-    ).first()
-    src = os.path.basename(str(gamedata[1]))
-    if src.endswith('.py'):
-        src = src[:-3]
-    g.headers["Source"] = src
-    g.headers["Date"] = str(gamedata[0])
-    g.headers["Event"] = str(gamedata[2])
-    g.headers["Site"] = str(gamedata[3])
-    g.headers["Round"] = str(gamedata[4])
-    g.headers["White"] = str(gamedata[5])
-    g.headers["Black"] = str(gamedata[6])
-    g.headers["Result"] = str(gamedata[7])
-    for key in g.headers:
-            if g.headers[key] == "None":
-                g.headers[key] = ""
-    print(gamedata)
-    moves = session.execute(
-        select(models.GameMove.move_at, models.GameMove.move, models.GameMove.fen).
-            where(models.GameMove.gameid == gameid)
-    ).all()
-    first = 1
-    node = None
-    for x in range(0,len(moves)):
-        if moves[x][1] != '':
-            if first == 1:
-                node = g.add_variation(chess.Move.from_uci(moves[x][1]))
-                first = 0
-            else:
-                node = node.add_variation(chess.Move.from_uci(moves[x][1]))
-    exporter = chess.pgn.StringExporter(headers=True, variations=True, comments=True)
-    pgn_string = g.accept(exporter)
-    session.close()
+    pgn_string = generate_pgn_string(int(gameid))
+    if pgn_string is None:
+        return "", 404
     return pgn_string
 
-pb = Image.open(AssetManager.get_resource_path("pb.png")).convert("RGBA")
-pw = Image.open(AssetManager.get_resource_path("pw.png")).convert("RGBA")
-rb = Image.open(AssetManager.get_resource_path("rb.png")).convert("RGBA")
-bb = Image.open(AssetManager.get_resource_path("bb.png")).convert("RGBA")
-nb = Image.open(AssetManager.get_resource_path("nb.png")).convert("RGBA")
-qb = Image.open(AssetManager.get_resource_path("qb.png")).convert("RGBA")
-kb = Image.open(AssetManager.get_resource_path("kb.png")).convert("RGBA")
-rw = Image.open(AssetManager.get_resource_path("rw.png")).convert("RGBA")
-bw = Image.open(AssetManager.get_resource_path("bw.png")).convert("RGBA")
-nw = Image.open(AssetManager.get_resource_path("nw.png")).convert("RGBA")
-qw = Image.open(AssetManager.get_resource_path("qw.png")).convert("RGBA")
-kw = Image.open(AssetManager.get_resource_path("kw.png")).convert("RGBA")
+pb = Image.open(get_resource_path("pb.png")).convert("RGBA")
+pw = Image.open(get_resource_path("pw.png")).convert("RGBA")
+rb = Image.open(get_resource_path("rb.png")).convert("RGBA")
+bb = Image.open(get_resource_path("bb.png")).convert("RGBA")
+nb = Image.open(get_resource_path("nb.png")).convert("RGBA")
+qb = Image.open(get_resource_path("qb.png")).convert("RGBA")
+kb = Image.open(get_resource_path("kb.png")).convert("RGBA")
+rw = Image.open(get_resource_path("rw.png")).convert("RGBA")
+bw = Image.open(get_resource_path("bw.png")).convert("RGBA")
+nw = Image.open(get_resource_path("nw.png")).convert("RGBA")
+qw = Image.open(get_resource_path("qw.png")).convert("RGBA")
+kw = Image.open(get_resource_path("kw.png")).convert("RGBA")
 logo = Image.open(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/logo_mods_web.png")
 moddate = -1
 sc = None
-epaper_path = paths.get_epaper_static_jpg_path()
+epaper_path = EPAPER_STATIC_JPG
 if os.path.isfile(epaper_path):
     sc = Image.open(epaper_path)
     moddate = os.stat(epaper_path)[8]
 
 def generateVideoFrame():
     global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo, sc, moddate
+    piece_images = {
+        'r': rb, 'b': bb, 'n': nb, 'q': qb, 'k': kb, 'p': pb,
+        'R': rw, 'B': bw, 'N': nw, 'Q': qw, 'K': kw, 'P': pw
+    }
+    x_offset = 345
+    y_offset = 16
+    sqsize = 130.9
+    
     while True:
-        curfen = paths.get_current_fen()
-        curfen = curfen.replace("/", "")
-        curfen = curfen.replace("1", " ")
-        curfen = curfen.replace("2", "  ")
-        curfen = curfen.replace("3", "   ")
-        curfen = curfen.replace("4", "    ")
-        curfen = curfen.replace("5", "     ")
-        curfen = curfen.replace("6", "      ")
-        curfen = curfen.replace("7", "       ")
-        curfen = curfen.replace("8", "        ")
+        curfen = parse_fen_to_board_string(get_current_fen())
         image = Image.new(mode="RGBA", size=(1920, 1080), color=(255, 255, 255))
         draw = ImageDraw.Draw(image)
-        draw.rectangle([(345, 0), (345 + 1329 - 100, 1080)], fill=(33, 33, 33), outline=(33, 33, 33))
-        draw.rectangle([(345 + 9, 9), (345 + 1220 - 149, 1071)], fill=(225, 225, 225), outline=(225, 225, 225))
-        draw.rectangle([(345 + 12, 12), (345 + 1216 - 149, 1067)], fill=(33, 33, 33), outline=(33, 33, 33))
-        col = 229
-        xp = 345 + 16
-        yp = 16
-        sqsize = 130.9
-        for r in range(0, 8):
-            if r / 2 == r // 2:
-                col = 229
-            else:
-                col = 178
-            for c in range(0, 8):
-                draw.rectangle([(xp, yp), (xp + sqsize, yp + sqsize)], fill=(col, col, col), outline=(col, col, col))
-                xp = xp + sqsize
-                if col == 178:
-                    col = 229
-                else:
-                    col = 178
-            yp = yp + sqsize
-            xp = 345 + 16
-        row = 0
-        col = 0
-        for r in range(0, 64):
-            item = curfen[r]
-            if item == "r":
-                image.paste(rb, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), rb)
-            if item == "b":
-                image.paste(bb, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), bb)
-            if item == "n":
-                image.paste(nb, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), nb)
-            if item == "q":
-                image.paste(qb, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), qb)
-            if item == "k":
-                image.paste(kb, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), kb)
-            if item == "p":
-                image.paste(pb, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), pb)
-            if item == "R":
-                image.paste(rw, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), rw)
-            if item == "B":
-                image.paste(bw, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), bw)
-            if item == "N":
-                image.paste(nw, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), nw)
-            if item == "Q":
-                image.paste(qw, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), qw)
-            if item == "K":
-                image.paste(kw, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), kw)
-            if item == "P":
-                image.paste(pw, (345 + 18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), pw)
-            col = col + 1
-            if col == 8:
-                col = 0
-                row = row + 1
-        newmoddate = os.stat(paths.get_epaper_static_jpg_path())[8]
+        draw.rectangle([(x_offset, 0), (x_offset + 1329 - 100, 1080)], fill=(33, 33, 33), outline=(33, 33, 33))
+        draw.rectangle([(x_offset + 9, 9), (x_offset + 1220 - 149, 1071)], fill=(225, 225, 225), outline=(225, 225, 225))
+        draw.rectangle([(x_offset + 12, 12), (x_offset + 1216 - 149, 1067)], fill=(33, 33, 33), outline=(33, 33, 33))
+        
+        draw_chess_board(draw, x_offset, 0, sqsize)
+        render_chess_pieces(image, curfen, piece_images, x_offset, y_offset, sqsize)
+        
+        newmoddate = os.stat(EPAPER_STATIC_JPG)[8]
         if newmoddate != moddate:
-            sc = Image.open(paths.get_epaper_static_jpg_path())
+            sc = Image.open(EPAPER_STATIC_JPG)
             moddate = newmoddate
-        image.paste(sc, (345 + 1216 - 130, 635))
-        image.paste(logo, (345 + 1216 - 130, 0), logo)
+        image.paste(sc, (x_offset + 1216 - 130, 635))
+        image.paste(logo, (x_offset + 1216 - 130, 0), logo)
         output = io.BytesIO()
         image = image.convert("RGB")
         image.save(output, "JPEG", quality=30)
@@ -844,130 +1360,50 @@ def video_feed():
     return Response(generateVideoFrame(),mimetype='multipart/x-mixed-replace; boundary=frame')
 
 def fenToImage(fen):
-    global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo, sc, moddate
-    curfen = fen
-    curfen = curfen.replace("/", "")
-    curfen = curfen.replace("1", " ")
-    curfen = curfen.replace("2", "  ")
-    curfen = curfen.replace("3", "   ")
-    curfen = curfen.replace("4", "    ")
-    curfen = curfen.replace("5", "     ")
-    curfen = curfen.replace("6", "      ")
-    curfen = curfen.replace("7", "       ")
-    curfen = curfen.replace("8", "        ")
+    global pb, pw, rb, bb, nb, qb, kb, rw, bw, nw, qw, kw, logo
+    piece_images = {
+        'r': rb, 'b': bb, 'n': nb, 'q': qb, 'k': kb, 'p': pb,
+        'R': rw, 'B': bw, 'N': nw, 'Q': qw, 'K': kw, 'P': pw
+    }
+    curfen = parse_fen_to_board_string(fen)
     image = Image.new(mode="RGBA", size=(1200, 1080), color=(255, 255, 255))
     draw = ImageDraw.Draw(image)
     draw.rectangle([(0, 0), (1329 - 100, 1080)], fill=(33, 33, 33), outline=(33, 33, 33))
     draw.rectangle([(9, 9), (1220 - 149, 1071)], fill=(225, 225, 225), outline=(225, 225, 225))
     draw.rectangle([(12, 12), (1216 - 149, 1067)], fill=(33, 33, 33), outline=(33, 33, 33))
-    col = 229
-    xp = 16
-    yp = 16
+    
+    x_offset = 0
+    y_offset = 16
     sqsize = 130.9
-    for r in range(0, 8):
-        if r / 2 == r // 2:
-            col = 229
-        else:
-            col = 178
-        for c in range(0, 8):
-            draw.rectangle([(xp, yp), (xp + sqsize, yp + sqsize)], fill=(col, col, col), outline=(col, col, col))
-            xp = xp + sqsize
-            if col == 178:
-                col = 229
-            else:
-                col = 178
-        yp = yp + sqsize
-        xp = 16
-    row = 0
-    col = 0
-    for r in range(0, 64):
-        item = curfen[r]
-        if item == "r":
-            image.paste(rb, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), rb)
-        if item == "b":
-            image.paste(bb, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), bb)
-        if item == "n":
-            image.paste(nb, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), nb)
-        if item == "q":
-            image.paste(qb, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), qb)
-        if item == "k":
-            image.paste(kb, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), kb)
-        if item == "p":
-            image.paste(pb, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), pb)
-        if item == "R":
-            image.paste(rw, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), rw)
-        if item == "B":
-            image.paste(bw, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), bw)
-        if item == "N":
-            image.paste(nw, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), nw)
-        if item == "Q":
-            image.paste(qw, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), qw)
-        if item == "K":
-            image.paste(kw, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), kw)
-        if item == "P":
-            image.paste(pw, (18 + (int)(col * sqsize + 1), 16 + (int)(row * sqsize + 1)), pw)
-        col = col + 1
-        if col == 8:
-            col = 0
-            row = row + 1
+    draw_chess_board(draw, x_offset, 0, sqsize)
+    render_chess_pieces(image, curfen, piece_images, x_offset, y_offset, sqsize)
     
     image.paste(logo, (1216 - 145, 0), logo)
-    #output = io.BytesIO()
-    #image = image.convert("RGB")  
-    image = image.resize((400,360))  
+    image = image.resize((400, 360))
     return image
 
 @app.route("/getgif/<gameid>")
 def getgif(gameid):
-    # Export a PGN of the specified game
-    Session = sessionmaker(bind=models.engine)
-    session = Session()
-    g= chess.pgn.Game()
-    gamedata = session.execute(
-        select(models.Game.created_at, models.Game.source, models.Game.event, models.Game.site, models.Game.round, models.Game.white, models.Game.black, models.Game.result).
-            where(models.Game.id == gameid)
-    ).first()
-    src = os.path.basename(str(gamedata[1]))
-    if src.endswith('.py'):
-        src = src[:-3]
-    g.headers["Source"] = src
-    g.headers["Date"] = str(gamedata[0])
-    g.headers["Event"] = str(gamedata[2])
-    g.headers["Site"] = str(gamedata[3])
-    g.headers["Round"] = str(gamedata[4])
-    g.headers["White"] = str(gamedata[5])
-    g.headers["Black"] = str(gamedata[6])
-    g.headers["Result"] = str(gamedata[7])
-    for key in g.headers:
-            if g.headers[key] == "None":
-                g.headers[key] = ""
-    print(gamedata)
-    moves = session.execute(
-        select(models.GameMove.move_at, models.GameMove.move, models.GameMove.fen).
-            where(models.GameMove.gameid == gameid)
-    ).all()
-    first = 1
-    node = None
-    for x in range(0,len(moves)):
-        if moves[x][1] != '':
-            if first == 1:
-                node = g.add_variation(chess.Move.from_uci(moves[x][1]))
-                first = 0
-            else:
-                node = node.add_variation(chess.Move.from_uci(moves[x][1]))
-    exporter = chess.pgn.StringExporter(headers=True, variations=True, comments=True)
-    pgn_string = g.accept(exporter)
-    imlist = []
-    board = g.board()
-    imlist.append(fenToImage(board.fen()))
-    print(board.fen())
-    for move in g.mainline_moves():
-        board.push(move)
+    # Export a GIF animation of the specified game
+    session = get_db_session()
+    try:
+        g = build_chess_game_from_id(session, int(gameid))
+        if not g:
+            return "", 404
+        
+        imlist = []
+        board = g.board()
         imlist.append(fenToImage(board.fen()))
-        print(board.fen())
-    session.close()
-    membuf = io.BytesIO()
-    imlist[0].save(membuf,
-               save_all=True, append_images=imlist[1:], optimize=False, duration=1000, loop=0, format='gif')
-    membuf.seek(0)
-    return send_file(membuf, mimetype='image/gif')
+        for move in g.mainline_moves():
+            board.push(move)
+            imlist.append(fenToImage(board.fen()))
+        
+        membuf = io.BytesIO()
+        imlist[0].save(membuf,
+                   save_all=True, append_images=imlist[1:], optimize=False, duration=1000, loop=0, format='gif')
+        membuf.seek(0)
+        return send_file(membuf, mimetype='image/gif')
+    except Exception:
+        return "", 404
+    finally:
+        session.close()

@@ -81,8 +81,9 @@ fi
 mapfile -t all_dgt_units < <(systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -i 'dgt.*\\.service' | sort -u || true)
 unexpected_dgt=()
 for unit in "${all_dgt_units[@]:-}"; do
+  [[ -z "$unit" ]] && continue  # Skip empty entries
   ul="${unit,,}"
-  if [[ "$ul" == "dgtcentaurmods.service" || "$ul" == "stopdgtcontroller.service" ]]; then
+  if [[ "$ul" == "dgtcentaurmods.service" || "$ul" == "dgtstopcontroller.service" ]]; then
     continue
   fi
   unexpected_dgt+=("$unit")
@@ -93,7 +94,7 @@ fi
 
 log "8/8 Ensuring Font.ttc is present (optional step)"
 FONT_TARGET="/opt/DGTCentaurMods/resources/Font.ttc"
-FONT_SOURCE="$REPO_DIR/tools/card-setup-tool/lib/font/Font.ttc"
+FONT_SOURCE="$REPO_DIR/DGTCentaurMods/opt/DGTCentaurMods/resources/Font.ttc"
 if [ ! -f "$FONT_TARGET" ] && [ -f "$FONT_SOURCE" ]; then
   sudo mkdir -p "/opt/DGTCentaurMods/resources"
   sudo cp -f "$FONT_SOURCE" "$FONT_TARGET"

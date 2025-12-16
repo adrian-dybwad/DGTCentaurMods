@@ -10,3 +10,4 @@ __pycache__
 **/Win32DiskImager
 **/centaur.img
 **/.toggled
+**/build

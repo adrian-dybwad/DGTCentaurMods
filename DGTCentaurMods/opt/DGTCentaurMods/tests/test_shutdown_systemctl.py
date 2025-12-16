@@ -14,11 +14,11 @@ def test_shutdown_uses_systemctl_poweroff():
 
         # Patch out side-effects in shutdown sequence
         with patch.object(board, "beep", lambda *a, **k: None), \
-             patch.object(board.epaper, "clearScreen", lambda *a, **k: None), \
-             patch.object(board.epaper, "writeText", lambda *a, **k: None), \
+             patch("DGTCentaurMods.display.epaper_service.widgets.clear_screen", lambda *a, **k: None), \
+             patch("DGTCentaurMods.display.epaper_service.widgets.write_text", lambda *a, **k: None), \
              patch.object(board, "led", lambda *a, **k: None), \
              patch.object(board, "ledsOff", lambda *a, **k: None), \
-             patch.object(board.epaper, "stopEpaper", lambda *a, **k: None), \
+             patch("DGTCentaurMods.display.epaper_service.service.shutdown", lambda *a, **k: None), \
              patch.object(board, "sleep_controller", lambda *a, **k: None):
             board.shutdown()
 

@@ -19,7 +19,6 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
-from DGTCentaurMods.display import epaper
 from DGTCentaurMods.board.settings import Settings
 from subprocess import PIPE, Popen, check_output
 import subprocess
@@ -127,8 +126,20 @@ class UpdateSystem:
         log.debug('Policy: ' + self.getPolicy())
 
     def getInstalledVersion(self):
-        version = os.popen("dpkg -l | grep dgtcentaurmods | tr -s ' ' | cut -d' ' -f3").read().strip()
-        return version
+        # Use subprocess.run for proper resource cleanup
+        result = subprocess.run(
+            ["dpkg", "-l"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if 'dgtcentaurmods' in line:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        return parts[2].strip()
+        return ""
 
     def checkForUpdate(self):
         channel = self.getChannel()
@@ -245,17 +256,17 @@ class UpdateSystem:
 
     def updateInstall(self):
         # Check for available update
-        package = '/tmp/dgtcentaurmods_armhf.deb'
         log.debug('Put the board in update mode')
-        import shutil
-
-        epaper.writeText(3, '    System will')
-        epaper.writeText(4, '       update')
-        shutil.copy('update/update.py','/tmp')
-        shutil.copytree('update/lib','/tmp/lib')
-        log.debug('Keep the info on the screen')
-        time.sleep(5)
-        subprocess.Popen('cd /tmp; python /tmp/update.py', shell=True)
+        #widgets.write_text(3, '    System will')
+        #widgets.write_text(4, '       update')
+        script_path = pathlib.Path(__file__).resolve().parents[1] / "update" / "update.py"
+        if not script_path.exists():
+            log.error(f"Update script missing at {script_path}")
+            return
+        env = os.environ.copy()
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        log.debug(f"Launching update runner: {script_path}")
+        subprocess.Popen([sys.executable, str(script_path)], env=env)
         sys.exit()
 
 

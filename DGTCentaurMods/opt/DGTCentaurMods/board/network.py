@@ -32,6 +32,7 @@ import time
 import os
 import shlex
 from DGTCentaurMods.board.logging import log
+import socket
 
 def shell_run(rcmd):
     cmd = shlex.split(rcmd)
@@ -44,8 +45,17 @@ def shell_run(rcmd):
         log.error(response_stderr)
         return -1
     else:
-        log.info(response_stdout)
+        # log.debug(response_stdout)
         return response_stdout
+
+def checkInternetSocket(host="8.8.8.8", port=53, timeout=1):
+    try:
+        socket.setdefaulttimeout(timeout)
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
+        return True
+    except socket.error as ex:
+        log.debug(ex)
+        return False
 
 def check_network():
     ret = shell_run("ifconfig wlan0").decode("utf-8")

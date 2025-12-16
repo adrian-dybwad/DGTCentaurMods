@@ -1,6 +1,34 @@
 TODOS:
 Test promotion hardware feature, test and fix board text input feature.
 
+## Draw/Resign Protocol Implementation
+
+Currently, the back button menu in Universal mode allows resign/draw, but these only update the local database. The following needs to be investigated and implemented:
+
+### Draw Request Flow
+1. **Investigate**: How do Millennium, Pegasus, and Chessnut protocols handle draw offers?
+2. **Implement offer/accept flow**:
+   - Human presses Draw → send draw offer to connected app
+   - Wait for app response (accept/decline)
+   - If accepted → record draw in database
+   - If declined → return to game with notification
+3. **Handle incoming draw offers**: App offers draw → show prompt to human → send response
+
+### Resign Signal
+1. **Investigate**: How do Millennium, Pegasus, and Chessnut protocols signal resignation?
+2. **Implement**: When human resigns, send appropriate protocol message to connected app
+3. **Handle incoming**: If app/opponent resigns, update local state and database
+
+### Affected Files
+- `DGTCentaurMods/opt/DGTCentaurMods/game_handler.py` - `handle_resign()`, `handle_draw()`
+- `DGTCentaurMods/opt/DGTCentaurMods/emulators/millennium.py`
+- `DGTCentaurMods/opt/DGTCentaurMods/emulators/pegasus.py`
+- `DGTCentaurMods/opt/DGTCentaurMods/emulators/chessnut.py`
+
+### Notes
+- For standalone engine mode (no app connected), immediate resign/draw is acceptable
+- For relay mode (app connected), protocol-level messaging is required
+
 ## LED Pattern Summary
 
 | Action | Pattern | Visual Effect |
@@ -32,7 +60,7 @@ Test promotion hardware feature, test and fix board text input feature.
                                                 - Simplify to call `board.sleep_controller()` OR
                                                 - Delete if using direct function call in systemd
 
-4. **DGTCentaurMods/etc/systemd/system/stopDGTController.service**
+4. **DGTCentaurMods/etc/systemd/system/DGTStopController.service**
 
                                                 - Update to call `sleep_controller()` directly OR
                                                 - Keep calling simplified shutdown.py
@@ -62,7 +90,7 @@ Test promotion hardware feature, test and fix board text input feature.
 4. **Test Controller Sleep on System Shutdown**
 
                                                 - SSH into Pi and run `sudo poweroff`
-                                                - Verify stopDGTController.service runs
+                                                - Verify DGTStopController.service runs
                                                 - Verify controller receives sleep command
                                                 - Verify controller powers down with system
 

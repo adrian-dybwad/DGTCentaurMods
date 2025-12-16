@@ -8,4 +8,4 @@ sleep 10
 
 cd /tmp
 sudo apt install -y ./dgtcentaurmods_armhf.deb
-sudo systemctl start stopDGTController.service
+sudo systemctl start DGTStopController.service

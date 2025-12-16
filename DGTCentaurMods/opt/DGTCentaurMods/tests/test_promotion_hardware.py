@@ -62,12 +62,12 @@ class PromotionTestSetup:
         print(f"Loading position: {fen_string}")
         
         # Set the global chess board
-        gamemanager.cboard = chess.Board(fen_string)
+        gamemanager.setBoard(chess.Board(fen_string))
         
         # Update the FEN log file (as the system expects)
-        from DGTCentaurMods.config import paths
+        from DGTCentaurMods.managers.game import write_fen_log
         try:
-            paths.write_fen_log(gamemanager.cboard.fen())
+            write_fen_log(gamemanager.getFEN())
             print(f"PASS: FEN written")
         except Exception as e:
             print(f"WARNING: Could not write FEN log: {e}")

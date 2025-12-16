@@ -46,6 +46,15 @@ sudo chmod +x run.sh
 ./run.sh
 ```
 
+Bluetooth:
+Reset:
+sudo systemctl restart bluetooth
+
+Fully reset stack:
+sudo systemctl stop bluetooth
+sudo hciconfig hci0 down
+sudo hciconfig hci0 up
+sudo systemctl start bluetooth
 
 
 Day-to-day development loop
@@ -75,7 +84,7 @@ cd ~/DGTCentaurMods/build
 ./build.sh AsyncController          # or a branch/tag you’re working on
 sudo cp ./releases/dgtcentaurmods_1.3.3_armhf.deb /tmp/
 sudo apt -y install /tmp/dgtcentaurmods_1.3.3_armhf.deb
-cp ~/DGTCentaurMods/tools/card-setup-tool/lib/font/Font.ttc /opt/DGTCentaurMods/resources/
+cp ~/DGTCentaurMods/DGTCentaurMods/opt/DGTCentaurMods/resources/Font.ttc /opt/DGTCentaurMods/resources/
 sudo systemctl restart dgt*      # restart services (service names vary by build)
 ```
 
@@ -114,6 +123,13 @@ Debugging
 sudo journalctl -u dgt* -f
 ```
 
+Rename the host
+
+```
+sudo hostnamectl set-hostname "dgt"
+```
+
+
 Use `systemctl list-units | grep dgt` to discover exact service names your build installed.
 
 Remove old ssh key
@@ -129,3 +145,4 @@ cd ~
 sudo python DGTCentaurMods/tools/card-setup-tool/firstboot.py
 
 ```
+

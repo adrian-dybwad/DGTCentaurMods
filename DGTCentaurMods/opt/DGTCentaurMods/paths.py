@@ -1,0 +1,179 @@
+"""Centralized path constants, resource resolution, and FEN operations for DGTCentaurMods.
+
+This module defines all base paths used throughout the application.
+All paths are absolute and should be used via import.
+
+FEN operations are here because they only read/write files and don't need
+hardware access. This allows the web app to use them without importing board.
+
+Database URI resolution is in db/uri.py
+E-paper image writing is in services/chromecast.py
+"""
+
+# This file is part of the DGTCentaur Mods open source software
+# ( https://github.com/EdNekebno/DGTCentaur )
+#
+# DGTCentaur Mods is free software: you can redistribute
+# it and/or modify it under the terms of the GNU General Public
+# License as published by the Free Software Foundation, either
+# version 3 of the License, or (at your option) any later version.
+#
+# DGTCentaur Mods is distributed in the hope that it will
+# be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this file.  If not, see
+#
+# https://github.com/EdNekebno/DGTCentaur/blob/master/LICENSE.md
+#
+# This and any other notices must remain intact and unaltered in any
+# distribution, modification, variant, or derivative of this software.
+
+import os
+
+# Base installation directory
+BASE_DIR = "/opt/DGTCentaurMods"
+
+# Subdirectories under BASE_DIR
+DB_DIR = f"{BASE_DIR}/db"
+CONFIG_DIR = f"{BASE_DIR}/config"
+TMP_DIR = f"{BASE_DIR}/tmp"
+WEB_DIR = f"{BASE_DIR}/web"
+WEB_STATIC_DIR = f"{WEB_DIR}/static"
+
+# Resources directory relative to this file (works in both installed and dev environments)
+# This file is at: <base>/paths.py, so resources is at: <base>/resources
+RESOURCES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources")
+
+# User-customizable resources (takes precedence over system resources)
+USER_RESOURCES_DIR = "/home/pi/resources"
+
+# Specific files
+FEN_LOG = f"{TMP_DIR}/fen.log"
+EPAPER_STATIC_JPG = f"{WEB_STATIC_DIR}/epaper.jpg"
+DEFAULT_DB_FILE = f"{DB_DIR}/centaur.db"
+
+
+def get_resource_path(resource_file: str) -> str:
+    """Return resource path from the resources folder or /home/pi/resources.
+    
+    Checks user resources directory first, then falls back to system resources.
+    Rejects paths containing '..' for security.
+    
+    Args:
+        resource_file: Name of the resource file (e.g., "Font.ttc")
+        
+    Returns:
+        Absolute path to the resource file
+    """
+    if ".." in resource_file:
+        return ""
+
+    user_path = os.path.join(USER_RESOURCES_DIR, resource_file)
+    if os.path.exists(user_path):
+        return user_path
+    return os.path.join(RESOURCES_DIR, resource_file)
+
+
+# -----------------------------------------------------------------------------
+# FEN Log Operations
+# -----------------------------------------------------------------------------
+# These functions manage the FEN log file used for external display (Chromecast, web).
+# They are here (not in managers/game.py) because they only do file I/O and don't
+# need hardware access. This allows the web app to import them without triggering
+# board initialization.
+
+DEFAULT_START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+
+def get_fen_log_path() -> str:
+    """Return the fen.log path."""
+    return FEN_LOG
+
+
+def write_fen_log(fen: str) -> None:
+    """Write FEN to fen.log for external consumers (Chromecast, web).
+    
+    Args:
+        fen: FEN string to write
+    """
+    with open(FEN_LOG, "w", encoding="utf-8") as f:
+        f.write(fen)
+
+
+def get_current_fen() -> str:
+    """Return the current FEN from fen.log.
+    
+    Behavior:
+    - If fen.log exists and has content, return its first line as-is.
+    - If fen.log is missing, return the starting FEN.
+    - If fen.log is empty, return the starting FEN.
+    
+    Returns:
+        Current FEN string or default starting position
+    """
+    try:
+        with open(FEN_LOG, "r", encoding="utf-8") as f:
+            curfen = f.readline().strip()
+    except FileNotFoundError:
+        return DEFAULT_START_FEN
+    return curfen or DEFAULT_START_FEN
+
+
+def get_current_placement() -> str:
+    """Return only the board placement part of the current FEN.
+    
+    Returns:
+        Board placement string (first part of FEN before the space)
+    """
+    fen = get_current_fen()
+    return fen.split()[0] if fen else ""
+
+
+def get_current_turn() -> str:
+    """Return the current turn from the FEN ('w' or 'b').
+    
+    Returns:
+        'w' for white's turn, 'b' for black's turn
+    """
+    fen = get_current_fen()
+    parts = fen.split()
+    return parts[1] if len(parts) > 1 else "w"
+
+
+def get_current_castling() -> str:
+    """Return the castling rights from the current FEN.
+    
+    Returns:
+        Castling rights string (e.g., 'KQkq', '-')
+    """
+    fen = get_current_fen()
+    parts = fen.split()
+    return parts[2] if len(parts) > 2 else "-"
+
+
+def get_current_en_passant() -> str:
+    """Return the en passant square from the current FEN.
+    
+    Returns:
+        En passant square (e.g., 'e3') or '-' if none
+    """
+    fen = get_current_fen()
+    parts = fen.split()
+    return parts[3] if len(parts) > 3 else "-"
+
+
+def get_current_halfmove_clock() -> int:
+    """Return the halfmove clock from the current FEN.
+    
+    Returns:
+        Number of halfmoves since last capture or pawn move
+    """
+    fen = get_current_fen()
+    parts = fen.split()
+    try:
+        return int(parts[4]) if len(parts) > 4 else 0
+    except ValueError:
+        return 0

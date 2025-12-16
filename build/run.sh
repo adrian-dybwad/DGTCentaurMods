@@ -76,6 +76,9 @@
 #
 # ============================================================================
 
+# ./run.sh DGTCentaurMods.universal --device-name "MILLENNIUM CHESS" --shadow-target "Chessnut Air" --relay
+# ./run.sh DGTCentaurMods.universal --device-name "MILLENNIUM CHESS" --shadow-target "MILLENNIUM CHESS" --relay
+
 # Always run from the project root
 cd "$(dirname "$0")" || exit 1
 
@@ -104,7 +107,7 @@ fi
 # Parse command line arguments
 # Supports special modes (e.g., "sf" for Stockfish, engine names for UCI mode)
 # and general Python module execution
-DEFAULT_MODULE="DGTCentaurMods.menu"
+DEFAULT_MODULE="DGTCentaurMods.universal"
 
 # List of available engines (lowercase for case-insensitive matching)
 AVAILABLE_ENGINES=("ct800" "maia" "rodentiv" "zahak")
@@ -154,7 +157,7 @@ elif is_engine "$1"; then
     *)           ENGINE_FILE="${ENGINE_NAME}" ;;
   esac
   
-  MODULE="DGTCentaurMods.uci"
+  MODULE="DGTCentaurMods.game.uci"
   MODULE_ARGS=("$SIDE" "$ENGINE_FILE" "$PRESET")
   echo "Launching UCI engine mode: engine=$ENGINE_FILE, side=$SIDE, preset=$PRESET"
 elif [[ "$1" == DGTCentaurMods.* ]] || [[ "$1" == *"."* ]]; then
@@ -176,6 +179,6 @@ python -m "$MODULE" "${MODULE_ARGS[@]}"
 deactivate
 
 # Start web service if it exists
-if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "DGTCentaurMods.service"; then
-	#sudo systemctl start DGTCentaurMods 2>/dev/null || true
-fi
+#if systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "DGTCentaurMods.service"; then
+#	sudo systemctl start DGTCentaurMods 2>/dev/null || true
+#fi

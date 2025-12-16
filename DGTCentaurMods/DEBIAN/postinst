@@ -5,13 +5,25 @@ set -euo pipefail
 DEFAULT_HOSTNAME="raspberrypi"
 ARCH=`uname -m`
 NEW_HOSTNAME="dgtcentaur"
-CONFIG="/boot/firmware/config.txt"
+
+# Detect boot partition location (Trixie uses /boot/firmware, Bullseye uses /boot)
+if [ -d "/boot/firmware" ] && [ -f "/boot/firmware/config.txt" ]; then
+    BOOT_DIR="/boot/firmware"
+elif [ -f "/boot/config.txt" ]; then
+    BOOT_DIR="/boot"
+else
+    echo "Warning: Could not detect boot partition location, defaulting to /boot/firmware"
+    BOOT_DIR="/boot/firmware"
+fi
+
+CONFIG="${BOOT_DIR}/config.txt"
+CMDLINEFILE="${BOOT_DIR}/cmdline.txt"
+
 PACKAGE="DGTCentaurMods"
 PACKAGES_PATH="/opt"
 DGTCM_PATH="${PACKAGES_PATH}/${PACKAGE}"
 DATABASE="${DGTCM_PATH}/db/centaur.db"
 CONFIGINI="${DGTCM_PATH}/config/centaur.ini"
-CMDLINEFILE="/boot/firmware/cmdline.txt"
 BTMAIN="/etc/bluetooth/main.conf"
 DBUSSERVICE="/etc/systemd/system/dbus-org.bluez.service"
 CENTAUR="/home/pi/centaur/"
@@ -22,6 +34,8 @@ MAIA_REPO="https://github.com/CSSLab/maia-chess.git"
 VENV_DIR="$DGTCM_PATH/.venv"
 REQ_VENV="$DGTCM_PATH/setup/requirements.txt"
 WHEELS_DIR="$DGTCM_PATH/wheels"   # ship this in the .deb (optional but recommended)
+LEGACY_RC_LOCAL="/etc/rc.local"
+LEGACY_RC_LOCAL_MARKER="Starting DGT Centaur menu"
 ################################
 
 if ! cat $CONFIG | grep -q "#dgtcentaurmods"
@@ -31,13 +45,14 @@ then
     cp $CONFIG $CONFIG.bak
     cp $CMDLINEFILE $CMDLINEFILE.bak
 
-    # Enable SPI bus if not enabled
+    # Disable SPI0 to avoid GPIO 7 conflict with e-Paper BUSY pin
     echo "::: Checking SPI"
-    # Ensure SPI master is enabled (idempotent)
-    if grep -q '^#dtparam=spi=on' "$CONFIG"; then
-      sed -i 's/^#dtparam=spi=on/dtparam=spi=on/' "$CONFIG"
-    elif ! grep -q '^dtparam=spi=on' "$CONFIG"; then
-      printf '%s\n' 'dtparam=spi=on' >> "$CONFIG"
+    # SPI0 uses GPIO 7 as CE1, which conflicts with e-Paper BUSY pin
+    # e-Paper display uses SPI1 instead (configured below)
+    if grep -q '^dtparam=spi=on' "$CONFIG"; then
+      sed -i 's/^dtparam=spi=on/#dtparam=spi=on  # Disabled: conflicts with e-Paper BUSY pin (GPIO 7)/' "$CONFIG"
+    elif ! grep -q '^#dtparam=spi=on' "$CONFIG" && ! grep -q 'dtparam=spi=off' "$CONFIG"; then
+      printf '%s\n' '#dtparam=spi=on  # Disabled: conflicts with e-Paper BUSY pin (GPIO 7)' >> "$CONFIG"
     fi
     
     echo -e "::: Checking SPI 1.0 bus."
@@ -49,8 +64,9 @@ then
       sed -i 's/^dtoverlay=spi1-1cs.*/dtoverlay=spi1-1cs,cs0_spidev=on/' "$CONFIG"
     fi
 
-    # Make sure SPI master is enabled in firmware
-    raspi-config nonint do_spi 0 || true
+    # Note: SPI0 is disabled above to avoid GPIO 7 conflict
+    # SPI1 is enabled via dtoverlay=spi1-1cs above
+    # raspi-config command removed to avoid re-enabling SPI0
   
     # Ensure the user has SPI permissions
     adduser pi spi || true
@@ -95,6 +111,8 @@ fi
     fi
 
     # Install systemd service overrides (but NOT rfcomm.service)
+    sudo mkdir -p /etc/systemd/system/bluetooth.service.d
+    sudo mkdir -p /etc/systemd/system/bthelper@.service.d
     sudo cp ${DGTCM_PATH}/../etc/systemd/system/bluetooth.service.d/*.conf /etc/systemd/system/bluetooth.service.d/ 2>/dev/null || true
     sudo cp ${DGTCM_PATH}/../etc/systemd/system/var-run-sdp.* /etc/systemd/system/ 2>/dev/null || true
     sudo cp ${DGTCM_PATH}/../etc/systemd/system/bthelper@.service.d/*.conf /etc/systemd/system/bthelper@.service.d/ 2>/dev/null || true
@@ -128,6 +146,9 @@ ln -sfnT "$DGTCM_PATH" "$TARGET_PATH"
 sudo usermod -a -G gpio pi
 sudo usermod -a -G kmem pi
 
+# Allow Bluetooth service advertising (required for advertise_service)
+sudo usermod -a -G bluetooth pi
+
 
 ##### Enable systemd services.
 echo -e "::: Setup services"
@@ -144,12 +165,22 @@ echo -e "::: Setup services"
         rm -f /etc/systemd/system/centaurmods-web.service
         systemctl daemon-reload
     fi
+    # Cleanup legacy services
+    # stopDGTController.service - old name for shutdown service
+    systemctl stop stopDGTController.service 2>/dev/null || true
+    systemctl disable stopDGTController.service 2>/dev/null || true
+    if [ -e /etc/systemd/system/stopDGTController.service ]; then
+        rm -f /etc/systemd/system/stopDGTController.service
+        systemctl daemon-reload
+    fi
     systemctl enable DGTCentaurModsWeb.service
     systemctl enable DGTCentaurMods.service
+    # DGTStopController.service - fallback shutdown hook for when main service isn't running
+    # The main service disables this on startup and re-enables on non-shutdown exit
+    systemctl enable DGTStopController.service
 #    systemctl enable ntp
     systemctl enable var-run-sdp.path
     systemctl enable var-run-sdp.service
-    systemctl enable stopDGTController.service
     systemctl start var-run-sdp.path
 
 # Setup nginx proxy for web service
@@ -161,11 +192,40 @@ echo -e "::: Setting up nginx proxy"
         echo -e "::: Warning: enable-web-proxy.sh not found"
     fi
 
+# Install dhcpcd hook for WiFi status widget
+echo -e "::: Installing dhcpcd hook for WiFi status widget"
+    if [ -f "${DGTCM_PATH}/../etc/dhcpcd/dhcpcd-hooks/50-dgtcm-wifi-notify" ]; then
+        sudo mkdir -p /lib/dhcpcd/dhcpcd-hooks
+        sudo cp "${DGTCM_PATH}/../etc/dhcpcd/dhcpcd-hooks/50-dgtcm-wifi-notify" /lib/dhcpcd/dhcpcd-hooks/
+        sudo chmod +x /lib/dhcpcd/dhcpcd-hooks/50-dgtcm-wifi-notify
+        # Create notification file directory
+        sudo mkdir -p /var/run
+        sudo touch /var/run/dgtcm-wifi-hook-notify
+        sudo chmod 666 /var/run/dgtcm-wifi-hook-notify
+    else
+        echo -e "::: Warning: dhcpcd hook script not found"
+    fi
+
 # Update main.conf in /etc/bluetooth
     cp $BTMAIN $BTMAIN.bak
     sed -i "/DiscoverableTimeout/s/^# *//" $BTMAIN
     sed -i "/PairableTimeout/s/^# *//" $BTMAIN
     sed -i "s/#JustWorksRepairing = never/JustWorksRepairing = always/g" $BTMAIN
+    
+    # Set Bluetooth Class of Device to Audio/Video (headphones icon) to match real Millennium board
+    # Class 0x200404 = Service Class (Audio) + Major Class (Audio/Video) + Minor Class (Headphones)
+    if grep -q "^#Class = " $BTMAIN; then
+        # Uncomment and set the Class line
+        sed -i "s/^#Class = .*/Class = 0x200404/" $BTMAIN
+    elif grep -q "^Class = " $BTMAIN; then
+        # Update existing Class line
+        sed -i "s/^Class = .*/Class = 0x200404/" $BTMAIN
+    else
+        # Add Class line under [General] section
+        sed -i "/^\[General\]/a Class = 0x200404" $BTMAIN
+    fi
+    echo -e "::: Bluetooth Class set to 0x200404 (Audio/Video - headphones icon)"
+    
     #Mark file as changed
     sed -i "$ a #dgtcentaurmods" $BTMAIN
 
@@ -271,6 +331,10 @@ function setPermissions {
     chown -R pi:pi ${DGTCM_PATH}
     if [[ -d "${CENTAUR}" ]]; then
         chown -R pi:root ${CENTAUR}
+        # Ensure centaur executable has execute permissions (Trixie compatibility)
+        if [[ -f "${CENTAUR}centaur" ]]; then
+            chmod +x "${CENTAUR}centaur"
+        fi
     fi
 
 }
@@ -298,6 +362,14 @@ function restoreDatabase {
 }
 
 
+function removeLegacyRcLocal {
+    if [ -f "$LEGACY_RC_LOCAL" ] && grep -q "$LEGACY_RC_LOCAL_MARKER" "$LEGACY_RC_LOCAL"; then
+        echo -e "::: Removing legacy rc.local launcher"
+        rm -f "$LEGACY_RC_LOCAL"
+    fi
+}
+
+
 case $1 in
     configure* )
         case $2 in
@@ -318,6 +390,7 @@ case $1 in
         echo -e "::: Warning: enable-web-proxy.sh not found"
     fi
 
+    removeLegacyRcLocal
     setPermissions
     
     # Guarded reboot (fresh installs and upgrades)

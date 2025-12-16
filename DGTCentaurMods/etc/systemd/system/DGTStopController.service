@@ -1,0 +1,15 @@
+[Unit]
+Description=Power off DGT controller.
+DefaultDependencies=no
+Conflicts=reboot.target
+Before=poweroff.target halt.target shutdown.target
+Requires=poweroff.target
+
+[Service]
+ExecStart=/opt/DGTCentaurMods/.venv/bin/python -m DGTCentaurMods.board.shutdown
+Environment="PYTHONPATH=/opt/DGTCentaurMods"
+WorkingDirectory=/opt/DGTCentaurMods
+Type=oneshot
+
+[Install]
+WantedBy=shutdown.target
