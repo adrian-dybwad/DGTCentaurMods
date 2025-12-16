@@ -791,10 +791,12 @@ def eventsThread(keycallback, fieldcallback, tout):
                             if long_press_key == Key.HELP_DOWN:
                                 log.info('[board.events] Long press HELP detected, sending LONG_HELP event')
                                 # Will be sent to callback after key-up
-                            # PLAY long-press: controller generates LONG_PLAY event, handled by universal.py
+                            # PLAY long-press: send LONG_PLAY to callback (universal.py handles countdown)
                             elif long_press_key == Key.PLAY_DOWN:
-                                log.info('[board.events] Long press PLAY detected, waiting for LONG_PLAY from controller')
-                                # Don't intercept - let the controller's LONG_PLAY event propagate
+                                log.info('[board.events] Long press PLAY detected, sending LONG_PLAY to callback')
+                                keycallback(Key.LONG_PLAY)
+                                key_pressed = None
+                                break  # Exit the long-press detection loop
                             else:
                                 # Other keys: trigger full display refresh
                                 log.info('[board.events] Long press detected, triggering full refresh')
