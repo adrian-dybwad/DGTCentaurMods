@@ -58,7 +58,9 @@ class AssetManager:
     TMP_DIR = f"{BASE_DIR}/tmp"
     WEB_DIR = f"{BASE_DIR}/web"
     WEB_STATIC_DIR = f"{WEB_DIR}/static"
-    RESOURCES_DIR = f"{BASE_DIR}/resources"
+    # Resources directory relative to this file (works in both installed and dev environments)
+    # This file is at: <base>/managers/asset.py, so resources is at: <base>/resources
+    RESOURCES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources")
     USER_RESOURCES_DIR = "/home/pi/resources"
 
     # Files
