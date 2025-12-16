@@ -22,6 +22,8 @@
 # distribution, modification, variant, or derivative of this software.
 
 import configparser
+import logging
+import os
 
 class Settings:
     """ Class handling config.ini """
@@ -86,6 +88,19 @@ class Settings:
 
     @staticmethod
     def write_config(config):
-        """ Writes the config.ini """
+        """
+        Writes the config.ini file.
+        
+        Logs an error if the config directory doesn't exist, indicating
+        an installation problem.
+        """
+        config_dir = os.path.dirname(Settings.configfile)
+        if not os.path.exists(config_dir):
+            logging.error(
+                f"Config directory does not exist: {config_dir}. "
+                "This indicates an incomplete installation. "
+                "Please reinstall DGTCentaurMods or create the directory manually."
+            )
+            return
         with open(Settings.configfile, 'w', encoding="utf-8") as f:
             config.write(f)
