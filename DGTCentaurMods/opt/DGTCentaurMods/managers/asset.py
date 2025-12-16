@@ -99,25 +99,50 @@ class AssetManager:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def ensure_parent_dir(path: str) -> None:
+    def ensure_parent_dir(path: str) -> bool:
         """Ensure the parent directory of the given path exists.
         
         Args:
             path: File path whose parent directory should be created
+            
+        Returns:
+            True if directory exists or was created, False if creation failed
         """
         parent = os.path.dirname(path)
         if parent and not os.path.isdir(parent):
-            os.makedirs(parent, exist_ok=True)
+            try:
+                os.makedirs(parent, exist_ok=True)
+            except PermissionError:
+                log.error(
+                    f"Permission denied creating directory: {parent}. "
+                    "This may indicate a permissions issue or running outside "
+                    "the installed environment."
+                )
+                return False
+        return True
 
     @staticmethod
-    def ensure_runtime_layout() -> None:
+    def ensure_runtime_layout() -> bool:
         """Ensure base runtime directories under /opt exist.
         
         Creates: /opt/DGTCentaurMods/{db,config,tmp}
+        
+        Returns:
+            True if all directories exist or were created, False if any failed
         """
+        success = True
         for d in (AssetManager.DB_DIR, AssetManager.CONFIG_DIR, AssetManager.TMP_DIR):
             if not os.path.isdir(d):
-                os.makedirs(d, exist_ok=True)
+                try:
+                    os.makedirs(d, exist_ok=True)
+                except PermissionError:
+                    log.error(
+                        f"Permission denied creating directory: {d}. "
+                        "This may indicate a permissions issue or running outside "
+                        "the installed environment."
+                    )
+                    success = False
+        return success
 
     @staticmethod
     def seed_default_config() -> None:
