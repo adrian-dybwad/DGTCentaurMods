@@ -3,15 +3,10 @@ Chromecast streaming service.
 
 Manages the Chromecast connection and streaming lifecycle independently of UI.
 Widgets observe this service's state to display status indicators.
-
-The service persists its streaming state to a file so it can resume streaming
-after an app restart.
 """
 
 import threading
 import time
-import os
-import json
 from typing import Optional, Callable, List
 
 try:
@@ -19,9 +14,6 @@ try:
 except ImportError:
     import logging
     log = logging.getLogger(__name__)
-
-# State file for persisting streaming state across restarts
-STATE_FILE = "/tmp/dgtcm-chromecast-state.json"
 
 
 class ChromecastService:
@@ -60,45 +52,6 @@ class ChromecastService:
         # Observers to notify on state change
         self._observers: List[Callable[[], None]] = []
         self._lock = threading.Lock()
-        
-        # Check for persisted state and resume streaming if needed
-        self._restore_state()
-    
-    def _save_state(self) -> None:
-        """Persist current streaming state to file.
-        
-        Saves device name when streaming is active, clears file when stopped.
-        """
-        try:
-            if self.is_active and self._device_name:
-                state = {"device_name": self._device_name}
-                with open(STATE_FILE, "w") as f:
-                    json.dump(state, f)
-                log.debug(f"[ChromecastService] Saved state: {self._device_name}")
-            else:
-                # Clear state file when not streaming
-                if os.path.exists(STATE_FILE):
-                    os.remove(STATE_FILE)
-                    log.debug("[ChromecastService] Cleared state file")
-        except Exception as e:
-            log.debug(f"[ChromecastService] Error saving state: {e}")
-    
-    def _restore_state(self) -> None:
-        """Restore streaming state from file and resume if previously active.
-        
-        Called on service initialization to resume streaming after app restart.
-        """
-        try:
-            if os.path.exists(STATE_FILE):
-                with open(STATE_FILE, "r") as f:
-                    state = json.load(f)
-                device_name = state.get("device_name")
-                if device_name:
-                    log.info(f"[ChromecastService] Restoring stream to: {device_name}")
-                    # Start streaming in background (don't block init)
-                    self.start_streaming(device_name)
-        except Exception as e:
-            log.debug(f"[ChromecastService] Error restoring state: {e}")
     
     @property
     def state(self) -> int:
@@ -180,7 +133,6 @@ class ChromecastService:
         self._thread.start()
         
         log.info(f"[ChromecastService] Starting stream to: {device_name}")
-        self._save_state()
         self._notify_observers()
         return True
     
@@ -213,7 +165,6 @@ class ChromecastService:
         
         self._state = self.STATE_IDLE
         self._device_name = None
-        self._save_state()  # Clear persisted state
         self._notify_observers()
     
     def _cleanup_chromecast(self) -> None:
