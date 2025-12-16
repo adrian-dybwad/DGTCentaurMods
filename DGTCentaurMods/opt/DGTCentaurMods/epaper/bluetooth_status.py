@@ -32,7 +32,7 @@ ADVERTISED_NAMES = {
 }
 
 
-def get_bluetooth_status(device_name: str = "DGT PEGASUS",
+def get_bluetooth_status(device_name: Optional[str] = None,
                          ble_manager=None,
                          rfcomm_connected: bool = False) -> dict:
     """Get current Bluetooth adapter status and information.
