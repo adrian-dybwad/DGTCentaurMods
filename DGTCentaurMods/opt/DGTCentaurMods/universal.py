@@ -54,14 +54,15 @@ def _initialize_resources():
     """
     try:
         from DGTCentaurMods.resources import ResourceLoader
+        from DGTCentaurMods.managers.asset import AssetManager
         from DGTCentaurMods.epaper import text as text_module
         from DGTCentaurMods.epaper import chess_board as chess_board_module
         from DGTCentaurMods.epaper import splash_screen as splash_screen_module
         from DGTCentaurMods.epaper import icon_button as icon_button_module
         from DGTCentaurMods.epaper import keyboard as keyboard_module
         
-        # Create resource loader
-        loader = ResourceLoader("/opt/DGTCentaurMods/resources", "/home/pi/resources")
+        # Create resource loader using AssetManager paths (supports both installed and dev environments)
+        loader = ResourceLoader(AssetManager.RESOURCES_DIR, AssetManager.USER_RESOURCES_DIR)
         
         # Set resource loader on modules that need fonts
         text_module.set_resource_loader(loader)
