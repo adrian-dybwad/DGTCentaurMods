@@ -5459,9 +5459,6 @@ def main():
     global mainloop, relay_mode, protocol_manager, relay_manager, app_state, _args
     global _pending_piece_events, _return_to_positions_menu, _switch_to_normal_game, _menu_manager
     
-    # Check if previous shutdown was clean
-    _check_previous_shutdown()
-    
     try:
         log.info("[Main] Parsing arguments...")
         parser = argparse.ArgumentParser(description="DGT Centaur Universal")
