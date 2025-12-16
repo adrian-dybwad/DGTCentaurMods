@@ -1185,43 +1185,66 @@ class DisplayManager:
         Args:
             for_shutdown: If True, skip creating new widgets (faster shutdown)
         """
-        log.info("[DisplayManager] Cleaning up")
-        
-
+        log.info(f"[DisplayManager] Starting cleanup (for_shutdown={for_shutdown})...")
         
         # Wait for engine init thread if still running (brief wait)
+        log.info("[DisplayManager] Checking engine init thread...")
         if self._engine_init_thread is not None and self._engine_init_thread.is_alive():
             try:
+                log.info("[DisplayManager] Engine init thread is alive, joining with 1s timeout...")
                 self._engine_init_thread.join(timeout=1.0)
-            except Exception:
-                pass
+                if self._engine_init_thread.is_alive():
+                    log.warning("[DisplayManager] Engine init thread did not exit within timeout")
+                else:
+                    log.info("[DisplayManager] Engine init thread joined")
+            except Exception as e:
+                log.error(f"[DisplayManager] Error joining engine init thread: {e}")
+        else:
+            log.info("[DisplayManager] Engine init thread not running")
         
         # Stop clock widget
+        log.info("[DisplayManager] Stopping clock widget...")
         if self.clock_widget:
             try:
                 self.clock_widget.stop()
+                log.info("[DisplayManager] Clock widget stopped")
             except Exception as e:
-                log.debug(f"[DisplayManager] Error stopping clock widget: {e}")
+                log.error(f"[DisplayManager] Error stopping clock widget: {e}", exc_info=True)
+        else:
+            log.info("[DisplayManager] No clock widget to stop")
         
         # Stop analysis widget worker
+        log.info("[DisplayManager] Stopping analysis widget worker...")
         if self.analysis_widget:
             try:
                 self.analysis_widget._stop_analysis_worker()
+                log.info("[DisplayManager] Analysis widget worker stopped")
             except Exception as e:
-                log.debug(f"[DisplayManager] Error stopping analysis worker: {e}")
+                log.error(f"[DisplayManager] Error stopping analysis worker: {e}", exc_info=True)
+        else:
+            log.info("[DisplayManager] No analysis widget to stop")
         
         # Quit analysis engine
+        log.info("[DisplayManager] Quitting analysis engine...")
         if self.analysis_engine:
             try:
                 self.analysis_engine.quit()
+                log.info("[DisplayManager] Analysis engine quit")
             except Exception as e:
-                log.debug(f"[DisplayManager] Error quitting analysis engine: {e}")
+                log.error(f"[DisplayManager] Error quitting analysis engine: {e}", exc_info=True)
             self.analysis_engine = None
+        else:
+            log.info("[DisplayManager] No analysis engine to quit")
         
         # Clear widgets - skip creating status bar during shutdown
+        log.info("[DisplayManager] Clearing widgets...")
         if board.display_manager:
             try:
                 board.display_manager.clear_widgets(addStatusBar=not for_shutdown)
-                log.debug("[DisplayManager] Widgets cleared from display")
+                log.info("[DisplayManager] Widgets cleared from display")
             except Exception as e:
-                log.debug(f"[DisplayManager] Error clearing widgets: {e}")
+                log.error(f"[DisplayManager] Error clearing widgets: {e}", exc_info=True)
+        else:
+            log.info("[DisplayManager] No display manager to clear widgets from")
+        
+        log.info("[DisplayManager] Cleanup complete")

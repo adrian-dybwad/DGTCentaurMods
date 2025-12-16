@@ -315,10 +315,20 @@ class RfcommManager:
     @staticmethod
     def kill_bt_agent():
         """Kill any running bt-agent processes"""
+        killed_count = 0
         for p in psutil.process_iter(attrs=['pid', 'name']):
-            if "bt-agent" in p.info["name"]:
-                p.kill()
-                time.sleep(1)
+            try:
+                if "bt-agent" in p.info["name"]:
+                    log.info(f"[RfcommManager] Killing bt-agent process {p.info['pid']}")
+                    p.kill()
+                    killed_count += 1
+                    time.sleep(1)
+            except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                log.warning(f"[RfcommManager] Error killing bt-agent: {e}")
+        if killed_count > 0:
+            log.info(f"[RfcommManager] Killed {killed_count} bt-agent process(es)")
+        else:
+            log.info("[RfcommManager] No bt-agent processes found")
     
     def enable_bluetooth(self):
         """
@@ -665,14 +675,27 @@ class RfcommManager:
         return thread
     
     def stop_pairing_thread(self):
-        """Stop the pairing thread if running.
+        """Stop the pairing thread and kill bt-agent process.
         
         Uses Event to immediately interrupt any sleep and signal the thread to exit.
-        The thread will exit within milliseconds of this call.
+        Also kills any running bt-agent processes to ensure clean shutdown.
         """
+        log.info("[RfcommManager] Stopping pairing thread...")
         self._stop_event.set()
         if self._pairing_thread and self._pairing_thread.is_alive():
+            log.info("[RfcommManager] Waiting for pairing thread to exit...")
             self._pairing_thread.join(timeout=0.5)  # Brief wait, thread should exit immediately
+            if self._pairing_thread.is_alive():
+                log.warning("[RfcommManager] Pairing thread did not exit within timeout")
+            else:
+                log.info("[RfcommManager] Pairing thread exited")
+        else:
+            log.info("[RfcommManager] Pairing thread was not running")
+        
+        # Kill bt-agent process to ensure clean shutdown
+        log.info("[RfcommManager] Killing bt-agent processes...")
+        self.kill_bt_agent()
+        log.info("[RfcommManager] Stop complete")
     
     def get_paired_devices(self) -> List[Dict[str, str]]:
         """

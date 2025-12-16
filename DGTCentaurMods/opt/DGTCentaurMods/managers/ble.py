@@ -306,53 +306,95 @@ class BleManager:
         """
         log.info("[BleManager] Starting...")
         
-        # Configure adapter security
-        self.configure_adapter_security()
+        try:
+            # Configure adapter security
+            log.info("[BleManager] Configuring adapter security...")
+            self.configure_adapter_security()
+            log.info("[BleManager] Adapter security configured")
+        except Exception as e:
+            log.error(f"[BleManager] Failed to configure adapter security: {e}", exc_info=True)
+            return False
         
-        # Initialize D-Bus
-        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-        self._bus = dbus.SystemBus()
+        try:
+            # Initialize D-Bus
+            log.info("[BleManager] Initializing D-Bus...")
+            dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+            self._bus = dbus.SystemBus()
+            log.info("[BleManager] D-Bus initialized")
+        except Exception as e:
+            log.error(f"[BleManager] Failed to initialize D-Bus: {e}", exc_info=True)
+            return False
         
         if mainloop:
             self._mainloop = mainloop
         else:
             self._mainloop = GLib.MainLoop()
         
-        # Find adapter
-        self._adapter = self.find_adapter()
-        if not self._adapter:
-            log.error("[BleManager] No Bluetooth adapter found")
+        try:
+            # Find adapter
+            log.info("[BleManager] Finding Bluetooth adapter...")
+            self._adapter = self.find_adapter()
+            if not self._adapter:
+                log.error("[BleManager] No Bluetooth adapter found")
+                return False
+            log.info(f"[BleManager] Found adapter: {self._adapter}")
+        except Exception as e:
+            log.error(f"[BleManager] Failed to find adapter: {e}", exc_info=True)
             return False
-        log.info(f"[BleManager] Found adapter: {self._adapter}")
-        
-        # Configure adapter properties
-        adapter_props = dbus.Interface(
-            self._bus.get_object(BLUEZ_SERVICE_NAME, self._adapter),
-            DBUS_PROP_IFACE
-        )
         
         try:
-            adapter_props.Set("org.bluez.Adapter1", "Alias", dbus.String(self.device_name))
-            log.info(f"[BleManager] Adapter Alias set to '{self.device_name}'")
-        except dbus.exceptions.DBusException as e:
-            log.warning(f"[BleManager] Could not set Alias: {e}")
+            # Configure adapter properties
+            log.info("[BleManager] Configuring adapter properties...")
+            adapter_props = dbus.Interface(
+                self._bus.get_object(BLUEZ_SERVICE_NAME, self._adapter),
+                DBUS_PROP_IFACE
+            )
+            
+            try:
+                adapter_props.Set("org.bluez.Adapter1", "Alias", dbus.String(self.device_name))
+                log.info(f"[BleManager] Adapter Alias set to '{self.device_name}'")
+            except dbus.exceptions.DBusException as e:
+                log.warning(f"[BleManager] Could not set Alias: {e}")
+            
+            try:
+                powered = adapter_props.Get("org.bluez.Adapter1", "Powered")
+                if not powered:
+                    adapter_props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(True))
+                    log.info("[BleManager] Adapter powered on")
+                else:
+                    log.info("[BleManager] Adapter already powered on")
+            except dbus.exceptions.DBusException as e:
+                log.warning(f"[BleManager] Could not check/set Powered: {e}")
+        except Exception as e:
+            log.error(f"[BleManager] Failed to configure adapter properties: {e}", exc_info=True)
+            return False
         
         try:
-            powered = adapter_props.Get("org.bluez.Adapter1", "Powered")
-            if not powered:
-                adapter_props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(True))
-                log.info("[BleManager] Adapter powered on")
-        except dbus.exceptions.DBusException as e:
-            log.warning(f"[BleManager] Could not check/set Powered: {e}")
+            # Register agent
+            log.info("[BleManager] Registering agent...")
+            self._register_agent()
+            log.info("[BleManager] Agent registered")
+        except Exception as e:
+            log.error(f"[BleManager] Failed to register agent: {e}", exc_info=True)
+            return False
         
-        # Register agent
-        self._register_agent()
+        try:
+            # Create and register GATT application
+            log.info("[BleManager] Creating GATT application...")
+            self._create_gatt_application()
+            log.info("[BleManager] GATT application created")
+        except Exception as e:
+            log.error(f"[BleManager] Failed to create GATT application: {e}", exc_info=True)
+            return False
         
-        # Create and register GATT application
-        self._create_gatt_application()
-        
-        # Register advertisements
-        self._register_advertisements()
+        try:
+            # Register advertisements
+            log.info("[BleManager] Registering advertisements...")
+            self._register_advertisements()
+            log.info("[BleManager] Advertisements registered")
+        except Exception as e:
+            log.error(f"[BleManager] Failed to register advertisements: {e}", exc_info=True)
+            return False
         
         log.info("[BleManager] Started successfully")
         return True
@@ -362,27 +404,39 @@ class BleManager:
         log.info("[BleManager] Stopping...")
         self._stopping = True
         
-        # Unregister advertisements
+        # Quit mainloop FIRST to stop processing events
+        log.info("[BleManager] Quitting mainloop...")
+        if self._mainloop:
+            try:
+                self._mainloop.quit()
+                log.info("[BleManager] Mainloop quit requested")
+            except Exception as e:
+                log.error(f"[BleManager] Error quitting mainloop: {e}")
+        else:
+            log.info("[BleManager] No mainloop to quit")
+        
+        # Unregister advertisements (with timeout to avoid blocking)
+        log.info("[BleManager] Unregistering advertisements...")
         try:
             if self._adapter:
                 le_adv_manager = dbus.Interface(
                     self._bus.get_object(BLUEZ_SERVICE_NAME, self._adapter),
                     LE_ADVERTISING_MANAGER_IFACE
                 )
-                for adv in self._advertisements:
+                for i, adv in enumerate(self._advertisements):
                     try:
-                        le_adv_manager.UnregisterAdvertisement(adv.get_path())
-                    except:
-                        pass
+                        log.info(f"[BleManager] Unregistering advertisement {i+1}/{len(self._advertisements)}...")
+                        le_adv_manager.UnregisterAdvertisement(
+                            adv.get_path(),
+                            timeout=1.0
+                        )
+                        log.info(f"[BleManager] Advertisement {i+1} unregistered")
+                    except Exception as e:
+                        log.error(f"[BleManager] Error unregistering advertisement {i+1}: {e}")
+            else:
+                log.info("[BleManager] No adapter, skipping advertisement unregister")
         except Exception as e:
-            log.debug(f"[BleManager] Error unregistering advertisements: {e}")
-        
-        # Quit mainloop if we own it
-        if self._mainloop:
-            try:
-                self._mainloop.quit()
-            except:
-                pass
+            log.error(f"[BleManager] Error unregistering advertisements: {e}", exc_info=True)
         
         log.info("[BleManager] Stopped")
     

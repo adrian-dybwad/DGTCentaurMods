@@ -206,7 +206,7 @@ class SyncCentaur:
             self._callback_queue = None
         
         if auto_init:
-            init_thread = threading.Thread(target=self.run_background, daemon=False)
+            init_thread = threading.Thread(target=self.run_background, daemon=True)
             init_thread.start()
     
     def run_background(self, start_key_polling=False):
@@ -1055,33 +1055,47 @@ class SyncCentaur:
         4. Join listener thread (should exit quickly now)
         5. Clear waiters
         """
+        log.info("[SyncCentaur] Starting cleanup...")
         if getattr(self, "_closed", False):
+            log.info("[SyncCentaur] Already cleaned up, skipping")
             return
         
         # Signal listener to stop
+        log.info("[SyncCentaur] Signaling listener to stop...")
         self.listener_running = False
         
         if leds_off:
+            log.info("[SyncCentaur] Turning off LEDs...")
             self._cleanup_leds()
         
         # Close serial port first - this unblocks ser.read() in listener thread
+        log.info("[SyncCentaur] Closing serial port...")
         self._cleanup_serial()
         
         # Now join listener thread (should exit quickly since serial is closed)
+        log.info("[SyncCentaur] Joining listener thread...")
         self._cleanup_listener()
         
+        log.info("[SyncCentaur] Clearing waiters...")
         self._cleanup_waiters()
         self._closed = True
-        log.info("SyncCentaur cleaned up")
+        log.info("[SyncCentaur] Cleanup complete")
     
     def _cleanup_listener(self):
         """Join listener thread (should exit quickly since serial is closed)."""
         try:
             t = getattr(self, "listener_thread", None)
             if t and t.is_alive():
+                log.info("[SyncCentaur] Listener thread is alive, joining with 1s timeout...")
                 t.join(timeout=1.0)  # Short timeout since serial is already closed
-        except Exception:
-            pass
+                if t.is_alive():
+                    log.warning("[SyncCentaur] Listener thread did not exit within timeout")
+                else:
+                    log.info("[SyncCentaur] Listener thread joined successfully")
+            else:
+                log.info("[SyncCentaur] Listener thread was not running")
+        except Exception as e:
+            log.error(f"[SyncCentaur] Error joining listener thread: {e}")
     
     def _cleanup_leds(self):
         """Turn off LEDs"""

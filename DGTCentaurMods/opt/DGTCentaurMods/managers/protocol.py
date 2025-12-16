@@ -1011,27 +1011,40 @@ class ProtocolManager:
     
     def cleanup(self):
         """Clean up resources including players, assistants, and game manager."""
+        log.info("[ProtocolManager] Starting cleanup...")
+        
         # Stop players
+        log.info("[ProtocolManager] Stopping players...")
         if self._player_manager:
             try:
                 self._player_manager.stop()
                 log.info("[ProtocolManager] Players stopped")
             except Exception as e:
-                log.debug(f"[ProtocolManager] Error stopping players: {e}")
+                log.error(f"[ProtocolManager] Error stopping players: {e}", exc_info=True)
+        else:
+            log.info("[ProtocolManager] No player manager to stop")
         
         # Stop assistant manager if active
+        log.info("[ProtocolManager] Stopping assistant manager...")
         if self._assistant_manager:
             try:
                 self._assistant_manager.stop()
                 log.info("[ProtocolManager] Assistant manager stopped")
             except Exception as e:
-                log.debug(f"[ProtocolManager] Error stopping assistant manager: {e}")
+                log.error(f"[ProtocolManager] Error stopping assistant manager: {e}", exc_info=True)
             self._assistant_manager = None
+        else:
+            log.info("[ProtocolManager] No assistant manager to stop")
         
         # Unsubscribe from game manager (stops game thread)
+        log.info("[ProtocolManager] Unsubscribing from game manager...")
         if self.game_manager:
             try:
                 self.game_manager.unsubscribe_game()
                 log.info("[ProtocolManager] Unsubscribed from game manager")
             except Exception as e:
-                log.error(f"[ProtocolManager] Error unsubscribing from game manager: {e}")
+                log.error(f"[ProtocolManager] Error unsubscribing from game manager: {e}", exc_info=True)
+        else:
+            log.info("[ProtocolManager] No game manager to unsubscribe from")
+        
+        log.info("[ProtocolManager] Cleanup complete")

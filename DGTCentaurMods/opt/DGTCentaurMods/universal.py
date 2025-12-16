@@ -179,47 +179,74 @@ if _startup_splash:
 import time as _import_time
 _import_start = _import_time.time()
 
-if _startup_splash:
-    _startup_splash.set_message("Bluetooth...")
-import bluetooth
-log.debug(f"[Import timing] bluetooth: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+try:
+    if _startup_splash:
+        _startup_splash.set_message("Bluetooth...")
+    log.info("[Startup] Importing bluetooth...")
+    import bluetooth
+    log.debug(f"[Import timing] bluetooth: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+except Exception as e:
+    log.error(f"[Startup] Failed to import bluetooth: {e}", exc_info=True)
+    raise
 
-if _startup_splash:
-    _startup_splash.set_message("GLib...")
-from gi.repository import GLib
-log.debug(f"[Import timing] GLib: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+try:
+    if _startup_splash:
+        _startup_splash.set_message("GLib...")
+    log.info("[Startup] Importing GLib...")
+    from gi.repository import GLib
+    log.debug(f"[Import timing] GLib: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+except Exception as e:
+    log.error(f"[Startup] Failed to import GLib: {e}", exc_info=True)
+    raise
 
-if _startup_splash:
-    _startup_splash.set_message("Chess...")
-import chess
-log.debug(f"[Import timing] chess: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+try:
+    if _startup_splash:
+        _startup_splash.set_message("Chess...")
+    log.info("[Startup] Importing chess...")
+    import chess
+    log.debug(f"[Import timing] chess: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
 
-import chess.engine
-log.debug(f"[Import timing] chess.engine: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+    import chess.engine
+    log.debug(f"[Import timing] chess.engine: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+except Exception as e:
+    log.error(f"[Startup] Failed to import chess: {e}", exc_info=True)
+    raise
 
 import pathlib
 log.debug(f"[Import timing] pathlib: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
 
-if _startup_splash:
-    _startup_splash.set_message("Graphics...")
-from PIL import Image, ImageDraw, ImageFont
-log.debug(f"[Import timing] PIL: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+try:
+    if _startup_splash:
+        _startup_splash.set_message("Graphics...")
+    log.info("[Startup] Importing PIL...")
+    from PIL import Image, ImageDraw, ImageFont
+    log.debug(f"[Import timing] PIL: {(_import_time.time() - _import_start)*1000:.0f}ms"); _import_start = _import_time.time()
+except Exception as e:
+    log.error(f"[Startup] Failed to import PIL: {e}", exc_info=True)
+    raise
 
-if _startup_splash:
-    _startup_splash.set_message("Managers...")
-from DGTCentaurMods.managers import (
-    RfcommManager,
-    BleManager,
-    RelayManager,
-    ProtocolManager,
-    DisplayManager,
-    MenuManager,
-    MenuSelection,
-    is_break_result,
-    find_entry_index,
-    ConnectionManager,
-)
-log.debug(f"[Import timing] managers: {(_import_time.time() - _import_start)*1000:.0f}ms")
+try:
+    if _startup_splash:
+        _startup_splash.set_message("Managers...")
+    log.info("[Startup] Importing managers...")
+    from DGTCentaurMods.managers import (
+        RfcommManager,
+        BleManager,
+        RelayManager,
+        ProtocolManager,
+        DisplayManager,
+        MenuManager,
+        MenuSelection,
+        is_break_result,
+        find_entry_index,
+        ConnectionManager,
+    )
+    log.debug(f"[Import timing] managers: {(_import_time.time() - _import_start)*1000:.0f}ms")
+except Exception as e:
+    log.error(f"[Startup] Failed to import managers: {e}", exc_info=True)
+    raise
+
+log.info("[Startup] All imports completed successfully")
 
 # All imports complete
 if _startup_splash:
@@ -4858,103 +4885,115 @@ def cleanup_and_exit(reason: str = "Normal exit"):
     _cleanup_done = True
     
     try:
-        log.info(f"Exiting: {reason}")
+        log.info(f"[Shutdown] Starting cleanup: {reason}")
         kill = 1
         running = False
         
-        # Skip splash screen on exit - creating widgets slows shutdown
-        
-        # Stop RFCOMM manager pairing thread
+        # Stop RFCOMM manager pairing thread and bt-agent
+        log.info("[Shutdown] Stopping RFCOMM manager...")
         if rfcomm_manager is not None:
             try:
                 rfcomm_manager.stop_pairing_thread()
-                log.debug("RFCOMM manager pairing thread stopped")
+                log.info("[Shutdown] RFCOMM manager stopped")
             except Exception as e:
-                log.debug(f"Error stopping rfcomm_manager: {e}")
+                log.error(f"[Shutdown] Error stopping rfcomm_manager: {e}", exc_info=True)
+        else:
+            log.info("[Shutdown] RFCOMM manager was None")
         
         # Stop relay manager (shadow target connection)
+        log.info("[Shutdown] Stopping relay manager...")
         if relay_manager is not None:
             try:
                 relay_manager.stop()
-                log.debug("Relay manager stopped")
+                log.info("[Shutdown] Relay manager stopped")
             except Exception as e:
-                log.debug(f"Error stopping relay_manager: {e}")
+                log.error(f"[Shutdown] Error stopping relay_manager: {e}", exc_info=True)
+        else:
+            log.info("[Shutdown] Relay manager was None")
         
         # Clean up game handler (stops game manager thread and closes standalone engine)
+        log.info("[Shutdown] Cleaning up protocol manager...")
         if protocol_manager is not None:
             try:
                 protocol_manager.cleanup()
+                log.info("[Shutdown] Protocol manager cleaned up")
             except Exception as e:
-                log.debug(f"Error cleaning up game handler: {e}")
+                log.error(f"[Shutdown] Error cleaning up protocol manager: {e}", exc_info=True)
+        else:
+            log.info("[Shutdown] Protocol manager was None")
         
         # Clean up display manager (analysis engine and widgets)
-        # Pass for_shutdown=True to skip creating new widgets
+        log.info("[Shutdown] Cleaning up display manager...")
         if display_manager is not None:
             try:
                 display_manager.cleanup(for_shutdown=True)
-                log.debug("Display manager cleaned up")
+                log.info("[Shutdown] Display manager cleaned up")
             except Exception as e:
-                log.debug(f"Error cleaning up display manager: {e}")
+                log.error(f"[Shutdown] Error cleaning up display manager: {e}", exc_info=True)
+        else:
+            log.info("[Shutdown] Display manager was None")
         
         # Pause board events
+        log.info("[Shutdown] Pausing board events...")
         try:
             board.pauseEvents()
+            log.info("[Shutdown] Board events paused")
         except Exception as e:
-            log.debug(f"Error pausing events: {e}")
+            log.error(f"[Shutdown] Error pausing events: {e}", exc_info=True)
         
-        # Clean up board
+        # Clean up board (serial port, etc)
+        log.info("[Shutdown] Cleaning up board...")
         try:
             board.cleanup(leds_off=True)
+            log.info("[Shutdown] Board cleaned up")
         except Exception as e:
-            log.debug(f"Error cleaning up board: {e}")
+            log.error(f"[Shutdown] Error cleaning up board: {e}", exc_info=True)
         
+        # Close sockets
+        log.info("[Shutdown] Closing sockets...")
         if client_sock:
             try:
                 client_sock.close()
-            except:
-                pass
+                log.info("[Shutdown] Client socket closed")
+            except Exception as e:
+                log.error(f"[Shutdown] Error closing client socket: {e}")
         
         if server_sock:
             try:
                 server_sock.close()
-            except:
-                pass
+                log.info("[Shutdown] Server socket closed")
+            except Exception as e:
+                log.error(f"[Shutdown] Error closing server socket: {e}")
         
         # Stop BLE manager
+        log.info("[Shutdown] Stopping BLE manager...")
         if ble_manager is not None:
             try:
                 ble_manager.stop()
-                log.debug("BLE manager stopped")
+                log.info("[Shutdown] BLE manager stopped")
             except Exception as e:
-                log.debug(f"Error stopping BLE manager: {e}")
+                log.error(f"[Shutdown] Error stopping BLE manager: {e}", exc_info=True)
+        else:
+            log.info("[Shutdown] BLE manager was None")
         
+        # Quit GLib mainloop
+        log.info("[Shutdown] Quitting mainloop...")
         if mainloop:
             try:
                 mainloop.quit()
-            except:
-                pass
+                log.info("[Shutdown] Mainloop quit")
+            except Exception as e:
+                log.error(f"[Shutdown] Error quitting mainloop: {e}")
+        else:
+            log.info("[Shutdown] Mainloop was None")
         
         client_connected = False
         
-        log.info("Cleanup completed")
+        log.info("[Shutdown] Cleanup completed successfully")
     except Exception as e:
-        log.error(f"Error in cleanup: {e}")
+        log.error(f"[Shutdown] Unexpected error in cleanup: {e}", exc_info=True)
     
-    # Exit the process using sys.exit() which allows cleanup handlers to run.
-    # Use a background thread with timeout to force exit if sys.exit() hangs.
-    log.info("Attempting graceful exit with sys.exit()")
-    
-    def force_exit_after_timeout():
-        """Force exit if sys.exit() doesn't complete in time."""
-        time.sleep(3.0)  # Give sys.exit() 3 seconds to complete
-        log.warning("Graceful exit timed out, forcing exit with os._exit()")
-        os._exit(0)
-    
-    # Start watchdog thread to force exit if needed
-    watchdog = threading.Thread(target=force_exit_after_timeout, daemon=True)
-    watchdog.start()
-    
-    # Attempt graceful exit
+    log.info("Cleanup completed, exiting")
     sys.exit(0)
 
 
@@ -5213,49 +5252,71 @@ def main():
     Initializes the app, shows the main menu, and handles menu selections.
     BLE/RFCOMM connections can trigger auto-transition to game mode.
     """
+    log.info("[Main] Entering main()")
     global server_sock, client_sock, client_connected, running, kill
     global mainloop, relay_mode, protocol_manager, relay_manager, app_state, _args
     global _pending_piece_events, _return_to_positions_menu, _switch_to_normal_game, _menu_manager
     
-    parser = argparse.ArgumentParser(description="DGT Centaur Universal")
-    parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
-                       help="Local name for BLE advertisement")
-    parser.add_argument("--shadow-target", type=str, default="MILLENNIUM CHESS",
-                       help="Name of the target device to connect to in relay mode")
-    parser.add_argument("--port", type=int, default=None,
-                       help="RFCOMM port for server (default: auto-assign)")
-    parser.add_argument("--device-name", type=str, default="MILLENNIUM CHESS",
-                       help="Bluetooth device name")
-    parser.add_argument("--relay", action="store_true",
-                       help="Enable relay mode - connect to shadow_target and relay data")
-    parser.add_argument("--no-ble", action="store_true",
-                       help="Disable BLE (GATT) server")
-    parser.add_argument("--no-rfcomm", action="store_true",
-                       help="Disable RFCOMM server")
-    parser.add_argument("--standalone-engine", type=str, default="stockfish_pi",
-                       help="UCI engine for standalone play when no app connected (e.g., stockfish_pi, maia, ct800)")
-    parser.add_argument("--engine-elo", type=str, default="Default",
-                       help="ELO level from engine's .uci file (e.g., 1350, 1700, 2000, Default)")
-    parser.add_argument("--player-color", type=str, default="white", choices=["white", "black", "random"],
-                       help="Which color the human plays in standalone engine mode")
-    
-    args = parser.parse_args()
-    _args = args  # Store globally for access in callbacks
+    try:
+        log.info("[Main] Parsing arguments...")
+        parser = argparse.ArgumentParser(description="DGT Centaur Universal")
+        parser.add_argument("--local-name", type=str, default="MILLENNIUM CHESS",
+                           help="Local name for BLE advertisement")
+        parser.add_argument("--shadow-target", type=str, default="MILLENNIUM CHESS",
+                           help="Name of the target device to connect to in relay mode")
+        parser.add_argument("--port", type=int, default=None,
+                           help="RFCOMM port for server (default: auto-assign)")
+        parser.add_argument("--device-name", type=str, default="MILLENNIUM CHESS",
+                           help="Bluetooth device name")
+        parser.add_argument("--relay", action="store_true",
+                           help="Enable relay mode - connect to shadow_target and relay data")
+        parser.add_argument("--no-ble", action="store_true",
+                           help="Disable BLE (GATT) server")
+        parser.add_argument("--no-rfcomm", action="store_true",
+                           help="Disable RFCOMM server")
+        parser.add_argument("--standalone-engine", type=str, default="stockfish_pi",
+                           help="UCI engine for standalone play when no app connected (e.g., stockfish_pi, maia, ct800)")
+        parser.add_argument("--engine-elo", type=str, default="Default",
+                           help="ELO level from engine's .uci file (e.g., 1350, 1700, 2000, Default)")
+        parser.add_argument("--player-color", type=str, default="white", choices=["white", "black", "random"],
+                           help="Which color the human plays in standalone engine mode")
+        
+        args = parser.parse_args()
+        _args = args  # Store globally for access in callbacks
+        log.info("[Main] Arguments parsed successfully")
+    except Exception as e:
+        log.error(f"[Main] Failed to parse arguments: {e}", exc_info=True)
+        raise
 
     relay_mode = args.relay
     shadow_target_name = args.shadow_target
     
-    # Load game settings from centaur.ini
-    _load_game_settings()
+    try:
+        log.info("[Main] Loading game settings...")
+        _load_game_settings()
+        log.info("[Main] Game settings loaded")
+    except Exception as e:
+        log.error(f"[Main] Failed to load game settings: {e}", exc_info=True)
+        # Continue anyway - settings are not critical
 
-    # Initialize the MenuManager singleton
-    _menu_manager = MenuManager.get_instance()
-    _menu_manager.set_board(board)
-    _menu_manager.set_dimensions(DISPLAY_WIDTH, DISPLAY_HEIGHT, STATUS_BAR_HEIGHT)
+    try:
+        log.info("[Main] Initializing MenuManager...")
+        _menu_manager = MenuManager.get_instance()
+        _menu_manager.set_board(board)
+        _menu_manager.set_dimensions(DISPLAY_WIDTH, DISPLAY_HEIGHT, STATUS_BAR_HEIGHT)
+        log.info("[Main] MenuManager initialized")
+    except Exception as e:
+        log.error(f"[Main] Failed to initialize MenuManager: {e}", exc_info=True)
+        raise
     
-    # Initialize the ConnectionManager singleton
-    global _connection_manager
-    _connection_manager = ConnectionManager()
+    try:
+        log.info("[Main] Initializing ConnectionManager...")
+        global _connection_manager
+        _connection_manager = ConnectionManager()
+        log.info("[Main] ConnectionManager initialized")
+    except Exception as e:
+        log.error(f"[Main] Failed to initialize ConnectionManager: {e}", exc_info=True)
+        raise
 
     # Display is already initialized at module load time - use the early splash screen
     # The _startup_splash was created before board module was imported
@@ -5297,47 +5358,67 @@ def main():
     log.info("=" * 60)
     
     # Subscribe to board events - universal.py is the single subscriber and routes events
-    if startup_splash:
-        startup_splash.set_message("Events...")
-    board.subscribeEvents(key_callback, field_callback)  # Uses INACTIVITY_TIMEOUT_SECONDS default
+    try:
+        log.info("[Main] Subscribing to board events...")
+        if startup_splash:
+            startup_splash.set_message("Events...")
+        board.subscribeEvents(key_callback, field_callback)  # Uses INACTIVITY_TIMEOUT_SECONDS default
+        log.info("[Main] Board events subscribed")
+    except Exception as e:
+        log.error(f"[Main] Failed to subscribe to board events: {e}", exc_info=True)
+        raise
     
     # Register signal handlers
+    log.info("[Main] Registering signal handlers...")
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    log.info("[Main] Signal handlers registered")
     
     # Setup BLE if enabled
     global ble_manager
     if not args.no_ble:
-        if startup_splash:
-            startup_splash.set_message("Bluetooth...")
-        log.info("Initializing BLE manager...")
-        ble_manager = BleManager(
-            device_name=args.device_name,
-            on_data_received=_on_ble_data_received,
-            on_connected=_on_ble_connected,
-            on_disconnected=_on_ble_disconnected,
-            relay_mode=relay_mode
-        )
-        
-        # Initialize D-Bus mainloop for BleManager
-        mainloop = GLib.MainLoop()
-        
-        if not ble_manager.start(mainloop):
-            log.error("Failed to start BLE manager")
-            sys.exit(1)
-        
-        log.info("BLE manager started successfully")
-        
-        # Start GLib mainloop in background thread
-        def ble_mainloop():
-            try:
-                mainloop.run()
-            except Exception as e:
-                log.error(f"Error in BLE mainloop: {e}")
-        
-        ble_thread = threading.Thread(target=ble_mainloop, daemon=True)
-        ble_thread.start()
-        log.info("BLE mainloop thread started")
+        try:
+            if startup_splash:
+                startup_splash.set_message("Bluetooth...")
+            log.info("[Main] Initializing BLE manager...")
+            ble_manager = BleManager(
+                device_name=args.device_name,
+                on_data_received=_on_ble_data_received,
+                on_connected=_on_ble_connected,
+                on_disconnected=_on_ble_disconnected,
+                relay_mode=relay_mode
+            )
+            log.info("[Main] BleManager created")
+            
+            # Initialize D-Bus mainloop for BleManager
+            log.info("[Main] Creating GLib.MainLoop...")
+            mainloop = GLib.MainLoop()
+            log.info("[Main] GLib.MainLoop created")
+            
+            log.info("[Main] Starting BLE manager...")
+            if not ble_manager.start(mainloop):
+                log.error("[Main] Failed to start BLE manager")
+                sys.exit(1)
+            
+            log.info("[Main] BLE manager started successfully")
+            
+            # Start GLib mainloop in background thread
+            def ble_mainloop():
+                log.info("[BLE] Mainloop thread starting...")
+                try:
+                    mainloop.run()
+                    log.info("[BLE] Mainloop exited normally")
+                except Exception as e:
+                    log.error(f"[BLE] Error in mainloop: {e}", exc_info=True)
+            
+            ble_thread = threading.Thread(target=ble_mainloop, daemon=True)
+            ble_thread.start()
+            log.info("[Main] BLE mainloop thread started")
+        except Exception as e:
+            log.error(f"[Main] Failed to initialize BLE: {e}", exc_info=True)
+            raise
+    else:
+        log.info("[Main] BLE disabled by command line argument")
     
     # Setup RFCOMM if enabled (runs asynchronously to improve startup time)
     global rfcomm_manager
