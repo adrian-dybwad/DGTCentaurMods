@@ -735,7 +735,7 @@ class SyncCentaur:
             log.error(f"Request timeout for {command_name}")
             return None
     
-    def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=10.0, callback=None, raw_len: Optional[int]=None, retries=0):
+    def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=3.0, callback=None, raw_len: Optional[int]=None, retries=0, retry_delay=0.1):
         """
         Send a command and wait for response (blocking, FIFO queued).
         
@@ -745,10 +745,11 @@ class SyncCentaur:
             timeout: seconds to wait for response
             callback: not supported (for compatibility only)
             raw_len: not supported (for compatibility only)
-            retries: not supported (for compatibility only)
+            retries: number of retry attempts on timeout (default 0 = no retries)
+            retry_delay: delay in seconds between retries (default 0.1)
             
         Returns:
-            bytes: payload of response or None on timeout
+            bytes: payload of response or None on timeout after all retries
         """
         if not isinstance(command_name, str):
             raise TypeError("request_response requires a command name (str)")
@@ -761,23 +762,29 @@ class SyncCentaur:
                 # Return None to indicate the command was skipped (caller should handle this)
                 return None
         
-        # Queue the request
-        result_queue = queue.Queue(maxsize=1)
-        self._request_queue.put((command_name, data, timeout, result_queue))
+        for attempt in range(retries + 1):
+            # Queue the request
+            result_queue = queue.Queue(maxsize=1)
+            self._request_queue.put((command_name, data, timeout, result_queue))
+            
+            # Update tracking of last n commands
+            self._last_n_commands.append(command_name)
+            
+            # Wait for result
+            try:
+                status, result = result_queue.get(timeout=timeout + 5.0)
+                if status == 'success':
+                    return result
+                else:
+                    raise result
+            except queue.Empty:
+                if attempt < retries:
+                    log.warning(f"[SyncCentaur.request_response] Timeout for {command_name} (attempt {attempt + 1}/{retries + 1}), retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                else:
+                    log.error(f"[SyncCentaur.request_response] Timeout for {command_name} after {retries + 1} attempts")
         
-        # Update tracking of last n commands
-        self._last_n_commands.append(command_name)
-        
-        # Wait for result
-        try:
-            status, result = result_queue.get(timeout=timeout + 5.0)
-            if status == 'success':
-                return result
-            else:
-                raise result
-        except queue.Empty:
-            log.error(f"Request queue timeout for {command_name}")
-            return None
+        return None
     
     def request_response_low_priority(self, command_name: str, data: Optional[bytes]=None, timeout=10.0):
         """
@@ -1188,10 +1195,29 @@ class SyncCentaur:
         data.append(intensity)
         self.sendCommand(command.LED_CMD, data)
     
-    def sleep(self):
-        """Sleep the controller"""
-        log.info(f"sleep")
-        self.sendCommand(command.DGT_SLEEP)
+    def sleep(self, retries: int = 3, retry_delay: float = 0.5) -> bool:
+        """Sleep the controller with confirmation.
+        
+        Sends the sleep command and waits for acknowledgment from the controller.
+        This ensures the controller actually receives the sleep command before
+        the system powers down, preventing battery drain.
+        
+        Args:
+            retries: number of retry attempts on timeout (default 3)
+            retry_delay: delay in seconds between retries (default 0.5)
+            
+        Returns:
+            True if sleep command acknowledged, False if all attempts failed
+        """
+        log.info(f"[SyncCentaur.sleep] Sending sleep command with {retries} retries")
+        response = self.request_response(command.DGT_SLEEP, timeout=2.0, retries=retries, retry_delay=retry_delay)
+        if response is not None:
+            # Log the raw response bytes for debugging
+            response_hex = ' '.join(f'{b:02x}' for b in response) if response else '(empty)'
+            log.info(f"[SyncCentaur.sleep] Controller sleep acknowledged, response: {response_hex}")
+            return True
+        log.error("[SyncCentaur.sleep] Failed to sleep controller after all retry attempts")
+        return False
             
     def _draw_piece_events_from_payload(self, payload: bytes):
         """Print a compact list of piece events extracted from the payload"""

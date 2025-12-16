@@ -4941,6 +4941,36 @@ def cleanup_and_exit(reason: str = "Normal exit"):
         except Exception as e:
             log.error(f"[Shutdown] Error pausing events: {e}", exc_info=True)
         
+        # Stop the fallback shutdown service before we send the sleep command
+        # This prevents both us and the fallback service from trying to sleep the controller
+        log.info("[Shutdown] Stopping fallback shutdown service...")
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["sudo", "systemctl", "stop", "DGTStopController.service"],
+                capture_output=True, timeout=5
+            )
+            if result.returncode == 0:
+                log.info("[Shutdown] Fallback shutdown service stopped")
+            else:
+                log.debug(f"[Shutdown] Could not stop fallback service: {result.stderr.decode()}")
+        except Exception as e:
+            log.debug(f"[Shutdown] Could not stop fallback service: {e}")
+        
+        # Send sleep command to controller before cleanup
+        # This ensures the controller powers down properly when the Pi shuts down,
+        # preventing battery drain. Uses blocking request_response with retries
+        # to confirm the controller received the command.
+        log.info("[Shutdown] Sending sleep command to controller...")
+        try:
+            success = board.sleep_controller()
+            if success:
+                log.info("[Shutdown] Controller sleep acknowledged")
+            else:
+                log.error("[Shutdown] Controller sleep failed - battery may drain if board remains powered")
+        except Exception as e:
+            log.error(f"[Shutdown] Error sending sleep command: {e}", exc_info=True)
+        
         # Clean up board (serial port, etc)
         log.info("[Shutdown] Cleaning up board...")
         try:

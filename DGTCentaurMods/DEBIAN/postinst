@@ -165,7 +165,8 @@ echo -e "::: Setup services"
         rm -f /etc/systemd/system/centaurmods-web.service
         systemctl daemon-reload
     fi
-    # Migrate stopDGTController.service to DGTStopController.service
+    # Cleanup legacy services
+    # stopDGTController.service - old name for shutdown service
     systemctl stop stopDGTController.service 2>/dev/null || true
     systemctl disable stopDGTController.service 2>/dev/null || true
     if [ -e /etc/systemd/system/stopDGTController.service ]; then
@@ -174,10 +175,12 @@ echo -e "::: Setup services"
     fi
     systemctl enable DGTCentaurModsWeb.service
     systemctl enable DGTCentaurMods.service
+    # DGTStopController.service - fallback shutdown hook for when main service isn't running
+    # The main service disables this on startup and re-enables on non-shutdown exit
+    systemctl enable DGTStopController.service
 #    systemctl enable ntp
     systemctl enable var-run-sdp.path
     systemctl enable var-run-sdp.service
-    systemctl enable DGTStopController.service
     systemctl start var-run-sdp.path
 
 # Setup nginx proxy for web service

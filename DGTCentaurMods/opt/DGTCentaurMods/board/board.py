@@ -519,17 +519,24 @@ def shutdown(reboot=False, reason="unspecified"):
         log.error(f"sudo systemctl poweroff failed with rc={rc}")
 
 
-def sleep_controller():
+def sleep_controller() -> bool:
     """
-    Send sleep command to DGT Centaur controller.
+    Send sleep command to DGT Centaur controller with confirmation.
     
     Called during system shutdown to properly power down the controller
     before the Raspberry Pi powers off. This prevents the controller
-    from remaining powered when the Pi shuts down.
+    from remaining powered when the Pi shuts down, which would drain
+    the battery without the user knowing.
+    
+    Uses blocking request_response with retries to ensure the controller
+    acknowledges the sleep command before the system powers down.
     
     Visual feedback: Single LED at h8 position (square 7)
+    
+    Returns:
+        True if controller acknowledged sleep command, False if all attempts failed
     """
-    log.debug("Sending sleep command to DGT Centaur controller")
+    log.info("Sending sleep command to DGT Centaur controller")
     
     # Visual feedback - single LED at h8
     try:
@@ -537,19 +544,27 @@ def sleep_controller():
     except Exception as e:
         log.debug(f"LED failed during controller sleep: {e}")
     
-    # Send sleep command to controller
+    # Send sleep command with retries and wait for confirmation
     try:
-        sleep()
-        log.debug("Controller sleep command sent successfully")
+        success = controller.sleep(retries=3, retry_delay=0.5)
+        if success:
+            log.info("Controller sleep command acknowledged")
+        else:
+            log.error("Controller sleep command failed - battery may drain if board remains powered")
+        return success
     except Exception as e:
-        log.debug(f"Failed to send sleep command: {e}")
+        log.error(f"Failed to send sleep command: {e}")
+        return False
 
 
-def sleep():
+def sleep() -> bool:
     """
-    Sleep the controller.
+    Sleep the controller with confirmation.
+    
+    Returns:
+        True if controller acknowledged sleep command, False otherwise
     """
-    controller.sleep()
+    return controller.sleep()
 
 
 #
@@ -598,7 +613,7 @@ def _raw_to_chess_state(board_data_raw, caller_name: str):
     return chess_state
 
 
-def getBoardState(max_retries=2, retry_delay=0.1):
+def getBoardState(retries=2, retry_delay=0.1):
     """
     Get the current board state from the DGT Centaur in raw hardware order.
     
@@ -607,7 +622,7 @@ def getBoardState(max_retries=2, retry_delay=0.1):
     use getChessState() instead which transforms to chess order (0=a1, 1=b1, ..., 63=h8).
     
     Args:
-        max_retries: Maximum number of retry attempts on timeout or checksum failure (default: 2)
+        retries: Number of retry attempts on timeout or checksum failure (default: 2)
         retry_delay: Delay in seconds between retries (default: 0.1)
     
     Returns:
@@ -618,17 +633,7 @@ def getBoardState(max_retries=2, retry_delay=0.1):
         Retries are performed on timeout or checksum failure. This ensures
         transient communication errors don't cause permanent failures.
     """
-    for attempt in range(max_retries + 1):
-        raw_boarddata = controller.request_response(command.DGT_BUS_SEND_STATE)
-        if raw_boarddata is not None:
-            return raw_boarddata
-        # None can indicate timeout or checksum failure - retry in both cases
-        if attempt < max_retries:
-            log.warning(f"[board.getBoardState] Attempt {attempt + 1} failed (timeout or checksum failure), retrying in {retry_delay}s...")
-            time.sleep(retry_delay)
-        else:
-            log.error(f"[board.getBoardState] All {max_retries + 1} attempts failed (timeout or checksum failure)")
-    return None
+    return controller.request_response(command.DGT_BUS_SEND_STATE, retries=retries, retry_delay=retry_delay)
 
 
 def getBoardStateLowPriority():
