@@ -5,13 +5,25 @@ set -euo pipefail
 DEFAULT_HOSTNAME="raspberrypi"
 ARCH=`uname -m`
 NEW_HOSTNAME="dgtcentaur"
-CONFIG="/boot/firmware/config.txt"
+
+# Detect boot partition location (Trixie uses /boot/firmware, Bullseye uses /boot)
+if [ -d "/boot/firmware" ] && [ -f "/boot/firmware/config.txt" ]; then
+    BOOT_DIR="/boot/firmware"
+elif [ -f "/boot/config.txt" ]; then
+    BOOT_DIR="/boot"
+else
+    echo "Warning: Could not detect boot partition location, defaulting to /boot/firmware"
+    BOOT_DIR="/boot/firmware"
+fi
+
+CONFIG="${BOOT_DIR}/config.txt"
+CMDLINEFILE="${BOOT_DIR}/cmdline.txt"
+
 PACKAGE="DGTCentaurMods"
 PACKAGES_PATH="/opt"
 DGTCM_PATH="${PACKAGES_PATH}/${PACKAGE}"
 DATABASE="${DGTCM_PATH}/db/centaur.db"
 CONFIGINI="${DGTCM_PATH}/config/centaur.ini"
-CMDLINEFILE="/boot/firmware/cmdline.txt"
 BTMAIN="/etc/bluetooth/main.conf"
 DBUSSERVICE="/etc/systemd/system/dbus-org.bluez.service"
 CENTAUR="/home/pi/centaur/"
