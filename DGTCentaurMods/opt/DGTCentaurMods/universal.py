@@ -4606,7 +4606,12 @@ def _shutdown_countdown(countdown_seconds: int = 3) -> bool:
     try:
         if display_manager is not None:
             countdown_splash = SplashScreen(message=f"Shutdown in\n  {countdown_seconds}")
-            display_manager.add_widget(countdown_splash)
+            future = display_manager.add_widget(countdown_splash)
+            if future:
+                try:
+                    future.result(timeout=5.0)
+                except Exception:
+                    pass
     except Exception as e:
         log.debug(f"[_shutdown_countdown] Failed to show countdown splash: {e}")
     
@@ -4621,6 +4626,8 @@ def _shutdown_countdown(countdown_seconds: int = 3) -> bool:
         try:
             if countdown_splash is not None:
                 countdown_splash.set_message(f"Shutdown in\n  {remaining}")
+                # Request update to ensure the new message is rendered
+                countdown_splash.request_update(full=False)
         except Exception as e:
             log.debug(f"[_shutdown_countdown] Failed to update countdown: {e}")
         
