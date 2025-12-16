@@ -1,6 +1,7 @@
 [Unit]
 Description=DGTCentaurMods software.
-After=network.target
+After=network.target bluetooth.target
+Wants=bluetooth.target
 
 [Service]
 Environment=PYTHONUNBUFFERED=1
