@@ -15,7 +15,7 @@ from ..status_bar import StatusBarWidget
 
 import logging
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
+#log.setLevel(logging.INFO)
 
 class Manager:
     """Main coordinator for the ePaper framework.

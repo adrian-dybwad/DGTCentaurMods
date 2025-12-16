@@ -5344,6 +5344,108 @@ def field_callback(piece_event, field, time_in_seconds):
             log.info(f"[App] Game handler not ready, queuing event (field={field}, event={piece_event}, queue_size={len(_pending_piece_events)})")
 
 
+def _check_previous_shutdown():
+    """Log all OS-level indicators about how the previous session ended.
+    
+    This runs at the very start of the application to capture evidence of whether
+    the previous shutdown was clean or if power was unexpectedly removed (e.g., by
+    the DGT board's sleep command cutting power before the Pi finished shutting down).
+    
+    Indicators checked:
+    - Filesystem recovery messages in dmesg (orphan inodes, journal recovery)
+    - Last boot entries from journalctl
+    - Shutdown/reboot history from wtmp via 'last -x'
+    - Previous boot's final journal messages
+    """
+    import subprocess
+    
+    log.info("=" * 70)
+    log.info("[Startup] PREVIOUS SHUTDOWN ANALYSIS - Checking OS indicators")
+    log.info("=" * 70)
+    
+    # 1. Check dmesg for filesystem recovery messages
+    try:
+        result = subprocess.run(
+            ["dmesg"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            dmesg_output = result.stdout
+            recovery_indicators = []
+            for line in dmesg_output.split('\n'):
+                line_lower = line.lower()
+                if any(term in line_lower for term in ['recover', 'orphan', 'unclean', 'ext4-fs error', 'journal']):
+                    if 'recovering' in line_lower or 'orphan' in line_lower or 'unclean' in line_lower:
+                        recovery_indicators.append(line.strip())
+            
+            if recovery_indicators:
+                log.warning("[Startup] DMESG: Filesystem recovery detected (possible unclean shutdown):")
+                for indicator in recovery_indicators[:10]:  # Limit to first 10
+                    log.warning(f"[Startup] DMESG:   {indicator}")
+            else:
+                log.info("[Startup] DMESG: No filesystem recovery messages found (clean)")
+    except Exception as e:
+        log.error(f"[Startup] DMESG: Could not check dmesg: {e}")
+    
+    # 2. Check journalctl for boot list
+    try:
+        result = subprocess.run(
+            ["journalctl", "--list-boots", "-n", "5"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            log.info("[Startup] JOURNALCTL: Recent boots:")
+            for line in result.stdout.strip().split('\n')[:5]:
+                if line.strip():
+                    log.info(f"[Startup] JOURNALCTL:   {line.strip()}")
+    except Exception as e:
+        log.debug(f"[Startup] JOURNALCTL: Could not list boots: {e}")
+    
+    # 3. Check last -x for shutdown/reboot/crash entries
+    try:
+        result = subprocess.run(
+            ["last", "-x", "-n", "10"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            log.info("[Startup] LAST -x: Recent shutdown/reboot entries:")
+            for line in result.stdout.strip().split('\n')[:10]:
+                if line.strip() and ('shutdown' in line.lower() or 'reboot' in line.lower() or 'crash' in line.lower()):
+                    log.info(f"[Startup] LAST:   {line.strip()}")
+    except Exception as e:
+        log.debug(f"[Startup] LAST: Could not check last -x: {e}")
+    
+    # 4. Check previous boot's final messages
+    try:
+        result = subprocess.run(
+            ["journalctl", "-b", "-1", "-n", "20", "--no-pager"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            log.info("[Startup] JOURNALCTL: Last 20 messages from PREVIOUS boot:")
+            for line in result.stdout.strip().split('\n'):
+                if line.strip():
+                    log.info(f"[Startup] PREV_BOOT:   {line.strip()}")
+            
+            # Check if it reached Power-Off target (clean shutdown)
+            if 'Reached target Power-Off' in result.stdout or 'Reached target Reboot' in result.stdout:
+                log.info("[Startup] PREV_BOOT: Previous boot reached Power-Off/Reboot target (CLEAN shutdown)")
+            elif 'Stopping' in result.stdout and 'systemd' in result.stdout.lower():
+                log.info("[Startup] PREV_BOOT: Previous boot was in shutdown sequence")
+            else:
+                log.warning("[Startup] PREV_BOOT: No Power-Off target reached - possible abrupt power loss")
+        else:
+            log.info("[Startup] JOURNALCTL: No previous boot journal available (first boot or journal rotated)")
+    except Exception as e:
+        log.debug(f"[Startup] JOURNALCTL: Could not check previous boot: {e}")
+    
+    log.info("=" * 70)
+    log.info("[Startup] PREVIOUS SHUTDOWN ANALYSIS COMPLETE")
+    log.info("=" * 70)
+
+
+
+
 def main():
     """Main entry point.
     
@@ -5354,6 +5456,9 @@ def main():
     global server_sock, client_sock, client_connected, running, kill
     global mainloop, relay_mode, protocol_manager, relay_manager, app_state, _args
     global _pending_piece_events, _return_to_positions_menu, _switch_to_normal_game, _menu_manager
+    
+    # Check if previous shutdown was clean
+    _check_previous_shutdown()
     
     try:
         log.info("[Main] Parsing arguments...")

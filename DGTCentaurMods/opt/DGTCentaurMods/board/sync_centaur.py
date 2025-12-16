@@ -22,7 +22,7 @@ from types import SimpleNamespace
 
 import logging
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
+#log.setLevel(logging.INFO)
 
 from DGTCentaurMods.board import time_utils
 
