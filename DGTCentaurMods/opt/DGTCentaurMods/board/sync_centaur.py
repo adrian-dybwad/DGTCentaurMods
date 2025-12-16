@@ -735,7 +735,7 @@ class SyncCentaur:
             log.error(f"Request timeout for {command_name}")
             return None
     
-    def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=3.0, callback=None, raw_len: Optional[int]=None, retries=0, retry_delay=0.1):
+    def request_response(self, command_name: str, data: Optional[bytes]=None, timeout=2.0, callback=None, raw_len: Optional[int]=None, retries=0, retry_delay=0.1):
         """
         Send a command and wait for response (blocking, FIFO queued).
         

@@ -633,7 +633,7 @@ def getBoardState(retries=2, retry_delay=0.1):
         Retries are performed on timeout or checksum failure. This ensures
         transient communication errors don't cause permanent failures.
     """
-    return controller.request_response(command.DGT_BUS_SEND_STATE, retries=retries, retry_delay=retry_delay)
+    return controller.request_response(command.DGT_BUS_SEND_STATE, timeout=5.0, retries=retries, retry_delay=retry_delay)
 
 
 def getBoardStateLowPriority():
