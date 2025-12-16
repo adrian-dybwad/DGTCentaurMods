@@ -5185,6 +5185,13 @@ def key_callback(key_id):
     
     # Route based on app state
     if app_state == AppState.MENU or app_state == AppState.SETTINGS:
+        # PLAY key in menu state is not a menu action - ignore it
+        # (LONG_PLAY for shutdown is handled above, short PLAY does nothing)
+        if key_id == board.Key.PLAY:
+            log.debug("[App] PLAY key ignored in menu state (not a menu action)")
+            _reset_unhandled_key_count()
+            return
+        
         # Check if menu is loading - queue keys for replay after load completes
         if _menu_manager is not None and _menu_manager.is_loading:
             if _menu_manager.queue_key(key_id):
