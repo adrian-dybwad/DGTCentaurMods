@@ -208,8 +208,9 @@ class TextWidget(Widget):
         try:
             bbox = draw.textbbox((0, 0), text, font=self._font)
             return bbox[2] - bbox[0]
-        except AttributeError:
-            # Fallback for older PIL versions
+        except (AttributeError, ValueError):
+            # AttributeError: older PIL versions without textbbox
+            # ValueError: textbbox called with non-TrueType font (e.g., default bitmap font)
             return int(draw.textlength(text, font=self._font))
     
     def _get_x_position(self, text: str, draw: ImageDraw.Draw) -> int:
