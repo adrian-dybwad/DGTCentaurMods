@@ -357,167 +357,6 @@ def sendCustomLedArray(data: bytes):
     """
     controller.sendCommand(command.LED_CMD, data)
 
-def shutdown_countdown(countdown_seconds: int = 3) -> bool:
-    """
-    Display a shutdown countdown with option to cancel.
-    
-    Shows a modal splash screen counting down from countdown_seconds to 0.
-    The modal widget takes over the display, ignoring all other widgets.
-    User can press BACK button to cancel the shutdown.
-    
-    Args:
-        countdown_seconds: Number of seconds to count down (default 5)
-    
-    Returns:
-        True if countdown completed (proceed with shutdown)
-        False if user cancelled (pressed BACK)
-    """
-    global display_manager
-    
-    log.info(f"[board.shutdown_countdown] Starting {countdown_seconds}s countdown")
-    beep(SOUND_POWER_OFF)
-    
-    # Create countdown splash (SplashScreen is modal - only it will be rendered)
-    countdown_splash = None
-    try:
-        if display_manager is not None:
-            # U+25C0 is left-pointing triangle for BACK button
-            countdown_splash = SplashScreen(message=f"Shutdown in\n  {countdown_seconds}")
-            display_manager.add_widget(countdown_splash)
-    except Exception as e:
-        log.debug(f"Failed to show countdown splash: {e}")
-    
-    # Drain any pending key events before starting countdown
-    while controller.get_next_key(timeout=0.0) is not None:
-        pass
-    
-    # Countdown loop - releasing PLAY button (PLAY key-up) cancels
-    for remaining in range(countdown_seconds, 0, -1):
-        # Update display
-        try:
-            if countdown_splash is not None:
-                countdown_splash.set_message(f"Shutdown in\n  {remaining}")
-        except Exception as e:
-            log.debug(f"Failed to update countdown: {e}")
-        
-        # Wait 1 second, checking for PLAY release every 100ms
-        for _ in range(10):
-            time.sleep(0.1)
-            key = controller.get_next_key(timeout=0.0)
-            if key == Key.PLAY:
-                # PLAY key-up means button was released - cancel shutdown
-                log.info("[board.shutdown_countdown] Cancelled (PLAY released)")
-                beep(SOUND_GENERAL, event_type='key_press')
-                # Remove modal widget to restore normal widget rendering
-                try:
-                    if display_manager is not None and countdown_splash is not None:
-                        display_manager.remove_widget(countdown_splash)
-                except Exception:
-                    pass
-                return False
-    
-    log.info("[board.shutdown_countdown] Countdown complete, proceeding with shutdown")
-    # Don't remove countdown splash here - shutdown() will add its own modal splash
-    # which automatically replaces this one, avoiding a flash of the previous UI
-    return True
-
-
-def shutdown(reboot=False, reason="unspecified"):
-    """
-    Shutdown the Raspberry Pi with proper cleanup and visual feedback.
-    
-    Args:
-        reboot: If True, reboot instead of poweroff.
-        reason: Human-readable reason for shutdown (for logging).
-    
-    If a pending update exists, installs it instead of shutting down.
-    Otherwise performs clean shutdown with LED cascade pattern.
-    
-    Visual feedback:
-    - Update install: All LEDs solid
-    - Normal shutdown: Sequential LED cascade h8→h1
-    - Splash screen with "Press advancement button to start" message
-    """
-    log.info("=" * 60)
-    log.info(f"SHUTDOWN INITIATED - Reason: {reason}")
-    log.info("=" * 60)
-
-    beep(SOUND_POWER_OFF)
-    
-    # Display shutdown splash screen
-    try:
-        if display_manager is not None:
-            # U+25B6 is the play triangle, U+23F8 is pause
-            shutdown_splash = SplashScreen(message="Press [\u25b6]")
-            display_manager.add_widget(shutdown_splash)
-    except Exception as e:
-        log.debug(f"Failed to show shutdown splash: {e}")
-    
-    # Pause events and cleanup board
-    pauseEvents()
-    cleanup(leds_off=False)  # LEDs handled by shutdown()
-                
-    update = centaur.UpdateSystem()
-    package = '/tmp/dgtcentaurmods_armhf.deb'
-    
-    # Check for pending update
-    if os.path.exists(package):
-        log.debug('Update package found - installing instead of shutdown')
-        beep(SOUND_POWER_OFF)
-        widgets.clear_screen()
-        widgets.write_text(3, "   Installing")
-        widgets.write_text(4, "     update")
-        
-        # All LEDs for update install
-        try:
-            ledArray([0,1,2,3,4,5,6,7], intensity=6, repeat=0)
-        except Exception:
-            pass
-        
-        time.sleep(2)
-        update.updateInstall()
-        return
-    
-    # Normal shutdown sequence
-    log.info('Normal shutdown sequence starting')
-    
-    # Beep power off sound
-    try:
-        beep(SOUND_POWER_OFF)
-    except Exception:
-        pass
-    
-    # LED cascade pattern h8→h1 (squares 7 down to 0)
-    try:
-        for i in range(7, -1, -1):
-            led(i, repeat=1)
-            time.sleep(0.2)
-
-    except Exception as e:
-        log.error(f"LED pattern failed during shutdown: {e}")
-    
-    # Send sleep to controller before system poweroff
-    try:
-        sleep_controller()
-    except Exception as e:
-        log.debug(f"Controller sleep failed: {e}")
-    
-    if display_manager is not None:
-        display_manager.shutdown()
-
-    if reboot:
-        log.debug('Requesting system reboot via systemd')
-        rc = os.system("sudo systemctl reboot")
-        if rc != 0:
-            log.error(f"sudo systemctl reboot failed with rc={rc}")
-        return
-    
-    # Execute system poweroff via systemd (ensures shutdown hooks run as root)
-    log.debug('Requesting system poweroff via systemd')
-    rc = os.system("sudo systemctl poweroff")
-    if rc != 0:
-        log.error(f"sudo systemctl poweroff failed with rc={rc}")
-
 
 def sleep_controller() -> bool:
     """
@@ -820,12 +659,15 @@ def eventsThread(keycallback, fieldcallback, tout):
     
     Uses monotonic time for timeout tracking to avoid issues with system clock
     adjustments (e.g., NTP sync on Raspberry Pi startup that can jump the clock
-    forward and trigger premature shutdown).
+    forward and trigger premature inactivity timeout).
     
     Key handling:
-    - PLAY_DOWN: Starts shutdown countdown (releasing cancels).
+    - HELP_DOWN held 1+ second: Generates LONG_HELP event.
     - Other keys held for 1+ second: Triggers full display refresh (key consumed).
     - Short presses: Key-up events passed to callback.
+    - LONG_PLAY: Generated by controller hardware, passed to callback.
+    
+    Inactivity timeout: When reached, sends LONG_PLAY to callback for shutdown.
     """
     global eventsrunning
     global chargerconnected
@@ -949,15 +791,10 @@ def eventsThread(keycallback, fieldcallback, tout):
                             if long_press_key == Key.HELP_DOWN:
                                 log.info('[board.events] Long press HELP detected, sending LONG_HELP event')
                                 # Will be sent to callback after key-up
-                            # PLAY long-press: start shutdown countdown
+                            # PLAY long-press: controller generates LONG_PLAY event, handled by universal.py
                             elif long_press_key == Key.PLAY_DOWN:
-                                log.info('[board.events] Long press PLAY detected, starting shutdown countdown')
-                                if shutdown_countdown():
-                                    shutdown(reason="PLAY button held for long press")
-                                else:
-                                    log.info('[board.events] Shutdown cancelled (button released)')
-                                key_pressed = None
-                                break  # Exit the long-press detection loop
+                                log.info('[board.events] Long press PLAY detected, waiting for LONG_PLAY from controller')
+                                # Don't intercept - let the controller's LONG_PLAY event propagate
                             else:
                                 # Other keys: trigger full display refresh
                                 log.info('[board.events] Long press detected, triggering full refresh')
@@ -975,8 +812,8 @@ def eventsThread(keycallback, fieldcallback, tout):
                             if next_key.value == base_code:
                                 # Matching key-up received
                                 if long_press_triggered:
-                                    # Long press - check if HELP (send LONG_HELP), else already handled
-                                    # PLAY long-press is handled above with shutdown_countdown
+                                    # Long press - check if HELP (send LONG_HELP)
+                                    # PLAY long-press generates LONG_PLAY from controller
                                     if long_press_key == Key.HELP_DOWN:
                                         key_pressed = Key.LONG_HELP
                                     else:
@@ -1055,9 +892,9 @@ def eventsThread(keycallback, fieldcallback, tout):
             to = time.monotonic() + tout
         time.sleep(0.05)
     else:
-        # Timeout reached, while loop breaks. Shutdown.
+        # Timeout reached, while loop breaks. Signal shutdown via key callback.
         log.info(f'[board.events] Inactivity timeout reached ({tout}s with no activity)')
-        shutdown(reason=f"Inactivity timeout ({tout}s with no user activity)")
+        keycallback(Key.LONG_PLAY)
 
 
 def subscribeEvents(keycallback, fieldcallback, timeout=None):

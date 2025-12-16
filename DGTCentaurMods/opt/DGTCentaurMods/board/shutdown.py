@@ -6,9 +6,10 @@ This script is called by DGTStopController.service during system shutdown
 when the main DGTCentaurMods service is not running. It ensures the
 controller powers down properly before the Raspberry Pi completes shutdown.
 
-The main DGTCentaurMods service disables this fallback on startup and handles
-shutdown itself. If the main service crashes or is stopped, this fallback
-re-enables to catch system shutdowns.
+When the main DGTCentaurMods service is running, it handles the sleep command
+itself during shutdown and stops this fallback service first to prevent both
+from trying to sleep the controller. If the main service crashes or is stopped,
+this fallback remains active to catch system shutdowns.
 
 The sleep command uses blocking request_response with retries to confirm
 the controller received the command. Without confirmation, the controller

@@ -1303,7 +1303,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             protocol_manager.handle_draw()
             _return_to_menu("Draw")
         elif result == "exit":
-            board.shutdown(reason="User selected 'exit' from game menu")
+            cleanup_and_exit(reason="User selected 'exit' from game menu", system_shutdown=True)
         # cancel is handled by DisplayManager (restores display)
     
     # For position games, back button returns to positions menu
@@ -4585,6 +4585,71 @@ def _handle_lichess_token():
         _active_keyboard_widget = None
 
 
+def _shutdown_countdown(countdown_seconds: int = 3) -> bool:
+    """Display a shutdown countdown with option to cancel by releasing PLAY button.
+    
+    Shows a modal splash screen counting down from countdown_seconds to 0.
+    User can cancel by releasing the PLAY button before countdown completes.
+    
+    Args:
+        countdown_seconds: Number of seconds to count down (default 3)
+    
+    Returns:
+        True if countdown completed (proceed with shutdown)
+        False if user cancelled (released PLAY button)
+    """
+    log.info(f"[_shutdown_countdown] Starting {countdown_seconds}s countdown")
+    board.beep(board.SOUND_POWER_OFF)
+    
+    # Create countdown splash (SplashScreen is modal - only it will be rendered)
+    countdown_splash = None
+    try:
+        if display_manager is not None:
+            countdown_splash = SplashScreen(message=f"Shutdown in\n  {countdown_seconds}")
+            display_manager.add_widget(countdown_splash)
+    except Exception as e:
+        log.debug(f"[_shutdown_countdown] Failed to show countdown splash: {e}")
+    
+    # Drain any pending key events before starting countdown
+    while board.controller.get_next_key(timeout=0.0) is not None:
+        pass
+    
+    # Countdown loop - releasing PLAY button (PLAY key-up) cancels
+    import time
+    for remaining in range(countdown_seconds, 0, -1):
+        # Update display
+        try:
+            if countdown_splash is not None:
+                countdown_splash.set_message(f"Shutdown in\n  {remaining}")
+        except Exception as e:
+            log.debug(f"[_shutdown_countdown] Failed to update countdown: {e}")
+        
+        # Wait 1 second, checking for PLAY release every 100ms
+        for _ in range(10):
+            time.sleep(0.1)
+            key = board.controller.get_next_key(timeout=0.0)
+            if key == board.Key.PLAY:
+                # PLAY key-up means button was released - cancel shutdown
+                log.info("[_shutdown_countdown] Cancelled (PLAY released)")
+                board.beep(board.SOUND_GENERAL, event_type='key_press')
+                # Remove modal widget to restore normal widget rendering
+                try:
+                    if display_manager is not None and countdown_splash is not None:
+                        display_manager.remove_widget(countdown_splash)
+                except Exception:
+                    pass
+                return False
+    
+    log.info("[_shutdown_countdown] Countdown complete, proceeding with shutdown")
+    # Remove countdown splash - cleanup_and_exit will add its own
+    try:
+        if display_manager is not None and countdown_splash is not None:
+            display_manager.remove_widget(countdown_splash)
+    except Exception:
+        pass
+    return True
+
+
 def _shutdown(message: str, reboot: bool = False):
     """Shutdown the system with a message displayed on screen.
     
@@ -4601,7 +4666,7 @@ def _shutdown(message: str, reboot: bool = False):
             pass
     
     reason = f"User selected '{message}' from menu"
-    board.shutdown(reboot=reboot, reason=reason)
+    cleanup_and_exit(reason=reason, system_shutdown=True, reboot=reboot)
 
 
 def _run_centaur():
@@ -4859,7 +4924,7 @@ def client_reader():
 _cleanup_done = False  # Guard against running cleanup twice
 
 
-def cleanup_and_exit(reason: str = "Normal exit"):
+def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False, reboot: bool = False):
     """Clean up connections and resources, then exit the process.
     
     Properly stops all threads and closes all resources before exiting.
@@ -4873,6 +4938,8 @@ def cleanup_and_exit(reason: str = "Normal exit"):
     
     Args:
         reason: Description of why the exit is happening (logged for debugging)
+        system_shutdown: If True, trigger system shutdown/reboot after cleanup
+        reboot: If True and system_shutdown is True, reboot instead of poweroff
     """
     global kill, running, client_sock, server_sock, client_connected, mainloop
     global protocol_manager, display_manager, rfcomm_manager, ble_manager, relay_manager
@@ -4885,143 +4952,202 @@ def cleanup_and_exit(reason: str = "Normal exit"):
     _cleanup_done = True
     
     try:
-        log.info(f"[Shutdown] Starting cleanup: {reason}")
+        log.info(f"[Cleanup] Starting cleanup: {reason}")
         kill = 1
         running = False
         
         # Stop RFCOMM manager pairing thread and bt-agent
-        log.info("[Shutdown] Stopping RFCOMM manager...")
+        log.info("[Cleanup] Stopping RFCOMM manager...")
         if rfcomm_manager is not None:
             try:
                 rfcomm_manager.stop_pairing_thread()
-                log.info("[Shutdown] RFCOMM manager stopped")
+                log.info("[Cleanup] RFCOMM manager stopped")
             except Exception as e:
-                log.error(f"[Shutdown] Error stopping rfcomm_manager: {e}", exc_info=True)
+                log.error(f"[Cleanup] Error stopping rfcomm_manager: {e}", exc_info=True)
         else:
-            log.info("[Shutdown] RFCOMM manager was None")
+            log.info("[Cleanup] RFCOMM manager was None")
         
         # Stop relay manager (shadow target connection)
-        log.info("[Shutdown] Stopping relay manager...")
+        log.info("[Cleanup] Stopping relay manager...")
         if relay_manager is not None:
             try:
                 relay_manager.stop()
-                log.info("[Shutdown] Relay manager stopped")
+                log.info("[Cleanup] Relay manager stopped")
             except Exception as e:
-                log.error(f"[Shutdown] Error stopping relay_manager: {e}", exc_info=True)
+                log.error(f"[Cleanup] Error stopping relay_manager: {e}", exc_info=True)
         else:
-            log.info("[Shutdown] Relay manager was None")
+            log.info("[Cleanup] Relay manager was None")
         
         # Clean up game handler (stops game manager thread and closes standalone engine)
-        log.info("[Shutdown] Cleaning up protocol manager...")
+        log.info("[Cleanup] Cleaning up protocol manager...")
         if protocol_manager is not None:
             try:
                 protocol_manager.cleanup()
-                log.info("[Shutdown] Protocol manager cleaned up")
+                log.info("[Cleanup] Protocol manager cleaned up")
             except Exception as e:
-                log.error(f"[Shutdown] Error cleaning up protocol manager: {e}", exc_info=True)
+                log.error(f"[Cleanup] Error cleaning up protocol manager: {e}", exc_info=True)
         else:
-            log.info("[Shutdown] Protocol manager was None")
+            log.info("[Cleanup] Protocol manager was None")
         
         # Clean up display manager (analysis engine and widgets)
-        log.info("[Shutdown] Cleaning up display manager...")
+        log.info("[Cleanup] Cleaning up display manager...")
         if display_manager is not None:
             try:
                 display_manager.cleanup(for_shutdown=True)
-                log.info("[Shutdown] Display manager cleaned up")
+                log.info("[Cleanup] Display manager cleaned up")
             except Exception as e:
-                log.error(f"[Shutdown] Error cleaning up display manager: {e}", exc_info=True)
+                log.error(f"[Cleanup] Error cleaning up display manager: {e}", exc_info=True)
         else:
-            log.info("[Shutdown] Display manager was None")
-        
-        # Pause board events
-        log.info("[Shutdown] Pausing board events...")
-        try:
-            board.pauseEvents()
-            log.info("[Shutdown] Board events paused")
-        except Exception as e:
-            log.error(f"[Shutdown] Error pausing events: {e}", exc_info=True)
-        
-        # Stop the fallback shutdown service before we send the sleep command
-        # This prevents both us and the fallback service from trying to sleep the controller
-        log.info("[Shutdown] Stopping fallback shutdown service...")
-        try:
-            import subprocess
-            result = subprocess.run(
-                ["sudo", "systemctl", "stop", "DGTStopController.service"],
-                capture_output=True, timeout=5
-            )
-            if result.returncode == 0:
-                log.info("[Shutdown] Fallback shutdown service stopped")
-            else:
-                log.debug(f"[Shutdown] Could not stop fallback service: {result.stderr.decode()}")
-        except Exception as e:
-            log.debug(f"[Shutdown] Could not stop fallback service: {e}")
-        
-        # Send sleep command to controller before cleanup
-        # This ensures the controller powers down properly when the Pi shuts down,
-        # preventing battery drain. Uses blocking request_response with retries
-        # to confirm the controller received the command.
-        log.info("[Shutdown] Sending sleep command to controller...")
-        try:
-            success = board.sleep_controller()
-            if success:
-                log.info("[Shutdown] Controller sleep acknowledged")
-            else:
-                log.error("[Shutdown] Controller sleep failed - battery may drain if board remains powered")
-        except Exception as e:
-            log.error(f"[Shutdown] Error sending sleep command: {e}", exc_info=True)
-        
-        # Clean up board (serial port, etc)
-        log.info("[Shutdown] Cleaning up board...")
-        try:
-            board.cleanup(leds_off=True)
-            log.info("[Shutdown] Board cleaned up")
-        except Exception as e:
-            log.error(f"[Shutdown] Error cleaning up board: {e}", exc_info=True)
+            log.info("[Cleanup] Display manager was None")
         
         # Close sockets
-        log.info("[Shutdown] Closing sockets...")
+        log.info("[Cleanup] Closing sockets...")
         if client_sock:
             try:
                 client_sock.close()
-                log.info("[Shutdown] Client socket closed")
+                log.info("[Cleanup] Client socket closed")
             except Exception as e:
-                log.error(f"[Shutdown] Error closing client socket: {e}")
+                log.error(f"[Cleanup] Error closing client socket: {e}")
         
         if server_sock:
             try:
                 server_sock.close()
-                log.info("[Shutdown] Server socket closed")
+                log.info("[Cleanup] Server socket closed")
             except Exception as e:
-                log.error(f"[Shutdown] Error closing server socket: {e}")
+                log.error(f"[Cleanup] Error closing server socket: {e}")
         
         # Stop BLE manager
-        log.info("[Shutdown] Stopping BLE manager...")
+        log.info("[Cleanup] Stopping BLE manager...")
         if ble_manager is not None:
             try:
                 ble_manager.stop()
-                log.info("[Shutdown] BLE manager stopped")
+                log.info("[Cleanup] BLE manager stopped")
             except Exception as e:
-                log.error(f"[Shutdown] Error stopping BLE manager: {e}", exc_info=True)
+                log.error(f"[Cleanup] Error stopping BLE manager: {e}", exc_info=True)
         else:
-            log.info("[Shutdown] BLE manager was None")
+            log.info("[Cleanup] BLE manager was None")
         
         # Quit GLib mainloop
-        log.info("[Shutdown] Quitting mainloop...")
+        log.info("[Cleanup] Quitting mainloop...")
         if mainloop:
             try:
                 mainloop.quit()
-                log.info("[Shutdown] Mainloop quit")
+                log.info("[Cleanup] Mainloop quit")
             except Exception as e:
-                log.error(f"[Shutdown] Error quitting mainloop: {e}")
+                log.error(f"[Cleanup] Error quitting mainloop: {e}")
         else:
-            log.info("[Shutdown] Mainloop was None")
+            log.info("[Cleanup] Mainloop was None")
         
         client_connected = False
         
-        log.info("[Shutdown] Cleanup completed successfully")
+        # For system shutdown (not reboot), check for pending update first,
+        # then display splash, call board.shutdown() for visual feedback (beep, LEDs)
+        # and to send the sleep command to the controller. This prevents battery drain.
+        # For reboot, we skip the sleep command as the board will restart anyway.
+        # For SIGINT/normal exit, we don't shutdown the controller.
+        if system_shutdown and not reboot:
+            # Check for pending update - if present, install it instead of shutdown
+            update_package = '/tmp/dgtcentaurmods_armhf.deb'
+            if os.path.exists(update_package):
+                log.info('[Cleanup] Update package found - installing instead of shutdown')
+                board.beep(board.SOUND_POWER_OFF)
+                
+                # Display update splash
+                try:
+                    if display_manager is not None:
+                        update_splash = SplashScreen(message="Installing\nupdate...")
+                        display_manager.add_widget(update_splash)
+                except Exception as e:
+                    log.debug(f"[Cleanup] Failed to show update splash: {e}")
+                
+                # All LEDs for update install
+                try:
+                    board.ledArray([0,1,2,3,4,5,6,7], intensity=6, repeat=0)
+                except Exception:
+                    pass
+                
+                import time
+                time.sleep(2)
+                from DGTCentaurMods.board import centaur
+                update = centaur.UpdateSystem()
+                update.updateInstall()
+                # updateInstall() will handle system restart, so we return here
+                return
+            
+            # Display shutdown splash screen
+            log.info("[Cleanup] Displaying shutdown splash screen...")
+            try:
+                if display_manager is not None:
+                    shutdown_splash = SplashScreen(message="Press [\u25b6]")
+                    display_manager.add_widget(shutdown_splash)
+            except Exception as e:
+                log.debug(f"[Cleanup] Failed to show shutdown splash: {e}")
+            
+            # Play power off beep
+            log.info("[Cleanup] Playing power off beep...")
+            try:
+                board.beep(board.SOUND_POWER_OFF)
+            except Exception as e:
+                log.debug(f"[Cleanup] Failed to play power off beep: {e}")
+            
+            # LED cascade pattern h8→h1 (squares 7 down to 0)
+            log.info("[Cleanup] Performing LED cascade...")
+            try:
+                import time as _time
+                for i in range(7, -1, -1):
+                    board.led(i, repeat=1)
+                    _time.sleep(0.2)
+            except Exception as e:
+                log.error(f"[Cleanup] LED pattern failed: {e}")
+            
+            log.info("[Cleanup] Stopping fallback service...")
+            try:
+                import subprocess
+                subprocess.run(
+                    ["sudo", "systemctl", "stop", "DGTStopController.service"],
+                    capture_output=True, timeout=5
+                )
+            except Exception as e:
+                log.debug(f"[Cleanup] Could not stop fallback service: {e}")
+            
+            log.info("[Cleanup] Sending sleep command to controller...")
+            try:
+                success = board.sleep_controller()
+                if success:
+                    log.info("[Cleanup] Controller acknowledged sleep command")
+                else:
+                    log.error("[Cleanup] Controller did not acknowledge sleep command - battery may drain")
+            except Exception as e:
+                log.error(f"[Cleanup] Error sending sleep command: {e}")
+        
+        # Pause board events
+        log.info("[Cleanup] Pausing board events...")
+        try:
+            board.pauseEvents()
+            log.info("[Cleanup] Board events paused")
+        except Exception as e:
+            log.error(f"[Cleanup] Error pausing events: {e}", exc_info=True)
+        
+        # Clean up board (serial port, etc) - do this last
+        log.info("[Cleanup] Cleaning up board...")
+        try:
+            board.cleanup(leds_off=True)
+            log.info("[Cleanup] Board cleaned up")
+        except Exception as e:
+            log.error(f"[Cleanup] Error cleaning up board: {e}", exc_info=True)
+        
+        log.info("[Cleanup] Cleanup completed successfully")
+        
+        # If system shutdown requested, trigger poweroff/reboot at the end
+        if system_shutdown:
+            if reboot:
+                log.info("[Cleanup] Requesting system reboot...")
+                os.system("sudo systemctl reboot")
+            else:
+                log.info("[Cleanup] Requesting system poweroff...")
+                os.system("sudo systemctl poweroff")
     except Exception as e:
-        log.error(f"[Shutdown] Unexpected error in cleanup: {e}", exc_info=True)
+        log.error(f"[Cleanup] Unexpected error in cleanup: {e}", exc_info=True)
     
     log.info("Cleanup completed, exiting")
     sys.exit(0)
@@ -5100,12 +5226,15 @@ def key_callback(key_id):
     
     log.info(f"[App] Key event received: {key_id}, app_state={app_state}")
     
-    # Always handle LONG_PLAY for shutdown
+    # Always handle LONG_PLAY for shutdown with countdown
     if key_id == board.Key.LONG_PLAY:
-        log.info("[App] LONG_PLAY key event received")
-        running = False
-        kill = 1
-        board.shutdown(reason="LONG_PLAY key event from universal.py")
+        log.info("[App] LONG_PLAY key event received, starting shutdown countdown")
+        if _shutdown_countdown():
+            running = False
+            kill = 1
+            cleanup_and_exit(reason="LONG_PLAY key event from universal.py", system_shutdown=True)
+        else:
+            log.info("[App] Shutdown cancelled (PLAY button released)")
         _reset_unhandled_key_count()
         return
     

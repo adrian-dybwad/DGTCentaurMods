@@ -21,7 +21,7 @@ logging.basicConfig(
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from epaper import (Manager, StatusBarWidget, TextWidget, BallWidget, 
                     ChessBoardWidget, GameAnalysisWidget, CheckerboardWidget,
-                    SplashScreen, GameOverWidget, MenuArrowWidget)
+                    SplashScreen, GameOverWidget)
 
 
 class EPaperDemo:
@@ -40,7 +40,6 @@ class EPaperDemo:
         self.checkerboard = None
         self.splash_screen = None
         self.game_over = None
-        self.menu_arrow = None
         
         # Ball physics
         self.ball_x = 64  # Start in middle
@@ -61,7 +60,7 @@ class EPaperDemo:
         self.last_fen_update = 0
         
         # Demo mode cycling
-        self.demo_mode = 0  # 0=all widgets, 1=greyscale demo, 2=splash_screen, 3=game_over, 4=menu_arrow, 5=wrapped_text
+        self.demo_mode = 0  # 0=all widgets, 1=greyscale demo, 2=splash_screen, 3=game_over, 4=wrapped_text
         self.last_mode_change = 0
         self.mode_duration = 10.0  # Show each mode for 10 seconds
     
@@ -217,45 +216,6 @@ class EPaperDemo:
         
         print("Game over widget configured")
     
-    def setup_widgets_menu_arrow(self):
-        """Setup menu arrow widget demo."""
-        print("Setting up menu arrow widget demo...")
-        
-        # Clear all widgets
-        self.display._widgets.clear()
-        
-        # Status bar at top
-        self.status_bar = StatusBarWidget(0, 0)
-        self.display.add_widget(self.status_bar)
-        if self.status_bar._update_callback:
-            self.status_bar.request_update(full=False)
-        
-        # Menu arrow widget - demonstrates menu navigation
-        # Arrow widget for 5 menu items, each 16px high, starting at y=20
-        menu_item_height = 16
-        num_items = 5
-        arrow_width = 20  # Width of arrow column
-        arrow_height = num_items * menu_item_height
-        self.menu_arrow = MenuArrowWidget(0, 20, arrow_width, arrow_height, menu_item_height, num_items)
-        self.display.add_widget(self.menu_arrow)
-        self.menu_arrow.request_update(full=False)
-        
-        # Add text widgets for menu items
-        menu_items = ["Item 1", "Item 2", "Item 3", "Item 4", "Item 5"]
-        for idx, item_text in enumerate(menu_items):
-            text_widget = TextWidget(
-                20, 20 + (idx * menu_item_height),
-                108, menu_item_height,
-                text=item_text,
-                background=0,
-                font_size=14
-            )
-            self.text_widgets.append(text_widget)
-            self.display.add_widget(text_widget)
-            text_widget.request_update(full=False)
-        
-        print("Menu arrow widget configured")
-    
     def run(self):
         """Main demo loop."""
         self.setup_signal_handlers()
@@ -293,11 +253,6 @@ class EPaperDemo:
                 # Update game analysis scores (only in all-widgets mode)
                 if self.demo_mode == 0 and self.game_analysis:
                     self._update_game_analysis()
-                
-                # Update menu arrow selection (only in menu-arrow mode)
-                if self.demo_mode == 4 and self.menu_arrow:
-                    # Simulate menu navigation
-                    pass  # Menu arrow handles its own updates via key events
                 
                 time.sleep(0.1)
                 
@@ -353,7 +308,7 @@ class EPaperDemo:
     
     def _cycle_demo_mode(self):
         """Cycle through different demo modes."""
-        self.demo_mode = (self.demo_mode + 1) % 6
+        self.demo_mode = (self.demo_mode + 1) % 5
         
         if self.demo_mode == 0:
             print("Mode: All widgets")
@@ -368,9 +323,6 @@ class EPaperDemo:
             print("Mode: Game over widget")
             self.setup_widgets_game_over()
         elif self.demo_mode == 4:
-            print("Mode: Menu arrow widget")
-            self.setup_widgets_menu_arrow()
-        elif self.demo_mode == 5:
             print("Mode: Wrapped text widget")
             self.setup_widgets_wrapped_text()
     
