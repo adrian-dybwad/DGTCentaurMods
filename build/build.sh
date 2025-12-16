@@ -10,6 +10,24 @@ PACKAGE="DGTCentaurMods"
 INSTALLDIR="/opt/${PACKAGE}"
 cd ../
 
+# Detect optimal ARM architecture for Stockfish compilation
+# Priority: armv8 (64-bit) > armv7-neon (32-bit with SIMD) > armv7 (32-bit baseline)
+function detectArch {
+    # Check if running on 64-bit ARM (ARMv8)
+    if [ "$(uname -m)" = "aarch64" ]; then
+        STOCKFISH_ARCH="armv8"
+        echo -e "::: 64-bit ARM detected, using armv8 architecture (best performance)"
+    # Check if running on 32-bit ARM with NEON support
+    elif grep -q "neon" /proc/cpuinfo 2>/dev/null; then
+        STOCKFISH_ARCH="armv7-neon"
+        echo -e "::: 32-bit ARM with NEON detected, using armv7-neon architecture"
+    # Fallback to basic ARMv7
+    else
+        STOCKFISH_ARCH="armv7"
+        echo -e "::: Basic 32-bit ARM detected, using armv7 architecture"
+    fi
+}
+
 # -------- SQLite (portable) flags --------
 # Use pkg-config when present; fall back to system locations.
 # We also ensure pkg-config and libsqlite3-dev exist when building Stockfish.
@@ -56,6 +74,9 @@ function insertStockfish {
     fi 
     case $REPLY in
         [Yy]* )
+            # Detect architecture before compiling
+            detectArch
+
             cd "${BUILD_TMP}"
             echo -e "Cloning Stockfish repo"
             rm -rf Stockfish
@@ -75,7 +96,8 @@ function insertStockfish {
             sed -i 's|-I/usr/local/include/sqlite3\.h||g' ../Makefile 2>/dev/null || true
 
             make clean
-            make -j"$(nproc)" build ARCH=armv7
+            echo -e "::: Compiling Stockfish with ARCH=${STOCKFISH_ARCH}"
+            make -j"$(nproc)" build ARCH=${STOCKFISH_ARCH}
 
             mv stockfish stockfish_pi
             # Remove any existing stockfish_pi (symlink or file) in staging before copying
