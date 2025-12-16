@@ -3,8 +3,11 @@ Chromecast streaming service.
 
 Manages the Chromecast connection and streaming lifecycle independently of UI.
 Widgets observe this service's state to display status indicators.
+
+Also provides the e-paper JPEG export function used for web/Chromecast streaming.
 """
 
+import os
 import threading
 import time
 from typing import Optional, Callable, List
@@ -14,6 +17,49 @@ try:
 except ImportError:
     import logging
     log = logging.getLogger(__name__)
+
+# Path for e-paper static JPEG (used by web and Chromecast streaming)
+from DGTCentaurMods.paths import EPAPER_STATIC_JPG
+
+
+def write_epaper_jpg(image) -> str:
+    """Write the provided Pillow Image to web/static/epaper.jpg for streaming.
+    
+    The image will be converted to a JPEG-compatible mode if needed.
+    The image is rotated 180 degrees before saving to correct orientation
+    for Chromecast streaming.
+    
+    Args:
+        image: PIL Image to save
+        
+    Returns:
+        Path where image was saved
+        
+    Raises:
+        TypeError: If image is not a PIL Image
+    """
+    from PIL import Image
+    
+    if not isinstance(image, Image.Image):
+        raise TypeError("write_epaper_jpg expects a PIL Image")
+    
+    # Ensure parent directory exists
+    parent = os.path.dirname(EPAPER_STATIC_JPG)
+    if parent and not os.path.isdir(parent):
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except PermissionError:
+            log.error(f"Permission denied creating directory: {parent}")
+            raise
+    
+    img = image
+    if img.mode not in ("L", "RGB"):
+        img = img.convert("L")
+    
+    # Rotate 180 degrees to correct orientation for streaming
+    img = img.rotate(180)
+    img.save(EPAPER_STATIC_JPG, format="JPEG")
+    return EPAPER_STATIC_JPG
 
 
 class ChromecastService:

@@ -78,8 +78,8 @@ def _default_on_refresh(image):
     Used by the web dashboard to mirror the e-paper display.
     """
     try:
-        from DGTCentaurMods.managers import AssetManager
-        AssetManager.write_epaper_static_jpg(image)
+        from DGTCentaurMods.services.chromecast import write_epaper_jpg
+        write_epaper_jpg(image)
     except Exception as e:
         log.debug(f"Failed to write epaper.jpg: {e}")
 

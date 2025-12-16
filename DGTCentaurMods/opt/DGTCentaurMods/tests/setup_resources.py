@@ -2,7 +2,7 @@
 """
 Resource Setup Script for Promotion Tests
 
-This script sets up the required resource paths so that AssetManager
+This script sets up the required resource paths so that get_resource_path()
 can find the font files when running tests.
 
 USAGE:
@@ -24,8 +24,8 @@ import sys
 import shutil
 
 def setup_resources():
-    """Set up resource paths for AssetManager"""
-    print("Setting up resource paths for AssetManager...")
+    """Set up resource paths for get_resource_path()"""
+    print("Setting up resource paths...")
     
     # Current working directory should be /home/pi/DGTCentaurMods/DGTCentaurMods/opt
     current_dir = os.getcwd()
@@ -40,7 +40,7 @@ def setup_resources():
         print(f"ERROR: Source resources directory not found: {source_resources}")
         return False
     
-    # Target directories that AssetManager looks for
+    # Target directories that get_resource_path() looks for
     target_dirs = [
         "/home/pi/resources",
         "/opt/DGTCentaurMods/resources"

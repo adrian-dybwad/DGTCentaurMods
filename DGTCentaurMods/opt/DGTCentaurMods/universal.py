@@ -54,15 +54,15 @@ def _initialize_resources():
     """
     try:
         from DGTCentaurMods.resources import ResourceLoader
-        from DGTCentaurMods.managers.asset import AssetManager
+        from DGTCentaurMods.paths import RESOURCES_DIR, USER_RESOURCES_DIR
         from DGTCentaurMods.epaper import text as text_module
         from DGTCentaurMods.epaper import chess_board as chess_board_module
         from DGTCentaurMods.epaper import splash_screen as splash_screen_module
         from DGTCentaurMods.epaper import icon_button as icon_button_module
         from DGTCentaurMods.epaper import keyboard as keyboard_module
         
-        # Create resource loader using AssetManager paths (supports both installed and dev environments)
-        loader = ResourceLoader(AssetManager.RESOURCES_DIR, AssetManager.USER_RESOURCES_DIR)
+        # Create resource loader using paths (supports both installed and dev environments)
+        loader = ResourceLoader(RESOURCES_DIR, USER_RESOURCES_DIR)
         
         # Set resource loader on modules that need fonts
         text_module.set_resource_loader(loader)
@@ -119,11 +119,10 @@ def _on_display_refresh(image):
     """Callback for display refreshes - writes image to web static folder.
     
     Used by the web dashboard to mirror the e-paper display.
-    Deferred import to avoid loading AssetManager at startup.
     """
     try:
-        from DGTCentaurMods.managers import AssetManager
-        AssetManager.write_epaper_static_jpg(image)
+        from DGTCentaurMods.services.chromecast import write_epaper_jpg
+        write_epaper_jpg(image)
     except Exception as e:
         log.debug(f"Failed to write epaper.jpg: {e}")
 
@@ -3305,7 +3304,7 @@ def _show_support_qr():
     global _active_about_widget
     
     from PIL import Image
-    from DGTCentaurMods.managers.asset import AssetManager
+    from DGTCentaurMods.paths import get_resource_path
     from DGTCentaurMods.epaper.about_widget import AboutWidget
     
     version = _get_installed_version()
@@ -3313,7 +3312,7 @@ def _show_support_qr():
     # Try to load QR code image
     qr_img = None
     try:
-        qr_path = AssetManager.get_resource_path("qr-support.png")
+        qr_path = get_resource_path("qr-support.png")
         if qr_path:
             qr_img = Image.open(qr_path)
     except Exception as e:

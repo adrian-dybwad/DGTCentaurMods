@@ -65,9 +65,9 @@ class PromotionTestSetup:
         gamemanager.setBoard(chess.Board(fen_string))
         
         # Update the FEN log file (as the system expects)
-        from DGTCentaurMods.managers import AssetManager
+        from DGTCentaurMods.managers.game import write_fen_log
         try:
-            AssetManager.write_fen_log(gamemanager.getFEN())
+            write_fen_log(gamemanager.getFEN())
             print(f"PASS: FEN written")
         except Exception as e:
             print(f"WARNING: Could not write FEN log: {e}")

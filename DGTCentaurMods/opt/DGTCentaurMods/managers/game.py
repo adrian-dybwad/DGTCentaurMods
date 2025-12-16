@@ -26,7 +26,7 @@ import numpy as np
 from typing import Optional
 
 from DGTCentaurMods.board import board
-from DGTCentaurMods.managers.asset import AssetManager
+from DGTCentaurMods.paths import FEN_LOG, TMP_DIR
 from DGTCentaurMods.board.logging import log
 
 # Deferred imports - these are slow (~3s total on Raspberry Pi) and loaded in background
@@ -130,6 +130,105 @@ def _get_create_engine():
     """Get SQLAlchemy create_engine, waiting for import if needed."""
     _wait_for_imports()
     return _deferred_create_engine
+
+
+# -----------------------------------------------------------------------------
+# FEN Log Operations
+# -----------------------------------------------------------------------------
+# These functions manage the FEN log file used for external display (Chromecast)
+# and game state persistence. The file path comes from paths.py.
+
+DEFAULT_START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+
+def get_fen_log_path() -> str:
+    """Return the fen.log path."""
+    return FEN_LOG
+
+
+def write_fen_log(fen: str) -> None:
+    """Write FEN to fen.log for external consumers (Chromecast, web).
+    
+    Args:
+        fen: FEN string to write
+    """
+    log.info(f"Writing to {FEN_LOG}: {fen}")
+    with open(FEN_LOG, "w", encoding="utf-8") as f:
+        f.write(fen)
+
+
+def get_current_fen() -> str:
+    """Return the current FEN from fen.log.
+    
+    Behavior:
+    - If fen.log exists and has content, return its first line as-is.
+    - If fen.log is missing, return the starting FEN.
+    - If fen.log is empty, return the starting FEN.
+    
+    Returns:
+        Current FEN string or default starting position
+    """
+    try:
+        with open(FEN_LOG, "r", encoding="utf-8") as f:
+            curfen = f.readline().strip()
+    except FileNotFoundError:
+        return DEFAULT_START_FEN
+    log.info(f"Reading from {FEN_LOG}: {curfen}")
+    return curfen or DEFAULT_START_FEN
+
+
+def get_current_placement() -> str:
+    """Return only the board placement part of the current FEN.
+    
+    Returns:
+        Board placement string (first part of FEN before the space)
+    """
+    fen = get_current_fen()
+    return fen.split()[0] if fen else ""
+
+
+def get_current_turn() -> str:
+    """Return the current turn from the FEN ('w' or 'b').
+    
+    Returns:
+        'w' for white's turn, 'b' for black's turn
+    """
+    fen = get_current_fen()
+    parts = fen.split()
+    return parts[1] if len(parts) > 1 else "w"
+
+
+def get_current_castling() -> str:
+    """Return the castling rights from the current FEN.
+    
+    Returns:
+        Castling rights string (e.g., 'KQkq', '-')
+    """
+    fen = get_current_fen()
+    parts = fen.split()
+    return parts[2] if len(parts) > 2 else "-"
+
+
+def get_current_en_passant() -> str:
+    """Return the en passant square from the current FEN.
+    
+    Returns:
+        En passant target square (e.g., 'e3') or '-'
+    """
+    fen = get_current_fen()
+    parts = fen.split()
+    return parts[3] if len(parts) > 3 else "-"
+
+
+def get_current_halfmove_clock() -> int:
+    """Return the halfmove clock from the current FEN.
+    
+    Returns:
+        Halfmove clock (number of half moves since last capture or pawn advance)
+    """
+    fen = get_current_fen()
+    parts = fen.split()
+    return int(parts[4]) if len(parts) > 4 else 0
 
 
 # Event constants - import from lightweight events module for backward compatibility
@@ -683,7 +782,7 @@ class GameManager:
                     self.database_session.commit()
             
             self.chess_board.pop()
-            AssetManager.write_fen_log(self.chess_board.fen())
+            write_fen_log(self.chess_board.fen())
             board.beep(board.SOUND_GENERAL, event_type='game_event')
             
             self.takeback_callback()
@@ -1526,7 +1625,7 @@ class GameManager:
                 except Exception:
                     pass
         
-        AssetManager.write_fen_log(self.chess_board.fen())
+        write_fen_log(self.chess_board.fen())
         
         # Call move callback to update display
         if self.move_callback is not None:
@@ -1697,7 +1796,7 @@ class GameManager:
             except Exception as db_error:
                 log.error(f"[GameManager._execute_late_castling] Database error: {db_error}")
         
-        AssetManager.write_fen_log(self.chess_board.fen())
+        write_fen_log(self.chess_board.fen())
         
         # Call move callback to update display
         if self.move_callback is not None:
@@ -1934,7 +2033,7 @@ class GameManager:
                             pass
                 
                 # 2. FEN log
-                AssetManager.write_fen_log(fen_after_move)
+                write_fen_log(fen_after_move)
                 
                 # 3. Move callback (updates display, forwards to emulators)
                 if self.move_callback is not None:
@@ -2253,7 +2352,7 @@ class GameManager:
         fen_after_move = str(self.chess_board.fen())
         
         # Update FEN log for Chromecast/video display
-        AssetManager.write_fen_log(fen_after_move)
+        write_fen_log(fen_after_move)
         
         # Check game outcome
         game_ended = False
@@ -2671,7 +2770,7 @@ class GameManager:
             log.info("[GameManager._reset_game] Reset game_db_id to -1 - new game will be created on first move")
             
             # Step 9: Update FEN log
-            AssetManager.write_fen_log(self.chess_board.fen())
+            write_fen_log(self.chess_board.fen())
             
             # Step 10: Notify callbacks of new game (but don't create DB entry yet)
             # Note: Do NOT fire turn event here - clock should only start on first actual move.
@@ -2714,7 +2813,8 @@ class GameManager:
         
         # Only create database session if save_to_database is enabled
         if self.save_to_database:
-            database_uri = AssetManager.get_database_uri()
+            from DGTCentaurMods.db.uri import get_database_uri
+            database_uri = get_database_uri()
             # Configure SQLite with check_same_thread=False to allow connections created in this thread
             # to be used throughout the thread's lifetime. This is safe because we create and use
             # the engine entirely within this thread.
@@ -2738,7 +2838,7 @@ class GameManager:
         log.info("[GameManager._game_thread] Ready to receive events from app coordinator")
         
         # Write initial FEN for Chromecast/video display
-        AssetManager.write_fen_log(self.chess_board.fen())
+        write_fen_log(self.chess_board.fen())
         
         # Note: GameManager no longer subscribes to board events directly.
         # Events are routed from the app coordinator (universal.py) through
@@ -3100,7 +3200,7 @@ def resetBoard():
     global _game_manager_instance
     if _game_manager_instance is not None:
         _game_manager_instance.chess_board.reset()
-        AssetManager.write_fen_log(_game_manager_instance.chess_board.fen())
+        write_fen_log(_game_manager_instance.chess_board.fen())
 
 
 def setBoard(board_obj):
@@ -3108,5 +3208,5 @@ def setBoard(board_obj):
     global _game_manager_instance
     if _game_manager_instance is not None:
         _game_manager_instance.chess_board = board_obj
-        AssetManager.write_fen_log(board_obj.fen())
+        write_fen_log(board_obj.fen())
 

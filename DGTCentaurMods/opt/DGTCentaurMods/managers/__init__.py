@@ -124,9 +124,6 @@ from DGTCentaurMods.managers.game import (
 )
 _log.debug(f"[managers import] game: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
-from DGTCentaurMods.managers.asset import AssetManager
-_log.debug(f"[managers import] asset: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
 from DGTCentaurMods.managers.assistant import AssistantManager, AssistantManagerConfig, AssistantType
 _log.debug(f"[managers import] assistant: {(_t.time() - _s)*1000:.0f}ms")
 
@@ -149,7 +146,6 @@ __all__ = [
     'EVENT_BLACK_TURN',
     'EVENT_LIFT_PIECE',
     'EVENT_PLACE_PIECE',
-    'AssetManager',
     'AssistantManager',
     'AssistantManagerConfig',
     'AssistantType',

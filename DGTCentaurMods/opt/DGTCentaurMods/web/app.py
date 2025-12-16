@@ -21,7 +21,9 @@
 
 from flask import Flask, render_template, Response, request, redirect, send_file, abort
 from DGTCentaurMods.db import models
-from DGTCentaurMods.managers import AssetManager
+from DGTCentaurMods.managers.game import get_current_fen, get_current_placement
+from DGTCentaurMods.paths import get_resource_path
+from DGTCentaurMods.paths import EPAPER_STATIC_JPG
 from .chessboard import LiveBoard
 from . import centaurflask
 from PIL import Image, ImageDraw, ImageFont
@@ -42,7 +44,6 @@ import base64
 import pwd
 import subprocess
 from xml.sax.saxutils import escape
-from DGTCentaurMods.managers import AssetManager
 
 # Conditionally import crypt (removed in Python 3.13+, may not be available)
 try:
@@ -1116,11 +1117,11 @@ def handle_preflight():
 
 @app.route("/", methods=["GET"])
 def index():
-    return render_template('index.html', fen=AssetManager.get_current_placement())
+    return render_template('index.html', fen=get_current_placement())
 
 @app.route("/fen")
 def fen():
-    return AssetManager.get_current_placement()
+    return get_current_placement()
 
 @app.route("/rodentivtuner")
 def tuner():
@@ -1299,22 +1300,22 @@ def makePGN(gameid):
         return "", 404
     return pgn_string
 
-pb = Image.open(AssetManager.get_resource_path("pb.png")).convert("RGBA")
-pw = Image.open(AssetManager.get_resource_path("pw.png")).convert("RGBA")
-rb = Image.open(AssetManager.get_resource_path("rb.png")).convert("RGBA")
-bb = Image.open(AssetManager.get_resource_path("bb.png")).convert("RGBA")
-nb = Image.open(AssetManager.get_resource_path("nb.png")).convert("RGBA")
-qb = Image.open(AssetManager.get_resource_path("qb.png")).convert("RGBA")
-kb = Image.open(AssetManager.get_resource_path("kb.png")).convert("RGBA")
-rw = Image.open(AssetManager.get_resource_path("rw.png")).convert("RGBA")
-bw = Image.open(AssetManager.get_resource_path("bw.png")).convert("RGBA")
-nw = Image.open(AssetManager.get_resource_path("nw.png")).convert("RGBA")
-qw = Image.open(AssetManager.get_resource_path("qw.png")).convert("RGBA")
-kw = Image.open(AssetManager.get_resource_path("kw.png")).convert("RGBA")
+pb = Image.open(get_resource_path("pb.png")).convert("RGBA")
+pw = Image.open(get_resource_path("pw.png")).convert("RGBA")
+rb = Image.open(get_resource_path("rb.png")).convert("RGBA")
+bb = Image.open(get_resource_path("bb.png")).convert("RGBA")
+nb = Image.open(get_resource_path("nb.png")).convert("RGBA")
+qb = Image.open(get_resource_path("qb.png")).convert("RGBA")
+kb = Image.open(get_resource_path("kb.png")).convert("RGBA")
+rw = Image.open(get_resource_path("rw.png")).convert("RGBA")
+bw = Image.open(get_resource_path("bw.png")).convert("RGBA")
+nw = Image.open(get_resource_path("nw.png")).convert("RGBA")
+qw = Image.open(get_resource_path("qw.png")).convert("RGBA")
+kw = Image.open(get_resource_path("kw.png")).convert("RGBA")
 logo = Image.open(str(pathlib.Path(__file__).parent.resolve()) + "/../web/static/logo_mods_web.png")
 moddate = -1
 sc = None
-epaper_path = AssetManager.get_epaper_static_jpg_path()
+epaper_path = EPAPER_STATIC_JPG
 if os.path.isfile(epaper_path):
     sc = Image.open(epaper_path)
     moddate = os.stat(epaper_path)[8]
@@ -1330,7 +1331,7 @@ def generateVideoFrame():
     sqsize = 130.9
     
     while True:
-        curfen = parse_fen_to_board_string(AssetManager.get_current_fen())
+        curfen = parse_fen_to_board_string(get_current_fen())
         image = Image.new(mode="RGBA", size=(1920, 1080), color=(255, 255, 255))
         draw = ImageDraw.Draw(image)
         draw.rectangle([(x_offset, 0), (x_offset + 1329 - 100, 1080)], fill=(33, 33, 33), outline=(33, 33, 33))
@@ -1340,9 +1341,9 @@ def generateVideoFrame():
         draw_chess_board(draw, x_offset, 0, sqsize)
         render_chess_pieces(image, curfen, piece_images, x_offset, y_offset, sqsize)
         
-        newmoddate = os.stat(AssetManager.get_epaper_static_jpg_path())[8]
+        newmoddate = os.stat(EPAPER_STATIC_JPG)[8]
         if newmoddate != moddate:
-            sc = Image.open(AssetManager.get_epaper_static_jpg_path())
+            sc = Image.open(EPAPER_STATIC_JPG)
             moddate = newmoddate
         image.paste(sc, (x_offset + 1216 - 130, 635))
         image.paste(logo, (x_offset + 1216 - 130, 0), logo)
