@@ -602,8 +602,11 @@ class DisplayManager:
                     justify=Justify.CENTER, transparent=True
                 )
             
-            def render(self) -> Image.Image:
-                img = Image.new("1", (self.width, self.height), 255)
+            def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
+                """Draw the pause widget onto the target image."""
+                # Draw background first
+                self.draw_background(img, draw_x, draw_y)
+                
                 draw = ImageDraw.Draw(img)
                 
                 # Draw pause icon (two vertical bars) centered at top
@@ -611,8 +614,8 @@ class DisplayManager:
                 bar_height = 50
                 gap = 16
                 total_width = bar_width * 2 + gap
-                start_x = (self.width - total_width) // 2
-                start_y = 5
+                start_x = draw_x + (self.width - total_width) // 2
+                start_y = draw_y + 5
                 
                 # Left bar
                 draw.rectangle([start_x, start_y, start_x + bar_width, start_y + bar_height], fill=0)
@@ -621,9 +624,7 @@ class DisplayManager:
                                start_x + bar_width * 2 + gap, start_y + bar_height], fill=0)
                 
                 # Draw "PAUSED" text below
-                self._text_widget.draw_on(img, 0, 60, text_color=0)
-                
-                return img
+                self._text_widget.draw_on(img, draw_x, draw_y + 60)
         
         self.pause_widget = PauseWidget()
         board.display_manager.add_widget(self.pause_widget)
