@@ -4585,67 +4585,6 @@ def _handle_lichess_token():
         _active_keyboard_widget = None
 
 
-def _shutdown_countdown(countdown_seconds: int = 3) -> bool:
-    """Display a shutdown countdown with option to cancel by releasing PLAY button.
-    
-    Shows a modal splash screen counting down from countdown_seconds to 0.
-    User can cancel by releasing the PLAY button before countdown completes.
-    
-    Args:
-        countdown_seconds: Number of seconds to count down (default 3)
-    
-    Returns:
-        True if countdown completed (proceed with shutdown)
-        False if user cancelled (released PLAY button)
-    """
-    log.info(f"[_shutdown_countdown] Starting {countdown_seconds}s countdown")
-    board.beep(board.SOUND_POWER_OFF)
-    
-    # Create countdown splash (SplashScreen is modal - only it will be rendered)
-    countdown_splash = None
-    try:
-        if display_manager is not None:
-            countdown_splash = SplashScreen(message=f"Shutdown in\n  {countdown_seconds}")
-            display_manager.add_widget(countdown_splash)
-    except Exception as e:
-        log.debug(f"[_shutdown_countdown] Failed to show countdown splash: {e}")
-    
-    # Drain any pending key events before starting countdown
-    while board.controller.get_next_key(timeout=0.0) is not None:
-        pass
-    
-    # Countdown loop - releasing PLAY button (PLAY key-up) cancels
-    import time
-    for remaining in range(countdown_seconds, 0, -1):
-        # Update display
-        try:
-            if countdown_splash is not None:
-                countdown_splash.set_message(f"Shutdown in\n  {remaining}")
-        except Exception as e:
-            log.debug(f"[_shutdown_countdown] Failed to update countdown: {e}")
-        
-        # Wait 1 second, checking for PLAY release every 100ms
-        for _ in range(10):
-            time.sleep(0.1)
-            key = board.controller.get_next_key(timeout=0.0)
-            if key == board.Key.PLAY:
-                # PLAY key-up means button was released - cancel shutdown
-                log.info("[_shutdown_countdown] Cancelled (PLAY released)")
-                board.beep(board.SOUND_GENERAL, event_type='key_press')
-                # Remove modal widget to restore normal widget rendering
-                try:
-                    if display_manager is not None and countdown_splash is not None:
-                        display_manager.remove_widget(countdown_splash)
-                except Exception:
-                    pass
-                return False
-    
-    log.info("[_shutdown_countdown] Countdown complete, proceeding with shutdown")
-    # Don't remove countdown splash here - cleanup_and_exit will add its own modal splash
-    # which automatically replaces this one, avoiding a flash of the previous UI
-    return True
-
-
 def _shutdown(message: str, reboot: bool = False):
     """Shutdown the system with a message displayed on screen.
     
@@ -5222,15 +5161,12 @@ def key_callback(key_id):
     
     log.info(f"[App] Key event received: {key_id}, app_state={app_state}")
     
-    # Always handle LONG_PLAY for shutdown with countdown
+    # Always handle LONG_PLAY for shutdown
     if key_id == board.Key.LONG_PLAY:
-        log.info("[App] LONG_PLAY key event received, starting shutdown countdown")
-        if _shutdown_countdown():
-            running = False
-            kill = 1
-            cleanup_and_exit(reason="LONG_PLAY key event from universal.py", system_shutdown=True)
-        else:
-            log.info("[App] Shutdown cancelled (PLAY button released)")
+        log.info("[App] LONG_PLAY key event received")
+        running = False
+        kill = 1
+        cleanup_and_exit(reason="LONG_PLAY key event from universal.py", system_shutdown=True)
         _reset_unhandled_key_count()
         return
     

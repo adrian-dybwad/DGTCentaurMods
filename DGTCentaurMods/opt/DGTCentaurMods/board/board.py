@@ -78,8 +78,8 @@ def _default_on_refresh(image):
     Used by the web dashboard to mirror the e-paper display.
     """
     try:
-        from DGTCentaurMods.services.chromecast import write_epaper_jpg
-        write_epaper_jpg(image)
+        from DGTCentaurMods.managers import AssetManager
+        AssetManager.write_epaper_static_jpg(image)
     except Exception as e:
         log.debug(f"Failed to write epaper.jpg: {e}")
 
@@ -357,6 +357,70 @@ def sendCustomLedArray(data: bytes):
     """
     controller.sendCommand(command.LED_CMD, data)
 
+def shutdown_countdown(countdown_seconds: int = 3) -> bool:
+    """
+    Display a shutdown countdown with option to cancel.
+    
+    Shows a modal splash screen counting down from countdown_seconds to 0.
+    The modal widget takes over the display, ignoring all other widgets.
+    User can press BACK button to cancel the shutdown.
+    
+    Args:
+        countdown_seconds: Number of seconds to count down (default 5)
+    
+    Returns:
+        True if countdown completed (proceed with shutdown)
+        False if user cancelled (pressed BACK)
+    """
+    global display_manager
+    
+    log.info(f"[board.shutdown_countdown] Starting {countdown_seconds}s countdown")
+    beep(SOUND_POWER_OFF)
+    
+    # Create countdown splash (SplashScreen is modal - only it will be rendered)
+    countdown_splash = None
+    try:
+        if display_manager is not None:
+            # U+25C0 is left-pointing triangle for BACK button
+            countdown_splash = SplashScreen(message=f"Shutdown in\n  {countdown_seconds}")
+            display_manager.add_widget(countdown_splash)
+    except Exception as e:
+        log.debug(f"Failed to show countdown splash: {e}")
+    
+    # Drain any pending key events before starting countdown
+    while controller.get_next_key(timeout=0.0) is not None:
+        pass
+    
+    # Countdown loop - releasing PLAY button (PLAY key-up) cancels
+    for remaining in range(countdown_seconds, 0, -1):
+        # Update display
+        try:
+            if countdown_splash is not None:
+                countdown_splash.set_message(f"Shutdown in\n  {remaining}")
+        except Exception as e:
+            log.debug(f"Failed to update countdown: {e}")
+        
+        # Wait 1 second, checking for PLAY release every 100ms
+        for _ in range(10):
+            time.sleep(0.1)
+            key = controller.get_next_key(timeout=0.0)
+            if key == Key.PLAY:
+                # PLAY key-up means button was released - cancel shutdown
+                log.info("[board.shutdown_countdown] Cancelled (PLAY released)")
+                beep(SOUND_GENERAL, event_type='key_press')
+                # Remove modal widget to restore normal widget rendering
+                try:
+                    if display_manager is not None and countdown_splash is not None:
+                        display_manager.remove_widget(countdown_splash)
+                except Exception:
+                    pass
+                return False
+    
+    log.info("[board.shutdown_countdown] Countdown complete, proceeding with shutdown")
+    # Don't remove countdown splash here - shutdown() will add its own modal splash
+    # which automatically replaces this one, avoiding a flash of the previous UI
+    return True
+
 
 def sleep_controller() -> bool:
     """
@@ -394,16 +458,6 @@ def sleep_controller() -> bool:
     except Exception as e:
         log.error(f"Failed to send sleep command: {e}")
         return False
-
-
-def sleep() -> bool:
-    """
-    Sleep the controller with confirmation.
-    
-    Returns:
-        True if controller acknowledged sleep command, False otherwise
-    """
-    return controller.sleep()
 
 
 #
@@ -452,7 +506,7 @@ def _raw_to_chess_state(board_data_raw, caller_name: str):
     return chess_state
 
 
-def getBoardState(retries=2, retry_delay=0.1):
+def getBoardState(max_retries=2, retry_delay=0.1):
     """
     Get the current board state from the DGT Centaur in raw hardware order.
     
@@ -461,7 +515,7 @@ def getBoardState(retries=2, retry_delay=0.1):
     use getChessState() instead which transforms to chess order (0=a1, 1=b1, ..., 63=h8).
     
     Args:
-        retries: Number of retry attempts on timeout or checksum failure (default: 2)
+        max_retries: Maximum number of retry attempts on timeout or checksum failure (default: 2)
         retry_delay: Delay in seconds between retries (default: 0.1)
     
     Returns:
@@ -472,7 +526,17 @@ def getBoardState(retries=2, retry_delay=0.1):
         Retries are performed on timeout or checksum failure. This ensures
         transient communication errors don't cause permanent failures.
     """
-    return controller.request_response(command.DGT_BUS_SEND_STATE, timeout=5.0, retries=retries, retry_delay=retry_delay)
+    for attempt in range(max_retries + 1):
+        raw_boarddata = controller.request_response(command.DGT_BUS_SEND_STATE)
+        if raw_boarddata is not None:
+            return raw_boarddata
+        # None can indicate timeout or checksum failure - retry in both cases
+        if attempt < max_retries:
+            log.warning(f"[board.getBoardState] Attempt {attempt + 1} failed (timeout or checksum failure), retrying in {retry_delay}s...")
+            time.sleep(retry_delay)
+        else:
+            log.error(f"[board.getBoardState] All {max_retries + 1} attempts failed (timeout or checksum failure)")
+    return None
 
 
 def getBoardStateLowPriority():
@@ -659,15 +723,12 @@ def eventsThread(keycallback, fieldcallback, tout):
     
     Uses monotonic time for timeout tracking to avoid issues with system clock
     adjustments (e.g., NTP sync on Raspberry Pi startup that can jump the clock
-    forward and trigger premature inactivity timeout).
+    forward and trigger premature shutdown).
     
     Key handling:
-    - HELP_DOWN held 1+ second: Generates LONG_HELP event.
+    - PLAY_DOWN: Starts shutdown countdown (releasing cancels).
     - Other keys held for 1+ second: Triggers full display refresh (key consumed).
     - Short presses: Key-up events passed to callback.
-    - LONG_PLAY: Generated by controller hardware, passed to callback.
-    
-    Inactivity timeout: When reached, sends LONG_PLAY to callback for shutdown.
     """
     global eventsrunning
     global chargerconnected
@@ -791,10 +852,15 @@ def eventsThread(keycallback, fieldcallback, tout):
                             if long_press_key == Key.HELP_DOWN:
                                 log.info('[board.events] Long press HELP detected, sending LONG_HELP event')
                                 # Will be sent to callback after key-up
-                            # PLAY long-press: send LONG_PLAY to callback (universal.py handles countdown)
+                            # PLAY long-press: start shutdown countdown
                             elif long_press_key == Key.PLAY_DOWN:
-                                log.info('[board.events] Long press PLAY detected, sending LONG_PLAY to callback')
-                                keycallback(Key.LONG_PLAY)
+                                log.info('[board.events] Long press PLAY detected, starting shutdown countdown')
+                                if shutdown_countdown():
+                                    # Send LONG_PLAY to callback - universal.py handles cleanup_and_exit
+                                    log.info('[board.events] Countdown complete, sending LONG_PLAY to callback')
+                                    keycallback(Key.LONG_PLAY)
+                                else:
+                                    log.info('[board.events] Shutdown cancelled (button released)')
                                 key_pressed = None
                                 break  # Exit the long-press detection loop
                             else:
@@ -814,8 +880,8 @@ def eventsThread(keycallback, fieldcallback, tout):
                             if next_key.value == base_code:
                                 # Matching key-up received
                                 if long_press_triggered:
-                                    # Long press - check if HELP (send LONG_HELP)
-                                    # PLAY long-press generates LONG_PLAY from controller
+                                    # Long press - check if HELP (send LONG_HELP), else already handled
+                                    # PLAY long-press is handled above with shutdown_countdown
                                     if long_press_key == Key.HELP_DOWN:
                                         key_pressed = Key.LONG_HELP
                                     else:
@@ -894,7 +960,7 @@ def eventsThread(keycallback, fieldcallback, tout):
             to = time.monotonic() + tout
         time.sleep(0.05)
     else:
-        # Timeout reached, while loop breaks. Signal shutdown via key callback.
+        # Timeout reached, while loop breaks. Send LONG_PLAY to callback for shutdown.
         log.info(f'[board.events] Inactivity timeout reached ({tout}s with no activity)')
         keycallback(Key.LONG_PLAY)
 
