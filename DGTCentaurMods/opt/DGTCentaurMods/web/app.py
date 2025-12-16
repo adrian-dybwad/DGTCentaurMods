@@ -21,8 +21,7 @@
 
 from flask import Flask, render_template, Response, request, redirect, send_file, abort
 from DGTCentaurMods.db import models
-from DGTCentaurMods.managers.game import get_current_fen, get_current_placement
-from DGTCentaurMods.paths import get_resource_path
+from DGTCentaurMods.paths import get_current_fen, get_current_placement, get_resource_path
 from DGTCentaurMods.paths import EPAPER_STATIC_JPG
 from .chessboard import LiveBoard
 from . import centaurflask

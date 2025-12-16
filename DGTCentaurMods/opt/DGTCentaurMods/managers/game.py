@@ -27,6 +27,17 @@ from typing import Optional
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.paths import FEN_LOG, TMP_DIR
+from DGTCentaurMods.paths import (
+    DEFAULT_START_FEN,
+    get_fen_log_path,
+    write_fen_log,
+    get_current_fen,
+    get_current_placement,
+    get_current_turn,
+    get_current_castling,
+    get_current_en_passant,
+    get_current_halfmove_clock,
+)
 from DGTCentaurMods.board.logging import log
 
 # Deferred imports - these are slow (~3s total on Raspberry Pi) and loaded in background
@@ -132,104 +143,9 @@ def _get_create_engine():
     return _deferred_create_engine
 
 
-# -----------------------------------------------------------------------------
-# FEN Log Operations
-# -----------------------------------------------------------------------------
-# These functions manage the FEN log file used for external display (Chromecast)
-# and game state persistence. The file path comes from paths.py.
-
-DEFAULT_START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-
-
-def get_fen_log_path() -> str:
-    """Return the fen.log path."""
-    return FEN_LOG
-
-
-def write_fen_log(fen: str) -> None:
-    """Write FEN to fen.log for external consumers (Chromecast, web).
-    
-    Args:
-        fen: FEN string to write
-    """
-    log.info(f"Writing to {FEN_LOG}: {fen}")
-    with open(FEN_LOG, "w", encoding="utf-8") as f:
-        f.write(fen)
-
-
-def get_current_fen() -> str:
-    """Return the current FEN from fen.log.
-    
-    Behavior:
-    - If fen.log exists and has content, return its first line as-is.
-    - If fen.log is missing, return the starting FEN.
-    - If fen.log is empty, return the starting FEN.
-    
-    Returns:
-        Current FEN string or default starting position
-    """
-    try:
-        with open(FEN_LOG, "r", encoding="utf-8") as f:
-            curfen = f.readline().strip()
-    except FileNotFoundError:
-        return DEFAULT_START_FEN
-    log.info(f"Reading from {FEN_LOG}: {curfen}")
-    return curfen or DEFAULT_START_FEN
-
-
-def get_current_placement() -> str:
-    """Return only the board placement part of the current FEN.
-    
-    Returns:
-        Board placement string (first part of FEN before the space)
-    """
-    fen = get_current_fen()
-    return fen.split()[0] if fen else ""
-
-
-def get_current_turn() -> str:
-    """Return the current turn from the FEN ('w' or 'b').
-    
-    Returns:
-        'w' for white's turn, 'b' for black's turn
-    """
-    fen = get_current_fen()
-    parts = fen.split()
-    return parts[1] if len(parts) > 1 else "w"
-
-
-def get_current_castling() -> str:
-    """Return the castling rights from the current FEN.
-    
-    Returns:
-        Castling rights string (e.g., 'KQkq', '-')
-    """
-    fen = get_current_fen()
-    parts = fen.split()
-    return parts[2] if len(parts) > 2 else "-"
-
-
-def get_current_en_passant() -> str:
-    """Return the en passant square from the current FEN.
-    
-    Returns:
-        En passant target square (e.g., 'e3') or '-'
-    """
-    fen = get_current_fen()
-    parts = fen.split()
-    return parts[3] if len(parts) > 3 else "-"
-
-
-def get_current_halfmove_clock() -> int:
-    """Return the halfmove clock from the current FEN.
-    
-    Returns:
-        Halfmove clock (number of half moves since last capture or pawn advance)
-    """
-    fen = get_current_fen()
-    parts = fen.split()
-    return int(parts[4]) if len(parts) > 4 else 0
-
+# FEN functions are imported from paths.py and re-exported for backward compatibility.
+# They are in paths.py because they only do file I/O and don't need hardware access,
+# allowing the web app to use them without importing board.
 
 # Event constants - import from lightweight events module for backward compatibility
 from DGTCentaurMods.managers.events import (
