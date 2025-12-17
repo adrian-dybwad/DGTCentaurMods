@@ -158,14 +158,14 @@ class TestHandBrainConfig(unittest.TestCase):
     def test_config_defaults(self):
         """Test HandBrainConfig default values.
         
-        Expected: Default should use stockfish_pi for analysis.
+        Expected: Default should use stockfish for analysis.
         Failure: Hand+Brain mode uses wrong engine.
         """
         from DGTCentaurMods.assistants.hand_brain import HandBrainConfig
         
         config = HandBrainConfig()
         
-        assert config.engine_name == "stockfish_pi"
+        assert config.engine_name == "stockfish"
         assert config.elo_section == "Default"
         assert config.auto_suggest is True
     
@@ -230,14 +230,14 @@ class TestHandBrainAssistant(unittest.TestCase):
         
         config = HandBrainConfig(
             name="Test Brain",
-            engine_name="stockfish_pi",
+            engine_name="stockfish",
             elo_section="1500"
         )
         assistant = HandBrainAssistant(config)
         info = assistant.get_info()
         
         assert info['type'] == 'hand_brain'
-        assert info['engine_name'] == 'stockfish_pi'
+        assert info['engine_name'] == 'stockfish'
         assert info['elo_section'] == '1500'
 
 
@@ -247,14 +247,14 @@ class TestHintConfig(unittest.TestCase):
     def test_config_defaults(self):
         """Test HintConfig default values.
         
-        Expected: Default hint should use stockfish_pi, auto_suggest off.
+        Expected: Default hint should use stockfish, auto_suggest off.
         Failure: Hint mode uses wrong settings.
         """
         from DGTCentaurMods.assistants.hint import HintConfig
         
         config = HintConfig()
         
-        assert config.engine_name == "stockfish_pi"
+        assert config.engine_name == "stockfish"
         assert config.elo_section == "Default"
         assert config.auto_suggest is False  # Hints are on-demand
     
@@ -288,11 +288,11 @@ class TestHintAssistant(unittest.TestCase):
         """
         from DGTCentaurMods.assistants.hint import HintAssistant, HintConfig
         
-        config = HintConfig(engine_name="stockfish_pi")
+        config = HintConfig(engine_name="stockfish")
         assistant = HintAssistant(config)
         
         assert assistant.name == config.name
-        assert assistant._hint_config.engine_name == "stockfish_pi"
+        assert assistant._hint_config.engine_name == "stockfish"
     
     def test_auto_suggest_disabled(self):
         """Test that auto_suggest is disabled for hints.
@@ -383,12 +383,12 @@ class TestCreateHintAssistant(unittest.TestCase):
         from DGTCentaurMods.assistants import create_hint_assistant
         
         assistant = create_hint_assistant(
-            engine_name="stockfish_pi",
+            engine_name="stockfish",
             time_limit=5.0
         )
         
         info = assistant.get_info()
-        assert info['engine_name'] == 'stockfish_pi'
+        assert info['engine_name'] == 'stockfish'
 
 
 class TestAssistantCallbacks(unittest.TestCase):

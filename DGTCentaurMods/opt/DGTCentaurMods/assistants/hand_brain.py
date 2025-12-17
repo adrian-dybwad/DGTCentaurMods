@@ -41,7 +41,7 @@ class HandBrainConfig(AssistantConfig):
     """
     name: str = "Brain"
     auto_suggest: bool = True  # Always auto-suggest in Hand+Brain
-    engine_name: str = "stockfish_pi"
+    engine_name: str = "stockfish"
     engine_path: Optional[str] = None
     elo_section: str = "Default"
 
@@ -378,7 +378,7 @@ class HandBrainAssistant(Assistant):
 
 
 def create_hand_brain_assistant(
-    engine_name: str = "stockfish_pi",
+    engine_name: str = "stockfish",
     elo_section: str = "Default",
     time_limit: float = 2.0
 ) -> HandBrainAssistant:

@@ -85,7 +85,7 @@ def get_engine_path(engine_name: str) -> str:
     then falls back to development location (relative to this file).
     
     Args:
-        engine_name: Name of the engine executable (e.g., "stockfish_pi", "ct800")
+        engine_name: Name of the engine executable (e.g., "stockfish", "ct800")
         
     Returns:
         Absolute path to the engine executable, or empty string if not found

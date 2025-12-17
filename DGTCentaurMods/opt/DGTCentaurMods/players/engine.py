@@ -32,14 +32,14 @@ class EnginePlayerConfig(PlayerConfig):
         name: Engine name for display.
         color: The color this player plays.
         time_limit_seconds: Maximum time per move.
-        engine_name: Name of the engine executable (e.g., "stockfish_pi").
+        engine_name: Name of the engine executable (e.g., "stockfish").
         engine_path: Full path to engine executable. If None, searches in
                     standard locations (engines/ folder).
         elo_section: Section name from .uci config file for ELO settings.
         uci_options: Additional UCI options to configure.
     """
     time_limit_seconds: float = 5.0
-    engine_name: str = "stockfish_pi"
+    engine_name: str = "stockfish"
     engine_path: Optional[str] = None
     elo_section: str = "Default"
     uci_options: Dict[str, str] = field(default_factory=dict)
@@ -418,7 +418,7 @@ class EnginePlayer(Player):
 
 def create_engine_player(
     color: chess.Color,
-    engine_name: str = "stockfish_pi",
+    engine_name: str = "stockfish",
     elo_section: str = "Default",
     time_limit: float = 5.0
 ) -> EnginePlayer:
@@ -426,7 +426,7 @@ def create_engine_player(
     
     Args:
         color: The color this engine plays (WHITE or BLACK).
-        engine_name: Name of the engine (e.g., "stockfish_pi", "maia").
+        engine_name: Name of the engine (e.g., "stockfish", "maia").
         elo_section: ELO section from .uci config file.
         time_limit: Maximum thinking time per move in seconds.
     

@@ -10,32 +10,6 @@ PACKAGE="DGTCentaurMods"
 INSTALLDIR="/opt/${PACKAGE}"
 cd ../
 
-# Detect architecture for both package and Stockfish compilation
-# Sets DEB_ARCH (arm64 or armhf) and STOCKFISH_ARCH
-function detectArch {
-    # Check if running on 64-bit ARM (ARMv8)
-    if [ "$(uname -m)" = "aarch64" ]; then
-        DEB_ARCH="arm64"
-        STOCKFISH_ARCH="armv8"
-        echo -e "::: 64-bit ARM detected, using arm64 package and armv8 Stockfish"
-    # Check if running on 32-bit ARM with NEON support
-    elif grep -q "neon" /proc/cpuinfo 2>/dev/null; then
-        DEB_ARCH="armhf"
-        STOCKFISH_ARCH="armv7-neon"
-        echo -e "::: 32-bit ARM with NEON detected, using armhf package and armv7-neon Stockfish"
-    # Fallback to basic ARMv7
-    else
-        DEB_ARCH="armhf"
-        STOCKFISH_ARCH="armv7"
-        echo -e "::: Basic 32-bit ARM detected, using armhf package and armv7 Stockfish"
-    fi
-}
-
-# -------- SQLite (portable) flags --------
-# Use pkg-config when present; fall back to system locations.
-# We also ensure pkg-config and libsqlite3-dev exist when building Stockfish.
-SQLITE_CFLAGS="$(pkg-config --cflags sqlite3 2>/dev/null || echo -I/usr/include)"
-SQLITE_LIBS="$(pkg-config --libs sqlite3 2>/dev/null || echo -lsqlite3)"
 
 function detectVersion {
     echo -e "::: Getting version"
@@ -74,76 +48,20 @@ function build {
     return
 }
 
-function insertStockfish {
-    REPLY="Y"
-    if [ $FULL -eq 1 ]; then
-        read -p "Do you want to compile and insert Stockfish in this build? (y/n): "
-    fi 
-    case $REPLY in
-        [Yy]* )
-            # Detect architecture for Stockfish compilation
-            detectArch
-
-            cd "${BUILD_TMP}"
-            echo -e "Cloning Stockfish repo"
-            rm -rf Stockfish
-            git clone $STOCKFISH_REPO
-
-            if [ $(dpkg-query -W -f='${Status}' libsqlite3-dev 2>/dev/null | grep -c "ok installed") -eq 0 ]; then
-                sudo apt-get update -y
-                sudo apt-get install -y libsqlite3-dev
-            fi
-
-            # Patch include if needed
-            sed -i 's|^#include "/usr/local/include/sqlite3\.h"|#include <sqlite3.h>|' Stockfish/src/uci.cpp 2>/dev/null || true
-
-            cd Stockfish/src
-            # Strip bogus -I pointing to a file (cosmetic)
-            sed -i 's|-I/usr/local/include/sqlite3\.h||g' Makefile 2>/dev/null || true
-            sed -i 's|-I/usr/local/include/sqlite3\.h||g' ../Makefile 2>/dev/null || true
-
-            make clean
-            echo -e "::: Compiling Stockfish with ARCH=${STOCKFISH_ARCH} for ${DEB_ARCH}"
-            
-            # Check available memory and set parallelism accordingly
-            # LTO linking requires significant memory - use fewer jobs on low-memory systems
-            MEM_MB=$(free -m | awk '/^Mem:/{print $2}')
-            if [ "$MEM_MB" -lt 2000 ]; then
-                JOBS=1
-                echo -e "::: Low memory (${MEM_MB}MB), using single-threaded build"
-            elif [ "$MEM_MB" -lt 4000 ]; then
-                JOBS=2
-                echo -e "::: Limited memory (${MEM_MB}MB), using 2 parallel jobs"
-            else
-                JOBS=$(nproc)
-                echo -e "::: Sufficient memory (${MEM_MB}MB), using ${JOBS} parallel jobs"
-            fi
-            
-            # Pass SQLite linker flags via LDFLAGS (Stockfish Makefile appends to LDFLAGS)
-            make -j${JOBS} build ARCH=${STOCKFISH_ARCH} LDFLAGS="${SQLITE_LIBS}"
-
-            # Name binary with architecture suffix for multi-arch support
-            # postinst will create symlink stockfish_pi -> stockfish_pi_<arch>
-            mv stockfish "stockfish_pi_${DEB_ARCH}"
-            
-            # Remove any existing stockfish binaries in staging
-            rm -f "${STAGE_DIR}${INSTALLDIR}/engines/stockfish_pi"
-            rm -f "${STAGE_DIR}${INSTALLDIR}/engines/stockfish_pi_arm64"
-            rm -f "${STAGE_DIR}${INSTALLDIR}/engines/stockfish_pi_armhf"
-            
-            # Copy the architecture-specific binary
-            cp "stockfish_pi_${DEB_ARCH}" "${STAGE_DIR}${INSTALLDIR}/engines/"
-            
-            echo -e "::: Stockfish binary: stockfish_pi_${DEB_ARCH}"
-            return
-            ;;
-        [Nn]* ) return ;;
-    esac
+function prepareEngines {
+    # Remove any compiled Stockfish binaries from staging
+    # Stockfish will be installed from system package during postinst
+    echo -e "::: Preparing engines directory"
+    rm -f "${STAGE_DIR}${INSTALLDIR}/engines/stockfish"
+    rm -f "${STAGE_DIR}${INSTALLDIR}/engines/stockfish_pi"
+    rm -f "${STAGE_DIR}${INSTALLDIR}/engines/stockfish_pi_arm64"
+    rm -f "${STAGE_DIR}${INSTALLDIR}/engines/stockfish_pi_armhf"
+    echo -e "::: Stockfish will be installed from system package during installation"
 }
 
 function clean {
     echo -e "::: Cleaning"
-    sudo rm -rf "${BUILD_TMP}/dgtcentaurmods_"* "${BUILD_TMP}/Stockfish"
+    sudo rm -rf "${BUILD_TMP}/dgtcentaurmods_"*
     rm -rf ${BASEDIR}/releases
 }
 
@@ -158,7 +76,7 @@ function main() {
     stage
     removeDev 2>/dev/null
     setPermissions
-    insertStockfish
+    prepareEngines
     build
 }
 

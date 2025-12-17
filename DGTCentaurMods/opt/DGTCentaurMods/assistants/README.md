@@ -36,7 +36,7 @@ In Hand+Brain mode, the engine suggests which piece type to move.
 ```python
 from DGTCentaurMods.assistants import create_hand_brain_assistant
 
-assistant = create_hand_brain_assistant(engine_name="stockfish_pi")
+assistant = create_hand_brain_assistant(engine_name="stockfish")
 assistant.set_suggestion_callback(on_suggestion)
 assistant.start()
 

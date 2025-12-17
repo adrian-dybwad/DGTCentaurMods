@@ -42,9 +42,7 @@ BTMAIN="/etc/bluetooth/main.conf"
 DBUSSERVICE="/etc/systemd/system/dbus-org.bluez.service"
 CENTAUR="/home/pi/centaur/"
 CENTAUR_ENGINE="/home/pi/centaur/engines"
-STOCKFISH="stockfish_pi"
-RODENT_REPO="https://github.com/nescitus/rodent-iv.git"
-MAIA_REPO="https://github.com/CSSLab/maia-chess.git"
+STOCKFISH="stockfish"
 VENV_DIR="$DGTCM_PATH/.venv"
 REQ_VENV="$DGTCM_PATH/setup/requirements.txt"
 WHEELS_DIR="$DGTCM_PATH/wheels"   # ship this in the .deb (optional but recommended)
@@ -254,44 +252,34 @@ then
 fi
 }
 
-# Install Stockfish - create symlink to architecture-specific binary
-# Multi-arch package includes stockfish_pi_arm64 and/or stockfish_pi_armhf
-# We create stockfish_pi symlink pointing to the correct one for this system
+# Install Stockfish from system package and create symlink
+# This ensures we get the correct architecture binary automatically
 echo -e "::: Setting up Stockfish engine"
 ENGINES_DIR="${DGTCM_PATH}/engines"
 
-# Detect architecture
-if [ "$(uname -m)" = "aarch64" ]; then
-    STOCKFISH_BINARY="stockfish_pi_arm64"
-else
-    STOCKFISH_BINARY="stockfish_pi_armhf"
+# Remove old compiled binaries and symlinks
+rm -f "${ENGINES_DIR}/${STOCKFISH}"
+# Remove old _pi named binaries from previous versions
+rm -f "${ENGINES_DIR}/stockfish_pi"
+rm -f "${ENGINES_DIR}/stockfish_pi_arm64"
+rm -f "${ENGINES_DIR}/stockfish_pi_armhf"
+
+# Install stockfish from system package if not already installed
+if ! command -v stockfish &> /dev/null; then
+    echo -e "::: Installing Stockfish from system package"
+    apt-get update -qq
+    apt-get install -y stockfish
 fi
 
-# Remove old symlink or file
-rm -f "${ENGINES_DIR}/${STOCKFISH}"
-
-if [[ -e "${ENGINES_DIR}/${STOCKFISH_BINARY}" ]]; then
-    echo -e "::: Found ${STOCKFISH_BINARY}, creating symlink"
-    chmod 755 "${ENGINES_DIR}/${STOCKFISH_BINARY}"
-    chown pi:pi "${ENGINES_DIR}/${STOCKFISH_BINARY}"
-    ln -sf "${STOCKFISH_BINARY}" "${ENGINES_DIR}/${STOCKFISH}"
+# Create symlink to system stockfish
+if command -v stockfish &> /dev/null; then
+    STOCKFISH_PATH=$(command -v stockfish)
+    echo -e "::: Found system Stockfish at ${STOCKFISH_PATH}"
+    ln -sf "${STOCKFISH_PATH}" "${ENGINES_DIR}/${STOCKFISH}"
     chown -h pi:pi "${ENGINES_DIR}/${STOCKFISH}"
-elif [[ -e "${ENGINES_DIR}/stockfish_pi_arm64" ]]; then
-    # Fallback: try arm64 binary on any system (might work via emulation)
-    echo -e "::: Using stockfish_pi_arm64 (fallback)"
-    chmod 755 "${ENGINES_DIR}/stockfish_pi_arm64"
-    chown pi:pi "${ENGINES_DIR}/stockfish_pi_arm64"
-    ln -sf "stockfish_pi_arm64" "${ENGINES_DIR}/${STOCKFISH}"
-    chown -h pi:pi "${ENGINES_DIR}/${STOCKFISH}"
-elif [[ -e "${ENGINES_DIR}/stockfish_pi_armhf" ]]; then
-    # Fallback: try armhf binary
-    echo -e "::: Using stockfish_pi_armhf (fallback)"
-    chmod 755 "${ENGINES_DIR}/stockfish_pi_armhf"
-    chown pi:pi "${ENGINES_DIR}/stockfish_pi_armhf"
-    ln -sf "stockfish_pi_armhf" "${ENGINES_DIR}/${STOCKFISH}"
-    chown -h pi:pi "${ENGINES_DIR}/${STOCKFISH}"
+    echo -e "::: Created symlink ${ENGINES_DIR}/${STOCKFISH} -> ${STOCKFISH_PATH}"
 else
-    echo -e "::: WARNING: No Stockfish binary found in package"
+    echo -e "::: WARNING: Could not install Stockfish from system package"
 fi
 
 #
@@ -322,55 +310,9 @@ if [ -f "$REQ_VENV" ]; then
   fi
 fi
 
-function insertMaia {
-    if [[ $ARCH == "armv6"* ]]; then
-        #Remove maia and don't get weights
-        echo -e "::: This system is not compatible with maia engine. Removing"
-        rm -rf ${DGTCM_PATH}/engines/maia* > /dev/null 2>&1
-        return
-    fi
-    if [ ! -d  ${DGTCM_PATH}/tmp ]
-    then
-        mkdir ${DGTCM_PATH}/tmp
-    fi
-    if [ ! -d ${DGTCM_PATH}/tmp/maia-chess ]
-    then
-        git clone --depth 1 $MAIA_REPO ${DGTCM_PATH}/tmp/maia-chess;
-        if (($? > 0))
-            then echo "git clone maia chess failed with $?"
-        fi
-    fi
-    cp -rn ${DGTCM_PATH}/tmp/maia-chess/maia_weights ${DGTCM_PATH}/engines/
-    cp -n ${DGTCM_PATH}/engines/maia_weights/maia-1900.pb.gz ${DGTCM_PATH}/engines/
-    chmod 755 ${DGTCM_PATH}/engines/maia
-}
-
-function insertRodentIV {
-    if [ ! -d  ${DGTCM_PATH}/tmp ]
-    then
-        mkdir ${DGTCM_PATH}/tmp
-    fi
-    if [ ! -d ${DGTCM_PATH}/tmp/rodent-iv ]
-    then
-        git clone --depth 1 $RODENT_REPO ${DGTCM_PATH}/tmp/rodent-iv;
-        if (($? > 0))
-            then echo "git clone rodentiv failed with $?"
-        fi
-    fi
-    cp -rn ${DGTCM_PATH}/tmp/rodent-iv/personalities ${DGTCM_PATH}/engines/
-    cp -rn ${DGTCM_PATH}/tmp/rodent-iv/books ${DGTCM_PATH}/engines/
-    chmod 744 ${DGTCM_PATH}/engines/rodentIV
-}
-
-function insertZahak {
-    chmod 755 ${DGTCM_PATH}/engines/zahak
-
-}
-
-
-insertMaia
-insertRodentIV
-insertZahak
+# Note: Additional engines (ct800, rodentIV, zahak, maia) can be installed
+# from the Engine Manager in Settings -> Engine Manager on the board.
+# They will be built from source for the correct architecture.
 
 # Setting final permissions
 function setPermissions {

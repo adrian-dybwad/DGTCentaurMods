@@ -87,7 +87,7 @@ white = HumanPlayer()
 config = EnginePlayerConfig(
     name="Stockfish",
     color=chess.BLACK,
-    engine_name="stockfish_pi",
+    engine_name="stockfish",
     elo_section="1500",
     time_limit_seconds=5.0
 )

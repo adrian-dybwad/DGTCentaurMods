@@ -35,7 +35,7 @@ class PlayerManager:
     Example:
         # Setup
         white_player = HumanPlayer()
-        black_player = create_engine_player(chess.BLACK, "stockfish_pi")
+        black_player = create_engine_player(chess.BLACK, "stockfish")
         
         manager = PlayerManager(white_player, black_player)
         manager.set_move_callback(on_move)
