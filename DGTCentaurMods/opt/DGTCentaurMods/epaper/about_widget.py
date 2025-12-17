@@ -40,18 +40,19 @@ class AboutWidget(Widget):
     VERSION_Y = 185
     INSTRUCTION_Y = 280
     
-    def __init__(self, 
+    def __init__(self, update_callback,
                  qr_image: Optional[Image.Image] = None,
                  version: str = "",
                  background_shade: int = 0):
         """Initialize the about widget.
         
         Args:
+            update_callback: Callback to trigger display updates. Must not be None.
             qr_image: Optional QR code image. If None, displays text fallback.
             version: Application version string.
             background_shade: Background shade 0-16 (0=white, 16=black).
         """
-        super().__init__(0, 0, 128, 296, background_shade=background_shade)
+        super().__init__(0, 0, 128, 296, update_callback, background_shade=background_shade)
         self._qr_image = qr_image
         self._version = version
         self._dismissed = threading.Event()

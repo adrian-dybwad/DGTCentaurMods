@@ -15,8 +15,8 @@ except ImportError:
 class CheckerboardWidget(Widget):
     """Checkerboard widget that renders a checkerboard pattern with configurable square size."""
     
-    def __init__(self, x: int, y: int, width: int, height: int, square_size: int = 64):
-        super().__init__(x, y, width, height)
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback, square_size: int = 64):
+        super().__init__(x, y, width, height, update_callback)
         self._square_size = square_size
     
     def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:

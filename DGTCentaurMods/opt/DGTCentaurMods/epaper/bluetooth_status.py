@@ -187,13 +187,14 @@ class BluetoothStatusWidget(Widget):
     Args:
         x: X position
         y: Y position
-        width: Widget width in pixels (default 12)
-        height: Widget height in pixels (default 16)
+        width: Widget width in pixels
+        height: Widget height in pixels
+        update_callback: Callback to trigger display updates. Must not be None.
         auto_update: If True, starts background thread for automatic updates
     """
     
-    def __init__(self, x: int, y: int, width: int = 12, height: int = 16, auto_update: bool = True):
-        super().__init__(x, y, width, height)
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback, auto_update: bool = True):
+        super().__init__(x, y, width, height, update_callback)
         self._width = width
         self._height = height
         self._last_state: Optional[int] = None

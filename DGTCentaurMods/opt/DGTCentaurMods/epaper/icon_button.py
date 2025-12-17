@@ -53,7 +53,7 @@ class IconButtonWidget(Widget):
         layout: Layout mode - 'horizontal' or 'vertical'
     """
     
-    def __init__(self, x: int, y: int, width: int, height: int,
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback,
                  key: str, label: str, icon_name: str,
                  selected: bool = False,
                  icon_size: int = 36,
@@ -74,6 +74,7 @@ class IconButtonWidget(Widget):
             y: Y position of widget
             width: Widget width
             height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
             key: Unique identifier returned on selection
             label: Display text
             icon_name: Icon identifier for rendering
@@ -91,7 +92,7 @@ class IconButtonWidget(Widget):
             font_size: Font size in pixels (default 16)
             bold: Whether to render text in bold (simulated via multi-draw)
         """
-        super().__init__(x, y, width, height, background_shade=background_shade)
+        super().__init__(x, y, width, height, update_callback, background_shade=background_shade)
         self.key = key
         self.label = label
         self.icon_name = icon_name
@@ -111,6 +112,10 @@ class IconButtonWidget(Widget):
         # Text content is set dynamically via set_text()
         self._text_widgets_cache = {}
     
+    def _handle_child_update(self, full: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full)
+    
     def _get_cached_text_widget(self, width: int, centered: bool) -> TextWidget:
         """Get or create a cached TextWidget for the given parameters.
         
@@ -126,7 +131,7 @@ class IconButtonWidget(Widget):
         if cache_key not in self._text_widgets_cache:
             line_height = self.font_size + 4
             widget = TextWidget(
-                x=0, y=0, width=width, height=line_height,
+                0, 0, width, line_height, self._handle_child_update,
                 text="", font_size=self.font_size,
                 justify=Justify.CENTER if centered else Justify.LEFT,
                 transparent=True, bold=self.bold

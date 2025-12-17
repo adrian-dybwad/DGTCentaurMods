@@ -59,12 +59,13 @@ class SplashScreen(Widget):
     TEXT_Y = 170  # Y position for message text (below logo)
     TEXT_HEIGHT = 88  # Height for 4 lines of text at font size 18
     
-    def __init__(self, message: str = "Press [OK]", background_shade: int = 4,
+    def __init__(self, update_callback, message: str = "Press [OK]", background_shade: int = 4,
                  leave_room_for_status_bar: bool = True,
                  logo: Image.Image = None, logo_mask: Image.Image = None):
         """Initialize splash screen widget.
         
         Args:
+            update_callback: Callback to trigger display updates. Must not be None.
             message: Initial message to display
             background_shade: Dithered background shade 0-16 (default 4 = ~25% grey)
             leave_room_for_status_bar: If True, start below status bar; if False, use full screen
@@ -77,7 +78,7 @@ class SplashScreen(Widget):
         else:
             y_pos = 0
             height = 296
-        super().__init__(0, y_pos, 128, height, background_shade=background_shade)
+        super().__init__(0, y_pos, 128, height, update_callback, background_shade=background_shade)
         self.message = message
         
         # Use provided logo or module-level logo
@@ -94,17 +95,22 @@ class SplashScreen(Widget):
         # Calculate text widget dimensions with margins for centering
         text_width = self.width - (self.TEXT_MARGIN * 2)
         
-        # Create a TextWidget for "UNIVERSAL" title with centered justification
+        # Create child TextWidgets - they use parent's handler so parent controls updates
         self._universal_text = TextWidget(
             x=0, y=0, width=self.width, height=28,
+            update_callback=self._handle_child_update,
             text="UNIVERSAL", font_size=24, justify=Justify.CENTER, transparent=True
         )
         
-        # Create a TextWidget for the message with centered justification and wrapping
         self._text_widget = TextWidget(
             x=0, y=0, width=text_width, height=self.TEXT_HEIGHT,
+            update_callback=self._handle_child_update,
             text=message, font_size=18, justify=Justify.CENTER, wrapText=True
         )
+    
+    def _handle_child_update(self, full: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full)
     
     def set_message(self, message: str):
         """Update the splash screen message and trigger a re-render.

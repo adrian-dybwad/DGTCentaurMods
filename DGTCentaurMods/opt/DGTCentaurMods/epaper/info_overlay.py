@@ -27,33 +27,33 @@ class InfoOverlayWidget(Widget):
     DEFAULT_Y = 216
     DEFAULT_HEIGHT = 80
     
-    def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None):
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback):
         """Initialize info overlay widget.
         
         Args:
-            x: X position (default 0)
-            y: Y position (default 216, over analysis widget)
-            width: Widget width (default 128)
-            height: Widget height (default 80)
+            x: X position
+            y: Y position
+            width: Widget width
+            height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
         """
-        if y is None:
-            y = self.DEFAULT_Y
-        if height is None:
-            height = self.DEFAULT_HEIGHT
-            
-        super().__init__(x, y, width, height)
+        super().__init__(x, y, width, height, update_callback)
         
         self._message = ""
         self._hide_timer: threading.Timer = None
         self.visible = False
         
-        # Create TextWidget for message
+        # Create TextWidget for message - use parent handler for child updates
         self._text_widget = TextWidget(
-            x=0, y=0, width=width, height=height,
+            0, 0, width, height, self._handle_child_update,
             text="", font_size=16,
             justify=Justify.CENTER, wrapText=True,
             transparent=True
         )
+    
+    def _handle_child_update(self, full: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full)
     
     def show_message(self, message: str, duration_seconds: float = 0) -> None:
         """Show a message, optionally auto-hiding after a duration.

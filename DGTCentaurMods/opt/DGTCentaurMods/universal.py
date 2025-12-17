@@ -246,7 +246,7 @@ def _init_display_early():
         
         # Show splash screen immediately (full screen, no status bar)
         _early_display_manager.clear_widgets(addStatusBar=False)
-        _startup_splash = SplashScreen(message="Starting...", leave_room_for_status_bar=False)
+        _startup_splash = SplashScreen(_early_display_manager.update, message="Starting...", leave_room_for_status_bar=False)
         promise = _early_display_manager.add_widget(_startup_splash)
         # Don't block - monitor in background thread
         _wait_for_display_promise(promise, "add_splash", timeout=10.0)
@@ -2171,7 +2171,7 @@ def _handle_player1_name_input():
     
     # Create keyboard widget with current name as initial text
     current_name = _player1_settings['name']
-    keyboard = KeyboardWidget(title="Player 1 Name", max_length=20)
+    keyboard = KeyboardWidget(board.display_manager.update, title="Player 1 Name", max_length=20)
     keyboard.text = current_name if current_name else ""
     
     _active_keyboard_widget = keyboard
@@ -2219,7 +2219,7 @@ def _handle_player2_name_input():
     
     # Create keyboard widget with current name as initial text
     current_name = _player2_settings['name']
-    keyboard = KeyboardWidget(title="Player 2 Name", max_length=20)
+    keyboard = KeyboardWidget(board.display_manager.update, title="Player 2 Name", max_length=20)
     keyboard.text = current_name if current_name else ""
     
     _active_keyboard_widget = keyboard
@@ -2702,7 +2702,7 @@ def _scan_wifi_networks() -> List[dict]:
     try:
         # Show scanning message (full screen, no status bar)
         board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(message="Scanning...", leave_room_for_status_bar=False))
+        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Scanning...", leave_room_for_status_bar=False))
         if promise:
             try:
                 promise.result(timeout=5.0)
@@ -2799,7 +2799,7 @@ def _connect_to_wifi(ssid: str, password: str = None) -> bool:
     try:
         # Show connecting message (full screen, no status bar)
         board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(message="Connecting...", leave_room_for_status_bar=False))
+        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Connecting...", leave_room_for_status_bar=False))
         if promise:
             try:
                 promise.result(timeout=5.0)
@@ -2857,7 +2857,7 @@ def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
     board.display_manager.clear_widgets(addStatusBar=False)
     
     # Create keyboard widget
-    keyboard = KeyboardWidget(title=f"Password: {ssid[:10]}", max_length=64)
+    keyboard = KeyboardWidget(board.display_manager.update, title=f"Password: {ssid[:10]}", max_length=64)
     _active_keyboard_widget = keyboard
     
     # Add widget to display
@@ -3014,7 +3014,7 @@ def _handle_wifi_scan():
     if not networks:
         # Show no networks found message (full screen, no status bar)
         board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(message="No networks found", leave_room_for_status_bar=False))
+        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="No networks found", leave_room_for_status_bar=False))
         if promise:
             try:
                 promise.result(timeout=2.0)
@@ -3230,7 +3230,7 @@ def _handle_chromecast_menu():
             cc_service.stop_streaming()
             log.info("[Chromecast] Streaming stopped by user")
             board.display_manager.clear_widgets()
-            promise = board.display_manager.add_widget(SplashScreen(message="Streaming\nstopped"))
+            promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Streaming\nstopped"))
             if promise:
                 try:
                     promise.result(timeout=2.0)
@@ -3243,7 +3243,7 @@ def _handle_chromecast_menu():
     
     # Show discovering message
     board.display_manager.clear_widgets()
-    promise = board.display_manager.add_widget(SplashScreen(message="Discovering\nChromecasts..."))
+    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Discovering\nChromecasts..."))
     if promise:
         try:
             promise.result(timeout=2.0)
@@ -3257,7 +3257,7 @@ def _handle_chromecast_menu():
     except ImportError:
         log.error("[Chromecast] pychromecast library not installed")
         board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(message="pychromecast\nnot installed"))
+        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="pychromecast\nnot installed"))
         if promise:
             try:
                 promise.result(timeout=2.0)
@@ -3268,7 +3268,7 @@ def _handle_chromecast_menu():
     except Exception as e:
         log.error(f"[Chromecast] Discovery failed: {e}")
         board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(message="Discovery\nfailed"))
+        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Discovery\nfailed"))
         if promise:
             try:
                 promise.result(timeout=2.0)
@@ -3295,7 +3295,7 @@ def _handle_chromecast_menu():
     if not cast_entries:
         log.info("[Chromecast] No Chromecast devices found")
         board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(message="No Chromecasts\nfound"))
+        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="No Chromecasts\nfound"))
         if promise:
             try:
                 promise.result(timeout=2.0)
@@ -3329,7 +3329,7 @@ def _handle_chromecast_menu():
     board.display_manager.clear_widgets()
     # Truncate long names
     display_name = selected_name[:18] if len(selected_name) > 18 else selected_name
-    promise = board.display_manager.add_widget(SplashScreen(message=f"Streaming to\n{display_name}"))
+    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message=f"Streaming to\n{display_name}"))
     if promise:
         try:
             promise.result(timeout=2.0)
@@ -3452,7 +3452,7 @@ def _show_support_qr():
     # Create and display the AboutWidget
     board.display_manager.clear_widgets(addStatusBar=False)
     
-    about_widget = AboutWidget(qr_image=qr_img, version=version)
+    about_widget = AboutWidget(board.display_manager.update, qr_image=qr_img, version=version)
     _active_about_widget = about_widget
     
     promise = board.display_manager.add_widget(about_widget)
@@ -3645,7 +3645,7 @@ def _check_and_download_update(update_system):
     
     # Show checking message
     board.display_manager.clear_widgets()
-    promise = board.display_manager.add_widget(SplashScreen(message="Checking for\nupdates..."))
+    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Checking for\nupdates..."))
     if promise:
         try:
             promise.result(timeout=2.0)
@@ -3670,7 +3670,7 @@ def _check_and_download_update(update_system):
                 # Update available - ask to download
                 board.display_manager.clear_widgets()
                 promise = board.display_manager.add_widget(
-                    SplashScreen(message=f"Update available\nv{ota_version}\n\nDownloading...")
+                    SplashScreen(board.display_manager.update, message=f"Update available\nv{ota_version}\n\nDownloading...")
                 )
                 if promise:
                     try:
@@ -3687,7 +3687,7 @@ def _check_and_download_update(update_system):
                     # Ask to install
                     board.display_manager.clear_widgets()
                     promise = board.display_manager.add_widget(
-                        SplashScreen(message=f"Downloaded\nv{release_version}\n\nInstall now?")
+                        SplashScreen(board.display_manager.update, message=f"Downloaded\nv{release_version}\n\nInstall now?")
                     )
                     if promise:
                         try:
@@ -3709,7 +3709,7 @@ def _check_and_download_update(update_system):
                 except Exception as e:
                     log.error(f"[Update] Download failed: {e}")
                     board.display_manager.clear_widgets()
-                    promise = board.display_manager.add_widget(SplashScreen(message="Download\nfailed"))
+                    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Download\nfailed"))
                     if promise:
                         try:
                             promise.result(timeout=2.0)
@@ -3720,7 +3720,7 @@ def _check_and_download_update(update_system):
                 # No update available
                 board.display_manager.clear_widgets()
                 promise = board.display_manager.add_widget(
-                    SplashScreen(message=f"You have the\nlatest version\n\nv{current_version}")
+                    SplashScreen(board.display_manager.update, message=f"You have the\nlatest version\n\nv{current_version}")
                 )
                 if promise:
                     try:
@@ -3731,7 +3731,7 @@ def _check_and_download_update(update_system):
         else:
             log.warning(f"[Update] Channel '{channel}' not found in version info")
             board.display_manager.clear_widgets()
-            promise = board.display_manager.add_widget(SplashScreen(message="Channel not\nfound"))
+            promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Channel not\nfound"))
             if promise:
                 try:
                     promise.result(timeout=2.0)
@@ -3742,7 +3742,7 @@ def _check_and_download_update(update_system):
     except Exception as e:
         log.error(f"[Update] Failed to check for updates: {e}")
         board.display_manager.clear_widgets()
-        promise = board.display_manager.add_widget(SplashScreen(message="Check failed\n\nNo network?"))
+        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Check failed\n\nNo network?"))
         if promise:
             try:
                 promise.result(timeout=2.0)
@@ -3769,7 +3769,7 @@ def _install_deb_update(deb_file: str, update_system):
     # Show confirmation
     board.display_manager.clear_widgets()
     promise = board.display_manager.add_widget(
-        SplashScreen(message=f"Install\n{deb_file[:20]}?")
+        SplashScreen(board.display_manager.update, message=f"Install\n{deb_file[:20]}?")
     )
     if promise:
         try:
@@ -3793,7 +3793,7 @@ def _install_deb_update(deb_file: str, update_system):
         except Exception as e:
             log.error(f"[Update] Failed to prepare update: {e}")
             board.display_manager.clear_widgets()
-            promise = board.display_manager.add_widget(SplashScreen(message="Install\nfailed"))
+            promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Install\nfailed"))
             if promise:
                 try:
                     promise.result(timeout=2.0)
@@ -4336,7 +4336,7 @@ def _start_lichess_game(lichess_config) -> bool:
         waiting_message = "Loading\nChallenge..."
     
     # Add splash screen as modal overlay (covers game widgets)
-    waiting_splash = SplashScreen(message=waiting_message)
+    waiting_splash = SplashScreen(board.display_manager.update, message=waiting_message)
     board.display_manager.add_widget(waiting_splash)
     log.info(f"[App] Showing Lichess waiting screen: {waiting_message}")
     
@@ -4424,7 +4424,7 @@ def _start_lichess_game(lichess_config) -> bool:
     
     # Info overlay widget for displaying messages like "Draw offered"
     from DGTCentaurMods.epaper import InfoOverlayWidget
-    _info_overlay = InfoOverlayWidget()
+    _info_overlay = InfoOverlayWidget(0, 216, 128, 80, board.display_manager.update)
     board.display_manager.add_widget(_info_overlay)
     
     # Lichess callbacks
@@ -4657,7 +4657,7 @@ def _handle_lichess_token():
     
     # Create keyboard widget with current token as initial text
     current_token = centaur.get_lichess_api()
-    keyboard = KeyboardWidget(title="Lichess Token", max_length=64)
+    keyboard = KeyboardWidget(board.display_manager.update, title="Lichess Token", max_length=64)
     # Pre-fill with current token if exists (user can edit or clear)
     keyboard.text = current_token if current_token else ""
     
@@ -4697,7 +4697,7 @@ def _shutdown(message: str, reboot: bool = False):
         reboot: If True, reboot instead of shutdown
     """
     board.display_manager.clear_widgets(addStatusBar=False)
-    promise = board.display_manager.add_widget(SplashScreen(message=message, leave_room_for_status_bar=False))
+    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message=message, leave_room_for_status_bar=False))
     if promise:
         try:
             promise.result(timeout=10.0)
@@ -4715,7 +4715,7 @@ def _run_centaur():
     """
     # Show loading screen (full screen, no status bar)
     board.display_manager.clear_widgets(addStatusBar=False)
-    promise = board.display_manager.add_widget(SplashScreen(message="Loading", leave_room_for_status_bar=False))
+    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Loading", leave_room_for_status_bar=False))
     if promise:
         try:
             promise.result(timeout=10.0)
@@ -4840,7 +4840,7 @@ def _show_ble_connection_confirm(client_type: str):
         ]
         
         confirm_menu = _IconMenuWidget(
-            x=0, y=0, width=128, height=296,
+            0, 0, 128, 296, board.display_manager.update,
             entries=entries,
             selected_index=1  # Default to Cancel
         )
@@ -5086,7 +5086,7 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
                 # Display update splash
                 try:
                     if display_manager is not None:
-                        update_splash = SplashScreen(message="Installing\nupdate...")
+                        update_splash = SplashScreen(display_manager.update, message="Installing\nupdate...")
                         display_manager.add_widget(update_splash)
                 except Exception as e:
                     log.debug(f"[Cleanup] Failed to show update splash: {e}")
@@ -5109,7 +5109,7 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
             log.info("[Cleanup] Displaying shutdown splash screen...")
             try:
                 if display_manager is not None:
-                    shutdown_splash = SplashScreen(message="Press [\u25b6]")
+                    shutdown_splash = SplashScreen(display_manager.update, message="Press [\u25b6]")
                     future = display_manager.add_widget(shutdown_splash)
                     if future:
                         future.result(timeout=5.0)
@@ -5543,7 +5543,7 @@ def main():
         # Create splash screen if early init didn't work (full screen, no status bar)
         if startup_splash is None:
             board.display_manager.clear_widgets(addStatusBar=False)
-            startup_splash = SplashScreen(message="Starting...", leave_room_for_status_bar=False)
+            startup_splash = SplashScreen(board.display_manager.update, message="Starting...", leave_room_for_status_bar=False)
             promise = board.display_manager.add_widget(startup_splash)
             if promise:
                 try:
@@ -5862,7 +5862,7 @@ def main():
                     # Show idle screen and wait for TICK
                     board.beep(board.SOUND_POWER_OFF, event_type='key_press')
                     board.display_manager.clear_widgets()
-                    promise = board.display_manager.add_widget(SplashScreen(message="Press [OK]"))
+                    promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Press [OK]"))
                     if promise:
                         try:
                             promise.result(timeout=10.0)

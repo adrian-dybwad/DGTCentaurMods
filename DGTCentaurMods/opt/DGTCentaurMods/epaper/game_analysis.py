@@ -47,25 +47,22 @@ class GameAnalysisWidget(Widget):
     SCORE_COLUMN_WIDTH = 44  # Score text and annotation
     GRAPH_WIDTH = 82  # History graph
     
-    def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None, 
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback,
                  bottom_color: str = "black", analysis_engine=None,
                  show_graph: bool = True):
         """Initialize the analysis widget.
         
         Args:
             x: X position on display
-            y: Y position on display (default: DEFAULT_Y)
+            y: Y position on display
             width: Widget width
-            height: Widget height (default: DEFAULT_HEIGHT)
+            height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
             bottom_color: Color at bottom of board ("white" or "black")
             analysis_engine: chess.engine.SimpleEngine for position analysis
             show_graph: If True, show the history graph
         """
-        if y is None:
-            y = self.DEFAULT_Y
-        if height is None:
-            height = self.DEFAULT_HEIGHT
-        super().__init__(x, y, width, height)
+        super().__init__(x, y, width, height, update_callback)
         self.score_value = 0.0
         self.score_text = "0.0"
         self.score_history = []
@@ -78,17 +75,14 @@ class GameAnalysisWidget(Widget):
         # Track previous score for annotation calculation
         self._previous_score = 0.0
         
-        # Create TextWidgets for score and annotation (center-justified in left column)
-        # These are rendered into the main widget's image during render()
+        # Create TextWidgets for score and annotation - use parent handler for child updates
         self._score_text_widget = TextWidget(
-            x=0, y=4, 
-            width=self.SCORE_COLUMN_WIDTH, height=26,
+            0, 4, self.SCORE_COLUMN_WIDTH, 26, self._handle_child_update,
             text="+0.0", font_size=20, 
             justify=Justify.CENTER, transparent=True
         )
         self._annotation_text_widget = TextWidget(
-            x=0, y=30,
-            width=self.SCORE_COLUMN_WIDTH, height=24,
+            0, 30, self.SCORE_COLUMN_WIDTH, 24, self._handle_child_update,
             text="", font_size=22,
             justify=Justify.CENTER, transparent=True
         )
@@ -98,6 +92,10 @@ class GameAnalysisWidget(Widget):
         self._analysis_worker_thread = None
         self._analysis_worker_stop = threading.Event()
         self._start_analysis_worker()
+    
+    def _handle_child_update(self, full: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full)
     
     def _calculate_annotation(self, current_score: float, previous_score: float) -> str:
         """Calculate annotation symbol based on score change.

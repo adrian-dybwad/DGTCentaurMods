@@ -45,11 +45,12 @@ class WiFiStatusWidget(Widget):
         x: X position
         y: Y position
         size: Widget size in pixels (default 16 for status bar)
+        update_callback: Callback to trigger display updates. Must not be None.
         auto_update: If True, starts background thread for automatic updates
     """
     
-    def __init__(self, x: int, y: int, size: int = 16, auto_update: bool = True):
-        super().__init__(x, y, size, size)
+    def __init__(self, x: int, y: int, size: int, update_callback, auto_update: bool = True):
+        super().__init__(x, y, size, size, update_callback)
         self._size = size
         self._last_state: Optional[int] = None  # WIFI_DISABLED, WIFI_DISCONNECTED, WIFI_CONNECTED
         self._last_signal_strength: int = 0  # 0-3 (0 = no signal, 1-3 = weak/medium/strong)

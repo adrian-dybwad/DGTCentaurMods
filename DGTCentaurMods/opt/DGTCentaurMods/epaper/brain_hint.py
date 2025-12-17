@@ -23,25 +23,30 @@ class BrainHintWidget(Widget):
     Uses TextWidget for text rendering.
     """
     
-    def __init__(self, x: int, y: int, width: int = 128, height: int = 72):
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback):
         """Initialize the brain hint widget.
         
         Args:
             x: X position on display
             y: Y position on display
-            width: Widget width (default 128 - full display width)
-            height: Widget height (default 72 - space below analysis widget)
+            width: Widget width
+            height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
         """
-        super().__init__(x, y, width, height)
+        super().__init__(x, y, width, height, update_callback)
         self._piece_letter = ""  # Empty = no hint shown
         
-        # Create TextWidgets for label and piece letter
-        self._label_text = TextWidget(x=0, y=2, width=width, height=14,
+        # Create TextWidgets for label and piece letter - use parent handler for child updates
+        self._label_text = TextWidget(0, 2, width, 14, self._handle_child_update,
                                        text="BRAIN:", font_size=12,
                                        justify=Justify.CENTER, transparent=True)
-        self._piece_text = TextWidget(x=0, y=16, width=width, height=56,
+        self._piece_text = TextWidget(0, 16, width, 56, self._handle_child_update,
                                        text="", font_size=48,
                                        justify=Justify.CENTER, transparent=True)
+    
+    def _handle_child_update(self, full: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full)
     
     def set_piece(self, piece_symbol: str) -> None:
         """Set the piece type to display.

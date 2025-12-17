@@ -156,7 +156,7 @@ class Manager:
         from ..background import BackgroundWidget
         
         if self._background is None:
-            self._background = BackgroundWidget(self._epd.width, self._epd.height, shade)
+            self._background = BackgroundWidget(self._epd.width, self._epd.height, self.update, shade)
         else:
             self._background.set_shade(shade)
     
@@ -209,17 +209,12 @@ class Manager:
                 widget.stop()
             except Exception as e:
                 log.debug(f"Error stopping widget {widget.__class__.__name__} during clear: {e}")
-            # Clear the widget's update callback to prevent stale updates
-            try:
-                widget.set_update_callback(None)
-            except Exception:
-                pass
         
         self._widgets.clear()
         
         # Create and add status bar widget
         if addStatusBar:
-            status_bar_widget = StatusBarWidget(0, 0)
+            status_bar_widget = StatusBarWidget(0, 0, self.update)
             return self.add_widget(status_bar_widget)
 
         return None

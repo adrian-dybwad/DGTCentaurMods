@@ -31,22 +31,18 @@ class GameOverWidget(Widget):
     DEFAULT_Y = 144
     DEFAULT_HEIGHT = 72
     
-    def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None):
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback):
         """
         Initialize game over widget.
         
         Args:
-            x: X position (default 0)
-            y: Y position (default 144, below board, replacing clock)
-            width: Widget width (default 128)
-            height: Widget height (default 72)
+            x: X position
+            y: Y position
+            width: Widget width
+            height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
         """
-        if y is None:
-            y = self.DEFAULT_Y
-        if height is None:
-            height = self.DEFAULT_HEIGHT
-            
-        super().__init__(x, y, width, height)
+        super().__init__(x, y, width, height, update_callback)
         
         self.result = ""           # "1-0", "0-1", "1/2-1/2"
         self.winner = ""           # "White wins", "Black wins", "Draw"
@@ -55,19 +51,23 @@ class GameOverWidget(Widget):
         self.white_time: Optional[int] = None  # Final white time in seconds
         self.black_time: Optional[int] = None  # Final black time in seconds
         
-        # Create TextWidgets for each line (all center-justified)
-        self._winner_text = TextWidget(x=0, y=4, width=width, height=18,
+        # Create TextWidgets for each line - use parent handler for child updates
+        self._winner_text = TextWidget(0, 4, width, 18, self._handle_child_update,
                                         text="", font_size=16,
                                         justify=Justify.CENTER, transparent=True)
-        self._termination_text = TextWidget(x=0, y=24, width=width, height=16,
+        self._termination_text = TextWidget(0, 24, width, 16, self._handle_child_update,
                                             text="", font_size=12,
                                             justify=Justify.CENTER, transparent=True)
-        self._moves_text = TextWidget(x=0, y=44, width=width, height=14,
+        self._moves_text = TextWidget(0, 44, width, 14, self._handle_child_update,
                                       text="", font_size=10,
                                       justify=Justify.CENTER, transparent=True)
-        self._times_text = TextWidget(x=0, y=58, width=width, height=14,
+        self._times_text = TextWidget(0, 58, width, 14, self._handle_child_update,
                                       text="", font_size=10,
                                       justify=Justify.CENTER, transparent=True)
+    
+    def _handle_child_update(self, full: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full)
     
     def set_result(self, result: str, termination: str = None, move_count: int = 0,
                    final_times: Optional[Tuple[int, int]] = None) -> None:

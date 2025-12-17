@@ -20,10 +20,10 @@ except ImportError:
 class ClockWidget(Widget):
     """Clock widget displaying current time with automatic updates."""
     
-    def __init__(self, x: int, y: int, width: int = 128, height: int = 24, 
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback,
                  font_size: int = None, font_path: str = None,
                  show_seconds: bool = True):
-        super().__init__(x, y, width, height)
+        super().__init__(x, y, width, height, update_callback)
         self.show_seconds = show_seconds
         # Set format based on show_seconds
         if show_seconds:

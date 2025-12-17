@@ -36,17 +36,18 @@ class AlertWidget(Widget):
     ALERT_QUEEN = "queen"
     ALERT_HINT = "hint"
     
-    def __init__(self, x: int = 0, y: int = 144, width: int = 128, height: int = 40):
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback):
         """
         Initialize alert widget.
         
         Args:
             x: X position
-            y: Y position (default 144 = below chess board at y=16+128)
+            y: Y position
             width: Widget width
             height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
         """
-        super().__init__(x, y, width, height)
+        super().__init__(x, y, width, height, update_callback)
         self._alert_type = None  # "check", "queen", or "hint"
         self._is_black_threatened = False  # True if black piece is threatened
         self._attacker_square = None  # Square index (0-63) of attacking piece
@@ -54,20 +55,24 @@ class AlertWidget(Widget):
         self._hint_text_value = ""  # Hint move text (e.g., "e2e4")
         self.visible = False  # Hidden by default (uses base class attribute)
         
-        # Create TextWidgets for CHECK and YOUR QUEEN
+        # Create TextWidgets - use parent handler for child updates
         # CHECK: single large centered text
-        self._check_text = TextWidget(x=0, y=0, width=width, height=height,
+        self._check_text = TextWidget(0, 0, width, height, self._handle_child_update,
                                        text="CHECK", font_size=32,
                                        justify=Justify.CENTER, transparent=True)
         # YOUR QUEEN: two lines centered - use wrap text
-        self._queen_text = TextWidget(x=0, y=0, width=width, height=height,
+        self._queen_text = TextWidget(0, 0, width, height, self._handle_child_update,
                                        text="YOUR\nQUEEN", font_size=18,
                                        justify=Justify.CENTER, wrapText=True,
                                        transparent=True)
         # HINT: shows the suggested move
-        self._hint_text = TextWidget(x=0, y=0, width=width, height=height,
+        self._hint_text = TextWidget(0, 0, width, height, self._handle_child_update,
                                       text="", font_size=28,
                                       justify=Justify.CENTER, transparent=True)
+    
+    def _handle_child_update(self, full: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full)
     
     def show_check(self, is_black_in_check: bool, attacker_square: int, king_square: int) -> None:
         """Show CHECK alert and flash LEDs.

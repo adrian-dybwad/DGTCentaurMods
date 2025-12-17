@@ -43,7 +43,9 @@ class TextWidget(Widget):
     - Blit-based draw_on(): cached sprite is copied directly without re-rasterizing
     """
     
-    def __init__(self, x: int, y: int, width: int, height: int, text: str = "", 
+    def __init__(self, x: int, y: int, width: int, height: int, 
+                 update_callback,
+                 text: str = "", 
                  background: int = -1, font_size: int = 12, font: ImageFont.FreeTypeFont = None,
                  wrapText: bool = False, justify: Justify = Justify.LEFT,
                  transparent: bool = True, bold: bool = False):
@@ -55,6 +57,7 @@ class TextWidget(Widget):
             y: Y position
             width: Widget width
             height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
             text: Text to display
             background: Background dithering level (-1 to 5)
                 -1 = transparent (default, inherits parent background)
@@ -72,7 +75,7 @@ class TextWidget(Widget):
                         over parent widget's pixels. Overrides background=-1.
             bold: If True, simulate bold by drawing text twice with 1px horizontal offset
         """
-        super().__init__(x, y, width, height)
+        super().__init__(x, y, width, height, update_callback)
         self.text = text
         self.transparent = transparent
         # If transparent is True, force background to -1

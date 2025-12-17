@@ -28,15 +28,16 @@ class BatteryWidget(Widget):
     Args:
         x: X position
         y: Y position
-        width: Widget width in pixels (default 20)
-        height: Widget height in pixels (default 14)
+        width: Widget width in pixels
+        height: Widget height in pixels
+        update_callback: Callback to trigger display updates. Must not be None.
         level: Initial battery level (0-20)
         charger_connected: Initial charger connection state
     """
     
-    def __init__(self, x: int, y: int, width: int = 20, height: int = 14,
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback,
                  level: int = None, charger_connected: bool = False):
-        super().__init__(x, y, width, height)
+        super().__init__(x, y, width, height, update_callback)
         self.level = level
         self.charger_connected = charger_connected
         self._poll_thread = None

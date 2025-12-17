@@ -85,7 +85,7 @@ class IconMenuWidget(Widget):
         scroll_offset: Index of first visible entry (for scrolling)
     """
     
-    def __init__(self, x: int, y: int, width: int, height: int,
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback,
                  entries: List[IconMenuEntry],
                  selected_index: int = 0,
                  on_select: Optional[Callable[[str], None]] = None,
@@ -101,6 +101,7 @@ class IconMenuWidget(Widget):
             y: Y position of widget
             width: Widget width
             height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
             entries: List of menu entry configurations
             selected_index: Initial selected entry index
             on_select: Optional callback(key) when entry is selected with TICK
@@ -110,7 +111,7 @@ class IconMenuWidget(Widget):
             background_shade: Dithered background shade 0-16 (default 2 = ~12.5% grey)
             min_button_height: Minimum button height before scrolling (default 45)
         """
-        super().__init__(x, y, width, height, background_shade=background_shade)
+        super().__init__(x, y, width, height, update_callback, background_shade=background_shade)
         
         # Filter disabled entries (disabled entries are not shown at all)
         self.entries = [e for e in entries if e.enabled]

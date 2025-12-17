@@ -63,7 +63,9 @@ class Widget(ABC):
     # When a modal widget is present, only it is rendered.
     is_modal: bool = False
     
-    def __init__(self, x: int, y: int, width: int, height: int, background_shade: int = 0):
+    def __init__(self, x: int, y: int, width: int, height: int, 
+                 update_callback: Callable[[bool], object],
+                 background_shade: int = 0):
         """Initialize a widget.
         
         Args:
@@ -71,8 +73,16 @@ class Widget(ABC):
             y: Y position on display
             width: Widget width in pixels
             height: Widget height in pixels
+            update_callback: Callback to trigger display updates. Must not be None.
+                            Accepts a 'full' boolean parameter and returns a Future.
             background_shade: Dithered background shade 0-16 (0=white, 8=50% gray, 16=black)
+        
+        Raises:
+            ValueError: If update_callback is None
         """
+        if update_callback is None:
+            raise ValueError(f"{self.__class__.__name__}: update_callback must not be None")
+        
         self.x = x
         self.y = y
         self.width = width
@@ -81,7 +91,7 @@ class Widget(ABC):
         self._background_shade = max(0, min(16, background_shade))
         self._last_rendered: Optional[Image.Image] = None
         self._scheduler: Optional['Scheduler'] = None
-        self._update_callback: Optional[Callable[[bool], object]] = None
+        self._update_callback: Callable[[bool], object] = update_callback
         log.debug(f"Widget.__init__(): Created {self.__class__.__name__} instance id={id(self)} at ({x}, {y}) size {width}x{height}")
     
     def set_scheduler(self, scheduler: 'Scheduler') -> None:
@@ -94,7 +104,17 @@ class Widget(ABC):
         
         The callback should accept a 'full' boolean parameter and return a Future.
         This allows widgets to trigger full update cycles that render all widgets.
+        
+        Composite widgets should override this to propagate the callback to child widgets.
+        
+        Args:
+            callback: The update callback. Must not be None.
+            
+        Raises:
+            ValueError: If callback is None
         """
+        if callback is None:
+            raise ValueError(f"{self.__class__.__name__}: update_callback must not be None")
         self._update_callback = callback
         log.debug(f"Widget.set_update_callback(): {self.__class__.__name__} id={id(self)} update callback set")
             
@@ -119,7 +139,7 @@ class Widget(ABC):
         
         Returns:
             Future: A Future that completes when the display refresh finishes.
-            Returns None if update callback is not available or widget is hidden.
+            Returns None if widget is hidden.
         
         Note:
             Widgets should NOT call the scheduler directly. The Manager must
@@ -135,12 +155,7 @@ class Widget(ABC):
         else:
             log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} requesting partial update")
         
-        if self._update_callback is not None:
-            return self._update_callback(full)
-        
-        # No callback available - cannot update without Manager
-        log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} ignored (no update callback)")
-        return None
+        return self._update_callback(full)
     
     def set_background_shade(self, shade: int) -> None:
         """Set the background shade level.

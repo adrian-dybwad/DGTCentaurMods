@@ -49,28 +49,24 @@ class ChessClockWidget(Widget):
     DEFAULT_Y = 144
     DEFAULT_HEIGHT = 72
     
-    def __init__(self, x: int = 0, y: int = None, width: int = 128, height: int = None,
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback,
                  timed_mode: bool = True, flip: bool = False,
                  white_name: str = "", black_name: str = ""):
         """
         Initialize chess clock widget.
         
         Args:
-            x: X position (default 0)
-            y: Y position (default 144, directly below board)
-            width: Widget width (default 128)
-            height: Widget height (default 72)
+            x: X position
+            y: Y position
+            width: Widget width
+            height: Widget height
+            update_callback: Callback to trigger display updates. Must not be None.
             timed_mode: Whether to show times (True) or just turn indicator (False)
             flip: If True, show Black on top (matching flipped board perspective)
             white_name: Optional name for white player (displayed under "White")
             black_name: Optional name for black player (displayed under "Black")
         """
-        if y is None:
-            y = self.DEFAULT_Y
-        if height is None:
-            height = self.DEFAULT_HEIGHT
-            
-        super().__init__(x, y, width, height)
+        super().__init__(x, y, width, height, update_callback)
         
         # Mode
         self._timed_mode = timed_mode
@@ -94,39 +90,39 @@ class ChessClockWidget(Widget):
         # on_flag(color: str) where color is 'white' or 'black'
         self.on_flag = None
         
-        # Create TextWidgets for timed mode
+        # Create TextWidgets for timed mode - use parent handler for child updates
         # White label (left aligned, after indicator)
-        self._white_label = TextWidget(x=20, y=0, width=40, height=16, 
+        self._white_label = TextWidget(20, 0, 40, 16, self._handle_child_update,
                                         text="White", font_size=10, 
                                         justify=Justify.LEFT, transparent=True)
         # White player name (smaller, under the label)
-        self._white_name_text = TextWidget(x=20, y=0, width=60, height=12,
+        self._white_name_text = TextWidget(20, 0, 60, 12, self._handle_child_update,
                                            text="", font_size=8,
                                            justify=Justify.LEFT, transparent=True)
         # White time (right aligned)
-        self._white_time_text = TextWidget(x=60, y=0, width=64, height=20,
+        self._white_time_text = TextWidget(60, 0, 64, 20, self._handle_child_update,
                                            text="00:00", font_size=16,
                                            justify=Justify.RIGHT, transparent=True)
         # Black label
-        self._black_label = TextWidget(x=20, y=0, width=40, height=16,
+        self._black_label = TextWidget(20, 0, 40, 16, self._handle_child_update,
                                        text="Black", font_size=10,
                                        justify=Justify.LEFT, transparent=True)
         # Black player name (smaller, under the label)
-        self._black_name_text = TextWidget(x=20, y=0, width=60, height=12,
+        self._black_name_text = TextWidget(20, 0, 60, 12, self._handle_child_update,
                                            text="", font_size=8,
                                            justify=Justify.LEFT, transparent=True)
         # Black time
-        self._black_time_text = TextWidget(x=60, y=0, width=64, height=20,
+        self._black_time_text = TextWidget(60, 0, 64, 20, self._handle_child_update,
                                            text="00:00", font_size=16,
                                            justify=Justify.RIGHT, transparent=True)
         
         # Create TextWidgets for compact mode
         # Turn indicator text (color)
-        self._turn_text = TextWidget(x=0, y=0, width=width, height=20,
+        self._turn_text = TextWidget(0, 0, width, 20, self._handle_child_update,
                                      text="White's Turn", font_size=16,
                                      justify=Justify.CENTER, transparent=True)
         # Player name text (below turn indicator)
-        self._turn_name_text = TextWidget(x=0, y=0, width=width, height=14,
+        self._turn_name_text = TextWidget(0, 0, width, 14, self._handle_child_update,
                                           text="", font_size=10,
                                           justify=Justify.CENTER, transparent=True)
         
@@ -135,6 +131,10 @@ class ChessClockWidget(Widget):
         self._last_black_time = None
         self._last_active = None
         self._last_timed_mode = None
+    
+    def _handle_child_update(self, full: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full)
     
     @property
     def timed_mode(self) -> bool:

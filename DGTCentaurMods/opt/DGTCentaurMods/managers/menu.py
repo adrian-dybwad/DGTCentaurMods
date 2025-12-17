@@ -237,10 +237,11 @@ class MenuManager:
         
         # Create menu widget
         menu_widget = IconMenuWidget(
-            x=0,
-            y=self._status_bar_height,
-            width=self._display_width,
-            height=self._display_height - self._status_bar_height,
+            0,
+            self._status_bar_height,
+            self._display_width,
+            self._display_height - self._status_bar_height,
+            self._board.display_manager.update,
             entries=entries,
             selected_index=initial_index
         )

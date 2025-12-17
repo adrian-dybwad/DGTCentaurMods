@@ -28,11 +28,12 @@ class ChromecastStatusWidget(Widget):
     Args:
         x: X position in status bar
         y: Y position in status bar
-        size: Icon size in pixels (default 16)
+        size: Icon size in pixels
+        update_callback: Callback to trigger display updates. Must not be None.
     """
     
-    def __init__(self, x: int, y: int, size: int = 16):
-        super().__init__(x, y, size, size)
+    def __init__(self, x: int, y: int, size: int, update_callback):
+        super().__init__(x, y, size, size, update_callback)
         self._size = size
         
         # Get service reference (singleton, created on first access)

@@ -9,8 +9,8 @@ from .framework.widget import Widget
 class BallWidget(Widget):
     """Bouncing ball widget for display demos."""
     
-    def __init__(self, x: int, y: int, radius: int = 8):
-        super().__init__(x, y, radius * 2, radius * 2)
+    def __init__(self, x: int, y: int, update_callback, radius: int = 8):
+        super().__init__(x, y, radius * 2, radius * 2, update_callback)
         self.radius = radius
     
     def set_position(self, x: int, y: int) -> None:

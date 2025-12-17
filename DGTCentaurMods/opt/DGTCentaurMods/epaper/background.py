@@ -22,15 +22,16 @@ class BackgroundWidget(Widget):
     Shade levels range from 0 (white) to 16 (black).
     """
     
-    def __init__(self, width: int, height: int, shade: int = 0):
+    def __init__(self, width: int, height: int, update_callback, shade: int = 0):
         """Create a background widget.
         
         Args:
             width: Display width
             height: Display height
+            update_callback: Callback to trigger display updates. Must not be None.
             shade: Grayscale level 0-16 (0=white, 8=50% gray, 16=black)
         """
-        super().__init__(0, 0, width, height, background_shade=shade)
+        super().__init__(0, 0, width, height, update_callback, background_shade=shade)
     
     def set_shade(self, shade: int) -> None:
         """Set the background shade level.

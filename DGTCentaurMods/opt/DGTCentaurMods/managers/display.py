@@ -245,7 +245,7 @@ class DisplayManager:
 
         # Create chess board widget at y=16 (below status bar)
         # Uses cached sprites from preload_sprites() if available
-        self.chess_board_widget = _ChessBoardWidget(0, 16, self._initial_fen)
+        self.chess_board_widget = _ChessBoardWidget(0, 16, board.display_manager.update, fen=self._initial_fen)
         if self._flip_board:
             self.chess_board_widget.set_flip(True)
         
@@ -289,7 +289,7 @@ class DisplayManager:
         # flip matches board orientation so clock top matches board top
         timed_mode = self._time_control > 0
         self.clock_widget = _ChessClockWidget(
-            x=0, y=clock_y, width=128, height=clock_height,
+            0, clock_y, 128, clock_height, board.display_manager.update,
             timed_mode=timed_mode, flip=self._flip_board,
             white_name=self._white_name, black_name=self._black_name
         )
@@ -318,7 +318,7 @@ class DisplayManager:
         if self._analysis_mode:
             bottom_color = "black" if self.chess_board_widget.flip else "white"
             self.analysis_widget = _GameAnalysisWidget(
-                x=0, y=analysis_y, width=128, height=analysis_height if analysis_height > 0 else 80,
+                0, analysis_y, 128, analysis_height if analysis_height > 0 else 80, board.display_manager.update,
                 bottom_color=bottom_color,
                 analysis_engine=self.analysis_engine,
                 show_graph=self._show_graph
@@ -335,13 +335,13 @@ class DisplayManager:
         
         # Create alert widget for CHECK/QUEEN warnings (y=144, overlays clock widget)
         # Alert widget is hidden by default and shown when check or queen threat occurs
-        self.alert_widget = _AlertWidget(0, 144, 128, 40)
+        self.alert_widget = _AlertWidget(0, 144, 128, 40, board.display_manager.update)
         board.display_manager.add_widget(self.alert_widget)
         log.info("[DisplayManager] Alert widget initialized (hidden)")
         
         # Create brain hint widget for Hand+Brain mode (y=144, replaces clock)
         if self._hand_brain_mode:
-            self.brain_hint_widget = _BrainHintWidget(0, 144, 128, 72)
+            self.brain_hint_widget = _BrainHintWidget(0, 144, 128, 72, board.display_manager.update)
             # Hide clock widget in hand+brain mode, brain hint takes its place
             if self.clock_widget:
                 self.clock_widget.hide()
@@ -810,7 +810,7 @@ class DisplayManager:
         
         # Create and display menu
         promotion_menu = _IconMenuWidget(
-            x=0, y=0, width=128, height=296,
+            0, 0, 128, 296, board.display_manager.update,
             entries=entries,
             on_select=on_select
         )
@@ -882,7 +882,7 @@ class DisplayManager:
         
         # Create menu - default to Cancel (last item)
         back_menu = _IconMenuWidget(
-            x=0, y=0, width=128, height=296,
+            0, 0, 128, 296, board.display_manager.update,
             entries=entries,
             selected_index=len(entries) - 1  # Default to Cancel (last item)
         )
@@ -979,7 +979,7 @@ class DisplayManager:
         
         # Create menu - default to No (cancel)
         resign_menu = _IconMenuWidget(
-            x=0, y=0, width=128, height=296,
+            0, 0, 128, 296, board.display_manager.update,
             entries=entries,
             selected_index=1  # Default to No (cancel)
         )
@@ -1119,7 +1119,7 @@ class DisplayManager:
         try:
             if board.display_manager:
                 board.display_manager.clear_widgets(addStatusBar=False)
-                splash = _SplashScreen(message=message)
+                splash = _SplashScreen(board.display_manager.update, message=message)
                 future = board.display_manager.add_widget(splash)
                 if future:
                     try:
@@ -1166,7 +1166,7 @@ class DisplayManager:
             
             if board.display_manager:
                 # Create game over widget (y=144, height=72 - same as clock)
-                game_over_widget = _GameOverWidget()
+                game_over_widget = _GameOverWidget(0, 144, 128, 72, board.display_manager.update)
                 game_over_widget.set_result(result, termination_type, move_count, final_times)
                 
                 future = board.display_manager.add_widget(game_over_widget)
