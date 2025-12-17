@@ -11,6 +11,27 @@
 
 import logging
 import sys
+import io
+
+# Force line-buffered stdout to prevent interleaved output from multiple threads
+# This is particularly important on 64-bit systems where buffer behavior differs
+if hasattr(sys.stdout, 'reconfigure'):
+    # Python 3.7+ - reconfigure to line-buffered mode
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+elif not isinstance(sys.stdout, io.TextIOWrapper):
+    # Fallback for older Python - wrap stdout with line buffering
+    try:
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer, 
+            encoding=sys.stdout.encoding,
+            errors=sys.stdout.errors,
+            line_buffering=True
+        )
+    except Exception:
+        pass
 
 
 class ColoredFormatter(logging.Formatter):
