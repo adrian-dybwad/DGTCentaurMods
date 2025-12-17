@@ -9,7 +9,13 @@ log() {
 }
 
 BRANCH_OR_TAG="${1:-AsyncController}"
-REPO_DIR="$HOME/DGTCentaurMods"
+
+# Support both project names
+if [ -d "$HOME/DGTCentaurUniversal" ]; then
+  REPO_DIR="$HOME/DGTCentaurUniversal"
+else
+  REPO_DIR="$HOME/DGTCentaurMods"
+fi
 BUILD_DIR="$REPO_DIR/build"
 RELEASES_DIR="$BUILD_DIR/releases"
 
