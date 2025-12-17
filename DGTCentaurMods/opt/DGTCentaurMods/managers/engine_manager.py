@@ -92,9 +92,10 @@ ENGINES = {
         description="Top-3 ranked open-source engine. Uses NNUE neural network for evaluation. Known for very strong tactical play and aggressive style. Excellent alternative to Stockfish.",
         repo_url="https://github.com/jhonnold/berserk.git",
         build_commands=[
-            "make -j$(nproc) EXE=berserk",
+            # Berserk builds from src directory
+            "cd src && make -j$(nproc) EXE=berserk",
         ],
-        binary_path="berserk",
+        binary_path="src/berserk",
         is_system_package=False,
         package_name=None,
         extra_files=[],
@@ -107,9 +108,10 @@ ENGINES = {
         description="Top-10 ranked engine with NNUE support. Known for fast search speed and aggressive playing style. Good for blitz and bullet games where speed matters.",
         repo_url="https://github.com/Luecx/Koivisto.git",
         build_commands=[
-            "make -j$(nproc) EXE=koivisto",
+            # Koivisto builds from src_files directory
+            "cd src_files && make -j$(nproc) EXE=koivisto",
         ],
-        binary_path="koivisto",
+        binary_path="src_files/koivisto",
         is_system_package=False,
         package_name=None,
         extra_files=[],
@@ -122,9 +124,10 @@ ENGINES = {
         description="Top-15 engine with NNUE. Known for clean, well-documented codebase. Great for those interested in chess programming. Solid positional play.",
         repo_url="https://github.com/AndyGrant/Ethereal.git",
         build_commands=[
-            "make -j$(nproc) EXE=ethereal",
+            # Ethereal builds from src directory
+            "cd src && make -j$(nproc) EXE=ethereal",
         ],
-        binary_path="ethereal",
+        binary_path="src/ethereal",
         is_system_package=False,
         package_name=None,
         extra_files=[],
@@ -139,9 +142,10 @@ ENGINES = {
         description="Strong C++ engine optimized for speed on modern CPUs. Excellent for rapid games. Good balance of tactical and positional play.",
         repo_url="https://github.com/FireFather/fire.git",
         build_commands=[
-            "make -j$(nproc) EXE=fire",
+            # Fire builds from src directory
+            "cd src && make -j$(nproc) EXE=fire",
         ],
-        binary_path="fire",
+        binary_path="src/fire",
         is_system_package=False,
         package_name=None,
         extra_files=[],
@@ -154,9 +158,10 @@ ENGINES = {
         description="Fast tactical engine known for quick search speed. Good for finding tactical shots and combinations. Lightweight and efficient.",
         repo_url="https://github.com/jeffreyan11/laser-chess-engine.git",
         build_commands=[
-            "make -j$(nproc)",
+            # Laser builds from src directory
+            "cd src && make -j$(nproc)",
         ],
-        binary_path="laser",
+        binary_path="src/laser",
         is_system_package=False,
         package_name=None,
         extra_files=[],
@@ -184,9 +189,10 @@ ENGINES = {
         description="Clean, educational engine great for learning chess programming. Well-commented source code. Solid playing strength despite simplicity.",
         repo_url="https://github.com/TerjeKir/weiss.git",
         build_commands=[
-            "make -j$(nproc) EXE=weiss",
+            # Weiss builds from src directory
+            "cd src && make -j$(nproc) EXE=weiss",
         ],
-        binary_path="weiss",
+        binary_path="src/weiss",
         is_system_package=False,
         package_name=None,
         extra_files=[],
@@ -205,7 +211,7 @@ ENGINES = {
         is_system_package=False,
         package_name=None,
         extra_files=[],
-        dependencies=["build-essential", "git", "bc"],
+        dependencies=["build-essential", "git", "bc", "gawk"],
     ),
     
     # === SPECIALTY ENGINES ===
@@ -297,9 +303,10 @@ ENGINES = {
         description="Compact NNUE engine with small binary size. Efficient code optimized for resource-constrained devices. Surprisingly strong for its size.",
         repo_url="https://github.com/Disservin/Smallbrain.git",
         build_commands=[
-            "make -j$(nproc) EXE=smallbrain",
+            # Smallbrain builds from src directory
+            "cd src && make -j$(nproc) EXE=smallbrain",
         ],
-        binary_path="smallbrain",
+        binary_path="src/smallbrain",
         is_system_package=False,
         package_name=None,
         extra_files=[],
