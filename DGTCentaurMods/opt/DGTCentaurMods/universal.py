@@ -6048,6 +6048,8 @@ def main():
         log.info("[App] Interrupted by Ctrl+C")
     except Exception as e:
         log.error(f"[App] Error in main loop: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         # Check if shutdown was requested from events thread (e.g., LONG_PLAY key)
         if _shutdown_requested:
