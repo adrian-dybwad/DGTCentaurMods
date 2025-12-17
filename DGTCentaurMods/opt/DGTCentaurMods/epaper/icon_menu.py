@@ -50,6 +50,9 @@ class IconMenuEntry:
         font_size: Font size in pixels (default 16)
         bold: Whether to render text in bold (default False)
         border_width: Width of button border in pixels (default 2)
+        description: Optional long description text rendered below the icon+label area.
+                    Displayed as smaller, word-wrapped text spanning the full button width.
+        description_font_size: Font size for description text (default 11)
     """
     key: str
     label: str
@@ -63,6 +66,8 @@ class IconMenuEntry:
     font_size: int = 16
     bold: bool = False
     border_width: int = 2
+    description: str = None
+    description_font_size: int = 11
 
 
 class IconMenuWidget(Widget):
@@ -252,7 +257,9 @@ class IconMenuWidget(Widget):
                 layout=entry.layout,
                 font_size=entry.font_size,
                 bold=entry.bold,
-                border_width=entry.border_width
+                border_width=entry.border_width,
+                description=entry.description,
+                description_font_size=entry.description_font_size
             )
             self._buttons.append(button)
             current_y += button_height
@@ -537,7 +544,8 @@ def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
     Args:
         entries_config: List of dicts with 'key', 'label', 'icon_name',
                        and optional 'enabled', 'height_ratio', 'max_height',
-                       'icon_size', 'layout', 'font_size', 'bold'
+                       'icon_size', 'layout', 'font_size', 'bold',
+                       'description', 'description_font_size'
         
     Returns:
         List of IconMenuEntry objects
@@ -553,7 +561,9 @@ def create_icon_menu_entries(entries_config: List[dict]) -> List[IconMenuEntry]:
             icon_size=e.get('icon_size', None),
             layout=e.get('layout', 'horizontal'),
             font_size=e.get('font_size', 16),
-            bold=e.get('bold', False)
+            bold=e.get('bold', False),
+            description=e.get('description', None),
+            description_font_size=e.get('description_font_size', 11)
         )
         for e in entries_config
     ]

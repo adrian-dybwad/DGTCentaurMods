@@ -66,7 +66,9 @@ class IconButtonWidget(Widget):
                  background_shade: int = 0,
                  layout: str = "horizontal",
                  font_size: int = 16,
-                 bold: bool = False):
+                 bold: bool = False,
+                 description: str = None,
+                 description_font_size: int = 11):
         """Initialize icon button widget.
         
         Args:
@@ -91,6 +93,8 @@ class IconButtonWidget(Widget):
                    'vertical' (icon top centered, text bottom centered)
             font_size: Font size in pixels (default 16)
             bold: Whether to render text in bold (simulated via multi-draw)
+            description: Optional long description text rendered below icon+label
+            description_font_size: Font size for description text (default 11)
         """
         super().__init__(x, y, width, height, update_callback, background_shade=background_shade)
         self.key = key
@@ -107,8 +111,10 @@ class IconButtonWidget(Widget):
         self.layout = layout
         self.font_size = font_size
         self.bold = bold
+        self.description = description
+        self.description_font_size = description_font_size
         
-        # TextWidgets for label rendering - cached by (width, centered, bold) key
+        # TextWidgets for label rendering - cached by (width, centered, bold, font_size) key
         # Text content is set dynamically via set_text()
         self._text_widgets_cache = {}
     
@@ -116,32 +122,40 @@ class IconButtonWidget(Widget):
         """Handle update requests from child widgets by forwarding to parent callback."""
         return self._update_callback(full)
     
-    def _get_cached_text_widget(self, width: int, centered: bool) -> TextWidget:
+    def _get_cached_text_widget(self, width: int, centered: bool, font_size: int = None, bold: bool = None) -> TextWidget:
         """Get or create a cached TextWidget for the given parameters.
         
         Args:
             width: Width for text widget
             centered: If True, center-justify the text
+            font_size: Font size to use (defaults to self.font_size)
+            bold: Whether to use bold (defaults to self.bold)
             
         Returns:
             Cached TextWidget instance
         """
-        cache_key = (width, centered, self.bold)
+        if font_size is None:
+            font_size = self.font_size
+        if bold is None:
+            bold = self.bold
+        
+        cache_key = (width, centered, bold, font_size)
         
         if cache_key not in self._text_widgets_cache:
-            line_height = self.font_size + 4
+            line_height = font_size + 4
             widget = TextWidget(
                 0, 0, width, line_height, self._handle_child_update,
-                text="", font_size=self.font_size,
+                text="", font_size=font_size,
                 justify=Justify.CENTER if centered else Justify.LEFT,
-                transparent=True, bold=self.bold
+                transparent=True, bold=bold
             )
             self._text_widgets_cache[cache_key] = widget
         
         return self._text_widgets_cache[cache_key]
     
     def _render_text_line(self, img: Image.Image, text: str, x: int, y: int, 
-                          width: int, text_color: int, centered: bool = False):
+                          width: int, text_color: int, centered: bool = False,
+                          font_size: int = None, bold: bool = None):
         """Render a line of text directly onto the target image.
         
         Uses TextWidget.draw_on() to avoid creating intermediate images.
@@ -154,8 +168,10 @@ class IconButtonWidget(Widget):
             width: Width for text widget (used for justification)
             text_color: Text color (0=black, 255=white)
             centered: If True, center-justify the text
+            font_size: Font size to use (defaults to self.font_size)
+            bold: Whether to use bold (defaults to self.bold)
         """
-        widget = self._get_cached_text_widget(width, centered)
+        widget = self._get_cached_text_widget(width, centered, font_size, bold)
         widget.set_text(text)
         widget.draw_on(img, x, y, text_color=text_color)
     
@@ -188,6 +204,36 @@ class IconButtonWidget(Widget):
                 if pattern_row[x % pattern_size] == 1:
                     pixels[x, y] = 0  # Black pixel
     
+    def _wrap_description(self, text: str, max_chars_per_line: int = 24) -> list:
+        """Word-wrap description text.
+        
+        Args:
+            text: Text to wrap
+            max_chars_per_line: Maximum characters per line
+            
+        Returns:
+            List of wrapped lines
+        """
+        if not text:
+            return []
+        
+        words = text.split()
+        lines = []
+        current_line = ""
+        
+        for word in words:
+            if len(current_line) + len(word) + 1 <= max_chars_per_line:
+                current_line = f"{current_line} {word}".strip()
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = word
+        
+        if current_line:
+            lines.append(current_line)
+        
+        return lines
+    
     def render(self, sprite: Image.Image) -> None:
         """Render the button with icon and label onto the sprite.
         
@@ -196,6 +242,9 @@ class IconButtonWidget(Widget):
         - vertical: Icon centered on top, text centered below
         
         Multi-line labels are supported in both modes.
+        
+        If a description is provided, it renders as word-wrapped text below
+        the icon+label area, spanning the full content width.
         
         Layout:
             - margin: transparent space outside the border
@@ -245,18 +294,43 @@ class IconButtonWidget(Widget):
         lines = self.label.split('\n')
         line_height = self.font_size + 2  # Add small spacing between lines
         
+        # Calculate description area if present
+        description_lines = []
+        description_height = 0
+        description_line_height = self.description_font_size + 2
+        
+        if self.description:
+            # Word-wrap description to fit content width (roughly 24 chars at font size 11)
+            chars_per_line = max(16, content_width // 7)  # Approximate chars based on width
+            description_lines = self._wrap_description(self.description, chars_per_line)
+            description_height = len(description_lines) * description_line_height + 4  # +4 for gap
+        
+        # Reduce content height for icon+label if description present
+        icon_label_height = content_height - description_height
+        
         if self.layout == "vertical":
             # Vertical layout: icon centered on top, text centered below
             self._render_vertical_layout(
-                sprite, draw, content_left, content_top, content_width, content_height,
+                sprite, draw, content_left, content_top, content_width, icon_label_height,
                 lines, line_height, text_color
             )
         else:
             # Horizontal layout: icon on left, text on right (default)
             self._render_horizontal_layout(
-                sprite, draw, inside_left, inside_top, content_top, content_height,
+                sprite, draw, inside_left, inside_top, content_top, icon_label_height,
                 lines, line_height, text_color
             )
+        
+        # Render description below icon+label area
+        if description_lines:
+            desc_start_y = content_top + icon_label_height + 4  # 4px gap
+            for i, desc_line in enumerate(description_lines):
+                desc_y = desc_start_y + i * description_line_height
+                self._render_text_line(
+                    sprite, desc_line, content_left, desc_y, 
+                    content_width, text_color, centered=False,
+                    font_size=self.description_font_size, bold=False
+                )
     
     def _render_vertical_layout(self, sprite: Image.Image, draw: ImageDraw.Draw, 
                                  content_left: int, content_top: int,

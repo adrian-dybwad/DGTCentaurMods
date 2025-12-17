@@ -3331,41 +3331,15 @@ def _handle_engine_detail_menu(engine_info: dict):
         is_installed = engine_manager.is_installed(engine_name)
         can_uninstall = engine_info.get("can_uninstall", True)
         
-        # Title with summary
+        # Title with summary and description below
         entries.append(IconMenuEntry(
             key="title",
             label=f"{engine_info['display_name']}\n{engine_info['summary']}",
             icon_name="engine",
-            enabled=True, selectable=False, height_ratio=1.0,
-            layout="horizontal", font_size=14, bold=True
-        ))
-        
-        # Description - wrap text for small display (about 22 chars per line)
-        desc = engine_info["description"]
-        # Simple word wrap
-        words = desc.split()
-        lines = []
-        current_line = ""
-        for word in words:
-            if len(current_line) + len(word) + 1 <= 22:
-                current_line = f"{current_line} {word}".strip()
-            else:
-                if current_line:
-                    lines.append(current_line)
-                current_line = word
-        if current_line:
-            lines.append(current_line)
-        # Limit to 4 lines for display
-        desc_text = "\n".join(lines[:4])
-        if len(lines) > 4:
-            desc_text = desc_text[:-3] + "..."
-        
-        entries.append(IconMenuEntry(
-            key="description",
-            label=desc_text,
-            icon_name="info",
-            enabled=True, selectable=False, height_ratio=2.5,
-            layout="vertical", font_size=12
+            enabled=True, selectable=False, height_ratio=2.8,
+            layout="horizontal", font_size=14, bold=True,
+            description=engine_info["description"],
+            description_font_size=11
         ))
         
         # Action button based on installation status
