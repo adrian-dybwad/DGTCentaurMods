@@ -53,7 +53,8 @@ class EngineDefinition:
     """Definition of a chess engine that can be installed."""
     name: str                    # Engine name (used as executable name)
     display_name: str            # Human-readable name for UI
-    description: str             # Short description
+    summary: str                 # Short summary for list display (~20 chars)
+    description: str             # Full description for detail view
     repo_url: Optional[str]      # Git repository URL (None for system package)
     build_commands: List[str]    # Commands to build after cloning
     binary_path: str             # Path to binary after build (relative to repo)
@@ -61,6 +62,7 @@ class EngineDefinition:
     package_name: Optional[str]  # apt package name (if system package)
     extra_files: List[str]       # Additional files/dirs to copy (relative to repo)
     dependencies: List[str]      # apt packages needed to build
+    can_uninstall: bool = True   # Whether engine can be uninstalled
 
 
 # Engine definitions
@@ -70,7 +72,8 @@ ENGINES = {
     "stockfish": EngineDefinition(
         name="stockfish",
         display_name="Stockfish",
-        description="World's strongest open-source engine. NNUE-based, ~3500 ELO. The gold standard.",
+        summary="~3500 ELO, #1 engine",
+        description="World's strongest open-source chess engine. Uses NNUE neural network evaluation. The gold standard for computer chess analysis and play. Installed from system package - always available.",
         repo_url=None,
         build_commands=[],
         binary_path="",
@@ -78,11 +81,13 @@ ENGINES = {
         package_name="stockfish",
         extra_files=[],
         dependencies=[],
+        can_uninstall=False,
     ),
     "berserk": EngineDefinition(
         name="berserk",
         display_name="Berserk",
-        description="Top-3 ranked engine. NNUE-based, ~3400 ELO. Very strong tactical play.",
+        summary="~3400 ELO, top-3",
+        description="Top-3 ranked open-source engine. Uses NNUE neural network for evaluation. Known for very strong tactical play and aggressive style. Excellent alternative to Stockfish.",
         repo_url="https://github.com/jhonnold/berserk.git",
         build_commands=[
             "make -j$(nproc) EXE=berserk",
@@ -96,7 +101,8 @@ ENGINES = {
     "koivisto": EngineDefinition(
         name="koivisto",
         display_name="Koivisto",
-        description="Top-10 engine with NNUE. ~3350 ELO. Fast and aggressive style.",
+        summary="~3350 ELO, fast",
+        description="Top-10 ranked engine with NNUE support. Known for fast search speed and aggressive playing style. Good for blitz and bullet games where speed matters.",
         repo_url="https://github.com/Luecx/Koivisto.git",
         build_commands=[
             "make -j$(nproc) EXE=koivisto",
@@ -110,7 +116,8 @@ ENGINES = {
     "ethereal": EngineDefinition(
         name="ethereal",
         display_name="Ethereal",
-        description="Top-15 engine. NNUE-based, ~3300 ELO. Clean, well-documented code.",
+        summary="~3300 ELO, clean",
+        description="Top-15 engine with NNUE. Known for clean, well-documented codebase. Great for those interested in chess programming. Solid positional play.",
         repo_url="https://github.com/AndyGrant/Ethereal.git",
         build_commands=[
             "make -j$(nproc) EXE=ethereal",
@@ -126,7 +133,8 @@ ENGINES = {
     "fire": EngineDefinition(
         name="fire",
         display_name="Fire",
-        description="Strong C++ engine. ~3200 ELO. Optimized for speed and modern CPUs.",
+        summary="~3200 ELO, fast",
+        description="Strong C++ engine optimized for speed on modern CPUs. Excellent for rapid games. Good balance of tactical and positional play.",
         repo_url="https://github.com/FireFather/fire.git",
         build_commands=[
             "make -j$(nproc) EXE=fire",
@@ -140,7 +148,8 @@ ENGINES = {
     "laser": EngineDefinition(
         name="laser",
         display_name="Laser",
-        description="Fast tactical engine. ~3100 ELO. Known for quick search speed.",
+        summary="~3100 ELO, tactical",
+        description="Fast tactical engine known for quick search speed. Good for finding tactical shots and combinations. Lightweight and efficient.",
         repo_url="https://github.com/jeffreyan11/laser-chess-engine.git",
         build_commands=[
             "make -j$(nproc)",
@@ -154,7 +163,8 @@ ENGINES = {
     "demolito": EngineDefinition(
         name="demolito",
         display_name="Demolito",
-        description="Simple, efficient engine. ~2900 ELO. Clean C code, fast compile.",
+        summary="~2900 ELO, simple",
+        description="Simple, efficient engine with clean C code. Fast to compile and run. Good for lower-powered devices. Solid but straightforward play.",
         repo_url="https://github.com/lucasart/Demolito.git",
         build_commands=[
             "make -j$(nproc)",
@@ -168,7 +178,8 @@ ENGINES = {
     "weiss": EngineDefinition(
         name="weiss",
         display_name="Weiss",
-        description="Clean, educational engine. ~2900 ELO. Great for learning chess programming.",
+        summary="~2900 ELO, educational",
+        description="Clean, educational engine great for learning chess programming. Well-commented source code. Solid playing strength despite simplicity.",
         repo_url="https://github.com/TerjeKir/weiss.git",
         build_commands=[
             "make -j$(nproc) EXE=weiss",
@@ -182,7 +193,8 @@ ENGINES = {
     "arasan": EngineDefinition(
         name="arasan",
         display_name="Arasan",
-        description="Veteran engine since 1994. ~2900 ELO. NNUE support, very stable.",
+        summary="~2900 ELO, veteran",
+        description="Veteran engine in development since 1994. Very stable and reliable. NNUE support added recently. Great for consistent, predictable play.",
         repo_url="https://github.com/jdart1/arasan-chess.git",
         build_commands=[
             "cd src && make -j$(nproc)",
@@ -198,7 +210,8 @@ ENGINES = {
     "rodentIV": EngineDefinition(
         name="rodentIV",
         display_name="Rodent IV",
-        description="Personality engine. ~2800 ELO. 50+ playing styles from beginner to GM.",
+        summary="~2800 ELO, 50+ styles",
+        description="Personality engine with 50+ playing styles from beginner to GM level. Can emulate famous players or specific playing styles. Great for practice and entertainment.",
         repo_url="https://github.com/nescitus/rodent-iv.git",
         build_commands=[
             "make -j$(nproc)",
@@ -212,7 +225,8 @@ ENGINES = {
     "ct800": EngineDefinition(
         name="ct800",
         display_name="CT800",
-        description="Dedicated chess computer. ~2300 ELO. Emulates classic chess computer style.",
+        summary="~2300 ELO, retro",
+        description="Emulates a dedicated chess computer. Classic playing style reminiscent of 1980s chess computers. Good for casual play with a nostalgic feel.",
         repo_url="https://github.com/bcm314/CT800.git",
         build_commands=[
             "cd src/application/uci && make -j$(nproc)",
@@ -226,7 +240,8 @@ ENGINES = {
     "maia": EngineDefinition(
         name="maia",
         display_name="Maia",
-        description="Human-like engine. Trained on human games. Makes human-like mistakes.",
+        summary="Human-like play",
+        description="Trained on millions of human games to play like a human. Makes realistic human-like moves and mistakes. Available at different ELO levels (1100-1900). Requires lc0 backend.",
         repo_url="https://github.com/CSSLab/maia-chess.git",
         build_commands=[
             # Maia uses lc0 backend - download weights only
@@ -243,7 +258,8 @@ ENGINES = {
     "zahak": EngineDefinition(
         name="zahak",
         display_name="Zahak",
-        description="Go-based engine. ~2700 ELO. Fast development, clean code.",
+        summary="~2700 ELO, Go-based",
+        description="Written in Go programming language. Clean, modern codebase under active development. Good strength with fast compilation. Interesting alternative architecture.",
         repo_url="https://github.com/amanjpro/zahak.git",
         build_commands=[
             "go build -o zahak",
@@ -257,7 +273,8 @@ ENGINES = {
     "smallbrain": EngineDefinition(
         name="smallbrain",
         display_name="Smallbrain",
-        description="Compact NNUE engine. ~3000 ELO. Small binary, efficient code.",
+        summary="~3000 ELO, compact",
+        description="Compact NNUE engine with small binary size. Efficient code optimized for resource-constrained devices. Surprisingly strong for its size.",
         repo_url="https://github.com/Disservin/Smallbrain.git",
         build_commands=[
             "make -j$(nproc) EXE=smallbrain",
@@ -319,9 +336,11 @@ class EngineManager:
             result.append({
                 "name": name,
                 "display_name": engine.display_name,
+                "summary": engine.summary,
                 "description": engine.description,
                 "installed": self.is_installed(name),
                 "is_system_package": engine.is_system_package,
+                "can_uninstall": engine.can_uninstall,
             })
         return result
     

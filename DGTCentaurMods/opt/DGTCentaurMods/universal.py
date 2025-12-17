@@ -3235,121 +3235,207 @@ def _handle_analysis_engine_selection():
     return None
 
 
-def _handle_engine_manager_menu():
-    """Handle engine manager submenu.
+def _handle_engine_detail_menu(engine_info: dict):
+    """Handle engine detail submenu.
     
-    Shows list of available engines with installation status.
-    Allows user to install/uninstall engines.
+    Shows engine description and install/uninstall option with progress.
+    
+    Args:
+        engine_info: Dict with engine info from get_engine_list()
+        
+    Returns:
+        True if engine was installed/uninstalled, None otherwise
     """
     from DGTCentaurMods.managers.engine_manager import get_engine_manager
     
     engine_manager = get_engine_manager()
-    installing_engine: str = None
-    install_progress: str = ""
+    engine_name = engine_info["name"]
+    
+    # State for installation progress
+    installing: bool = False
     install_complete: bool = False
     install_success: bool = False
     
     def build_entries():
-        """Build engine manager menu entries."""
-        nonlocal installing_engine, install_progress, install_complete
+        """Build engine detail menu entries."""
+        nonlocal installing, install_complete
         
-        # If currently installing, show progress
-        if installing_engine and engine_manager.is_installing():
+        entries = []
+        
+        # Get current installation status
+        is_installed = engine_manager.is_installed(engine_name)
+        can_uninstall = engine_info.get("can_uninstall", True)
+        
+        # Title with summary
+        entries.append(IconMenuEntry(
+            key="title",
+            label=f"{engine_info['display_name']}\n{engine_info['summary']}",
+            icon_name="engine",
+            enabled=True, selectable=False, height_ratio=1.0,
+            layout="horizontal", font_size=14, bold=True
+        ))
+        
+        # Description - wrap text for small display (about 20 chars per line)
+        desc = engine_info["description"]
+        # Simple word wrap
+        words = desc.split()
+        lines = []
+        current_line = ""
+        for word in words:
+            if len(current_line) + len(word) + 1 <= 22:
+                current_line = f"{current_line} {word}".strip()
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = word
+        if current_line:
+            lines.append(current_line)
+        # Limit to 4 lines for display
+        desc_text = "\n".join(lines[:4])
+        if len(lines) > 4:
+            desc_text = desc_text[:-3] + "..."
+        
+        entries.append(IconMenuEntry(
+            key="description",
+            label=desc_text,
+            icon_name="info",
+            enabled=True, selectable=False, height_ratio=2.0,
+            layout="horizontal", font_size=12
+        ))
+        
+        # Installation progress or action button
+        if installing and engine_manager.is_installing():
             progress = engine_manager.get_install_progress()
-            return [
-                IconMenuEntry(
-                    key="installing",
-                    label=f"Installing...\n{progress[:20]}",
-                    icon_name="engine",
-                    enabled=True, selectable=False, height_ratio=1.5,
-                    layout="vertical", font_size=12
-                ),
-            ]
-        
-        # If install just completed, show result
-        if install_complete:
-            status = "Success!" if install_success else "Failed"
+            # Create a text-based progress bar
+            # Progress messages like "Cloning...", "Building...", "Installing..."
+            progress_short = progress[:25] if progress else "Working..."
+            entries.append(IconMenuEntry(
+                key="progress",
+                label=f"Installing...\n{progress_short}",
+                icon_name="download",
+                enabled=True, selectable=False, height_ratio=1.2,
+                layout="horizontal", font_size=12
+            ))
+        elif install_complete:
+            status = "Installed!" if install_success else "Failed"
             error = engine_manager.get_install_error()
             if error and not install_success:
-                status = error[:30]
-            return [
-                IconMenuEntry(
-                    key="result",
-                    label=f"Install {status}",
-                    icon_name="checkbox_checked" if install_success else "cancel",
+                status = f"Error: {error[:20]}"
+            entries.append(IconMenuEntry(
+                key="result",
+                label=status,
+                icon_name="checkbox_checked" if install_success else "cancel",
+                enabled=True, selectable=True, height_ratio=1.0,
+                layout="horizontal", font_size=14
+            ))
+        elif is_installed:
+            if can_uninstall:
+                entries.append(IconMenuEntry(
+                    key="uninstall",
+                    label="Uninstall",
+                    icon_name="cancel",
                     enabled=True, selectable=True, height_ratio=1.0,
                     layout="horizontal", font_size=14
-                ),
-            ]
-        
-        # Normal view - list engines
-        entries = []
-        engines = engine_manager.get_engine_list()
-        
-        for engine in engines:
-            installed = engine["installed"]
-            icon = "checkbox_checked" if installed else "checkbox_empty"
-            label = engine["display_name"]
-            if installed:
-                label = f"{label} [installed]"
-            
+                ))
+            else:
+                entries.append(IconMenuEntry(
+                    key="installed_permanent",
+                    label="Installed (required)",
+                    icon_name="checkbox_checked",
+                    enabled=True, selectable=False, height_ratio=1.0,
+                    layout="horizontal", font_size=14
+                ))
+        else:
             entries.append(IconMenuEntry(
-                key=engine["name"],
-                label=label,
-                icon_name=icon,
-                enabled=True, selectable=True, height_ratio=0.8,
+                key="install",
+                label="Install",
+                icon_name="download",
+                enabled=True, selectable=True, height_ratio=1.0,
                 layout="horizontal", font_size=14
             ))
         
         return entries
     
     def handle_selection(result: MenuSelection):
-        """Handle engine selection."""
-        nonlocal installing_engine, install_complete, install_success
+        """Handle selection in engine detail menu."""
+        nonlocal installing, install_complete, install_success
         
-        # Clear install complete status on any selection
-        if install_complete:
+        if result.key == "result":
+            # Acknowledge result, go back to list
+            return MenuSelection("BACK", 0)
+        
+        if result.key == "install":
+            # Start installation
+            installing = True
             install_complete = False
-            return None
+            
+            def on_complete(success: bool):
+                nonlocal install_complete, install_success, installing
+                install_complete = True
+                install_success = success
+                installing = False
+                if success:
+                    board.beep(board.SOUND_GENERAL)
+            
+            log.info(f"[EngineManager] Starting installation of {engine_name}")
+            engine_manager.install_async(engine_name, completion_callback=on_complete)
+            return None  # Continue loop to show progress
         
-        # If installing, ignore selections
-        if installing_engine and engine_manager.is_installing():
-            return None
+        if result.key == "uninstall":
+            log.info(f"[EngineManager] Uninstalling {engine_name}")
+            engine_manager.uninstall_engine(engine_name)
+            board.beep(board.SOUND_GENERAL, event_type='key_press')
+            return MenuSelection("BACK", 0)  # Return to list
         
+        return None
+    
+    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=2)
+
+
+def _handle_engine_manager_menu():
+    """Handle engine manager submenu.
+    
+    Shows list of available engines with installation status and summary.
+    Selecting an engine opens its detail menu.
+    """
+    from DGTCentaurMods.managers.engine_manager import get_engine_manager
+    
+    engine_manager = get_engine_manager()
+    
+    def build_entries():
+        """Build engine manager menu entries."""
+        entries = []
+        engines = engine_manager.get_engine_list()
+        
+        for engine in engines:
+            installed = engine["installed"]
+            icon = "checkbox_checked" if installed else "checkbox_empty"
+            # Two-line label: name + summary
+            label = f"{engine['display_name']}\n{engine['summary']}"
+            
+            entries.append(IconMenuEntry(
+                key=engine["name"],
+                label=label,
+                icon_name=icon,
+                enabled=True, selectable=True, height_ratio=1.0,
+                layout="horizontal", font_size=12
+            ))
+        
+        return entries
+    
+    def handle_selection(result: MenuSelection):
+        """Handle engine selection - open detail menu."""
         engine_name = result.key
-        if engine_name in ["installing", "result"]:
-            return None
         
         engines = engine_manager.get_engine_list()
         engine_info = next((e for e in engines if e["name"] == engine_name), None)
         if not engine_info:
             return None
         
-        if engine_info["installed"]:
-            # Already installed - offer to uninstall (except stockfish which is essential)
-            if engine_name == "stockfish":
-                log.info("[EngineManager] Stockfish cannot be uninstalled")
-                return None
-            
-            # Uninstall
-            log.info(f"[EngineManager] Uninstalling {engine_name}")
-            engine_manager.uninstall_engine(engine_name)
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-        else:
-            # Not installed - start installation
-            installing_engine = engine_name
-            install_complete = False
-            
-            def on_complete(success: bool):
-                nonlocal install_complete, install_success, installing_engine
-                install_complete = True
-                install_success = success
-                installing_engine = None
-                if success:
-                    board.beep(board.SOUND_GENERAL)
-            
-            log.info(f"[EngineManager] Starting installation of {engine_name}")
-            engine_manager.install_async(engine_name, completion_callback=on_complete)
+        # Open detail submenu for this engine
+        sub_result = _handle_engine_detail_menu(engine_info)
+        if is_break_result(sub_result):
+            return sub_result
         
         return None  # Continue loop
     
