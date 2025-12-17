@@ -3235,10 +3235,81 @@ def _handle_analysis_engine_selection():
     return None
 
 
+def _show_engine_install_progress(engine_manager, engine_name: str, display_name: str) -> bool:
+    """Show a blocking progress display during engine installation.
+    
+    Polls the engine manager for progress and updates the display.
+    Creates a temporary splash screen to show installation progress messages.
+    
+    Args:
+        engine_manager: The engine manager instance
+        engine_name: Engine name being installed
+        display_name: Display name for UI
+        
+    Returns:
+        True if installation succeeded, False otherwise
+    """
+    install_complete = False
+    install_success = False
+    
+    def on_complete(success: bool):
+        nonlocal install_complete, install_success
+        install_complete = True
+        install_success = success
+        if success:
+            board.beep(board.SOUND_GENERAL)
+        else:
+            board.beep(board.SOUND_GENERAL, event_type='error')
+    
+    log.info(f"[EngineManager] Starting installation of {engine_name}")
+    engine_manager.install_async(engine_name, completion_callback=on_complete)
+    
+    # Create a splash screen for progress display
+    board.display_manager.clear_widgets(addStatusBar=False)
+    progress_splash = SplashScreen(
+        board.display_manager.update, 
+        message=f"Installing\n{display_name}...",
+        leave_room_for_status_bar=False
+    )
+    promise = board.display_manager.add_widget(progress_splash)
+    if promise:
+        try:
+            promise.result(timeout=2.0)
+        except Exception:
+            pass
+    
+    # Poll for progress and update display
+    last_progress = ""
+    while not install_complete:
+        progress = engine_manager.get_install_progress()
+        
+        if progress != last_progress:
+            last_progress = progress
+            # Display progress on splash screen
+            progress_short = progress[:28] if progress else "Working..."
+            progress_splash.set_message(f"Installing\n{display_name}...\n\n{progress_short}")
+        
+        time.sleep(0.5)  # Poll every 500ms
+    
+    # Show result on splash screen
+    if install_success:
+        progress_splash.set_message(f"{display_name}\ninstalled!")
+        time.sleep(1.5)
+    else:
+        error = engine_manager.get_install_error()
+        error_short = error[:30] if error else "Unknown error"
+        progress_splash.set_message(f"Install failed\n\n{error_short}")
+        log.error(f"[EngineManager] Installation failed: {error}")
+        time.sleep(3)
+    
+    return install_success
+
+
 def _handle_engine_detail_menu(engine_info: dict):
     """Handle engine detail submenu.
     
-    Shows engine description and install/uninstall option with progress.
+    Shows engine description and install/uninstall option.
+    Installation is handled with a blocking progress display.
     
     Args:
         engine_info: Dict with engine info from get_engine_list()
@@ -3250,16 +3321,10 @@ def _handle_engine_detail_menu(engine_info: dict):
     
     engine_manager = get_engine_manager()
     engine_name = engine_info["name"]
-    
-    # State for installation progress
-    installing: bool = False
-    install_complete: bool = False
-    install_success: bool = False
+    display_name = engine_info["display_name"]
     
     def build_entries():
         """Build engine detail menu entries."""
-        nonlocal installing, install_complete
-        
         entries = []
         
         # Get current installation status
@@ -3275,7 +3340,7 @@ def _handle_engine_detail_menu(engine_info: dict):
             layout="horizontal", font_size=14, bold=True
         ))
         
-        # Description - wrap text for small display (about 20 chars per line)
+        # Description - wrap text for small display (about 22 chars per line)
         desc = engine_info["description"]
         # Simple word wrap
         words = desc.split()
@@ -3299,36 +3364,12 @@ def _handle_engine_detail_menu(engine_info: dict):
             key="description",
             label=desc_text,
             icon_name="info",
-            enabled=True, selectable=False, height_ratio=2.0,
-            layout="horizontal", font_size=12
+            enabled=True, selectable=False, height_ratio=2.5,
+            layout="vertical", font_size=12
         ))
         
-        # Installation progress or action button
-        if installing and engine_manager.is_installing():
-            progress = engine_manager.get_install_progress()
-            # Create a text-based progress bar
-            # Progress messages like "Cloning...", "Building...", "Installing..."
-            progress_short = progress[:25] if progress else "Working..."
-            entries.append(IconMenuEntry(
-                key="progress",
-                label=f"Installing...\n{progress_short}",
-                icon_name="download",
-                enabled=True, selectable=False, height_ratio=1.2,
-                layout="horizontal", font_size=12
-            ))
-        elif install_complete:
-            status = "Installed!" if install_success else "Failed"
-            error = engine_manager.get_install_error()
-            if error and not install_success:
-                status = f"Error: {error[:20]}"
-            entries.append(IconMenuEntry(
-                key="result",
-                label=status,
-                icon_name="checkbox_checked" if install_success else "cancel",
-                enabled=True, selectable=True, height_ratio=1.0,
-                layout="horizontal", font_size=14
-            ))
-        elif is_installed:
+        # Action button based on installation status
+        if is_installed:
             if can_uninstall:
                 entries.append(IconMenuEntry(
                     key="uninstall",
@@ -3358,33 +3399,31 @@ def _handle_engine_detail_menu(engine_info: dict):
     
     def handle_selection(result: MenuSelection):
         """Handle selection in engine detail menu."""
-        nonlocal installing, install_complete, install_success
-        
-        if result.key == "result":
-            # Acknowledge result, go back to list
-            return MenuSelection("BACK", 0)
-        
         if result.key == "install":
-            # Start installation
-            installing = True
-            install_complete = False
-            
-            def on_complete(success: bool):
-                nonlocal install_complete, install_success, installing
-                install_complete = True
-                install_success = success
-                installing = False
-                if success:
-                    board.beep(board.SOUND_GENERAL)
-            
-            log.info(f"[EngineManager] Starting installation of {engine_name}")
-            engine_manager.install_async(engine_name, completion_callback=on_complete)
-            return None  # Continue loop to show progress
+            # Show blocking progress display during installation
+            _show_engine_install_progress(engine_manager, engine_name, display_name)
+            return None  # Return to this menu to show updated status
         
         if result.key == "uninstall":
             log.info(f"[EngineManager] Uninstalling {engine_name}")
+            # Show uninstalling splash
+            board.display_manager.clear_widgets(addStatusBar=False)
+            uninstall_splash = SplashScreen(
+                board.display_manager.update,
+                message=f"Uninstalling\n{display_name}...",
+                leave_room_for_status_bar=False
+            )
+            promise = board.display_manager.add_widget(uninstall_splash)
+            if promise:
+                try:
+                    promise.result(timeout=2.0)
+                except Exception:
+                    pass
+            
             engine_manager.uninstall_engine(engine_name)
             board.beep(board.SOUND_GENERAL, event_type='key_press')
+            uninstall_splash.set_message(f"{display_name}\nuninstalled")
+            time.sleep(1)
             return MenuSelection("BACK", 0)  # Return to list
         
         return None
