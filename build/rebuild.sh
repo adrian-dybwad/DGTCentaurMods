@@ -39,9 +39,15 @@ cd "$BUILD_DIR"
 ./build.sh "$BRANCH_OR_TAG"
 
 log "4/8 Locating latest .deb artifact"
-artifact=$(ls -1t "$RELEASES_DIR"/dgtcentaurmods_*_armhf.deb 2>/dev/null | head -n1 || true)
+# Detect architecture to find the correct package
+if [ "$(uname -m)" = "aarch64" ]; then
+  DEB_ARCH="arm64"
+else
+  DEB_ARCH="armhf"
+fi
+artifact=$(ls -1t "$RELEASES_DIR"/dgtcentaurmods_*_${DEB_ARCH}.deb 2>/dev/null | head -n1 || true)
 if [ -z "${artifact:-}" ] || [ ! -f "$artifact" ]; then
-  echo "No .deb artifact found in $RELEASES_DIR" >&2
+  echo "No .deb artifact found in $RELEASES_DIR for ${DEB_ARCH}" >&2
   exit 1
 fi
 log "Found artifact: $(basename "$artifact")"

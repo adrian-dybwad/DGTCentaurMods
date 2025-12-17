@@ -10,21 +10,24 @@ PACKAGE="DGTCentaurMods"
 INSTALLDIR="/opt/${PACKAGE}"
 cd ../
 
-# Detect optimal ARM architecture for Stockfish compilation
-# Priority: armv8 (64-bit) > armv7-neon (32-bit with SIMD) > armv7 (32-bit baseline)
+# Detect architecture for both package and Stockfish compilation
+# Sets DEB_ARCH (arm64 or armhf) and STOCKFISH_ARCH
 function detectArch {
     # Check if running on 64-bit ARM (ARMv8)
     if [ "$(uname -m)" = "aarch64" ]; then
+        DEB_ARCH="arm64"
         STOCKFISH_ARCH="armv8"
-        echo -e "::: 64-bit ARM detected, using armv8 architecture (best performance)"
+        echo -e "::: 64-bit ARM detected, using arm64 package and armv8 Stockfish"
     # Check if running on 32-bit ARM with NEON support
     elif grep -q "neon" /proc/cpuinfo 2>/dev/null; then
+        DEB_ARCH="armhf"
         STOCKFISH_ARCH="armv7-neon"
-        echo -e "::: 32-bit ARM with NEON detected, using armv7-neon architecture"
+        echo -e "::: 32-bit ARM with NEON detected, using armhf package and armv7-neon Stockfish"
     # Fallback to basic ARMv7
     else
+        DEB_ARCH="armhf"
         STOCKFISH_ARCH="armv7"
-        echo -e "::: Basic 32-bit ARM detected, using armv7 architecture"
+        echo -e "::: Basic 32-bit ARM detected, using armhf package and armv7 Stockfish"
     fi
 }
 
@@ -41,11 +44,17 @@ function detectVersion {
 }
 
 function stage {
-    STAGE="dgtcentaurmods_${VERSION}_armhf"
+    # Detect architecture before staging
+    detectArch
+    
+    STAGE="dgtcentaurmods_${VERSION}_${DEB_ARCH}"
     STAGE_DIR="${BUILD_TMP}/${STAGE}"
-    echo -e "::: Staging build"
+    echo -e "::: Staging build for ${DEB_ARCH}"
     rm -rf "${STAGE_DIR}"
     cp -r "$(basename "$PWD"/${PACKAGE})" "${STAGE_DIR}"
+    
+    # Update Architecture in control file to match build system
+    sed -i "s/^Architecture:.*/Architecture: ${DEB_ARCH}/" "${STAGE_DIR}/DEBIAN/control"
     return
 }
 
@@ -74,8 +83,7 @@ function insertStockfish {
     fi 
     case $REPLY in
         [Yy]* )
-            # Detect architecture before compiling
-            detectArch
+            # Architecture already detected in stage()
 
             cd "${BUILD_TMP}"
             echo -e "Cloning Stockfish repo"
