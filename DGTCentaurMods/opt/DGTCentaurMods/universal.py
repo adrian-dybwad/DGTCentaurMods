@@ -65,7 +65,10 @@ def _check_previous_shutdown_early():
     log.info("[Startup] PREVIOUS SHUTDOWN ANALYSIS - Checking OS indicators")
     log.info("=" * 70)
     
-    # 1. Check dmesg for filesystem recovery messages
+    # 1. Check dmesg for filesystem ERROR messages (not routine cleanup)
+    # Note: "orphan cleanup on readonly fs" is NORMAL - it happens on every boot
+    # when the filesystem cleans up files that were open during previous shutdown.
+    # Only actual ERRORS indicate problems.
     try:
         result = subprocess.run(
             ["dmesg"],
@@ -73,19 +76,24 @@ def _check_previous_shutdown_early():
         )
         if result.returncode == 0:
             dmesg_output = result.stdout
-            recovery_indicators = []
+            error_indicators = []
+            info_indicators = []
             for line in dmesg_output.split('\n'):
                 line_lower = line.lower()
-                if any(term in line_lower for term in ['recover', 'orphan', 'unclean', 'ext4-fs error', 'journal']):
-                    if 'recovering' in line_lower or 'orphan' in line_lower or 'unclean' in line_lower:
-                        recovery_indicators.append(line.strip())
-            
-            if recovery_indicators:
-                log.warning("[Startup] DMESG: Filesystem recovery detected (possible unclean shutdown):")
-                for indicator in recovery_indicators[:10]:  # Limit to first 10
+                # Actual errors that indicate problems
+                if 'ext4-fs error' in line_lower or 'ext4_error' in line_lower:
+                    error_indicators.append(line.strip())
+                elif 'unclean' in line_lower:
+                    error_indicators.append(line.strip())
+                elif 'recovering journal' in line_lower:
+                    # Journal recovery with actual data loss indication
+                    error_indicators.append(line.strip())
+            if error_indicators:
+                log.warning("[Startup] DMESG: Filesystem errors detected (possible unclean shutdown):")
+                for indicator in error_indicators[:10]:
                     log.warning(f"[Startup] DMESG:   {indicator}")
             else:
-                log.info("[Startup] DMESG: No filesystem recovery messages found (clean)")
+                log.info("[Startup] DMESG: No filesystem errors found (clean)")
     except Exception as e:
         log.error(f"[Startup] DMESG: Could not check dmesg: {e}")
     
