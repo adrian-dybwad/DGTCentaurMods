@@ -927,7 +927,13 @@ def eventsThread(keycallback, fieldcallback, tout):
             
             # Check if we should show/update inactivity countdown (skip if timeout disabled)
             time_remaining = to - time.monotonic()
-            if not timeout_disabled and time_remaining <= INACTIVITY_WARNING_SECONDS and time_remaining > 0:
+            if not timeout_disabled and time_remaining <= INACTIVITY_WARNING_SECONDS:
+                if time_remaining <= 0:
+                    # Countdown complete - trigger shutdown
+                    log.info(f'[board.events] Inactivity timeout reached ({tout}s with no activity)')
+                    keycallback(Key.LONG_PLAY)
+                    return
+                
                 remaining_int = int(time_remaining)
                 if not inactivity_countdown_shown:
                     # Start showing the countdown

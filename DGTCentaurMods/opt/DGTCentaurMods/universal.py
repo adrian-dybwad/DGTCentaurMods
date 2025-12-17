@@ -5028,16 +5028,8 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
         else:
             log.info("[Cleanup] Protocol manager was None")
         
-        # Clean up display manager (analysis engine and widgets)
-        log.info("[Cleanup] Cleaning up display manager...")
-        if display_manager is not None:
-            try:
-                display_manager.cleanup(for_shutdown=True)
-                log.info("[Cleanup] Display manager cleaned up")
-            except Exception as e:
-                log.error(f"[Cleanup] Error cleaning up display manager: {e}", exc_info=True)
-        else:
-            log.info("[Cleanup] Display manager was None")
+        # NOTE: Display manager cleanup is deferred until after shutdown splash/LEDs
+        # so the display can show the shutdown message
         
         # Close sockets
         log.info("[Cleanup] Closing sockets...")
@@ -5118,7 +5110,9 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
             try:
                 if display_manager is not None:
                     shutdown_splash = SplashScreen(message="Press [\u25b6]")
-                    display_manager.add_widget(shutdown_splash)
+                    future = display_manager.add_widget(shutdown_splash)
+                    if future:
+                        future.result(timeout=5.0)
             except Exception as e:
                 log.debug(f"[Cleanup] Failed to show shutdown splash: {e}")
             
@@ -5158,6 +5152,18 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
                     log.error("[Cleanup] Controller did not acknowledge sleep command - battery may drain")
             except Exception as e:
                 log.error(f"[Cleanup] Error sending sleep command: {e}")
+        
+        # Clean up display manager (analysis engine and widgets) - do this after
+        # shutdown splash/LEDs so the display can show the shutdown message
+        log.info("[Cleanup] Cleaning up display manager...")
+        if display_manager is not None:
+            try:
+                display_manager.cleanup(for_shutdown=True)
+                log.info("[Cleanup] Display manager cleaned up")
+            except Exception as e:
+                log.error(f"[Cleanup] Error cleaning up display manager: {e}", exc_info=True)
+        else:
+            log.info("[Cleanup] Display manager was None")
         
         # Pause board events
         log.info("[Cleanup] Pausing board events...")

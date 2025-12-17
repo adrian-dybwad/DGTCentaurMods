@@ -285,6 +285,14 @@ class Manager:
         # The on_refresh callback is invoked by Scheduler after display update
         return self._scheduler.submit(full=full, image=snapshot)
     
+    def cleanup(self, for_shutdown: bool = False) -> None:
+        """Clean up display resources.
+        
+        Args:
+            for_shutdown: If True, also puts display to sleep.
+        """
+        self.shutdown()
+    
     def shutdown(self) -> None:
         """Shutdown the display."""
         if self._shutting_down:
