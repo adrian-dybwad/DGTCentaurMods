@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 import logging
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
+#log.setLevel(logging.INFO)
 
 
 # 8x8 Bayer matrix for ordered dithering threshold values (0-63)
