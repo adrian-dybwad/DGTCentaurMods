@@ -371,14 +371,14 @@ class IconMenuWidget(Widget):
             return self.entries[self.selected_index].key
         return None
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the menu with all buttons onto the target image."""
+    def render(self, sprite: Image.Image) -> None:
+        """Render the menu with all buttons onto the sprite."""
         # Draw background
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
-        # Draw each button
+        # Draw each button onto sprite
         for button in self._buttons:
-            button.draw_on(img, draw_x + button.x, draw_y + button.y)
+            button.draw_on(sprite, button.x, button.y)
     
     def handle_key(self, key_id) -> bool:
         """Handle key press events.

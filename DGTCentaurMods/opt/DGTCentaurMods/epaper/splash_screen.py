@@ -124,32 +124,36 @@ class SplashScreen(Widget):
         if message == self.message:
             return
         self.message = message
-        self._text_widget.set_text(message)
+        # Update text widget without triggering its own update (we'll do one update)
+        self._text_widget.text = message
+        self._text_widget._invalidate_caches()
         
         # Log prominently so startup messages are visible in logs
         log.info("=" * 60)
         log.info(f"[Startup] {message}")
         log.info("=" * 60)
         
+        # Invalidate our sprite cache and request update
+        self.invalidate_cache()
         self.request_update(full=False)
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the splash screen with knight logo, UNIVERSAL text, and message.
+    def render(self, sprite: Image.Image) -> None:
+        """Render the splash screen with knight logo, UNIVERSAL text, and message.
         
         Uses TextWidget for all text rendering.
         """
         # Draw dithered background
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
         # Draw knight logo centered horizontally with transparency
-        logo_x = draw_x + (self.width - self.LOGO_SIZE) // 2
+        logo_x = (self.width - self.LOGO_SIZE) // 2
         if self._logo_mask:
-            img.paste(self._logo, (logo_x, draw_y + self.LOGO_Y), self._logo_mask)
+            sprite.paste(self._logo, (logo_x, self.LOGO_Y), self._logo_mask)
         else:
-            img.paste(self._logo, (logo_x, draw_y + self.LOGO_Y))
+            sprite.paste(self._logo, (logo_x, self.LOGO_Y))
         
-        # Draw "UNIVERSAL" text directly onto the background
-        self._universal_text.draw_on(img, draw_x, draw_y + self.UNIVERSAL_Y)
+        # Draw "UNIVERSAL" text directly onto the sprite
+        self._universal_text.draw_on(sprite, 0, self.UNIVERSAL_Y)
         
-        # Draw message text directly onto the background
-        self._text_widget.draw_on(img, draw_x + self.TEXT_MARGIN, draw_y + self.TEXT_Y)
+        # Draw message text directly onto the sprite
+        self._text_widget.draw_on(sprite, self.TEXT_MARGIN, self.TEXT_Y)

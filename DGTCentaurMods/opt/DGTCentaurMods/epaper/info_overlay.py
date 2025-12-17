@@ -103,24 +103,24 @@ class InfoOverlayWidget(Widget):
             self._hide_timer = None
         super().stop()
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the info overlay.
+    def render(self, sprite: Image.Image) -> None:
+        """Render the info overlay.
         
         Draws a white background with black border and centered text.
         """
         if not self.visible or not self._message:
             return
         
-        draw = ImageDraw.Draw(img)
+        draw = ImageDraw.Draw(sprite)
         
         # Draw white background with black border
         draw.rectangle(
-            [(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)],
+            [(0, 0), (self.width - 1, self.height - 1)],
             fill=255, outline=0, width=2
         )
         
         # Draw message centered
         self._text_widget.set_text(self._message)
         # Center vertically
-        text_y = draw_y + (self.height - self._text_widget.height) // 2
-        self._text_widget.draw_on(img, draw_x, text_y, text_color=0)
+        text_y = (self.height - self._text_widget.height) // 2
+        self._text_widget.draw_on(sprite, 0, text_y, text_color=0)

@@ -188,8 +188,8 @@ class IconButtonWidget(Widget):
                 if pattern_row[x % pattern_size] == 1:
                     pixels[x, y] = 0  # Black pixel
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the button with icon and label onto the target image.
+    def render(self, sprite: Image.Image) -> None:
+        """Render the button with icon and label onto the sprite.
         
         Supports two layout modes:
         - horizontal: Icon on left, text on right (default)
@@ -202,19 +202,19 @@ class IconButtonWidget(Widget):
             - border: 2px black line
             - padding: space inside the border (between border and content)
         """
-        draw = ImageDraw.Draw(img)
+        draw = ImageDraw.Draw(sprite)
         
         # Calculate border rectangle (inset by margin)
-        border_left = draw_x + self.margin
-        border_top = draw_y + self.margin
-        border_right = draw_x + self.width - 1 - self.margin
-        border_bottom = draw_y + self.height - 1 - self.margin
+        border_left = self.margin
+        border_top = self.margin
+        border_right = self.width - 1 - self.margin
+        border_bottom = self.height - 1 - self.margin
         
         # Inside edge of border (where content can start)
-        inside_left = draw_x + self.margin + self.border_width
-        inside_top = draw_y + self.margin + self.border_width
-        inside_right = draw_x + self.width - self.margin - self.border_width
-        inside_bottom = draw_y + self.height - self.margin - self.border_width
+        inside_left = self.margin + self.border_width
+        inside_top = self.margin + self.border_width
+        inside_right = self.width - self.margin - self.border_width
+        inside_bottom = self.height - self.margin - self.border_width
         
         # Content area bounds (inside border and padding)
         content_left = inside_left + self.padding
@@ -228,13 +228,13 @@ class IconButtonWidget(Widget):
         if self.selected:
             # Selected: dark grey dithered background inside border only
             pattern = DITHER_PATTERNS.get(self.selected_shade, DITHER_PATTERNS[0])
-            pattern_size = len(pattern)  # 64 for blue noise
+            pattern_size = len(pattern)  # 8 for Bayer
             for y in range(border_top, border_bottom + 1):
                 for x in range(border_left, border_right + 1):
-                    if pattern[(y - draw_y) % pattern_size][(x - draw_x) % pattern_size] == 1:
-                        img.putpixel((x, y), 0)
+                    if pattern[y % pattern_size][x % pattern_size] == 1:
+                        sprite.putpixel((x, y), 0)
                     else:
-                        img.putpixel((x, y), 255)
+                        sprite.putpixel((x, y), 255)
             # Draw border outline
             draw.rectangle([border_left, border_top, border_right, border_bottom], fill=None, outline=0)
         else:
@@ -248,17 +248,17 @@ class IconButtonWidget(Widget):
         if self.layout == "vertical":
             # Vertical layout: icon centered on top, text centered below
             self._render_vertical_layout(
-                img, draw, content_left, content_top, content_width, content_height,
+                sprite, draw, content_left, content_top, content_width, content_height,
                 lines, line_height, text_color
             )
         else:
             # Horizontal layout: icon on left, text on right (default)
             self._render_horizontal_layout(
-                img, draw, draw_x, inside_left, inside_top, content_top, content_height,
+                sprite, draw, inside_left, inside_top, content_top, content_height,
                 lines, line_height, text_color
             )
     
-    def _render_vertical_layout(self, img: Image.Image, draw: ImageDraw.Draw, 
+    def _render_vertical_layout(self, sprite: Image.Image, draw: ImageDraw.Draw, 
                                  content_left: int, content_top: int,
                                  content_width: int, content_height: int,
                                  lines: list, line_height: int, text_color: int):
@@ -267,7 +267,7 @@ class IconButtonWidget(Widget):
         Uses TextWidget for text rendering.
         
         Args:
-            img: Target image to draw onto
+            sprite: Sprite image to draw onto
             draw: ImageDraw object
             content_left: Left edge of content area
             content_top: Top edge of content area
@@ -297,11 +297,10 @@ class IconButtonWidget(Widget):
         text_start_y = start_y + self.icon_size + icon_text_gap
         for i, line in enumerate(lines):
             text_y = text_start_y + i * line_height
-            self._render_text_line(img, line, content_left, text_y, 
+            self._render_text_line(sprite, line, content_left, text_y, 
                                    content_width, text_color, centered=True)
     
-    def _render_horizontal_layout(self, img: Image.Image, draw: ImageDraw.Draw,
-                                   draw_x: int,
+    def _render_horizontal_layout(self, sprite: Image.Image, draw: ImageDraw.Draw,
                                    inside_left: int, inside_top: int,
                                    content_top: int, content_height: int,
                                    lines: list, line_height: int, text_color: int):
@@ -311,9 +310,8 @@ class IconButtonWidget(Widget):
         Both icon and text are centered vertically in the content area.
         
         Args:
-            img: Target image to draw onto
+            sprite: Sprite image to draw onto
             draw: ImageDraw object
-            draw_x: X offset on target image
             inside_left: Left edge inside border
             inside_top: Top edge inside border
             content_top: Top of content area (with padding)
@@ -334,19 +332,19 @@ class IconButtonWidget(Widget):
         
         # Calculate text width (remaining space after icon)
         text_x = icon_right
-        text_width = self.width - (text_x - draw_x) - self.margin - self.border_width - self.padding
+        text_width = self.width - text_x - self.margin - self.border_width - self.padding
         
         if len(lines) > 1:
             # Multi-line: center text block vertically
             total_text_height = len(lines) * line_height
             text_y = content_top + (content_height - total_text_height) // 2
             for line in lines:
-                self._render_text_line(img, line, text_x, text_y, text_width, text_color)
+                self._render_text_line(sprite, line, text_x, text_y, text_width, text_color)
                 text_y += line_height
         else:
             # Single line: center vertically in content area
             text_y = content_top + (content_height - self.label_height) // 2
-            self._render_text_line(img, self.label, text_x, text_y, text_width, text_color)
+            self._render_text_line(sprite, self.label, text_x, text_y, text_width, text_color)
     
     def get_mask(self):
         """Get mask for transparent margin.

@@ -162,17 +162,17 @@ class AlertWidget(Widget):
             log.error(f"[AlertWidget] Error flashing LEDs: {e}")
     
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw alert widget using TextWidgets.
+    def render(self, sprite: Image.Image) -> None:
+        """Render alert widget using TextWidgets.
         
         Draws nothing if not visible. Otherwise draws CHECK or YOUR QUEEN with appropriate colors.
         """
         if not self.visible or self._alert_type is None:
             # Just draw white background
-            self.draw_background(img, draw_x, draw_y)
+            self.draw_background_on_sprite(sprite)
             return
         
-        draw = ImageDraw.Draw(img)
+        draw = ImageDraw.Draw(sprite)
         
         # Determine colors based on which side is threatened
         # Black threatened = black background (fill=0), white text (fill=255)
@@ -185,20 +185,20 @@ class AlertWidget(Widget):
             text_color = 0  # Black text
         
         # Draw background
-        draw.rectangle([(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)], fill=bg_color, outline=0)
+        draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=bg_color, outline=0)
         
         if self._alert_type == self.ALERT_CHECK:
-            # Draw "CHECK" centered directly onto the background
+            # Draw "CHECK" centered directly onto the sprite
             y_offset = (self.height - self._check_text.height) // 2
-            self._check_text.draw_on(img, draw_x, draw_y + y_offset, text_color=text_color)
+            self._check_text.draw_on(sprite, 0, y_offset, text_color=text_color)
             
         elif self._alert_type == self.ALERT_QUEEN:
-            # Draw "YOUR\nQUEEN" centered directly onto the background
-            self._queen_text.draw_on(img, draw_x, draw_y, text_color=text_color)
+            # Draw "YOUR\nQUEEN" centered directly onto the sprite
+            self._queen_text.draw_on(sprite, 0, 0, text_color=text_color)
         
         elif self._alert_type == self.ALERT_HINT:
             # Draw hint move text centered - always white bg, black text
-            draw.rectangle([(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)], fill=255, outline=0)
+            draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=255, outline=0)
             self._hint_text.set_text(self._hint_text_value)
             y_offset = (self.height - self._hint_text.height) // 2
-            self._hint_text.draw_on(img, draw_x, draw_y + y_offset, text_color=0)
+            self._hint_text.draw_on(sprite, 0, y_offset, text_color=0)

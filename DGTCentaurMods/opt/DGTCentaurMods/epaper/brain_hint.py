@@ -67,15 +67,15 @@ class BrainHintWidget(Widget):
         """Clear the hint display."""
         self.set_piece("")
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the brain hint widget using TextWidgets."""
+    def render(self, sprite: Image.Image) -> None:
+        """Render the brain hint widget using TextWidgets."""
         # Draw background
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
         if self._piece_letter:
-            # Draw "BRAIN:" label at top directly onto image
-            self._label_text.draw_on(img, draw_x, draw_y + 2)
+            # Draw "BRAIN:" label at top directly onto sprite
+            self._label_text.draw_on(sprite, 0, 2)
             
-            # Draw large piece letter centered directly onto image
+            # Draw large piece letter centered directly onto sprite
             self._piece_text.set_text(self._piece_letter)
-            self._piece_text.draw_on(img, draw_x, draw_y + 16)
+            self._piece_text.draw_on(sprite, 0, 16)

@@ -456,23 +456,23 @@ class GameAnalysisWidget(Widget):
         self.invalidate_cache()
         self.request_update(full=False)
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw analysis widget with horizontal split layout.
+    def render(self, sprite: Image.Image) -> None:
+        """Render analysis widget with horizontal split layout.
         
         Layout:
         - Left column (44px): Score text, annotation
         - Right column (82px): Full-height history graph (includes all data points)
         """
-        log.debug(f"[GameAnalysisWidget] Drawing: y={self.y}, height={self.height}, "
+        log.debug(f"[GameAnalysisWidget] Rendering: y={self.y}, height={self.height}, "
                   f"score_history={len(self.score_history)}, graph={self._show_graph}")
         
-        draw = ImageDraw.Draw(img)
+        draw = ImageDraw.Draw(sprite)
         
         # Draw background
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
-        # DEBUG: Draw 1px border around widget extent
-        draw.rectangle([(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)], fill=None, outline=0)
+        # Draw 1px border around widget extent
+        draw.rectangle([(0, 0), (self.width - 1, self.height - 1)], fill=None, outline=0)
         
         # Adjust score for display based on bottom color
         # Score is always from white's perspective (positive = white advantage)
@@ -480,13 +480,13 @@ class GameAnalysisWidget(Widget):
         
         # Calculate layout: Score text/annotation on left, graph on right
         left_col_width = self.SCORE_COLUMN_WIDTH
-        graph_x = draw_x + left_col_width + 2
+        graph_x = left_col_width + 2
         graph_width = self.GRAPH_WIDTH
         graph_right = graph_x + graph_width
         
         # === LEFT COLUMN: Score text, annotation (center-justified) ===
         # Draw vertical separator between score column and graph
-        draw.line([(draw_x + left_col_width, draw_y + 2), (draw_x + left_col_width, draw_y + self.height - 2)], fill=0, width=1)
+        draw.line([(left_col_width, 2), (left_col_width, self.height - 2)], fill=0, width=1)
         
         # Format score text
         if abs(display_score_value) > 999:
@@ -501,22 +501,22 @@ class GameAnalysisWidget(Widget):
             else:
                 display_score_text = f"{display_score_value:.1f}"
         
-        # Draw score text directly onto image (center-justified)
+        # Draw score text directly onto sprite (center-justified)
         self._score_text_widget.set_text(display_score_text)
-        self._score_text_widget.draw_on(img, draw_x, draw_y + 4)
+        self._score_text_widget.draw_on(sprite, 0, 4)
         
-        # Draw annotation directly onto image (center-justified, below score)
+        # Draw annotation directly onto sprite (center-justified, below score)
         if self.last_annotation:
             self._annotation_text_widget.set_text(self.last_annotation)
-            self._annotation_text_widget.draw_on(img, draw_x, draw_y + 30)
+            self._annotation_text_widget.draw_on(sprite, 0, 30)
         
         # === RIGHT SECTION: History graph (all data points including last) ===
         # Graph is right-justified: newest values are at the right edge
         history_to_draw = self.score_history
         
         if self._show_graph and len(history_to_draw) > 0:
-            graph_top = draw_y + 4
-            graph_bottom = draw_y + self.height - 4
+            graph_top = 4
+            graph_bottom = self.height - 4
             graph_height = graph_bottom - graph_top
             
             # Center line
@@ -559,8 +559,8 @@ class GameAnalysisWidget(Widget):
                 bar_offset += bar_width
         elif self._show_graph:
             # Still draw the center line even if no history yet
-            graph_top = draw_y + 4
-            graph_bottom = draw_y + self.height - 4
+            graph_top = 4
+            graph_bottom = self.height - 4
             chart_y = graph_top + (graph_bottom - graph_top) // 2
             draw.line([(graph_x, chart_y), (graph_right, chart_y)], fill=0, width=1)
 
