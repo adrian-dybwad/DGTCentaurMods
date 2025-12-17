@@ -302,6 +302,11 @@ class EngineManager:
         self._install_thread: Optional[threading.Thread] = None
         self._install_progress: str = ""
         self._install_error: Optional[str] = None
+        self._installing_engine: Optional[str] = None
+        
+        log.info(f"[EngineManager] Initialized with engines_dir={engines_dir}")
+        log.debug(f"[EngineManager] Build temp directory: {BUILD_TMP}")
+        log.debug(f"[EngineManager] Available engines: {list(ENGINES.keys())}")
     
     def is_installed(self, engine_name: str) -> bool:
         """Check if an engine is installed.
@@ -313,17 +318,25 @@ class EngineManager:
             True if the engine executable exists
         """
         if engine_name not in ENGINES:
+            log.warning(f"[EngineManager] is_installed: Unknown engine '{engine_name}'")
             return False
         
         engine = ENGINES[engine_name]
         
         if engine.is_system_package:
             # Check if system command exists
-            return shutil.which(engine_name) is not None
+            system_path = shutil.which(engine_name)
+            is_installed = system_path is not None
+            log.debug(f"[EngineManager] is_installed: {engine_name} (system package) = {is_installed}, path={system_path}")
+            return is_installed
         else:
             # Check if binary exists in engines directory
             engine_path = self.engines_dir / engine_name
-            return engine_path.exists() and os.access(engine_path, os.X_OK)
+            exists = engine_path.exists()
+            executable = os.access(engine_path, os.X_OK) if exists else False
+            is_installed = exists and executable
+            log.debug(f"[EngineManager] is_installed: {engine_name} = {is_installed} (exists={exists}, executable={executable}, path={engine_path})")
+            return is_installed
     
     def get_engine_list(self) -> List[dict]:
         """Get list of all engines with installation status.
@@ -331,17 +344,23 @@ class EngineManager:
         Returns:
             List of dicts with engine info and installed status
         """
+        log.debug("[EngineManager] get_engine_list: Building engine list")
         result = []
+        installed_count = 0
         for name, engine in ENGINES.items():
+            is_installed = self.is_installed(name)
+            if is_installed:
+                installed_count += 1
             result.append({
                 "name": name,
                 "display_name": engine.display_name,
                 "summary": engine.summary,
                 "description": engine.description,
-                "installed": self.is_installed(name),
+                "installed": is_installed,
                 "is_system_package": engine.is_system_package,
                 "can_uninstall": engine.can_uninstall,
             })
+        log.info(f"[EngineManager] get_engine_list: {installed_count}/{len(ENGINES)} engines installed")
         return result
     
     def install_engine(
@@ -361,63 +380,131 @@ class EngineManager:
         Returns:
             True if installation succeeded
         """
+        log.info(f"[EngineManager] install_engine: Starting installation of '{engine_name}'")
+        
         if engine_name not in ENGINES:
-            log.error(f"[EngineManager] Unknown engine: {engine_name}")
+            log.error(f"[EngineManager] install_engine: Unknown engine '{engine_name}' - not in ENGINES dict")
+            self._install_error = f"Unknown engine: {engine_name}"
             return False
         
         engine = ENGINES[engine_name]
+        self._installing_engine = engine_name
+        self._install_error = None
+        
+        log.info(f"[EngineManager] install_engine: Engine details - display_name='{engine.display_name}', "
+                 f"is_system_package={engine.is_system_package}, repo_url={engine.repo_url}")
         
         def update_progress(msg: str):
             self._install_progress = msg
-            log.info(f"[EngineManager] {msg}")
+            log.info(f"[EngineManager] [Progress] {msg}")
             if progress_callback:
                 progress_callback(msg)
         
         try:
             if engine.is_system_package:
-                return self._install_system_package(engine, update_progress)
+                log.info(f"[EngineManager] install_engine: Using system package installation for '{engine_name}'")
+                success = self._install_system_package(engine, update_progress)
             else:
-                return self._install_from_source(engine, update_progress)
+                log.info(f"[EngineManager] install_engine: Using source build installation for '{engine_name}'")
+                success = self._install_from_source(engine, update_progress)
+            
+            if success:
+                log.info(f"[EngineManager] install_engine: Successfully installed '{engine_name}'")
+            else:
+                log.error(f"[EngineManager] install_engine: Failed to install '{engine_name}' - error: {self._install_error}")
+            
+            return success
+        except subprocess.TimeoutExpired as e:
+            self._install_error = f"Command timed out: {e.cmd}"
+            log.error(f"[EngineManager] install_engine: Timeout during installation of '{engine_name}': {e}")
+            return False
+        except subprocess.SubprocessError as e:
+            self._install_error = f"Subprocess error: {e}"
+            log.error(f"[EngineManager] install_engine: Subprocess error during installation of '{engine_name}': {e}")
+            return False
+        except OSError as e:
+            self._install_error = f"OS error: {e}"
+            log.error(f"[EngineManager] install_engine: OS error during installation of '{engine_name}': {e}")
+            return False
         except Exception as e:
             self._install_error = str(e)
-            log.error(f"[EngineManager] Install failed: {e}")
+            log.error(f"[EngineManager] install_engine: Unexpected exception during installation of '{engine_name}': {type(e).__name__}: {e}")
+            import traceback
+            log.error(f"[EngineManager] install_engine: Traceback:\n{traceback.format_exc()}")
             return False
+        finally:
+            self._installing_engine = None
     
     def _install_system_package(
         self,
         engine: EngineDefinition,
         update_progress: Callable[[str], None]
     ) -> bool:
-        """Install engine from system package."""
+        """Install engine from system package.
+        
+        Args:
+            engine: Engine definition
+            update_progress: Callback for progress messages
+            
+        Returns:
+            True if installation succeeded
+        """
+        log.info(f"[EngineManager] _install_system_package: Installing '{engine.name}' via apt package '{engine.package_name}'")
         update_progress(f"Installing {engine.display_name} from system package...")
         
         # Update package list
+        log.debug("[EngineManager] _install_system_package: Running apt-get update")
         result = subprocess.run(
             ["sudo", "apt-get", "update", "-qq"],
             capture_output=True, text=True, timeout=120
         )
         if result.returncode != 0:
-            log.warning(f"[EngineManager] apt update warning: {result.stderr}")
+            log.warning(f"[EngineManager] _install_system_package: apt-get update returned non-zero ({result.returncode})")
+            log.warning(f"[EngineManager] _install_system_package: apt-get update stderr: {result.stderr.strip()}")
+        else:
+            log.debug("[EngineManager] _install_system_package: apt-get update completed successfully")
         
         # Install package
         update_progress(f"Installing {engine.package_name}...")
+        log.info(f"[EngineManager] _install_system_package: Running apt-get install -y {engine.package_name}")
         result = subprocess.run(
             ["sudo", "apt-get", "install", "-y", engine.package_name],
             capture_output=True, text=True, timeout=300
         )
         if result.returncode != 0:
-            self._install_error = result.stderr
+            self._install_error = result.stderr.strip() or f"apt-get install failed with code {result.returncode}"
+            log.error(f"[EngineManager] _install_system_package: apt-get install failed with code {result.returncode}")
+            log.error(f"[EngineManager] _install_system_package: stdout: {result.stdout.strip()}")
+            log.error(f"[EngineManager] _install_system_package: stderr: {result.stderr.strip()}")
             return False
+        
+        log.info(f"[EngineManager] _install_system_package: apt-get install completed successfully")
+        if result.stdout.strip():
+            log.debug(f"[EngineManager] _install_system_package: stdout: {result.stdout.strip()[:200]}")
         
         # Create symlink in engines directory
         system_path = shutil.which(engine.name)
         if system_path:
+            log.info(f"[EngineManager] _install_system_package: Found system binary at {system_path}")
             link_path = self.engines_dir / engine.name
-            link_path.unlink(missing_ok=True)
+            
+            # Ensure engines directory exists
+            if not self.engines_dir.exists():
+                log.info(f"[EngineManager] _install_system_package: Creating engines directory {self.engines_dir}")
+                self.engines_dir.mkdir(parents=True, exist_ok=True)
+            
+            if link_path.exists() or link_path.is_symlink():
+                log.debug(f"[EngineManager] _install_system_package: Removing existing file/symlink at {link_path}")
+                link_path.unlink(missing_ok=True)
+            
             link_path.symlink_to(system_path)
+            log.info(f"[EngineManager] _install_system_package: Created symlink {link_path} -> {system_path}")
             update_progress(f"Created symlink: {link_path} -> {system_path}")
+        else:
+            log.warning(f"[EngineManager] _install_system_package: Could not find '{engine.name}' in PATH after installation")
         
         update_progress(f"{engine.display_name} installed successfully")
+        log.info(f"[EngineManager] _install_system_package: Successfully installed '{engine.name}'")
         return True
     
     def _install_from_source(
@@ -425,86 +512,160 @@ class EngineManager:
         engine: EngineDefinition,
         update_progress: Callable[[str], None]
     ) -> bool:
-        """Install engine by building from source."""
+        """Install engine by building from source.
+        
+        Args:
+            engine: Engine definition
+            update_progress: Callback for progress messages
+            
+        Returns:
+            True if installation succeeded
+        """
+        log.info(f"[EngineManager] _install_from_source: Starting source build for '{engine.name}'")
+        log.info(f"[EngineManager] _install_from_source: Repo URL: {engine.repo_url}")
+        log.info(f"[EngineManager] _install_from_source: Build commands: {engine.build_commands}")
+        log.info(f"[EngineManager] _install_from_source: Binary path: {engine.binary_path}")
+        
         # Ensure build directory exists
+        log.debug(f"[EngineManager] _install_from_source: Creating build temp directory {self.build_tmp}")
         self.build_tmp.mkdir(parents=True, exist_ok=True)
         repo_dir = self.build_tmp / engine.name
+        log.debug(f"[EngineManager] _install_from_source: Repo directory: {repo_dir}")
         
         # Install build dependencies
         if engine.dependencies:
             update_progress(f"Installing build dependencies...")
             deps = " ".join(engine.dependencies)
+            log.info(f"[EngineManager] _install_from_source: Installing dependencies: {deps}")
             result = subprocess.run(
                 f"sudo apt-get install -y {deps}",
                 shell=True, capture_output=True, text=True, timeout=300
             )
             if result.returncode != 0:
-                log.warning(f"[EngineManager] Dependency install warning: {result.stderr}")
+                log.warning(f"[EngineManager] _install_from_source: Dependency install returned non-zero ({result.returncode})")
+                log.warning(f"[EngineManager] _install_from_source: Dependency stderr: {result.stderr.strip()}")
+            else:
+                log.info(f"[EngineManager] _install_from_source: Dependencies installed successfully")
+        else:
+            log.debug(f"[EngineManager] _install_from_source: No dependencies to install")
         
-        # Clone repository
+        # Clone or update repository
         if repo_dir.exists():
             update_progress(f"Updating {engine.display_name} source...")
+            log.info(f"[EngineManager] _install_from_source: Repo exists, running git pull in {repo_dir}")
             result = subprocess.run(
                 ["git", "pull"],
                 cwd=repo_dir, capture_output=True, text=True, timeout=120
             )
+            if result.returncode != 0:
+                log.warning(f"[EngineManager] _install_from_source: git pull failed ({result.returncode}): {result.stderr.strip()}")
+                # Try to continue anyway - maybe just network issue
+            else:
+                log.info(f"[EngineManager] _install_from_source: git pull successful")
         else:
             update_progress(f"Cloning {engine.display_name} repository...")
+            log.info(f"[EngineManager] _install_from_source: Cloning {engine.repo_url} to {repo_dir}")
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", engine.repo_url, str(repo_dir)],
                 capture_output=True, text=True, timeout=300
             )
             if result.returncode != 0:
-                self._install_error = f"Clone failed: {result.stderr}"
+                self._install_error = f"Clone failed: {result.stderr.strip()}"
+                log.error(f"[EngineManager] _install_from_source: git clone failed ({result.returncode})")
+                log.error(f"[EngineManager] _install_from_source: git clone stdout: {result.stdout.strip()}")
+                log.error(f"[EngineManager] _install_from_source: git clone stderr: {result.stderr.strip()}")
                 return False
+            log.info(f"[EngineManager] _install_from_source: git clone successful")
         
         # Build
         update_progress(f"Building {engine.display_name}...")
-        for cmd in engine.build_commands:
+        for i, cmd in enumerate(engine.build_commands):
+            log.info(f"[EngineManager] _install_from_source: Running build command {i+1}/{len(engine.build_commands)}: {cmd}")
             result = subprocess.run(
                 cmd,
                 shell=True, cwd=repo_dir,
                 capture_output=True, text=True, timeout=600
             )
             if result.returncode != 0:
-                self._install_error = f"Build failed: {result.stderr}"
+                self._install_error = f"Build failed: {result.stderr.strip()[:100]}"
+                log.error(f"[EngineManager] _install_from_source: Build command failed ({result.returncode}): {cmd}")
+                log.error(f"[EngineManager] _install_from_source: Build stdout (last 500 chars): {result.stdout.strip()[-500:]}")
+                log.error(f"[EngineManager] _install_from_source: Build stderr (last 500 chars): {result.stderr.strip()[-500:]}")
                 return False
+            log.debug(f"[EngineManager] _install_from_source: Build command {i+1} completed successfully")
+        
+        log.info(f"[EngineManager] _install_from_source: All build commands completed successfully")
+        
+        # Ensure engines directory exists
+        if not self.engines_dir.exists():
+            log.info(f"[EngineManager] _install_from_source: Creating engines directory {self.engines_dir}")
+            self.engines_dir.mkdir(parents=True, exist_ok=True)
         
         # Copy binary to engines directory
         update_progress(f"Installing {engine.display_name}...")
         src_binary = repo_dir / engine.binary_path
+        log.debug(f"[EngineManager] _install_from_source: Looking for binary at {src_binary}")
+        
         if not src_binary.exists():
             # Try to find the binary
+            log.warning(f"[EngineManager] _install_from_source: Binary not found at expected path {src_binary}")
+            log.info(f"[EngineManager] _install_from_source: Searching for binary named '{engine.name}' in repo")
             possible_paths = list(repo_dir.glob(f"**/{engine.name}"))
+            log.debug(f"[EngineManager] _install_from_source: Found {len(possible_paths)} potential matches: {possible_paths}")
+            
             if possible_paths:
                 src_binary = possible_paths[0]
+                log.info(f"[EngineManager] _install_from_source: Using found binary at {src_binary}")
             else:
+                # List directory contents for debugging
+                log.error(f"[EngineManager] _install_from_source: Binary not found anywhere in repo")
+                try:
+                    all_files = list(repo_dir.rglob("*"))
+                    executables = [f for f in all_files if f.is_file() and os.access(f, os.X_OK)]
+                    log.error(f"[EngineManager] _install_from_source: Executable files in repo: {executables[:20]}")
+                except Exception as e:
+                    log.error(f"[EngineManager] _install_from_source: Could not list repo files: {e}")
+                
                 self._install_error = f"Binary not found: {engine.binary_path}"
                 return False
         
         dst_binary = self.engines_dir / engine.name
+        log.info(f"[EngineManager] _install_from_source: Copying binary {src_binary} -> {dst_binary}")
         shutil.copy2(src_binary, dst_binary)
         os.chmod(dst_binary, 0o755)
+        log.info(f"[EngineManager] _install_from_source: Binary installed and made executable")
         
         # Copy extra files (personalities, books, weights, etc.)
+        if engine.extra_files:
+            log.info(f"[EngineManager] _install_from_source: Copying {len(engine.extra_files)} extra files/directories")
         for extra in engine.extra_files:
             src_extra = repo_dir / extra
             if src_extra.exists():
                 dst_extra = self.engines_dir / extra
+                log.debug(f"[EngineManager] _install_from_source: Copying extra '{extra}': {src_extra} -> {dst_extra}")
                 if src_extra.is_dir():
                     if dst_extra.exists():
+                        log.debug(f"[EngineManager] _install_from_source: Removing existing directory {dst_extra}")
                         shutil.rmtree(dst_extra)
                     shutil.copytree(src_extra, dst_extra)
+                    log.debug(f"[EngineManager] _install_from_source: Copied directory {extra}")
                 else:
                     shutil.copy2(src_extra, dst_extra)
+                    log.debug(f"[EngineManager] _install_from_source: Copied file {extra}")
+            else:
+                log.warning(f"[EngineManager] _install_from_source: Extra file/dir not found: {src_extra}")
         
         # Set ownership
-        subprocess.run(
+        log.debug(f"[EngineManager] _install_from_source: Setting ownership to pi:pi on {self.engines_dir}")
+        result = subprocess.run(
             ["sudo", "chown", "-R", "pi:pi", str(self.engines_dir)],
             capture_output=True, timeout=30
         )
+        if result.returncode != 0:
+            log.warning(f"[EngineManager] _install_from_source: chown failed ({result.returncode})")
         
         update_progress(f"{engine.display_name} installed successfully")
+        log.info(f"[EngineManager] _install_from_source: Successfully installed '{engine.name}'")
         return True
     
     def uninstall_engine(self, engine_name: str) -> bool:
@@ -516,42 +677,70 @@ class EngineManager:
         Returns:
             True if uninstallation succeeded
         """
+        log.info(f"[EngineManager] uninstall_engine: Starting uninstallation of '{engine_name}'")
+        
         if engine_name not in ENGINES:
-            log.error(f"[EngineManager] Unknown engine: {engine_name}")
+            log.error(f"[EngineManager] uninstall_engine: Unknown engine '{engine_name}' - not in ENGINES dict")
             return False
         
         engine = ENGINES[engine_name]
         
+        if not engine.can_uninstall:
+            log.warning(f"[EngineManager] uninstall_engine: Engine '{engine_name}' cannot be uninstalled (can_uninstall=False)")
+            return False
+        
         if engine.is_system_package:
             # Don't uninstall system packages - just remove symlink
+            log.info(f"[EngineManager] uninstall_engine: '{engine_name}' is system package, only removing symlink")
             link_path = self.engines_dir / engine.name
             if link_path.is_symlink():
                 link_path.unlink()
-                log.info(f"[EngineManager] Removed symlink: {link_path}")
+                log.info(f"[EngineManager] uninstall_engine: Removed symlink {link_path}")
+            elif link_path.exists():
+                log.warning(f"[EngineManager] uninstall_engine: {link_path} exists but is not a symlink")
+            else:
+                log.debug(f"[EngineManager] uninstall_engine: No symlink found at {link_path}")
             return True
         
         # Remove binary
         binary_path = self.engines_dir / engine.name
         if binary_path.exists():
-            binary_path.unlink()
-            log.info(f"[EngineManager] Removed: {binary_path}")
+            try:
+                binary_path.unlink()
+                log.info(f"[EngineManager] uninstall_engine: Removed binary {binary_path}")
+            except OSError as e:
+                log.error(f"[EngineManager] uninstall_engine: Failed to remove binary {binary_path}: {e}")
+        else:
+            log.debug(f"[EngineManager] uninstall_engine: Binary not found at {binary_path}")
         
         # Remove extra files
         for extra in engine.extra_files:
             extra_path = self.engines_dir / extra
             if extra_path.exists():
-                if extra_path.is_dir():
-                    shutil.rmtree(extra_path)
-                else:
-                    extra_path.unlink()
-                log.info(f"[EngineManager] Removed: {extra_path}")
+                try:
+                    if extra_path.is_dir():
+                        shutil.rmtree(extra_path)
+                        log.info(f"[EngineManager] uninstall_engine: Removed directory {extra_path}")
+                    else:
+                        extra_path.unlink()
+                        log.info(f"[EngineManager] uninstall_engine: Removed file {extra_path}")
+                except OSError as e:
+                    log.error(f"[EngineManager] uninstall_engine: Failed to remove {extra_path}: {e}")
+            else:
+                log.debug(f"[EngineManager] uninstall_engine: Extra file/dir not found: {extra_path}")
         
         # Clean build directory
         build_dir = self.build_tmp / engine.name
         if build_dir.exists():
-            shutil.rmtree(build_dir)
-            log.info(f"[EngineManager] Cleaned build directory: {build_dir}")
+            try:
+                shutil.rmtree(build_dir)
+                log.info(f"[EngineManager] uninstall_engine: Cleaned build directory {build_dir}")
+            except OSError as e:
+                log.warning(f"[EngineManager] uninstall_engine: Failed to clean build directory {build_dir}: {e}")
+        else:
+            log.debug(f"[EngineManager] uninstall_engine: No build directory at {build_dir}")
         
+        log.info(f"[EngineManager] uninstall_engine: Successfully uninstalled '{engine_name}'")
         return True
     
     def install_async(
@@ -567,10 +756,29 @@ class EngineManager:
             progress_callback: Called with progress messages
             completion_callback: Called with success status when done
         """
-        def _install_thread():
-            success = self.install_engine(engine_name, progress_callback)
+        log.info(f"[EngineManager] install_async: Starting async installation of '{engine_name}'")
+        
+        if self.is_installing():
+            log.warning(f"[EngineManager] install_async: Another installation is already in progress "
+                       f"(installing: {self._installing_engine})")
             if completion_callback:
-                completion_callback(success)
+                completion_callback(False)
+            return
+        
+        def _install_thread():
+            log.debug(f"[EngineManager] install_async: Install thread started for '{engine_name}'")
+            try:
+                success = self.install_engine(engine_name, progress_callback)
+                log.info(f"[EngineManager] install_async: Install thread completed for '{engine_name}', success={success}")
+                if completion_callback:
+                    completion_callback(success)
+            except Exception as e:
+                log.error(f"[EngineManager] install_async: Install thread crashed for '{engine_name}': {type(e).__name__}: {e}")
+                import traceback
+                log.error(f"[EngineManager] install_async: Traceback:\n{traceback.format_exc()}")
+                self._install_error = str(e)
+                if completion_callback:
+                    completion_callback(False)
         
         self._install_thread = threading.Thread(
             target=_install_thread,
@@ -578,10 +786,18 @@ class EngineManager:
             daemon=True
         )
         self._install_thread.start()
+        log.debug(f"[EngineManager] install_async: Install thread spawned for '{engine_name}'")
     
     def is_installing(self) -> bool:
         """Check if an installation is in progress."""
-        return self._install_thread is not None and self._install_thread.is_alive()
+        is_running = self._install_thread is not None and self._install_thread.is_alive()
+        return is_running
+    
+    def get_installing_engine(self) -> Optional[str]:
+        """Get the name of the engine currently being installed, if any."""
+        if self.is_installing():
+            return self._installing_engine
+        return None
     
     def get_install_progress(self) -> str:
         """Get the current installation progress message."""
