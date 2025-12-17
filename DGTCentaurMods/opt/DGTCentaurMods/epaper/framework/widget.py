@@ -211,20 +211,25 @@ class Widget(ABC):
         caches it, then pastes it.
         
         This is called by the Manager during display updates.
+        Thread-safe: captures sprite reference to avoid race with invalidate_cache().
         
         Args:
             canvas: Target canvas image to draw onto.
             draw_x: X coordinate on canvas where widget starts.
             draw_y: Y coordinate on canvas where widget starts.
         """
-        if self._cached_sprite is None:
+        # Capture sprite reference to avoid race condition with background threads
+        # calling invalidate_cache() between the check and the paste
+        sprite = self._cached_sprite
+        if sprite is None:
             # Cache miss - render to new sprite
-            self._cached_sprite = Image.new('L', (self.width, self.height), 255)
-            self.render(self._cached_sprite)
+            sprite = Image.new('L', (self.width, self.height), 255)
+            self.render(sprite)
+            self._cached_sprite = sprite
             log.debug(f"Widget.draw_on(): {self.__class__.__name__} cache miss, rendered new sprite")
         
         # Fast blit from cache to canvas
-        canvas.paste(self._cached_sprite, (draw_x, draw_y))
+        canvas.paste(sprite, (draw_x, draw_y))
     
     def render(self, sprite: Image.Image) -> None:
         """Render the widget content onto the sprite image.
