@@ -447,6 +447,7 @@ _game_settings = {
     'time_control': 0,         # Time per player in minutes (0 = disabled/untimed)
     # System settings (cannot be changed during a game)
     'analysis_mode': True,     # Enable analysis engine (creates analysis widget even if hidden)
+    'analysis_engine': 'ct800',  # Engine to use for position analysis
     # Display settings (widgets to show during game)
     'show_board': True,        # Show chess board widget
     'show_clock': True,        # Show clock/turn indicator widget
@@ -512,8 +513,9 @@ def _load_game_settings():
                 return False
             return True
         
-        # Load system settings (analysis mode)
+        # Load system settings (analysis mode and engine)
         _game_settings['analysis_mode'] = load_bool_setting('analysis_mode')
+        _game_settings['analysis_engine'] = Settings.read(SETTINGS_SECTION, 'analysis_engine', 'ct800')
         
         _game_settings['show_board'] = load_bool_setting('show_board')
         _game_settings['show_clock'] = load_bool_setting('show_clock')
@@ -527,7 +529,7 @@ def _load_game_settings():
                  f"name={_player2_settings['name'] or '(default)'}, "
                  f"engine={_player2_settings['engine']}, elo={_player2_settings['elo']}")
         log.info(f"[Settings] Game: time={_game_settings['time_control']} min, "
-                 f"analysis={_game_settings['analysis_mode']}")
+                 f"analysis={_game_settings['analysis_mode']}, analysis_engine={_game_settings['analysis_engine']}")
         log.info(f"[Settings] Display: board={_game_settings['show_board']}, "
                  f"clock={_game_settings['show_clock']}, analysis={_game_settings['show_analysis']}, "
                  f"graph={_game_settings['show_graph']}")
@@ -1354,7 +1356,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     # Get analysis engine path (only if analysis mode is enabled)
     from DGTCentaurMods.paths import get_engine_path
     analysis_mode = _game_settings['analysis_mode']
-    analysis_engine_path = get_engine_path("ct800") if analysis_mode else None
+    analysis_engine_path = get_engine_path(_game_settings['analysis_engine']) if analysis_mode else None
 
     # Create DisplayManager - handles all game widgets (chess board, analysis, clock)
     # Analysis runs in a background thread so it doesn't block move processing
@@ -2479,6 +2481,7 @@ def _handle_reset_settings():
             
             _game_settings['time_control'] = 0
             _game_settings['analysis_mode'] = True
+            _game_settings['analysis_engine'] = 'ct800'
             _game_settings['show_board'] = True
             _game_settings['show_clock'] = True
             _game_settings['show_analysis'] = True
@@ -3148,6 +3151,87 @@ def _handle_bluetooth_settings():
         return None  # Continue loop
     
     return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=2)
+
+
+def _handle_analysis_mode_menu():
+    """Handle analysis mode settings submenu.
+    
+    Shows:
+    - Enabled checkbox (toggle analysis on/off)
+    - Engine selector (which engine to use for analysis)
+    
+    The engine selector only appears when analysis is enabled.
+    """
+    def build_entries():
+        """Build analysis mode menu entries."""
+        entries = [
+            IconMenuEntry(
+                key="enabled", label="Analysis Enabled",
+                icon_name="timer_checked" if _game_settings['analysis_mode'] else "timer",
+                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14, bold=True
+            ),
+        ]
+        
+        # Only show engine selector if analysis is enabled
+        if _game_settings['analysis_mode']:
+            current_engine = _game_settings['analysis_engine']
+            entries.append(IconMenuEntry(
+                key="engine", label=f"Engine: {current_engine}",
+                icon_name="engine",
+                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
+            ))
+        
+        return entries
+    
+    def handle_selection(result: MenuSelection):
+        """Handle analysis mode setting selection."""
+        if result.key == "enabled":
+            # Toggle analysis mode
+            _game_settings['analysis_mode'] = not _game_settings['analysis_mode']
+            _save_game_setting('analysis_mode', _game_settings['analysis_mode'])
+            log.info(f"[Settings] Analysis mode set to {_game_settings['analysis_mode']}")
+            board.beep(board.SOUND_GENERAL, event_type='key_press')
+            return None  # Continue loop to refresh menu
+        elif result.key == "engine":
+            # Show engine selection submenu
+            engine_result = _handle_analysis_engine_selection()
+            if is_break_result(engine_result):
+                return engine_result
+        return None  # Continue loop
+    
+    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=0)
+
+
+def _handle_analysis_engine_selection():
+    """Handle engine selection for analysis mode.
+    
+    Shows list of available engines with current selection marked.
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    engines = _load_available_engines()
+    engine_entries = []
+    for engine in engines:
+        label = f"* {engine}" if engine == _game_settings['analysis_engine'] else engine
+        engine_entries.append(
+            IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
+        )
+    
+    result = _show_menu(engine_entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result not in ["BACK", "SHUTDOWN", "HELP"]:
+        old_engine = _game_settings['analysis_engine']
+        _game_settings['analysis_engine'] = result
+        _save_game_setting('analysis_engine', result)
+        log.info(f"[Settings] Analysis engine changed: {old_engine} -> {result}")
+        board.beep(board.SOUND_GENERAL, event_type='key_press')
+    
+    return None
 
 
 def _handle_sound_settings():
@@ -3832,12 +3916,9 @@ def _handle_system_menu():
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "AnalysisMode":
-            # Toggle analysis mode
-            _game_settings['analysis_mode'] = not _game_settings['analysis_mode']
-            _save_game_setting('analysis_mode', _game_settings['analysis_mode'])
-            log.info(f"[Settings] Analysis mode set to {_game_settings['analysis_mode']}")
-            # Menu will refresh with updated checkbox
-            return None
+            sub_result = _handle_analysis_mode_menu()
+            if is_break_result(sub_result):
+                return sub_result
         elif result.key == "WiFi":
             sub_result = _handle_wifi_settings()
             if is_break_result(sub_result):
@@ -4322,7 +4403,7 @@ def _start_lichess_game(lichess_config) -> bool:
     # Get analysis engine path (only if analysis mode is enabled)
     from DGTCentaurMods.paths import get_engine_path
     analysis_mode = _game_settings['analysis_mode']
-    analysis_engine_path = get_engine_path("ct800") if analysis_mode else None
+    analysis_engine_path = get_engine_path(_game_settings['analysis_engine']) if analysis_mode else None
     
     # Create DisplayManager first (this initializes game widgets)
     display_manager = DisplayManager(
