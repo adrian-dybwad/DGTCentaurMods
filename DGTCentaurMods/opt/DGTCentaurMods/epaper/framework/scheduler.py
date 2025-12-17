@@ -230,7 +230,10 @@ class Scheduler:
                     log.debug(f"on_display_updated callback failed: {cb_e}")
         except Exception as e:
             # Don't log errors during shutdown (SPI may be closed)
-            if not self._stop_event.is_set():
+            # Also suppress GPIO-related errors that occur during shutdown race conditions
+            error_msg = str(e).lower()
+            is_shutdown_error = 'closed' in error_msg or 'uninitialized' in error_msg or 'gpio' in error_msg
+            if not self._stop_event.is_set() and not is_shutdown_error:
                 log.error(f"ERROR in full refresh: {e}")
                 import traceback
                 traceback.print_exc()

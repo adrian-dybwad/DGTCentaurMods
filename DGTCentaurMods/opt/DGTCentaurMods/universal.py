@@ -4961,6 +4961,7 @@ def client_reader():
 
 
 _cleanup_done = False  # Guard against running cleanup twice
+_shutdown_requested = False  # Flag to request shutdown from main thread (set by events thread)
 
 
 def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False, reboot: bool = False):
@@ -5273,10 +5274,14 @@ def key_callback(key_id):
     
     # Always handle LONG_PLAY for shutdown
     if key_id == board.Key.LONG_PLAY:
-        log.info("[App] LONG_PLAY key event received")
+        log.info("[App] LONG_PLAY key event received - setting shutdown flags")
+        # Set flags to trigger clean shutdown from main thread
+        # Don't call cleanup_and_exit here - it runs in events thread and sys.exit()
+        # would only exit this thread, not the main thread
+        global _shutdown_requested
+        _shutdown_requested = True
         running = False
         kill = 1
-        cleanup_and_exit(reason="LONG_PLAY key event from universal.py", system_shutdown=True)
         _reset_unhandled_key_count()
         return
     
@@ -5948,7 +5953,11 @@ def main():
     except Exception as e:
         log.error(f"[App] Error in main loop: {e}")
     finally:
-        cleanup_and_exit("Main loop ended")
+        # Check if shutdown was requested from events thread (e.g., LONG_PLAY key)
+        if _shutdown_requested:
+            cleanup_and_exit("LONG_PLAY shutdown requested", system_shutdown=True)
+        else:
+            cleanup_and_exit("Main loop ended")
 
 
 if __name__ == "__main__":
