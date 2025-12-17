@@ -328,21 +328,23 @@ class HandBrainAssistant(Assistant):
         self._current_squares = []
     
     def _resolve_engine_path(self) -> Optional[pathlib.Path]:
-        """Find the engine executable."""
+        """Find the engine executable.
+        
+        Uses paths.get_engine_path() which checks installed location first,
+        then falls back to development location.
+        """
         if self._brain_config.engine_path:
             path = pathlib.Path(self._brain_config.engine_path)
             if path.exists():
                 return path
             log.warning(f"[HandBrain] Configured path not found: {path}")
         
-        # Search standard locations
-        base_path = pathlib.Path(__file__).parent.parent
-        engine_path = base_path / "engines" / self._brain_config.engine_name
+        from DGTCentaurMods.paths import get_engine_path
+        engine_path = get_engine_path(self._brain_config.engine_name)
+        if engine_path:
+            return pathlib.Path(engine_path)
         
-        if engine_path.exists():
-            return engine_path
-        
-        log.error(f"[HandBrain] Engine not found: {engine_path}")
+        log.error(f"[HandBrain] Engine not found: {self._brain_config.engine_name}")
         return None
     
     def _load_uci_options(self, uci_file_path: str) -> None:

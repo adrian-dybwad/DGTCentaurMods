@@ -39,6 +39,7 @@ BASE_DIR = "/opt/DGTCentaurMods"
 # Subdirectories under BASE_DIR
 DB_DIR = f"{BASE_DIR}/db"
 CONFIG_DIR = f"{BASE_DIR}/config"
+ENGINES_DIR = f"{BASE_DIR}/engines"
 TMP_DIR = f"{BASE_DIR}/tmp"
 WEB_DIR = f"{BASE_DIR}/web"
 WEB_STATIC_DIR = f"{WEB_DIR}/static"
@@ -75,6 +76,34 @@ def get_resource_path(resource_file: str) -> str:
     if os.path.exists(user_path):
         return user_path
     return os.path.join(RESOURCES_DIR, resource_file)
+
+
+def get_engine_path(engine_name: str) -> str:
+    """Return path to a UCI engine executable.
+    
+    Checks installed location first (/opt/DGTCentaurMods/engines),
+    then falls back to development location (relative to this file).
+    
+    Args:
+        engine_name: Name of the engine executable (e.g., "stockfish_pi", "ct800")
+        
+    Returns:
+        Absolute path to the engine executable, or empty string if not found
+    """
+    if ".." in engine_name:
+        return ""
+    
+    # Check installed location first
+    installed_path = os.path.join(ENGINES_DIR, engine_name)
+    if os.path.exists(installed_path):
+        return installed_path
+    
+    # Fall back to development location (relative to this file)
+    dev_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engines", engine_name)
+    if os.path.exists(dev_path):
+        return dev_path
+    
+    return ""
 
 
 # -----------------------------------------------------------------------------

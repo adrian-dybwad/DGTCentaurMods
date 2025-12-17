@@ -1352,9 +1352,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     is_hand_brain = False  # TODO: implement hand+brain as an option
 
     # Get analysis engine path (only if analysis mode is enabled)
-    base_path = pathlib.Path(__file__).parent
+    from DGTCentaurMods.paths import get_engine_path
     analysis_mode = _game_settings['analysis_mode']
-    analysis_engine_path = str((base_path / "engines/ct800").resolve()) if analysis_mode else None
+    analysis_engine_path = get_engine_path("ct800") if analysis_mode else None
 
     # Create DisplayManager - handles all game widgets (chess board, analysis, clock)
     # Analysis runs in a background thread so it doesn't block move processing
@@ -4320,10 +4320,9 @@ def _start_lichess_game(lichess_config) -> bool:
     app_state = AppState.GAME
     
     # Get analysis engine path (only if analysis mode is enabled)
-    import pathlib
-    base_path = pathlib.Path(__file__).parent
+    from DGTCentaurMods.paths import get_engine_path
     analysis_mode = _game_settings['analysis_mode']
-    analysis_engine_path = str((base_path / "engines/ct800").resolve()) if analysis_mode else None
+    analysis_engine_path = get_engine_path("ct800") if analysis_mode else None
     
     # Create DisplayManager first (this initializes game widgets)
     display_manager = DisplayManager(

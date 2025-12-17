@@ -356,6 +356,8 @@ class EnginePlayer(Player):
         """Find the engine executable.
         
         Searches in standard locations if not explicitly configured.
+        Uses paths.get_engine_path() which checks installed location first,
+        then falls back to development location.
         
         Returns:
             Path to engine executable, or None if not found.
@@ -366,14 +368,12 @@ class EnginePlayer(Player):
                 return path
             log.warning(f"[EnginePlayer] Configured path not found: {path}")
         
-        # Search standard locations
-        base_path = pathlib.Path(__file__).parent.parent
-        engine_path = base_path / "engines" / self._engine_config.engine_name
+        from DGTCentaurMods.paths import get_engine_path
+        engine_path = get_engine_path(self._engine_config.engine_name)
+        if engine_path:
+            return pathlib.Path(engine_path)
         
-        if engine_path.exists():
-            return engine_path
-        
-        log.error(f"[EnginePlayer] Engine not found: {engine_path}")
+        log.error(f"[EnginePlayer] Engine not found: {self._engine_config.engine_name}")
         return None
     
     def _load_uci_options(self, uci_file_path: str) -> None:
