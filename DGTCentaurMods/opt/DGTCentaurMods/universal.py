@@ -3403,11 +3403,17 @@ def _handle_engine_manager_menu():
     engine_manager = get_engine_manager()
     
     def build_entries():
-        """Build engine manager menu entries."""
+        """Build engine manager menu entries.
+        
+        Installed engines are listed first, followed by available engines.
+        """
         entries = []
         engines = engine_manager.get_engine_list()
         
-        for engine in engines:
+        # Sort: installed engines first, then by display name
+        engines_sorted = sorted(engines, key=lambda e: (not e["installed"], e["display_name"]))
+        
+        for engine in engines_sorted:
             installed = engine["installed"]
             icon = "checkbox_checked" if installed else "checkbox_empty"
             # Two-line label: name + summary
