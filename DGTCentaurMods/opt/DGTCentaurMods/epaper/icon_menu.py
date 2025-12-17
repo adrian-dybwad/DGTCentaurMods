@@ -158,6 +158,10 @@ class IconMenuWidget(Widget):
         log.info(f"IconMenuWidget: Created with {len(self.entries)} entries, "
                  f"{self._visible_count} visible at a time")
     
+    def _handle_child_update(self, full: bool = False):
+        """Handle update requests from child widgets by forwarding to parent callback."""
+        return self._update_callback(full)
+    
     def _calculate_visible_count(self) -> None:
         """Calculate how many entries can fit on screen.
         
@@ -234,10 +238,11 @@ class IconMenuWidget(Widget):
                 icon_size = min(36, max(20, button_height - 24))
             
             button = IconButtonWidget(
-                x=0,
-                y=current_y,
-                width=self.width,
-                height=button_height,
+                0,
+                current_y,
+                self.width,
+                button_height,
+                self._handle_child_update,
                 key=entry.key,
                 label=entry.label,
                 icon_name=entry.icon_name,
