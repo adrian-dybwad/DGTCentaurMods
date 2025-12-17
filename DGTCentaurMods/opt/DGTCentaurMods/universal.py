@@ -44,6 +44,10 @@ from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.epaper import Manager, SplashScreen, IconMenuWidget, IconMenuEntry, KeyboardWidget
 from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
 
+# Flag set if previous shutdown was incomplete (filesystem errors detected)
+# Accessible via universal.incomplete_shutdown for display in About menu
+incomplete_shutdown = False
+
 # Check previous shutdown status IMMEDIATELY - before any hardware initialization
 # This must run before board module is imported (which initializes the controller)
 def _check_previous_shutdown_early():
@@ -89,6 +93,8 @@ def _check_previous_shutdown_early():
                     # Journal recovery with actual data loss indication
                     error_indicators.append(line.strip())
             if error_indicators:
+                global incomplete_shutdown
+                incomplete_shutdown = True
                 log.warning("[Startup] DMESG: Filesystem errors detected (possible unclean shutdown):")
                 for indicator in error_indicators[:10]:
                     log.warning(f"[Startup] DMESG:   {indicator}")

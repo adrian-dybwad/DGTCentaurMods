@@ -38,6 +38,7 @@ class AboutWidget(Widget):
     APP_NAME_Y = 150
     APP_SUBTITLE_Y = 165
     VERSION_Y = 185
+    WARNING_Y = 205
     INSTRUCTION_Y = 280
     
     def __init__(self, update_callback,
@@ -113,6 +114,15 @@ class AboutWidget(Widget):
         if self._version:
             draw.text((64, self.VERSION_Y), f"v{self._version}", 
                       font=version_font, fill=0, anchor="mm")
+        
+        # Draw incomplete shutdown warning if detected
+        try:
+            import DGTCentaurMods.universal as universal_module
+            if universal_module.incomplete_shutdown:
+                draw.text((64, self.WARNING_Y), "Incomplete shutdown", 
+                          font=version_font, fill=0, anchor="mm")
+        except (ImportError, AttributeError):
+            pass
         
         # Draw dismiss instruction
         draw.text((64, self.INSTRUCTION_Y), "Press any button", 
