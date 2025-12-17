@@ -97,7 +97,8 @@ function insertStockfish {
 
             make clean
             echo -e "::: Compiling Stockfish with ARCH=${STOCKFISH_ARCH}"
-            make -j"$(nproc)" build ARCH=${STOCKFISH_ARCH}
+            # Pass SQLite linker flags via LDFLAGS (Stockfish Makefile appends to LDFLAGS)
+            make -j"$(nproc)" build ARCH=${STOCKFISH_ARCH} LDFLAGS="${SQLITE_LIBS}"
 
             mv stockfish stockfish_pi
             # Remove any existing stockfish_pi (symlink or file) in staging before copying
