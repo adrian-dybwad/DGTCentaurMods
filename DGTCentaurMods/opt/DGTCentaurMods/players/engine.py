@@ -132,8 +132,10 @@ class EnginePlayer(Player):
             return False
         
         # Load UCI options from config file (synchronous, fast)
-        uci_file_path = str(engine_path) + ".uci"
-        self._load_uci_options(uci_file_path)
+        # UCI files are in config/engines/ or defaults/engines/, not next to binaries
+        uci_file_path = self._resolve_uci_file_path()
+        if uci_file_path:
+            self._load_uci_options(uci_file_path)
         
         # Start engine initialization in background
         def _init_engine():
@@ -374,6 +376,31 @@ class EnginePlayer(Player):
             return pathlib.Path(engine_path)
         
         log.error(f"[EnginePlayer] Engine not found: {self._engine_config.engine_name}")
+        return None
+    
+    def _resolve_uci_file_path(self) -> Optional[str]:
+        """Find the UCI configuration file for this engine.
+        
+        Searches in:
+        1. /opt/DGTCentaurMods/config/engines/ (production)
+        2. defaults/engines/ relative to this module (development)
+        
+        Returns:
+            Path to UCI file, or None if not found.
+        """
+        engine_name = self._engine_config.engine_name
+        
+        # Check production location
+        prod_path = pathlib.Path(f"/opt/DGTCentaurMods/config/engines/{engine_name}.uci")
+        if prod_path.exists():
+            return str(prod_path)
+        
+        # Check development location
+        dev_path = pathlib.Path(__file__).parent.parent / "defaults" / "engines" / f"{engine_name}.uci"
+        if dev_path.exists():
+            return str(dev_path)
+        
+        log.debug(f"[EnginePlayer] No UCI config found for {engine_name}")
         return None
     
     def _load_uci_options(self, uci_file_path: str) -> None:

@@ -1,39 +1,43 @@
 [DEFAULT]
 Description = World's strongest open-source chess engine
+Threads = 1
 
-[2850]
+[Default]
+Description = Maximum strength (~3500 ELO)
 UCI_LimitStrength = false
-Description = Pure (maximum strength)
 
-[1350]
+[1350 ELO]
 UCI_LimitStrength = true
 UCI_Elo = 1350
 
-[1500]
+[1500 ELO]
 UCI_LimitStrength = true
 UCI_Elo = 1500
 
-[1700]
+[1700 ELO]
 UCI_LimitStrength = true
 UCI_Elo = 1700
 
-[1800]
+[1800 ELO]
 UCI_LimitStrength = true
 UCI_Elo = 1800
 
-[2000]
+[2000 ELO]
 UCI_LimitStrength = true
 UCI_Elo = 2000
 
-[2200]
+[2200 ELO]
 UCI_LimitStrength = true
 UCI_Elo = 2200
 
-[2400]
+[2400 ELO]
 UCI_LimitStrength = true
 UCI_Elo = 2400
 
-[2600]
+[2600 ELO]
 UCI_LimitStrength = true
 UCI_Elo = 2600
 
+[2850 ELO]
+UCI_LimitStrength = false
+Description = Near maximum strength

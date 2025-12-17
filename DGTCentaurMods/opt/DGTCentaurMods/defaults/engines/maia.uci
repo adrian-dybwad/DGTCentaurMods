@@ -1,36 +1,40 @@
 [DEFAULT]
-Description = Neural network trained on human games
+Description = Human-like neural network trained on real games
 Threads = 1
-WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1100.pb.gz
-;SyzygyPath = /opt/picochess/tablebases/syzygy
-
-
-[Elo@1100]
-WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1100.pb.gz
-
-[Elo@1200]
-WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1200.pb.gz
-
-[Elo@1300]
-WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1300.pb.gz
-
-[Elo@1400]
-WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1400.pb.gz
-
-[Elo@1500]
+; Default to 1500 ELO level
 WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1500.pb.gz
 
-[Elo@1600]
+[Default]
+Description = Human-like play (~1500 ELO)
+WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1500.pb.gz
+
+[1100 ELO]
+Description = Beginner level
+WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1100.pb.gz
+
+[1200 ELO]
+WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1200.pb.gz
+
+[1300 ELO]
+WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1300.pb.gz
+
+[1400 ELO]
+WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1400.pb.gz
+
+[1500 ELO]
+Description = Intermediate level
+WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1500.pb.gz
+
+[1600 ELO]
 WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1600.pb.gz
 
-[Elo@1700]
+[1700 ELO]
 WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1700.pb.gz
 
-[Elo@1800]
+[1800 ELO]
+Description = Club player level
 WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1800.pb.gz
-Threads = 2
 
-[Elo@1900]
+[1900 ELO]
+Description = Advanced club player
 WeightsFile = /opt/DGTCentaurMods/engines/maia_weights/maia-1900.pb.gz
-Threads = 2
-

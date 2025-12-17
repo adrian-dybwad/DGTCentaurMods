@@ -63,6 +63,8 @@ class EngineDefinition:
     extra_files: List[str]       # Additional files/dirs to copy (relative to repo)
     dependencies: List[str]      # apt packages needed to build
     can_uninstall: bool = True   # Whether engine can be uninstalled
+    clone_with_submodules: bool = False  # Use --recurse-submodules when cloning
+    build_timeout: int = 600     # Timeout for build commands in seconds (default 10 min)
 
 
 # Engine definitions
@@ -203,7 +205,7 @@ ENGINES = {
         is_system_package=False,
         package_name=None,
         extra_files=[],
-        dependencies=["build-essential", "git"],
+        dependencies=["build-essential", "git", "bc"],
     ),
     
     # === SPECIALTY ENGINES ===
@@ -229,29 +231,46 @@ ENGINES = {
         description="Emulates a dedicated chess computer. Classic playing style reminiscent of 1980s chess computers. Good for casual play with a nostalgic feel.",
         repo_url="https://github.com/bcm314/CT800.git",
         build_commands=[
+            # Build produces ct800 binary in the uci directory
             "cd src/application/uci && make -j$(nproc)",
         ],
-        binary_path="src/application/uci/CT800_V1.43",
+        # Binary name is ct800 (lowercase) after build
+        binary_path="src/application/uci/ct800",
         is_system_package=False,
         package_name=None,
         extra_files=[],
         dependencies=["build-essential", "git"],
     ),
+    
+    # === NEURAL NETWORK - HUMAN-LIKE ===
     "maia": EngineDefinition(
         name="maia",
         display_name="Maia",
         summary="Human-like play",
-        description="Trained on millions of human games to play like a human. Makes realistic human-like moves and mistakes. Available at different ELO levels (1100-1900). Requires lc0 backend.",
-        repo_url="https://github.com/CSSLab/maia-chess.git",
+        description="Trained on millions of human games to play like humans at various ELO levels (1100-1900). Uses lc0 backend with Maia neural network weights. Makes realistic human moves and mistakes.",
+        repo_url="https://github.com/LeelaChessZero/lc0.git",
         build_commands=[
-            # Maia uses lc0 backend - download weights only
-            "echo 'Downloading Maia weights...'",
+            # Build lc0 with BLAS backend (CPU-only, no GPU needed)
+            "./build.sh",
+            # Download all Maia weights (1100-1900 ELO levels)
+            "mkdir -p maia_weights",
+            "wget -q -O maia_weights/maia-1100.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1100.pb.gz || true",
+            "wget -q -O maia_weights/maia-1200.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1200.pb.gz || true",
+            "wget -q -O maia_weights/maia-1300.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1300.pb.gz || true",
+            "wget -q -O maia_weights/maia-1400.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1400.pb.gz || true",
+            "wget -q -O maia_weights/maia-1500.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1500.pb.gz || true",
+            "wget -q -O maia_weights/maia-1600.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1600.pb.gz || true",
+            "wget -q -O maia_weights/maia-1700.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1700.pb.gz || true",
+            "wget -q -O maia_weights/maia-1800.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1800.pb.gz || true",
+            "wget -q -O maia_weights/maia-1900.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1900.pb.gz || true",
         ],
-        binary_path="lc0",
+        binary_path="build/release/lc0",
         is_system_package=False,
         package_name=None,
         extra_files=["maia_weights"],
-        dependencies=["build-essential", "git", "meson", "ninja-build"],
+        dependencies=["build-essential", "git", "meson", "ninja-build", "libopenblas-dev", "python3-pip", "wget"],
+        clone_with_submodules=True,
+        build_timeout=1800,  # 30 min - lc0 takes a long time to build
     ),
     
     # === LIGHTWEIGHT/FAST COMPILE ===
@@ -268,7 +287,8 @@ ENGINES = {
         is_system_package=False,
         package_name=None,
         extra_files=[],
-        dependencies=["golang-go", "git"],
+        # golang package name varies: 'golang' on older Debian, 'golang-go' on newer
+        dependencies=["golang", "git"],
     ),
     "smallbrain": EngineDefinition(
         name="smallbrain",
@@ -562,12 +582,33 @@ class EngineManager:
                 # Try to continue anyway - maybe just network issue
             else:
                 log.info(f"[EngineManager] _install_from_source: git pull successful")
+            
+            # Update submodules if needed
+            if engine.clone_with_submodules:
+                update_progress(f"Updating submodules...")
+                log.info(f"[EngineManager] _install_from_source: Updating submodules")
+                result = subprocess.run(
+                    ["git", "submodule", "update", "--init", "--recursive"],
+                    cwd=repo_dir, capture_output=True, text=True, timeout=300
+                )
+                if result.returncode != 0:
+                    log.warning(f"[EngineManager] _install_from_source: submodule update failed: {result.stderr.strip()}")
         else:
             update_progress(f"Cloning {engine.display_name} repository...")
             log.info(f"[EngineManager] _install_from_source: Cloning {engine.repo_url} to {repo_dir}")
+            
+            # Build clone command - use submodules if needed
+            clone_cmd = ["git", "clone"]
+            if engine.clone_with_submodules:
+                clone_cmd.extend(["--recurse-submodules"])
+            else:
+                clone_cmd.extend(["--depth", "1"])
+            clone_cmd.extend([engine.repo_url, str(repo_dir)])
+            
+            log.info(f"[EngineManager] _install_from_source: Clone command: {' '.join(clone_cmd)}")
             result = subprocess.run(
-                ["git", "clone", "--depth", "1", engine.repo_url, str(repo_dir)],
-                capture_output=True, text=True, timeout=300
+                clone_cmd,
+                capture_output=True, text=True, timeout=600  # Longer timeout for submodules
             )
             if result.returncode != 0:
                 self._install_error = f"Clone failed: {result.stderr.strip()}"
@@ -581,10 +622,11 @@ class EngineManager:
         update_progress(f"Building {engine.display_name}...")
         for i, cmd in enumerate(engine.build_commands):
             log.info(f"[EngineManager] _install_from_source: Running build command {i+1}/{len(engine.build_commands)}: {cmd}")
+            log.info(f"[EngineManager] _install_from_source: Build timeout: {engine.build_timeout}s")
             result = subprocess.run(
                 cmd,
                 shell=True, cwd=repo_dir,
-                capture_output=True, text=True, timeout=600
+                capture_output=True, text=True, timeout=engine.build_timeout
             )
             if result.returncode != 0:
                 self._install_error = f"Build failed: {result.stderr.strip()[:100]}"

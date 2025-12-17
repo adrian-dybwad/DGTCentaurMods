@@ -1,18 +1,40 @@
 [DEFAULT]
-Description = Configurable personalities with human-like play
+Description = Personality engine with 50+ playing styles
 Hash = 16
 Threads = 2
-UCI_LimitStrength = true
-UCI_Elo = 1800
-# Change the above Elo value to your required grade between 800 & 2800 and all personalities will play at this grade.
-# If the Elo is below 2800 then alter the line above to UCI_LimitStrength = true, for 2800 only this should be false.
-# I have written a Bash file (Rod4Elo.sh in the pi home folder) that asks for your preferred grade and automatically 
-# applies the changes required. These changes only apply to personalities, they are ignored by the Elo levels as they
-# have their own settings 
+
+[Default]
+Description = Maximum strength (~2800 ELO)
+UCI_LimitStrength = false
 
 [1200 ELO]
-Hash = 16
-Threads = 2
 UCI_LimitStrength = true
 UCI_Elo = 1200
 
+[1400 ELO]
+UCI_LimitStrength = true
+UCI_Elo = 1400
+
+[1600 ELO]
+UCI_LimitStrength = true
+UCI_Elo = 1600
+
+[1800 ELO]
+UCI_LimitStrength = true
+UCI_Elo = 1800
+
+[2000 ELO]
+UCI_LimitStrength = true
+UCI_Elo = 2000
+
+[2200 ELO]
+UCI_LimitStrength = true
+UCI_Elo = 2200
+
+[2400 ELO]
+UCI_LimitStrength = true
+UCI_Elo = 2400
+
+[2600 ELO]
+UCI_LimitStrength = true
+UCI_Elo = 2600
