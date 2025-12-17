@@ -254,12 +254,44 @@ then
 fi
 }
 
-# Install Stockfish if in build (keep in package directory like other engines)
-if [[ -e "${DGTCM_PATH}/engines/${STOCKFISH}" ]]; then
-    echo -e "::: Installing Stockfish engine"
-    # Ensure engines directory exists and has correct permissions
-    chmod 755 "${DGTCM_PATH}/engines/${STOCKFISH}"
-    chown pi:pi "${DGTCM_PATH}/engines/${STOCKFISH}"
+# Install Stockfish - create symlink to architecture-specific binary
+# Multi-arch package includes stockfish_pi_arm64 and/or stockfish_pi_armhf
+# We create stockfish_pi symlink pointing to the correct one for this system
+echo -e "::: Setting up Stockfish engine"
+ENGINES_DIR="${DGTCM_PATH}/engines"
+
+# Detect architecture
+if [ "$(uname -m)" = "aarch64" ]; then
+    STOCKFISH_BINARY="stockfish_pi_arm64"
+else
+    STOCKFISH_BINARY="stockfish_pi_armhf"
+fi
+
+# Remove old symlink or file
+rm -f "${ENGINES_DIR}/${STOCKFISH}"
+
+if [[ -e "${ENGINES_DIR}/${STOCKFISH_BINARY}" ]]; then
+    echo -e "::: Found ${STOCKFISH_BINARY}, creating symlink"
+    chmod 755 "${ENGINES_DIR}/${STOCKFISH_BINARY}"
+    chown pi:pi "${ENGINES_DIR}/${STOCKFISH_BINARY}"
+    ln -sf "${STOCKFISH_BINARY}" "${ENGINES_DIR}/${STOCKFISH}"
+    chown -h pi:pi "${ENGINES_DIR}/${STOCKFISH}"
+elif [[ -e "${ENGINES_DIR}/stockfish_pi_arm64" ]]; then
+    # Fallback: try arm64 binary on any system (might work via emulation)
+    echo -e "::: Using stockfish_pi_arm64 (fallback)"
+    chmod 755 "${ENGINES_DIR}/stockfish_pi_arm64"
+    chown pi:pi "${ENGINES_DIR}/stockfish_pi_arm64"
+    ln -sf "stockfish_pi_arm64" "${ENGINES_DIR}/${STOCKFISH}"
+    chown -h pi:pi "${ENGINES_DIR}/${STOCKFISH}"
+elif [[ -e "${ENGINES_DIR}/stockfish_pi_armhf" ]]; then
+    # Fallback: try armhf binary
+    echo -e "::: Using stockfish_pi_armhf (fallback)"
+    chmod 755 "${ENGINES_DIR}/stockfish_pi_armhf"
+    chown pi:pi "${ENGINES_DIR}/stockfish_pi_armhf"
+    ln -sf "stockfish_pi_armhf" "${ENGINES_DIR}/${STOCKFISH}"
+    chown -h pi:pi "${ENGINES_DIR}/${STOCKFISH}"
+else
+    echo -e "::: WARNING: No Stockfish binary found in package"
 fi
 
 #

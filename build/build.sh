@@ -44,17 +44,15 @@ function detectVersion {
 }
 
 function stage {
-    # Detect architecture before staging
-    detectArch
-    
-    STAGE="dgtcentaurmods_${VERSION}_${DEB_ARCH}"
+    # Multi-arch package - use 'all' architecture
+    STAGE="dgtcentaurmods_${VERSION}_all"
     STAGE_DIR="${BUILD_TMP}/${STAGE}"
-    echo -e "::: Staging build for ${DEB_ARCH}"
+    echo -e "::: Staging multi-arch build"
     rm -rf "${STAGE_DIR}"
     cp -r "$(basename "$PWD"/${PACKAGE})" "${STAGE_DIR}"
     
-    # Update Architecture in control file to match build system
-    sed -i "s/^Architecture:.*/Architecture: ${DEB_ARCH}/" "${STAGE_DIR}/DEBIAN/control"
+    # Set Architecture to 'all' for multi-arch package
+    sed -i "s/^Architecture:.*/Architecture: all/" "${STAGE_DIR}/DEBIAN/control"
     return
 }
 
@@ -79,11 +77,12 @@ function build {
 function insertStockfish {
     REPLY="Y"
     if [ $FULL -eq 1 ]; then
-        read -p "Do you want to compile and insert Stockfinsh in this build? (y/n): "
+        read -p "Do you want to compile and insert Stockfish in this build? (y/n): "
     fi 
     case $REPLY in
         [Yy]* )
-            # Architecture already detected in stage()
+            # Detect architecture for Stockfish compilation
+            detectArch
 
             cd "${BUILD_TMP}"
             echo -e "Cloning Stockfish repo"
@@ -104,14 +103,38 @@ function insertStockfish {
             sed -i 's|-I/usr/local/include/sqlite3\.h||g' ../Makefile 2>/dev/null || true
 
             make clean
-            echo -e "::: Compiling Stockfish with ARCH=${STOCKFISH_ARCH}"
+            echo -e "::: Compiling Stockfish with ARCH=${STOCKFISH_ARCH} for ${DEB_ARCH}"
+            
+            # Check available memory and set parallelism accordingly
+            # LTO linking requires significant memory - use fewer jobs on low-memory systems
+            MEM_MB=$(free -m | awk '/^Mem:/{print $2}')
+            if [ "$MEM_MB" -lt 2000 ]; then
+                JOBS=1
+                echo -e "::: Low memory (${MEM_MB}MB), using single-threaded build"
+            elif [ "$MEM_MB" -lt 4000 ]; then
+                JOBS=2
+                echo -e "::: Limited memory (${MEM_MB}MB), using 2 parallel jobs"
+            else
+                JOBS=$(nproc)
+                echo -e "::: Sufficient memory (${MEM_MB}MB), using ${JOBS} parallel jobs"
+            fi
+            
             # Pass SQLite linker flags via LDFLAGS (Stockfish Makefile appends to LDFLAGS)
-            make -j"$(nproc)" build ARCH=${STOCKFISH_ARCH} LDFLAGS="${SQLITE_LIBS}"
+            make -j${JOBS} build ARCH=${STOCKFISH_ARCH} LDFLAGS="${SQLITE_LIBS}"
 
-            mv stockfish stockfish_pi
-            # Remove any existing stockfish_pi (symlink or file) in staging before copying
+            # Name binary with architecture suffix for multi-arch support
+            # postinst will create symlink stockfish_pi -> stockfish_pi_<arch>
+            mv stockfish "stockfish_pi_${DEB_ARCH}"
+            
+            # Remove any existing stockfish binaries in staging
             rm -f "${STAGE_DIR}${INSTALLDIR}/engines/stockfish_pi"
-            cp stockfish_pi "${STAGE_DIR}${INSTALLDIR}/engines"
+            rm -f "${STAGE_DIR}${INSTALLDIR}/engines/stockfish_pi_arm64"
+            rm -f "${STAGE_DIR}${INSTALLDIR}/engines/stockfish_pi_armhf"
+            
+            # Copy the architecture-specific binary
+            cp "stockfish_pi_${DEB_ARCH}" "${STAGE_DIR}${INSTALLDIR}/engines/"
+            
+            echo -e "::: Stockfish binary: stockfish_pi_${DEB_ARCH}"
             return
             ;;
         [Nn]* ) return ;;
