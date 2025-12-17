@@ -196,6 +196,9 @@ class SyncCentaur:
         # Failure callback for checksum mismatch reconciliation
         self._failure_callback = None
         
+        # Sleep state - when True, no more commands are accepted
+        self._sleeping = False
+        
         # Dedicated worker for piece event callbacks
         try:
             self._callback_queue = queue.Queue(maxsize=256)
@@ -751,6 +754,11 @@ class SyncCentaur:
         Returns:
             bytes: payload of response or None on timeout after all retries
         """
+        # Block all commands after sleep (except the sleep command itself which sets the flag)
+        if self._sleeping:
+            log.debug(f"[SyncCentaur.request_response] Ignoring {command_name} - controller is sleeping")
+            return None
+        
         if not isinstance(command_name, str):
             raise TypeError("request_response requires a command name (str)")
         
@@ -802,6 +810,11 @@ class SyncCentaur:
         Returns:
             bytes: payload of response or None on timeout/queue full
         """
+        # Block all commands after sleep
+        if self._sleeping:
+            log.debug(f"[SyncCentaur.request_response_low_priority] Ignoring {command_name} - controller is sleeping")
+            return None
+        
         if not isinstance(command_name, str):
             raise TypeError("request_response_low_priority requires a command name (str)")
         
@@ -916,6 +929,11 @@ class SyncCentaur:
             data: bytes for data payload; if None, use default_data from the named command if available
             timeout: timeout for the command execution (used internally, not returned to caller)
         """
+        # Block all commands after sleep
+        if self._sleeping:
+            log.debug(f"[SyncCentaur.sendCommand] Ignoring {command_name} - controller is sleeping")
+            return
+        
         if not isinstance(command_name, str):
             raise TypeError("sendCommand requires a command name (str), e.g. command.LED_CMD")
         spec = CMD_BY_NAME.get(command_name)
@@ -1202,6 +1220,9 @@ class SyncCentaur:
         This ensures the controller actually receives the sleep command before
         the system powers down, preventing battery drain.
         
+        Stops polling immediately and clears the command queue before sending
+        the sleep command to ensure no other commands interfere.
+        
         Args:
             retries: number of retry attempts on timeout (default 3)
             retry_delay: delay in seconds between retries (default 0.5)
@@ -1209,14 +1230,45 @@ class SyncCentaur:
         Returns:
             True if sleep command acknowledged, False if all attempts failed
         """
+        log.info(f"[SyncCentaur.sleep] Stopping polling and clearing queues")
+        
+        # Stop polling thread immediately by setting ready=False
+        # The polling worker checks self.ready before sending commands
+        self.ready = False
+        
+        # Clear command queues to prevent any pending commands from being sent
+        # This ensures the sleep command is sent immediately without interference
+        cleared_main = 0
+        while True:
+            try:
+                self._request_queue.get_nowait()
+                cleared_main += 1
+            except queue.Empty:
+                break
+        
+        cleared_low = 0
+        while True:
+            try:
+                self._low_priority_queue.get_nowait()
+                cleared_low += 1
+            except queue.Empty:
+                break
+        
+        log.info(f"[SyncCentaur.sleep] Cleared {cleared_main} main queue, {cleared_low} low priority queue items")
+        
         log.info(f"[SyncCentaur.sleep] Sending sleep command with {retries} retries")
         response = self.request_response(command.DGT_SLEEP, timeout=2.0, retries=retries, retry_delay=retry_delay)
         if response is not None:
             # Log the raw response bytes for debugging
             response_hex = ' '.join(f'{b:02x}' for b in response) if response else '(empty)'
             log.info(f"[SyncCentaur.sleep] Controller sleep acknowledged, response: {response_hex}")
+            # Block all further commands - controller is now sleeping
+            self._sleeping = True
+            log.info("[SyncCentaur.sleep] Controller sleeping, no further commands will be accepted")
             return True
         log.error("[SyncCentaur.sleep] Failed to sleep controller after all retry attempts")
+        # Even on failure, block further commands to prevent issues during shutdown
+        self._sleeping = True
         return False
             
     def _draw_piece_events_from_payload(self, payload: bytes):

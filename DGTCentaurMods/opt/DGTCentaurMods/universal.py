@@ -5592,7 +5592,7 @@ def main():
     if not args.no_ble:
         try:
             if startup_splash:
-                startup_splash.set_message("Bluetooth...")
+                startup_splash.set_message("BLE...")
             log.info("[Main] Initializing BLE manager...")
             ble_manager = BleManager(
                 device_name=args.device_name,
@@ -5645,6 +5645,8 @@ def main():
             global rfcomm_manager, server_sock, client_sock, client_connected
             global app_state, _menu_manager, _pending_ble_client_type
             
+            if startup_splash:
+                startup_splash.set_message("RFCOMM...")
             log.info("[RFCOMM] Starting background initialization...")
             
             # Kill any existing rfcomm processes
