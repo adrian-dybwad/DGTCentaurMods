@@ -940,7 +940,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                     log.info(f'[board.events] Showing inactivity countdown ({remaining_int}s remaining)')
                     try:
                         inactivity_countdown_splash = SplashScreen(
-                            display_manager.update, message=f"Inactivity\nShutdown in {remaining_int} seconds..."
+                            display_manager.update, message=f"Inactivity\nShutdown in\n{remaining_int} seconds..."
                         )
                         display_manager.add_widget(inactivity_countdown_splash)
                         inactivity_countdown_shown = True
@@ -952,7 +952,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                     try:
                         if inactivity_countdown_splash is not None:
                             inactivity_countdown_splash.set_message(
-                                f"Inactivity\nShutdown in {remaining_int} seconds..."
+                                f"Inactivity\nShutdown in\n{remaining_int} seconds..."
                             )
                             inactivity_last_displayed_seconds = remaining_int
                     except Exception:
