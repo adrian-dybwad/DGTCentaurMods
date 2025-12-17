@@ -24,6 +24,8 @@ import logging
 log = logging.getLogger(__name__)
 #log.setLevel(logging.INFO)
 
+
+
 from DGTCentaurMods.board import time_utils
 
 # Unified command registry
@@ -38,7 +40,7 @@ COMMANDS: Dict[str, CommandSpec] = {
     "DGT_BUS_SEND_87":        CommandSpec(0x87, 0x87), # Sent after initial init but before ADDR1 ADDR2 is populated. This is a SHORT command.
     "DGT_BUS_SEND_SNAPSHOT_F0":  CommandSpec(0xf0, 0xF0, b'\x7f'), # Sent after initial ledsOff().
     "DGT_BUS_SEND_SNAPSHOT_F4":  CommandSpec(0xf4, 0xF4, b'\x7f'), # Sent after F0 is called.
-    "DGT_BUS_SEND_96":  CommandSpec(0x96, 0xb2), # Sent after F4 is called. This is a SHORT command.
+    "DGT_BUS_SEND_96":        CommandSpec(0x96, 0xb2), # Sent after F4 is called. This is a SHORT command.
 
     "DGT_BUS_SEND_STATE":     CommandSpec(0x82, 0x83),
     "DGT_BUS_SEND_CHANGES":   CommandSpec(0x83, 0x85),
@@ -50,8 +52,8 @@ COMMANDS: Dict[str, CommandSpec] = {
     "SOUND_POWER_ON":         CommandSpec(0xb1, None, b'\x48\x08\x4c\x08'),
     "SOUND_WRONG":            CommandSpec(0xb1, None, b'\x4e\x0c\x48\x10'),
     "SOUND_WRONG_MOVE":       CommandSpec(0xb1, None, b'\x48\x08'),
-    "DGT_SLEEP":              CommandSpec(0xb2, 0xB1, b'\x0a'),
-    "LED_CMD":          CommandSpec(0xb0),
+    "DGT_SLEEP":              CommandSpec(0xb2, None, b'\x0a'),
+    "LED_CMD":                CommandSpec(0xb0),
     "DGT_NOTIFY_EVENTS_58":   CommandSpec(0x58),
     "DGT_NOTIFY_EVENTS_43":   CommandSpec(0x43),
     "DGT_RETURN_BUSADRES":    CommandSpec(0x46, 0x90),
