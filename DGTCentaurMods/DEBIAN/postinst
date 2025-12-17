@@ -2,6 +2,20 @@
 
 set -euo pipefail
 
+# Configure needrestart to automatic mode (suppress blue screen prompts)
+# This prevents interactive dialogs during package updates/kernel upgrades
+if [ -f /etc/needrestart/needrestart.conf ]; then
+    # Set restart mode to automatic (no prompts)
+    if grep -q '^\$nrconf{restart}' /etc/needrestart/needrestart.conf; then
+        sed -i "s/^\$nrconf{restart}.*$/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    elif grep -q "^#.*\$nrconf{restart}" /etc/needrestart/needrestart.conf; then
+        sed -i "s/^#.*\$nrconf{restart}.*$/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
+    else
+        echo "\$nrconf{restart} = 'a';" >> /etc/needrestart/needrestart.conf
+    fi
+    echo "::: Configured needrestart for automatic mode (no prompts)"
+fi
+
 DEFAULT_HOSTNAME="raspberrypi"
 ARCH=`uname -m`
 NEW_HOSTNAME="dgtcentaur"
