@@ -3235,7 +3235,7 @@ def _handle_analysis_engine_selection():
     return None
 
 
-def _show_engine_install_progress(engine_manager, engine_name: str, display_name: str) -> bool:
+def _show_engine_install_progress(engine_manager, engine_name: str, display_name: str, estimated_minutes: int = 5) -> bool:
     """Show a blocking progress display during engine installation.
     
     Polls the engine manager for progress and updates the display.
@@ -3245,6 +3245,7 @@ def _show_engine_install_progress(engine_manager, engine_name: str, display_name
         engine_manager: The engine manager instance
         engine_name: Engine name being installed
         display_name: Display name for UI
+        estimated_minutes: Estimated installation time in minutes
         
     Returns:
         True if installation succeeded, False otherwise
@@ -3261,14 +3262,15 @@ def _show_engine_install_progress(engine_manager, engine_name: str, display_name
         else:
             board.beep(board.SOUND_GENERAL, event_type='error')
     
-    log.info(f"[EngineManager] Starting installation of {engine_name}")
+    log.info(f"[EngineManager] Starting installation of {engine_name} (est. {estimated_minutes} min)")
     engine_manager.install_async(engine_name, completion_callback=on_complete)
     
-    # Create a splash screen for progress display
+    # Create a splash screen for progress display with time warning
     board.display_manager.clear_widgets(addStatusBar=False)
+    initial_msg = f"Installing\n{display_name}\n\nMay take ~{estimated_minutes} min\nPlease wait..."
     progress_splash = SplashScreen(
         board.display_manager.update, 
-        message=f"Installing\n{display_name}...",
+        message=initial_msg,
         leave_room_for_status_bar=False
     )
     promise = board.display_manager.add_widget(progress_splash)
@@ -3343,6 +3345,8 @@ def _handle_engine_detail_menu(engine_info: dict):
         ))
         
         # Action button based on installation status
+        est_minutes = engine_info.get("estimated_install_minutes", 5)
+        
         if is_installed:
             if can_uninstall:
                 entries.append(IconMenuEntry(
@@ -3361,9 +3365,11 @@ def _handle_engine_detail_menu(engine_info: dict):
                     layout="horizontal", font_size=14
                 ))
         else:
+            # Show install button with estimated time
+            install_label = f"Install (~{est_minutes} min)"
             entries.append(IconMenuEntry(
                 key="install",
-                label="Install",
+                label=install_label,
                 icon_name="download",
                 enabled=True, selectable=True, height_ratio=1.0,
                 layout="horizontal", font_size=14
@@ -3375,7 +3381,8 @@ def _handle_engine_detail_menu(engine_info: dict):
         """Handle selection in engine detail menu."""
         if result.key == "install":
             # Show blocking progress display during installation
-            _show_engine_install_progress(engine_manager, engine_name, display_name)
+            est_minutes = engine_info.get("estimated_install_minutes", 5)
+            _show_engine_install_progress(engine_manager, engine_name, display_name, est_minutes)
             return None  # Return to this menu to show updated status
         
         if result.key == "uninstall":
@@ -3429,8 +3436,13 @@ def _handle_engine_manager_menu():
         for engine in engines_sorted:
             installed = engine["installed"]
             icon = "checkbox_checked" if installed else "checkbox_empty"
-            # Two-line label: name + summary
-            label = f"{engine['display_name']}\n{engine['summary']}"
+            est_minutes = engine.get("estimated_install_minutes", 5)
+            
+            # Two-line label: name + summary (with install time for non-installed)
+            if installed:
+                label = f"{engine['display_name']}\n{engine['summary']}"
+            else:
+                label = f"{engine['display_name']} (~{est_minutes}m)\n{engine['summary']}"
             
             entries.append(IconMenuEntry(
                 key=engine["name"],

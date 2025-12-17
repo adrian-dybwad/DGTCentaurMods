@@ -65,6 +65,7 @@ class EngineDefinition:
     can_uninstall: bool = True   # Whether engine can be uninstalled
     clone_with_submodules: bool = False  # Use --recurse-submodules when cloning
     build_timeout: int = 600     # Timeout for build commands in seconds (default 10 min)
+    estimated_install_minutes: int = 5  # Estimated install time in minutes for UI
 
 
 # Engine definitions
@@ -84,6 +85,7 @@ ENGINES = {
         extra_files=[],
         dependencies=[],
         can_uninstall=False,
+        estimated_install_minutes=0,  # Pre-installed
     ),
     "berserk": EngineDefinition(
         name="berserk",
@@ -92,14 +94,16 @@ ENGINES = {
         description="Top-3 ranked open-source engine. Uses NNUE neural network for evaluation. Known for very strong tactical play and aggressive style. Excellent alternative to Stockfish.",
         repo_url="https://github.com/jhonnold/berserk.git",
         build_commands=[
-            # Berserk builds from src directory
-            "cd src && make -j$(nproc) EXE=berserk",
+            # Use -j2 to limit memory usage (NNUE compilation is memory-intensive)
+            "cd src && make -j2 EXE=berserk",
         ],
         binary_path="src/berserk",
         is_system_package=False,
         package_name=None,
         extra_files=[],
         dependencies=["build-essential", "git"],
+        build_timeout=1200,
+        estimated_install_minutes=15,  # NNUE engine with limited parallelism
     ),
     "koivisto": EngineDefinition(
         name="koivisto",
@@ -108,14 +112,16 @@ ENGINES = {
         description="Top-10 ranked engine with NNUE support. Known for fast search speed and aggressive playing style. Good for blitz and bullet games where speed matters.",
         repo_url="https://github.com/Luecx/Koivisto.git",
         build_commands=[
-            # Koivisto builds from src_files directory
-            "cd src_files && make -j$(nproc) EXE=koivisto",
+            # Use -j2 to limit memory usage (NNUE compilation is memory-intensive)
+            "cd src_files && make -j2 EXE=koivisto",
         ],
         binary_path="src_files/koivisto",
         is_system_package=False,
         package_name=None,
         extra_files=[],
         dependencies=["build-essential", "git"],
+        build_timeout=1200,
+        estimated_install_minutes=15,  # NNUE engine with limited parallelism
     ),
     "ethereal": EngineDefinition(
         name="ethereal",
@@ -124,14 +130,16 @@ ENGINES = {
         description="Top-15 engine with NNUE. Known for clean, well-documented codebase. Great for those interested in chess programming. Solid positional play.",
         repo_url="https://github.com/AndyGrant/Ethereal.git",
         build_commands=[
-            # Ethereal builds from src directory
-            "cd src && make -j$(nproc) EXE=ethereal",
+            # Use -j2 to limit memory usage (NNUE compilation is memory-intensive)
+            "cd src && make -j2 EXE=ethereal",
         ],
         binary_path="src/ethereal",
         is_system_package=False,
         package_name=None,
         extra_files=[],
         dependencies=["build-essential", "git"],
+        build_timeout=1200,
+        estimated_install_minutes=15,  # NNUE engine with limited parallelism
     ),
     
     # === STRONG TIER - Tournament-level engines ===
@@ -150,6 +158,7 @@ ENGINES = {
         package_name=None,
         extra_files=[],
         dependencies=["build-essential", "git"],
+        estimated_install_minutes=8,  # Medium complexity C++ engine
     ),
     "laser": EngineDefinition(
         name="laser",
@@ -166,6 +175,7 @@ ENGINES = {
         package_name=None,
         extra_files=[],
         dependencies=["build-essential", "git"],
+        estimated_install_minutes=5,  # Lightweight C++ engine
     ),
     "demolito": EngineDefinition(
         name="demolito",
@@ -181,6 +191,7 @@ ENGINES = {
         package_name=None,
         extra_files=[],
         dependencies=["build-essential", "git"],
+        estimated_install_minutes=3,  # Simple C engine
     ),
     "weiss": EngineDefinition(
         name="weiss",
@@ -197,6 +208,7 @@ ENGINES = {
         package_name=None,
         extra_files=[],
         dependencies=["build-essential", "git"],
+        estimated_install_minutes=5,  # Clean C engine
     ),
     "arasan": EngineDefinition(
         name="arasan",
@@ -205,13 +217,16 @@ ENGINES = {
         description="Veteran engine in development since 1994. Very stable and reliable. NNUE support added recently. Great for consistent, predictable play.",
         repo_url="https://github.com/jdart1/arasan-chess.git",
         build_commands=[
-            "cd src && make -j$(nproc)",
+            # Use -j1 to avoid OOM on low-memory devices (NNUE compilation is memory-intensive)
+            "cd src && make -j1",
         ],
         binary_path="src/arasan",
         is_system_package=False,
         package_name=None,
         extra_files=[],
         dependencies=["build-essential", "git", "bc", "gawk"],
+        build_timeout=1800,
+        estimated_install_minutes=25,  # NNUE engine, single-threaded build
     ),
     
     # === SPECIALTY ENGINES ===
@@ -229,6 +244,7 @@ ENGINES = {
         package_name=None,
         extra_files=["personalities", "books"],
         dependencies=["build-essential", "git"],
+        estimated_install_minutes=8,  # Medium complexity with extra files
     ),
     "ct800": EngineDefinition(
         name="ct800",
@@ -246,6 +262,7 @@ ENGINES = {
         package_name=None,
         extra_files=[],
         dependencies=["build-essential", "git"],
+        estimated_install_minutes=3,  # Simple C engine
     ),
     
     # === NEURAL NETWORK - HUMAN-LIKE ===
@@ -276,7 +293,8 @@ ENGINES = {
         extra_files=["maia_weights"],
         dependencies=["build-essential", "git", "meson", "ninja-build", "libopenblas-dev", "python3-pip", "wget"],
         clone_with_submodules=True,
-        build_timeout=1800,  # 30 min - lc0 takes a long time to build
+        build_timeout=1800,
+        estimated_install_minutes=30,  # Complex lc0 build + weight downloads
     ),
     
     # === LIGHTWEIGHT/FAST COMPILE ===
@@ -295,6 +313,7 @@ ENGINES = {
         extra_files=[],
         # golang package name varies: 'golang' on older Debian, 'golang-go' on newer
         dependencies=["golang", "git"],
+        estimated_install_minutes=5,  # Go compiles quickly
     ),
     "smallbrain": EngineDefinition(
         name="smallbrain",
@@ -303,14 +322,16 @@ ENGINES = {
         description="Compact NNUE engine with small binary size. Efficient code optimized for resource-constrained devices. Surprisingly strong for its size.",
         repo_url="https://github.com/Disservin/Smallbrain.git",
         build_commands=[
-            # Smallbrain builds from src directory
-            "cd src && make -j$(nproc) EXE=smallbrain",
+            # Use -j2 to limit memory usage (NNUE compilation is memory-intensive)
+            "cd src && make -j2 EXE=smallbrain",
         ],
         binary_path="src/smallbrain",
         is_system_package=False,
         package_name=None,
         extra_files=[],
         dependencies=["build-essential", "git"],
+        build_timeout=1200,
+        estimated_install_minutes=12,  # Compact NNUE, faster than full NNUE engines
     ),
 }
 
@@ -386,6 +407,7 @@ class EngineManager:
                 "installed": is_installed,
                 "is_system_package": engine.is_system_package,
                 "can_uninstall": engine.can_uninstall,
+                "estimated_install_minutes": engine.estimated_install_minutes,
             })
         log.info(f"[EngineManager] get_engine_list: {installed_count}/{len(ENGINES)} engines installed")
         return result
