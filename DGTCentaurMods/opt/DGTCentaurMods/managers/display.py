@@ -1232,7 +1232,8 @@ class DisplayManager:
                 self.analysis_engine.quit()
                 log.info("[DisplayManager] Analysis engine quit")
             except Exception as e:
-                log.error(f"[DisplayManager] Error quitting analysis engine: {e}", exc_info=True)
+                # Engine may already be terminated during shutdown - this is expected
+                log.debug(f"[DisplayManager] Analysis engine already terminated: {e}")
             self.analysis_engine = None
         else:
             log.info("[DisplayManager] No analysis engine to quit")
