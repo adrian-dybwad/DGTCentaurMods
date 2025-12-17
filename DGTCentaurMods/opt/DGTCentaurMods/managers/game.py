@@ -2307,18 +2307,33 @@ class GameManager:
         The move is validated against chess rules and executed if legal,
         or correction mode is entered if invalid.
         
+        Handles destination-only moves: if from_square == to_square, this indicates
+        a missed lift event. The source square is determined by comparing the physical
+        board state to the game state (finding where a piece is missing).
+        
         Handles late castling: if the player moved a rook first (e.g., h1f1) and
         then moves the king to the castling square (e.g., e1g1), this is detected
         as late castling. The rook move is undone and castling is executed.
         
         Args:
-            move: The move submitted by the player.
+            move: The move submitted by the player. If from_square == to_square,
+                  this is a destination-only move where the lift was missed.
             
         Returns:
             True if move was accepted (legal), False if rejected (illegal).
             Players like Lichess need this to know if move should be sent to server.
         """
         log.info(f"[GameManager._on_player_move] Received move: {move.uci()}")
+        
+        # Handle destination-only move (missed lift event)
+        # When from_square == to_square, find the actual source by comparing board states
+        if move.from_square == move.to_square:
+            completed_move = self._complete_destination_only_move(move.to_square)
+            if completed_move is None:
+                log.warning(f"[GameManager._on_player_move] Could not complete destination-only move to {chess.square_name(move.to_square)}")
+                return False
+            move = completed_move
+            log.info(f"[GameManager._on_player_move] Completed destination-only move: {move.uci()}")
         
         # Handle promotion: if move is a pawn to last rank without promotion piece,
         # check if adding a promotion piece makes it legal
@@ -2362,6 +2377,72 @@ class GameManager:
             self._provide_correction_guidance(current_state, expected_state)
         
         return False
+    
+    def _complete_destination_only_move(self, destination: int) -> Optional[chess.Move]:
+        """Complete a destination-only move by finding the source square.
+        
+        When a lift event is missed, the player submits only the destination.
+        This method finds the source by comparing the physical board state
+        to the expected game state: the source is where the game expects a piece
+        but the physical board is empty.
+        
+        Args:
+            destination: The destination square where a piece was placed.
+            
+        Returns:
+            A complete chess.Move if the source was found, None otherwise.
+        """
+        current_state = board.getChessState()
+        if current_state is None:
+            log.warning("[GameManager._complete_destination_only_move] Could not get physical board state")
+            return None
+        
+        expected_state = self._chess_board_to_state(self.chess_board)
+        if expected_state is None:
+            log.warning("[GameManager._complete_destination_only_move] Could not get expected game state")
+            return None
+        
+        # Find the source: where expected has a piece (1) but physical board is empty (0)
+        # This is where the piece was lifted from (the missed lift)
+        # Exclude the destination square from consideration
+        source_squares = []
+        for sq in range(BOARD_SIZE):
+            if sq == destination:
+                continue
+            if expected_state[sq] == 1 and current_state[sq] == 0:
+                source_squares.append(sq)
+        
+        if len(source_squares) == 0:
+            log.warning(f"[GameManager._complete_destination_only_move] No source square found for destination {chess.square_name(destination)}")
+            return None
+        
+        if len(source_squares) > 1:
+            # Multiple empty squares where pieces should be - ambiguous
+            # Try to find which one could legally move to the destination
+            legal_sources = []
+            for src in source_squares:
+                test_move = chess.Move(src, destination)
+                if test_move in self.chess_board.legal_moves:
+                    legal_sources.append(src)
+                # Also check promotion moves
+                for promo in [chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT]:
+                    test_move = chess.Move(src, destination, promotion=promo)
+                    if test_move in self.chess_board.legal_moves:
+                        if src not in legal_sources:
+                            legal_sources.append(src)
+            
+            if len(legal_sources) == 1:
+                source_squares = legal_sources
+                log.info(f"[GameManager._complete_destination_only_move] Disambiguated to legal source: {chess.square_name(source_squares[0])}")
+            else:
+                log.warning(f"[GameManager._complete_destination_only_move] Ambiguous sources for destination {chess.square_name(destination)}: {[chess.square_name(sq) for sq in source_squares]}")
+                return None
+        
+        source = source_squares[0]
+        completed_move = chess.Move(source, destination)
+        log.info(f"[GameManager._complete_destination_only_move] MISSED LIFT RECOVERY: Found source {chess.square_name(source)} for destination {chess.square_name(destination)}, completed move: {completed_move.uci()}")
+        
+        return completed_move
     
     def _check_and_handle_promotion(self, move: chess.Move) -> Optional[chess.Move]:
         """Check if a move is a pawn promotion and handle promotion piece selection.
@@ -2679,6 +2760,11 @@ class GameManager:
             # Step 6: Clear all board LEDs and turn off any indicators
             # Note: Clock is managed by DisplayManager, reset via EVENT_NEW_GAME callback
             board.ledsOff()
+            
+            # Step 7: Clear any active alerts (CHECK, QUEEN threat, etc.)
+            if self.display_bridge and hasattr(self.display_bridge, 'clear_alerts'):
+                self.display_bridge.clear_alerts()
+                log.debug("[GameManager._reset_game] Cleared alert widget")
             
             # Step 8: Reset game_db_id to -1 to indicate no active game in database
             # New game will be created when first move is made

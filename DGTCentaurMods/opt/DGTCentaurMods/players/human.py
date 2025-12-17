@@ -92,19 +92,6 @@ class HumanPlayer(Player):
         self._lifted_squares = []
         log.debug("[HumanPlayer] Turn started, waiting for piece events")
     
-    def on_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
-        """Handle a piece event from the physical board.
-        
-        Base class handles all logic - just add debug logging here.
-        
-        Args:
-            event_type: "lift" or "place"
-            square: The square index (0-63)
-            board: Current chess position
-        """
-        log.debug(f"[HumanPlayer] {event_type} on {chess.square_name(square)}")
-        super().on_piece_event(event_type, square, board)
-    
     def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
         """Notification that a move was made.
         

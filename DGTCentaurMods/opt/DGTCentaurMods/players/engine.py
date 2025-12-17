@@ -276,6 +276,10 @@ class EnginePlayer(Player):
         Only submits if the move matches the pending move. If it doesn't
         match, the board state is wrong and needs correction.
         
+        Handles destination-only moves (from_square == to_square) which indicate
+        a missed lift event. If the destination matches the pending move's to_square,
+        we trust the move was executed correctly.
+        
         Args:
             move: The formed move from piece events.
         """
@@ -286,6 +290,19 @@ class EnginePlayer(Player):
             log.warning(f"[EnginePlayer] Move formed but no pending move - engine still thinking")
             self._report_error("move_mismatch")
             return
+        
+        # Handle destination-only move (missed lift event)
+        # If from_square == to_square and matches pending move's to_square, trust it
+        if move.from_square == move.to_square:
+            if move.to_square == self._pending_move.to_square:
+                log.warning(f"[EnginePlayer] MISSED LIFT RECOVERY: Destination-only move to {chess.square_name(move.to_square)} matches pending move's destination")
+                if self._move_callback:
+                    self._move_callback(self._pending_move)
+                return
+            else:
+                log.warning(f"[EnginePlayer] Destination-only move {chess.square_name(move.to_square)} does not match pending {self._pending_move.uci()}")
+                self._report_error("move_mismatch")
+                return
         
         # Check if move matches (ignoring promotion - use pending move's promotion)
         if move.from_square == self._pending_move.from_square and \
