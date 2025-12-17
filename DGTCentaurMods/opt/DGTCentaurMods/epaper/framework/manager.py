@@ -33,6 +33,9 @@ class Manager:
         self._background = None  # Optional BackgroundWidget for dithered backgrounds
         self._initialized = False
         self._shutting_down = False
+        self._update_in_progress = False  # Re-entrancy guard for update()
+        self._pending_update = False  # Whether another update was requested during current update
+        self._pending_full = False  # Whether the pending update needs full refresh
         log.debug(f"Manager.__init__() completed - Manager id: {id(self)}, EPD id: {id(self._epd)}")
     
     def initialize(self, background_shade: int = 4) -> Future:
@@ -225,6 +228,10 @@ class Manager:
         If any widget has is_modal=True, only that widget is rendered.
         Otherwise, all visible widgets are rendered.
         
+        This method has re-entrancy protection: if called while an update is
+        already in progress (e.g., from a widget's draw_on method), the request
+        is queued and processed after the current update completes.
+        
         Args:
             full: If True, force a full refresh instead of partial refresh.
         
@@ -240,6 +247,34 @@ class Manager:
             future.set_result("not-initialized")
             return future
         
+        # Re-entrancy protection: if update is already in progress, queue it
+        if self._update_in_progress:
+            self._pending_update = True
+            self._pending_full = self._pending_full or full  # Full takes priority
+            # Return a placeholder future - the actual update will happen later
+            from concurrent.futures import Future
+            future = Future()
+            future.set_result("queued")
+            return future
+        
+        self._update_in_progress = True
+        try:
+            return self._do_update(full)
+        finally:
+            self._update_in_progress = False
+            # Process any pending update that was requested during this update
+            if self._pending_update:
+                self._pending_update = False
+                pending_full = self._pending_full
+                self._pending_full = False
+                # Schedule on next tick to avoid deep recursion
+                self._scheduler.submit_deferred(lambda: self.update(pending_full))
+    
+    def _do_update(self, full: bool = False) -> Future:
+        """Internal method that performs the actual update rendering.
+        
+        This should only be called from update() with the re-entrancy guard held.
+        """
         # Get canvas and render background
         canvas = self._framebuffer.get_canvas()
         if self._background is not None:

@@ -78,6 +78,20 @@ class Scheduler:
                     break
         log.debug("Scheduler.clear_pending(): Cleared pending refresh requests")
     
+    def submit_deferred(self, callback) -> None:
+        """Schedule a callback to run on the scheduler thread.
+        
+        Used to defer operations that would cause recursion if executed immediately.
+        The callback will run on the next scheduler iteration.
+        
+        Args:
+            callback: A callable to execute on the scheduler thread.
+        """
+        # Use a simple threading.Timer with 0 delay to defer to next event loop tick
+        timer = threading.Timer(0.001, callback)
+        timer.daemon = True
+        timer.start()
+    
     def submit(self, full: bool = False, immediate: bool = False, image: Optional[Image.Image] = None) -> Future:
         """Submit a refresh request.
         
