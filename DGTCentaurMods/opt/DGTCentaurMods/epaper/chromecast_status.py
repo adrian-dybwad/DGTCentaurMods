@@ -49,7 +49,7 @@ class ChromecastStatusWidget(Widget):
     def _on_service_state_changed(self) -> None:
         """Called by the service when its state changes."""
         self.visible = self._service.is_active
-        self._last_rendered = None
+        self.invalidate_cache()
         self.request_update(full=False)
     
     def stop(self) -> None:
@@ -63,29 +63,26 @@ class ChromecastStatusWidget(Widget):
         except Exception as e:
             log.debug(f"[ChromecastStatusWidget] Error removing observer: {e}")
     
-    def _draw_cast_icon(self, draw: ImageDraw.Draw, draw_x: int, draw_y: int, 
-                        filled: bool = True) -> None:
-        """Draw a Chromecast-style cast icon.
+    def _draw_cast_icon(self, draw: ImageDraw.Draw, filled: bool = True) -> None:
+        """Draw a Chromecast-style cast icon onto sprite.
         
         The icon has 1px horizontal margin on left and right, no vertical margin.
         
         Args:
-            draw: ImageDraw object
-            draw_x: X offset on target image
-            draw_y: Y offset on target image
+            draw: ImageDraw object for the sprite
             filled: If True, draw filled icon (streaming). If False, outline only.
         """
         # 1px margin on left and right only
         margin_h = 1
-        icon_x = draw_x + margin_h
+        icon_x = margin_h
         icon_w = self._size - 2 * margin_h
         icon_h = self._size  # Full height, no vertical margin
         
         # TV/monitor outline - positioned as fractions of icon dimensions
         tv_left = icon_x + max(1, icon_w // 14)
-        tv_top = draw_y + max(1, icon_h // 8)
+        tv_top = max(1, icon_h // 8)
         tv_right = icon_x + icon_w - max(1, icon_w // 14)
-        tv_bottom = draw_y + icon_h - max(2, icon_h // 4)
+        tv_bottom = icon_h - max(2, icon_h // 4)
         
         # Draw TV outline
         draw.rectangle([tv_left, tv_top, tv_right, tv_bottom], fill=255, outline=0, width=1)
@@ -115,31 +112,29 @@ class ChromecastStatusWidget(Widget):
                          arc_x + radius, arc_y + radius],
                         start=180, end=270, fill=0, width=1)
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the Chromecast status icon based on service state."""
-        draw = ImageDraw.Draw(img)
+    def render(self, sprite: Image.Image) -> None:
+        """Render the Chromecast status icon based on service state."""
+        draw = ImageDraw.Draw(sprite)
         
-        # Clear background
-        draw.rectangle([draw_x, draw_y, draw_x + self.width - 1, draw_y + self.height - 1], 
-                      fill=255)
+        # Sprite is pre-filled white
         
         # Query service state directly (single source of truth)
         state = self._service.state
         
         if state == self._service.STATE_STREAMING:
-            self._draw_cast_icon(draw, draw_x, draw_y, filled=True)
+            self._draw_cast_icon(draw, filled=True)
         elif state in (self._service.STATE_CONNECTING, self._service.STATE_RECONNECTING):
-            self._draw_cast_icon(draw, draw_x, draw_y, filled=False)
+            self._draw_cast_icon(draw, filled=False)
         elif state == self._service.STATE_ERROR:
-            self._draw_cast_icon(draw, draw_x, draw_y, filled=False)
+            self._draw_cast_icon(draw, filled=False)
             # Draw small X in upper-right of icon area
             margin_h = 1
-            icon_x = draw_x + margin_h
+            icon_x = margin_h
             icon_w = self._size - 2 * margin_h
             icon_h = self._size
             x1 = icon_x + (icon_w * 3) // 5
-            y1 = draw_y + icon_h // 8
+            y1 = icon_h // 8
             x2 = icon_x + icon_w - 1
-            y2 = draw_y + (icon_h * 7) // 16
+            y2 = (icon_h * 7) // 16
             draw.line([x1, y1, x2, y2], fill=0, width=1)
             draw.line([x1, y2, x2, y1], fill=0, width=1)

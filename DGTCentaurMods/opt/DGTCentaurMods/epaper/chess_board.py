@@ -160,7 +160,7 @@ class ChessBoardWidget(Widget):
         """Update the FEN string."""
         if self.fen != fen:
             self.fen = fen
-            self._last_rendered = None
+            self.invalidate_cache()
             # Trigger update if scheduler is available
             self.request_update(full=False)
     
@@ -172,7 +172,7 @@ class ChessBoardWidget(Widget):
         """
         if self.flip != flip:
             self.flip = flip
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
     def set_max_square_index(self, max_index: int) -> None:
@@ -180,7 +180,7 @@ class ChessBoardWidget(Widget):
         max_index = max(0, min(64, max_index))
         if self._max_square_index != max_index:
             self._max_square_index = max_index
-            self._last_rendered = None  # Invalidate cache
+            self.invalidate_cache()  # Invalidate cache
     
     def set_square_range(self, min_index: int, max_index: int) -> None:
         """Set range of squares to render (0-64). Used for reverse order rendering."""
@@ -189,7 +189,7 @@ class ChessBoardWidget(Widget):
         if self._min_square_index != min_index or self._max_square_index != max_index:
             self._min_square_index = min_index
             self._max_square_index = max_index
-            self._last_rendered = None  # Invalidate cache
+            self.invalidate_cache()  # Invalidate cache
     
     def set_render_only_file(self, file: int = None) -> None:
         """Set to only render squares in a specific file (0-7, where 0=a-file). Pass None to clear filter."""
@@ -197,7 +197,7 @@ class ChessBoardWidget(Widget):
             file = max(0, min(7, file))
         if self._render_only_file != file:
             self._render_only_file = file
-            self._last_rendered = None  # Invalidate cache
+            self.invalidate_cache()  # Invalidate cache
     
     def set_render_only_rank(self, rank: int = None) -> None:
         """Set to only render squares in a specific rank (0-7, where 0=rank 1). Pass None to clear filter."""
@@ -205,13 +205,13 @@ class ChessBoardWidget(Widget):
             rank = max(0, min(7, rank))
         if self._render_only_rank != rank:
             self._render_only_rank = rank
-            self._last_rendered = None  # Invalidate cache
+            self.invalidate_cache()  # Invalidate cache
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw chess board onto the target image."""
+    def render(self, sprite: Image.Image) -> None:
+        """Render chess board onto the sprite image."""
         if self._chess_font is None:
             log.warning("Cannot render chess board: chess font not loaded")
-            self.draw_background(img, draw_x, draw_y)
+            self.draw_background_on_sprite(sprite)
             return
         
         # Parse FEN
@@ -220,7 +220,7 @@ class ChessBoardWidget(Widget):
             log.debug(f"Rendering chess board from FEN: {fen_board}")
         except (AttributeError, IndexError) as e:
             log.error(f"Error parsing FEN string '{self.fen}': {type(e).__name__}: {e}")
-            self.draw_background(img, draw_x, draw_y)
+            self.draw_background_on_sprite(sprite)
             return
         
         # Expand FEN to 64 characters
@@ -229,19 +229,19 @@ class ChessBoardWidget(Widget):
             log.debug(f"FEN expanded to {len(ordered)} squares")
         except ValueError as e:
             log.error(f"Invalid FEN board string '{fen_board}': {e}")
-            self.draw_background(img, draw_x, draw_y)
+            self.draw_background_on_sprite(sprite)
             return
         except Exception as e:
             log.error(f"Unexpected error expanding FEN '{fen_board}': {type(e).__name__}: {e}")
-            self.draw_background(img, draw_x, draw_y)
+            self.draw_background_on_sprite(sprite)
             return
         
-        draw = ImageDraw.Draw(img)
+        draw = ImageDraw.Draw(sprite)
         sheet_width, sheet_height = self._chess_font.size
         
         # Draw board outline first
         try:
-            draw.rectangle([(draw_x, draw_y), (draw_x + 127, draw_y + 127)], fill=None, outline=0)
+            draw.rectangle([(0, 0), (127, 127)], fill=None, outline=0)
             log.debug("Drew board outline")
         except Exception as e:
             log.error(f"Error drawing board outline: {type(e).__name__}: {e}")
@@ -274,8 +274,8 @@ class ChessBoardWidget(Widget):
                 is_dark = self._is_dark_square(square_index)
                 py = 16 if is_dark else 0
                 
-                x = draw_x + dest_file * 16
-                y = draw_y + dest_rank * 16
+                x = dest_file * 16
+                y = dest_rank * 16
                 
                 # Always draw square background (empty square sprite at x=0)
                 # Row 0 (y=0-16): light squares
@@ -306,7 +306,7 @@ class ChessBoardWidget(Widget):
                     continue
                 
                 try:
-                    img.paste(square_bg, (x, y))
+                    sprite.paste(square_bg, (x, y))
                 except Exception as e:
                     log.error(
                         f"Error pasting square background at ({x}, {y}): {type(e).__name__}: {e}"
@@ -334,7 +334,7 @@ class ChessBoardWidget(Widget):
                         continue
                     
                     try:
-                        img.paste(piece, (x, y))
+                        sprite.paste(piece, (x, y))
                     except Exception as e:
                         log.error(
                             f"Error pasting piece '{symbol}' at ({x}, {y}): {type(e).__name__}: {e}"
@@ -347,5 +347,5 @@ class ChessBoardWidget(Widget):
                 )
                 continue
         
-        log.info(f"ChessBoardWidget.draw_on(): Rendered {squares_rendered} squares (rank_filter={self._render_only_rank}, file_filter={self._render_only_file}, range=[{self._min_square_index}, {self._max_square_index}))")
+        log.debug(f"ChessBoardWidget.render(): Rendered {squares_rendered} squares (rank_filter={self._render_only_rank}, file_filter={self._render_only_file}, range=[{self._min_square_index}, {self._max_square_index}))")
 

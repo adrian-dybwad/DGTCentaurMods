@@ -73,7 +73,7 @@ class ClockWidget(Widget):
                 if current_time_str != self._last_rendered_time:
                     self._last_rendered_time = current_time_str
                     # Invalidate cache and request update
-                    self._last_rendered = None
+                    self.invalidate_cache()
                     self.request_update(full=False)
                 
                 # Sleep for 0.1 seconds using interruptible wait
@@ -121,9 +121,9 @@ class ClockWidget(Widget):
         self._font = ImageFont.load_default()
         return self._font
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw current time onto the target image."""
-        draw = ImageDraw.Draw(img)
+    def render(self, sprite: Image.Image) -> None:
+        """Render current time onto the sprite image."""
+        draw = ImageDraw.Draw(sprite)
         now = datetime.now()
         time_str = now.strftime(self.format)
         
@@ -134,7 +134,5 @@ class ClockWidget(Widget):
         if self._font is None:
             self._load_font()
         
-        # Clear background
-        draw.rectangle([draw_x, draw_y, draw_x + self.width - 1, draw_y + self.height - 1], fill=255)
-        
-        draw.text((draw_x, draw_y - 1), time_str, font=self._font, fill=0)
+        # Sprite is pre-filled white, just draw text
+        draw.text((0, -1), time_str, font=self._font, fill=0)

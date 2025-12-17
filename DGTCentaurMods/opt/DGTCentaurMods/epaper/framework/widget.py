@@ -2,7 +2,7 @@
 Base widget class for ePaper display.
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from PIL import Image
 from typing import Optional, TYPE_CHECKING, Callable
 
@@ -89,7 +89,7 @@ class Widget(ABC):
         self.height = height
         self.visible = True  # Whether the widget should be rendered by the Manager
         self._background_shade = max(0, min(16, background_shade))
-        self._last_rendered: Optional[Image.Image] = None
+        self._cached_sprite: Optional[Image.Image] = None  # Cached rendered image for fast blit
         self._scheduler: Optional['Scheduler'] = None
         self._update_callback: Callable[[bool], object] = update_callback
         log.debug(f"Widget.__init__(): Created {self.__class__.__name__} instance id={id(self)} at ({x}, {y}) size {width}x{height}")
@@ -166,57 +166,85 @@ class Widget(ABC):
         shade = max(0, min(16, shade))
         if shade != self._background_shade:
             self._background_shade = shade
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
-    def draw_background(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw dithered background pattern onto a region of the target image.
+    def invalidate_cache(self) -> None:
+        """Invalidate the cached sprite, forcing re-render on next draw.
         
-        Draws the widget's dithered background pattern directly onto the
-        target image at the specified coordinates. Widgets should call this
-        at the start of draw_on() to apply their background.
+        Subclasses should call this when their state changes and they need
+        to be re-rendered. This is more efficient than re-rendering immediately
+        as multiple state changes can be batched into a single render.
+        """
+        self._cached_sprite = None
+    
+    def draw_background_on_sprite(self, sprite: Image.Image) -> None:
+        """Draw dithered background pattern onto the sprite image.
+        
+        Draws the widget's dithered background pattern onto the sprite.
+        Called by render() implementations before drawing content.
         
         Uses an 8x8 Bayer matrix for ordered dithering, which provides
         smoother gradients and less obvious tiling than 4x4 patterns.
         
         Args:
-            img: Target image to draw the background onto.
-            draw_x: X coordinate on target image where background starts.
-            draw_y: Y coordinate on target image where background starts.
+            sprite: The widget's sprite image to draw the background onto.
         """
         if self._background_shade == 0:
-            # Pure white background - fill the region with white
-            from PIL import ImageDraw
-            draw = ImageDraw.Draw(img)
-            draw.rectangle(
-                [(draw_x, draw_y), (draw_x + self.width - 1, draw_y + self.height - 1)],
-                fill=255
-            )
+            # Pure white background - already white from Image.new()
             return
         
         pattern = DITHER_PATTERNS.get(self._background_shade, DITHER_PATTERNS[0])
-        pixels = img.load()
+        pixels = sprite.load()
         for y in range(self.height):
             pattern_row = pattern[y % 8]
             for x in range(self.width):
                 if pattern_row[x % 8] == 1:
-                    pixels[draw_x + x, draw_y + y] = 0  # Black pixel
-                else:
-                    pixels[draw_x + x, draw_y + y] = 255  # White pixel
+                    pixels[x, y] = 0  # Black pixel
+                # White pixels already set from Image.new()
     
-    @abstractmethod
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the widget content onto the target image.
+    def draw_on(self, canvas: Image.Image, draw_x: int, draw_y: int) -> None:
+        """Draw the widget onto the canvas using sprite caching.
         
-        Widgets should first call self.draw_background(img, draw_x, draw_y)
-        to apply their background, then draw their content.
+        If the sprite cache is valid, pastes the cached image (fast blit).
+        If cache is invalidated, calls render() to generate a new sprite,
+        caches it, then pastes it.
+        
+        This is called by the Manager during display updates.
         
         Args:
-            img: Target image to draw onto.
-            draw_x: X coordinate on target image where widget starts.
-            draw_y: Y coordinate on target image where widget starts.
+            canvas: Target canvas image to draw onto.
+            draw_x: X coordinate on canvas where widget starts.
+            draw_y: Y coordinate on canvas where widget starts.
         """
-        pass
+        if self._cached_sprite is None:
+            # Cache miss - render to new sprite
+            self._cached_sprite = Image.new('L', (self.width, self.height), 255)
+            self.render(self._cached_sprite)
+            log.debug(f"Widget.draw_on(): {self.__class__.__name__} cache miss, rendered new sprite")
+        
+        # Fast blit from cache to canvas
+        canvas.paste(self._cached_sprite, (draw_x, draw_y))
+    
+    def render(self, sprite: Image.Image) -> None:
+        """Render the widget content onto the sprite image.
+        
+        Subclasses should implement this to draw their content. The sprite is
+        pre-sized to the widget dimensions and pre-filled with white.
+        
+        Typical implementation:
+            1. Call self.draw_background_on_sprite(sprite) if using dithered background
+            2. Draw content using PIL ImageDraw
+        
+        Widgets that override draw_on() entirely (e.g., for transparency or
+        special compositing) don't need to implement render().
+        
+        Args:
+            sprite: The widget's sprite image to render onto (0,0 is top-left of widget).
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement render() or override draw_on()"
+        )
     
     def show(self) -> None:
         """Show the widget (make it visible).
@@ -226,7 +254,7 @@ class Widget(ABC):
         """
         if not self.visible:
             self.visible = True
-            self._last_rendered = None  # Force re-render
+            self.invalidate_cache()  # Force re-render
             log.info(f"Widget.show(): {self.__class__.__name__} id={id(self)} now visible")
             self.request_update(full=False, forced=True)
     
@@ -241,7 +269,7 @@ class Widget(ABC):
         """
         if self.visible:
             self.visible = False
-            self._last_rendered = None
+            self.invalidate_cache()
             log.info(f"Widget.hide(): {self.__class__.__name__} id={id(self)} now hidden")
             self.request_update(full=False, forced=True)
     

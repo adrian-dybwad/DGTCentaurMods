@@ -18,7 +18,7 @@ class BallWidget(Widget):
         if self.x != x or self.y != y:
             self.x = x
             self.y = y
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
     def get_mask(self) -> Image.Image:
@@ -28,7 +28,7 @@ class BallWidget(Widget):
         draw.ellipse([0, 0, self.width - 1, self.height - 1], fill=255)
         return mask
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw ball onto the target image."""
-        draw = ImageDraw.Draw(img)
-        draw.ellipse([draw_x, draw_y, draw_x + self.width - 1, draw_y + self.height - 1], fill=0)
+    def render(self, sprite: Image.Image) -> None:
+        """Render ball onto the sprite image."""
+        draw = ImageDraw.Draw(sprite)
+        draw.ellipse([0, 0, self.width - 1, self.height - 1], fill=0)

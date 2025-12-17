@@ -123,7 +123,7 @@ class WiFiStatusWidget(Widget):
         
         self._last_state = state
         self._last_signal_strength = signal_strength
-        self._last_rendered = None  # Invalidate cache
+        self.invalidate_cache()  # Invalidate cache
     
     def _update_loop(self) -> None:
         """Background loop that checks WiFi state every 10 seconds and on dhcpcd hook notifications."""
@@ -154,7 +154,7 @@ class WiFiStatusWidget(Widget):
                 
                 # Update if state or signal changed or hook notified
                 if state != self._last_state or signal_strength != self._last_signal_strength or hook_notified:
-                    self._last_rendered = None
+                    self.invalidate_cache()
                     self._last_state = state
                     self._last_signal_strength = signal_strength
                     self.request_update(full=False)
@@ -257,23 +257,21 @@ class WiFiStatusWidget(Widget):
         
         return WIFI_CONNECTED, strength
     
-    def _draw_wifi_signal_icon(self, draw: ImageDraw.Draw, draw_x: int, draw_y: int, strength: int = 3):
-        """Draw a WiFi signal icon with variable strength.
+    def _draw_wifi_signal_icon(self, draw: ImageDraw.Draw, strength: int = 3):
+        """Draw a WiFi signal icon with variable strength onto sprite.
         
         Scales automatically based on widget size.
         
         Args:
-            draw: ImageDraw object
-            draw_x: X offset on target image
-            draw_y: Y offset on target image
+            draw: ImageDraw object for the sprite
             strength: Signal strength 0-3 (0=disconnected, 1=weak, 2=medium, 3=strong)
         """
         # Scale factor based on size (16 is the base size)
         s = self._size / 16.0
         
         # Center point and base position (bottom center of icon)
-        cx = draw_x + self._size // 2
-        base_y = draw_y + int(13 * s)
+        cx = self._size // 2
+        base_y = int(13 * s)
         
         # Arc radii scaled to size
         radii = [int(3 * s), int(6 * s), int(9 * s)]
@@ -294,7 +292,7 @@ class WiFiStatusWidget(Widget):
         dot_r = max(1, int(1 * s))
         draw.ellipse([cx - dot_r, base_y - dot_r, cx + dot_r, base_y + dot_r], fill=0)
     
-    def _draw_disabled_cross(self, draw: ImageDraw.Draw, draw_x: int, draw_y: int):
+    def _draw_disabled_cross(self, draw: ImageDraw.Draw):
         """Draw a cross overlay to indicate WiFi is disabled."""
         # Scale factor based on size
         s = self._size / 16.0
@@ -302,26 +300,25 @@ class WiFiStatusWidget(Widget):
         width = max(2, int(2 * s))
         
         # Draw diagonal cross over the icon
-        draw.line([draw_x + margin, draw_y + margin, 
-                   draw_x + self._size - margin, draw_y + self._size - margin], fill=0, width=width)
-        draw.line([draw_x + self._size - margin, draw_y + margin, 
-                   draw_x + margin, draw_y + self._size - margin], fill=0, width=width)
+        draw.line([margin, margin, 
+                   self._size - margin, self._size - margin], fill=0, width=width)
+        draw.line([self._size - margin, margin, 
+                   margin, self._size - margin], fill=0, width=width)
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw WiFi status icon with signal strength or disabled indicator."""
-        draw = ImageDraw.Draw(img)
+    def render(self, sprite: Image.Image) -> None:
+        """Render WiFi status icon with signal strength or disabled indicator."""
+        draw = ImageDraw.Draw(sprite)
         
-        # Clear background
-        draw.rectangle([draw_x, draw_y, draw_x + self.width - 1, draw_y + self.height - 1], fill=255)
+        # Sprite is pre-filled white
         
         if self._last_state == WIFI_DISABLED:
             # Draw WiFi icon with cross overlay
-            self._draw_wifi_signal_icon(draw, draw_x, draw_y, strength=0)
-            self._draw_disabled_cross(draw, draw_x, draw_y)
+            self._draw_wifi_signal_icon(draw, strength=0)
+            self._draw_disabled_cross(draw)
         elif self._last_state == WIFI_CONNECTED:
             # Draw WiFi icon with signal strength
-            self._draw_wifi_signal_icon(draw, draw_x, draw_y, strength=self._last_signal_strength)
+            self._draw_wifi_signal_icon(draw, strength=self._last_signal_strength)
         else:
             # Disconnected but enabled - show empty arcs
-            self._draw_wifi_signal_icon(draw, draw_x, draw_y, strength=0)
+            self._draw_wifi_signal_icon(draw, strength=0)
 

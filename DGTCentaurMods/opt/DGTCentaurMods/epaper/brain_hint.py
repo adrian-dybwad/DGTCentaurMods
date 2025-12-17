@@ -60,7 +60,7 @@ class BrainHintWidget(Widget):
         
         if new_letter != self._piece_letter:
             self._piece_letter = new_letter
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
     def clear(self) -> None:

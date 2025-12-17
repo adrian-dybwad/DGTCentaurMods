@@ -101,10 +101,6 @@ class StatusBarWidget(Widget):
         for widget in self._child_widgets:
             widget.set_update_callback(callback)
     
-    def invalidate(self) -> None:
-        """Invalidate the widget cache to force re-render on next update."""
-        self._last_rendered = None
-    
     def update(self, full: bool = False):
         """Invalidate cache and request display update.
         
@@ -114,7 +110,7 @@ class StatusBarWidget(Widget):
         Returns:
             Future that completes when the display refresh finishes.
         """
-        self.invalidate()
+        self.invalidate_cache()
         return self.request_update(full=full)
     
     def stop(self) -> None:
@@ -125,16 +121,16 @@ class StatusBarWidget(Widget):
             except Exception as e:
                 log.debug(f"Error stopping {widget.__class__.__name__}: {e}")
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw status bar with all visible child widgets.
+    def render(self, sprite: Image.Image) -> None:
+        """Render status bar with all visible child widgets.
         
         Order from left to right: Clock, [Chromecast], WiFi, Bluetooth, Battery
         Each widget controls its own visibility.
         """
         # Draw background (white)
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
-        # Draw all visible child widgets
+        # Draw all visible child widgets onto sprite
         for widget in self._child_widgets:
             if widget.visible:
-                widget.draw_on(img, draw_x + widget.x, draw_y + widget.y)
+                widget.draw_on(sprite, widget.x, widget.y)

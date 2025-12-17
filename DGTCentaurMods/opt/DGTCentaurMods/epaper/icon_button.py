@@ -167,7 +167,7 @@ class IconButtonWidget(Widget):
         """
         if selected != self.selected:
             self.selected = selected
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
     def _apply_dither_pattern(self, img: Image.Image, shade: int) -> None:

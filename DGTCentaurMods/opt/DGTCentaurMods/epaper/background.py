@@ -42,8 +42,9 @@ class BackgroundWidget(Widget):
         shade = max(0, min(16, shade))
         if shade != self._background_shade:
             self._background_shade = shade
+            self.invalidate_cache()
             self.request_update(full=False)
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the dithered background pattern onto the target image."""
-        self.draw_background(img, draw_x, draw_y)
+    def render(self, sprite: Image.Image) -> None:
+        """Render the dithered background pattern onto the sprite image."""
+        self.draw_background_on_sprite(sprite)

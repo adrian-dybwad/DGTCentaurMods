@@ -115,7 +115,7 @@ class TextWidget(Widget):
     
     def _invalidate_caches(self) -> None:
         """Invalidate all cached data (sprites, masks, rendered images)."""
-        self._last_rendered = None
+        self.invalidate_cache()  # Invalidate base class sprite cache
         self._mask = None
         self._sprite_cache.clear()
         self._sprite_cache_key = None

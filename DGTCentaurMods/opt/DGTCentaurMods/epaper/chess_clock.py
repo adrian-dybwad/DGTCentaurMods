@@ -146,7 +146,7 @@ class ChessClockWidget(Widget):
         """Set timed mode."""
         if self._timed_mode != value:
             self._timed_mode = value
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
     @property
@@ -174,7 +174,7 @@ class ChessClockWidget(Widget):
         """Set white player's name."""
         if self._white_name != value:
             self._white_name = value
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
     @property
@@ -187,7 +187,7 @@ class ChessClockWidget(Widget):
         """Set black player's name."""
         if self._black_name != value:
             self._black_name = value
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
     def set_player_names(self, white_name: str, black_name: str) -> None:
@@ -205,7 +205,7 @@ class ChessClockWidget(Widget):
             self._black_name = black_name
             changed = True
         if changed:
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
     def set_times(self, white_seconds: int, black_seconds: int) -> None:
@@ -227,7 +227,7 @@ class ChessClockWidget(Widget):
             changed = True
         
         if changed:
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
     def set_active(self, color: Optional[str]) -> None:
@@ -239,7 +239,7 @@ class ChessClockWidget(Widget):
         """
         if self._active_color != color:
             self._active_color = color
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
     def start(self, active_color: str = 'white') -> None:
@@ -267,7 +267,7 @@ class ChessClockWidget(Widget):
     def pause(self) -> None:
         """Pause the clock (both players' time stops counting)."""
         self._active_color = None
-        self._last_rendered = None
+        self.invalidate_cache()
         self.request_update(full=False)
     
     def resume(self, active_color: str) -> None:
@@ -285,7 +285,7 @@ class ChessClockWidget(Widget):
             return
         
         self._active_color = active_color
-        self._last_rendered = None
+        self.invalidate_cache()
         self.request_update(full=False)
         log.info(f"[ChessClockWidget] Resumed, active: {active_color}")
     
@@ -302,7 +302,7 @@ class ChessClockWidget(Widget):
             # None or invalid - default to white
             self._active_color = 'white'
         
-        self._last_rendered = None
+        self.invalidate_cache()
         self.request_update(full=False)
     
     def stop(self) -> None:
@@ -348,7 +348,7 @@ class ChessClockWidget(Widget):
             # Decrement active player's time
             if self._active_color == 'white' and self._white_time > 0:
                 self._white_time = max(0, self._white_time - int(elapsed))
-                self._last_rendered = None
+                self.invalidate_cache()
                 self.request_update(full=False)
                 
                 if self._white_time == 0:
@@ -362,7 +362,7 @@ class ChessClockWidget(Widget):
                     
             elif self._active_color == 'black' and self._black_time > 0:
                 self._black_time = max(0, self._black_time - int(elapsed))
-                self._last_rendered = None
+                self.invalidate_cache()
                 self.request_update(full=False)
                 
                 if self._black_time == 0:

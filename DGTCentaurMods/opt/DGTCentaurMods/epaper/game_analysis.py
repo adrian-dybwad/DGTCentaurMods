@@ -160,7 +160,7 @@ class GameAnalysisWidget(Widget):
             self.score_text = score_text
         # Only invalidate cache if score text actually changed
         if self.score_text != old_score_text:
-            self._last_rendered = None
+            self.invalidate_cache()
             # Trigger update if scheduler is available
             self.request_update(full=False)
     
@@ -171,7 +171,7 @@ class GameAnalysisWidget(Widget):
         self.score_history.append(score)
         if len(self.score_history) > self._max_history_size:
             self.score_history.pop(0)
-        self._last_rendered = None
+        self.invalidate_cache()
         # Trigger update if scheduler is available
         self.request_update(full=False)
     
@@ -189,7 +189,7 @@ class GameAnalysisWidget(Widget):
                     break
         except Exception:
             pass
-        self._last_rendered = None
+        self.invalidate_cache()
         # Trigger update if scheduler is available
         self.request_update(full=False)
     
@@ -200,7 +200,7 @@ class GameAnalysisWidget(Widget):
         self.score_text = "0.0"
         self.last_annotation = ""
         self._previous_score = 0.0
-        self._last_rendered = None
+        self.invalidate_cache()
         self.request_update(full=False)
     
     def set_score_history(self, scores: list) -> None:
@@ -218,7 +218,7 @@ class GameAnalysisWidget(Widget):
                 self.score_text = "M"
             else:
                 self.score_text = f"{self.score_value:+.1f}"
-        self._last_rendered = None
+        self.invalidate_cache()
         self.request_update(full=False)
         log.info(f"[GameAnalysisWidget] Restored {len(scores)} scores from history")
     
@@ -226,7 +226,7 @@ class GameAnalysisWidget(Widget):
         """Remove the last score from history (used for takebacks)."""
         if len(self.score_history) > 0:
             self.score_history.pop()
-            self._last_rendered = None
+            self.invalidate_cache()
             # Trigger update if scheduler is available
             self.request_update(full=False)
     
@@ -453,7 +453,7 @@ class GameAnalysisWidget(Widget):
                 self.score_history.pop(0)
         
         # Single cache invalidation and update trigger for all changes
-        self._last_rendered = None
+        self.invalidate_cache()
         self.request_update(full=False)
     
     def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:

@@ -19,15 +19,15 @@ class CheckerboardWidget(Widget):
         super().__init__(x, y, width, height, update_callback)
         self._square_size = square_size
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw checkerboard pattern onto the target image."""
-        draw = ImageDraw.Draw(img)
+    def render(self, sprite: Image.Image) -> None:
+        """Render checkerboard pattern onto the sprite image."""
+        draw = ImageDraw.Draw(sprite)
         
         # Calculate number of squares
         squares_x = self.width // self._square_size
         squares_y = self.height // self._square_size
         
-        log.info(f"CheckerboardWidget.draw_on(): Rendering {squares_x}x{squares_y} squares (size={self._square_size}px, widget={self.width}x{self.height})")
+        log.debug(f"CheckerboardWidget.render(): Rendering {squares_x}x{squares_y} squares (size={self._square_size}px, widget={self.width}x{self.height})")
         
         # Draw checkerboard pattern
         squares_drawn = 0
@@ -36,8 +36,8 @@ class CheckerboardWidget(Widget):
                 # Alternate colors: black if (row + col) is odd
                 is_black = (row + col) % 2 == 1
                 
-                x1 = draw_x + col * self._square_size
-                y1 = draw_y + row * self._square_size
+                x1 = col * self._square_size
+                y1 = row * self._square_size
                 x2 = x1 + self._square_size
                 y2 = y1 + self._square_size
                 
@@ -45,5 +45,5 @@ class CheckerboardWidget(Widget):
                 draw.rectangle([(x1, y1), (x2, y2)], fill=fill_color)
                 squares_drawn += 1
         
-        log.info(f"CheckerboardWidget.draw_on(): Drew {squares_drawn} squares")
+        log.debug(f"CheckerboardWidget.render(): Drew {squares_drawn} squares")
 

@@ -113,7 +113,7 @@ class GameOverWidget(Widget):
                 changed = True
         
         if changed:
-            self._last_rendered = None
+            self.invalidate_cache()
             self.request_update(full=False)
     
     def show(self) -> None:
