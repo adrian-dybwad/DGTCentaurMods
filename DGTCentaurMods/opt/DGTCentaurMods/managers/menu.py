@@ -212,6 +212,7 @@ class MenuManager:
         """Display a menu and wait for selection.
         
         This is the primary method for showing menus. It handles:
+        - Clearing existing widgets and adding status bar
         - Creating and displaying the menu widget
         - Managing the active widget state
         - Converting the result to a MenuSelection object
@@ -234,6 +235,10 @@ class MenuManager:
         # Clear any stale queued keys and mark as loading
         self._key_queue.clear()
         self._menu_loading = True
+        
+        # Clear existing widgets and add status bar before showing menu
+        # This ensures a clean slate after splash screens or other temporary displays
+        self._board.display_manager.clear_widgets()
         
         # Create menu widget
         menu_widget = IconMenuWidget(
