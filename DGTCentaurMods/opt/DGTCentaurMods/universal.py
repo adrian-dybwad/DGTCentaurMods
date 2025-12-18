@@ -1312,6 +1312,7 @@ def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
     """Display a menu and wait for selection.
 
     Uses the MenuManager singleton for menu management.
+    MenuManager.show_menu() handles clearing widgets and adding status bar.
 
     Args:
         entries: List of menu entry configurations to display
@@ -1326,10 +1327,7 @@ def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
     if initial_index < 0 or initial_index >= len(entries):
         initial_index = 0
 
-    # Clear existing widgets and add status bar
-    board.display_manager.clear_widgets()
-
-    # Use the MenuManager to show the menu
+    # MenuManager.show_menu() clears widgets and adds status bar
     result = _menu_manager.show_menu(entries, initial_index=initial_index)
     return result.key
 
