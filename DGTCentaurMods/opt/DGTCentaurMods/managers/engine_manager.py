@@ -185,13 +185,14 @@ ENGINES = {
         repo_url="https://github.com/lucasart/Demolito.git",
         build_commands=[
             # Demolito builds from src directory where makefile is located
+            # The makefile uses clang by default
             "cd src && make -j$(nproc)",
         ],
         binary_path="src/demolito",
         is_system_package=False,
         package_name=None,
         extra_files=[],
-        dependencies=["build-essential", "git"],
+        dependencies=["build-essential", "git", "clang"],  # Makefile uses clang
         estimated_install_minutes=3,  # Simple C engine
     ),
     "weiss": EngineDefinition(
@@ -275,7 +276,8 @@ ENGINES = {
         repo_url="https://github.com/LeelaChessZero/lc0.git",
         build_commands=[
             # Build lc0 with BLAS backend (CPU-only, no GPU needed)
-            "./build.sh",
+            # Use clang for better performance on ARM
+            "CC=clang CXX=clang++ ./build.sh",
             # Download all Maia weights (1100-1900 ELO levels)
             "mkdir -p maia_weights",
             "wget -q -O maia_weights/maia-1100.pb.gz https://github.com/CSSLab/maia-chess/raw/main/maia_weights/maia-1100.pb.gz || true",
@@ -292,7 +294,8 @@ ENGINES = {
         is_system_package=False,
         package_name=None,
         extra_files=["maia_weights"],
-        dependencies=["build-essential", "git", "meson", "ninja-build", "libopenblas-dev", "python3-pip", "wget"],
+        # clang recommended for lc0 builds on ARM (Raspberry Pi)
+        dependencies=["build-essential", "git", "clang", "meson", "ninja-build", "libopenblas-dev", "python3-pip", "wget"],
         clone_with_submodules=True,
         build_timeout=1800,
         estimated_install_minutes=30,  # Complex lc0 build + weight downloads
