@@ -1089,6 +1089,31 @@ def _load_available_engines() -> List[str]:
     return _available_engines
 
 
+def _get_installed_engines() -> List[str]:
+    """Get list of installed engines only.
+    
+    Filters the available engines (those with .uci config files) to only include
+    engines that are actually installed on the system. This is the function that
+    should be used for engine selection menus where the user needs to pick an
+    engine to use.
+    
+    Returns:
+        List of installed engine names, sorted alphabetically.
+    """
+    from DGTCentaurMods.managers.engine_manager import get_engine_manager
+    
+    engine_manager = get_engine_manager()
+    available = _load_available_engines()
+    
+    installed = []
+    for engine_name in available:
+        if engine_manager.is_installed(engine_name):
+            installed.append(engine_name)
+    
+    log.debug(f"[Settings] Installed engines: {installed} (of {len(available)} available)")
+    return installed
+
+
 def _load_engine_elo_levels(engine_name: str, uci_path: pathlib.Path) -> List[str]:
     """Load ELO levels from an engine's .uci file.
     
@@ -2227,11 +2252,13 @@ def _handle_player1_type_selection():
 def _handle_player1_engine_selection():
     """Handle engine selection for Player 1.
     
+    Only shows installed engines. Use Engine Manager to install more engines.
+    
     Returns:
         Break result if user triggered a break action.
         None otherwise.
     """
-    engines = _load_available_engines()
+    engines = _get_installed_engines()
     engine_entries = []
     for engine in engines:
         label = f"* {engine}" if engine == _player1_settings['engine'] else engine
@@ -2428,11 +2455,13 @@ def _handle_player2_type_selection():
 def _handle_player2_engine_selection():
     """Handle engine selection for Player 2.
     
+    Only shows installed engines. Use Engine Manager to install more engines.
+    
     Returns:
         Break result if user triggered a break action.
         None otherwise.
     """
-    engines = _load_available_engines()
+    engines = _get_installed_engines()
     engine_entries = []
     for engine in engines:
         label = f"* {engine}" if engine == _player2_settings['engine'] else engine
@@ -3321,13 +3350,14 @@ def _handle_analysis_mode_menu():
 def _handle_analysis_engine_selection():
     """Handle engine selection for analysis mode.
     
-    Shows list of available engines with current selection marked.
+    Only shows installed engines with current selection marked.
+    Use Engine Manager to install more engines.
     
     Returns:
         Break result if user triggered a break action.
         None otherwise.
     """
-    engines = _load_available_engines()
+    engines = _get_installed_engines()
     engine_entries = []
     for engine in engines:
         label = f"* {engine}" if engine == _game_settings['analysis_engine'] else engine
