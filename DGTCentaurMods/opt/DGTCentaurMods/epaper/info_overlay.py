@@ -51,9 +51,9 @@ class InfoOverlayWidget(Widget):
             transparent=True
         )
     
-    def _handle_child_update(self, full: bool = False):
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
         """Handle update requests from child widgets by forwarding to parent callback."""
-        return self._update_callback(full)
+        return self._update_callback(full, immediate)
     
     def show_message(self, message: str, duration_seconds: float = 0) -> None:
         """Show a message, optionally auto-hiding after a duration.

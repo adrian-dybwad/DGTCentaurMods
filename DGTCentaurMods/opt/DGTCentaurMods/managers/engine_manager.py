@@ -184,9 +184,10 @@ ENGINES = {
         description="Simple, efficient engine with clean C code. Fast to compile and run. Good for lower-powered devices. Solid but straightforward play.",
         repo_url="https://github.com/lucasart/Demolito.git",
         build_commands=[
-            "make -j$(nproc)",
+            # Demolito builds from src directory where makefile is located
+            "cd src && make -j$(nproc)",
         ],
-        binary_path="demolito",
+        binary_path="src/demolito",
         is_system_package=False,
         package_name=None,
         extra_files=[],

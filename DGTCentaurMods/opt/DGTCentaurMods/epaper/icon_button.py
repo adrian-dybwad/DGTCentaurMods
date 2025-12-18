@@ -118,9 +118,9 @@ class IconButtonWidget(Widget):
         # Text content is set dynamically via set_text()
         self._text_widgets_cache = {}
     
-    def _handle_child_update(self, full: bool = False):
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
         """Handle update requests from child widgets by forwarding to parent callback."""
-        return self._update_callback(full)
+        return self._update_callback(full, immediate)
     
     def _get_cached_text_widget(self, width: int, centered: bool, font_size: int = None, bold: bool = None) -> TextWidget:
         """Get or create a cached TextWidget for the given parameters.

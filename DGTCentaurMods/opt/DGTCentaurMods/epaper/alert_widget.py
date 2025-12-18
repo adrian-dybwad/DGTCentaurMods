@@ -70,9 +70,9 @@ class AlertWidget(Widget):
                                       text="", font_size=28,
                                       justify=Justify.CENTER, transparent=True)
     
-    def _handle_child_update(self, full: bool = False):
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
         """Handle update requests from child widgets by forwarding to parent callback."""
-        return self._update_callback(full)
+        return self._update_callback(full, immediate)
     
     def show_check(self, is_black_in_check: bool, attacker_square: int, king_square: int) -> None:
         """Show CHECK alert and flash LEDs.

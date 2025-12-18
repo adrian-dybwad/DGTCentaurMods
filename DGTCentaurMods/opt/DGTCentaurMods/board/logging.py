@@ -91,7 +91,12 @@ def setup_logging(log_file_path="/home/pi/debug.log", log_level=logging.DEBUG):
             pass
     
     # Console handler with colored formatter
+    # Use '\r\n' terminator to ensure cursor returns to column 0 on all terminals.
+    # Plain '\n' can cause staircase output when D-Bus/GLib callbacks log from
+    # their mainloop thread, as some terminals only interpret '\n' as line feed
+    # without carriage return.
     _ch = logging.StreamHandler(sys.stdout)
+    _ch.terminator = '\r\n'
     _ch.setLevel(log_level)
     _ch.setFormatter(ColoredFormatter("%(asctime)s.%(msecs)03d %(levelname)s [%(filename)s:%(lineno)d] %(message)s", "%Y-%m-%d %H:%M:%S"))
     log.addHandler(_ch)

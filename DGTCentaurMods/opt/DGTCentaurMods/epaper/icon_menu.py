@@ -163,9 +163,9 @@ class IconMenuWidget(Widget):
         log.info(f"IconMenuWidget: Created with {len(self.entries)} entries, "
                  f"{self._visible_count} visible at a time")
     
-    def _handle_child_update(self, full: bool = False):
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
         """Handle update requests from child widgets by forwarding to parent callback."""
-        return self._update_callback(full)
+        return self._update_callback(full, immediate)
     
     def _calculate_visible_count(self) -> None:
         """Calculate how many entries can fit on screen.
@@ -366,7 +366,7 @@ class IconMenuWidget(Widget):
                 button.set_selected(actual_idx == self.selected_index)
         
         self.invalidate_cache()
-        self.request_update(full=False)
+        self.request_update(full=False, immediate=True)
     
     def get_selected_key(self) -> Optional[str]:
         """Get the key of the currently selected entry.

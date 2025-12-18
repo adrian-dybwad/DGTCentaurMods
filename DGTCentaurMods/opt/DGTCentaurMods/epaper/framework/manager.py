@@ -222,7 +222,7 @@ class Manager:
 
         return None
     
-    def update(self, full: bool = False) -> Future:
+    def update(self, full: bool = False, immediate: bool = False) -> Future:
         """Update the display with current widget states.
         
         If any widget has is_modal=True, only that widget is rendered.
@@ -234,6 +234,8 @@ class Manager:
         
         Args:
             full: If True, force a full refresh instead of partial refresh.
+            immediate: If True, wake scheduler immediately to bypass batching delay.
+                      Use for time-sensitive UI like menu navigation.
         
         Returns:
             Future: A Future that completes when the display refresh finishes.
@@ -259,7 +261,7 @@ class Manager:
         
         self._update_in_progress = True
         try:
-            return self._do_update(full)
+            return self._do_update(full, immediate)
         finally:
             self._update_in_progress = False
             # Process any pending update that was requested during this update
@@ -270,10 +272,14 @@ class Manager:
                 # Schedule on next tick to avoid deep recursion
                 self._scheduler.submit_deferred(lambda: self.update(pending_full))
     
-    def _do_update(self, full: bool = False) -> Future:
+    def _do_update(self, full: bool = False, immediate: bool = False) -> Future:
         """Internal method that performs the actual update rendering.
         
         This should only be called from update() with the re-entrancy guard held.
+        
+        Args:
+            full: If True, force a full refresh instead of partial refresh.
+            immediate: If True, wake scheduler immediately to bypass batching delay.
         """
         # Get canvas and render background
         canvas = self._framebuffer.get_canvas()
@@ -313,7 +319,7 @@ class Manager:
         
         # Submit refresh with the captured snapshot and return Future
         # The on_refresh callback is invoked by Scheduler after display update
-        return self._scheduler.submit(full=full, image=snapshot)
+        return self._scheduler.submit(full=full, immediate=immediate, image=snapshot)
     
     def cleanup(self, for_shutdown: bool = False) -> None:
         """Clean up display resources.

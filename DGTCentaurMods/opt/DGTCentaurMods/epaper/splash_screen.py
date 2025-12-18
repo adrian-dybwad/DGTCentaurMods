@@ -108,9 +108,9 @@ class SplashScreen(Widget):
             text=message, font_size=18, justify=Justify.CENTER, wrapText=True
         )
     
-    def _handle_child_update(self, full: bool = False):
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
         """Handle update requests from child widgets by forwarding to parent callback."""
-        return self._update_callback(full)
+        return self._update_callback(full, immediate)
     
     def set_message(self, message: str):
         """Update the splash screen message and trigger a re-render.

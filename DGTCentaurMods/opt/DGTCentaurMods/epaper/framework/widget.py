@@ -64,7 +64,7 @@ class Widget(ABC):
     is_modal: bool = False
     
     def __init__(self, x: int, y: int, width: int, height: int, 
-                 update_callback: Callable[[bool], object],
+                 update_callback: Callable[[bool, bool], object],
                  background_shade: int = 0):
         """Initialize a widget.
         
@@ -74,7 +74,7 @@ class Widget(ABC):
             width: Widget width in pixels
             height: Widget height in pixels
             update_callback: Callback to trigger display updates. Must not be None.
-                            Accepts a 'full' boolean parameter and returns a Future.
+                            Accepts 'full' and 'immediate' boolean parameters and returns a Future.
             background_shade: Dithered background shade 0-16 (0=white, 8=50% gray, 16=black)
         
         Raises:
@@ -99,16 +99,16 @@ class Widget(ABC):
         self._scheduler = scheduler
         log.debug(f"Widget.set_scheduler(): {self.__class__.__name__} id={id(self)} scheduler set")
     
-    def set_update_callback(self, callback: Callable[[bool], object]) -> None:
+    def set_update_callback(self, callback: Callable[[bool, bool], object]) -> None:
         """Set a callback to trigger Manager.update() when widget state changes.
         
-        The callback should accept a 'full' boolean parameter and return a Future.
+        The callback should accept 'full' and 'immediate' boolean parameters and return a Future.
         This allows widgets to trigger full update cycles that render all widgets.
         
         Composite widgets should override this to propagate the callback to child widgets.
         
         Args:
-            callback: The update callback. Must not be None.
+            callback: The update callback (full, immediate) -> Future. Must not be None.
             
         Raises:
             ValueError: If callback is None
@@ -122,7 +122,7 @@ class Widget(ABC):
         """Get the scheduler for this widget."""
         return self._scheduler
     
-    def request_update(self, full: bool = False, forced: bool = False):
+    def request_update(self, full: bool = False, forced: bool = False, immediate: bool = False):
         """Request a display update.
         
         This method should be called by widgets when their state changes
@@ -136,6 +136,8 @@ class Widget(ABC):
         Args:
             full: If True, force a full refresh instead of partial refresh.
             forced: If True, ignore visibility check (used by show/hide to update display).
+            immediate: If True, wake scheduler immediately to bypass batching delay.
+                      Use for time-sensitive UI like menu navigation.
         
         Returns:
             Future: A Future that completes when the display refresh finishes.
@@ -155,7 +157,7 @@ class Widget(ABC):
         else:
             log.debug(f"Widget.request_update(): {self.__class__.__name__} id={id(self)} requesting partial update")
         
-        return self._update_callback(full)
+        return self._update_callback(full, immediate)
     
     def set_background_shade(self, shade: int) -> None:
         """Set the background shade level.

@@ -132,9 +132,9 @@ class ChessClockWidget(Widget):
         self._last_active = None
         self._last_timed_mode = None
     
-    def _handle_child_update(self, full: bool = False):
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
         """Handle update requests from child widgets by forwarding to parent callback."""
-        return self._update_callback(full)
+        return self._update_callback(full, immediate)
     
     @property
     def timed_mode(self) -> bool:

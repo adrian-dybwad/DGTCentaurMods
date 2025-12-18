@@ -462,6 +462,7 @@ TIME_CONTROL_OPTIONS = [0, 1, 3, 5, 10, 15, 30, 60, 90]
 SETTINGS_SECTION = 'game'
 PLAYER1_SECTION = 'PlayerOne'
 PLAYER2_SECTION = 'PlayerTwo'
+MENU_STATE_SECTION = 'MenuState'
 
 # Cached engine data
 _available_engines: List[str] = []
@@ -593,6 +594,76 @@ def _save_game_setting(key: str, value):
         log.debug(f"[Settings] Saved game.{key}={str_value}")
     except Exception as e:
         log.warning(f"[Settings] Error saving game.{key}={value}: {e}")
+
+
+# ============================================================================
+# Menu State Persistence
+# ============================================================================
+
+def _save_menu_state(menu_path: str, selected_index: int = 0):
+    """Save the current menu state to centaur.ini.
+    
+    Persists the menu navigation path so the app can resume to the same
+    menu location on restart. The menu path is a slash-separated string
+    representing the menu hierarchy (e.g., "Settings/System" or "Settings/Players").
+    
+    Args:
+        menu_path: Slash-separated path representing menu hierarchy.
+                   Empty string or "Main" clears the saved state.
+        selected_index: Index of the currently selected item in the menu.
+    """
+    try:
+        from DGTCentaurMods.board.settings import Settings
+        
+        if not menu_path or menu_path == "Main":
+            # Clear menu state when at main menu
+            Settings.write(MENU_STATE_SECTION, 'path', '')
+            Settings.write(MENU_STATE_SECTION, 'index', '0')
+            log.debug("[MenuState] Cleared menu state (at main menu)")
+        else:
+            Settings.write(MENU_STATE_SECTION, 'path', menu_path)
+            Settings.write(MENU_STATE_SECTION, 'index', str(selected_index))
+            log.debug(f"[MenuState] Saved: path={menu_path}, index={selected_index}")
+    except Exception as e:
+        log.warning(f"[MenuState] Error saving menu state: {e}")
+
+
+def _load_menu_state() -> tuple:
+    """Load the saved menu state from centaur.ini.
+    
+    Returns:
+        Tuple of (menu_path: str, selected_index: int).
+        Returns ('', 0) if no state is saved or on error.
+    """
+    try:
+        from DGTCentaurMods.board.settings import Settings
+        
+        menu_path = Settings.read(MENU_STATE_SECTION, 'path', '')
+        index_str = Settings.read(MENU_STATE_SECTION, 'index', '0')
+        
+        try:
+            selected_index = int(index_str)
+        except ValueError:
+            selected_index = 0
+        
+        if menu_path:
+            log.info(f"[MenuState] Loaded: path={menu_path}, index={selected_index}")
+        else:
+            log.debug("[MenuState] No saved menu state")
+        
+        return (menu_path, selected_index)
+    except Exception as e:
+        log.warning(f"[MenuState] Error loading menu state: {e}")
+        return ('', 0)
+
+
+def _clear_menu_state():
+    """Clear the saved menu state.
+    
+    Called when starting a game or explicitly going back to the main menu,
+    to ensure the next startup shows the main menu.
+    """
+    _save_menu_state('')
 
 
 # ============================================================================
@@ -1278,6 +1349,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     global app_state, protocol_manager, display_manager, _game_settings, _is_position_game
 
     log.info(f"[App] Transitioning to GAME mode (position_game={is_position_game})")
+    
+    # Clear saved menu state since we're now in a game
+    _clear_menu_state()
     _is_position_game = is_position_game
     app_state = AppState.GAME
     
@@ -1662,11 +1736,15 @@ def _return_to_menu(reason: str):
         app_state = AppState.MENU
 
 
-def _handle_settings():
+def _handle_settings(initial_selection: str = None):
     """Handle the Settings submenu.
     
     Displays settings options and handles their selection.
     Includes game settings (Engine, ELO, Color) and system settings (Sound, Shutdown, Reboot).
+    
+    Args:
+        initial_selection: If provided, immediately navigate to this submenu
+                          (used when restoring menu state on startup).
     """
     global app_state, _game_settings
     from DGTCentaurMods.board import centaur
@@ -1674,38 +1752,62 @@ def _handle_settings():
     app_state = AppState.SETTINGS
     last_selected = 0  # Track last selected index for returning from submenus
     
+    # Save menu state when entering Settings
+    _save_menu_state("Settings", last_selected)
+    
+    # Handle initial selection for state restoration
+    pending_selection = initial_selection
+    
     while app_state == AppState.SETTINGS:
         entries = create_settings_entries()
-        result = _show_menu(entries, initial_index=last_selected)
         
-        # Update last_selected for when we return from a submenu
-        last_selected = find_entry_index(entries, result)
+        # If we have a pending selection from state restoration, use it
+        if pending_selection:
+            result = pending_selection
+            pending_selection = None
+            # Find the index for this selection
+            last_selected = find_entry_index(entries, result)
+        else:
+            result = _show_menu(entries, initial_index=last_selected)
+            # Update last_selected for when we return from a submenu
+            last_selected = find_entry_index(entries, result)
+        
+        # Update saved menu state with current selection
+        _save_menu_state("Settings", last_selected)
         
         # Handle special results that should break out of all menus
         if is_break_result(result):
+            _clear_menu_state()
             app_state = AppState.MENU
             return result
         
         if result == "BACK":
+            _clear_menu_state()
             app_state = AppState.MENU
             return
         
         if result == "SHUTDOWN":
+            _clear_menu_state()
             _shutdown("Shutdown")
             return
         
         if result == "Players":
+            _save_menu_state("Settings/Players")
             players_result = _handle_players_menu()
+            _save_menu_state("Settings", last_selected)  # Restore Settings state on return
             if is_break_result(players_result):
+                _clear_menu_state()
                 app_state = AppState.MENU
                 return players_result
             if players_result == "START_GAME":
                 # Player configuration complete, start game
+                _clear_menu_state()
                 app_state = AppState.MENU
                 _start_game_mode()
                 return
         
         elif result == "TimeControl":
+            _save_menu_state("Settings/TimeControl")
             # Time control selection submenu
             time_entries = []
             current_time = _game_settings['time_control']
@@ -1721,7 +1823,9 @@ def _handle_settings():
                 )
             
             time_result = _show_menu(time_entries)
+            _save_menu_state("Settings", last_selected)  # Restore Settings state on return
             if is_break_result(time_result):
+                _clear_menu_state()
                 app_state = AppState.MENU
                 return time_result
             if time_result not in ["BACK", "SHUTDOWN", "HELP"]:
@@ -1737,29 +1841,42 @@ def _handle_settings():
             # Stay in settings menu to allow further configuration
         
         elif result == "Positions":
+            _save_menu_state("Settings/Positions")
             position_result = _handle_positions_menu()
+            _save_menu_state("Settings", last_selected)  # Restore Settings state on return
             if is_break_result(position_result):
+                _clear_menu_state()
                 app_state = AppState.MENU
                 return position_result
             if position_result:
                 # Position was loaded, exit settings and go to game
+                _clear_menu_state()
                 return
         
         elif result == "Chromecast":
+            _save_menu_state("Settings/Chromecast")
             chromecast_result = _handle_chromecast_menu()
+            _save_menu_state("Settings", last_selected)  # Restore Settings state on return
             if is_break_result(chromecast_result):
+                _clear_menu_state()
                 app_state = AppState.MENU
                 return chromecast_result
         
         elif result == "System":
+            _save_menu_state("Settings/System")
             system_result = _handle_system_menu()
+            _save_menu_state("Settings", last_selected)  # Restore Settings state on return
             if is_break_result(system_result):
+                _clear_menu_state()
                 app_state = AppState.MENU
                 return system_result
         
         elif result == "About":
+            _save_menu_state("Settings/About")
             about_result = _handle_about_menu()
+            _save_menu_state("Settings", last_selected)  # Restore Settings state on return
             if is_break_result(about_result):
+                _clear_menu_state()
                 app_state = AppState.MENU
                 return about_result
 
@@ -6165,6 +6282,21 @@ def main():
     centaur_available = os.path.exists(CENTAUR_SOFTWARE)
     main_menu_last_selected = 0  # Track last selected index for returning from submenus
     
+    # Load saved menu state for restoration (only if not resuming a game)
+    saved_menu_path, saved_menu_index = _load_menu_state()
+    restore_to_settings = False
+    restore_settings_submenu = None
+    
+    if app_state == AppState.MENU and saved_menu_path:
+        # Parse the saved path to determine where to navigate
+        path_parts = saved_menu_path.split('/')
+        if path_parts[0] == "Settings":
+            restore_to_settings = True
+            # If there's a submenu, extract it
+            if len(path_parts) > 1:
+                restore_settings_submenu = path_parts[1]
+            log.info(f"[App] Will restore to Settings menu (submenu={restore_settings_submenu})")
+    
     try:
         while running and not kill:
             if app_state == AppState.MENU:
@@ -6192,6 +6324,18 @@ def main():
                         if protocol_manager:
                             protocol_manager.on_app_connected()
                     continue  # Re-check app_state (now should be GAME)
+                
+                # Check if we need to restore to Settings menu (on startup)
+                if restore_to_settings:
+                    restore_to_settings = False
+                    log.info(f"[App] Restoring to Settings menu (submenu={restore_settings_submenu})")
+                    settings_result = _handle_settings(initial_selection=restore_settings_submenu)
+                    restore_settings_submenu = None  # Clear after use
+                    if is_break_result(settings_result):
+                        _start_game_mode()
+                        if protocol_manager:
+                            protocol_manager.on_app_connected()
+                    continue  # After settings, loop back to check state
                 
                 # Show main menu
                 entries = create_main_menu_entries(centaur_available=centaur_available)

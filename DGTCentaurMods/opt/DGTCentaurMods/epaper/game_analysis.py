@@ -93,9 +93,9 @@ class GameAnalysisWidget(Widget):
         self._analysis_worker_stop = threading.Event()
         self._start_analysis_worker()
     
-    def _handle_child_update(self, full: bool = False):
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
         """Handle update requests from child widgets by forwarding to parent callback."""
-        return self._update_callback(full)
+        return self._update_callback(full, immediate)
     
     def _calculate_annotation(self, current_score: float, previous_score: float) -> str:
         """Calculate annotation symbol based on score change.

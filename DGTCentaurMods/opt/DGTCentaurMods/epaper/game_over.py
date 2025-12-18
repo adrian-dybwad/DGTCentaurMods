@@ -65,9 +65,9 @@ class GameOverWidget(Widget):
                                       text="", font_size=10,
                                       justify=Justify.CENTER, transparent=True)
     
-    def _handle_child_update(self, full: bool = False):
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
         """Handle update requests from child widgets by forwarding to parent callback."""
-        return self._update_callback(full)
+        return self._update_callback(full, immediate)
     
     def set_result(self, result: str, termination: str = None, move_count: int = 0,
                    final_times: Optional[Tuple[int, int]] = None) -> None:
