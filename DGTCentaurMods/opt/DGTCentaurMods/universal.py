@@ -37,6 +37,7 @@ import random
 import psutil
 from enum import Enum, auto
 from typing import Optional, List
+from dataclasses import dataclass, field
 
 # Initialize display FIRST, before board module is imported
 # This allows showing a splash screen while the board initializes
@@ -600,61 +601,192 @@ def _save_game_setting(key: str, value):
 # Menu State Persistence
 # ============================================================================
 
-def _save_menu_state(menu_path: str, selected_index: int = 0):
-    """Save the current menu state to centaur.ini.
+@dataclass
+class MenuContext:
+    """Tracks menu navigation state with full path and index stack.
     
-    Persists the menu navigation path so the app can resume to the same
-    menu location on restart. The menu path is a slash-separated string
-    representing the menu hierarchy (e.g., "Settings/System" or "Settings/Players").
+    Maintains both the menu path hierarchy (for navigation) and the selected
+    index at each level (for restoring exact cursor position). The path and
+    indices are kept in sync - each menu level has a corresponding index.
     
-    Args:
-        menu_path: Slash-separated path representing menu hierarchy.
-                   Empty string or "Main" clears the saved state.
-        selected_index: Index of the currently selected item in the menu.
+    Storage format in centaur.ini:
+        path: "Settings/Players/Player1" (slash-separated menu names)
+        indices: "2:0:1" (colon-separated indices at each level)
+    
+    Attributes:
+        path_stack: List of menu names from root to current level
+        index_stack: List of selected indices at each corresponding level
     """
-    try:
-        from DGTCentaurMods.board.settings import Settings
+    path_stack: List[str] = field(default_factory=list)
+    index_stack: List[int] = field(default_factory=list)
+    
+    def push(self, menu_name: str, index: int = 0) -> None:
+        """Push a new menu level onto the navigation stack.
         
-        if not menu_path or menu_path == "Main":
-            # Clear menu state when at main menu
-            Settings.write(MENU_STATE_SECTION, 'path', '')
-            Settings.write(MENU_STATE_SECTION, 'index', '0')
-            log.debug("[MenuState] Cleared menu state (at main menu)")
-        else:
-            Settings.write(MENU_STATE_SECTION, 'path', menu_path)
-            Settings.write(MENU_STATE_SECTION, 'index', str(selected_index))
-            log.debug(f"[MenuState] Saved: path={menu_path}, index={selected_index}")
-    except Exception as e:
-        log.warning(f"[MenuState] Error saving menu state: {e}")
+        Args:
+            menu_name: Name of the menu being entered
+            index: Initial selected index in that menu (default 0)
+        """
+        self.path_stack.append(menu_name)
+        self.index_stack.append(index)
+        self.save()
+    
+    def pop(self) -> tuple:
+        """Pop the current menu level and return to parent.
+        
+        Returns:
+            Tuple of (menu_name, index) that was popped, or (None, 0) if empty
+        """
+        if not self.path_stack:
+            return (None, 0)
+        menu_name = self.path_stack.pop()
+        index = self.index_stack.pop() if self.index_stack else 0
+        self.save()
+        return (menu_name, index)
+    
+    def update_index(self, index: int) -> None:
+        """Update the selected index at the current menu level.
+        
+        Args:
+            index: New selected index to store
+        """
+        if self.index_stack:
+            self.index_stack[-1] = index
+            self.save()
+    
+    def current_index(self) -> int:
+        """Get the selected index at the current menu level.
+        
+        Returns:
+            Current level's index, or 0 if stack is empty
+        """
+        return self.index_stack[-1] if self.index_stack else 0
+    
+    def current_menu(self) -> Optional[str]:
+        """Get the name of the current menu.
+        
+        Returns:
+            Current menu name, or None if at root
+        """
+        return self.path_stack[-1] if self.path_stack else None
+    
+    def depth(self) -> int:
+        """Get the current navigation depth.
+        
+        Returns:
+            Number of menus in the stack (0 = at main menu)
+        """
+        return len(self.path_stack)
+    
+    def path_str(self) -> str:
+        """Get the path as a slash-separated string.
+        
+        Returns:
+            Path string like "Settings/Players/Player1"
+        """
+        return '/'.join(self.path_stack)
+    
+    def indices_str(self) -> str:
+        """Get the index stack as a colon-separated string.
+        
+        Returns:
+            Indices string like "2:0:1"
+        """
+        return ':'.join(str(i) for i in self.index_stack) if self.index_stack else '0'
+    
+    def clear(self) -> None:
+        """Clear the navigation stack (return to main menu)."""
+        self.path_stack.clear()
+        self.index_stack.clear()
+        self.save()
+    
+    def save(self) -> None:
+        """Persist the current state to centaur.ini."""
+        try:
+            from DGTCentaurMods.board.settings import Settings
+            
+            path = self.path_str()
+            indices = self.indices_str()
+            
+            if not path:
+                Settings.write(MENU_STATE_SECTION, 'path', '')
+                Settings.write(MENU_STATE_SECTION, 'indices', '0')
+                log.debug("[MenuContext] Cleared menu state")
+            else:
+                Settings.write(MENU_STATE_SECTION, 'path', path)
+                Settings.write(MENU_STATE_SECTION, 'indices', indices)
+                log.debug(f"[MenuContext] Saved: path={path}, indices={indices}")
+        except Exception as e:
+            log.warning(f"[MenuContext] Error saving state: {e}")
+    
+    @classmethod
+    def load(cls) -> 'MenuContext':
+        """Load menu state from centaur.ini.
+        
+        Returns:
+            MenuContext with restored path and index stacks
+        """
+        try:
+            from DGTCentaurMods.board.settings import Settings
+            
+            path = Settings.read(MENU_STATE_SECTION, 'path', '')
+            indices_str = Settings.read(MENU_STATE_SECTION, 'indices', '0')
+            
+            # Parse path
+            path_stack = path.split('/') if path else []
+            
+            # Parse indices
+            if indices_str:
+                try:
+                    index_stack = [int(x) for x in indices_str.split(':') if x]
+                except ValueError:
+                    index_stack = [0] * len(path_stack)
+            else:
+                index_stack = [0] * len(path_stack)
+            
+            # Ensure stacks are same length
+            while len(index_stack) < len(path_stack):
+                index_stack.append(0)
+            while len(index_stack) > len(path_stack):
+                index_stack.pop()
+            
+            ctx = cls(path_stack=path_stack, index_stack=index_stack)
+            
+            if path:
+                log.info(f"[MenuContext] Loaded: path={path}, indices={indices_str}")
+            else:
+                log.debug("[MenuContext] No saved menu state")
+            
+            return ctx
+        except Exception as e:
+            log.warning(f"[MenuContext] Error loading state: {e}")
+            return cls()
+    
+    def get_restore_path(self) -> List[tuple]:
+        """Get the full restoration path as a list of (menu_name, index) tuples.
+        
+        Useful for programmatically navigating to a saved position.
+        
+        Returns:
+            List of (menu_name, index) tuples from root to current position
+        """
+        return list(zip(self.path_stack, self.index_stack))
 
 
-def _load_menu_state() -> tuple:
-    """Load the saved menu state from centaur.ini.
+# Global menu context instance
+_menu_context: Optional[MenuContext] = None
+
+
+def _get_menu_context() -> MenuContext:
+    """Get the global menu context, loading from storage if needed.
     
     Returns:
-        Tuple of (menu_path: str, selected_index: int).
-        Returns ('', 0) if no state is saved or on error.
+        The global MenuContext instance
     """
-    try:
-        from DGTCentaurMods.board.settings import Settings
-        
-        menu_path = Settings.read(MENU_STATE_SECTION, 'path', '')
-        index_str = Settings.read(MENU_STATE_SECTION, 'index', '0')
-        
-        try:
-            selected_index = int(index_str)
-        except ValueError:
-            selected_index = 0
-        
-        if menu_path:
-            log.info(f"[MenuState] Loaded: path={menu_path}, index={selected_index}")
-        else:
-            log.debug("[MenuState] No saved menu state")
-        
-        return (menu_path, selected_index)
-    except Exception as e:
-        log.warning(f"[MenuState] Error loading menu state: {e}")
-        return ('', 0)
+    global _menu_context
+    if _menu_context is None:
+        _menu_context = MenuContext.load()
+    return _menu_context
 
 
 def _clear_menu_state():
@@ -663,7 +795,40 @@ def _clear_menu_state():
     Called when starting a game or explicitly going back to the main menu,
     to ensure the next startup shows the main menu.
     """
-    _save_menu_state('')
+    ctx = _get_menu_context()
+    ctx.clear()
+
+
+# Legacy compatibility functions
+def _save_menu_state(menu_path: str, selected_index: int = 0):
+    """Legacy function - use MenuContext.push() or MenuContext.update_index() instead.
+    
+    This function is maintained for backward compatibility during transition.
+    It replaces the entire context with a single-level state.
+    """
+    global _menu_context
+    
+    if not menu_path or menu_path == "Main":
+        _clear_menu_state()
+        return
+    
+    # Parse path and create new context
+    path_parts = menu_path.split('/')
+    # Create indices list - use selected_index for the last level, 0 for others
+    indices = [0] * (len(path_parts) - 1) + [selected_index] if path_parts else [selected_index]
+    
+    _menu_context = MenuContext(path_stack=path_parts, index_stack=indices)
+    _menu_context.save()
+
+
+def _load_menu_state() -> tuple:
+    """Legacy function - use MenuContext.load() instead.
+    
+    Returns:
+        Tuple of (menu_path: str, selected_index: int) for compatibility
+    """
+    ctx = _get_menu_context()
+    return (ctx.path_str(), ctx.current_index())
 
 
 # ============================================================================
@@ -1765,6 +1930,9 @@ def _handle_settings(initial_selection: str = None):
     Displays settings options and handles their selection.
     Includes game settings (Engine, ELO, Color) and system settings (Sound, Shutdown, Reboot).
     
+    Uses MenuContext for full navigation state tracking including selection indices
+    at each menu level.
+    
     Args:
         initial_selection: If provided, immediately navigate to this submenu
                           (used when restoring menu state on startup).
@@ -1773,10 +1941,14 @@ def _handle_settings(initial_selection: str = None):
     from DGTCentaurMods.board import centaur
     
     app_state = AppState.SETTINGS
-    last_selected = 0  # Track last selected index for returning from submenus
+    ctx = _get_menu_context()
     
-    # Save menu state when entering Settings
-    _save_menu_state("Settings", last_selected)
+    # If entering Settings fresh (not restoring), push Settings onto the stack
+    if ctx.current_menu() != "Settings":
+        ctx.push("Settings", 0)
+    
+    # Get initial index from context
+    last_selected = ctx.current_index()
     
     # Handle initial selection for state restoration
     pending_selection = initial_selection
@@ -1790,47 +1962,46 @@ def _handle_settings(initial_selection: str = None):
             pending_selection = None
             # Find the index for this selection
             last_selected = find_entry_index(entries, result)
+            ctx.update_index(last_selected)
         else:
             result = _show_menu(entries, initial_index=last_selected)
             # Update last_selected for when we return from a submenu
             last_selected = find_entry_index(entries, result)
-        
-        # Update saved menu state with current selection
-        _save_menu_state("Settings", last_selected)
+            ctx.update_index(last_selected)
         
         # Handle special results that should break out of all menus
         if is_break_result(result):
-            _clear_menu_state()
+            ctx.clear()
             app_state = AppState.MENU
             return result
         
         if result == "BACK":
-            _clear_menu_state()
+            ctx.pop()  # Pop Settings from the stack
             app_state = AppState.MENU
             return
         
         if result == "SHUTDOWN":
-            _clear_menu_state()
+            ctx.clear()
             _shutdown("Shutdown")
             return
         
         if result == "Players":
-            _save_menu_state("Settings/Players")
+            ctx.push("Players", 0)
             players_result = _handle_players_menu()
-            _save_menu_state("Settings", last_selected)  # Restore Settings state on return
+            ctx.pop()  # Pop Players, restore to Settings level
             if is_break_result(players_result):
-                _clear_menu_state()
+                ctx.clear()
                 app_state = AppState.MENU
                 return players_result
             if players_result == "START_GAME":
                 # Player configuration complete, start game
-                _clear_menu_state()
+                ctx.clear()
                 app_state = AppState.MENU
                 _start_game_mode()
                 return
         
         elif result == "TimeControl":
-            _save_menu_state("Settings/TimeControl")
+            ctx.push("TimeControl", 0)
             # Time control selection submenu
             time_entries = []
             current_time = _game_settings['time_control']
@@ -1845,10 +2016,11 @@ def _handle_settings(initial_selection: str = None):
                     IconMenuEntry(key=str(minutes), label=label, icon_name=icon, enabled=True)
                 )
             
-            time_result = _show_menu(time_entries)
-            _save_menu_state("Settings", last_selected)  # Restore Settings state on return
+            time_result = _show_menu(time_entries, initial_index=ctx.current_index())
+            ctx.update_index(find_entry_index(time_entries, time_result))
+            ctx.pop()  # Pop TimeControl, restore to Settings level
             if is_break_result(time_result):
-                _clear_menu_state()
+                ctx.clear()
                 app_state = AppState.MENU
                 return time_result
             if time_result not in ["BACK", "SHUTDOWN", "HELP"]:
@@ -1864,42 +2036,42 @@ def _handle_settings(initial_selection: str = None):
             # Stay in settings menu to allow further configuration
         
         elif result == "Positions":
-            _save_menu_state("Settings/Positions")
+            ctx.push("Positions", 0)
             position_result = _handle_positions_menu()
-            _save_menu_state("Settings", last_selected)  # Restore Settings state on return
+            ctx.pop()  # Pop Positions, restore to Settings level
             if is_break_result(position_result):
-                _clear_menu_state()
+                ctx.clear()
                 app_state = AppState.MENU
                 return position_result
             if position_result:
                 # Position was loaded, exit settings and go to game
-                _clear_menu_state()
+                ctx.clear()
                 return
         
         elif result == "Chromecast":
-            _save_menu_state("Settings/Chromecast")
+            ctx.push("Chromecast", 0)
             chromecast_result = _handle_chromecast_menu()
-            _save_menu_state("Settings", last_selected)  # Restore Settings state on return
+            ctx.pop()  # Pop Chromecast, restore to Settings level
             if is_break_result(chromecast_result):
-                _clear_menu_state()
+                ctx.clear()
                 app_state = AppState.MENU
                 return chromecast_result
         
         elif result == "System":
-            _save_menu_state("Settings/System")
+            ctx.push("System", 0)
             system_result = _handle_system_menu()
-            _save_menu_state("Settings", last_selected)  # Restore Settings state on return
+            ctx.pop()  # Pop System, restore to Settings level
             if is_break_result(system_result):
-                _clear_menu_state()
+                ctx.clear()
                 app_state = AppState.MENU
                 return system_result
         
         elif result == "About":
-            _save_menu_state("Settings/About")
+            ctx.push("About", 0)
             about_result = _handle_about_menu()
-            _save_menu_state("Settings", last_selected)  # Restore Settings state on return
+            ctx.pop()  # Pop About, restore to Settings level
             if is_break_result(about_result):
-                _clear_menu_state()
+                ctx.clear()
                 app_state = AppState.MENU
                 return about_result
 
@@ -1911,11 +2083,15 @@ def _handle_players_menu():
     Player One (bottom of board) can set color and type.
     Player Two can set type.
 
+    Uses MenuContext for tracking selection state.
+
     Returns:
         "START_GAME" if configuration complete and user wants to play.
         Break result if user triggered a break action.
         None if user pressed BACK.
     """
+    ctx = _get_menu_context()
+    
     while True:
         # Create player summary labels
         p1_color = _player1_settings['color'].capitalize()
@@ -1949,7 +2125,8 @@ def _handle_players_menu():
             ),
         ]
 
-        result = _show_menu(entries)
+        result = _show_menu(entries, initial_index=ctx.current_index())
+        ctx.update_index(find_entry_index(entries, result))
 
         if is_break_result(result):
             return result
@@ -1958,12 +2135,16 @@ def _handle_players_menu():
             return None
         
         if result == "Player1":
+            ctx.push("Player1", 0)
             p1_result = _handle_player1_menu()
+            ctx.pop()
             if is_break_result(p1_result):
                 return p1_result
         
         elif result == "Player2":
+            ctx.push("Player2", 0)
             p2_result = _handle_player2_menu()
+            ctx.pop()
             if is_break_result(p2_result):
                 return p2_result
         
@@ -1980,10 +2161,14 @@ def _handle_player1_menu():
     - Type (Human/Engine/Lichess)
     - Engine and ELO (if type is engine)
 
+    Uses MenuContext for tracking selection state.
+
     Returns:
         Break result if user triggered a break action.
         None otherwise.
     """
+    ctx = _get_menu_context()
+    
     while True:
         p1_color = _player1_settings['color'].capitalize()
         p1_type = _get_player_type_label(_player1_settings['type'])
@@ -2037,7 +2222,8 @@ def _handle_player1_menu():
                 enabled=True
             ))
 
-        result = _show_menu(entries)
+        result = _show_menu(entries, initial_index=ctx.current_index())
+        ctx.update_index(find_entry_index(entries, result))
         
         if is_break_result(result):
             return result
@@ -2046,32 +2232,44 @@ def _handle_player1_menu():
             return None
         
         if result == "Color":
+            ctx.push("Color", 0)
             color_result = _handle_player1_color_selection()
+            ctx.pop()
             if is_break_result(color_result):
                 return color_result
         
         elif result == "Type":
+            ctx.push("Type", 0)
             type_result = _handle_player1_type_selection()
+            ctx.pop()
             if is_break_result(type_result):
                 return type_result
         
         elif result == "Name":
+            ctx.push("Name", 0)
             name_result = _handle_player1_name_input()
+            ctx.pop()
             if is_break_result(name_result):
                 return name_result
         
         elif result == "Engine":
+            ctx.push("Engine", 0)
             engine_result = _handle_player1_engine_selection()
+            ctx.pop()
             if is_break_result(engine_result):
                 return engine_result
         
         elif result == "ELO":
+            ctx.push("ELO", 0)
             elo_result = _handle_player1_elo_selection()
+            ctx.pop()
             if is_break_result(elo_result):
                 return elo_result
         
         elif result == "LichessSettings":
+            ctx.push("LichessSettings", 0)
             lichess_result = _handle_lichess_menu()
+            ctx.pop()
             if is_break_result(lichess_result):
                 return lichess_result
 
@@ -2083,10 +2281,14 @@ def _handle_player2_menu():
     - Type (Human/Engine/Lichess)
     - Engine and ELO (if type is engine)
     
+    Uses MenuContext for tracking selection state.
+    
     Returns:
         Break result if user triggered a break action.
         None otherwise.
     """
+    ctx = _get_menu_context()
+    
     while True:
         p2_type = _get_player_type_label(_player2_settings['type'])
         
@@ -2133,7 +2335,8 @@ def _handle_player2_menu():
                 enabled=True
             ))
         
-        result = _show_menu(entries)
+        result = _show_menu(entries, initial_index=ctx.current_index())
+        ctx.update_index(find_entry_index(entries, result))
         
         if is_break_result(result):
             return result
@@ -2142,27 +2345,37 @@ def _handle_player2_menu():
             return None
         
         if result == "Type":
+            ctx.push("Type", 0)
             type_result = _handle_player2_type_selection()
+            ctx.pop()
             if is_break_result(type_result):
                 return type_result
         
         elif result == "Name":
+            ctx.push("Name", 0)
             name_result = _handle_player2_name_input()
+            ctx.pop()
             if is_break_result(name_result):
                 return name_result
         
         elif result == "Engine":
+            ctx.push("Engine", 0)
             engine_result = _handle_player2_engine_selection()
+            ctx.pop()
             if is_break_result(engine_result):
                 return engine_result
         
         elif result == "ELO":
+            ctx.push("ELO", 0)
             elo_result = _handle_player2_elo_selection()
+            ctx.pop()
             if is_break_result(elo_result):
                 return elo_result
         
         elif result == "LichessSettings":
+            ctx.push("LichessSettings", 0)
             lichess_result = _handle_lichess_menu()
+            ctx.pop()
             if is_break_result(lichess_result):
                 return lichess_result
 
@@ -3854,10 +4067,14 @@ def _handle_about_menu():
     Displays version information, QR code for support, and provides
     access to update settings.
     
+    Uses MenuContext for tracking selection state.
+    
     Returns:
         Break result if interrupted, None otherwise.
     """
     from DGTCentaurMods.board import centaur
+    
+    ctx = _get_menu_context()
     
     # Get update system for status display
     update_system = centaur.UpdateSystem()
@@ -3897,15 +4114,19 @@ def _handle_about_menu():
     def handle_selection(result: MenuSelection):
         """Handle about menu selection."""
         if result.key == "Support":
+            ctx.push("Support", 0)
             # Show QR code screen
             _show_support_qr()
+            ctx.pop()
         elif result.key == "Updates":
+            ctx.push("Updates", 0)
             sub_result = _handle_update_menu(update_system)
+            ctx.pop()
             if is_break_result(sub_result):
                 return sub_result
         return None  # Continue loop
     
-    return _menu_manager.run_menu_loop(build_entries, handle_selection)
+    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=ctx.current_index())
 
 
 def _show_support_qr():
@@ -4285,57 +4506,83 @@ def _install_deb_update(deb_file: str, update_system):
 
 
 def _handle_system_menu():
-    """Handle system submenu (display, sound, WiFi, Bluetooth, sleep timer, reset, shutdown, reboot)."""
+    """Handle system submenu (display, sound, WiFi, Bluetooth, sleep timer, reset, shutdown, reboot).
+    
+    Uses MenuContext for tracking selection state.
+    """
+    ctx = _get_menu_context()
     
     def handle_selection(result: MenuSelection):
         """Handle system menu selection."""
         # Route to submenus - propagate break results
         # Use is_break_result() since some handlers return strings, some return MenuSelection
         if result.key == "Display":
+            ctx.push("Display", 0)
             sub_result = _handle_display_settings()
+            ctx.pop()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Sound":
+            ctx.push("Sound", 0)
             sub_result = _handle_sound_settings()
+            ctx.pop()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "AnalysisMode":
+            ctx.push("AnalysisMode", 0)
             sub_result = _handle_analysis_mode_menu()
+            ctx.pop()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Engines":
+            ctx.push("Engines", 0)
             sub_result = _handle_engine_manager_menu()
+            ctx.pop()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "WiFi":
+            ctx.push("WiFi", 0)
             sub_result = _handle_wifi_settings()
+            ctx.pop()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Bluetooth":
+            ctx.push("Bluetooth", 0)
             sub_result = _handle_bluetooth_settings()
+            ctx.pop()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Chromecast":
+            ctx.push("Chromecast", 0)
             sub_result = _handle_chromecast_menu()
+            ctx.pop()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Accounts":
+            ctx.push("Accounts", 0)
             sub_result = _handle_accounts_menu()
+            ctx.pop()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Inactivity":
+            ctx.push("Inactivity", 0)
             sub_result = _handle_inactivity_timeout()
+            ctx.pop()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "ResetSettings":
+            ctx.push("ResetSettings", 0)
             sub_result = _handle_reset_settings()
+            ctx.pop()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Shutdown":
+            ctx.clear()
             _shutdown("Shutdown")
             return result  # Exit after shutdown
         elif result.key == "Reboot":
             # LED cascade pattern for reboot
+            ctx.clear()
             try:
                 for i in range(0, 8):
                     board.led(i, repeat=0)
@@ -4346,7 +4593,7 @@ def _handle_system_menu():
             return result  # Exit after reboot
         return None  # Continue loop
     
-    return _menu_manager.run_menu_loop(create_system_entries, handle_selection)
+    return _menu_manager.run_menu_loop(create_system_entries, handle_selection, initial_index=ctx.current_index())
 
 
 # =============================================================================
@@ -6308,22 +6555,22 @@ def main():
     
     # Check if Centaur software is available
     centaur_available = os.path.exists(CENTAUR_SOFTWARE)
-    main_menu_last_selected = 0  # Track last selected index for returning from submenus
     
     # Load saved menu state for restoration (only if not resuming a game)
-    saved_menu_path, saved_menu_index = _load_menu_state()
+    # MenuContext tracks full navigation path with indices at each level
+    ctx = _get_menu_context()
+    restore_path = ctx.get_restore_path() if app_state == AppState.MENU else []
+    
+    # Determine if we should restore to a submenu
     restore_to_settings = False
     restore_settings_submenu = None
     
-    if app_state == AppState.MENU and saved_menu_path:
-        # Parse the saved path to determine where to navigate
-        path_parts = saved_menu_path.split('/')
-        if path_parts[0] == "Settings":
-            restore_to_settings = True
-            # If there's a submenu, extract it
-            if len(path_parts) > 1:
-                restore_settings_submenu = path_parts[1]
-            log.info(f"[App] Will restore to Settings menu (submenu={restore_settings_submenu})")
+    if restore_path and restore_path[0][0] == "Settings":
+        restore_to_settings = True
+        # If there's a submenu beyond Settings, extract it
+        if len(restore_path) > 1:
+            restore_settings_submenu = restore_path[1][0]
+        log.info(f"[App] Will restore to Settings menu (submenu={restore_settings_submenu}, full_path={ctx.path_str()})")
     
     try:
         while running and not kill:
@@ -6366,16 +6613,27 @@ def main():
                     continue  # After settings, loop back to check state
                 
                 # Show main menu
+                # Use MenuContext to track main menu selection (at root level)
                 entries = create_main_menu_entries(centaur_available=centaur_available)
-                result = _show_menu(entries, initial_index=main_menu_last_selected)
                 
-                # Update last_selected for when we return from a submenu
-                main_menu_last_selected = find_entry_index(entries, result)
+                # Get initial index from context if at root, else use 0
+                main_menu_index = ctx.current_index() if ctx.depth() == 0 else 0
+                result = _show_menu(entries, initial_index=main_menu_index)
+                
+                # Update context with current selection (at root level, we just track the index)
+                selected_index = find_entry_index(entries, result)
+                if ctx.depth() == 0:
+                    # At root level - save main menu selection directly
+                    # We don't push "Main" since it's the root
+                    from DGTCentaurMods.board.settings import Settings
+                    Settings.write(MENU_STATE_SECTION, 'path', '')
+                    Settings.write(MENU_STATE_SECTION, 'indices', str(selected_index))
                 
                 log.info(f"[App] Main menu selection: {result}")
                 
                 if result == "BACK":
                     # Show idle screen and wait for TICK
+                    ctx.clear()  # Clear any saved state when going to idle
                     board.beep(board.SOUND_POWER_OFF, event_type='key_press')
                     board.display_manager.clear_widgets()
                     promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="Press [OK]"))
@@ -6389,14 +6647,17 @@ def main():
                     continue
                 
                 elif result == "SHUTDOWN":
+                    ctx.clear()
                     _shutdown("Shutdown")
                 
                 elif result == "Centaur":
+                    ctx.clear()
                     _run_centaur()
                     # Note: _run_centaur() exits the process
                 
                 elif result == "Universal" or result == "CLIENT_CONNECTED" or result == "PIECE_MOVED":
-                    # Start game mode
+                    # Start game mode - clear menu state
+                    ctx.clear()
                     _start_game_mode()
                     
                     # Forward all pending piece events (may have accumulated during _start_game_mode)
@@ -6417,6 +6678,7 @@ def main():
                     settings_result = _handle_settings()
                     # Check if a BLE client connected during settings
                     if is_break_result(settings_result):
+                        ctx.clear()
                         _start_game_mode()
                         if protocol_manager:
                             protocol_manager.on_app_connected()
