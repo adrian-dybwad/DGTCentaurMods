@@ -177,14 +177,18 @@ class IconButtonWidget(Widget):
     
     def set_selected(self, selected: bool) -> None:
         """Set the selection state.
-        
+
+        Only invalidates cache - does NOT request update. The parent widget
+        (e.g., IconMenuWidget) is responsible for calling request_update()
+        after all selection state changes are complete. This prevents multiple
+        redundant display refreshes when selection moves between buttons.
+
         Args:
             selected: New selection state
         """
         if selected != self.selected:
             self.selected = selected
             self.invalidate_cache()
-            self.request_update(full=False)
     
     def _apply_dither_pattern(self, img: Image.Image, shade: int) -> None:
         """Apply a dither pattern to an image.
