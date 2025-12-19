@@ -219,6 +219,7 @@ class Scheduler:
                 full_image = self._framebuffer.snapshot(rotation=epdconfig.ROTATION)
             
             buf = self._epd.getbuffer(full_image)
+            log.debug(f"Scheduler: Sending FULL refresh to display")
             self._epd.display(buf)
             self._partial_refresh_count = 0
             
@@ -281,6 +282,7 @@ class Scheduler:
             
             # Get buffer from image and display
             buf = self._epd.getbuffer(display_image)
+            log.debug(f"Scheduler: Sending PARTIAL refresh to display (count={self._partial_refresh_count + 1})")
             self._epd.DisplayPartial(buf)
             
             self._partial_refresh_count += 1
