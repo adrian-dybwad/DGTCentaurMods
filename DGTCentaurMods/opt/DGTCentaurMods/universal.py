@@ -616,9 +616,11 @@ class MenuContext:
     Attributes:
         path_stack: List of menu names from root to current level
         index_stack: List of selected indices at each corresponding level
+        _nav_depth: Current navigation depth (how deep we've navigated during runtime)
     """
     path_stack: List[str] = field(default_factory=list)
     index_stack: List[int] = field(default_factory=list)
+    _nav_depth: int = field(default=0, repr=False)
     
     def push(self, menu_name: str, index: int = 0) -> None:
         """Push a new menu level onto the navigation stack.
@@ -645,22 +647,28 @@ class MenuContext:
         return (menu_name, index)
     
     def update_index(self, index: int) -> None:
-        """Update the selected index at the current menu level.
+        """Update the selected index at the current navigation depth.
         
         Args:
             index: New selected index to store
         """
-        if self.index_stack:
-            self.index_stack[-1] = index
+        # Use nav_depth - 1 since nav_depth is incremented after entering a menu
+        idx = self._nav_depth - 1 if self._nav_depth > 0 else 0
+        if idx < len(self.index_stack):
+            self.index_stack[idx] = index
             self.save()
     
     def current_index(self) -> int:
-        """Get the selected index at the current menu level.
+        """Get the selected index at the current navigation depth.
         
         Returns:
-            Current level's index, or 0 if stack is empty
+            Current level's index, or 0 if at invalid depth
         """
-        return self.index_stack[-1] if self.index_stack else 0
+        # Use nav_depth - 1 since nav_depth is incremented after entering a menu
+        idx = self._nav_depth - 1 if self._nav_depth > 0 else 0
+        if idx < len(self.index_stack):
+            return self.index_stack[idx]
+        return 0
     
     def current_menu(self) -> Optional[str]:
         """Get the name of the current menu.
@@ -698,6 +706,7 @@ class MenuContext:
         """Clear the navigation stack (return to main menu)."""
         self.path_stack.clear()
         self.index_stack.clear()
+        self._nav_depth = 0
         self.save()
     
     def save(self) -> None:
@@ -771,6 +780,65 @@ class MenuContext:
             List of (menu_name, index) tuples from root to current position
         """
         return list(zip(self.path_stack, self.index_stack))
+    
+    def enter_menu(self, menu_name: str, default_index: int = 0) -> int:
+        """Enter a submenu, handling both fresh navigation and restoration.
+        
+        Uses _nav_depth to track current position in the navigation hierarchy.
+        If the saved path at _nav_depth matches menu_name, we're restoring and
+        return the saved index. Otherwise, we truncate the saved path and start
+        fresh navigation from this point.
+        
+        This method should be called instead of push() when entering submenus to
+        properly support menu state restoration.
+        
+        Args:
+            menu_name: Name of the menu being entered
+            default_index: Index to use if not restoring (default 0)
+            
+        Returns:
+            The index to use for initial selection in the submenu
+        """
+        current_depth = self._nav_depth
+        
+        # Check if saved path has this menu at the current depth (restoration mode)
+        if (current_depth < len(self.path_stack) and 
+            self.path_stack[current_depth] == menu_name):
+            # Restoring - use saved index, advance nav depth
+            saved_index = self.index_stack[current_depth] if current_depth < len(self.index_stack) else 0
+            self._nav_depth += 1
+            log.debug(f"[MenuContext] Restoring to {menu_name} with saved index {saved_index} (depth now {self._nav_depth})")
+            return saved_index
+        else:
+            # Fresh navigation or path diverged - truncate saved state and push new menu
+            # Remove anything beyond current depth
+            self.path_stack = self.path_stack[:current_depth]
+            self.index_stack = self.index_stack[:current_depth]
+            
+            # Push the new menu
+            self.path_stack.append(menu_name)
+            self.index_stack.append(default_index)
+            self._nav_depth += 1
+            self.save()
+            log.debug(f"[MenuContext] Fresh nav to {menu_name} with index {default_index} (depth now {self._nav_depth})")
+            return default_index
+    
+    def leave_menu(self) -> None:
+        """Leave the current submenu.
+        
+        Decrements navigation depth. If we were in fresh navigation mode
+        (nav_depth at end of path), also pops from the stacks.
+        """
+        if self._nav_depth <= 0:
+            return
+        
+        self._nav_depth -= 1
+        
+        # If we're leaving a menu that was at the end of the path, pop it
+        if self._nav_depth >= len(self.path_stack) - 1 and self.path_stack:
+            self.pop()
+        
+        log.debug(f"[MenuContext] Left menu, depth now {self._nav_depth}")
 
 
 # Global menu context instance
@@ -1943,14 +2011,10 @@ def _handle_settings(initial_selection: str = None):
     app_state = AppState.SETTINGS
     ctx = _get_menu_context()
     
-    # If entering Settings fresh (not restoring), push Settings onto the stack
-    if ctx.current_menu() != "Settings":
-        ctx.push("Settings", 0)
+    # Enter Settings menu - handles both fresh navigation and restoration
+    last_selected = ctx.enter_menu("Settings", 0)
     
-    # Get initial index from context
-    last_selected = ctx.current_index()
-    
-    # Handle initial selection for state restoration
+    # Handle initial selection for state restoration (legacy path - navigating to submenu)
     pending_selection = initial_selection
     
     while app_state == AppState.SETTINGS:
@@ -1960,7 +2024,7 @@ def _handle_settings(initial_selection: str = None):
         if pending_selection:
             result = pending_selection
             pending_selection = None
-            # Find the index for this selection
+            # Find the index for this selection and update context
             last_selected = find_entry_index(entries, result)
             ctx.update_index(last_selected)
         else:
@@ -1986,9 +2050,9 @@ def _handle_settings(initial_selection: str = None):
             return
         
         if result == "Players":
-            ctx.push("Players", 0)
+            ctx.enter_menu("Players", 0)
             players_result = _handle_players_menu()
-            ctx.pop()  # Pop Players, restore to Settings level
+            ctx.leave_menu()  # Pop Players, restore to Settings level
             if is_break_result(players_result):
                 ctx.clear()
                 app_state = AppState.MENU
@@ -2001,7 +2065,7 @@ def _handle_settings(initial_selection: str = None):
                 return
         
         elif result == "TimeControl":
-            ctx.push("TimeControl", 0)
+            initial_time_index = ctx.enter_menu("TimeControl", 0)
             # Time control selection submenu
             time_entries = []
             current_time = _game_settings['time_control']
@@ -2016,9 +2080,9 @@ def _handle_settings(initial_selection: str = None):
                     IconMenuEntry(key=str(minutes), label=label, icon_name=icon, enabled=True)
                 )
             
-            time_result = _show_menu(time_entries, initial_index=ctx.current_index())
+            time_result = _show_menu(time_entries, initial_index=initial_time_index)
             ctx.update_index(find_entry_index(time_entries, time_result))
-            ctx.pop()  # Pop TimeControl, restore to Settings level
+            ctx.leave_menu()  # Pop TimeControl, restore to Settings level
             if is_break_result(time_result):
                 ctx.clear()
                 app_state = AppState.MENU
@@ -2036,9 +2100,9 @@ def _handle_settings(initial_selection: str = None):
             # Stay in settings menu to allow further configuration
         
         elif result == "Positions":
-            ctx.push("Positions", 0)
+            ctx.enter_menu("Positions", 0)
             position_result = _handle_positions_menu()
-            ctx.pop()  # Pop Positions, restore to Settings level
+            ctx.leave_menu()  # Pop Positions, restore to Settings level
             if is_break_result(position_result):
                 ctx.clear()
                 app_state = AppState.MENU
@@ -2049,27 +2113,27 @@ def _handle_settings(initial_selection: str = None):
                 return
         
         elif result == "Chromecast":
-            ctx.push("Chromecast", 0)
+            ctx.enter_menu("Chromecast", 0)
             chromecast_result = _handle_chromecast_menu()
-            ctx.pop()  # Pop Chromecast, restore to Settings level
+            ctx.leave_menu()  # Pop Chromecast, restore to Settings level
             if is_break_result(chromecast_result):
                 ctx.clear()
                 app_state = AppState.MENU
                 return chromecast_result
         
         elif result == "System":
-            ctx.push("System", 0)
+            ctx.enter_menu("System", 0)
             system_result = _handle_system_menu()
-            ctx.pop()  # Pop System, restore to Settings level
+            ctx.leave_menu()  # Pop System, restore to Settings level
             if is_break_result(system_result):
                 ctx.clear()
                 app_state = AppState.MENU
                 return system_result
         
         elif result == "About":
-            ctx.push("About", 0)
+            ctx.enter_menu("About", 0)
             about_result = _handle_about_menu()
-            ctx.pop()  # Pop About, restore to Settings level
+            ctx.leave_menu()  # Pop About, restore to Settings level
             if is_break_result(about_result):
                 ctx.clear()
                 app_state = AppState.MENU
@@ -2135,16 +2199,16 @@ def _handle_players_menu():
             return None
         
         if result == "Player1":
-            ctx.push("Player1", 0)
+            ctx.enter_menu("Player1", 0)
             p1_result = _handle_player1_menu()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(p1_result):
                 return p1_result
         
         elif result == "Player2":
-            ctx.push("Player2", 0)
+            ctx.enter_menu("Player2", 0)
             p2_result = _handle_player2_menu()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(p2_result):
                 return p2_result
         
@@ -2232,44 +2296,44 @@ def _handle_player1_menu():
             return None
         
         if result == "Color":
-            ctx.push("Color", 0)
+            ctx.enter_menu("Color", 0)
             color_result = _handle_player1_color_selection()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(color_result):
                 return color_result
         
         elif result == "Type":
-            ctx.push("Type", 0)
+            ctx.enter_menu("Type", 0)
             type_result = _handle_player1_type_selection()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(type_result):
                 return type_result
         
         elif result == "Name":
-            ctx.push("Name", 0)
+            ctx.enter_menu("Name", 0)
             name_result = _handle_player1_name_input()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(name_result):
                 return name_result
         
         elif result == "Engine":
-            ctx.push("Engine", 0)
+            ctx.enter_menu("Engine", 0)
             engine_result = _handle_player1_engine_selection()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(engine_result):
                 return engine_result
         
         elif result == "ELO":
-            ctx.push("ELO", 0)
+            ctx.enter_menu("ELO", 0)
             elo_result = _handle_player1_elo_selection()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(elo_result):
                 return elo_result
         
         elif result == "LichessSettings":
-            ctx.push("LichessSettings", 0)
+            ctx.enter_menu("LichessSettings", 0)
             lichess_result = _handle_lichess_menu()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(lichess_result):
                 return lichess_result
 
@@ -2345,37 +2409,37 @@ def _handle_player2_menu():
             return None
         
         if result == "Type":
-            ctx.push("Type", 0)
+            ctx.enter_menu("Type", 0)
             type_result = _handle_player2_type_selection()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(type_result):
                 return type_result
         
         elif result == "Name":
-            ctx.push("Name", 0)
+            ctx.enter_menu("Name", 0)
             name_result = _handle_player2_name_input()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(name_result):
                 return name_result
         
         elif result == "Engine":
-            ctx.push("Engine", 0)
+            ctx.enter_menu("Engine", 0)
             engine_result = _handle_player2_engine_selection()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(engine_result):
                 return engine_result
         
         elif result == "ELO":
-            ctx.push("ELO", 0)
+            ctx.enter_menu("ELO", 0)
             elo_result = _handle_player2_elo_selection()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(elo_result):
                 return elo_result
         
         elif result == "LichessSettings":
-            ctx.push("LichessSettings", 0)
+            ctx.enter_menu("LichessSettings", 0)
             lichess_result = _handle_lichess_menu()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(lichess_result):
                 return lichess_result
 
@@ -4114,14 +4178,14 @@ def _handle_about_menu():
     def handle_selection(result: MenuSelection):
         """Handle about menu selection."""
         if result.key == "Support":
-            ctx.push("Support", 0)
+            ctx.enter_menu("Support", 0)
             # Show QR code screen
             _show_support_qr()
-            ctx.pop()
+            ctx.leave_menu()
         elif result.key == "Updates":
-            ctx.push("Updates", 0)
+            ctx.enter_menu("Updates", 0)
             sub_result = _handle_update_menu(update_system)
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(sub_result):
                 return sub_result
         return None  # Continue loop
@@ -4517,63 +4581,63 @@ def _handle_system_menu():
         # Route to submenus - propagate break results
         # Use is_break_result() since some handlers return strings, some return MenuSelection
         if result.key == "Display":
-            ctx.push("Display", 0)
+            ctx.enter_menu("Display", 0)
             sub_result = _handle_display_settings()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Sound":
-            ctx.push("Sound", 0)
+            ctx.enter_menu("Sound", 0)
             sub_result = _handle_sound_settings()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "AnalysisMode":
-            ctx.push("AnalysisMode", 0)
+            ctx.enter_menu("AnalysisMode", 0)
             sub_result = _handle_analysis_mode_menu()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Engines":
-            ctx.push("Engines", 0)
+            ctx.enter_menu("Engines", 0)
             sub_result = _handle_engine_manager_menu()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "WiFi":
-            ctx.push("WiFi", 0)
+            ctx.enter_menu("WiFi", 0)
             sub_result = _handle_wifi_settings()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Bluetooth":
-            ctx.push("Bluetooth", 0)
+            ctx.enter_menu("Bluetooth", 0)
             sub_result = _handle_bluetooth_settings()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Chromecast":
-            ctx.push("Chromecast", 0)
+            ctx.enter_menu("Chromecast", 0)
             sub_result = _handle_chromecast_menu()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Accounts":
-            ctx.push("Accounts", 0)
+            ctx.enter_menu("Accounts", 0)
             sub_result = _handle_accounts_menu()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Inactivity":
-            ctx.push("Inactivity", 0)
+            ctx.enter_menu("Inactivity", 0)
             sub_result = _handle_inactivity_timeout()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "ResetSettings":
-            ctx.push("ResetSettings", 0)
+            ctx.enter_menu("ResetSettings", 0)
             sub_result = _handle_reset_settings()
-            ctx.pop()
+            ctx.leave_menu()
             if is_break_result(sub_result):
                 return sub_result
         elif result.key == "Shutdown":
