@@ -241,6 +241,7 @@ class MenuManager:
         self._board.display_manager.clear_widgets()
         
         # Create menu widget
+        log.info(f"[DEBUG MenuManager] Creating IconMenuWidget with selected_index={initial_index}")
         menu_widget = IconMenuWidget(
             0,
             self._status_bar_height,
@@ -250,6 +251,7 @@ class MenuManager:
             entries=entries,
             selected_index=initial_index
         )
+        log.info(f"[DEBUG MenuManager] IconMenuWidget created, menu_widget.selected_index={menu_widget.selected_index}")
         
         # Register as active menu (keys will be queued until loading completes)
         self._active_widget = menu_widget

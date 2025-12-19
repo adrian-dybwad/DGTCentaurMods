@@ -121,14 +121,19 @@ class IconMenuWidget(Widget):
         # Filter disabled entries (disabled entries are not shown at all)
         self.entries = [e for e in entries if e.enabled]
         
+        log.info(f"[DEBUG IconMenuWidget] __init__ received selected_index={selected_index}, len(entries)={len(self.entries)}")
+        
         # Clamp selected_index to valid range
         self.selected_index = min(selected_index, max(0, len(self.entries) - 1))
+        
+        log.info(f"[DEBUG IconMenuWidget] After clamp: self.selected_index={self.selected_index}")
         
         # If initial selection is non-selectable, find first selectable entry
         if self.entries and not self.entries[self.selected_index].selectable:
             for i, entry in enumerate(self.entries):
                 if entry.selectable:
                     self.selected_index = i
+                    log.info(f"[DEBUG IconMenuWidget] Non-selectable adjusted to: {i}")
                     break
         
         # Callbacks for external use
@@ -242,6 +247,8 @@ class IconMenuWidget(Widget):
                 # Default icon size scales with button height
                 icon_size = min(36, max(20, button_height - 24))
             
+            is_selected = (actual_idx == self.selected_index)
+            log.info(f"[DEBUG _create_buttons] Button {entry.key}: actual_idx={actual_idx}, self.selected_index={self.selected_index}, selected={is_selected}")
             button = IconButtonWidget(
                 0,
                 current_y,
@@ -251,7 +258,7 @@ class IconMenuWidget(Widget):
                 key=entry.key,
                 label=entry.label,
                 icon_name=entry.icon_name,
-                selected=(actual_idx == self.selected_index),
+                selected=is_selected,
                 margin=self.button_margin,
                 icon_size=icon_size,
                 layout=entry.layout,

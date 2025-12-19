@@ -1581,6 +1581,10 @@ def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
     """
     global _menu_manager
 
+    # DEBUG: Log what initial_index we're receiving
+    entry_keys = [e.key for e in entries]
+    log.info(f"[DEBUG _show_menu] initial_index={initial_index}, entries={entry_keys}")
+
     # Clamp initial_index to valid range
     if initial_index < 0 or initial_index >= len(entries):
         initial_index = 0
