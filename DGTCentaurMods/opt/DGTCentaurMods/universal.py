@@ -6136,6 +6136,15 @@ def key_callback(key_id):
             _reset_unhandled_key_count()
             return
         
+        # Check for MenuManager menu overlay (display settings from LONG_HELP)
+        # This handles the case where a menu is shown over the game via _pending_display_settings
+        if _menu_manager is not None and _menu_manager.active_widget is not None:
+            handled = _menu_manager.active_widget.handle_key(key_id)
+            if handled:
+                log.info(f"[App] Key {key_id} handled by MenuManager overlay in GAME mode")
+                _reset_unhandled_key_count()
+                return
+        
         # Handle app-level keys
         if key_id == board.Key.HELP:
             # Show move hint (best move from analysis engine)
