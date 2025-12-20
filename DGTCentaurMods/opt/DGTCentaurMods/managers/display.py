@@ -846,7 +846,7 @@ class DisplayManager:
         self._current_menu = None
         
         # Restore game display
-        self._restore_game_display()
+        self._init_widgets()
         
         log.info(f"[DisplayManager] Promotion selected: {selected_piece[0]}")
         return selected_piece[0]
@@ -927,7 +927,7 @@ class DisplayManager:
                 
                 # Restore display for cancel, or let caller handle for resign/draw
                 if result == "cancel":
-                    self._restore_game_display()
+                    self._init_widgets()
                 
                 # Call result callback
                 if self._menu_result_callback:
@@ -1027,7 +1027,7 @@ class DisplayManager:
                 
                 # Restore display for cancel, or let caller handle for resign
                 if result == "cancel":
-                    self._restore_game_display()
+                    self._init_widgets()
                 
                 # Call result callback
                 if self._menu_result_callback:
