@@ -123,6 +123,7 @@ class DisplayManager:
         self._on_exit = on_exit
         self._hand_brain_mode = hand_brain_mode
         self._initial_fen = initial_fen or STARTING_FEN
+        self._current_fen = self._initial_fen  # Tracks current position, updated on each move
         self._time_control = time_control  # Minutes per player (0 = disabled)
         self._show_board = show_board
         self._show_clock = show_clock
@@ -227,42 +228,6 @@ class DisplayManager:
                  f"clock={self._show_clock}, analysis={self._show_analysis}, "
                  f"graph={self._show_graph}")
     
-    def apply_display_settings(self):
-        """Apply display settings to existing widgets without recreating them.
-        
-        Reloads settings from config and applies visibility changes to existing
-        widgets. Use this after the display settings menu closes during a game
-        to preserve widget state (board position, clock times, etc.).
-        
-        After calling this, call _restore_game_display() to re-add widgets.
-        """
-        self._reload_display_settings()
-        
-        # Apply visibility to board widget
-        if self.chess_board_widget:
-            if self._show_board:
-                self.chess_board_widget.show()
-            else:
-                self.chess_board_widget.hide()
-        
-        # Apply visibility to clock widget (skip if in hand+brain mode)
-        if self.clock_widget and not self._hand_brain_mode:
-            if self._show_clock:
-                self.clock_widget.show()
-            else:
-                self.clock_widget.hide()
-        
-        # Apply visibility to analysis widget
-        if self.analysis_widget:
-            if self._show_analysis:
-                self.analysis_widget.show()
-                # Update graph visibility within analysis widget
-                self.analysis_widget.set_show_graph(self._show_graph)
-            else:
-                self.analysis_widget.hide()
-        
-        log.info("[DisplayManager] Applied display settings to existing widgets")
-    
     def _init_widgets(self):
         """Create and add widgets to the display manager.
         
@@ -291,9 +256,10 @@ class DisplayManager:
 
         # Create chess board widget at y=16 (below status bar)
         # Uses cached sprites from preload_sprites() if available
+        # Use _current_fen to preserve position when recreating widgets (e.g., after menu)
         self.chess_board_widget = _ChessBoardWidget(
             0, 16, board.display_manager.update,
-            fen=self._initial_fen,
+            fen=self._current_fen,
             flip=self._flip_board
         )
         
@@ -341,10 +307,11 @@ class DisplayManager:
             timed_mode=timed_mode, flip=self._flip_board,
             white_name=self._white_name, black_name=self._black_name
         )
-        # Set initial times if timed mode is enabled
-        if self._time_control > 0:
+        # Set initial times only if clock hasn't been started yet
+        # This preserves times when recreating widgets (e.g., after menu exit)
+        if self._time_control > 0 and not self._clock.is_running:
             initial_seconds = self._time_control * 60
-            self.clock_widget.set_times(initial_seconds, initial_seconds)
+            self._clock.set_times(initial_seconds, initial_seconds)
         
         # Always add clock widget if timed mode, hidden if show_clock=False
         # For untimed mode, only add if show_clock=True
@@ -407,9 +374,12 @@ class DisplayManager:
     def update_position(self, fen: str):
         """Update the chess board display with a new position.
         
+        Also tracks the current FEN for widget recreation (e.g., after menu).
+        
         Args:
             fen: FEN string of the new position
         """
+        self._current_fen = fen
         if self.chess_board_widget:
             try:
                 self.chess_board_widget.set_fen(fen)
@@ -1093,56 +1063,6 @@ class DisplayManager:
             True if a menu is active
         """
         return self._menu_active
-    
-    def _restore_game_display(self):
-        """Restore the normal game display widgets after menu.
-        
-        Re-adds existing widgets to the display without recreating them.
-        The ChessClock continues running independently - no need to restart
-        the clock here since the service persists across widget destruction.
-        """
-        try:
-            if board.display_manager:
-                board.display_manager.clear_widgets(addStatusBar=True)
-                
-                # Re-add chess board widget
-                if self.chess_board_widget:
-                    future = board.display_manager.add_widget(self.chess_board_widget)
-                    if future:
-                        try:
-                            future.result(timeout=2.0)
-                        except Exception:
-                            pass
-                
-                # Re-add clock widget (or brain hint if in Hand+Brain mode)
-                # The clock widget observes ChessClock which continues running
-                if self._hand_brain_mode and self.brain_hint_widget:
-                    future = board.display_manager.add_widget(self.brain_hint_widget)
-                    if future:
-                        try:
-                            future.result(timeout=2.0)
-                        except Exception:
-                            pass
-                elif self.clock_widget:
-                    future = board.display_manager.add_widget(self.clock_widget)
-                    if future:
-                        try:
-                            future.result(timeout=2.0)
-                        except Exception:
-                            pass
-                
-                # Re-add analysis widget
-                if self.analysis_widget:
-                    future = board.display_manager.add_widget(self.analysis_widget)
-                    if future:
-                        try:
-                            future.result(timeout=2.0)
-                        except Exception:
-                            pass
-                            
-                log.debug("[DisplayManager] Game display restored")
-        except Exception as e:
-            log.error(f"[DisplayManager] Error restoring display: {e}")
     
     def show_splash(self, message: str):
         """Show a splash screen with a message.

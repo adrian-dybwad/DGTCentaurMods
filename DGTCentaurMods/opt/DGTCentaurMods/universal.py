@@ -6780,12 +6780,12 @@ def main():
                     _pending_display_settings = False
                     log.info("[App] Showing display settings menu from game mode")
                     _handle_display_settings()
-                    # Apply settings changes to existing widgets and restore display
-                    # Uses apply_display_settings() instead of _init_widgets() to preserve
-                    # game state (board position, clock times, analysis history)
+                    # Recreate widgets with updated settings
+                    # _init_widgets() now preserves game state:
+                    # - Uses _current_fen for board position
+                    # - ChessClock service preserves times (not reset if already running)
                     if display_manager:
-                        display_manager.apply_display_settings()
-                        display_manager._restore_game_display()
+                        display_manager._init_widgets()
                 else:
                     # Stay in game mode - key_callback handles exit via _return_to_menu
                     time.sleep(0.5)
