@@ -103,6 +103,7 @@ class EPD:
         
     # Hardware reset
     def reset(self):
+        print("Resetting display")
         epdconfig.digital_write(self.reset_pin, 1)
         epdconfig.delay_ms(20) 
         epdconfig.digital_write(self.reset_pin, 0)
@@ -277,6 +278,7 @@ class EPD:
         self.TurnOnDisplay()
 
     def Clear(self):
+        print("Clearing display")
         self.send_command(0x10)
         self.send_data2([0x00] * int(self.width * self.height / 8))
         epdconfig.delay_ms(10)
