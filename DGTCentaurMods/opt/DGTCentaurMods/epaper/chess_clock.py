@@ -1,20 +1,18 @@
 """
 Chess clock widget displaying game time for both players.
 
-This widget is positioned directly below the board (y=200) and displays:
+This widget observes the ChessClock and renders its state. The widget is a
+thin display layer - all timer logic is in the ChessClock which persists
+across widget creation/destruction.
+
+Layout:
 - Timed mode: Remaining time for white and black players with turn indicator
 - Untimed mode (compact): Just "White Turn" or "Black Turn" text
-
-The widget height is 36 pixels, leaving room for the analysis widget below.
 """
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from .framework.widget import Widget
 from .text import TextWidget, Justify
-import os
-import sys
-import threading
-import time
 from typing import Optional
 
 try:
@@ -28,11 +26,12 @@ class ChessClockWidget(Widget):
     """
     Widget displaying chess clock times or turn indicator.
     
-    Has two modes:
+    This is a view-only widget that reads state from ChessClock. It does not
+    manage its own timer - the clock handles countdown and state persistence.
+    
+    Has two display modes:
     - Timed mode: Shows remaining time for both players with turn indicator
     - Compact/untimed mode: Shows "White Turn" or "Black Turn" centered
-    
-    Uses TextWidget for all text rendering.
     
     Layout (72 pixels height, 128 pixels width):
     Timed mode:
@@ -55,6 +54,8 @@ class ChessClockWidget(Widget):
         """
         Initialize chess clock widget.
         
+        The widget connects to the ChessClock to observe clock state.
+        
         Args:
             x: X position
             y: Y position
@@ -63,32 +64,26 @@ class ChessClockWidget(Widget):
             update_callback: Callback to trigger display updates. Must not be None.
             timed_mode: Whether to show times (True) or just turn indicator (False)
             flip: If True, show Black on top (matching flipped board perspective)
-            white_name: Optional name for white player (displayed under "White")
-            black_name: Optional name for black player (displayed under "Black")
+            white_name: Optional name for white player (for display only, service has authoritative names)
+            black_name: Optional name for black player (for display only, service has authoritative names)
         """
         super().__init__(x, y, width, height, update_callback)
         
-        # Mode
+        # Display mode
         self._timed_mode = timed_mode
         self._flip = flip
         
-        # Player names (displayed under color labels)
-        self._white_name = white_name
-        self._black_name = black_name
+        # Get clock reference
+        from DGTCentaurMods.services import get_chess_clock
+        self._clock = get_chess_clock()
         
-        # Time state (in seconds)
-        self._white_time = 0
-        self._black_time = 0
-        self._active_color: Optional[str] = None  # None, 'white', or 'black'
-        self._is_running = False
+        # Register for state change notifications
+        self._clock.on_state_change(self._on_clock_state_change)
+        self._clock.on_tick(self._on_clock_tick)
         
-        # Update thread
-        self._update_thread: Optional[threading.Thread] = None
-        self._stop_event = threading.Event()
-        
-        # Callback for when time expires (flag)
+        # Legacy callback for flag events (forwarded from service)
         # on_flag(color: str) where color is 'white' or 'black'
-        self.on_flag = None
+        self._on_flag_callback: Optional[callable] = None
         
         # Create TextWidgets for timed mode - use parent handler for child updates
         # White label (left aligned, after indicator)
@@ -136,6 +131,30 @@ class ChessClockWidget(Widget):
         """Handle update requests from child widgets by forwarding to parent callback."""
         return self._update_callback(full, immediate)
     
+    def _on_clock_state_change(self) -> None:
+        """Called when ChessClock state changes."""
+        self.invalidate_cache()
+        self.request_update(full=False)
+    
+    def _on_clock_tick(self) -> None:
+        """Called every second when clock is running."""
+        self.invalidate_cache()
+        self.request_update(full=False)
+    
+    def stop(self) -> None:
+        """Called when widget is removed from display.
+        
+        Unregisters callbacks from ChessClock. Does NOT stop the clock -
+        the service continues running independently.
+        """
+        self._clock.remove_callback(self._on_clock_state_change)
+        self._clock.remove_callback(self._on_clock_tick)
+        log.debug("[ChessClockWidget] Unregistered from ChessClock")
+    
+    # -------------------------------------------------------------------------
+    # Properties (read from ChessClock)
+    # -------------------------------------------------------------------------
+    
     @property
     def timed_mode(self) -> bool:
         """Whether the widget is in timed mode (showing clocks) or compact mode."""
@@ -151,228 +170,80 @@ class ChessClockWidget(Widget):
     
     @property
     def white_time(self) -> int:
-        """White's remaining time in seconds."""
-        return self._white_time
+        """White's remaining time in seconds (from service)."""
+        return self._clock.white_time
     
     @property
     def black_time(self) -> int:
-        """Black's remaining time in seconds."""
-        return self._black_time
+        """Black's remaining time in seconds (from service)."""
+        return self._clock.black_time
     
     @property
     def active_color(self) -> Optional[str]:
-        """Which player's clock is active ('white', 'black', or None)."""
-        return self._active_color
+        """Which player's clock is active (from service)."""
+        return self._clock.active_color
     
     @property
     def white_name(self) -> str:
-        """White player's name."""
-        return self._white_name
-    
-    @white_name.setter
-    def white_name(self, value: str) -> None:
-        """Set white player's name."""
-        if self._white_name != value:
-            self._white_name = value
-            self.invalidate_cache()
-            self.request_update(full=False)
+        """White player's name (from service)."""
+        return self._clock.white_name
     
     @property
     def black_name(self) -> str:
-        """Black player's name."""
-        return self._black_name
+        """Black player's name (from service)."""
+        return self._clock.black_name
     
-    @black_name.setter
-    def black_name(self, value: str) -> None:
-        """Set black player's name."""
-        if self._black_name != value:
-            self._black_name = value
-            self.invalidate_cache()
-            self.request_update(full=False)
+    @property
+    def on_flag(self) -> Optional[callable]:
+        """Callback for when time expires."""
+        return self._on_flag_callback
+    
+    @on_flag.setter
+    def on_flag(self, callback: Optional[callable]) -> None:
+        """Set flag callback. Registers with ChessClock."""
+        self._on_flag_callback = callback
+        if callback:
+            self._clock.on_flag(callback)
+    
+    # -------------------------------------------------------------------------
+    # Legacy methods (delegate to ChessClock for backward compatibility)
+    # -------------------------------------------------------------------------
     
     def set_player_names(self, white_name: str, black_name: str) -> None:
-        """Set both player names at once.
-        
-        Args:
-            white_name: White player's name
-            black_name: Black player's name
-        """
-        changed = False
-        if self._white_name != white_name:
-            self._white_name = white_name
-            changed = True
-        if self._black_name != black_name:
-            self._black_name = black_name
-            changed = True
-        if changed:
-            self.invalidate_cache()
-            self.request_update(full=False)
+        """Set both player names. Delegates to ChessClock."""
+        self._clock.set_player_names(white_name, black_name)
     
     def set_times(self, white_seconds: int, black_seconds: int) -> None:
-        """
-        Set the clock times for both players.
-        
-        Args:
-            white_seconds: White's remaining time in seconds
-            black_seconds: Black's remaining time in seconds
-        """
-        changed = False
-        
-        if self._white_time != white_seconds:
-            self._white_time = white_seconds
-            changed = True
-        
-        if self._black_time != black_seconds:
-            self._black_time = black_seconds
-            changed = True
-        
-        if changed:
-            self.invalidate_cache()
-            self.request_update(full=False)
+        """Set the clock times for both players. Delegates to ChessClock."""
+        self._clock.set_times(white_seconds, black_seconds)
     
     def set_active(self, color: Optional[str]) -> None:
-        """
-        Set which player's clock is active (running).
-        
-        Args:
-            color: 'white', 'black', or None (both stopped)
-        """
-        if self._active_color != color:
-            self._active_color = color
-            self.invalidate_cache()
-            self.request_update(full=False)
+        """Set which player's clock is active. Delegates to ChessClock."""
+        self._clock.set_active(color)
     
     def start(self, active_color: str = 'white') -> None:
-        """
-        Start the clock running.
-        
-        Args:
-            active_color: Which player's clock starts running ('white' or 'black')
-        """
-        if self._is_running:
-            return
-        
-        self._active_color = active_color
-        self._is_running = True
-        self._stop_event.clear()
-        
-        self._update_thread = threading.Thread(
-            target=self._clock_loop,
-            name="chess-clock-widget",
-            daemon=True
-        )
-        self._update_thread.start()
-        log.info(f"[ChessClockWidget] Started, active: {active_color}")
+        """Start the clock. Delegates to ChessClock."""
+        self._clock.start(active_color)
     
     def pause(self) -> None:
-        """Pause the clock (both players' time stops counting)."""
-        self._active_color = None
-        self.invalidate_cache()
-        self.request_update(full=False)
+        """Pause the clock. Delegates to ChessClock."""
+        self._clock.pause()
     
     def resume(self, active_color: str) -> None:
-        """Resume the clock after a pause.
-        
-        Unlike start(), this doesn't create a new thread - just sets the active color
-        so the existing clock thread resumes counting down.
-        
-        Args:
-            active_color: Which player's clock should resume ('white' or 'black')
-        """
-        if not self._is_running:
-            # Clock was stopped, not just paused - need to start fresh
-            self.start(active_color)
-            return
-        
-        self._active_color = active_color
-        self.invalidate_cache()
-        self.request_update(full=False)
-        log.info(f"[ChessClockWidget] Resumed, active: {active_color}")
+        """Resume the clock. Delegates to ChessClock."""
+        self._clock.resume(active_color)
     
     def switch_turn(self) -> None:
-        """Switch which player's clock is running.
-        
-        If active_color is None (clock not started), defaults to white.
-        """
-        if self._active_color == 'white':
-            self._active_color = 'black'
-        elif self._active_color == 'black':
-            self._active_color = 'white'
-        else:
-            # None or invalid - default to white
-            self._active_color = 'white'
-        
-        self.invalidate_cache()
-        self.request_update(full=False)
-    
-    def stop(self) -> None:
-        """Stop the clock completely and cleanup."""
-        self._is_running = False
-        self._stop_event.set()
-        
-        if self._update_thread:
-            self._update_thread.join(timeout=1.0)
-            self._update_thread = None
-        
-        log.info("[ChessClockWidget] Stopped")
+        """Switch which player's clock is running. Delegates to ChessClock."""
+        self._clock.switch_turn()
     
     def get_final_times(self) -> tuple[int, int]:
-        """
-        Get the final times for both players.
-        
-        Used when game ends to pass times to GameOverWidget.
-        
-        Returns:
-            Tuple of (white_seconds, black_seconds)
-        """
-        return (self._white_time, self._black_time)
+        """Get the current times for both players. Delegates to ChessClock."""
+        return self._clock.get_times()
     
-    def _clock_loop(self) -> None:
-        """Background thread that decrements the active player's time."""
-        last_tick = time.monotonic()
-        
-        while self._is_running and not self._stop_event.is_set():
-            # Wait for 1 second (interruptible)
-            if self._stop_event.wait(timeout=1.0):
-                break
-            
-            # Only decrement in timed mode
-            if not self._timed_mode:
-                continue
-            
-            # Calculate elapsed time since last tick
-            now = time.monotonic()
-            elapsed = now - last_tick
-            last_tick = now
-            
-            # Decrement active player's time
-            if self._active_color == 'white' and self._white_time > 0:
-                self._white_time = max(0, self._white_time - int(elapsed))
-                self.invalidate_cache()
-                self.request_update(full=False)
-                
-                if self._white_time == 0:
-                    log.info("[ChessClockWidget] White's time expired (flag)")
-                    self._is_running = False  # Stop the clock
-                    if self.on_flag:
-                        try:
-                            self.on_flag('white')
-                        except Exception as e:
-                            log.error(f"[ChessClockWidget] Error in on_flag callback: {e}")
-                    
-            elif self._active_color == 'black' and self._black_time > 0:
-                self._black_time = max(0, self._black_time - int(elapsed))
-                self.invalidate_cache()
-                self.request_update(full=False)
-                
-                if self._black_time == 0:
-                    log.info("[ChessClockWidget] Black's time expired (flag)")
-                    self._is_running = False  # Stop the clock
-                    if self.on_flag:
-                        try:
-                            self.on_flag('black')
-                        except Exception as e:
-                            log.error(f"[ChessClockWidget] Error in on_flag callback: {e}")
+    # -------------------------------------------------------------------------
+    # Rendering
+    # -------------------------------------------------------------------------
     
     def _format_time(self, seconds: int) -> str:
         """
@@ -403,12 +274,7 @@ class ChessClockWidget(Widget):
         """
         Render the chess clock widget onto the sprite image.
         
-        Timed mode layout (side by side):
-        - Left: [indicator] White  MM:SS
-        - Right: [indicator] Black  MM:SS
-        
-        Compact mode layout (centered):
-        - [indicator] White Turn  or  [indicator] Black Turn
+        Reads state from ChessClock and renders it.
         """
         draw = ImageDraw.Draw(sprite)
         
@@ -427,21 +293,18 @@ class ChessClockWidget(Widget):
         """
         Render timed mode: stacked layout matching board orientation.
         
-        Uses TextWidget for labels and times.
-        When flip=False (default): White on top, Black on bottom
-        When flip=True: Black on top, White on bottom (matching flipped board)
-        
-        Layout (72 pixels height):
-        - Top section: [indicator] [TopColor]  MM:SS
-        - Separator line
-        - Bottom section: [indicator] [BottomColor]  MM:SS
+        Reads times and active color from ChessClock.
         """
         section_height = (self.height - 4) // 2  # -4 for top/middle separators
         
+        # Get state from service
+        white_time = self._clock.white_time
+        black_time = self._clock.black_time
+        active_color = self._clock.active_color
+        white_name = self._clock.white_name
+        black_name = self._clock.black_name
+        
         # Determine which color goes on top based on flip setting
-        # The top clock matches the top of the board, bottom clock matches bottom
-        # flip=False: Black on top (opponent), White on bottom (player)
-        # flip=True: White on top (opponent), Black on bottom (player)
         if self._flip:
             top_color = 'white'
             bottom_color = 'black'
@@ -449,12 +312,12 @@ class ChessClockWidget(Widget):
             bottom_label = self._black_label
             top_name_widget = self._white_name_text
             bottom_name_widget = self._black_name_text
-            top_name = self._white_name
-            bottom_name = self._black_name
+            top_name = white_name
+            bottom_name = black_name
             top_time_widget = self._white_time_text
             bottom_time_widget = self._black_time_text
-            top_time = self._white_time
-            bottom_time = self._black_time
+            top_time = white_time
+            bottom_time = black_time
         else:
             top_color = 'black'
             bottom_color = 'white'
@@ -462,12 +325,12 @@ class ChessClockWidget(Widget):
             bottom_label = self._white_label
             top_name_widget = self._black_name_text
             bottom_name_widget = self._white_name_text
-            top_name = self._black_name
-            bottom_name = self._white_name
+            top_name = black_name
+            bottom_name = white_name
             top_time_widget = self._black_time_text
             bottom_time_widget = self._white_time_text
-            top_time = self._black_time
-            bottom_time = self._white_time
+            top_time = black_time
+            bottom_time = white_time
         
         # === TOP SECTION ===
         top_y = 4
@@ -475,7 +338,7 @@ class ChessClockWidget(Widget):
         # Indicator circle (larger for visibility)
         indicator_size = 12
         indicator_y = top_y + (section_height - indicator_size) // 2
-        if self._active_color == top_color:
+        if active_color == top_color:
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
@@ -487,7 +350,6 @@ class ChessClockWidget(Widget):
         
         # Top player name (if set) - drawn below the color label
         if top_name:
-            # Truncate long names
             display_name = top_name[:10] if len(top_name) > 10 else top_name
             top_name_widget.set_text(display_name)
             top_name_widget.draw_on(sprite, 20, top_y + 12)
@@ -505,7 +367,7 @@ class ChessClockWidget(Widget):
         
         # Indicator circle
         indicator_y = bottom_y + (section_height - indicator_size) // 2
-        if self._active_color == bottom_color:
+        if active_color == bottom_color:
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
@@ -517,7 +379,6 @@ class ChessClockWidget(Widget):
         
         # Bottom player name (if set) - drawn below the color label
         if bottom_name:
-            # Truncate long names
             display_name = bottom_name[:10] if len(bottom_name) > 10 else bottom_name
             bottom_name_widget.set_text(display_name)
             bottom_name_widget.draw_on(sprite, 20, bottom_y + 12)
@@ -530,28 +391,28 @@ class ChessClockWidget(Widget):
         """
         Render compact mode: large centered turn indicator.
         
-        Uses TextWidget for turn text.
-        
-        Layout (72 pixels height):
-        - Large indicator circle (filled for black, empty for white)
-        - "White's Turn" or "Black's Turn" text below
-        - Player name below turn text (if set)
+        Reads active color from ChessClock.
         """
+        # Get state from service
+        active_color = self._clock.active_color
+        white_name = self._clock.white_name
+        black_name = self._clock.black_name
+        
         # Determine text and player name
-        if self._active_color == 'black':
+        if active_color == 'black':
             turn_text = "Black's Turn"
-            player_name = self._black_name
+            player_name = black_name
         else:
             # Default to white if None or 'white'
             turn_text = "White's Turn"
-            player_name = self._white_name
+            player_name = white_name
         
         # Large indicator circle at top center
         indicator_size = 28
         indicator_x = (self.width - indicator_size) // 2
         indicator_y = 8
         
-        if self._active_color == 'black':
+        if active_color == 'black':
             # Filled circle for black
             draw.ellipse([(indicator_x, indicator_y), 
                          (indicator_x + indicator_size, indicator_y + indicator_size)], 
@@ -569,7 +430,6 @@ class ChessClockWidget(Widget):
         
         # Player name below turn text (if set)
         if player_name:
-            # Truncate long names
             display_name = player_name[:15] if len(player_name) > 15 else player_name
             self._turn_name_text.set_text(display_name)
             name_y = text_y + 18

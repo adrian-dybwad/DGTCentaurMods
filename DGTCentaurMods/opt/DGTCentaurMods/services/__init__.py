@@ -7,5 +7,9 @@ have independent lifecycles and expose state that widgets can observe.
 """
 
 from .chromecast import ChromecastService, get_chromecast_service
+from .chess_clock import ChessClock, get_chess_clock
 
-__all__ = ['ChromecastService', 'get_chromecast_service']
+__all__ = [
+    'ChromecastService', 'get_chromecast_service',
+    'ChessClock', 'get_chess_clock',
+]

@@ -23,6 +23,7 @@ import chess.engine
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.services import get_chess_clock
 
 # Lazy imports for widgets to avoid loading all epaper modules at startup
 _widgets_loaded = False
@@ -155,6 +156,15 @@ class DisplayManager:
         self._analysis_engine_path = analysis_engine_path
         self._engine_init_thread = None
         
+        # Get ChessClock singleton for this game
+        # The clock persists across widget creation/destruction
+        self._clock = get_chess_clock()
+        self._clock.configure(
+            time_control_minutes=time_control,
+            white_name=white_name,
+            black_name=black_name
+        )
+        
         # Initialize widgets first (fast, non-blocking)
         self._init_widgets()
         
@@ -281,9 +291,11 @@ class DisplayManager:
 
         # Create chess board widget at y=16 (below status bar)
         # Uses cached sprites from preload_sprites() if available
-        self.chess_board_widget = _ChessBoardWidget(0, 16, board.display_manager.update, fen=self._initial_fen)
-        if self._flip_board:
-            self.chess_board_widget.set_flip(True)
+        self.chess_board_widget = _ChessBoardWidget(
+            0, 16, board.display_manager.update,
+            fen=self._initial_fen,
+            flip=self._flip_board
+        )
         
         # Always add board widget, but hide if show_board=False
         board.display_manager.add_widget(self.chess_board_widget)
@@ -524,8 +536,7 @@ class DisplayManager:
             white_seconds: White's time in seconds
             black_seconds: Black's time in seconds
         """
-        if self.clock_widget:
-            self.clock_widget.set_times(white_seconds, black_seconds)
+        self._clock.set_times(white_seconds, black_seconds)
     
     def set_clock_active(self, color: str) -> None:
         """Set which player's clock is active (whose turn it is).
@@ -533,8 +544,7 @@ class DisplayManager:
         Args:
             color: 'white', 'black', or None (paused)
         """
-        if self.clock_widget:
-            self.clock_widget.set_active(color)
+        self._clock.set_active(color)
     
     def start_clock(self, active_color: str = 'white') -> None:
         """Start the chess clock.
@@ -545,28 +555,24 @@ class DisplayManager:
         Args:
             active_color: Which player's clock starts running / is active
         """
-        if self.clock_widget:
-            if self._time_control > 0:
-                # Timed mode: start the countdown
-                self.clock_widget.start(active_color)
-            else:
-                # Untimed mode: just set the active color for turn indicator
-                self.clock_widget.set_active(active_color)
+        if self._time_control > 0:
+            # Timed mode: start the countdown
+            self._clock.start(active_color)
+        else:
+            # Untimed mode: just set the active color for turn indicator
+            self._clock.set_active(active_color)
     
     def switch_clock_turn(self) -> None:
         """Switch which player's clock is running."""
-        if self.clock_widget:
-            self.clock_widget.switch_turn()
+        self._clock.switch_turn()
     
     def pause_clock(self) -> None:
         """Pause the chess clock."""
-        if self.clock_widget:
-            self.clock_widget.pause()
+        self._clock.pause()
     
     def stop_clock(self) -> None:
         """Stop the chess clock completely."""
-        if self.clock_widget:
-            self.clock_widget.stop()
+        self._clock.stop()
     
     def reset_clock(self) -> None:
         """Reset the chess clock to initial time and stop it.
@@ -574,13 +580,8 @@ class DisplayManager:
         Called when a new game starts to reset clock state.
         The clock will not start until the first move is made.
         """
-        if self.clock_widget and self._time_control > 0:
-            # Stop the clock first
-            self.clock_widget.stop()
-            # Reset to initial time
-            initial_seconds = self._time_control * 60
-            self.clock_widget.set_times(initial_seconds, initial_seconds)
-            log.info(f"[DisplayManager] Clock reset to {self._time_control} min per player")
+        self._clock.reset()
+        log.info(f"[DisplayManager] Clock reset to {self._time_control} min per player")
     
     def toggle_pause(self) -> bool:
         """Toggle pause state for the game.
@@ -610,12 +611,10 @@ class DisplayManager:
             return
         
         self._is_paused = True
-
         
         # Remember which clock was active so we can resume it
-        if self.clock_widget:
-            self._paused_active_color = self.clock_widget._active_color
-            self.clock_widget.pause()
+        self._paused_active_color = self._clock.active_color
+        self._clock.pause()
         
         # Turn off LEDs
         board.ledsOff()
@@ -681,8 +680,8 @@ class DisplayManager:
             self.pause_widget = None
         
         # Resume clock with previously active color
-        if self.clock_widget and self._paused_active_color:
-            self.clock_widget.resume(self._paused_active_color)
+        if self._paused_active_color:
+            self._clock.resume(self._paused_active_color)
             log.info(f"[DisplayManager] Clock resumed for {self._paused_active_color}")
         
         self._paused_active_color = None
@@ -715,11 +714,9 @@ class DisplayManager:
         """Get the current clock times for both players.
 
         Returns:
-            Tuple of (white_seconds, black_seconds), or (None, None) if no clock
+            Tuple of (white_seconds, black_seconds)
         """
-        if self.clock_widget:
-            return self.clock_widget.get_final_times()
-        return (None, None)
+        return self._clock.get_times()
 
     def get_eval_score(self) -> int:
         """Get the current evaluation score in centipawns.
@@ -759,8 +756,7 @@ class DisplayManager:
         Args:
             callback: Function(color: str) where color is 'white' or 'black'
         """
-        if self.clock_widget:
-            self.clock_widget.on_flag = callback
+        self._clock.on_flag(callback)
     
     def set_brain_hint(self, piece_symbol: str) -> None:
         """Set the brain hint piece type for Hand+Brain mode.
@@ -1099,9 +1095,12 @@ class DisplayManager:
         return self._menu_active
     
     def _restore_game_display(self):
-        """Restore the normal game display widgets after menu."""
-
+        """Restore the normal game display widgets after menu.
         
+        Re-adds existing widgets to the display without recreating them.
+        The ChessClock continues running independently - no need to restart
+        the clock here since the service persists across widget destruction.
+        """
         try:
             if board.display_manager:
                 board.display_manager.clear_widgets(addStatusBar=True)
@@ -1116,6 +1115,7 @@ class DisplayManager:
                             pass
                 
                 # Re-add clock widget (or brain hint if in Hand+Brain mode)
+                # The clock widget observes ChessClock which continues running
                 if self._hand_brain_mode and self.brain_hint_widget:
                     future = board.display_manager.add_widget(self.brain_hint_widget)
                     if future:
@@ -1184,14 +1184,14 @@ class DisplayManager:
         try:
             log.info(f"[DisplayManager] Showing game over: result={result}, termination={termination_type}")
             
-            # Get final times from clock widget before hiding it
+            # Get final times from clock service before stopping
             final_times = None
-            if self.clock_widget and self._time_control > 0:
-                final_times = self.clock_widget.get_final_times()
-                self.clock_widget.stop()
-                self.clock_widget.hide()
-            elif self.clock_widget:
-                # Even in untimed mode, hide the clock (turn indicator)
+            if self._time_control > 0:
+                final_times = self._clock.get_times()
+                self._clock.stop()
+            
+            # Hide clock widget
+            if self.clock_widget:
                 self.clock_widget.hide()
             
             # Analysis widget stays in place - game over widget is same size as clock
@@ -1239,16 +1239,13 @@ class DisplayManager:
         else:
             log.info("[DisplayManager] Engine init thread not running")
         
-        # Stop clock widget
-        log.info("[DisplayManager] Stopping clock widget...")
-        if self.clock_widget:
-            try:
-                self.clock_widget.stop()
-                log.info("[DisplayManager] Clock widget stopped")
-            except Exception as e:
-                log.error(f"[DisplayManager] Error stopping clock widget: {e}", exc_info=True)
-        else:
-            log.info("[DisplayManager] No clock widget to stop")
+        # Stop clock service
+        log.info("[DisplayManager] Stopping clock service...")
+        try:
+            self._clock.stop()
+            log.info("[DisplayManager] Clock service stopped")
+        except Exception as e:
+            log.error(f"[DisplayManager] Error stopping clock service: {e}", exc_info=True)
         
         # Stop analysis widget worker
         log.info("[DisplayManager] Stopping analysis widget worker...")

@@ -36,17 +36,19 @@ class ChessBoardWidget(Widget):
     Chess sprites can be provided directly via constructor or set at module level.
     """
     
-    def __init__(self, x: int, y: int, update_callback,
-                 fen: str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 
-                 flip: bool = False, sprites: Image.Image = None):
+    def __init__(self, x: int, y: int, update_callback, fen: str, flip: bool,
+                 sprites: Image.Image = None):
         """Initialize chess board widget.
+        
+        The widget does not own any game state - all configuration must be
+        provided by the caller. Only sprites has a fallback (module-level).
         
         Args:
             x: X position
             y: Y position
             update_callback: Callback to trigger display updates. Must not be None.
-            fen: FEN string for initial position
-            flip: If True, flip board (black at bottom)
+            fen: FEN string for initial position (required)
+            flip: If True, flip board (black at bottom) (required)
             sprites: Optional chess piece sprite sheet. If None, uses module-level sprites.
         """
         super().__init__(x, y, 128, 128, update_callback)

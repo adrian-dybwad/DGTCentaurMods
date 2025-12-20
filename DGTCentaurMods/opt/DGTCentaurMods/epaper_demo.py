@@ -114,7 +114,7 @@ class EPaperDemo:
             text_widget.request_update(full=False)
         
         # Chess board widget (128x128) starting at y=116
-        self.chess_board = ChessBoardWidget(0, 116, self.display.update, fen=self.fen_positions[0])
+        self.chess_board = ChessBoardWidget(0, 116, self.display.update, fen=self.fen_positions[0], flip=False)
         self.display.add_widget(self.chess_board)
         # Widget triggers its own update when ready
         self.chess_board.request_update(full=False)
