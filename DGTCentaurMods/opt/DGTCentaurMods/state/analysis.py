@@ -1,0 +1,293 @@
+"""
+Analysis state - evaluation scores and history.
+
+Holds the current position evaluation and score history for display.
+The actual analysis engine and worker thread are managed elsewhere.
+
+Widgets observe this state to display evaluation bar and history graph.
+"""
+
+from typing import Optional, Callable, List, Tuple
+
+
+class AnalysisState:
+    """Observable analysis state.
+    
+    Holds:
+    - Current evaluation score
+    - Score history for graphing
+    - Move annotations (!, ??, etc.)
+    
+    Observers are notified when evaluation or history changes.
+    """
+    
+    # Maximum history size to prevent unbounded growth
+    MAX_HISTORY_SIZE = 200
+    
+    def __init__(self):
+        """Initialize with no analysis data."""
+        # Current evaluation
+        self._score: float = 0.0  # In pawns, positive = white advantage
+        self._score_text: str = "0.0"  # Formatted score string
+        self._is_mate: bool = False  # Whether score is a mate score
+        self._mate_in: Optional[int] = None  # Moves to mate, or None
+        
+        # Move annotation for current position
+        self._annotation: str = ""  # !, !!, ?, ??, !?, ?!
+        
+        # Score history for graphing
+        self._history: List[float] = []
+        
+        # Previous score for annotation calculation
+        self._previous_score: float = 0.0
+        
+        # Observer callbacks
+        self._on_score_change: List[Callable[[], None]] = []
+        self._on_history_change: List[Callable[[], None]] = []
+    
+    # -------------------------------------------------------------------------
+    # Properties
+    # -------------------------------------------------------------------------
+    
+    @property
+    def score(self) -> float:
+        """Current evaluation in pawns (positive = white advantage)."""
+        return self._score
+    
+    @property
+    def score_text(self) -> str:
+        """Formatted score string (e.g., '+1.5', '-0.3', 'M5')."""
+        return self._score_text
+    
+    @property
+    def is_mate(self) -> bool:
+        """Whether the current score is a forced mate."""
+        return self._is_mate
+    
+    @property
+    def mate_in(self) -> Optional[int]:
+        """Moves to mate, or None if not a mate score."""
+        return self._mate_in
+    
+    @property
+    def annotation(self) -> str:
+        """Current move annotation (!, !!, ?, ??, !?, ?!)."""
+        return self._annotation
+    
+    @property
+    def history(self) -> List[float]:
+        """Score history for graphing. Returns a copy."""
+        return list(self._history)
+    
+    @property
+    def history_length(self) -> int:
+        """Number of positions in history."""
+        return len(self._history)
+    
+    # -------------------------------------------------------------------------
+    # Observer management
+    # -------------------------------------------------------------------------
+    
+    def on_score_change(self, callback: Callable[[], None]) -> None:
+        """Register callback for score changes.
+        
+        Args:
+            callback: Function called when score or annotation changes.
+        """
+        if callback not in self._on_score_change:
+            self._on_score_change.append(callback)
+    
+    def on_history_change(self, callback: Callable[[], None]) -> None:
+        """Register callback for history changes.
+        
+        Args:
+            callback: Function called when history is updated.
+        """
+        if callback not in self._on_history_change:
+            self._on_history_change.append(callback)
+    
+    def remove_observer(self, callback: Callable) -> None:
+        """Remove a previously registered callback.
+        
+        Args:
+            callback: The callback to remove (from any observer list).
+        """
+        if callback in self._on_score_change:
+            self._on_score_change.remove(callback)
+        if callback in self._on_history_change:
+            self._on_history_change.remove(callback)
+    
+    def _notify_score(self) -> None:
+        """Notify score change observers."""
+        for callback in self._on_score_change:
+            try:
+                callback()
+            except Exception:
+                pass
+    
+    def _notify_history(self) -> None:
+        """Notify history change observers."""
+        for callback in self._on_history_change:
+            try:
+                callback()
+            except Exception:
+                pass
+    
+    # -------------------------------------------------------------------------
+    # State mutations
+    # -------------------------------------------------------------------------
+    
+    def set_score(self, score: float, add_to_history: bool = True) -> None:
+        """Set the current evaluation score.
+        
+        Args:
+            score: Evaluation in pawns (positive = white advantage).
+            add_to_history: If True, append to history.
+        """
+        self._previous_score = self._score
+        self._score = score
+        self._is_mate = False
+        self._mate_in = None
+        
+        # Format score text
+        if score >= 0:
+            self._score_text = f"+{score:.1f}"
+        else:
+            self._score_text = f"{score:.1f}"
+        
+        # Calculate annotation based on score change
+        self._calculate_annotation()
+        
+        self._notify_score()
+        
+        if add_to_history:
+            self._add_to_history(score)
+    
+    def set_mate_score(self, mate_in: int, add_to_history: bool = True) -> None:
+        """Set a forced mate score.
+        
+        Args:
+            mate_in: Moves to mate (positive = white mates, negative = black mates).
+            add_to_history: If True, append to history.
+        """
+        self._previous_score = self._score
+        self._is_mate = True
+        self._mate_in = mate_in
+        
+        # Use large score value for history
+        if mate_in > 0:
+            self._score = 100.0  # White winning
+            self._score_text = f"M{mate_in}"
+        else:
+            self._score = -100.0  # Black winning
+            self._score_text = f"M{abs(mate_in)}"
+        
+        # Mate is always significant
+        self._annotation = "!!" if abs(mate_in) <= 5 else "!"
+        
+        self._notify_score()
+        
+        if add_to_history:
+            self._add_to_history(self._score)
+    
+    def set_annotation(self, annotation: str) -> None:
+        """Override the annotation.
+        
+        Args:
+            annotation: Annotation symbol (!, !!, ?, ??, !?, ?!).
+        """
+        self._annotation = annotation
+        self._notify_score()
+    
+    def _calculate_annotation(self) -> None:
+        """Calculate move annotation based on score change.
+        
+        Annotation rules:
+        - !! (brilliant): improves by 2+ pawns when losing
+        - !  (good): improves by 0.5-2 pawns
+        - !? (interesting): roughly equal trade-off
+        - ?! (dubious): worsens by 0.5-1 pawn
+        - ?  (mistake): worsens by 1-2 pawns
+        - ?? (blunder): worsens by 2+ pawns
+        """
+        delta = self._score - self._previous_score
+        
+        # No annotation for first move or small changes
+        if abs(delta) < 0.3:
+            self._annotation = ""
+        elif delta >= 2.0 and self._previous_score < -1.0:
+            self._annotation = "!!"  # Brilliant - big improvement when losing
+        elif delta >= 0.5:
+            self._annotation = "!"  # Good move
+        elif delta <= -2.0:
+            self._annotation = "??"  # Blunder
+        elif delta <= -1.0:
+            self._annotation = "?"  # Mistake
+        elif delta <= -0.5:
+            self._annotation = "?!"  # Dubious
+        else:
+            self._annotation = ""
+    
+    def _add_to_history(self, score: float) -> None:
+        """Add score to history, respecting max size.
+        
+        Args:
+            score: Score to add.
+        """
+        self._history.append(score)
+        
+        # Trim if exceeds max
+        if len(self._history) > self.MAX_HISTORY_SIZE:
+            self._history = self._history[-self.MAX_HISTORY_SIZE:]
+        
+        self._notify_history()
+    
+    def clear_history(self) -> None:
+        """Clear the score history."""
+        self._history.clear()
+        self._previous_score = 0.0
+        self._notify_history()
+    
+    def reset(self) -> None:
+        """Reset all analysis state."""
+        self._score = 0.0
+        self._score_text = "0.0"
+        self._is_mate = False
+        self._mate_in = None
+        self._annotation = ""
+        self._history.clear()
+        self._previous_score = 0.0
+        self._notify_score()
+        self._notify_history()
+
+
+# -----------------------------------------------------------------------------
+# Singleton instance
+# -----------------------------------------------------------------------------
+
+_instance: Optional[AnalysisState] = None
+
+
+def get_analysis() -> AnalysisState:
+    """Get the singleton AnalysisState instance.
+    
+    Returns:
+        The global AnalysisState instance.
+    """
+    global _instance
+    if _instance is None:
+        _instance = AnalysisState()
+    return _instance
+
+
+def reset_analysis() -> AnalysisState:
+    """Reset the singleton to a fresh instance.
+    
+    Primarily for testing.
+    
+    Returns:
+        The new AnalysisState instance.
+    """
+    global _instance
+    _instance = AnalysisState()
+    return _instance

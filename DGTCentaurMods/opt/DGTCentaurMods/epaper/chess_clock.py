@@ -1,8 +1,8 @@
 """
 Chess clock widget displaying game time for both players.
 
-This widget observes the ChessClock and renders its state. The widget is a
-thin display layer - all timer logic is in the ChessClock which persists
+This widget observes the ChessClockState and renders its state. The widget is a
+thin display layer - all timer logic is in the clock service which persists
 across widget creation/destruction.
 
 Layout:
@@ -20,6 +20,9 @@ try:
 except ImportError:
     import logging
     log = logging.getLogger(__name__)
+
+# Import state (lightweight) - NOT service
+from DGTCentaurMods.state import get_chess_clock as get_clock_state
 
 
 class ChessClockWidget(Widget):
@@ -69,19 +72,20 @@ class ChessClockWidget(Widget):
         """
         super().__init__(x, y, width, height, update_callback)
         
-        # Display mode
+        # Display mode and configuration
         self._timed_mode = timed_mode
         self._flip = flip
+        self._white_name = white_name
+        self._black_name = black_name
         
-        # Get clock reference
-        from DGTCentaurMods.services import get_chess_clock
-        self._clock = get_chess_clock()
+        # Get clock state reference (lightweight state object, not service)
+        self._clock = get_clock_state()
         
         # Register for state change notifications
         self._clock.on_state_change(self._on_clock_state_change)
         self._clock.on_tick(self._on_clock_tick)
         
-        # Legacy callback for flag events (forwarded from service)
+        # Legacy callback for flag events (forwarded from state)
         # on_flag(color: str) where color is 'white' or 'black'
         self._on_flag_callback: Optional[callable] = None
         
@@ -144,12 +148,12 @@ class ChessClockWidget(Widget):
     def stop(self) -> None:
         """Called when widget is removed from display.
         
-        Unregisters callbacks from ChessClock. Does NOT stop the clock -
+        Unregisters callbacks from clock state. Does NOT stop the clock -
         the service continues running independently.
         """
-        self._clock.remove_callback(self._on_clock_state_change)
-        self._clock.remove_callback(self._on_clock_tick)
-        log.debug("[ChessClockWidget] Unregistered from ChessClock")
+        self._clock.remove_observer(self._on_clock_state_change)
+        self._clock.remove_observer(self._on_clock_tick)
+        log.debug("[ChessClockWidget] Unregistered from ChessClockState")
     
     # -------------------------------------------------------------------------
     # Properties (read from ChessClock)
@@ -185,13 +189,13 @@ class ChessClockWidget(Widget):
     
     @property
     def white_name(self) -> str:
-        """White player's name (from service)."""
-        return self._clock.white_name
+        """White player's name (configured at widget creation)."""
+        return self._white_name
     
     @property
     def black_name(self) -> str:
-        """Black player's name (from service)."""
-        return self._clock.black_name
+        """Black player's name (configured at widget creation)."""
+        return self._black_name
     
     @property
     def on_flag(self) -> Optional[callable]:
@@ -206,40 +210,46 @@ class ChessClockWidget(Widget):
             self._clock.on_flag(callback)
     
     # -------------------------------------------------------------------------
-    # Legacy methods (delegate to ChessClock for backward compatibility)
+    # Legacy methods (delegate to clock service for backward compatibility)
+    # These methods require the service for lifecycle control.
     # -------------------------------------------------------------------------
     
+    def _get_service(self):
+        """Get the clock service (lazy import to avoid circular imports)."""
+        from DGTCentaurMods.services import get_chess_clock_service
+        return get_chess_clock_service()
+    
     def set_player_names(self, white_name: str, black_name: str) -> None:
-        """Set both player names. Delegates to ChessClock."""
-        self._clock.set_player_names(white_name, black_name)
+        """Set both player names. Deprecated - configure via service."""
+        log.debug("[ChessClockWidget] set_player_names is deprecated, use service")
     
     def set_times(self, white_seconds: int, black_seconds: int) -> None:
-        """Set the clock times for both players. Delegates to ChessClock."""
+        """Set the clock times for both players. Delegates to clock state."""
         self._clock.set_times(white_seconds, black_seconds)
     
     def set_active(self, color: Optional[str]) -> None:
-        """Set which player's clock is active. Delegates to ChessClock."""
+        """Set which player's clock is active. Delegates to clock state."""
         self._clock.set_active(color)
     
     def start(self, active_color: str = 'white') -> None:
-        """Start the clock. Delegates to ChessClock."""
-        self._clock.start(active_color)
+        """Start the clock. Delegates to clock service."""
+        self._get_service().start(active_color)
     
     def pause(self) -> None:
-        """Pause the clock. Delegates to ChessClock."""
-        self._clock.pause()
+        """Pause the clock. Delegates to clock service."""
+        self._get_service().pause()
     
     def resume(self, active_color: str) -> None:
-        """Resume the clock. Delegates to ChessClock."""
-        self._clock.resume(active_color)
+        """Resume the clock. Delegates to clock service."""
+        self._get_service().resume(active_color)
     
     def switch_turn(self) -> None:
-        """Switch which player's clock is running. Delegates to ChessClock."""
-        self._clock.switch_turn()
+        """Switch which player's clock is running. Delegates to clock service."""
+        self._get_service().switch_turn()
     
-    def get_final_times(self) -> tuple[int, int]:
-        """Get the current times for both players. Delegates to ChessClock."""
-        return self._clock.get_times()
+    def get_final_times(self) -> tuple:
+        """Get the current times for both players."""
+        return (self._clock.white_time, self._clock.black_time)
     
     # -------------------------------------------------------------------------
     # Rendering

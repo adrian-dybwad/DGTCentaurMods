@@ -3,7 +3,7 @@ Chromecast status widget.
 
 Displays the Chromecast streaming status in the status bar.
 The actual streaming is managed by the ChromecastService; this widget
-just observes the service state and renders the appropriate icon.
+just observes the state object and renders the appropriate icon.
 """
 
 from PIL import Image, ImageDraw
@@ -15,11 +15,15 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
+# Import state (lightweight) - NOT service
+from DGTCentaurMods.state import get_chromecast as get_chromecast_state
+from DGTCentaurMods.state.chromecast import STATE_STREAMING, STATE_CONNECTING, STATE_RECONNECTING, STATE_ERROR
+
 
 class ChromecastStatusWidget(Widget):
     """Chromecast status indicator widget.
     
-    Observes the ChromecastService and displays:
+    Observes the ChromecastState and displays:
     - No icon when idle (hidden)
     - Outline icon when connecting/reconnecting
     - Filled icon when streaming
@@ -36,30 +40,29 @@ class ChromecastStatusWidget(Widget):
         super().__init__(x, y, size, size, update_callback)
         self._size = size
         
-        # Get service reference (singleton, created on first access)
-        from DGTCentaurMods.services import get_chromecast_service
-        self._service = get_chromecast_service()
+        # Get state reference (lightweight state object, not service)
+        self._state = get_chromecast_state()
         
         # Register as observer
-        self._service.add_observer(self._on_service_state_changed)
+        self._state.add_observer(self._on_state_changed)
         
-        # Sync initial visibility from service
-        self.visible = self._service.is_active
+        # Sync initial visibility from state
+        self.visible = self._state.is_active
     
-    def _on_service_state_changed(self) -> None:
-        """Called by the service when its state changes."""
-        self.visible = self._service.is_active
+    def _on_state_changed(self) -> None:
+        """Called by the state when it changes."""
+        self.visible = self._state.is_active
         self.invalidate_cache()
         self.request_update(full=False)
     
     def stop(self) -> None:
-        """Stop the widget (unregister from service).
+        """Stop the widget (unregister from state).
         
         Note: This does NOT stop the service itself, just removes this
         widget as an observer.
         """
         try:
-            self._service.remove_observer(self._on_service_state_changed)
+            self._state.remove_observer(self._on_state_changed)
         except Exception as e:
             log.debug(f"[ChromecastStatusWidget] Error removing observer: {e}")
     
@@ -113,19 +116,19 @@ class ChromecastStatusWidget(Widget):
                         start=180, end=270, fill=0, width=1)
     
     def render(self, sprite: Image.Image) -> None:
-        """Render the Chromecast status icon based on service state."""
+        """Render the Chromecast status icon based on state."""
         draw = ImageDraw.Draw(sprite)
         
         # Sprite is pre-filled white
         
-        # Query service state directly (single source of truth)
-        state = self._service.state
+        # Query state directly (single source of truth)
+        state = self._state.state
         
-        if state == self._service.STATE_STREAMING:
+        if state == STATE_STREAMING:
             self._draw_cast_icon(draw, filled=True)
-        elif state in (self._service.STATE_CONNECTING, self._service.STATE_RECONNECTING):
+        elif state in (STATE_CONNECTING, STATE_RECONNECTING):
             self._draw_cast_icon(draw, filled=False)
-        elif state == self._service.STATE_ERROR:
+        elif state == STATE_ERROR:
             self._draw_cast_icon(draw, filled=False)
             # Draw small X in upper-right of icon area
             margin_h = 1
