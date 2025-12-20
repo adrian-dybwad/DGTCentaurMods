@@ -203,7 +203,8 @@ class Widget(ABC):
             for x in range(self.width):
                 if pattern_row[x % 8] == 1:
                     pixels[x, y] = 0  # Black pixel
-                # White pixels already set from Image.new()
+                else:
+                    pixels[x, y] = 255  # White pixel
     
     def draw_on(self, canvas: Image.Image, draw_x: int, draw_y: int) -> None:
         """Draw the widget onto the canvas using sprite caching.
