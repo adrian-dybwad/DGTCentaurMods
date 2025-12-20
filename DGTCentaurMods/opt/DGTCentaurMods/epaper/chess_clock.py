@@ -307,12 +307,13 @@ class ChessClockWidget(Widget):
         """
         section_height = (self.height - 4) // 2  # -4 for top/middle separators
         
-        # Get state from service
+        # Get state from clock state object
         white_time = self._clock.white_time
         black_time = self._clock.black_time
         active_color = self._clock.active_color
-        white_name = self._clock.white_name
-        black_name = self._clock.black_name
+        # Player names are stored locally in widget (not in state)
+        white_name = self._white_name
+        black_name = self._black_name
         
         # Determine which color goes on top based on flip setting
         if self._flip:
@@ -401,12 +402,13 @@ class ChessClockWidget(Widget):
         """
         Render compact mode: large centered turn indicator.
         
-        Reads active color from ChessClock.
+        Reads active color from clock state.
         """
-        # Get state from service
+        # Get state from clock state object
         active_color = self._clock.active_color
-        white_name = self._clock.white_name
-        black_name = self._clock.black_name
+        # Player names are stored locally in widget (not in state)
+        white_name = self._white_name
+        black_name = self._black_name
         
         # Determine text and player name
         if active_color == 'black':
