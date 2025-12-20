@@ -24,6 +24,7 @@ import chess.engine
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.services import get_chess_clock
+from DGTCentaurMods.state import get_chess_clock as get_clock_state
 
 # Lazy imports for widgets to avoid loading all epaper modules at startup
 _widgets_loaded = False
@@ -726,7 +727,8 @@ class DisplayManager:
         Args:
             callback: Function(color: str) where color is 'white' or 'black'
         """
-        self._clock.on_flag(callback)
+        # Observers register on state, control goes through service
+        get_clock_state().on_flag(callback)
     
     def set_brain_hint(self, piece_symbol: str) -> None:
         """Set the brain hint piece type for Hand+Brain mode.
