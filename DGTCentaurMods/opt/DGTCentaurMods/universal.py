@@ -407,6 +407,7 @@ _return_to_positions_menu = False  # Flag to signal return to positions menu fro
 _is_position_game = False  # Flag to track if current game is a position (practice) game
 _switch_to_normal_game = False  # Flag to signal switch from position game to normal game
 _pending_ble_client_type: str = None  # Flag for BLE connection when between menus
+_pending_display_settings = False  # Flag to show display settings menu from game mode
 _last_position_category_index = 0  # Remember last selected category in positions menu
 _last_position_index = 0  # Remember last selected position in positions menu
 _last_position_category = None  # Remember last selected category name for direct return
@@ -6151,11 +6152,12 @@ def key_callback(key_id):
             return
         
         if key_id == board.Key.LONG_HELP:
-            # Long press HELP: Show display settings menu
-            _handle_display_settings()
-            # Apply changes by reinitializing widgets
-            if display_manager:
-                display_manager._init_widgets()
+            # Long press HELP: Signal main thread to show display settings menu
+            # Cannot call _handle_display_settings() here because it blocks on menu selection,
+            # which would block the events thread and prevent further key events.
+            global _pending_display_settings
+            _pending_display_settings = True
+            log.info("[App] LONG_HELP in game - signaling main thread to show display settings")
             _reset_unhandled_key_count()
             return
         
@@ -6266,6 +6268,7 @@ def main():
     global server_sock, client_sock, client_connected, running, kill
     global mainloop, relay_mode, protocol_manager, relay_manager, app_state, _args
     global _pending_piece_events, _return_to_positions_menu, _switch_to_normal_game, _menu_manager
+    global _pending_display_settings
     
     try:
         log.info("[Main] Parsing arguments...")
@@ -6763,6 +6766,14 @@ def main():
                     log.info("[App] Switching from position game to normal game")
                     _cleanup_game()
                     _start_game_mode(starting_fen=None, is_position_game=False)
+                # Check if display settings menu was requested (LONG_HELP)
+                elif _pending_display_settings:
+                    _pending_display_settings = False
+                    log.info("[App] Showing display settings menu from game mode")
+                    _handle_display_settings()
+                    # Apply changes by reinitializing widgets
+                    if display_manager:
+                        display_manager._init_widgets()
                 else:
                     # Stay in game mode - key_callback handles exit via _return_to_menu
                     time.sleep(0.5)
