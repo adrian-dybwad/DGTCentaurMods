@@ -217,6 +217,42 @@ class DisplayManager:
                  f"clock={self._show_clock}, analysis={self._show_analysis}, "
                  f"graph={self._show_graph}")
     
+    def apply_display_settings(self):
+        """Apply display settings to existing widgets without recreating them.
+        
+        Reloads settings from config and applies visibility changes to existing
+        widgets. Use this after the display settings menu closes during a game
+        to preserve widget state (board position, clock times, etc.).
+        
+        After calling this, call _restore_game_display() to re-add widgets.
+        """
+        self._reload_display_settings()
+        
+        # Apply visibility to board widget
+        if self.chess_board_widget:
+            if self._show_board:
+                self.chess_board_widget.show()
+            else:
+                self.chess_board_widget.hide()
+        
+        # Apply visibility to clock widget (skip if in hand+brain mode)
+        if self.clock_widget and not self._hand_brain_mode:
+            if self._show_clock:
+                self.clock_widget.show()
+            else:
+                self.clock_widget.hide()
+        
+        # Apply visibility to analysis widget
+        if self.analysis_widget:
+            if self._show_analysis:
+                self.analysis_widget.show()
+                # Update graph visibility within analysis widget
+                self.analysis_widget.set_show_graph(self._show_graph)
+            else:
+                self.analysis_widget.hide()
+        
+        log.info("[DisplayManager] Applied display settings to existing widgets")
+    
     def _init_widgets(self):
         """Create and add widgets to the display manager.
         

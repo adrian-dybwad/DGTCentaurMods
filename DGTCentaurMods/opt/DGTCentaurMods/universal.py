@@ -6780,9 +6780,12 @@ def main():
                     _pending_display_settings = False
                     log.info("[App] Showing display settings menu from game mode")
                     _handle_display_settings()
-                    # Apply changes by reinitializing widgets
+                    # Apply settings changes to existing widgets and restore display
+                    # Uses apply_display_settings() instead of _init_widgets() to preserve
+                    # game state (board position, clock times, analysis history)
                     if display_manager:
-                        display_manager._init_widgets()
+                        display_manager.apply_display_settings()
+                        display_manager._restore_game_display()
                 else:
                     # Stay in game mode - key_callback handles exit via _return_to_menu
                     time.sleep(0.5)

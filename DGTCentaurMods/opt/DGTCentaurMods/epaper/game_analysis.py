@@ -93,6 +93,17 @@ class GameAnalysisWidget(Widget):
         self._analysis_worker_stop = threading.Event()
         self._start_analysis_worker()
     
+    def set_show_graph(self, show: bool) -> None:
+        """Set whether to show the history graph.
+        
+        Args:
+            show: If True, show the graph; if False, hide it
+        """
+        if self._show_graph != show:
+            self._show_graph = show
+            self.invalidate_cache()
+            self.request_update()
+    
     def _handle_child_update(self, full: bool = False, immediate: bool = False):
         """Handle update requests from child widgets by forwarding to parent callback."""
         return self._update_callback(full, immediate)
