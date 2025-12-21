@@ -195,12 +195,12 @@ class Manager:
         """Clear all widgets and background from the display.
         
         Stops all widget background threads, clears the widget list, clears
-        the background, and performs a full refresh to eliminate e-paper ghosting
-        when transitioning between screens.
+        the background, and resets partial mode to trigger display re-initialization
+        on the next update.
         
-        E-paper displays retain pixel state from previous content during partial
-        refreshes. A full refresh is required to completely clear artifacts from
-        dithered backgrounds (like splash screens) when transitioning to new content.
+        When transitioning between screens, resetting partial mode causes the scheduler
+        to call init() and Clear() on the next partial update, which clears any ghosting
+        from dithered backgrounds (like splash screens) without the jarring full refresh flash.
         
         Callers that want a dithered background should call set_background() after this.
         """
@@ -223,10 +223,11 @@ class Manager:
         # Clear background to revert to plain white
         self._background = None
         
-        # Force full refresh to clear e-paper ghosting, but only when transitioning
-        # between screens (had widgets before). Skip for empty clears during init.
+        # Reset partial mode when transitioning between screens (had widgets before).
+        # This forces the scheduler to re-initialize the display on the next update,
+        # which clears ghosting without a jarring full refresh flash.
         if had_widgets:
-            self.update(full=True, immediate=True)
+            self._scheduler.reset_partial_mode()
         
         # Create and add status bar widget
         if addStatusBar:

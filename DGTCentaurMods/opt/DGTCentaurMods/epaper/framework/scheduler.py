@@ -78,6 +78,21 @@ class Scheduler:
                     break
         log.debug("Scheduler.clear_pending(): Cleared pending refresh requests")
     
+    def reset_partial_mode(self) -> None:
+        """Reset partial mode flag so next update triggers display re-initialization.
+        
+        When transitioning between screens (e.g., splash to game), this forces the
+        scheduler to re-initialize the display in partial mode on the next update.
+        The init() and Clear() sequence clears any ghosting from previous content
+        without the jarring full refresh flash.
+        
+        This is preferred over a full refresh when transitioning between screens
+        that both use partial mode updates.
+        """
+        if self._in_partial_mode:
+            log.debug("Scheduler.reset_partial_mode(): Resetting partial mode for display re-initialization")
+            self._in_partial_mode = False
+    
     def submit_deferred(self, callback) -> None:
         """Schedule a callback to run on the scheduler thread.
         
@@ -95,8 +110,8 @@ class Scheduler:
     def submit(self, full: bool = False, immediate: bool = False, image: Optional[Image.Image] = None) -> Future:
         """Submit a refresh request.
         
-        If the queue is full, the oldest non-full-refresh item is dropped to make room.
-        Full refresh requests are never evicted - they have priority for clearing e-paper ghosting.
+        If the queue is full, the oldest item is dropped to make room for the new one.
+        This ensures the display always shows the latest state.
         
         Args:
             full: If True, force a full refresh instead of partial refresh.
@@ -109,37 +124,16 @@ class Scheduler:
         
         future = Future()
         with self._queue_lock:
-            # If queue is full, drop oldest non-full-refresh item to make room
+            # If queue is full, drop oldest item to make room
             if self._queue.full():
-                # Collect all items, find a non-full one to evict, keep full refreshes
-                items = []
-                evicted = False
                 try:
-                    while not self._queue.empty():
-                        items.append(self._queue.get_nowait())
+                    old_item = self._queue.get_nowait()
+                    _, old_future, _ = old_item if len(old_item) == 3 else (old_item[0], old_item[1], None)
+                    if not old_future.done():
+                        old_future.set_result("evicted")
+                    log.warning("Scheduler.submit(): Queue full, evicted oldest item to make room for new update")
                 except queue.Empty:
-                    pass
-                
-                # Find first non-full-refresh to evict (preserve full refreshes)
-                for i, item in enumerate(items):
-                    old_full, old_future, _ = item if len(item) == 3 else (item[0], item[1], None)
-                    if not old_full and not evicted:
-                        # Evict this partial refresh
-                        if not old_future.done():
-                            old_future.set_result("evicted")
-                        log.warning("Scheduler.submit(): Queue full, evicted partial refresh to make room")
-                        evicted = True
-                    else:
-                        # Keep this item (either full refresh or we already evicted one)
-                        try:
-                            self._queue.put_nowait(item)
-                        except queue.Full:
-                            # Queue somehow full again, complete the future as evicted
-                            if not old_future.done():
-                                old_future.set_result("evicted")
-                
-                if not evicted:
-                    log.warning("Scheduler.submit(): Queue full of full-refresh requests, cannot evict")
+                    pass  # Queue was emptied by another thread, that's fine
             
             try:
                 self._queue.put_nowait((full, future, image))
