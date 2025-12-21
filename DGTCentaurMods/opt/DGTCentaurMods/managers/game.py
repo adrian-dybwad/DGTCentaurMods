@@ -340,14 +340,13 @@ class GameManager:
                              If False, database operations are disabled (for position games).
         """
         # Game state - holds the authoritative chess.Board
-        # GameManager mutates this directly for internal operations,
-        # then calls notify_position_change() at logical boundaries
+        # All mutations go through _game_state methods (push_move, pop_move, reset, etc.)
+        # which automatically notify observers
         self._game_state = get_chess_game()
         self._game_state.reset()  # Ensure clean state for new game
         
-        # Direct reference to board for convenience (internal operations)
-        # IMPORTANT: For position changes that widgets should see,
-        # call self._game_state.notify_position_change() after mutations
+        # Read-only reference to board for queries (legal_moves, piece_at, etc.)
+        # DO NOT mutate directly - use _game_state methods instead
         self.chess_board = self._game_state.board
         
         self.move_state = MoveState()
