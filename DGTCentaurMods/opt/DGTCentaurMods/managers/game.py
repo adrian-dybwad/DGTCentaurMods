@@ -917,16 +917,16 @@ class GameManager:
             board.ledsOff()
             return
         
-        # Check for kings-in-center gesture (resign/draw)
-        # Detect when both kings are missing from expected squares and pieces are on center squares
-        if self._check_kings_in_center_from_state(missing_squares, extra_squares):
+        # Check for kings-in-center gesture (resign/draw) - only if callback is set
+        # This gesture is only enabled for 2-player games where both players move freely
+        # In engine games, players should only move indicated pieces, so treat as normal correction
+        if self.on_kings_in_center and self._check_kings_in_center_from_state(missing_squares, extra_squares):
             log.info("[GameManager._provide_correction_guidance] Kings-in-center gesture detected")
             self._exit_correction_mode()
             board.ledsOff()
             self.move_state.reset()
             self._kings_in_center_menu_active = True
-            if self.on_kings_in_center:
-                self.on_kings_in_center()
+            self.on_kings_in_center()
             return
         
         log.warning(f"[GameManager._provide_correction_guidance] Found {len(extra_squares)} wrong pieces, {len(missing_squares)} missing pieces")
