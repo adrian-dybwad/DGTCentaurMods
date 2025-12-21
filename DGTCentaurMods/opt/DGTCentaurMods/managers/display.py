@@ -183,8 +183,8 @@ class DisplayManager:
         """Initialize the UCI analysis engine asynchronously.
         
         Starts engine initialization in a background thread to avoid blocking
-        game startup. The analysis widget will work without an engine until
-        initialization completes.
+        game startup. The AnalysisService will process positions once the
+        engine is available.
         
         Args:
             engine_path: Path to the UCI engine executable
@@ -195,12 +195,14 @@ class DisplayManager:
                 log.info(f"[DisplayManager] Starting analysis engine initialization: {resolved_path}")
                 engine = chess.engine.SimpleEngine.popen_uci(resolved_path, timeout=None)
                 
-                # Set the engine on both DisplayManager and the analysis widget
-                # The worker thread is already running and will start processing
-                # queued positions once the engine is set
+                # Set the engine on DisplayManager (for hints) and AnalysisService
                 self.analysis_engine = engine
-                if self.analysis_widget:
-                    self.analysis_widget.set_analysis_engine(engine)
+                
+                # Set engine on AnalysisService
+                from DGTCentaurMods.services.analysis import get_analysis_service
+                analysis_service = get_analysis_service()
+                analysis_service.set_engine(engine)
+                analysis_service.start()
                 
                 log.info(f"[DisplayManager] Analysis engine ready: {resolved_path}")
             except Exception as e:
@@ -338,13 +340,13 @@ class DisplayManager:
             log.info("[DisplayManager] Clock widget disabled (untimed mode)")
         
         # Create analysis widget below clock - only if analysis_mode is enabled
-        # The widget is created but may be hidden based on show_analysis setting
+        # Widget observes AnalysisState for display updates
+        # AnalysisService handles running analysis and updating AnalysisState
         if self._analysis_mode:
             bottom_color = "black" if self.chess_board_widget.flip else "white"
             self.analysis_widget = _GameAnalysisWidget(
                 0, analysis_y, 128, analysis_height if analysis_height > 0 else 80, board.display_manager.update,
                 bottom_color=bottom_color,
-                analysis_engine=self.analysis_engine,
                 show_graph=self._show_graph
             )
             
@@ -396,43 +398,18 @@ class DisplayManager:
             except Exception as e:
                 log.error(f"[DisplayManager] Error updating position: {e}")
     
-    def analyze_position(self, board_obj: chess.Board,
-                        is_first_move: bool = False, time_limit: float = 0.3):
-        """Trigger position analysis.
-        
-        Analysis runs even when widget is hidden to collect history.
-        
-        Args:
-            board_obj: chess.Board object to analyze
-            is_first_move: If True, don't add to history
-            time_limit: Analysis time limit in seconds
-        """
-        if self.analysis_widget:
-            try:
-                self.analysis_widget.analyze_position(
-                    board_obj, is_first_move, time_limit
-                )
-            except Exception as e:
-                log.debug(f"[DisplayManager] Error analyzing position: {e}")
-    
     def _on_position_change(self) -> None:
         """Handle position change from game state.
         
         Called automatically when ChessGameState position changes.
-        Triggers analysis if game is in progress and updates clock turn indicator.
+        Updates clock turn indicator.
         
         Note: ChessBoardWidget subscribes to game state directly and updates itself.
+        Note: AnalysisService subscribes to game state and updates AnalysisState,
+              which GameAnalysisWidget observes.
         """
         if not self._game_state:
             return
-        
-        # Trigger analysis only if game has started (has moves)
-        if self._game_state.is_game_in_progress:
-            try:
-                board_copy = chess.Board(self._game_state.fen)
-                self.analyze_position(board_copy)
-            except Exception as e:
-                log.debug(f"[DisplayManager] Error triggering analysis: {e}")
         
         # Update clock turn indicator
         self.set_clock_active(self._game_state.turn_name)
@@ -508,13 +485,19 @@ class DisplayManager:
                 self.analysis_widget.show()
     
     def reset_analysis(self):
-        """Reset analysis widget (clear history, reset score)."""
-        if self.analysis_widget:
-            try:
-                log.info("[DisplayManager] Resetting analysis widget")
-                self.analysis_widget.reset()
-            except Exception as e:
-                log.warning(f"[DisplayManager] Error resetting analysis: {e}")
+        """Reset analysis state (clear history, reset score).
+        
+        Resets via AnalysisService, which updates AnalysisState.
+        Widget observes AnalysisState and updates automatically.
+        """
+        try:
+            from DGTCentaurMods.services.analysis import get_analysis_service
+            analysis_service = get_analysis_service()
+            analysis_service.reset()
+            log.info("[DisplayManager] Analysis reset via service")
+        except Exception as e:
+            log.warning(f"[DisplayManager] Error resetting analysis: {e}")
+        
         # Also clear brain hint on reset
         if self.brain_hint_widget:
             self.brain_hint_widget.clear()
@@ -524,12 +507,18 @@ class DisplayManager:
         
         Called on takeback to keep analysis history in sync with game state.
         """
-        if self.analysis_widget:
-            try:
-                self.analysis_widget.remove_last_score()
+        try:
+            from DGTCentaurMods.state.analysis import get_analysis
+            analysis_state = get_analysis()
+            history = analysis_state.history
+            if history:
+                # Clear and restore without last item
+                analysis_state.clear_history()
+                for score in history[:-1]:
+                    analysis_state._add_to_history(score)
                 log.debug("[DisplayManager] Removed last analysis score (takeback)")
-            except Exception as e:
-                log.warning(f"[DisplayManager] Error removing last analysis score: {e}")
+        except Exception as e:
+            log.warning(f"[DisplayManager] Error removing last analysis score: {e}")
     
     def set_clock_times(self, white_seconds: int, black_seconds: int) -> None:
         """Set the chess clock times for both players.
@@ -727,10 +716,13 @@ class DisplayManager:
             Evaluation score in centipawns (from white's perspective), or None if unavailable.
             Score is multiplied by 100 to convert from pawns to centipawns.
         """
-        if self.analysis_widget:
-            # score_value is in pawns (-12 to +12), convert to centipawns
-            return int(self.analysis_widget.score_value * 100)
-        return None
+        try:
+            from DGTCentaurMods.state.analysis import get_analysis
+            analysis_state = get_analysis()
+            # score is in pawns (-12 to +12), convert to centipawns
+            return int(analysis_state.score * 100)
+        except Exception:
+            return None
 
     def set_score_history(self, centipawn_scores: list) -> None:
         """Set the score history from database values (for restoring on resume).
@@ -739,7 +731,13 @@ class DisplayManager:
             centipawn_scores: List of scores in centipawns (integers).
                              Will be converted to pawns for the widget.
         """
-        if self.analysis_widget and centipawn_scores:
+        if not centipawn_scores:
+            return
+        
+        try:
+            from DGTCentaurMods.state.analysis import get_analysis
+            analysis_state = get_analysis()
+            
             # Convert centipawns to pawns (-12 to +12 clamped)
             pawn_scores = []
             for cp in centipawn_scores:
@@ -748,9 +746,18 @@ class DisplayManager:
                     # Clamp to display range
                     pawn_score = max(-12, min(12, pawn_score))
                     pawn_scores.append(pawn_score)
+            
             if pawn_scores:
-                self.analysis_widget.set_score_history(pawn_scores)
-                log.info(f"[DisplayManager] Restored {len(pawn_scores)} scores to analysis widget")
+                # Set score history directly on state
+                analysis_state._history = list(pawn_scores)
+                if pawn_scores:
+                    analysis_state._score = pawn_scores[-1]
+                    analysis_state._previous_score = pawn_scores[-1]
+                analysis_state._notify_history()
+                analysis_state._notify_score()
+                log.info(f"[DisplayManager] Restored {len(pawn_scores)} scores to analysis state")
+        except Exception as e:
+            log.warning(f"[DisplayManager] Error restoring score history: {e}")
 
     def set_on_flag(self, callback) -> None:
         """Set callback for when a player's time expires (flag).
@@ -1218,16 +1225,23 @@ class DisplayManager:
         except Exception as e:
             log.error(f"[DisplayManager] Error stopping clock service: {e}", exc_info=True)
         
-        # Stop analysis widget worker
-        log.info("[DisplayManager] Stopping analysis widget worker...")
+        # Stop analysis service
+        log.info("[DisplayManager] Stopping analysis service...")
+        try:
+            from DGTCentaurMods.services.analysis import get_analysis_service
+            analysis_service = get_analysis_service()
+            analysis_service.stop()
+            log.info("[DisplayManager] Analysis service stopped")
+        except Exception as e:
+            log.error(f"[DisplayManager] Error stopping analysis service: {e}", exc_info=True)
+        
+        # Cleanup analysis widget (unsubscribe from state)
         if self.analysis_widget:
             try:
-                self.analysis_widget._stop_analysis_worker()
-                log.info("[DisplayManager] Analysis widget worker stopped")
+                self.analysis_widget.cleanup()
+                log.info("[DisplayManager] Analysis widget cleaned up")
             except Exception as e:
-                log.error(f"[DisplayManager] Error stopping analysis worker: {e}", exc_info=True)
-        else:
-            log.info("[DisplayManager] No analysis widget to stop")
+                log.debug(f"[DisplayManager] Error cleaning up analysis widget: {e}")
         
         # Quit analysis engine
         log.info("[DisplayManager] Quitting analysis engine...")
