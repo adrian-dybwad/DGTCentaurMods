@@ -78,29 +78,41 @@ class RemoteController(GameController):
         """
         self._compare_mode = enabled
     
-    def _create_emulators(self) -> None:
-        """Create the protocol emulators."""
+    def _create_emulators(self, force: bool = False) -> None:
+        """Create the protocol emulators.
+        
+        By default, preserves existing emulators to maintain their state
+        (important for protocol state machines like Pegasus which track
+        connection state). Use force=True to recreate all emulators for
+        a new connection.
+        
+        Args:
+            force: If True, recreate all emulators even if they exist.
+        """
         from DGTCentaurMods.emulators.millennium import Millennium
         from DGTCentaurMods.emulators.pegasus import Pegasus
         from DGTCentaurMods.emulators.chessnut import Chessnut
         
-        self._millennium = Millennium(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self._game_manager
-        )
-        log.debug("[RemoteController] Created Millennium emulator")
+        if force or self._millennium is None:
+            self._millennium = Millennium(
+                sendMessage_callback=self._handle_emulator_response,
+                manager=self._game_manager
+            )
+            log.debug("[RemoteController] Created Millennium emulator")
         
-        self._pegasus = Pegasus(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self._game_manager
-        )
-        log.debug("[RemoteController] Created Pegasus emulator")
+        if force or self._pegasus is None:
+            self._pegasus = Pegasus(
+                sendMessage_callback=self._handle_emulator_response,
+                manager=self._game_manager
+            )
+            log.debug("[RemoteController] Created Pegasus emulator")
         
-        self._chessnut = Chessnut(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self._game_manager
-        )
-        log.debug("[RemoteController] Created Chessnut emulator")
+        if force or self._chessnut is None:
+            self._chessnut = Chessnut(
+                sendMessage_callback=self._handle_emulator_response,
+                manager=self._game_manager
+            )
+            log.debug("[RemoteController] Created Chessnut emulator")
     
     def _handle_emulator_response(self, data) -> None:
         """Handle response from an emulator.

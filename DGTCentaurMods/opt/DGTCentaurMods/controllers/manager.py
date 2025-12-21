@@ -249,12 +249,12 @@ class ControllerManager:
     def on_bluetooth_disconnected(self) -> None:
         """Handle Bluetooth client disconnection.
         
-        Reactivates local controller.
+        Reactivates local controller and recreates emulators for next connection.
         """
         if self._remote:
             self._remote.stop()
-            # Recreate emulators for next connection
-            self._remote._create_emulators()
+            # Force recreate emulators for next connection (reset their state)
+            self._remote._create_emulators(force=True)
         
         self.activate_local()
         log.info("[ControllerManager] Bluetooth disconnected, activated local")
