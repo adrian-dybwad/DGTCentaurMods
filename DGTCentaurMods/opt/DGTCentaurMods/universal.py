@@ -1009,8 +1009,8 @@ def _resume_game(game_data: dict) -> bool:
         log.info(f"[Resume] Game resumed successfully at position: {current_fen[:50]}...")
         
         # Update the display to show the current position
-        if protocol_manager:
-            protocol_manager._update_display()
+        if display_manager:
+            display_manager.update_position(current_fen)
         
         # Restore clock times if available
         white_clock = game_data.get('white_clock')
@@ -1197,8 +1197,8 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
         log.info(f"[Positions] Position loaded: {gm.chess_board.fen()}")
         
         # Update the display to show the position
-        if protocol_manager:
-            protocol_manager._update_display()
+        if display_manager:
+            display_manager.update_position(gm.chess_board.fen())
         
         # Check if physical board matches the loaded position
         current_physical_state = board.getChessState()
