@@ -256,8 +256,6 @@ class DisplayManager:
         # Reload settings from config in case they changed (e.g., via display menu)
         self._reload_display_settings()
         
-
-        
         if not board.display_manager:
             log.error("[DisplayManager] No epaper manager available")
             return
