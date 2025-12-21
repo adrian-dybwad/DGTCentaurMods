@@ -41,7 +41,7 @@ EPD_HEIGHT      = 296
 
 # Debug flag for buffer diagnostics in DisplayPartial
 # Set to True to print buffer statistics on each partial refresh
-DEBUG_DISPLAY_PARTIAL = False
+DEBUG_DISPLAY_PARTIAL = True
 
 class EPD:
     def __init__(self):
