@@ -268,8 +268,17 @@ class ProtocolManager:
         return self.is_millennium or self.is_pegasus or self.is_chessnut or self.is_lichess
 
     def on_app_connected(self):
-        """Called when an app connects - pause local player moves."""
+        """Called when an app connects - pause local player moves.
+        
+        Sets the remote client active flag in GameManager to prevent
+        engine players from computing moves. The remote app now controls
+        the game flow.
+        """
         log.info("[ProtocolManager] App connected - local players paused")
+        
+        # Tell GameManager to pause local engine players
+        if self.game_manager:
+            self.game_manager.set_remote_client_active(True)
         
         # Clear any pending engine moves so they don't interfere
         if self._player_manager:
@@ -278,9 +287,18 @@ class ProtocolManager:
     def on_app_disconnected(self):
         """Called when app disconnects - resume local players.
         
+        Clears the remote client active flag in GameManager so engine
+        players can resume computing moves. Then requests a move from
+        the current player.
+        
         Emulator recreation is now handled by ControllerManager/RemoteController.
         """
         log.info("[ProtocolManager] App disconnected - local players may resume")
+        
+        # Tell GameManager to resume local engine players
+        if self.game_manager:
+            self.game_manager.set_remote_client_active(False)
+        
         # Reset protocol detection flags
         self.is_millennium = False
         self.is_pegasus = False
