@@ -1839,6 +1839,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     # Activate local controller by default (this starts players)
     controller_manager.activate_local()
     
+    # Set initial turn indicator (white to move at game start)
+    display_manager.set_clock_active("white")
+    
     # Wire up GameManager callbacks to DisplayManager
     protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)
     
@@ -1946,6 +1949,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             _skip_next_analysis = True
             # Reset clock started flag for new game
             _clock_started = False
+            # Set turn indicator to white (new game starts with white to move)
+            display_manager.set_clock_active("white")
             # If we're in a position game and the starting position is set up,
             # signal transition to normal game mode
             if _is_position_game:

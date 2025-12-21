@@ -75,6 +75,9 @@ class GameAnalysisWidget(Widget):
         # Track previous score for annotation calculation
         self._previous_score = 0.0
         
+        # Reset generation counter - incremented on reset, used to ignore stale analysis
+        self._reset_generation = 0
+        
         # Create TextWidgets for score and annotation - use parent handler for child updates
         self._score_text_widget = TextWidget(
             0, 4, self.SCORE_COLUMN_WIDTH, 26, self._handle_child_update,
@@ -205,7 +208,12 @@ class GameAnalysisWidget(Widget):
         self.request_update(full=False)
     
     def reset(self) -> None:
-        """Reset widget to initial state (clear history, score, and annotation)."""
+        """Reset widget to initial state (clear history, score, and annotation).
+        
+        Increments reset generation to ensure any in-flight analysis results
+        from before the reset are ignored.
+        """
+        self._reset_generation += 1
         self.clear_history()
         self.score_value = 0.0
         self.score_text = "0.0"
@@ -313,14 +321,26 @@ class GameAnalysisWidget(Widget):
                     time.sleep(0.2)
                     continue
                 
-                # Unpack request
-                board_copy, position_fen, is_first_move, time_limit = request
+                # Unpack request (includes reset generation for staleness check)
+                board_copy, position_fen, is_first_move, time_limit, request_generation = request
+                
+                # Check if this request is stale (from before a reset)
+                if request_generation != self._reset_generation:
+                    log.debug(f"Discarding stale analysis request (gen {request_generation} vs current {self._reset_generation})")
+                    self._analysis_queue.task_done()
+                    continue
                 
                 # Analyze every position to ensure complete history graph
                 # (don't skip "stale" positions - each move should be in the history)
                 try:
                     import chess.engine
                     info = self.analysis_engine.analyse(board_copy, chess.engine.Limit(time=time_limit))
+                    
+                    # Check again after analysis (reset may have happened during analysis)
+                    if request_generation != self._reset_generation:
+                        log.debug(f"Discarding analysis result (reset happened during analysis)")
+                        self._analysis_queue.task_done()
+                        continue
                     
                     # Update widget with analysis result
                     self.update_from_analysis(info, is_first_move)
@@ -385,8 +405,9 @@ class GameAnalysisWidget(Widget):
         
         # Step 2: Queue analysis request (non-blocking)
         # All positions are queued and analyzed in order to ensure complete history
+        # Include reset generation to detect and discard stale results after reset
         try:
-            self._analysis_queue.put_nowait((board_copy, position_fen, is_first_move, time_limit))
+            self._analysis_queue.put_nowait((board_copy, position_fen, is_first_move, time_limit, self._reset_generation))
         except queue.Full:
             import logging
             log = logging.getLogger(__name__)

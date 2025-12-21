@@ -259,14 +259,25 @@ class LocalController(GameController):
     def _on_game_event(self, event, piece_event=None, field=None, time_seconds=None) -> None:
         """Handle game events from GameManager subscription.
         
-        Called by GameManager for events like new game, turn changes.
+        Called by GameManager for events like new game, turn changes, piece events.
         Triggers player move requests and assistant suggestions.
         Also notifies external callback for UI updates (analysis reset, clock management).
+        
+        Note: Piece lift/place events don't trigger display updates since the 
+        logical position hasn't changed - only actual moves update the display.
         """
         try:
             from DGTCentaurMods.managers.game import EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
+            from DGTCentaurMods.managers.events import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
             
             log.debug(f"[LocalController] _on_game_event: {event}")
+            
+            # Skip display updates for piece lift/place - position hasn't changed
+            if event == EVENT_LIFT_PIECE or event == EVENT_PLACE_PIECE:
+                # Forward to RemoteController for Bluetooth sync
+                if self._event_forward_callback:
+                    self._event_forward_callback('game_event', event, piece_event, field, time_seconds)
+                return
             
             # Notify external handler first (resets analysis, manages clocks, etc.)
             if self._external_event_callback:
@@ -279,9 +290,8 @@ class LocalController(GameController):
             elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
                 self._request_current_player_move()
                 self._check_assistant_suggestion()
-            
-            # Update display with current position
-            self._update_display()
+                # Update display with current position (only on actual turn changes)
+                self._update_display()
             
             # Forward to RemoteController for Bluetooth sync
             if self._event_forward_callback:
