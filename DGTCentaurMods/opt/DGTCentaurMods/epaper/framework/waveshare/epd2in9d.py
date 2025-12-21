@@ -243,6 +243,16 @@ class EPD:
         self.buffer = [0xFF] * int(self.width * self.height / 8)    
         self.TurnOnDisplay()
         
+    def _dump_buffer(self, label, buf):
+        """Debug: dump buffer statistics."""
+        buf_bytes = bytes(buf) if not isinstance(buf, bytes) else buf
+        black = sum(1 for b in buf_bytes if b == 0x00)
+        white = sum(1 for b in buf_bytes if b == 0xFF)
+        other = len(buf_bytes) - black - white
+        sample = ' '.join(f'{b:02x}' for b in buf_bytes[:16])
+        print(f"EPD [{label}] len={len(buf_bytes)} black_bytes={black} white_bytes={white} other={other}")
+        print(f"EPD [{label}] first 16: {sample}")
+    
     def DisplayPartial(self, image):
         """
         Display partial refresh following Waveshare pattern.
@@ -250,6 +260,10 @@ class EPD:
         Args:
             image: Buffer containing the new/current content (sent to 0x13)
         """
+        # DEBUG: Dump both buffers
+        self._dump_buffer("OLD_BUFFER_0x10", self.buffer)
+        self._dump_buffer("NEW_IMAGE_0x13", image)
+        
         self.SetPartReg()
         self.send_command(0x91)
         self.send_command(0x90)
