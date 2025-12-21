@@ -287,10 +287,13 @@ class LocalController(GameController):
                 self.on_new_game()
                 self._request_current_player_move()
                 self._check_assistant_suggestion()
+                # Update display to show starting position
+                # Note: _skip_next_analysis flag in universal.py prevents analysis
+                self._update_display()
             elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
                 self._request_current_player_move()
                 self._check_assistant_suggestion()
-                # Update display with current position (only on actual turn changes)
+                # Update display with current position
                 self._update_display()
             
             # Forward to RemoteController for Bluetooth sync
