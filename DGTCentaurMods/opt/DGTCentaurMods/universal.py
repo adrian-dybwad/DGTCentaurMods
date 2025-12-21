@@ -1020,8 +1020,9 @@ def _resume_game(game_data: dict) -> bool:
         
         # Restore eval score history if available
         eval_scores = game_data.get('eval_scores', [])
-        if eval_scores and display_manager:
-            display_manager.set_score_history(eval_scores)
+        if eval_scores:
+            from DGTCentaurMods.services.analysis import get_analysis_service
+            get_analysis_service().restore_history(eval_scores)
             log.info(f"[Resume] Eval scores restored: {len(eval_scores)} positions")
         
         # Check if physical board matches the resumed position
@@ -1763,7 +1764,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     def _on_takeback():
         """Handle takeback - remove last analysis score and switch clock back."""
-        display_manager.remove_last_analysis_score()
+        from DGTCentaurMods.services.analysis import get_analysis_service
+        get_analysis_service().remove_last_score()
         display_manager.switch_clock_turn()
         log.debug("[App] Takeback: removed last analysis score and switched clock")
     
@@ -1891,10 +1893,6 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     protocol_manager.set_on_terminal_position(_on_terminal_position)
     
-    # Wire up display bridge to connect GameManager with DisplayManager
-    # Provides consolidated interface for: clock times, eval scores, alerts, position updates
-    protocol_manager.set_display_bridge(display_manager)
-    
     # Wire up flag callback for when a player's time expires
     def _on_flag(color: str):
         """Handle time expiration - ends the game.
@@ -1915,6 +1913,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     display_manager.set_on_flag(_on_flag)
     
+    # Set up resume callback to restore pending move LEDs
+    display_manager.set_on_resume(game_manager.restore_pending_move_leds)
+    
     # Wire up event callback to handle game events
     from DGTCentaurMods.managers import EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
     _clock_started = False
@@ -1922,9 +1923,11 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         nonlocal _clock_started
         global _switch_to_normal_game, _is_position_game
         if event == EVENT_NEW_GAME:
-            display_manager.reset_analysis()
+            from DGTCentaurMods.services.analysis import get_analysis_service
+            get_analysis_service().reset()
             display_manager.reset_clock()
             display_manager.clear_pause()
+            display_manager.clear_brain_hint()
             # Reset clock started flag for new game
             _clock_started = False
             # Set turn indicator to white (new game starts with white to move)
@@ -5263,9 +5266,6 @@ def _start_lichess_game(lichess_config) -> bool:
     # Note: move_callback is already wired by game_manager.set_player_manager()
     # to GameManager._on_player_move which handles all player moves (human+engine)
     player_manager.set_ready_callback(local_controller.on_all_players_ready)
-    
-    # Set up display bridge for consolidated display operations
-    protocol_manager.set_display_bridge(display_manager)
     
     # Wire up GameManager callbacks to DisplayManager
     protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)

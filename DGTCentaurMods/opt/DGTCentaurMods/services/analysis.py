@@ -124,6 +124,50 @@ class AnalysisService:
         self._reset_generation += 1
         
         # Clear the queue
+        self._clear_queue()
+        
+        # Reset state
+        self._analysis_state.reset()
+        
+        log.debug(f"[AnalysisService] Reset (generation {self._reset_generation})")
+    
+    def restore_history(self, centipawn_scores: list) -> None:
+        """Restore score history from database values.
+        
+        Used when resuming a saved game to restore the full evaluation history.
+        
+        Args:
+            centipawn_scores: List of scores in centipawns (integers).
+        """
+        if not centipawn_scores:
+            return
+        
+        # Increment generation to discard any pending analysis
+        self._reset_generation += 1
+        self._clear_queue()
+        
+        # Convert centipawns to pawns (-12 to +12 clamped)
+        pawn_scores = []
+        for cp in centipawn_scores:
+            if cp is not None:
+                pawn_score = cp / 100.0
+                pawn_score = max(-12.0, min(12.0, pawn_score))
+                pawn_scores.append(pawn_score)
+        
+        if pawn_scores:
+            self._analysis_state.set_history(pawn_scores)
+            log.info(f"[AnalysisService] Restored {len(pawn_scores)} scores from history")
+    
+    def remove_last_score(self) -> None:
+        """Remove the last score from history.
+        
+        Called on takeback to keep analysis in sync with game state.
+        """
+        self._analysis_state.remove_last()
+        log.debug("[AnalysisService] Removed last score (takeback)")
+    
+    def _clear_queue(self) -> None:
+        """Clear pending analysis requests from the queue."""
         try:
             while not self._analysis_queue.empty():
                 try:

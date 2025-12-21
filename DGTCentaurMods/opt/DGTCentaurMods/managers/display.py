@@ -152,6 +152,7 @@ class DisplayManager:
         # Pause state
         self._is_paused = False
         self._paused_active_color = None  # Which clock was running before pause
+        self._on_resume_callback = None  # Called when game resumes to restore LEDs
         
         # Menu state
         self._menu_active = False
@@ -477,52 +478,6 @@ class DisplayManager:
             self.alert_widget.show_hint(move_text, from_sq, to_sq)
             log.info(f"[DisplayManager] Showing hint: {move_text}")
     
-    def toggle_analysis(self):
-        """Toggle analysis widget visibility."""
-        if self.analysis_widget:
-            if self.analysis_widget.visible:
-                log.info("[DisplayManager] Hiding analysis widget")
-                self.analysis_widget.hide()
-            else:
-                log.info("[DisplayManager] Showing analysis widget")
-                self.analysis_widget.show()
-    
-    def reset_analysis(self):
-        """Reset analysis state (clear history, reset score).
-        
-        Resets via AnalysisService, which updates AnalysisState.
-        Widget observes AnalysisState and updates automatically.
-        """
-        try:
-            from DGTCentaurMods.services.analysis import get_analysis_service
-            analysis_service = get_analysis_service()
-            analysis_service.reset()
-            log.info("[DisplayManager] Analysis reset via service")
-        except Exception as e:
-            log.warning(f"[DisplayManager] Error resetting analysis: {e}")
-        
-        # Also clear brain hint on reset
-        if self.brain_hint_widget:
-            self.brain_hint_widget.clear()
-    
-    def remove_last_analysis_score(self):
-        """Remove the last score from analysis history.
-        
-        Called on takeback to keep analysis history in sync with game state.
-        """
-        try:
-            from DGTCentaurMods.state.analysis import get_analysis
-            analysis_state = get_analysis()
-            history = analysis_state.history
-            if history:
-                # Clear and restore without last item
-                analysis_state.clear_history()
-                for score in history[:-1]:
-                    analysis_state._add_to_history(score)
-                log.debug("[DisplayManager] Removed last analysis score (takeback)")
-        except Exception as e:
-            log.warning(f"[DisplayManager] Error removing last analysis score: {e}")
-    
     def set_clock_times(self, white_seconds: int, black_seconds: int) -> None:
         """Set the chess clock times for both players.
         
@@ -621,12 +576,11 @@ class DisplayManager:
         log.info("[DisplayManager] Game paused")
     
     def _resume_game(self) -> None:
-        """Resume the game - restart clock, remove pause widget."""
+        """Resume the game - restart clock, remove pause widget, restore LEDs."""
         if not self._is_paused:
             return
         
         self._is_paused = False
-
         
         # Remove pause widget
         if self.pause_widget:
@@ -639,6 +593,14 @@ class DisplayManager:
             log.info(f"[DisplayManager] Clock resumed for {self._paused_active_color}")
         
         self._paused_active_color = None
+        
+        # Notify resume callback to restore LEDs if needed
+        if self._on_resume_callback:
+            try:
+                self._on_resume_callback()
+            except Exception as e:
+                log.warning(f"[DisplayManager] Error in resume callback: {e}")
+        
         log.info("[DisplayManager] Game resumed")
     
     def is_paused(self) -> bool:
@@ -672,64 +634,24 @@ class DisplayManager:
         """
         return self._clock.get_times()
 
-    def get_eval_score(self) -> int:
-        """Get the current evaluation score in centipawns.
-
-        Returns:
-            Evaluation score in centipawns (from white's perspective), or None if unavailable.
-            Score is multiplied by 100 to convert from pawns to centipawns.
-        """
-        try:
-            from DGTCentaurMods.state.analysis import get_analysis
-            analysis_state = get_analysis()
-            # score is in pawns (-12 to +12), convert to centipawns
-            return int(analysis_state.score * 100)
-        except Exception:
-            return None
-
-    def set_score_history(self, centipawn_scores: list) -> None:
-        """Set the score history from database values (for restoring on resume).
-
-        Args:
-            centipawn_scores: List of scores in centipawns (integers).
-                             Will be converted to pawns for the widget.
-        """
-        if not centipawn_scores:
-            return
-        
-        try:
-            from DGTCentaurMods.state.analysis import get_analysis
-            analysis_state = get_analysis()
-            
-            # Convert centipawns to pawns (-12 to +12 clamped)
-            pawn_scores = []
-            for cp in centipawn_scores:
-                if cp is not None:
-                    pawn_score = cp / 100.0
-                    # Clamp to display range
-                    pawn_score = max(-12, min(12, pawn_score))
-                    pawn_scores.append(pawn_score)
-            
-            if pawn_scores:
-                # Set score history directly on state
-                analysis_state._history = list(pawn_scores)
-                if pawn_scores:
-                    analysis_state._score = pawn_scores[-1]
-                    analysis_state._previous_score = pawn_scores[-1]
-                analysis_state._notify_history()
-                analysis_state._notify_score()
-                log.info(f"[DisplayManager] Restored {len(pawn_scores)} scores to analysis state")
-        except Exception as e:
-            log.warning(f"[DisplayManager] Error restoring score history: {e}")
-
     def set_on_flag(self, callback) -> None:
         """Set callback for when a player's time expires (flag).
-        
+
         Args:
             callback: Function(color: str) where color is 'white' or 'black'
         """
         # Observers register on state, control goes through service
         get_clock_state().on_flag(callback)
+    
+    def set_on_resume(self, callback) -> None:
+        """Set callback for when game is resumed from pause.
+        
+        Called after clock resumes to allow restoration of LEDs for pending moves.
+        
+        Args:
+            callback: Function() called when game resumes
+        """
+        self._on_resume_callback = callback
     
     def set_brain_hint(self, piece_symbol: str) -> None:
         """Set the brain hint piece type for Hand+Brain mode.
@@ -744,43 +666,6 @@ class DisplayManager:
         """Clear the brain hint display."""
         if self.brain_hint_widget:
             self.brain_hint_widget.clear()
-    
-    def show_check_alert(self, is_black_in_check: bool, attacker_square: int, king_square: int) -> None:
-        """Show CHECK alert and flash LEDs from attacker to king.
-        
-        Args:
-            is_black_in_check: True if black king is in check, False if white
-            attacker_square: Square index (0-63) of the piece giving check
-            king_square: Square index (0-63) of the king in check
-        """
-        if self.alert_widget:
-            self.alert_widget.show_check(is_black_in_check, attacker_square, king_square)
-    
-    def show_queen_threat(self, is_black_queen_threatened: bool, 
-                          attacker_square: int, queen_square: int) -> None:
-        """Show YOUR QUEEN alert and flash LEDs from attacker to queen.
-        
-        Part of DisplayBridge interface.
-        
-        Args:
-            is_black_queen_threatened: True if black queen is threatened, False if white
-            attacker_square: Square index (0-63) of the attacking piece
-            queen_square: Square index (0-63) of the threatened queen
-        """
-        if self.alert_widget:
-            self.alert_widget.show_queen_threat(is_black_queen_threatened, attacker_square, queen_square)
-    
-    def clear_alerts(self) -> None:
-        """Clear any active alerts from the display.
-        
-        Part of DisplayBridge interface.
-        """
-        if self.alert_widget:
-            self.alert_widget.hide()
-    
-    def hide_alert(self) -> None:
-        """Hide the alert widget. Alias for clear_alerts."""
-        self.clear_alerts()
     
     def show_promotion_menu(self, is_white: bool) -> str:
         """Show promotion piece selection menu.

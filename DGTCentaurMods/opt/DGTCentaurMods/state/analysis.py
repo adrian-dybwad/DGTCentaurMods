@@ -248,6 +248,55 @@ class AnalysisState:
         self._previous_score = 0.0
         self._notify_history()
     
+    def set_history(self, scores: List[float]) -> None:
+        """Set the score history directly.
+        
+        Used for restoring history from database on game resume.
+        
+        Args:
+            scores: List of scores in pawns.
+        """
+        self._history = list(scores)
+        if scores:
+            self._score = scores[-1]
+            self._previous_score = scores[-1]
+            # Format score text
+            if self._score >= 0:
+                self._score_text = f"+{self._score:.1f}"
+            else:
+                self._score_text = f"{self._score:.1f}"
+        else:
+            self._score = 0.0
+            self._previous_score = 0.0
+            self._score_text = "0.0"
+        self._annotation = ""
+        self._is_mate = False
+        self._mate_in = None
+        self._notify_score()
+        self._notify_history()
+    
+    def remove_last(self) -> None:
+        """Remove the last score from history.
+        
+        Used for takeback to keep analysis in sync with game state.
+        """
+        if self._history:
+            self._history.pop()
+            if self._history:
+                self._score = self._history[-1]
+                self._previous_score = self._history[-1] if len(self._history) > 1 else 0.0
+                if self._score >= 0:
+                    self._score_text = f"+{self._score:.1f}"
+                else:
+                    self._score_text = f"{self._score:.1f}"
+            else:
+                self._score = 0.0
+                self._previous_score = 0.0
+                self._score_text = "0.0"
+            self._annotation = ""
+            self._notify_score()
+            self._notify_history()
+    
     def reset(self) -> None:
         """Reset all analysis state."""
         self._score = 0.0

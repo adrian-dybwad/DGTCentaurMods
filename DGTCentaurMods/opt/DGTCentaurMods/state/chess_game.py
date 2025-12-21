@@ -25,6 +25,9 @@ class ChessGameState:
     Observers are notified on:
     - Position changes (moves, takeback, new position)
     - Game over (checkmate, stalemate, resignation, flag, draw)
+    - Check (when a king is in check after a move)
+    - Queen threat (when a queen is under attack after a move)
+    - Alert clear (when no check or threat exists)
     
     Thread safety: This class is NOT thread-safe. Callers must ensure
     mutations happen from a single thread or use external synchronization.
@@ -39,6 +42,9 @@ class ChessGameState:
         # Observer callbacks
         self._on_position_change: List[Callable[[], None]] = []
         self._on_game_over: List[Callable[[str, str], None]] = []  # (result, termination)
+        self._on_check: List[Callable[[bool, int, int], None]] = []  # (is_black_in_check, attacker_sq, king_sq)
+        self._on_queen_threat: List[Callable[[bool, int, int], None]] = []  # (is_black_threatened, attacker_sq, queen_sq)
+        self._on_alert_clear: List[Callable[[], None]] = []
     
     # -------------------------------------------------------------------------
     # Properties (read-only access to state)
@@ -267,6 +273,39 @@ class ChessGameState:
         if callback not in self._on_game_over:
             self._on_game_over.append(callback)
     
+    def on_check(self, callback: Callable[[bool, int, int], None]) -> None:
+        """Register callback for check events.
+        
+        Called when a king is in check after a move.
+        
+        Args:
+            callback: Function(is_black_in_check, attacker_square, king_square)
+        """
+        if callback not in self._on_check:
+            self._on_check.append(callback)
+    
+    def on_queen_threat(self, callback: Callable[[bool, int, int], None]) -> None:
+        """Register callback for queen threat events.
+        
+        Called when a queen is under attack after a move (and no check).
+        
+        Args:
+            callback: Function(is_black_queen_threatened, attacker_square, queen_square)
+        """
+        if callback not in self._on_queen_threat:
+            self._on_queen_threat.append(callback)
+    
+    def on_alert_clear(self, callback: Callable[[], None]) -> None:
+        """Register callback for alert clear events.
+        
+        Called when there is no check or queen threat after a move.
+        
+        Args:
+            callback: Function with no arguments.
+        """
+        if callback not in self._on_alert_clear:
+            self._on_alert_clear.append(callback)
+    
     def remove_observer(self, callback: Callable) -> None:
         """Remove a previously registered callback.
         
@@ -277,6 +316,12 @@ class ChessGameState:
             self._on_position_change.remove(callback)
         if callback in self._on_game_over:
             self._on_game_over.remove(callback)
+        if callback in self._on_check:
+            self._on_check.remove(callback)
+        if callback in self._on_queen_threat:
+            self._on_queen_threat.remove(callback)
+        if callback in self._on_alert_clear:
+            self._on_alert_clear.remove(callback)
     
     def notify_position_change(self) -> None:
         """Notify all position change observers.
@@ -303,12 +348,52 @@ class ChessGameState:
             except Exception:
                 pass
     
+    def _notify_check_and_threats(self) -> None:
+        """Detect and notify check/queen threat after a move.
+        
+        Priority: Check > Queen threat (only one alert at a time).
+        If neither, notifies alert clear.
+        """
+        # Check for check first (higher priority)
+        check_info = self.get_check_info()
+        if check_info:
+            is_black_in_check, attacker_square, king_square = check_info
+            for callback in self._on_check:
+                try:
+                    callback(is_black_in_check, attacker_square, king_square)
+                except Exception:
+                    pass
+            return
+        
+        # Check for queen threat
+        queen_info = self.get_queen_threat_info()
+        if queen_info:
+            is_black_threatened, attacker_square, queen_square = queen_info
+            for callback in self._on_queen_threat:
+                try:
+                    callback(is_black_threatened, attacker_square, queen_square)
+                except Exception:
+                    pass
+            return
+        
+        # No check or threat - clear alerts
+        for callback in self._on_alert_clear:
+            try:
+                callback()
+            except Exception:
+                pass
+    
     # -------------------------------------------------------------------------
     # State mutations (trigger observer notifications)
     # -------------------------------------------------------------------------
     
     def push_move(self, move: chess.Move) -> None:
         """Push a move onto the board.
+        
+        After the move, checks for and notifies:
+        - Position change (always)
+        - Check or queen threat (if applicable)
+        - Game over (if applicable)
         
         Args:
             move: The chess.Move to execute.
@@ -321,6 +406,9 @@ class ChessGameState:
         
         self._board.push(move)
         self.notify_position_change()
+        
+        # Detect and notify check/threats
+        self._notify_check_and_threats()
         
         # Check for game end by board state
         outcome = self._board.outcome()
@@ -377,11 +465,16 @@ class ChessGameState:
         self.notify_position_change()
     
     def reset(self) -> None:
-        """Reset to starting position."""
+        """Reset to starting position.
+        
+        Clears any check/threat alerts since starting position has no threats.
+        """
         self._board.reset()
         self._result = None
         self._termination = None
         self.notify_position_change()
+        # Clear alerts - starting position has no check or threats
+        self._notify_check_and_threats()
     
     def set_result(self, result: str, termination: str) -> None:
         """Set game result from external event (resignation, flag, draw agreement).

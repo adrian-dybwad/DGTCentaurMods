@@ -673,3 +673,4 @@ universal.py (Entry Point)
 - Display manager has a dedicated render thread
 - GameManager uses a task queue for ordered I/O operations
 - BleManager uses GLib mainloop for D-Bus events
+

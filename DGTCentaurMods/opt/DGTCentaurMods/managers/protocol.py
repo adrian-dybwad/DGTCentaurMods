@@ -107,15 +107,6 @@ class ProtocolManager:
         # Game manager (injected dependency)
         self.game_manager = game_manager
         
-        # Note: Emulators are now created by RemoteController, not ProtocolManager.
-        # These fields are kept for backward compatibility but are no longer used.
-        self._millennium = None
-        self._pegasus = None
-        self._chessnut = None
-        
-        # Note: GameManager subscription is now handled by LocalController.start()
-        # ProtocolManager no longer subscribes directly.
-        
         log.info(f"[ProtocolManager] Initialized")
     
     def _setup_lichess_callbacks(self):
@@ -214,17 +205,6 @@ class ProtocolManager:
     def set_on_king_lift_resign_cancel(self, callback):
         """Set callback to cancel king-lift resign. Callback()."""
         self.game_manager.on_king_lift_resign_cancel = callback
-    
-    def set_display_bridge(self, bridge) -> None:
-        """Set the display bridge for consolidated display operations.
-        
-        The DisplayBridge provides a unified interface for all display-related
-        operations including clock times, eval scores, alerts, and position updates.
-        
-        Args:
-            bridge: Object implementing the DisplayBridge protocol
-        """
-        self.game_manager.display_bridge = bridge
 
     def set_on_promotion_needed(self, callback):
         """Set callback for promotion selection. Callback(is_white) -> piece_symbol."""
@@ -297,25 +277,6 @@ class ProtocolManager:
         if self.game_manager:
             self.game_manager.receive_field(piece_event, field, time_in_seconds)
 
-    def receive_data(self, byte_value):
-        """Legacy method - data routing now handled by ControllerManager.
-        
-        This method is no longer called. Protocol data is routed through
-        ControllerManager.receive_bluetooth_data() -> RemoteController.receive_data().
-        
-        Args:
-            byte_value: Raw byte value from wire
-            
-        Returns:
-            False (no longer processes data)
-        """
-        log.warning("[ProtocolManager] receive_data called but is now handled by ControllerManager")
-        return False
-
-    def reset_parser(self):
-        """Legacy method - emulator state now managed by RemoteController."""
-        log.debug("[ProtocolManager] reset_parser called but emulators are now in RemoteController")
-
     # =========================================================================
     # Player Management
     # =========================================================================
@@ -334,21 +295,6 @@ class ProtocolManager:
         """Stop all players and release resources."""
         if self._player_manager:
             self._player_manager.stop()
-    
-    def _on_player_move(self, move: chess.Move):
-        """Legacy method for direct player move handling.
-        
-        Note: This method is no longer used. Player moves are now routed through
-        GameManager._on_player_move which is wired by game_manager.set_player_manager().
-        
-        This method called computer_move() which was incorrect for human moves
-        (showed LEDs and set forced move flag instead of executing the move).
-        
-        Args:
-            move: The player's move.
-        """
-        log.warning(f"[ProtocolManager] Legacy _on_player_move called for {move.uci()} - this should not happen")
-        self.game_manager.computer_move(move.uci(), forced=True)
     
     # =========================================================================
     # Lichess-Specific Methods

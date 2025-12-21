@@ -40,6 +40,7 @@ from DGTCentaurMods.paths import (
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.state import get_chess_game
 from DGTCentaurMods.state.chess_game import ChessGameState
+from DGTCentaurMods.services import get_chess_clock_service
 
 # Deferred imports - these are slow (~3s total on Raspberry Pi) and loaded in background
 # to avoid blocking startup. They're only needed when a game actually starts.
@@ -398,11 +399,9 @@ class GameManager:
         self._king_lift_resign_menu_active = False  # Track if the king-lift resign menu is showing
         self.on_terminal_position = None
         
-        # Display bridge - consolidated interface for display-related operations
-        # Set by ProtocolManager to connect GameManager with DisplayManager
-        # Provides: get_clock_times, set_clock_times, get_eval_score, update_position,
-        #           show_check_alert, show_queen_threat, clear_alerts, analyze_position
-        self.display_bridge = None
+        # Clock service for time management
+        # Used to get/set clock times (for database storage and Lichess sync)
+        self._clock_service = get_chess_clock_service()
         
         # Player manager reference - manages both white and black players.
         # Must be set via set_player_manager() before game starts.
@@ -512,12 +511,11 @@ class GameManager:
         Returns:
             Tuple of (white_seconds, black_seconds), or (None, None) if unavailable
         """
-        if self.display_bridge:
-            try:
-                return self.display_bridge.get_clock_times()
-            except Exception as e:
-                log.debug(f"[GameManager._get_clock_times_for_db] Error getting clock times: {e}")
-        return (None, None)
+        try:
+            return self._clock_service.get_times()
+        except Exception as e:
+            log.debug(f"[GameManager._get_clock_times_for_db] Error getting clock times: {e}")
+            return (None, None)
     
     def _get_eval_score_for_db(self) -> int:
         """Get evaluation score for database storage.
@@ -525,12 +523,14 @@ class GameManager:
         Returns:
             Evaluation score in centipawns (from white's perspective), or None if unavailable
         """
-        if self.display_bridge:
-            try:
-                return self.display_bridge.get_eval_score()
-            except Exception as e:
-                log.debug(f"[GameManager._get_eval_score_for_db] Error getting eval score: {e}")
-        return None
+        try:
+            from DGTCentaurMods.state.analysis import get_analysis
+            analysis_state = get_analysis()
+            # score is in pawns (-12 to +12), convert to centipawns
+            return int(analysis_state.score * 100)
+        except Exception as e:
+            log.debug(f"[GameManager._get_eval_score_for_db] Error getting eval score: {e}")
+            return None
     
     def _update_game_result(self, result_string: str, termination: str, context: str = ""):
         """Update game result in database and trigger event callback."""
@@ -559,8 +559,8 @@ class GameManager:
             # No database session, just cache the result
             self.cached_result = result_string
         
-        # Notify game over observers
-        self._game_state.notify_game_over(result_string, termination)
+        # Notify game over observers via state (sets result and notifies)
+        self._game_state.set_result(result_string, termination)
         
         if self.event_callback is not None:
             self.event_callback(termination)
@@ -784,13 +784,8 @@ class GameManager:
             # needs to make a move after the board is corrected.
             self._switch_turn_with_event()
         
-        # Restore check/threat indicators if applicable
-        # This ensures the check LED (fromTo from attacker to king) is shown after
-        # correction mode exits if the position has a check
-        try:
-            self._detect_check_and_threats()
-        except Exception as e:
-            log.debug(f"[GameManager._exit_correction_mode] Error detecting check/threats: {e}")
+        # Check/threat indicators are now handled automatically by ChessGameState
+        # observers when push_move is called, so no explicit call needed here
     
     def _check_kings_in_center_from_state(self, missing_squares: list, extra_squares: list) -> bool:
         """Check if the misplaced piece state indicates a kings-in-center gesture.
@@ -1917,13 +1912,8 @@ class GameManager:
                     except Exception as e:
                         log.error(f"[GameManager.async] Error in move callback: {e}")
                 
-                # 3.5. Check and queen threat detection (only if game not ended)
-                # This triggers LED flashing and alert widget display
-                if not game_ended:
-                    try:
-                        self._detect_check_and_threats()
-                    except Exception as e:
-                        log.error(f"[GameManager.async] Error detecting check/threats: {e}")
+                # Check/threat detection is now automatic via ChessGameState observers
+                # when push_move is called - no explicit call needed here
                 
                 # 4. Physical board validation (low priority - yields to polling)
                 # Uses low-priority queue so validation doesn't delay piece event detection.
@@ -2732,12 +2722,9 @@ class GameManager:
             
             # Step 6: Clear all board LEDs and turn off any indicators
             # Note: Clock is managed by DisplayManager, reset via EVENT_NEW_GAME callback
+            # Note: Alert clearing is handled automatically by ChessGameState.reset()
+            #       which notifies observers (AlertWidget hides itself)
             board.ledsOff()
-            
-            # Step 7: Clear any active alerts (CHECK, QUEEN threat, etc.)
-            if self.display_bridge and hasattr(self.display_bridge, 'clear_alerts'):
-                self.display_bridge.clear_alerts()
-                log.debug("[GameManager._reset_game] Cleared alert widget")
             
             # Step 8: Reset game_db_id to -1 to indicate no active game in database
             # New game will be created when first move is made
@@ -2863,18 +2850,16 @@ class GameManager:
     def set_clock(self, white_seconds: int, black_seconds: int):
         """Set the clock times for both players.
         
-        Uses the display_bridge to update clock times if available.
-        Used by Lichess emulator to update clock times from the server.
+        Used by Lichess to sync clock times from the server.
         
         Args:
             white_seconds: White player's remaining time in seconds
             black_seconds: Black player's remaining time in seconds
         """
-        if self.display_bridge and hasattr(self.display_bridge, 'set_clock_times'):
-            try:
-                self.display_bridge.set_clock_times(white_seconds, black_seconds)
-            except Exception as e:
-                log.debug(f"[GameManager.set_clock] Error setting clock times: {e}")
+        try:
+            self._clock_service.set_times(white_seconds, black_seconds)
+        except Exception as e:
+            log.debug(f"[GameManager.set_clock] Error setting clock times: {e}")
     
     def computer_move(self, uci_move: str, forced: bool = True):
         """Set the computer move that the player is expected to make.
@@ -2910,41 +2895,19 @@ class GameManager:
         if from_sq is not None and to_sq is not None:
             board.ledFromTo(from_sq, to_sq, repeat=0)
     
-    def _detect_check_and_threats(self) -> None:
-        """Detect check and queen threats after a move, triggering appropriate callbacks.
+    def restore_pending_move_leds(self) -> None:
+        """Restore LEDs for pending computer move.
         
-        Called after each move to check:
-        1. If the opponent's king is in check - triggers on_check callback
-        2. If the opponent's queen is under attack - triggers on_queen_threat callback
-        3. If neither applies - triggers on_alert_clear callback
-        
-        Priority: Check > Queen threat (only one alert at a time)
+        Called when resuming from pause to restore the move indicator LEDs
+        if a computer/engine move is waiting for the player to execute.
         """
-        try:
-            # Check if opponent is in check
-            check_info = self._game_state.get_check_info()
-            if check_info:
-                is_black_in_check, attacker_square, king_square = check_info
-                log.info(f"[GameManager._detect_check_and_threats] CHECK: {'Black' if is_black_in_check else 'White'} king in check at {chess.square_name(king_square)} by piece at {chess.square_name(attacker_square)}")
-                if self.display_bridge:
-                    self.display_bridge.show_check_alert(is_black_in_check, attacker_square, king_square)
-                return
-            
-            # No check - check if opponent's queen is under attack
-            threat_info = self._game_state.get_queen_threat_info()
-            if threat_info:
-                is_black_queen_threatened, attacker_square, queen_square = threat_info
-                log.info(f"[GameManager._detect_check_and_threats] QUEEN THREAT: {'Black' if is_black_queen_threatened else 'White'} queen at {chess.square_name(queen_square)} attacked by piece at {chess.square_name(attacker_square)}")
-                if self.display_bridge:
-                    self.display_bridge.show_queen_threat(is_black_queen_threatened, attacker_square, queen_square)
-                return
-            
-            # No check or queen threat - clear any existing alert
-            if self.display_bridge:
-                self.display_bridge.clear_alerts()
-                
-        except Exception as e:
-            log.error(f"[GameManager._detect_check_and_threats] Error detecting threats: {e}")
+        if self.move_state.is_forced_move and self.move_state.computer_move_uci:
+            uci_move = self.move_state.computer_move_uci
+            if len(uci_move) >= MIN_UCI_MOVE_LENGTH:
+                from_sq, to_sq = self._uci_to_squares(uci_move)
+                if from_sq is not None and to_sq is not None:
+                    board.ledFromTo(from_sq, to_sq, repeat=0)
+                    log.info(f"[GameManager.restore_pending_move_leds] Restored LEDs for {uci_move}")
     
     def resign_game(self, side_resigning: int):
         """Handle game resignation."""

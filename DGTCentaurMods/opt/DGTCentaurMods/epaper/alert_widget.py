@@ -1,7 +1,7 @@
 """
 Alert widget for displaying CHECK and QUEEN threat warnings.
 
-Displays a prominent alert with:
+Observes ChessGameState and displays alerts when:
 - CHECK: When a king is in check, with background color of the side in check
 - YOUR QUEEN: When a queen is under attack, with background color of the threatened queen
 
@@ -12,6 +12,10 @@ Uses TextWidget for all text rendering.
 from PIL import Image, ImageDraw
 from .framework.widget import Widget
 from .text import TextWidget, Justify
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from DGTCentaurMods.state.chess_game import ChessGameState
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -22,6 +26,8 @@ except ImportError:
 
 class AlertWidget(Widget):
     """Widget displaying CHECK or QUEEN threat alerts with LED flashing.
+    
+    Observes ChessGameState for check and queen threat events.
     
     Background color indicates which side is threatened:
     - Black background (white text) = Black piece is threatened
@@ -36,7 +42,8 @@ class AlertWidget(Widget):
     ALERT_QUEEN = "queen"
     ALERT_HINT = "hint"
     
-    def __init__(self, x: int, y: int, width: int, height: int, update_callback):
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback,
+                 game_state: 'ChessGameState' = None):
         """
         Initialize alert widget.
         
@@ -46,6 +53,7 @@ class AlertWidget(Widget):
             width: Widget width
             height: Widget height
             update_callback: Callback to trigger display updates. Must not be None.
+            game_state: ChessGameState to observe. If None, uses singleton.
         """
         super().__init__(x, y, width, height, update_callback)
         self._alert_type = None  # "check", "queen", or "hint"
@@ -54,6 +62,18 @@ class AlertWidget(Widget):
         self._target_square = None  # Square index (0-63) of threatened piece
         self._hint_text_value = ""  # Hint move text (e.g., "e2e4")
         self.visible = False  # Hidden by default (uses base class attribute)
+        
+        # Get or use provided game state
+        if game_state is None:
+            from DGTCentaurMods.state import get_chess_game
+            self._game_state = get_chess_game()
+        else:
+            self._game_state = game_state
+        
+        # Subscribe to check/threat events
+        self._game_state.on_check(self._on_check)
+        self._game_state.on_queen_threat(self._on_queen_threat)
+        self._game_state.on_alert_clear(self._on_alert_clear)
         
         # Create TextWidgets - use parent handler for child updates
         # CHECK: single large centered text
@@ -69,6 +89,25 @@ class AlertWidget(Widget):
         self._hint_text = TextWidget(0, 0, width, height, self._handle_child_update,
                                       text="", font_size=28,
                                       justify=Justify.CENTER, transparent=True)
+    
+    def cleanup(self) -> None:
+        """Unsubscribe from game state when widget is destroyed."""
+        if self._game_state:
+            self._game_state.remove_observer(self._on_check)
+            self._game_state.remove_observer(self._on_queen_threat)
+            self._game_state.remove_observer(self._on_alert_clear)
+    
+    def _on_check(self, is_black_in_check: bool, attacker_square: int, king_square: int) -> None:
+        """Handle check event from game state."""
+        self.show_check(is_black_in_check, attacker_square, king_square)
+    
+    def _on_queen_threat(self, is_black_threatened: bool, attacker_square: int, queen_square: int) -> None:
+        """Handle queen threat event from game state."""
+        self.show_queen_threat(is_black_threatened, attacker_square, queen_square)
+    
+    def _on_alert_clear(self) -> None:
+        """Handle alert clear event from game state."""
+        self.hide()
     
     def _handle_child_update(self, full: bool = False, immediate: bool = False):
         """Handle update requests from child widgets by forwarding to parent callback."""

@@ -69,15 +69,6 @@ class ConnectionManager:
         if controller_manager is not None:
             self._process_pending_data()
     
-    def set_protocol_manager(self, handler) -> None:
-        """Legacy method - kept for backward compatibility during transition.
-        
-        Use set_controller_manager() instead.
-        """
-        # During transition, ProtocolManager may still be passed
-        # but we don't use it for data routing anymore
-        log.debug("[ConnectionManager] set_protocol_manager called (legacy - ignored)")
-    
     def set_relay_manager(self, relay_manager, relay_mode: bool) -> None:
         """Configure relay mode forwarding.
         
