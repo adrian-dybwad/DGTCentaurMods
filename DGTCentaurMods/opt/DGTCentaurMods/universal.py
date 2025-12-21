@@ -1689,18 +1689,29 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
              f"graph={_game_settings['show_graph']})")
 
     # Display update callback for ProtocolManager
+    # Track if analysis should be skipped for next update (after game reset)
+    _skip_next_analysis = False
+    
     def update_display(fen):
         """Update display manager with new position.
         
         Analysis is triggered but runs in a background thread, so it doesn't
         block move validation or recording. Also updates the clock turn indicator.
+        
+        Note: After game reset, the first analysis is skipped to keep score at 0.0.
         """
+        nonlocal _skip_next_analysis
         if display_manager:
             display_manager.update_position(fen)
             # Trigger analysis (runs asynchronously in background thread)
             try:
                 board_obj = chess.Board(fen)
-                display_manager.analyze_position(board_obj)
+                # Skip analysis if flagged (after game reset)
+                if _skip_next_analysis:
+                    _skip_next_analysis = False
+                    log.debug("[App] Skipping analysis after game reset")
+                else:
+                    display_manager.analyze_position(board_obj)
                 # Update clock turn indicator based on whose turn it is
                 current_turn = "white" if board_obj.turn == chess.WHITE else "black"
                 display_manager.set_clock_active(current_turn)
@@ -1925,12 +1936,14 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     from DGTCentaurMods.managers import EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
     _clock_started = False
     def _on_game_event(event):
-        nonlocal _clock_started
+        nonlocal _clock_started, _skip_next_analysis
         global _switch_to_normal_game, _is_position_game
         if event == EVENT_NEW_GAME:
             display_manager.reset_analysis()
             display_manager.reset_clock()
             display_manager.clear_pause()
+            # Skip the next analysis to keep score at 0.0 after reset
+            _skip_next_analysis = True
             # Reset clock started flag for new game
             _clock_started = False
             # If we're in a position game and the starting position is set up,
