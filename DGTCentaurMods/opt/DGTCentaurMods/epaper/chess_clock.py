@@ -1,10 +1,6 @@
 """
 Chess clock widget displaying game time for both players.
 
-This widget observes the ChessClockState and renders its state. The widget is a
-thin display layer - all timer logic is in the clock service which persists
-across widget creation/destruction.
-
 Layout:
 - Timed mode: Remaining time for white and black players with turn indicator
 - Untimed mode (compact): Just "White Turn" or "Black Turn" text
@@ -21,30 +17,15 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
-# Import state (lightweight) - NOT service
 from DGTCentaurMods.state import get_chess_clock as get_clock_state
 
 
 class ChessClockWidget(Widget):
-    """
-    Widget displaying chess clock times or turn indicator.
-    
-    This is a view-only widget that reads state from ChessClock. It does not
-    manage its own timer - the clock handles countdown and state persistence.
+    """Widget displaying chess clock times or turn indicator.
     
     Has two display modes:
     - Timed mode: Shows remaining time for both players with turn indicator
     - Compact/untimed mode: Shows "White Turn" or "Black Turn" centered
-    
-    Layout (72 pixels height, 128 pixels width):
-    Timed mode:
-    - Top section: [indicator] White  MM:SS
-    - Separator line
-    - Bottom section: [indicator] Black  MM:SS
-    
-    Compact mode:
-    - Large indicator circle
-    - Centered text: "White's Turn" or "Black's Turn"
     """
     
     # Position directly below the board (board is at y=16, height=128)
@@ -54,10 +35,7 @@ class ChessClockWidget(Widget):
     def __init__(self, x: int, y: int, width: int, height: int, update_callback,
                  timed_mode: bool = True, flip: bool = False,
                  white_name: str = "", black_name: str = ""):
-        """
-        Initialize chess clock widget.
-        
-        The widget connects to the ChessClock to observe clock state.
+        """Initialize chess clock widget.
         
         Args:
             x: X position
@@ -67,26 +45,19 @@ class ChessClockWidget(Widget):
             update_callback: Callback to trigger display updates. Must not be None.
             timed_mode: Whether to show times (True) or just turn indicator (False)
             flip: If True, show Black on top (matching flipped board perspective)
-            white_name: Optional name for white player (for display only, service has authoritative names)
-            black_name: Optional name for black player (for display only, service has authoritative names)
+            white_name: Optional name for white player
+            black_name: Optional name for black player
         """
         super().__init__(x, y, width, height, update_callback)
-        
-        # Display mode and configuration
         self._timed_mode = timed_mode
         self._flip = flip
         self._white_name = white_name
         self._black_name = black_name
         
-        # Get clock state reference (lightweight state object, not service)
         self._clock = get_clock_state()
-        
-        # Register for state change notifications
         self._clock.on_state_change(self._on_clock_state_change)
         self._clock.on_tick(self._on_clock_tick)
         
-        # Legacy callback for flag events (forwarded from state)
-        # on_flag(color: str) where color is 'white' or 'black'
         self._on_flag_callback: Optional[callable] = None
         
         # Create TextWidgets for timed mode - use parent handler for child updates

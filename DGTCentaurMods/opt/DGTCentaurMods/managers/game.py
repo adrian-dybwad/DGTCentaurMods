@@ -705,7 +705,7 @@ class GameManager:
                     self.database_session.commit()
             
             self.chess_board.pop()
-            self._game_state.notify_position_change()  # Notify observers (writes FEN log)
+            self._game_state.notify_position_change()
             board.beep(board.SOUND_GENERAL, event_type='game_event')
             
             self.takeback_callback()
@@ -1069,7 +1069,7 @@ class GameManager:
                 log.debug(f"[GameManager._handle_king_lift_resign] King lifted from {chess.square_name(field)}, started 3-second resign timer")
     
     def _handle_piece_lift(self, field: int, piece_color):
-        """Handle piece lift event (legacy - used when no PlayerManager).
+        """Handle piece lift event.
         
         For castling support, tracks when a rook is lifted from a castling position.
         This allows rook-first castling where the player moves the rook before the king.
@@ -1955,7 +1955,6 @@ class GameManager:
                         except Exception:
                             pass
                 
-                # 2. State notification (writes FEN log via ChessGameService)
                 self._game_state.notify_position_change()
                 
                 # 3. Move callback (updates display, forwards to emulators)
@@ -2233,9 +2232,7 @@ class GameManager:
     def _execute_complete_move(self, move: chess.Move) -> None:
         """Execute a complete move submitted by a player.
         
-        This is used when players submit complete moves via callback,
-        as opposed to the legacy piece-lift/place flow.
-        
+        This is used when players submit complete moves via callback.
         The move has already been validated as legal by the caller.
         
         Args:
@@ -2274,7 +2271,6 @@ class GameManager:
         # Capture state needed for async operations
         fen_after_move = str(self.chess_board.fen())
         
-        # Notify observers (writes FEN log via ChessGameService)
         self._game_state.notify_position_change()
         
         # Check game outcome
@@ -2287,7 +2283,6 @@ class GameManager:
             result_string = str(self.chess_board.result())
             termination = str(outcome.termination)
         
-        # Reset move state (clear any legacy state)
         self.move_state.reset()
         
         # Switch turn event
@@ -2778,7 +2773,6 @@ class GameManager:
             self.game_db_id = -1
             log.info("[GameManager._reset_game] Reset game_db_id to -1 - new game will be created on first move")
             
-            # Step 9: Notify observers (writes FEN log via ChessGameService)
             self._game_state.notify_position_change()
             
             # Step 10: Notify callbacks of new game (but don't create DB entry yet)
@@ -2846,12 +2840,8 @@ class GameManager:
         board.ledsOff()
         log.info("[GameManager._game_thread] Ready to receive events from app coordinator")
         
-        # Notify observers of initial position (writes FEN log via ChessGameService)
+        # Notify observers of initial position
         self._game_state.notify_position_change()
-        
-        # Note: GameManager no longer subscribes to board events directly.
-        # Events are routed from the app coordinator (universal.py) through
-        # ProtocolManager.receive_key() and ProtocolManager.receive_field() methods.
         
         # Mark as ready and replay any queued events
         with self._ready_lock:

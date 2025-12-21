@@ -2,7 +2,6 @@
 Battery level indicator widget.
 
 Observes SystemState for battery level and charger status.
-The SystemPollingService handles the actual hardware polling.
 """
 
 from PIL import Image, ImageDraw
@@ -14,15 +13,11 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
-# Import state (lightweight) - NOT service
 from DGTCentaurMods.state import get_system
 
 
 class BatteryWidget(Widget):
     """Battery level indicator using drawn graphics.
-    
-    Observes SystemState for battery level and charger status.
-    The widget is view-only - SystemPollingService handles polling.
     
     Args:
         x: X position
@@ -34,11 +29,7 @@ class BatteryWidget(Widget):
     
     def __init__(self, x: int, y: int, width: int, height: int, update_callback):
         super().__init__(x, y, width, height, update_callback)
-        
-        # Get state reference (lightweight state object, not service)
         self._state = get_system()
-        
-        # Register for battery state changes
         self._state.on_battery_change(self._on_battery_change)
     
     def _on_battery_change(self) -> None:
@@ -47,13 +38,12 @@ class BatteryWidget(Widget):
         self.request_update(full=False)
     
     def start(self) -> None:
-        """Start the widget. No-op - service handles polling."""
+        """No-op. Polling is handled by SystemPollingService."""
         pass
     
     def stop(self) -> None:
-        """Stop the widget (unregister from state)."""
+        """Unregister from state."""
         self._state.remove_observer(self._on_battery_change)
-        log.debug("[BatteryWidget] Unregistered from SystemState")
     
     @property
     def level(self) -> int:

@@ -557,7 +557,7 @@ class SyncCentaur:
                 key = Key(key_code)
                 log.debug(f"key name: {key.name} value: {key.value}")
                 
-                # Only update _last_key for key-up events (backwards compatibility)
+                # Only update _last_key for key-up events
                 if not is_down:
                     self._last_key = key
                 
@@ -748,8 +748,8 @@ class SyncCentaur:
             command_name: command name to send
             data: optional payload bytes
             timeout: seconds to wait for response
-            callback: not supported (for compatibility only)
-            raw_len: not supported (for compatibility only)
+            callback: Ignored (async_centaur API compatibility)
+            raw_len: Ignored (async_centaur API compatibility)
             retries: number of retry attempts on timeout (default 0 = no retries)
             retry_delay: delay in seconds between retries (default 0.1)
             

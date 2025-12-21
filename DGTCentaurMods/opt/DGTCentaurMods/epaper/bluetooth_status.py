@@ -4,9 +4,6 @@ Bluetooth status module.
 Provides:
 - Functions to query Bluetooth adapter status and format information for menus
 - Widget for displaying Bluetooth connection state in the status bar
-
-The widget observes SystemState for Bluetooth status.
-The SystemPollingService handles the actual system polling.
 """
 
 from PIL import Image, ImageDraw
@@ -20,7 +17,6 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
-# Import state (lightweight) - NOT service
 from DGTCentaurMods.state import get_system
 from DGTCentaurMods.state.system import BT_DISABLED, BT_DISCONNECTED, BT_CONNECTED
 
@@ -180,9 +176,6 @@ def disable_bluetooth() -> bool:
 class BluetoothStatusWidget(Widget):
     """Bluetooth status indicator widget showing connection state.
     
-    Observes SystemState for Bluetooth status.
-    The widget is view-only - SystemPollingService handles polling.
-    
     Displays a Bluetooth icon with different states:
     - Solid icon when connected
     - Outline icon when enabled but not connected
@@ -200,11 +193,7 @@ class BluetoothStatusWidget(Widget):
         super().__init__(x, y, width, height, update_callback)
         self._width = width
         self._height = height
-        
-        # Get state reference (lightweight state object, not service)
         self._state = get_system()
-        
-        # Register for Bluetooth state changes
         self._state.on_bluetooth_change(self._on_bluetooth_change)
         
         # Set initial visibility based on state
@@ -217,9 +206,8 @@ class BluetoothStatusWidget(Widget):
         self.request_update(full=False)
     
     def stop(self) -> None:
-        """Stop the widget (unregister from state)."""
+        """Unregister from state."""
         self._state.remove_observer(self._on_bluetooth_change)
-        log.debug("[BluetoothStatusWidget] Unregistered from SystemState")
     
     def _draw_bluetooth_icon(self, draw: ImageDraw.Draw, connected: bool = False) -> None:
         """Draw a Bluetooth icon onto sprite.

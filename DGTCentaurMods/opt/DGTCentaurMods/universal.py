@@ -869,16 +869,6 @@ def _clear_menu_state():
 
 
 
-def _load_menu_state() -> tuple:
-    """Legacy function - use MenuContext.load() instead.
-    
-    Returns:
-        Tuple of (menu_path: str, selected_index: int) for compatibility
-    """
-    ctx = _get_menu_context()
-    return (ctx.path_str(), ctx.current_index())
-
-
 # ============================================================================
 # Game Resume Functions
 # ============================================================================
@@ -1998,7 +1988,7 @@ def _handle_settings(initial_selection: str = None):
     # Enter Settings menu - handles both fresh navigation and restoration
     last_selected = ctx.enter_menu("Settings", 0)
     
-    # Handle initial selection for state restoration (legacy path - navigating to submenu)
+    # Handle initial selection for state restoration
     pending_selection = initial_selection
     
     while app_state == AppState.SETTINGS:

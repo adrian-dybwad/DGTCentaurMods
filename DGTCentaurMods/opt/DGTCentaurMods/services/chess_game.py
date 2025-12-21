@@ -1,10 +1,7 @@
 """
 Chess game service.
 
-Manages game lifecycle and coordinates with the chess game state.
-Handles FEN log writing for external consumers (Chromecast, web).
-
-Database operations remain in GameManager as they're tied to game sessions.
+Manages game lifecycle, coordinates with ChessGameState, and writes FEN log.
 """
 
 from typing import Optional
@@ -20,15 +17,7 @@ from DGTCentaurMods.paths import write_fen_log
 
 
 class ChessGameService:
-    """Service managing chess game lifecycle.
-    
-    The service:
-    - Coordinates with the chess game state
-    - Writes FEN log for external consumers
-    - Provides lifecycle methods (new game, end game)
-    
-    Widgets should import from state/, not this service.
-    """
+    """Service managing chess game lifecycle and FEN log."""
     
     def __init__(self):
         """Initialize the chess game service."""

@@ -2,16 +2,6 @@
 State module - lightweight observable state objects.
 
 State objects hold application data with observer patterns for change notifications.
-Widgets import from this module to read state and register for updates.
-
-Services and managers mutate state through state object methods, which trigger
-observer callbacks automatically.
-
-Design principles:
-- State objects are lightweight (no threading, no I/O, no heavy dependencies)
-- All state changes trigger observer notifications
-- Widgets only import from state/, never from services/ or managers/
-- Services own lifecycle/resources and use state objects for data
 """
 
 from .chess_game import ChessGameState, get_chess_game

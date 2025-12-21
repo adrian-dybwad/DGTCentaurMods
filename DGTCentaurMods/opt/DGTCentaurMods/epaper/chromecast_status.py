@@ -1,9 +1,11 @@
 """
 Chromecast status widget.
 
-Displays the Chromecast streaming status in the status bar.
-The actual streaming is managed by the ChromecastService; this widget
-just observes the state object and renders the appropriate icon.
+Displays the Chromecast streaming status in the status bar:
+- No icon when idle (hidden)
+- Outline icon when connecting/reconnecting
+- Filled icon when streaming
+- Icon with X when error
 """
 
 from PIL import Image, ImageDraw
@@ -15,19 +17,12 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
-# Import state (lightweight) - NOT service
 from DGTCentaurMods.state import get_chromecast as get_chromecast_state
 from DGTCentaurMods.state.chromecast import STATE_STREAMING, STATE_CONNECTING, STATE_RECONNECTING, STATE_ERROR
 
 
 class ChromecastStatusWidget(Widget):
     """Chromecast status indicator widget.
-    
-    Observes the ChromecastState and displays:
-    - No icon when idle (hidden)
-    - Outline icon when connecting/reconnecting
-    - Filled icon when streaming
-    - Icon with X when error
     
     Args:
         x: X position in status bar
@@ -39,14 +34,8 @@ class ChromecastStatusWidget(Widget):
     def __init__(self, x: int, y: int, size: int, update_callback):
         super().__init__(x, y, size, size, update_callback)
         self._size = size
-        
-        # Get state reference (lightweight state object, not service)
         self._state = get_chromecast_state()
-        
-        # Register as observer
         self._state.add_observer(self._on_state_changed)
-        
-        # Sync initial visibility from state
         self.visible = self._state.is_active
     
     def _on_state_changed(self) -> None:

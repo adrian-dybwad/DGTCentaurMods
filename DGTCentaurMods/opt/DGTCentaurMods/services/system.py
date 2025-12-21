@@ -2,10 +2,7 @@
 System polling service.
 
 Polls battery, WiFi, and Bluetooth status and updates SystemState.
-Widgets observe the state, they do not own polling threads.
-
-Battery is polled every 5 seconds (from board controller).
-WiFi and Bluetooth are polled every 10 seconds (from system commands).
+Battery is polled every 5 seconds, WiFi and Bluetooth every 10 seconds.
 """
 
 import os
@@ -33,15 +30,7 @@ NETWORK_POLL_INTERVAL = 10
 
 
 class SystemPollingService:
-    """Service that polls system status and updates SystemState.
-    
-    Polls:
-    - Battery level and charger status (from board controller)
-    - WiFi enabled/connected/signal (from rfkill, iwconfig)
-    - Bluetooth enabled/connected (from rfkill, bluetoothctl)
-    
-    Widgets observe SystemState for changes.
-    """
+    """Service that polls system status and updates SystemState."""
     
     def __init__(self):
         """Initialize the system polling service."""

@@ -59,8 +59,6 @@ def set_inactivity_timeout(seconds: int) -> None:
     """
     Settings.write('system', 'inactivity_timeout', str(seconds))
 
-# Battery/charger state is now in SystemState (state/system.py)
-# Import state for eventsThread to read charger status
 from DGTCentaurMods.state import get_system as _get_system_state
 
 # Board meta properties (extracted from DGT_SEND_TRADEMARK response)
@@ -98,7 +96,7 @@ def init_display(on_refresh=None) -> Future:
     return None
 
 
-# Re-export commonly used command names for backward-compatible usage in this module
+# Sound command constants
 SOUND_GENERAL = command.SOUND_GENERAL
 SOUND_FACTORY = command.SOUND_FACTORY
 SOUND_POWER_OFF = command.SOUND_POWER_OFF
@@ -262,7 +260,6 @@ def beep(beeptype, event_type: str = None):
     """Play a beep sound if sound settings allow it.
     
     Checks both the master sound enable and the specific event type setting.
-    If no event_type is provided, only the master enable is checked (backward compatible).
     
     Args:
         beeptype: Sound type constant (e.g., SOUND_GENERAL, SOUND_WRONG)
@@ -271,6 +268,7 @@ def beep(beeptype, event_type: str = None):
                    'error' - error/invalid move sounds
                    'game_event' - check, checkmate, game end sounds
                    'piece_event' - piece lift/place sounds
+                   If not provided, only the master enable is checked.
     """
     try:
         from DGTCentaurMods.epaper.sound_settings import should_beep_for, is_sound_enabled
@@ -283,7 +281,7 @@ def beep(beeptype, event_type: str = None):
                 return
             log.debug(f"Beep ALLOWED for event_type={event_type}")
         else:
-            # No event type specified - just check master enable (backward compatible)
+            # No event type specified - just check master enable
             master_on = is_sound_enabled()
             if not master_on:
                 log.info("Beep BLOCKED (master disabled, no event_type)")
@@ -979,8 +977,7 @@ def unPauseEvents():
     eventsrunning = 1
     
 def unsubscribeEvents(keycallback=None, fieldcallback=None):
-    # Minimal compatibility wrapper for callers expecting an unsubscribe API
-    # Current implementation pauses events; resume via unPauseEvents()
+    """Stop receiving events. Resume via unPauseEvents()."""
     log.info(f"[board.unsubscribeEvents] Unsubscribing from events")
     pauseEvents()
 

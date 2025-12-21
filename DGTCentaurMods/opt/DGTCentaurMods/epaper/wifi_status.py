@@ -1,11 +1,7 @@
 """
 WiFi status indicator widget.
 
-Observes SystemState for WiFi connection status and signal strength.
-The SystemPollingService handles the actual system polling.
-
-Displays WiFi signal strength in the status bar using the same icon style
-as the WiFi menu icons. Shows:
+Displays WiFi signal strength in the status bar:
 - Signal strength (1-3 bars) when connected
 - Cross overlay when WiFi is disabled
 - No signal bars when not connected but enabled
@@ -20,20 +16,12 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
-# Import state (lightweight) - NOT service
 from DGTCentaurMods.state import get_system
 from DGTCentaurMods.state.system import WIFI_DISABLED, WIFI_DISCONNECTED, WIFI_CONNECTED
 
 
 class WiFiStatusWidget(Widget):
     """WiFi status indicator widget showing connection state and signal strength.
-    
-    Observes SystemState for WiFi status.
-    The widget is view-only - SystemPollingService handles polling.
-    
-    Uses the same icon style as the WiFi menu icons:
-    - Concentric arcs showing signal strength (1-3 based on signal %)
-    - Cross overlay when WiFi is disabled
     
     Args:
         x: X position
@@ -45,14 +33,8 @@ class WiFiStatusWidget(Widget):
     def __init__(self, x: int, y: int, size: int, update_callback):
         super().__init__(x, y, size, size, update_callback)
         self._size = size
-        
-        # Get state reference (lightweight state object, not service)
         self._state = get_system()
-        
-        # Register for WiFi state changes
         self._state.on_wifi_change(self._on_wifi_change)
-        
-        # Set initial visibility based on state
         self.visible = self._state.wifi_enabled
     
     def _on_wifi_change(self) -> None:
@@ -62,9 +44,8 @@ class WiFiStatusWidget(Widget):
         self.request_update(full=False)
     
     def stop(self) -> None:
-        """Stop the widget (unregister from state)."""
+        """Unregister from state."""
         self._state.remove_observer(self._on_wifi_change)
-        log.debug("[WiFiStatusWidget] Unregistered from SystemState")
     
     def _draw_wifi_signal_icon(self, draw: ImageDraw.Draw, strength: int = 3):
         """Draw a WiFi signal icon with variable strength onto sprite.
