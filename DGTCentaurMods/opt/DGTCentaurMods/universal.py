@@ -1817,7 +1817,11 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     player_manager.set_ready_callback(local_controller.on_all_players_ready)
     
     # Create remote controller (for Bluetooth app connections)
-    controller_manager.create_remote_controller(sendMessage)
+    # Wire protocol detection callback to swap engine player with remote player
+    controller_manager.create_remote_controller(
+        send_callback=sendMessage,
+        protocol_detected_callback=protocol_manager.on_protocol_detected
+    )
     
     # Activate local controller by default (this starts players)
     controller_manager.activate_local()

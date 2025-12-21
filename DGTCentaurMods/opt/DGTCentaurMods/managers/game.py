@@ -408,11 +408,6 @@ class GameManager:
         # Provides: get_player(color), request_move(), on_move_made(), on_piece_event()
         self._player_manager = None
         
-        # Remote client active flag - when True, local players (engines) are paused.
-        # Set via set_remote_client_active() when a Bluetooth chess app connects.
-        # When active, _switch_turn_with_event() will not request moves from engines.
-        self._remote_client_active = False
-        
         # Thread control
         self.should_stop = False
         self.game_thread = None
@@ -499,7 +494,8 @@ class GameManager:
         to make a move (important for engine/Lichess players).
         
         When a remote Bluetooth client is active (Millennium, Pegasus, etc.),
-        move requests are skipped because the remote app controls the game flow.
+        the engine player is swapped with a HumanPlayer by ProtocolManager,
+        so request_move() is still called (it's a no-op for human players).
         """
         if self.event_callback is not None:
             if self.chess_board.turn == chess.WHITE:
@@ -510,8 +506,7 @@ class GameManager:
         # Prompt the current player to move
         # For human players, this is a no-op (they're always ready)
         # For engine/Lichess players, this triggers move computation
-        # Skip when remote client is active - the remote app controls game flow
-        if self._player_manager and not self._remote_client_active:
+        if self._player_manager:
             self._player_manager.request_move(self.chess_board)
     
     def _get_clock_times_for_db(self) -> tuple:
@@ -2170,28 +2165,6 @@ class GameManager:
     def player_manager(self):
         """Get the player manager for this game."""
         return self._player_manager
-    
-    def set_remote_client_active(self, active: bool) -> None:
-        """Set whether a remote Bluetooth client is controlling the game.
-        
-        When a remote client (Millennium, Pegasus, Chessnut app) is connected,
-        local engine players should not compute or submit moves. The remote
-        app is in control of the game flow.
-        
-        Args:
-            active: True when remote client connects, False when it disconnects.
-        """
-        self._remote_client_active = active
-        log.info(f"[GameManager] Remote client active: {active}")
-        
-        # Clear any pending engine moves when remote client takes control
-        if active and self._player_manager:
-            self._player_manager.clear_pending_moves()
-    
-    @property
-    def is_remote_client_active(self) -> bool:
-        """Check if a remote Bluetooth client is controlling the game."""
-        return self._remote_client_active
     
     def _execute_complete_move(self, move: chess.Move) -> None:
         """Execute a complete move submitted by a player.

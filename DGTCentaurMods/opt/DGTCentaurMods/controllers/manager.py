@@ -112,16 +112,26 @@ class ControllerManager:
         elif event_type == 'takeback':
             self._remote.on_takeback()
     
-    def create_remote_controller(self, send_callback: Optional[Callable] = None) -> RemoteController:
+    def create_remote_controller(self, send_callback: Optional[Callable] = None,
+                                   protocol_detected_callback: Optional[Callable[[str], None]] = None) -> RemoteController:
         """Create and return the remote controller.
         
         Args:
             send_callback: Callback to send data to Bluetooth client.
+            protocol_detected_callback: Callback when protocol is detected.
+                Called with client_type (CLIENT_MILLENNIUM, etc.) when protocol
+                is first detected from incoming data. Used by ProtocolManager
+                to swap engine players to human players.
             
         Returns:
             The RemoteController instance.
         """
         self._remote = RemoteController(self._game_manager, send_callback)
+        
+        # Wire protocol detection callback
+        if protocol_detected_callback:
+            self._remote.set_protocol_detected_callback(protocol_detected_callback)
+        
         log.info("[ControllerManager] Created RemoteController")
         return self._remote
     

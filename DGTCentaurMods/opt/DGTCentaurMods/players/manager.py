@@ -259,6 +259,51 @@ class PlayerManager:
         """
         return self._white_player if color == chess.WHITE else self._black_player
     
+    def set_player(self, color: chess.Color, player: Player) -> Player:
+        """Replace a player for a specific color.
+        
+        Used when a remote client connects and takes over from a local player
+        (e.g., Millennium app replacing the local engine). The new player is
+        wired with the same callbacks and started.
+        
+        Args:
+            color: chess.WHITE or chess.BLACK
+            player: The new player to use for this color.
+            
+        Returns:
+            The previous player that was replaced.
+        """
+        # Get and stop the current player
+        old_player = self.get_player(color)
+        old_player.stop()
+        
+        # Set color on new player
+        player.color = color
+        
+        # Wire callbacks to new player
+        if self._move_callback:
+            player.set_move_callback(self._move_callback)
+        if self._pending_move_callback:
+            player.set_pending_move_callback(self._pending_move_callback)
+        if self._status_callback:
+            player.set_status_callback(self._status_callback)
+        if self._error_callback:
+            player.set_error_callback(self._error_callback)
+        player.set_ready_callback(self._on_player_ready)
+        
+        # Store new player
+        if color == chess.WHITE:
+            self._white_player = player
+        else:
+            self._black_player = player
+        
+        # Start the new player
+        player.start()
+        
+        log.info(f"[PlayerManager] Replaced {old_player.name} with {player.name} for {'White' if color == chess.WHITE else 'Black'}")
+        
+        return old_player
+    
     def get_current_player(self, board: chess.Board) -> Player:
         """Get the player whose turn it is.
         

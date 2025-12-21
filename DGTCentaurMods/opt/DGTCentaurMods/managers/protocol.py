@@ -71,6 +71,17 @@ class ProtocolManager:
         # Game manager (injected dependency)
         self.game_manager = game_manager
         
+        # Original player saved when remote client takes over.
+        # Used to restore the player when remote client disconnects.
+        # Tuple of (color, original_player) or None if no swap has occurred.
+        self._original_player: Optional[tuple] = None
+        
+        # Protocol detection flags (set by RemoteController callback)
+        self.is_millennium = False
+        self.is_pegasus = False
+        self.is_chessnut = False
+        self.client_type = self.CLIENT_UNKNOWN
+        
         log.info(f"[ProtocolManager] Initialized")
     
     def _setup_lichess_callbacks(self):
@@ -268,36 +279,96 @@ class ProtocolManager:
         return self.is_millennium or self.is_pegasus or self.is_chessnut or self.is_lichess
 
     def on_app_connected(self):
-        """Called when an app connects - pause local player moves.
+        """Called when a BLE app connects.
         
-        Sets the remote client active flag in GameManager to prevent
-        engine players from computing moves. The remote app now controls
-        the game flow.
+        Clears any pending engine moves to prepare for remote control.
+        The actual player swap happens in on_protocol_detected() when
+        the protocol type is identified.
         """
-        log.info("[ProtocolManager] App connected - local players paused")
-        
-        # Tell GameManager to pause local engine players
-        if self.game_manager:
-            self.game_manager.set_remote_client_active(True)
+        log.info("[ProtocolManager] App connected - clearing pending moves")
         
         # Clear any pending engine moves so they don't interfere
         if self._player_manager:
             self._player_manager.clear_pending_moves()
     
-    def on_app_disconnected(self):
-        """Called when app disconnects - resume local players.
+    def on_protocol_detected(self, client_type: str):
+        """Called when a BLE protocol is detected.
         
-        Clears the remote client active flag in GameManager so engine
-        players can resume computing moves. Then requests a move from
-        the current player.
+        Swaps the engine player with a HumanPlayer named after the remote
+        client type (Millennium, Pegasus, Chessnut). This allows the remote
+        app to control the game - any legal move made on the board is accepted.
+        
+        Args:
+            client_type: The detected protocol type (CLIENT_MILLENNIUM, etc.)
+        """
+        from DGTCentaurMods.players import HumanPlayer, EnginePlayer
+        from DGTCentaurMods.players.human import HumanPlayerConfig
+        
+        # Map client type to display name
+        client_names = {
+            self.CLIENT_MILLENNIUM: "Millennium",
+            self.CLIENT_PEGASUS: "Pegasus",
+            self.CLIENT_CHESSNUT: "Chessnut",
+        }
+        client_name = client_names.get(client_type, client_type)
+        
+        # Set protocol detection flags
+        self.client_type = client_type
+        self.is_millennium = (client_type == self.CLIENT_MILLENNIUM)
+        self.is_pegasus = (client_type == self.CLIENT_PEGASUS)
+        self.is_chessnut = (client_type == self.CLIENT_CHESSNUT)
+        
+        log.info(f"[ProtocolManager] Protocol detected: {client_name}")
+        
+        if not self._player_manager:
+            log.warning("[ProtocolManager] No player manager - cannot swap player")
+            return
+        
+        # Find engine player and swap with human player
+        # Remote apps typically control the engine side (Black in Human vs Engine games)
+        for color in [chess.BLACK, chess.WHITE]:
+            player = self._player_manager.get_player(color)
+            if isinstance(player, EnginePlayer):
+                # Create a HumanPlayer with the remote client's name
+                config = HumanPlayerConfig(name=client_name)
+                remote_player = HumanPlayer(config)
+                
+                # Swap the player
+                original_player = self._player_manager.set_player(color, remote_player)
+                
+                # Store original player for restoration on disconnect
+                self._original_player = (color, original_player)
+                
+                color_name = "White" if color == chess.WHITE else "Black"
+                log.info(f"[ProtocolManager] Swapped {original_player.name} with {client_name} for {color_name}")
+                break
+        else:
+            log.debug("[ProtocolManager] No engine player to swap - already human vs human")
+    
+    def on_app_disconnected(self):
+        """Called when app disconnects - restore original player.
+        
+        Restores the original engine player that was swapped out when the
+        remote client connected. Then requests a move from the current player.
         
         Emulator recreation is now handled by ControllerManager/RemoteController.
         """
-        log.info("[ProtocolManager] App disconnected - local players may resume")
+        log.info("[ProtocolManager] App disconnected - restoring local player")
         
-        # Tell GameManager to resume local engine players
-        if self.game_manager:
-            self.game_manager.set_remote_client_active(False)
+        # Restore original player if one was swapped
+        if self._original_player and self._player_manager:
+            color, original_player = self._original_player
+            
+            # Get current player name for logging
+            current_player = self._player_manager.get_player(color)
+            
+            # Swap back to original player
+            self._player_manager.set_player(color, original_player)
+            
+            color_name = "White" if color == chess.WHITE else "Black"
+            log.info(f"[ProtocolManager] Restored {original_player.name} for {color_name} (was {current_player.name})")
+            
+            self._original_player = None
         
         # Reset protocol detection flags
         self.is_millennium = False
@@ -307,6 +378,23 @@ class ProtocolManager:
         
         # Request move from current player
         self._request_current_player_move()
+    
+    def _request_current_player_move(self) -> None:
+        """Request a move from the current player.
+        
+        Called after restoring a player when remote client disconnects.
+        Triggers the engine to start computing a move if it's the engine's turn.
+        """
+        if not self._player_manager:
+            return
+        
+        if not self._player_manager.is_ready:
+            return
+        
+        if not self.game_manager:
+            return
+        
+        self._player_manager.request_move(self.game_manager.chess_board)
     
     def cleanup(self):
         """Clean up resources including players, assistants, and game manager."""

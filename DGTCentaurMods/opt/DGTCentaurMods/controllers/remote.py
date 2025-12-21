@@ -62,6 +62,22 @@ class RemoteController(GameController):
         # Compare mode for relay
         self._compare_mode = False
         self._pending_response = None
+        
+        # Callback for protocol detection notification
+        self._protocol_detected_callback: Optional[Callable[[str], None]] = None
+    
+    def set_protocol_detected_callback(self, callback: Optional[Callable[[str], None]]) -> None:
+        """Set callback for when a protocol is detected.
+        
+        Called once when the protocol (Millennium, Pegasus, Chessnut) is first
+        detected from incoming data. Used to swap engine players to human players
+        for remote-controlled games.
+        
+        Args:
+            callback: Function(client_type) called when protocol is detected.
+                      client_type is one of CLIENT_MILLENNIUM, CLIENT_PEGASUS, CLIENT_CHESSNUT.
+        """
+        self._protocol_detected_callback = callback
     
     def set_client_type_hint(self, hint: Optional[str]) -> None:
         """Set a hint for the expected client type.
@@ -282,7 +298,11 @@ class RemoteController(GameController):
             ]
     
     def _set_detected_protocol(self, client_type: str) -> None:
-        """Set the detected protocol and free unused emulators."""
+        """Set the detected protocol and free unused emulators.
+        
+        Also fires the protocol detection callback if set, allowing
+        ProtocolManager to swap engine players to human players.
+        """
         if client_type == CLIENT_MILLENNIUM:
             self._is_millennium = True
             self._pegasus = None
@@ -295,6 +315,10 @@ class RemoteController(GameController):
             self._is_chessnut = True
             self._millennium = None
             self._pegasus = None
+        
+        # Notify listener that protocol was detected
+        if self._protocol_detected_callback:
+            self._protocol_detected_callback(client_type)
     
     def _reset_protocol_detection(self) -> None:
         """Reset protocol detection for new connection."""
