@@ -195,7 +195,11 @@ class Manager:
         """Clear all widgets and background from the display.
         
         Stops all widget background threads, clears the widget list, clears
-        the background, and clears any pending refresh requests to prevent stale updates.
+        the background, and performs a full refresh to eliminate e-paper ghosting.
+        
+        E-paper displays retain pixel state from previous content during partial
+        refreshes. A full refresh is required to completely clear artifacts from
+        dithered backgrounds (like splash screens) when transitioning to new content.
         
         Callers that want a dithered background should call set_background() after this.
         """
@@ -216,6 +220,9 @@ class Manager:
         
         # Clear background to revert to plain white
         self._background = None
+        
+        # Force full refresh to clear e-paper ghosting from previous content
+        self.update(full=True)
         
         # Create and add status bar widget
         if addStatusBar:
