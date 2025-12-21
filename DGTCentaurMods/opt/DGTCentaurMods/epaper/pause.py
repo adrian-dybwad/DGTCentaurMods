@@ -30,31 +30,33 @@ class PauseWidget(Widget):
         """
         super().__init__(x=x, y=y, width=width, height=height, update_callback=update_callback)
         self._text_widget = TextWidget(
-            x=0, y=60, width=width, height=30, update_callback=update_callback,
+            x=0, y=60, width=width, height=30, update_callback=self._handle_child_update,
             text="PAUSED", font_size=24,
             justify=Justify.CENTER, transparent=True
         )
     
-    def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-        """Draw the pause widget onto the target image.
+    def _handle_child_update(self, full: bool = False, immediate: bool = False):
+        """Handle update requests from child widgets."""
+        return self._update_callback(full, immediate) if self._update_callback else None
+    
+    def render(self, sprite: Image.Image) -> None:
+        """Render the pause widget onto the sprite image.
         
         Args:
-            img: Target PIL Image to draw on
-            draw_x: X coordinate to draw at
-            draw_y: Y coordinate to draw at
+            sprite: Sprite-sized PIL Image to render onto (0,0 is top-left of widget)
         """
         # Draw background first
-        self.draw_background(img, draw_x, draw_y)
+        self.draw_background_on_sprite(sprite)
         
-        draw = ImageDraw.Draw(img)
+        draw = ImageDraw.Draw(sprite)
         
         # Draw pause icon (two vertical bars) centered at top
         bar_width = 12
         bar_height = 50
         gap = 16
         total_width = bar_width * 2 + gap
-        start_x = draw_x + (self.width - total_width) // 2
-        start_y = draw_y + 5
+        start_x = (self.width - total_width) // 2
+        start_y = 5
         
         # Left bar
         draw.rectangle([start_x, start_y, start_x + bar_width, start_y + bar_height], fill=0)
@@ -63,4 +65,4 @@ class PauseWidget(Widget):
                        start_x + bar_width * 2 + gap, start_y + bar_height], fill=0)
         
         # Draw "PAUSED" text below
-        self._text_widget.draw_on(img, draw_x, draw_y + 60)
+        self._text_widget.draw_on(sprite, 0, 60)
