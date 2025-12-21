@@ -978,8 +978,11 @@ def _resume_game(game_data: dict) -> bool:
         
         log.info(f"[Resume] Resuming game {game_data['id']}...")
         
-        # Start game mode with the resume position FEN so display shows correct position immediately
-        _start_game_mode(starting_fen=game_data['fen'])
+        # Start game mode from standard starting position
+        # Moves will be replayed to reach the resumed position
+        # Do NOT pass starting_fen here - that would skip to the final position
+        # before move replay, causing move replay to fail
+        _start_game_mode()
         
         if protocol_manager is None or protocol_manager.game_manager is None:
             log.error("[Resume] Failed to start game mode")
@@ -992,6 +995,7 @@ def _resume_game(game_data: dict) -> bool:
         
         # Get game state for proper mutation with observer notification
         from DGTCentaurMods.state import get_chess_game
+        from DGTCentaurMods.state.chess_game import ChessGameState
         game_state = get_chess_game()
         
         # Replay all the moves to get to the current position
@@ -1030,7 +1034,7 @@ def _resume_game(game_data: dict) -> bool:
         expected_logical_state = gm._chess_board_to_state(gm.chess_board)
         
         if current_physical_state is not None and expected_logical_state is not None:
-            if not gm._validate_board_state(current_physical_state, expected_logical_state):
+            if not ChessGameState.states_match(current_physical_state, expected_logical_state):
                 log.warning("[Resume] Physical board does not match resumed position, entering correction mode")
                 gm._enter_correction_mode()
                 gm._provide_correction_guidance(current_physical_state, expected_logical_state)
@@ -1194,6 +1198,7 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
         # Set the board to the loaded position using game state
         # This ensures observers (ChessBoardWidget) are notified
         from DGTCentaurMods.state import get_chess_game
+        from DGTCentaurMods.state.chess_game import ChessGameState
         game_state = get_chess_game()
         game_state.set_position(fen)
         
@@ -1204,7 +1209,7 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
         expected_logical_state = gm._chess_board_to_state(gm.chess_board)
         
         if current_physical_state is not None and expected_logical_state is not None:
-            if not gm._validate_board_state(current_physical_state, expected_logical_state):
+            if not ChessGameState.states_match(current_physical_state, expected_logical_state):
                 log.info("[Positions] Physical board does not match position, entering correction mode")
                 board.beep(board.SOUND_GENERAL, event_type='game_event')
                 
