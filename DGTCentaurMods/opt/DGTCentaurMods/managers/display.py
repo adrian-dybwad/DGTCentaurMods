@@ -261,13 +261,16 @@ class DisplayManager:
         board.display_manager.clear_widgets()
 
         # Create chess board widget at y=16 (below status bar)
-        # Uses cached sprites from preload_sprites() if available
-        # Game state is the authoritative source for position
+        # Widget subscribes to game_state and updates automatically
         self.chess_board_widget = _ChessBoardWidget(
             0, 16, board.display_manager.update,
-            fen=self._game_state.fen,
+            game_state=self._game_state,
             flip=self._flip_board
         )
+        
+        # Subscribe to game state for analysis and clock updates
+        # (ChessBoardWidget handles its own position updates)
+        self._game_state.on_position_change(self._on_position_change)
         
         # Always add board widget, but hide if show_board=False
         board.display_manager.add_widget(self.chess_board_widget)
@@ -378,15 +381,15 @@ class DisplayManager:
         self._key_callback = callback
     
     def update_position(self, fen: str):
-        """Update the chess board display with a new position.
+        """Manually update the chess board display with a new position.
         
-        Note: The game state (ChessGameState) is the authoritative source.
-        This method just updates the widget display to match.
+        Normally the ChessBoardWidget observes ChessGameState and updates
+        automatically. Use this method only for edge cases where the game
+        state hasn't been updated yet (e.g., game resume, position loading).
         
         Args:
             fen: FEN string of the new position
         """
-        # No need to store - game state is the source of truth
         if self.chess_board_widget:
             try:
                 self.chess_board_widget.set_fen(fen)
@@ -411,6 +414,28 @@ class DisplayManager:
                 )
             except Exception as e:
                 log.debug(f"[DisplayManager] Error analyzing position: {e}")
+    
+    def _on_position_change(self) -> None:
+        """Handle position change from game state.
+        
+        Called automatically when ChessGameState position changes.
+        Triggers analysis if game is in progress and updates clock turn indicator.
+        
+        Note: ChessBoardWidget subscribes to game state directly and updates itself.
+        """
+        if not self._game_state:
+            return
+        
+        # Trigger analysis only if game has started (has moves)
+        if self._game_state.is_game_in_progress:
+            try:
+                board_copy = chess.Board(self._game_state.fen)
+                self.analyze_position(board_copy)
+            except Exception as e:
+                log.debug(f"[DisplayManager] Error triggering analysis: {e}")
+        
+        # Update clock turn indicator
+        self.set_clock_active(self._game_state.turn_name)
     
     def set_player_names(self, white_name: str, black_name: str) -> None:
         """Set the player names displayed in the clock widget.
@@ -1166,6 +1191,24 @@ class DisplayManager:
                 log.error(f"[DisplayManager] Error joining engine init thread: {e}")
         else:
             log.info("[DisplayManager] Engine init thread not running")
+        
+        # Cleanup chess board widget (unsubscribes from game state)
+        log.info("[DisplayManager] Cleaning up chess board widget...")
+        if self.chess_board_widget:
+            try:
+                self.chess_board_widget.cleanup()
+                log.info("[DisplayManager] Chess board widget cleaned up")
+            except Exception as e:
+                log.debug(f"[DisplayManager] Error cleaning up chess board widget: {e}")
+        
+        # Unsubscribe DisplayManager from game state (for analysis/clock updates)
+        log.info("[DisplayManager] Unsubscribing from game state...")
+        if self._game_state:
+            try:
+                self._game_state.remove_observer(self._on_position_change)
+                log.info("[DisplayManager] Unsubscribed from game state")
+            except Exception as e:
+                log.debug(f"[DisplayManager] Error unsubscribing: {e}")
         
         # Stop clock service
         log.info("[DisplayManager] Stopping clock service...")

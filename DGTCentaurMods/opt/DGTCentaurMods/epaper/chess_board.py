@@ -1,10 +1,15 @@
 """
-Chess board widget displaying a chess position from FEN.
+Chess board widget displaying a chess position.
+
+Subscribes to ChessGameState and updates automatically when position changes.
 """
 
 from PIL import Image, ImageDraw
 from .framework.widget import Widget
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from DGTCentaurMods.state.chess_game import ChessGameState
 
 try:
     from DGTCentaurMods.board.logging import log
@@ -31,28 +36,30 @@ def set_chess_sprites(sprites: Image.Image) -> None:
 
 
 class ChessBoardWidget(Widget):
-    """Chess board widget that renders a position from FEN string.
+    """Chess board widget that renders a position from game state.
     
+    Subscribes to ChessGameState and updates automatically when position changes.
     Chess sprites can be provided directly via constructor or set at module level.
     """
     
-    def __init__(self, x: int, y: int, update_callback, fen: str, flip: bool,
+    def __init__(self, x: int, y: int, update_callback, 
+                 game_state: 'ChessGameState', flip: bool,
                  sprites: Image.Image = None):
         """Initialize chess board widget.
         
-        The widget does not own any game state - all configuration must be
-        provided by the caller. Only sprites has a fallback (module-level).
+        Subscribes to game_state for automatic position updates.
         
         Args:
             x: X position
             y: Y position
             update_callback: Callback to trigger display updates. Must not be None.
-            fen: FEN string for initial position (required)
+            game_state: ChessGameState to observe for position changes.
             flip: If True, flip board (black at bottom) (required)
             sprites: Optional chess piece sprite sheet. If None, uses module-level sprites.
         """
         super().__init__(x, y, 128, 128, update_callback)
-        self.fen = fen
+        self._game_state = game_state
+        self.fen = game_state.fen
         self.flip = flip
         self._min_square_index = 0  # Start rendering from this square
         self._max_square_index = 64  # Render up to this square
@@ -66,6 +73,26 @@ class ChessBoardWidget(Widget):
             log.error("[ChessBoardWidget] No chess sprites provided and none set at module level")
         else:
             self._validate_sprites()
+        
+        # Subscribe to position changes
+        self._game_state.on_position_change(self._on_position_change)
+    
+    def _on_position_change(self) -> None:
+        """Handle position change from game state.
+        
+        Called automatically when ChessGameState position changes.
+        Updates FEN and triggers display refresh.
+        """
+        new_fen = self._game_state.fen
+        if self.fen != new_fen:
+            self.fen = new_fen
+            self.invalidate_cache()
+            self.request_update(full=False)
+    
+    def cleanup(self) -> None:
+        """Unsubscribe from game state when widget is destroyed."""
+        if self._game_state:
+            self._game_state.remove_observer(self._on_position_change)
     
     def _validate_sprites(self):
         """Validate chess sprite dimensions."""

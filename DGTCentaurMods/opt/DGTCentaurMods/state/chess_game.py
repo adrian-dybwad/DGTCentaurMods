@@ -114,6 +114,136 @@ class ChessGameState:
         return None
     
     # -------------------------------------------------------------------------
+    # Board queries (pure computations on current state)
+    # -------------------------------------------------------------------------
+    
+    def get_legal_destinations(self, source_square: int) -> List[int]:
+        """Get legal destination squares for a piece at the given square.
+        
+        Returns all squares where the piece can legally move, including
+        the source square itself (allowing piece to be placed back).
+        
+        Args:
+            source_square: The square index (0-63) of the piece.
+            
+        Returns:
+            List of square indices including source and all legal destinations.
+        """
+        destinations = [source_square]  # Include source (put piece back)
+        for move in self._board.legal_moves:
+            if move.from_square == source_square:
+                destinations.append(move.to_square)
+        return destinations
+    
+    def to_piece_presence_state(self) -> bytearray:
+        """Convert current position to piece presence state.
+        
+        Returns a 64-byte array where each byte is 1 if a piece is present
+        on that square, 0 otherwise. Used for comparing against physical board.
+        
+        Returns:
+            bytearray: 64 bytes representing piece presence (1) or absence (0).
+        """
+        state = bytearray(64)
+        for square in range(64):
+            piece = self._board.piece_at(square)
+            state[square] = 1 if piece is not None else 0
+        return state
+    
+    def get_check_info(self) -> Optional[tuple]:
+        """Get information about check state.
+        
+        Returns:
+            Tuple of (is_black_in_check, attacker_square, king_square) if in check,
+            None if not in check.
+        """
+        if not self._board.is_check():
+            return None
+        
+        side_in_check = self._board.turn
+        king_square = self._board.king(side_in_check)
+        checkers = self._board.checkers()
+        
+        if checkers and king_square is not None:
+            attacker_square = list(checkers)[0]
+            is_black_in_check = (side_in_check == chess.BLACK)
+            return (is_black_in_check, attacker_square, king_square)
+        return None
+    
+    def get_queen_threat_info(self) -> Optional[tuple]:
+        """Get information about queen threat state.
+        
+        Checks if the opponent's queen is under attack by the side to move.
+        
+        Returns:
+            Tuple of (is_black_queen_threatened, attacker_square, queen_square) 
+            if queen is threatened, None otherwise.
+        """
+        side_to_move = self._board.turn
+        opponent_color = not side_to_move
+        
+        queens = self._board.pieces(chess.QUEEN, opponent_color)
+        if not queens:
+            return None
+        
+        queen_square = list(queens)[0]
+        attackers = self._board.attackers(side_to_move, queen_square)
+        
+        if attackers:
+            attacker_square = list(attackers)[0]
+            is_black_queen_threatened = (opponent_color == chess.BLACK)
+            return (is_black_queen_threatened, attacker_square, queen_square)
+        return None
+    
+    # -------------------------------------------------------------------------
+    # Board state comparison utilities
+    # -------------------------------------------------------------------------
+    
+    # Starting position as piece presence state (1 = piece, 0 = empty)
+    # Ranks 1-2 and 7-8 have pieces, ranks 3-6 are empty
+    STARTING_POSITION_STATE = bytearray([
+        1, 1, 1, 1, 1, 1, 1, 1,  # Rank 1 (white pieces)
+        1, 1, 1, 1, 1, 1, 1, 1,  # Rank 2 (white pawns)
+        0, 0, 0, 0, 0, 0, 0, 0,  # Rank 3
+        0, 0, 0, 0, 0, 0, 0, 0,  # Rank 4
+        0, 0, 0, 0, 0, 0, 0, 0,  # Rank 5
+        0, 0, 0, 0, 0, 0, 0, 0,  # Rank 6
+        1, 1, 1, 1, 1, 1, 1, 1,  # Rank 7 (black pawns)
+        1, 1, 1, 1, 1, 1, 1, 1,  # Rank 8 (black pieces)
+    ])
+    
+    @staticmethod
+    def is_starting_position(board_state) -> bool:
+        """Check if a board state represents the starting position.
+        
+        Args:
+            board_state: 64-byte piece presence array.
+            
+        Returns:
+            True if the board is in starting position.
+        """
+        if board_state is None or len(board_state) != 64:
+            return False
+        return bytearray(board_state) == ChessGameState.STARTING_POSITION_STATE
+    
+    @staticmethod
+    def states_match(current_state, expected_state) -> bool:
+        """Compare two board states for equality.
+        
+        Args:
+            current_state: First 64-byte piece presence array.
+            expected_state: Second 64-byte piece presence array.
+            
+        Returns:
+            True if both states represent the same piece positions.
+        """
+        if current_state is None or expected_state is None:
+            return False
+        if len(current_state) != 64 or len(expected_state) != 64:
+            return False
+        return bytearray(current_state) == bytearray(expected_state)
+    
+    # -------------------------------------------------------------------------
     # Observer management
     # -------------------------------------------------------------------------
     

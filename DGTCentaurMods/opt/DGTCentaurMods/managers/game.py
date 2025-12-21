@@ -39,6 +39,7 @@ from DGTCentaurMods.paths import (
 )
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.state import get_chess_game
+from DGTCentaurMods.state.chess_game import ChessGameState
 
 # Deferred imports - these are slow (~3s total on Raspberry Pi) and loaded in background
 # to avoid blocking startup. They're only needed when a game actually starts.
@@ -173,19 +174,6 @@ CENTER_SQUARES = {chess.D4, chess.D5, chess.E4, chess.E5}
 
 # Game constants
 STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-
-# Starting position: pieces on ranks 1, 2, 7, 8 (squares 0-15 and 48-63)
-STARTING_POSITION_STATE = bytearray(
-    b'\x01\x01\x01\x01\x01\x01\x01\x01'  # Rank 1 (squares 0-7)
-    b'\x01\x01\x01\x01\x01\x01\x01\x01'  # Rank 2 (squares 8-15)
-    b'\x00\x00\x00\x00\x00\x00\x00\x00'  # Rank 3 (squares 16-23)
-    b'\x00\x00\x00\x00\x00\x00\x00\x00'  # Rank 4 (squares 24-31)
-    b'\x00\x00\x00\x00\x00\x00\x00\x00'  # Rank 5 (squares 32-39)
-    b'\x00\x00\x00\x00\x00\x00\x00\x00'  # Rank 6 (squares 40-47)
-    b'\x01\x01\x01\x01\x01\x01\x01\x01'  # Rank 7 (squares 48-55)
-    b'\x01\x01\x01\x01\x01\x01\x01\x01'  # Rank 8 (squares 56-63)
-)
-
 
 class MoveState:
     """Tracks the state of a move in progress.
@@ -473,45 +461,24 @@ class GameManager:
         self._task_worker_thread.start()
         log.debug("[GameManager] Task worker thread started")
     
-    def _is_starting_position(self, board_state) -> bool:
-        """Check if the board is in the starting position."""
-        if board_state is None or len(board_state) != BOARD_SIZE:
-            return False
-        return bytearray(board_state) == STARTING_POSITION_STATE
-    
-    def _chess_board_to_state(self, chess_board: chess.Board) -> bytearray:
-        """Convert chess board object to board state bytearray.
+    def _chess_board_to_state(self, chess_board: chess.Board = None) -> bytearray:
+        """Convert chess board to piece presence state.
         
         Args:
-            chess_board: The chess.Board object representing the logical game state
+            chess_board: Optional chess.Board. If None, uses current game state.
             
         Returns:
-            bytearray: Board state where 1 indicates a piece is present, 0 indicates empty
-            
-        Raises:
-            ValueError: If chess_board is None or invalid
+            bytearray: 64 bytes where 1 = piece present, 0 = empty.
         """
-        if chess_board is None:
-            raise ValueError("chess_board cannot be None")
+        if chess_board is None or chess_board is self.chess_board:
+            return self._game_state.to_piece_presence_state()
         
+        # For a different board (e.g., board_copy), compute directly
         state = bytearray(BOARD_SIZE)
-        try:
-            for square in range(BOARD_SIZE):
-                piece = chess_board.piece_at(square)
-                state[square] = 1 if piece is not None else 0
-        except Exception as e:
-            log.error(f"[GameManager._chess_board_to_state] Error converting chess board to state: {e}")
-            raise ValueError(f"Failed to convert chess board to state: {e}") from e
-        
+        for square in range(BOARD_SIZE):
+            piece = chess_board.piece_at(square)
+            state[square] = 1 if piece is not None else 0
         return state
-    
-    def _validate_board_state(self, current_state, expected_state) -> bool:
-        """Validate board state by comparing piece presence."""
-        if current_state is None or expected_state is None:
-            return False
-        if len(current_state) != BOARD_SIZE or len(expected_state) != BOARD_SIZE:
-            return False
-        return bytearray(current_state) == bytearray(expected_state)
     
     def _uci_to_squares(self, uci_move: str):
         """Convert UCI move string to square indices."""
@@ -520,18 +487,6 @@ class GameManager:
         from_square = ((ord(uci_move[1:2]) - ord("1")) * BOARD_WIDTH) + (ord(uci_move[0:1]) - ord("a"))
         to_square = ((ord(uci_move[3:4]) - ord("1")) * BOARD_WIDTH) + (ord(uci_move[2:3]) - ord("a"))
         return from_square, to_square
-    
-    def _calculate_legal_squares(self, source_square: int) -> list:
-        """Calculate legal destination squares for a piece at the given square.
-        
-        Returns all legal chess moves from this square, regardless of player type.
-        All moves are validated against chess rules - even engine moves should be legal.
-        """
-        legal_destinations = [source_square]  # Include source square (put piece back)
-        for move in self.chess_board.legal_moves:
-            if move.from_square == source_square:
-                legal_destinations.append(move.to_square)
-        return legal_destinations
     
     def _switch_turn_with_event(self):
         """Trigger appropriate event callback and prompt current player.
@@ -670,14 +625,13 @@ class GameManager:
             return False
         
         # Get expected previous state from logical chess board (the authority)
+        # Use a copy to avoid modifying the actual board during check
         previous_state = None
         try:
-            # Temporarily pop the last move to get previous position
-            last_move = self.chess_board.pop()
-            previous_state = self._chess_board_to_state(self.chess_board)
-            # Push the move back to restore state
-            self.chess_board.push(last_move)
-            log.debug("[GameManager._check_takeback] Reconstructed previous state from logical chess board")
+            board_copy = self.chess_board.copy()
+            board_copy.pop()
+            previous_state = self._chess_board_to_state(board_copy)
+            log.debug("[GameManager._check_takeback] Reconstructed previous state from logical chess board copy")
         except Exception as e:
             log.error(f"[GameManager._check_takeback] Failed to reconstruct previous state from chess board: {e}")
             return False
@@ -687,7 +641,7 @@ class GameManager:
             return False
         
         # Check if current board state matches previous state
-        if self._validate_board_state(current_state, previous_state):
+        if ChessGameState.states_match(current_state, previous_state):
             log.info("[GameManager._check_takeback] Takeback detected - board state matches previous state")
             board.ledsOff()
             
@@ -704,8 +658,7 @@ class GameManager:
                     self.database_session.delete(db_last_move)
                     self.database_session.commit()
             
-            self.chess_board.pop()
-            self._game_state.notify_position_change()
+            self._game_state.pop_move()  # Notifies observers automatically
             board.beep(board.SOUND_GENERAL, event_type='game_event')
             
             self.takeback_callback()
@@ -738,7 +691,7 @@ class GameManager:
             current = board.getChessStateLowPriority()
             if current is not None:
                 expected_state = self._chess_board_to_state(self.chess_board)
-                if expected_state is not None and not self._validate_board_state(current, expected_state):
+                if expected_state is not None and not ChessGameState.states_match(current, expected_state):
                     log.info("[GameManager._check_takeback] Board state incorrect after takeback, entering correction mode")
                     self._enter_correction_mode()
                     self._provide_correction_guidance(current, expected_state)
@@ -999,7 +952,7 @@ class GameManager:
         # Check if board is in starting position (new game detection)
         # If starting position is detected, abandon current game and start fresh
         if current_physical_state is not None and len(current_physical_state) == BOARD_SIZE:
-            if self._is_starting_position(current_physical_state):
+            if ChessGameState.is_starting_position(current_physical_state):
                 log.warning("[GameManager._handle_field_event_in_correction_mode] Starting position detected during correction mode - abandoning current game and starting new game")
                 # Exit correction mode first (this will clean up correction state)
                 self._exit_correction_mode()
@@ -1015,7 +968,7 @@ class GameManager:
             log.error("[GameManager._handle_field_event_in_correction_mode] Cannot validate: failed to get logical board state")
             return
         
-        if current_physical_state is not None and self._validate_board_state(current_physical_state, expected_logical_state):
+        if current_physical_state is not None and ChessGameState.states_match(current_physical_state, expected_logical_state):
             log.info("[GameManager._handle_field_event_in_correction_mode] Physical board now matches logical board, exiting correction mode")
             board.beep(board.SOUND_GENERAL, event_type='game_event')
             self._exit_correction_mode()
@@ -1218,7 +1171,7 @@ class GameManager:
                self.move_state.source_square < 0 and \
                is_current_player_piece:
                 # Generate legal destination squares for this piece
-                self.move_state.legal_destination_squares = self._calculate_legal_squares(field)
+                self.move_state.legal_destination_squares = self._game_state.get_legal_destinations(field)
                 self.move_state.source_square = field
                 # Store piece color for use during PLACE event (important for captures)
                 self.move_state.source_piece_color = piece_color
@@ -1313,7 +1266,7 @@ class GameManager:
             # Rook is being moved somewhere - treat as a regular rook move
             # Set source_square so _execute_move can process it
             self.move_state.source_square = self.move_state.castling_rook_source
-            self.move_state.legal_destination_squares = self._calculate_legal_squares(self.move_state.castling_rook_source)
+            self.move_state.legal_destination_squares = self._game_state.get_legal_destinations(self.move_state.castling_rook_source)
             
             # Track that this was a potential castling rook move (for late castling detection)
             if self.move_state.is_valid_rook_castling_destination(
@@ -1476,9 +1429,9 @@ class GameManager:
         # Extract king's destination for LED feedback
         king_dest = chess.parse_square(castling_uci[2:4])
         
-        # Push the castling move to the chess board
+        # Push the castling move via game state (notifies observers)
         try:
-            self.chess_board.push(move)
+            self._game_state.push_move(move)
         except (ValueError, AssertionError) as e:
             log.error(f"[GameManager._execute_castling_move] Failed to push castling move: {e}")
             board.beep(board.SOUND_WRONG_MOVE, event_type='error')
@@ -1548,7 +1501,7 @@ class GameManager:
                 except Exception:
                     pass
         
-        self._game_state.notify_position_change()  # Notify observers (writes FEN log)
+        # Note: _game_state.push_move() already notified observers
         
         # Call move callback to update display
         if self.move_callback is not None:
@@ -1648,11 +1601,12 @@ class GameManager:
         
         log.info(f"[GameManager._execute_late_castling] Undoing {moves_to_undo} move(s) to correct castling")
         
-        # Undo the moves
+        # Undo the moves via game state (notifies observers)
         for i in range(moves_to_undo):
-            undone_move = self.chess_board.pop()
-            undone_moves.append(undone_move)
-            log.info(f"[GameManager._execute_late_castling] Undone move: {undone_move.uci()}")
+            undone_move = self._game_state.pop_move()
+            if undone_move:
+                undone_moves.append(undone_move)
+                log.info(f"[GameManager._execute_late_castling] Undone move: {undone_move.uci()}")
             
             # Remove from database
             if self.database_session is not None:
@@ -1672,9 +1626,9 @@ class GameManager:
             castling_move = chess.Move.from_uci(castling_uci)
             if castling_move not in self.chess_board.legal_moves:
                 log.error(f"[GameManager._execute_late_castling] Castling {castling_uci} not legal after undo")
-                # Restore the moves we undid
+                # Restore the moves we undid via game state
                 for move in reversed(undone_moves):
-                    self.chess_board.push(move)
+                    self._game_state.push_move(move)
                 board.beep(board.SOUND_WRONG_MOVE, event_type='error')
                 self._enter_correction_mode()
                 current_state = board.getChessState()
@@ -1689,9 +1643,9 @@ class GameManager:
             self.move_state.reset()
             return
         
-        # Execute the castling move
+        # Execute the castling move via game state (notifies observers)
         try:
-            self.chess_board.push(castling_move)
+            self._game_state.push_move(castling_move)
         except (ValueError, AssertionError) as e:
             log.error(f"[GameManager._execute_late_castling] Failed to push castling: {e}")
             board.beep(board.SOUND_WRONG_MOVE, event_type='error')
@@ -1719,7 +1673,7 @@ class GameManager:
             except Exception as db_error:
                 log.error(f"[GameManager._execute_late_castling] Database error: {db_error}")
         
-        self._game_state.notify_position_change()  # Notify observers (writes FEN log)
+        # Note: _game_state.push_move() already notified observers
         
         # Call move callback to update display
         if self.move_callback is not None:
@@ -1818,10 +1772,10 @@ class GameManager:
         fen_before_move = str(self.chess_board.fen())
         is_first_move = self.game_db_id < 0
         
-        # CRITICAL PATH: Push move to chess engine
+        # CRITICAL PATH: Push move via game state (notifies observers)
         # This is the only truly critical operation - must succeed before any feedback
         try:
-            self.chess_board.push(move)
+            self._game_state.push_move(move)
         except (ValueError, AssertionError) as e:
             log.error(f"[GameManager._execute_move] Illegal move or chess engine push failed: {move_uci}. Error: {e}")
             board.beep(board.SOUND_WRONG_MOVE, event_type='error')
@@ -1955,7 +1909,7 @@ class GameManager:
                         except Exception:
                             pass
                 
-                self._game_state.notify_position_change()
+                # Note: _game_state.push_move() in _execute_move already notified observers
                 
                 # 3. Move callback (updates display, forwards to emulators)
                 if self.move_callback is not None:
@@ -1982,7 +1936,7 @@ class GameManager:
                         if current_physical_state is not None:
                             expected_logical_state = self._chess_board_to_state(self.chess_board)
                             if expected_logical_state is not None:
-                                if not self._validate_board_state(current_physical_state, expected_logical_state):
+                                if not ChessGameState.states_match(current_physical_state, expected_logical_state):
                                     log.warning(f"[GameManager.async] Physical board mismatch after {move_uci}, entering correction mode")
                                     self._enter_correction_mode()
                                     self._provide_correction_guidance(current_physical_state, expected_logical_state)
@@ -2050,7 +2004,7 @@ class GameManager:
             
             # Check if board is now correct (pieces returned to position)
             if current_state is not None and expected_state is not None:
-                if self._validate_board_state(current_state, expected_state):
+                if ChessGameState.states_match(current_state, expected_state):
                     log.info("[GameManager.receive_field] Board corrected while resign menu active - cancelling menu")
                     if self._kings_in_center_menu_active:
                         self._kings_in_center_menu_active = False
@@ -2135,7 +2089,7 @@ class GameManager:
         current_state = board.getChessState()
         
         # Check for starting position
-        if self._is_starting_position(current_state):
+        if ChessGameState.is_starting_position(current_state):
             log.info("[GameManager._handle_piece_event_without_player] Starting position detected")
             self._reset_game()
             return
@@ -2143,7 +2097,7 @@ class GameManager:
         # Check if board matches current game state
         expected_state = self._chess_board_to_state(self.chess_board)
         if expected_state is not None and current_state is not None:
-            if self._validate_board_state(current_state, expected_state):
+            if ChessGameState.states_match(current_state, expected_state):
                 log.debug("[GameManager._handle_piece_event_without_player] Board matches game state")
                 board.ledsOff()
                 return
@@ -2244,9 +2198,9 @@ class GameManager:
         fen_before_move = str(self.chess_board.fen())
         is_first_move = self.game_db_id < 0
         
-        # CRITICAL PATH: Push move to chess engine
+        # CRITICAL PATH: Push move via game state (notifies observers)
         try:
-            self.chess_board.push(move)
+            self._game_state.push_move(move)
         except (ValueError, AssertionError) as e:
             log.error(f"[GameManager._execute_complete_move] Chess engine push failed: {move_uci}. Error: {e}")
             board.beep(board.SOUND_WRONG_MOVE, event_type='error')
@@ -2261,7 +2215,7 @@ class GameManager:
         # Capture state needed for async operations
         fen_after_move = str(self.chess_board.fen())
         
-        self._game_state.notify_position_change()
+        # Note: _game_state.push_move() already notified observers
         
         # Check game outcome
         game_ended = False
@@ -2519,7 +2473,7 @@ class GameManager:
         if error_type == "place_without_lift":
             # Check for starting position first
             current_state = board.getChessState()
-            if self._is_starting_position(current_state):
+            if ChessGameState.is_starting_position(current_state):
                 log.info("[GameManager._on_player_error] Starting position detected - resetting game")
                 self._reset_game()
                 return
@@ -2611,13 +2565,13 @@ class GameManager:
                 last_move = self.chess_board.peek()
                 if last_move.from_square == rook_from and last_move.to_square == rook_to:
                     # This is late castling - undo the rook move and check if castling is legal
-                    self.chess_board.pop()
+                    self._game_state.pop_move()  # Notifies observers
                     castling_move = chess.Move.from_uci(castling_uci)
                     if castling_move in self.chess_board.legal_moves:
                         return castling_move
                     else:
                         # Castling not legal even before the rook move - put it back
-                        self.chess_board.push(last_move)
+                        self._game_state.push_move(last_move)  # Notifies observers
                         return None
         
         return None
@@ -2770,7 +2724,7 @@ class GameManager:
             
             # Step 4: Reset all game state
             self.move_state.reset()  # Clear move state (source square, legal moves, forced moves, etc.)
-            self.chess_board.reset()  # Reset logical board to starting position
+            self._game_state.reset()  # Reset to starting position (notifies observers)
             self.cached_result = None  # Clear cached game result
             
             # Step 5: Reset UI state
@@ -2791,7 +2745,7 @@ class GameManager:
             self.game_db_id = -1
             log.info("[GameManager._reset_game] Reset game_db_id to -1 - new game will be created on first move")
             
-            self._game_state.notify_position_change()
+            # Note: _game_state.reset() already notified observers
             
             # Step 10: Notify callbacks of new game (but don't create DB entry yet)
             # Note: Do NOT fire turn event here - clock should only start on first actual move.
@@ -2812,7 +2766,7 @@ class GameManager:
             # Try to ensure at least basic cleanup happens even on error
             try:
                 self.move_state.reset()
-                self.chess_board.reset()
+                self._game_state.reset()  # Reset via game state
                 self.game_db_id = -1
                 board.ledsOff()
                 if self.correction_mode.is_active:
@@ -2969,46 +2923,22 @@ class GameManager:
         """
         try:
             # Check if opponent is in check
-            if self.chess_board.is_check():
-                # Current side to move is in check
-                side_in_check = self.chess_board.turn  # chess.WHITE or chess.BLACK
-                is_black_in_check = (side_in_check == chess.BLACK)
-                
-                # Find the king that's in check
-                king_square = self.chess_board.king(side_in_check)
-                
-                # Find one of the pieces giving check (checkers returns SquareSet)
-                checkers = self.chess_board.checkers()
-                if checkers and king_square is not None:
-                    # Get the first (or only) checker
-                    attacker_square = list(checkers)[0]
-                    
-                    log.info(f"[GameManager._detect_check_and_threats] CHECK: {'Black' if is_black_in_check else 'White'} king in check at {chess.square_name(king_square)} by piece at {chess.square_name(attacker_square)}")
-                    
-                    if self.display_bridge:
-                        self.display_bridge.show_check_alert(is_black_in_check, attacker_square, king_square)
-                    return
+            check_info = self._game_state.get_check_info()
+            if check_info:
+                is_black_in_check, attacker_square, king_square = check_info
+                log.info(f"[GameManager._detect_check_and_threats] CHECK: {'Black' if is_black_in_check else 'White'} king in check at {chess.square_name(king_square)} by piece at {chess.square_name(attacker_square)}")
+                if self.display_bridge:
+                    self.display_bridge.show_check_alert(is_black_in_check, attacker_square, king_square)
+                return
             
             # No check - check if opponent's queen is under attack
-            side_to_move = self.chess_board.turn
-            opponent_color = not side_to_move  # Opponent's pieces
-            
-            # Find opponent's queen
-            queens = self.chess_board.pieces(chess.QUEEN, opponent_color)
-            if queens:
-                queen_square = list(queens)[0]  # Get first queen
-                
-                # Check if queen is attacked by current side to move
-                attackers = self.chess_board.attackers(side_to_move, queen_square)
-                if attackers:
-                    attacker_square = list(attackers)[0]
-                    is_black_queen_threatened = (opponent_color == chess.BLACK)
-                    
-                    log.info(f"[GameManager._detect_check_and_threats] QUEEN THREAT: {'Black' if is_black_queen_threatened else 'White'} queen at {chess.square_name(queen_square)} attacked by piece at {chess.square_name(attacker_square)}")
-                    
-                    if self.display_bridge:
-                        self.display_bridge.show_queen_threat(is_black_queen_threatened, attacker_square, queen_square)
-                    return
+            threat_info = self._game_state.get_queen_threat_info()
+            if threat_info:
+                is_black_queen_threatened, attacker_square, queen_square = threat_info
+                log.info(f"[GameManager._detect_check_and_threats] QUEEN THREAT: {'Black' if is_black_queen_threatened else 'White'} queen at {chess.square_name(queen_square)} attacked by piece at {chess.square_name(attacker_square)}")
+                if self.display_bridge:
+                    self.display_bridge.show_queen_threat(is_black_queen_threatened, attacker_square, queen_square)
+                return
             
             # No check or queen threat - clear any existing alert
             if self.display_bridge:
@@ -3071,12 +3001,18 @@ class GameManager:
         return "Unknown"
     
     def get_board(self):
-        """Get the current chess board state."""
-        return self.chess_board
+        """Get the current chess board state.
+        
+        Prefer using game_state.board directly when possible.
+        """
+        return self._game_state.board
     
     def get_fen(self) -> str:
-        """Get current board position as FEN string."""
-        return self.chess_board.fen()
+        """Get current board position as FEN string.
+        
+        Prefer using game_state.fen directly when possible.
+        """
+        return self._game_state.fen
     
     def subscribe_game(self, event_callback, move_callback, key_callback, takeback_callback=None):
         """Subscribe to the game manager.

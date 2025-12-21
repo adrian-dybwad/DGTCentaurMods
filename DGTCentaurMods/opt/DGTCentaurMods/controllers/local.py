@@ -263,8 +263,8 @@ class LocalController(GameController):
         Triggers player move requests and assistant suggestions.
         Also notifies external callback for UI updates (analysis reset, clock management).
         
-        Note: Piece lift/place events don't trigger display updates since the 
-        logical position hasn't changed - only actual moves update the display.
+        Note: Display updates happen automatically via ChessGameState observer in
+        DisplayManager - no manual update calls needed here.
         """
         try:
             from DGTCentaurMods.managers.game import EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
@@ -272,14 +272,13 @@ class LocalController(GameController):
             
             log.debug(f"[LocalController] _on_game_event: {event}")
             
-            # Skip display updates for piece lift/place - position hasn't changed
+            # Piece lift/place events don't need special handling - just forward to BT
             if event == EVENT_LIFT_PIECE or event == EVENT_PLACE_PIECE:
-                # Forward to RemoteController for Bluetooth sync
                 if self._event_forward_callback:
                     self._event_forward_callback('game_event', event, piece_event, field, time_seconds)
                 return
             
-            # Notify external handler first (resets analysis, manages clocks, etc.)
+            # Notify external handler (resets analysis on new game, manages clocks)
             if self._external_event_callback:
                 self._external_event_callback(event)
             
@@ -287,14 +286,9 @@ class LocalController(GameController):
                 self.on_new_game()
                 self._request_current_player_move()
                 self._check_assistant_suggestion()
-                # Update display to show starting position
-                # Note: _skip_next_analysis flag in universal.py prevents analysis
-                self._update_display()
             elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
                 self._request_current_player_move()
                 self._check_assistant_suggestion()
-                # Update display with current position
-                self._update_display()
             
             # Forward to RemoteController for Bluetooth sync
             if self._event_forward_callback:

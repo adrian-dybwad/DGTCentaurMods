@@ -990,27 +990,26 @@ def _resume_game(game_data: dict) -> bool:
         # Set the database game ID so updates go to the right record
         gm.game_db_id = game_data['id']
         
+        # Get game state for proper mutation with observer notification
+        from DGTCentaurMods.state import get_chess_game
+        game_state = get_chess_game()
+        
         # Replay all the moves to get to the current position
+        # Use game_state.push_uci() to ensure observers are notified
         for move_uci in game_data['moves']:
             try:
-                move = chess.Move.from_uci(move_uci)
-                if move in gm.chess_board.legal_moves:
-                    gm.chess_board.push(move)
-                else:
-                    log.warning(f"[Resume] Illegal move in history: {move_uci}")
+                game_state.push_uci(move_uci)
+            except ValueError as e:
+                log.warning(f"[Resume] Illegal move in history: {move_uci} - {e}")
             except Exception as move_error:
                 log.warning(f"[Resume] Error replaying move {move_uci}: {move_error}")
         
         # Verify we reached the expected position
-        current_fen = gm.chess_board.fen()
+        current_fen = game_state.fen
         if current_fen != game_data['fen']:
             log.warning(f"[Resume] FEN mismatch after replay. Expected: {game_data['fen']}, Got: {current_fen}")
         
         log.info(f"[Resume] Game resumed successfully at position: {current_fen[:50]}...")
-        
-        # Update the display to show the current position
-        if display_manager:
-            display_manager.update_position(current_fen)
         
         # Restore clock times if available
         white_clock = game_data.get('white_clock')
@@ -1191,14 +1190,13 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
         
         gm = protocol_manager.game_manager
         
-        # Set the board to the loaded position
-        gm.chess_board.set_fen(fen)
+        # Set the board to the loaded position using game state
+        # This ensures observers (ChessBoardWidget) are notified
+        from DGTCentaurMods.state import get_chess_game
+        game_state = get_chess_game()
+        game_state.set_position(fen)
         
-        log.info(f"[Positions] Position loaded: {gm.chess_board.fen()}")
-        
-        # Update the display to show the position
-        if display_manager:
-            display_manager.update_position(gm.chess_board.fen())
+        log.info(f"[Positions] Position loaded: {game_state.fen}")
         
         # Check if physical board matches the loaded position
         current_physical_state = board.getChessState()
@@ -1688,35 +1686,17 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
              f"analysis={_game_settings['show_analysis']}, "
              f"graph={_game_settings['show_graph']})")
 
-    # Display update callback for ProtocolManager
-    # Track if analysis should be skipped for next update (after game reset)
-    _skip_next_analysis = False
-    
+    # Display update callback - legacy, kept for ProtocolManager compatibility
+    # Note: DisplayManager now subscribes to ChessGameState directly, so this
+    # callback is rarely needed. Position updates and analysis happen automatically.
     def update_display(fen):
-        """Update display manager with new position.
+        """Manual display update - use only when state observer isn't available.
         
-        Analysis is triggered but runs in a background thread, so it doesn't
-        block move validation or recording. Also updates the clock turn indicator.
-        
-        Note: After game reset, the first analysis is skipped to keep score at 0.0.
+        In normal game flow, DisplayManager observes ChessGameState and updates
+        automatically. This callback exists for edge cases (Bluetooth sync, etc.)
         """
-        nonlocal _skip_next_analysis
         if display_manager:
             display_manager.update_position(fen)
-            # Trigger analysis (runs asynchronously in background thread)
-            try:
-                board_obj = chess.Board(fen)
-                # Skip analysis if flagged (after game reset)
-                if _skip_next_analysis:
-                    _skip_next_analysis = False
-                    log.debug("[App] Skipping analysis after game reset")
-                else:
-                    display_manager.analyze_position(board_obj)
-                # Update clock turn indicator based on whose turn it is
-                current_turn = "white" if board_obj.turn == chess.WHITE else "black"
-                display_manager.set_clock_active(current_turn)
-            except Exception as e:
-                log.debug(f"Error triggering analysis: {e}")
 
     # Back menu result handler
     def _on_back_menu_result(result: str):
@@ -1939,14 +1919,12 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     from DGTCentaurMods.managers import EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
     _clock_started = False
     def _on_game_event(event):
-        nonlocal _clock_started, _skip_next_analysis
+        nonlocal _clock_started
         global _switch_to_normal_game, _is_position_game
         if event == EVENT_NEW_GAME:
             display_manager.reset_analysis()
             display_manager.reset_clock()
             display_manager.clear_pause()
-            # Skip the next analysis to keep score at 0.0 after reset
-            _skip_next_analysis = True
             # Reset clock started flag for new game
             _clock_started = False
             # Set turn indicator to white (new game starts with white to move)
