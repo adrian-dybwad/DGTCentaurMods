@@ -1824,13 +1824,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     # Create remote controller (for Bluetooth app connections)
     controller_manager.create_remote_controller(sendMessage)
     
-    # Activate local controller by default
+    # Activate local controller by default (this starts players)
     controller_manager.activate_local()
-    
-    # Start players
-    if not protocol_manager.start_players():
-        log.error("[App] Failed to start players")
-        # Continue anyway - human players always succeed, engines may take time
     
     # Wire up GameManager callbacks to DisplayManager
     protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)
