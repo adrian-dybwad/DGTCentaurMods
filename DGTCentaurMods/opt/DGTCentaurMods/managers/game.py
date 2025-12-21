@@ -2537,24 +2537,38 @@ class GameManager:
             log.warning("[GameManager._on_player_error] Extra piece on board - entering correction mode")
             board.beep(board.SOUND_WRONG_MOVE, event_type='error')
             self._enter_correction_mode()
+            # Provide correction guidance (current_state already fetched above)
+            expected_state = self._chess_board_to_state(self.chess_board)
+            if current_state is not None and expected_state is not None:
+                self._provide_correction_guidance(current_state, expected_state)
             return
         
         # Other errors (move_mismatch, unknown) - correction mode
         log.warning(f"[GameManager._on_player_error] Error: {error_type} - entering correction mode")
         board.beep(board.SOUND_WRONG_MOVE, event_type='error')
         self._enter_correction_mode()
+        
+        # Provide correction guidance to flash LEDs showing where pieces should be
+        current_state = board.getChessState()
+        expected_state = self._chess_board_to_state(self.chess_board)
+        if current_state is not None and expected_state is not None:
+            self._provide_correction_guidance(current_state, expected_state)
     
     def _on_pending_move(self, move: chess.Move) -> None:
         """Handle pending move from engine/Lichess player.
         
         Called when a non-human player has computed/received a move
         that needs to be executed on the physical board.
-        Lights up the from/to squares as a guide.
+        Sets up the forced move state and lights up the from/to squares as a guide.
         
         Args:
             move: The pending move to display.
         """
         log.info(f"[GameManager._on_pending_move] Pending move: {move.uci()}")
+        
+        # Set up forced move state so correction mode can restore LEDs
+        self.move_state.set_computer_move(move.uci(), forced=True)
+        
         try:
             log.debug(f"[GameManager._on_pending_move] Calling ledFromTo({move.from_square}, {move.to_square})")
             board.ledFromTo(move.from_square, move.to_square, repeat=0)
