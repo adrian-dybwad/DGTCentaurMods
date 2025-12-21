@@ -50,6 +50,8 @@ class LocalController(GameController):
         self._display_update_callback: Optional[Callable] = None
         # Callback to forward game events to RemoteController (for Bluetooth sync)
         self._event_forward_callback: Optional[Callable] = None
+        # Callback for external game event handling (reset analysis, clocks, etc.)
+        self._external_event_callback: Optional[Callable] = None
     
     def set_player_manager(self, player_manager: 'PlayerManager') -> None:
         """Set the player manager.
@@ -113,6 +115,17 @@ class LocalController(GameController):
             callback: Function(event_type, *args) called for each game event.
         """
         self._event_forward_callback = callback
+    
+    def set_external_event_callback(self, callback: Callable) -> None:
+        """Set callback for external game event handling.
+        
+        Called with game events (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
+        to allow external handlers to respond (e.g., reset analysis, clocks).
+        
+        Args:
+            callback: Function(event) called for each game event.
+        """
+        self._external_event_callback = callback
     
     @property
     def player_manager(self) -> Optional['PlayerManager']:
@@ -248,11 +261,16 @@ class LocalController(GameController):
         
         Called by GameManager for events like new game, turn changes.
         Triggers player move requests and assistant suggestions.
+        Also notifies external callback for UI updates (analysis reset, clock management).
         """
         try:
             from DGTCentaurMods.managers.game import EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
             
             log.debug(f"[LocalController] _on_game_event: {event}")
+            
+            # Notify external handler first (resets analysis, manages clocks, etc.)
+            if self._external_event_callback:
+                self._external_event_callback(event)
             
             if event == EVENT_NEW_GAME:
                 self.on_new_game()

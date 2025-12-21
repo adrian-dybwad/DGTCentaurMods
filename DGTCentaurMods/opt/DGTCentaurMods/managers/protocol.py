@@ -84,7 +84,6 @@ class ProtocolManager:
         self._pending_response = None
         self._display_update_callback = display_update_callback
         self._takeback_callback = takeback_callback
-        self._external_event_callback = None  # Optional callback for game events
         
         # Store the hint but don't trust it - always verify from data
         self._client_type_hint = client_type

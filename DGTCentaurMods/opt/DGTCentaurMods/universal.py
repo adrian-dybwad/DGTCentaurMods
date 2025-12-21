@@ -1957,7 +1957,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             log.info(f"[App] Game terminated: {termination_type}, result={result}")
             display_manager.stop_clock()
             display_manager.show_game_over(result, termination_type)
-    protocol_manager._external_event_callback = _on_game_event
+    local_controller.set_external_event_callback(_on_game_event)
     
     # Register controller_manager with ConnectionManager - this also processes any queued data
     _connection_manager.set_controller_manager(controller_manager)
@@ -5404,7 +5404,7 @@ def _start_lichess_game(lichess_config) -> bool:
             _info_overlay.hide()
     
     # Register event callback for clock/turn updates
-    protocol_manager._external_event_callback = _on_lichess_game_event
+    local_controller.set_external_event_callback(_on_lichess_game_event)
     
     # Activate local controller (handles game events via GameManager subscription)
     controller_manager.activate_local()
