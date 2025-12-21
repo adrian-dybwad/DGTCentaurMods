@@ -177,22 +177,34 @@ class ControllerManager:
     # =========================================================================
     
     def on_field_event(self, piece_event: int, field: int, time_seconds: float) -> None:
-        """Route field event to active controller.
+        """Route field event to active controller and GameManager.
         
-        Also forwards to remote controller for sync if it exists,
-        even when local is active (remote may need to sync board state).
+        Field events always go to:
+        1. GameManager for move processing
+        2. Remote controller (if protocol detected) for BLE sync
+        
+        This ensures moves are processed regardless of which controller is active.
         """
-        if self._active:
-            self._active.on_field_event(piece_event, field, time_seconds)
+        # Always forward to GameManager for move processing
+        self._game_manager.receive_field(piece_event, field, time_seconds)
         
-        # If local is active but remote exists, also sync remote
-        if self._active is self._local and self._remote and self._remote.is_protocol_detected:
+        # If remote protocol is detected, also sync with BLE client
+        if self._remote and self._remote.is_protocol_detected:
             self._remote.on_field_event(piece_event, field, time_seconds)
     
     def on_key_event(self, key) -> None:
-        """Route key event to active controller."""
-        if self._active:
-            self._active.on_key_event(key)
+        """Route key event to GameManager and remote controller.
+        
+        Key events always go to:
+        1. GameManager for game control (BACK button, etc.)
+        2. Remote controller (if protocol detected) for BLE sync
+        """
+        # Always forward to GameManager for game control
+        self._game_manager.receive_key(key)
+        
+        # If remote protocol is detected, also sync with BLE client
+        if self._remote and self._remote.is_protocol_detected:
+            self._remote.on_key_event(key)
     
     # =========================================================================
     # Remote Data Handling
