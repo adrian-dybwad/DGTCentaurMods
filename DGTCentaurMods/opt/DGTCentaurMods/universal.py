@@ -1764,20 +1764,36 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         display_manager.switch_clock_turn()
         log.debug("[App] Takeback: removed last analysis score and switched clock")
     
-    # Create ProtocolManager with user-configured settings
-    # Note: Key and field events are routed through universal.py's callbacks
+    # Create GameManager
+    from DGTCentaurMods.managers.game import GameManager
+    game_manager = GameManager(save_to_database=save_to_database)
+    
+    # Create ProtocolManager with GameManager dependency
     protocol_manager = ProtocolManager(
+        game_manager=game_manager,
         sendMessage_callback=sendMessage,
         client_type=None,
         compare_mode=relay_mode,
-        white_player=white_player,
-        black_player=black_player,
         display_update_callback=update_display,
-        save_to_database=save_to_database,
-        suggestion_callback=_on_suggestion if is_hand_brain else None,
         takeback_callback=_on_takeback
     )
-    log.info(f"[App] ProtocolManager created: White={white_player.name}, Black={black_player.name}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
+    
+    # Create PlayerManager
+    from DGTCentaurMods.players import PlayerManager
+    player_manager = PlayerManager(
+        white_player=white_player,
+        black_player=black_player,
+        move_callback=protocol_manager._on_player_move,
+        status_callback=lambda msg: log.info(f"[Player] {msg}"),
+        ready_callback=protocol_manager._on_all_players_ready
+    )
+    protocol_manager.set_player_manager(player_manager)
+    
+    # Set suggestion callback for Hand+Brain
+    if is_hand_brain:
+        protocol_manager.set_suggestion_callback(_on_suggestion)
+    
+    log.info(f"[App] Game components created: White={white_player.name}, Black={black_player.name}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
     
     # Start players
     if not protocol_manager.start_players():
@@ -5173,13 +5189,26 @@ def _start_lichess_game(lichess_config) -> bool:
     white_player = human_player
     black_player = lichess_player
     
-    # Create ProtocolManager with Lichess player
+    # Create GameManager
+    from DGTCentaurMods.managers.game import GameManager
+    game_manager = GameManager(save_to_database=True)
+    
+    # Create ProtocolManager with GameManager dependency
     protocol_manager = ProtocolManager(
+        game_manager=game_manager,
+        display_update_callback=update_display,
+    )
+    
+    # Create PlayerManager
+    from DGTCentaurMods.players import PlayerManager
+    player_manager = PlayerManager(
         white_player=white_player,
         black_player=black_player,
-        display_update_callback=update_display,
-        save_to_database=True,
+        move_callback=protocol_manager._on_player_move,
+        status_callback=lambda msg: log.info(f"[Player] {msg}"),
+        ready_callback=protocol_manager._on_all_players_ready
     )
+    protocol_manager.set_player_manager(player_manager)
     
     # Set up display bridge for consolidated display operations
     protocol_manager.set_display_bridge(display_manager)

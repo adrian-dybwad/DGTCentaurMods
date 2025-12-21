@@ -36,8 +36,8 @@ from DGTCentaurMods.managers.game import GameManager, EVENT_NEW_GAME, EVENT_WHIT
 log.debug(f"[protocol import] game: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
 # Import Player and Assistant managers
-from DGTCentaurMods.players import PlayerManager, HumanPlayer, EnginePlayer, EnginePlayerConfig
-from DGTCentaurMods.managers.assistant import AssistantManager, AssistantManagerConfig, AssistantType
+from DGTCentaurMods.players import PlayerManager
+from DGTCentaurMods.managers.assistant import AssistantManager
 from DGTCentaurMods.assistants import Suggestion, SuggestionType
 log.debug(f"[protocol import] players/assistant managers: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
@@ -50,17 +50,10 @@ log.debug(f"[protocol import] stdlib: {(_t.time() - _s)*1000:.0f}ms")
 class ProtocolManager:
     """Manages protocol parsing and routing for chess app connections.
     
-    Supports Millennium, Pegasus, Chessnut, and Lichess protocols. Can operate in:
-    1. Known client type (BLE): Only creates the specific emulator for that protocol
-    2. Unknown client type (RFCOMM): Creates all RFCOMM-capable emulators and auto-detects
-    3. Lichess mode: Uses HTTP/WebSocket API for online play (no byte-stream protocol)
+    Supports Millennium, Pegasus, and Chessnut protocols. Auto-detects protocol
+    from incoming data. Bridges external app protocols to GameManager.
     
-    Bridges external app protocols to the internal GameManager for chess logic.
-    
-    Uses PlayerManager to manage both white and black players. Each player can be:
-    - HumanPlayer: moves come from physical board
-    - EnginePlayer: moves come from UCI engine
-    - LichessPlayer: moves come from Lichess server
+    GameManager and PlayerManager are injected dependencies, not created here.
     """
     
     # Client type constants
@@ -72,19 +65,17 @@ class ProtocolManager:
     
     def __init__(
         self,
+        game_manager: GameManager,
         sendMessage_callback=None,
         client_type=None,
         compare_mode=False,
-        white_player=None,
-        black_player=None,
         display_update_callback=None,
-        save_to_database=True,
-        suggestion_callback=None,
         takeback_callback=None,
     ):
         """Initialize the ProtocolManager.
         
         Args:
+            game_manager: The GameManager instance (required, injected dependency)
             sendMessage_callback: Callback function(data) for sending messages to client
             client_type: Hint about client type from BLE service UUID:
                         - CLIENT_MILLENNIUM: Millennium ChessLink
@@ -94,14 +85,7 @@ class ProtocolManager:
                         - CLIENT_UNKNOWN or None: Auto-detect from incoming data (RFCOMM)
             compare_mode: If True, buffer emulator responses for comparison with
                          shadow host instead of sending directly. Used in relay mode.
-            white_player: Player instance for White. If None, creates HumanPlayer.
-            black_player: Player instance for Black. If None, creates HumanPlayer.
             display_update_callback: Callback function(fen) for updating display with position
-            save_to_database: If True, save game moves to database. If False, disable database
-                             (for position/practice games that shouldn't be saved)
-            suggestion_callback: Callback function(piece_symbol, squares) called with suggestion.
-                                piece_symbol is the suggested piece type (K,Q,R,B,N,P).
-                                squares is a list of square indices containing that piece type.
             takeback_callback: Callback function() called when a takeback is detected.
                               Used to sync analysis widget score history with game state.
         """
@@ -123,7 +107,7 @@ class ProtocolManager:
         self.is_lichess = False
         
         # Suggestion callback for assistants (Hand+Brain, hints, etc.)
-        self._suggestion_callback = suggestion_callback
+        self._suggestion_callback = None
         
         # Player manager for white and black players
         self._player_manager: Optional[PlayerManager] = None
@@ -131,69 +115,38 @@ class ProtocolManager:
         # Assistant manager for Hand+Brain, hints, etc.
         self._assistant_manager: Optional[AssistantManager] = None
         
-        # Game manager shared by all emulators
-        self.game_manager = GameManager(save_to_database=save_to_database)
+        # Game manager (injected dependency)
+        self.game_manager = game_manager
         
         # Emulator instances - always create all emulators for auto-detection
         self._millennium = None
         self._pegasus = None
         self._chessnut = None
         
-        # Check if Lichess mode (either player is Lichess)
-        from DGTCentaurMods.players import LichessPlayer
-        is_lichess = (isinstance(white_player, LichessPlayer) or 
-                      isinstance(black_player, LichessPlayer))
+        # Create all emulators for auto-detection from actual data
+        log.info(f"[ProtocolManager] Creating emulators for auto-detection (hint: {client_type or 'none'})")
         
-        if is_lichess:
-            self.client_type = self.CLIENT_LICHESS
-            self.is_lichess = True
-        else:
-            # Create all emulators for auto-detection from actual data
-            log.info(f"[ProtocolManager] Creating emulators for auto-detection (hint: {client_type or 'none'})")
-            
-            self._millennium = Millennium(
-                sendMessage_callback=self._handle_emulator_response,
-                manager=self.game_manager
-            )
-            log.info("[ProtocolManager] Created Millennium emulator")
-            
-            self._pegasus = Pegasus(
-                sendMessage_callback=self._handle_emulator_response,
-                manager=self.game_manager
-            )
-            log.info("[ProtocolManager] Created Pegasus emulator")
-            
-            self._chessnut = Chessnut(
-                sendMessage_callback=self._handle_emulator_response,
-                manager=self.game_manager
-            )
-            log.info("[ProtocolManager] Created Chessnut emulator")
-        
-        # Create players if not provided
-        if white_player is None:
-            white_player = HumanPlayer()
-        if black_player is None:
-            black_player = HumanPlayer()
-        
-        # Create PlayerManager
-        self._player_manager = PlayerManager(
-            white_player=white_player,
-            black_player=black_player,
-            move_callback=self._on_player_move,
-            status_callback=lambda msg: log.info(f"[Player] {msg}"),
-            ready_callback=self._on_all_players_ready
+        self._millennium = Millennium(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.game_manager
         )
+        log.debug("[ProtocolManager] Created Millennium emulator")
         
-        # Update GameManager with player info
-        self.game_manager.set_player_manager(self._player_manager)
+        self._pegasus = Pegasus(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.game_manager
+        )
+        log.debug("[ProtocolManager] Created Pegasus emulator")
         
-        # Set up Lichess-specific callbacks if needed
-        if is_lichess:
-            self._setup_lichess_callbacks()
+        self._chessnut = Chessnut(
+            sendMessage_callback=self._handle_emulator_response,
+            manager=self.game_manager
+        )
+        log.debug("[ProtocolManager] Created Chessnut emulator")
         
         self.subscribe_manager()
         
-        log.info(f"[ProtocolManager] Initialized with White={white_player.name}, Black={black_player.name}")
+        log.info(f"[ProtocolManager] Initialized")
     
     def _setup_lichess_callbacks(self):
         """Set up callbacks for Lichess player."""
@@ -235,6 +188,34 @@ class ProtocolManager:
     def player_manager(self) -> Optional[PlayerManager]:
         """Get the player manager."""
         return self._player_manager
+    
+    def set_player_manager(self, player_manager: PlayerManager) -> None:
+        """Set the player manager.
+        
+        Args:
+            player_manager: The PlayerManager instance
+        """
+        self._player_manager = player_manager
+        self.game_manager.set_player_manager(player_manager)
+        
+        # Check if this is a Lichess game
+        from DGTCentaurMods.players import LichessPlayer
+        is_lichess = any(isinstance(p, LichessPlayer) 
+                        for p in [player_manager.white_player, player_manager.black_player])
+        if is_lichess:
+            self.client_type = self.CLIENT_LICHESS
+            self.is_lichess = True
+            self._setup_lichess_callbacks()
+        
+        log.info(f"[ProtocolManager] PlayerManager set: White={player_manager.white_player.name}, Black={player_manager.black_player.name}")
+    
+    def set_suggestion_callback(self, callback) -> None:
+        """Set the suggestion callback for Hand+Brain hints.
+        
+        Args:
+            callback: Function(piece_symbol, squares) called with suggestion
+        """
+        self._suggestion_callback = callback
     
     # =========================================================================
     # GameManager Callback Delegation (Law of Demeter compliance)
