@@ -89,10 +89,9 @@ class Scheduler:
         This is preferred over a full refresh when transitioning between screens
         that both use partial mode updates.
         """
-        # if self._in_partial_mode:
-        #     log.debug("Scheduler.reset_partial_mode(): Resetting partial mode for display re-initialization")
-        #     self._in_partial_mode = False
-        pass
+        if self._in_partial_mode:
+            log.debug("Scheduler.reset_partial_mode(): Resetting partial mode for display re-initialization")
+            self._in_partial_mode = False
     
     def submit_deferred(self, callback) -> None:
         """Schedule a callback to run on the scheduler thread.
