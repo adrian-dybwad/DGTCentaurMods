@@ -38,15 +38,15 @@ class Manager:
         self._pending_full = False  # Whether the pending update needs full refresh
         log.debug(f"Manager.__init__() completed - Manager id: {id(self)}, EPD id: {id(self._epd)}")
     
-    def initialize(self, background_shade: int = 4) -> Future:
-        """Initialize the display.
+    def initialize(self) -> Future:
+        """Initialize the display hardware.
+        
+        Initializes the e-paper hardware and scheduler. Does not set any background -
+        callers should explicitly call set_background() if they want a dithered background.
+        By default, the display will have a plain white background.
         
         The status bar is not added by default during initialization.
         The caller is responsible for adding it when appropriate (e.g., when showing a menu).
-        This prevents the status bar from briefly appearing before a splash screen is shown.
-        
-        Args:
-            background_shade: Default background shade 0-16 (0=white, 16=black, default=4)
         """
         if self._initialized:
             return
@@ -58,9 +58,6 @@ class Manager:
             
             self._scheduler.start()
             time.sleep(0.1)
-            
-            # Set default background for visual depth
-            self.set_background(shade=background_shade)
             
             self._initialized = True
             return self.clear_widgets(addStatusBar=False)
@@ -195,10 +192,12 @@ class Manager:
             return None
     
     def clear_widgets(self, addStatusBar: bool = True) -> Future:
-        """Clear all widgets from the display.
+        """Clear all widgets and background from the display.
         
-        Stops all widget background threads, clears the widget list, and
-        clears any pending refresh requests to prevent stale updates.
+        Stops all widget background threads, clears the widget list, clears
+        the background, and clears any pending refresh requests to prevent stale updates.
+        
+        Callers that want a dithered background should call set_background() after this.
         """
         log.debug(f"Manager.clear_widgets() called, clearing {len(self._widgets)} widgets")
         
@@ -214,6 +213,9 @@ class Manager:
                 log.debug(f"Error stopping widget {widget.__class__.__name__} during clear: {e}")
         
         self._widgets.clear()
+        
+        # Clear background to revert to plain white
+        self._background = None
         
         # Create and add status bar widget
         if addStatusBar:
