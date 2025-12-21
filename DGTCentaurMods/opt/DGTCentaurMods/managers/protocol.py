@@ -337,19 +337,18 @@ class ProtocolManager:
             self._player_manager.stop()
     
     def _on_player_move(self, move: chess.Move):
-        """Handle move from a non-human player (engine, Lichess).
+        """Legacy method for direct player move handling.
         
-        This is called when a player provides a move (via PlayerManager).
-        Routes to GameManager as a forced move.
+        Note: This method is no longer used. Player moves are now routed through
+        GameManager._on_player_move which is wired by game_manager.set_player_manager().
         
-        Note: When ControllerManager is used, moves are routed through
-        LocalController.on_player_move() which checks if the controller
-        is active before calling this method.
+        This method called computer_move() which was incorrect for human moves
+        (showed LEDs and set forced move flag instead of executing the move).
         
         Args:
             move: The player's move.
         """
-        log.info(f"[ProtocolManager] Player move received: {move.uci()}")
+        log.warning(f"[ProtocolManager] Legacy _on_player_move called for {move.uci()} - this should not happen")
         self.game_manager.computer_move(move.uci(), forced=True)
     
     # =========================================================================

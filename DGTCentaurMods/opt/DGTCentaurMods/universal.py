@@ -1790,14 +1790,14 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         takeback_callback=_on_takeback
     )
     
-    # Create PlayerManager (ready_callback set later after LocalController is created)
+    # Create PlayerManager (callbacks wired by game_manager.set_player_manager)
     from DGTCentaurMods.players import PlayerManager
     player_manager = PlayerManager(
         white_player=white_player,
         black_player=black_player,
-        move_callback=protocol_manager._on_player_move,
         status_callback=lambda msg: log.info(f"[Player] {msg}"),
     )
+    # Wires move_callback, error_callback, and pending_move_callback to GameManager
     protocol_manager.set_player_manager(player_manager)
     
     # Set suggestion callback for Hand+Brain
@@ -1817,8 +1817,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     local_controller.set_takeback_callback(_on_takeback)
     local_controller.set_display_update_callback(update_display)
     
-    # Wire player callbacks through local controller (respects active state)
-    player_manager.set_move_callback(local_controller.on_player_move)
+    # Wire ready callback through local controller (respects active state)
+    # Note: move_callback is already wired by game_manager.set_player_manager()
+    # to GameManager._on_player_move which handles all player moves (human+engine)
     player_manager.set_ready_callback(local_controller.on_all_players_ready)
     
     # Create remote controller (for Bluetooth app connections)
@@ -5244,14 +5245,14 @@ def _start_lichess_game(lichess_config) -> bool:
         display_update_callback=update_display,
     )
     
-    # Create PlayerManager (ready_callback set later after LocalController is created)
+    # Create PlayerManager (callbacks wired by game_manager.set_player_manager)
     from DGTCentaurMods.players import PlayerManager
     player_manager = PlayerManager(
         white_player=white_player,
         black_player=black_player,
-        move_callback=protocol_manager._on_player_move,
         status_callback=lambda msg: log.info(f"[Player] {msg}"),
     )
+    # Wires move_callback, error_callback, and pending_move_callback to GameManager
     protocol_manager.set_player_manager(player_manager)
     
     # Create ControllerManager for routing events to local/remote controllers
@@ -5262,8 +5263,9 @@ def _start_lichess_game(lichess_config) -> bool:
     local_controller.set_player_manager(player_manager)
     local_controller.set_display_update_callback(update_display)
     
-    # Wire player callbacks through local controller
-    player_manager.set_move_callback(local_controller.on_player_move)
+    # Wire ready callback through local controller
+    # Note: move_callback is already wired by game_manager.set_player_manager()
+    # to GameManager._on_player_move which handles all player moves (human+engine)
     player_manager.set_ready_callback(local_controller.on_all_players_ready)
     
     # Set up display bridge for consolidated display operations

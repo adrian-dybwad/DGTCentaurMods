@@ -183,23 +183,8 @@ class LocalController(GameController):
         self._game_manager.receive_key(key)
     
     # =========================================================================
-    # Player Move Handling
+    # Player Readiness
     # =========================================================================
-    
-    def on_player_move(self, move: chess.Move) -> None:
-        """Handle move from a non-human player (engine, Lichess).
-        
-        Called by PlayerManager when a player provides a move.
-        
-        Args:
-            move: The player's move.
-        """
-        if not self._active:
-            log.info(f"[LocalController] Ignoring player move {move.uci()} - controller not active")
-            return
-        
-        log.info(f"[LocalController] Player move received: {move.uci()}")
-        self._game_manager.computer_move(move.uci(), forced=True)
     
     def on_all_players_ready(self) -> None:
         """Handle all players becoming ready.
