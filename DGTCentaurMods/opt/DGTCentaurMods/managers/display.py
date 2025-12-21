@@ -262,7 +262,7 @@ class DisplayManager:
             log.error("[DisplayManager] No epaper manager available")
             return
         
-        # Clear any existing widgets
+        # Clear any existing widgets (performs full refresh to clear e-paper ghosting)
         board.display_manager.clear_widgets()
 
         # Create chess board widget at y=16 (below status bar)
