@@ -212,6 +212,12 @@ class ControllerManager:
         if not self._remote:
             return False
         
+        # Ensure emulators exist before trying to parse
+        # (emulators are created in start() but we need them for protocol detection
+        # even before the remote controller is activated)
+        if self._remote._pegasus is None:
+            self._remote._create_emulators()
+        
         # If remote is not active but exists, start it temporarily for parsing
         was_inactive = not self._remote.is_active
         if was_inactive:
