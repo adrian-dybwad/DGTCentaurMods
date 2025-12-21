@@ -360,6 +360,7 @@ try:
         find_entry_index,
         ConnectionManager,
     )
+    from DGTCentaurMods.controllers import ControllerManager
     log.debug(f"[Import timing] managers: {(_import_time.time() - _import_start)*1000:.0f}ms")
 except Exception as e:
     log.error(f"[Startup] Failed to import managers: {e}", exc_info=True)
@@ -393,6 +394,7 @@ client_connected = False
 app_state = AppState.MENU  # Current application state
 protocol_manager = None  # ProtocolManager instance
 display_manager = None  # DisplayManager for game UI widgets
+controller_manager = None  # ControllerManager for routing events to local/remote controllers
 _last_message = None  # Last message sent via sendMessage
 relay_mode = False  # Whether relay mode is enabled (connects to relay target)
 mainloop = None  # GLib mainloop for BLE
@@ -1576,7 +1578,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
                          - Database saving is disabled
                          - Back button returns directly to menu (no resign prompt)
     """
-    global app_state, protocol_manager, display_manager, _game_settings, _is_position_game
+    global app_state, protocol_manager, display_manager, controller_manager, _game_settings, _is_position_game
 
     log.info(f"[App] Transitioning to GAME mode (position_game={is_position_game})")
     
@@ -1713,19 +1715,29 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         indicate which side is resigning.
         """
         # Reset the kings-in-center menu flag (in case this was triggered by that menu)
-        protocol_manager.game_manager.reset_kings_in_center_menu()
+        game_manager.reset_kings_in_center_menu()
+        
+        def _notify_players_resign(resign_color):
+            """Notify players of resignation."""
+            if player_manager:
+                player_manager.white_player.on_resign(resign_color)
+                player_manager.black_player.on_resign(resign_color)
         
         if result == "resign":
-            protocol_manager.handle_resign()
+            resign_color = game_manager.chess_board.turn
+            game_manager.handle_resign(resign_color)
+            _notify_players_resign(resign_color)
             _return_to_menu("Resigned")
         elif result == "resign_white":
-            protocol_manager.handle_resign(chess.WHITE)
+            game_manager.handle_resign(chess.WHITE)
+            _notify_players_resign(chess.WHITE)
             _return_to_menu("White Resigned")
         elif result == "resign_black":
-            protocol_manager.handle_resign(chess.BLACK)
+            game_manager.handle_resign(chess.BLACK)
+            _notify_players_resign(chess.BLACK)
             _return_to_menu("Black Resigned")
         elif result == "draw":
-            protocol_manager.handle_draw()
+            game_manager.handle_draw()
             _return_to_menu("Draw")
         elif result == "exit":
             cleanup_and_exit(reason="User selected 'exit' from game menu", system_shutdown=True)
@@ -1795,6 +1807,26 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     log.info(f"[App] Game components created: White={white_player.name}, Black={black_player.name}, hand_brain={is_hand_brain}, save_to_db={save_to_database}")
     
+    # Create ControllerManager for routing events to local/remote controllers
+    controller_manager = ControllerManager(game_manager)
+    
+    # Create local controller (for human/engine games)
+    local_controller = controller_manager.create_local_controller()
+    local_controller.set_player_manager(player_manager)
+    if is_hand_brain:
+        local_controller.set_suggestion_callback(_on_suggestion)
+    local_controller.set_takeback_callback(_on_takeback)
+    local_controller.set_display_update_callback(update_display)
+    
+    # Rewire player move callback through local controller (respects active state)
+    player_manager.set_move_callback(local_controller.on_player_move)
+    
+    # Create remote controller (for Bluetooth app connections)
+    controller_manager.create_remote_controller(sendMessage)
+    
+    # Activate local controller by default
+    controller_manager.activate_local()
+    
     # Start players
     if not protocol_manager.start_players():
         log.error("[App] Failed to start players")
@@ -1829,18 +1861,27 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     def _on_king_lift_resign_result(result: str):
         """Handle result from king-lift resign menu."""
         # Reset the menu flag
-        protocol_manager.game_manager.reset_king_lift_resign_menu()
+        game_manager.reset_king_lift_resign_menu()
+        
+        def _notify_players_resign(resign_color):
+            """Notify players of resignation."""
+            if player_manager:
+                player_manager.white_player.on_resign(resign_color)
+                player_manager.black_player.on_resign(resign_color)
         
         if result == "resign":
             # Get the color of the king that was lifted
-            king_color = protocol_manager.game_manager.move_state.king_lifted_color
+            king_color = game_manager.move_state.king_lifted_color
             if king_color is not None:
-                protocol_manager.handle_resign(king_color)
+                game_manager.handle_resign(king_color)
+                _notify_players_resign(king_color)
                 color_name = "White" if king_color == chess.WHITE else "Black"
                 _return_to_menu(f"{color_name} Resigned")
             else:
                 # Fallback - shouldn't happen but handle gracefully
-                protocol_manager.handle_resign()
+                resign_color = game_manager.chess_board.turn
+                game_manager.handle_resign(resign_color)
+                _notify_players_resign(resign_color)
                 _return_to_menu("Resigned")
         # cancel is handled by DisplayManager (restores display)
     
@@ -1874,7 +1915,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         """
         def _handle_flag():
             log.info(f"[App] {color.capitalize()} flagged (time expired)")
-            protocol_manager.handle_flag(color)
+            flagged_color = chess.WHITE if color == 'white' else chess.BLACK
+            game_manager.handle_flag(flagged_color)
             display_manager.stop_clock()
             # Game over will be shown via the event callback when handle_flag triggers termination event
         
@@ -1921,8 +1963,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             display_manager.show_game_over(result, termination_type)
     protocol_manager._external_event_callback = _on_game_event
     
-    # Register protocol_manager with ConnectionManager - this also processes any queued data
-    _connection_manager.set_protocol_manager(protocol_manager)
+    # Register controller_manager with ConnectionManager - this also processes any queued data
+    _connection_manager.set_controller_manager(controller_manager)
 
 
 def _cleanup_game():
@@ -1930,7 +1972,7 @@ def _cleanup_game():
     
     Used when exiting a game, whether returning to menu or positions menu.
     """
-    global protocol_manager, display_manager, _pending_piece_events, _is_position_game
+    global protocol_manager, display_manager, controller_manager, _pending_piece_events, _is_position_game
     
     # Clear position game flag
     _is_position_game = False
@@ -1940,6 +1982,14 @@ def _cleanup_game():
     
     # Clear ConnectionManager handler and pending data
     _connection_manager.clear_handler()
+    
+    # Clean up controller manager
+    if controller_manager is not None:
+        try:
+            controller_manager.cleanup()
+        except Exception as e:
+            log.debug(f"Error cleaning up controller manager: {e}")
+        controller_manager = None
     
     # Clean up game handler
     if protocol_manager is not None:
@@ -5216,8 +5266,20 @@ def _start_lichess_game(lichess_config) -> bool:
     # Wire up GameManager callbacks to DisplayManager
     protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)
     
+    # Helper to find LichessPlayer from PlayerManager
+    def _get_lichess_player():
+        """Find and return the LichessPlayer from player_manager, or None."""
+        from DGTCentaurMods.players import LichessPlayer
+        if player_manager:
+            for player in [player_manager.white_player, player_manager.black_player]:
+                if isinstance(player, LichessPlayer):
+                    return player
+        return None
+    
     # Set callback for when game is connected
-    protocol_manager.set_lichess_on_game_connected(on_game_connected)
+    lichess_player = _get_lichess_player()
+    if lichess_player:
+        lichess_player.set_on_game_connected(on_game_connected)
     
     # Info overlay widget for displaying messages like "Draw offered"
     from DGTCentaurMods.epaper import InfoOverlayWidget
@@ -5275,26 +5337,33 @@ def _start_lichess_game(lichess_config) -> bool:
         log.info(f"[App] Lichess info message: {message}")
         _info_overlay.show_message(message, duration_seconds=5.0)
     
-    # Wire up Lichess callbacks
-    protocol_manager.set_lichess_game_over_callback(_on_lichess_game_over)
-    protocol_manager.set_lichess_takeback_offer_callback(_on_lichess_takeback_offer)
-    protocol_manager.set_lichess_draw_offer_callback(_on_lichess_draw_offer)
-    protocol_manager.set_lichess_info_message_callback(_on_lichess_info_message)
+    # Wire up Lichess callbacks directly to LichessPlayer
+    lichess_player = _get_lichess_player()
+    if lichess_player:
+        lichess_player.set_game_over_callback(_on_lichess_game_over)
+        lichess_player.set_takeback_offer_callback(_on_lichess_takeback_offer)
+        lichess_player.set_draw_offer_callback(_on_lichess_draw_offer)
+        lichess_player.set_info_message_callback(_on_lichess_info_message)
     
     # Lichess games: BACK behavior depends on state
     def _on_lichess_back_menu_result(action: str):
         """Handle Lichess back menu result (resign/abort/cancel)."""
+        lichess_player = _get_lichess_player()
+        if not lichess_player:
+            log.warning("[App] No LichessPlayer found for action")
+            return
+        
         if action == "resign":
             log.info("[App] User resigned Lichess game")
-            protocol_manager.lichess_resign()
+            lichess_player.on_resign(chess.WHITE)  # Lichess handles the actual resign
             _return_to_menu("Lichess resign")
         elif action == "abort":
             log.info("[App] User aborted Lichess game")
-            protocol_manager.lichess_abort()
+            lichess_player.abort_game()
             _return_to_menu("Lichess abort")
         elif action == "draw":
             log.info("[App] User offered draw in Lichess game")
-            protocol_manager.lichess_offer_draw()
+            lichess_player.on_draw_offer()
             # Don't exit - continue game, opponent may accept or decline
         # cancel: do nothing, return to game
     
@@ -5572,7 +5641,7 @@ def _on_ble_connected(client_type: str):
     Args:
         client_type: Type of client ('millennium', 'pegasus', 'chessnut')
     """
-    global protocol_manager, app_state, _menu_manager, _pending_ble_client_type
+    global protocol_manager, controller_manager, app_state, _menu_manager, _pending_ble_client_type
     
     log.info(f"[BLE] Client connected: {client_type}")
     
@@ -5594,7 +5663,9 @@ def _on_ble_connected(client_type: str):
         _pending_ble_client_type = client_type
         return
     
-    # Case 4: Other states - notify game handler if available
+    # Case 4: Other states - switch to remote controller and notify protocol manager
+    if controller_manager:
+        controller_manager.activate_remote()
     if protocol_manager:
         protocol_manager.on_app_connected()
 
@@ -5611,18 +5682,22 @@ def _show_ble_connection_confirm(client_type: str):
     
     def _on_confirm_result(result: str):
         """Handle confirmation dialog result."""
-        global protocol_manager, app_state
+        global protocol_manager, controller_manager, app_state
         
         if result == "new_game":
             log.info("[BLE] User chose to abandon game and start new one")
             # Clean up current game and start new one
             _cleanup_game()
             _start_game_mode()
+            if controller_manager:
+                controller_manager.activate_remote()
             if protocol_manager:
                 protocol_manager.on_app_connected()
         else:
             # Cancel - keep current game
             log.info("[BLE] User cancelled - keeping current game")
+            if controller_manager:
+                controller_manager.activate_remote()
             if protocol_manager:
                 protocol_manager.on_app_connected()
     
@@ -5662,11 +5737,13 @@ def _show_ble_connection_confirm(client_type: str):
 def _on_ble_disconnected():
     """Handle BLE client disconnection.
     
-    Notifies ProtocolManager that the app has disconnected.
+    Switches back to local controller and notifies ProtocolManager.
     """
-    global protocol_manager
+    global protocol_manager, controller_manager
     
     log.info("[BLE] Client disconnected")
+    if controller_manager:
+        controller_manager.on_bluetooth_disconnected()
     if protocol_manager:
         protocol_manager.on_app_disconnected()
 
@@ -5779,7 +5856,7 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
         reboot: If True and system_shutdown is True, reboot instead of poweroff
     """
     global kill, running, client_sock, server_sock, client_connected, mainloop
-    global protocol_manager, display_manager, rfcomm_manager, ble_manager, relay_manager
+    global protocol_manager, display_manager, controller_manager, rfcomm_manager, ble_manager, relay_manager
     global _cleanup_done
     
     # Guard against running cleanup twice (signal handler + finally block)
@@ -5814,6 +5891,17 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
                 log.error(f"[Cleanup] Error stopping relay_manager: {e}", exc_info=True)
         else:
             log.info("[Cleanup] Relay manager was None")
+        
+        # Clean up controller manager
+        log.info("[Cleanup] Cleaning up controller manager...")
+        if controller_manager is not None:
+            try:
+                controller_manager.cleanup()
+                log.info("[Cleanup] Controller manager cleaned up")
+            except Exception as e:
+                log.error(f"[Cleanup] Error cleaning up controller manager: {e}", exc_info=True)
+        else:
+            log.info("[Cleanup] Controller manager was None")
         
         # Clean up game handler (stops game manager thread and closes standalone engine)
         log.info("[Cleanup] Cleaning up protocol manager...")
@@ -6189,27 +6277,30 @@ def key_callback(key_id):
             _reset_unhandled_key_count()
             return
         
-        # Forward other keys to protocol_manager -> game_manager
-        if protocol_manager:
+        # Route through controller manager or protocol_manager
+        if controller_manager:
+            controller_manager.on_key_event(key_id)
+            _reset_unhandled_key_count()
+        elif protocol_manager:
             protocol_manager.receive_key(key_id)
             _reset_unhandled_key_count()
-            
-            # Check if we should exit to menu:
-            # - BACK after game over (checkmate, stalemate, resign, time forfeit)
-            # - BACK with no game in progress (no moves made)
-            if key_id == board.Key.BACK:
-                from DGTCentaurMods.state import get_chess_game
-                game_state = get_chess_game()
-                if game_state.is_game_over:
-                    log.info("[App] BACK after game over - returning to menu")
-                    _return_to_menu("Game over - BACK pressed")
-                elif not game_state.is_game_in_progress:
-                    log.info("[App] BACK with no game - returning to menu")
-                    _return_to_menu("BACK pressed")
+        else:
+            # No controller or protocol_manager in GAME mode - should not happen
+            _handle_unhandled_key(key_id, "No controller or protocol_manager in GAME mode")
             return
-        
-        # No protocol_manager in GAME mode - should not happen
-        _handle_unhandled_key(key_id, "No protocol_manager in GAME mode")
+            
+        # Check if we should exit to menu:
+        # - BACK after game over (checkmate, stalemate, resign, time forfeit)
+        # - BACK with no game in progress (no moves made)
+        if key_id == board.Key.BACK:
+            from DGTCentaurMods.state import get_chess_game
+            game_state = get_chess_game()
+            if game_state.is_game_over:
+                log.info("[App] BACK after game over - returning to menu")
+                _return_to_menu("Game over - BACK pressed")
+            elif not game_state.is_game_in_progress:
+                log.info("[App] BACK with no game - returning to menu")
+                _return_to_menu("BACK pressed")
         return
     
     # Unknown app_state or fell through all handlers
@@ -6269,7 +6360,11 @@ def field_callback(piece_event, field, time_in_seconds):
             log.info("[App] Game unpaused by piece event")
             return  # Don't process the piece event that unpaused
         
-        if protocol_manager:
+        # Route through controller manager (handles local vs remote routing)
+        if controller_manager:
+            controller_manager.on_field_event(piece_event, field, time_in_seconds)
+        elif protocol_manager:
+            # Fallback to protocol manager if controller not ready
             protocol_manager.receive_field(piece_event, field, time_in_seconds)
         else:
             # Game handler not yet created - queue event for when it's ready
@@ -6704,9 +6799,13 @@ def main():
                     while _pending_piece_events:
                         pe, field, ts = _pending_piece_events.pop(0)
                         log.info(f"[App] Forwarding piece event: field={field}, event={pe}")
-                        if protocol_manager:
+                        if controller_manager:
+                            controller_manager.on_field_event(pe, field, ts)
+                        elif protocol_manager:
                             protocol_manager.receive_field(pe, field, ts)
                     if (ble_manager and ble_manager.connected) or client_connected:
+                        if controller_manager:
+                            controller_manager.activate_remote()
                         if protocol_manager:
                             protocol_manager.on_app_connected()
                     continue  # Re-check app_state (now should be GAME)
@@ -6777,11 +6876,15 @@ def main():
                     while _pending_piece_events:
                         pe, field, ts = _pending_piece_events.pop(0)
                         log.info(f"[App] Forwarding piece event: field={field}, event={pe}")
-                        if protocol_manager:
+                        if controller_manager:
+                            controller_manager.on_field_event(pe, field, ts)
+                        elif protocol_manager:
                             protocol_manager.receive_field(pe, field, ts)
                     
-                    # Notify ProtocolManager if client is already connected
+                    # If client is already connected, switch to remote controller
                     if (ble_manager and ble_manager.connected) or client_connected:
+                        if controller_manager:
+                            controller_manager.activate_remote()
                         if protocol_manager:
                             protocol_manager.on_app_connected()
                 
@@ -6791,6 +6894,8 @@ def main():
                     if is_break_result(settings_result):
                         ctx.clear()
                         _start_game_mode()
+                        if controller_manager:
+                            controller_manager.activate_remote()
                         if protocol_manager:
                             protocol_manager.on_app_connected()
                     # After settings, continue to main menu

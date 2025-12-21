@@ -1,0 +1,448 @@
+"""
+Local game controller.
+
+Handles games where moves come from local players (human at the board,
+chess engine, or Lichess opponent). The physical board is the primary
+input for human moves.
+"""
+
+import chess
+from typing import TYPE_CHECKING, Optional, Callable
+
+try:
+    from DGTCentaurMods.board.logging import log
+except ImportError:
+    import logging
+    log = logging.getLogger(__name__)
+
+from .base import GameController
+
+if TYPE_CHECKING:
+    from DGTCentaurMods.managers.game import GameManager
+    from DGTCentaurMods.players import PlayerManager
+    from DGTCentaurMods.managers.assistant import AssistantManager
+    from DGTCentaurMods.assistants import Suggestion
+
+
+class LocalController(GameController):
+    """Controller for local games with PlayerManager.
+    
+    Manages games where:
+    - Human plays on physical board
+    - Engine computes opponent moves
+    - Lichess provides remote opponent moves
+    
+    Field events are routed to GameManager for move detection.
+    Turn changes trigger player move requests.
+    """
+    
+    def __init__(self, game_manager: 'GameManager'):
+        """Initialize the local controller.
+        
+        Args:
+            game_manager: The GameManager instance.
+        """
+        super().__init__(game_manager)
+        self._player_manager: Optional['PlayerManager'] = None
+        self._assistant_manager: Optional['AssistantManager'] = None
+        self._suggestion_callback: Optional[Callable] = None
+        self._takeback_callback: Optional[Callable] = None
+        self._display_update_callback: Optional[Callable] = None
+    
+    def set_player_manager(self, player_manager: 'PlayerManager') -> None:
+        """Set the player manager.
+        
+        Args:
+            player_manager: The PlayerManager instance.
+        """
+        self._player_manager = player_manager
+        self._game_manager.set_player_manager(player_manager)
+        
+        # Check for Lichess and set up callbacks
+        from DGTCentaurMods.players import LichessPlayer
+        for player in [player_manager.white_player, player_manager.black_player]:
+            if isinstance(player, LichessPlayer):
+                player.set_clock_callback(self._on_lichess_clock_update)
+                player.set_game_info_callback(self._on_lichess_game_info)
+        
+        log.info(f"[LocalController] PlayerManager set: "
+                 f"White={player_manager.white_player.name}, "
+                 f"Black={player_manager.black_player.name}")
+    
+    def set_assistant_manager(self, assistant_manager: 'AssistantManager') -> None:
+        """Set the assistant manager for Hand+Brain hints.
+        
+        Args:
+            assistant_manager: The AssistantManager instance.
+        """
+        self._assistant_manager = assistant_manager
+        assistant_manager.set_suggestion_callback(self._on_assistant_suggestion)
+    
+    def set_suggestion_callback(self, callback: Callable) -> None:
+        """Set callback for assistant suggestions.
+        
+        Args:
+            callback: Function(piece_symbol, squares) called with suggestion.
+        """
+        self._suggestion_callback = callback
+    
+    def set_takeback_callback(self, callback: Callable) -> None:
+        """Set callback for takeback events.
+        
+        Args:
+            callback: Function() called when takeback detected.
+        """
+        self._takeback_callback = callback
+    
+    def set_display_update_callback(self, callback: Callable) -> None:
+        """Set callback for display updates.
+        
+        Args:
+            callback: Function(fen) called to update display.
+        """
+        self._display_update_callback = callback
+    
+    @property
+    def player_manager(self) -> Optional['PlayerManager']:
+        """Get the player manager."""
+        return self._player_manager
+    
+    @property
+    def is_lichess(self) -> bool:
+        """Whether this is a Lichess game."""
+        if not self._player_manager:
+            return False
+        from DGTCentaurMods.players import LichessPlayer
+        return any(isinstance(p, LichessPlayer) 
+                   for p in [self._player_manager.white_player, 
+                             self._player_manager.black_player])
+    
+    @property
+    def is_two_player_mode(self) -> bool:
+        """Whether both players are human."""
+        if self._player_manager:
+            return self._player_manager.is_two_human
+        return True
+    
+    # =========================================================================
+    # GameController Interface
+    # =========================================================================
+    
+    def start(self) -> None:
+        """Start the local controller.
+        
+        Subscribes to GameManager events and starts players.
+        """
+        self._active = True
+        self._subscribe_to_game_manager()
+        if self._player_manager:
+            self._player_manager.start()
+        log.info("[LocalController] Started")
+    
+    def _subscribe_to_game_manager(self) -> None:
+        """Subscribe to GameManager events for local game coordination."""
+        if not self._game_manager:
+            log.warning("[LocalController] Cannot subscribe - no GameManager")
+            return
+        
+        log.info("[LocalController] Subscribing to GameManager events")
+        self._game_manager.subscribe_game(
+            self._on_game_event,
+            self._on_move_made,
+            self._on_key_press,
+            self._on_takeback
+        )
+    
+    def stop(self) -> None:
+        """Stop the local controller.
+        
+        Clears pending moves but doesn't stop players entirely
+        (they may be resumed if controller is reactivated).
+        """
+        self._active = False
+        if self._player_manager:
+            self._player_manager.clear_pending_moves()
+        log.info("[LocalController] Stopped")
+    
+    def on_field_event(self, piece_event: int, field: int, time_seconds: float) -> None:
+        """Handle piece lift/place from the physical board.
+        
+        Routes to GameManager for move detection when active.
+        """
+        if not self._active:
+            return
+        self._game_manager.receive_field(piece_event, field, time_seconds)
+    
+    def on_key_event(self, key) -> None:
+        """Handle key press from the physical board.
+        
+        Routes to GameManager when active.
+        """
+        if not self._active:
+            return
+        self._game_manager.receive_key(key)
+    
+    # =========================================================================
+    # Player Move Handling
+    # =========================================================================
+    
+    def on_player_move(self, move: chess.Move) -> None:
+        """Handle move from a non-human player (engine, Lichess).
+        
+        Called by PlayerManager when a player provides a move.
+        
+        Args:
+            move: The player's move.
+        """
+        if not self._active:
+            log.info(f"[LocalController] Ignoring player move {move.uci()} - controller not active")
+            return
+        
+        log.info(f"[LocalController] Player move received: {move.uci()}")
+        self._game_manager.computer_move(move.uci(), forced=True)
+    
+    def on_all_players_ready(self) -> None:
+        """Handle all players becoming ready.
+        
+        Called by PlayerManager when both players are ready.
+        Triggers first move request if White is not human.
+        """
+        from DGTCentaurMods.players import PlayerType
+        
+        if not self._player_manager or not self._active:
+            return
+        
+        white_player = self._player_manager.get_player(chess.WHITE)
+        if white_player.player_type != PlayerType.HUMAN:
+            log.info("[LocalController] All players ready, requesting first move from White")
+            self._request_current_player_move()
+        else:
+            log.debug("[LocalController] All players ready, waiting for human to move")
+    
+    def _request_current_player_move(self) -> None:
+        """Request a move from the current player.
+        
+        Called when turn changes. For human players, does nothing.
+        For engines/Lichess, starts move computation.
+        """
+        if not self._active:
+            return
+        
+        if not self._player_manager:
+            return
+        
+        if not self._player_manager.is_ready:
+            return
+        
+        chess_board = self._game_manager.chess_board
+        
+        if chess_board.is_game_over():
+            return
+        
+        log.debug("[LocalController] Requesting move from current player")
+        self._player_manager.request_move(chess_board)
+    
+    # =========================================================================
+    # GameManager Subscription Callbacks
+    # =========================================================================
+    
+    def _on_game_event(self, event, piece_event=None, field=None, time_seconds=None) -> None:
+        """Handle game events from GameManager subscription.
+        
+        Called by GameManager for events like new game, turn changes.
+        Triggers player move requests and assistant suggestions.
+        """
+        try:
+            from DGTCentaurMods.managers.game import EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
+            
+            log.debug(f"[LocalController] _on_game_event: {event}")
+            
+            if event == EVENT_NEW_GAME:
+                self.on_new_game()
+                self._request_current_player_move()
+                self._check_assistant_suggestion()
+            elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
+                self._request_current_player_move()
+                self._check_assistant_suggestion()
+            
+            # Update display with current position
+            self._update_display()
+        except Exception as e:
+            log.error(f"[LocalController] Error in _on_game_event: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _on_move_made(self, move) -> None:
+        """Handle move events from GameManager subscription.
+        
+        Notifies players of moves made on the board.
+        """
+        try:
+            log.debug(f"[LocalController] _on_move_made: {move}")
+            
+            if self._player_manager:
+                chess_move = chess.Move.from_uci(str(move)) if not isinstance(move, chess.Move) else move
+                self._player_manager.on_move_made(chess_move, self._game_manager.chess_board)
+            
+            # Update display with current position
+            self._update_display()
+        except Exception as e:
+            log.error(f"[LocalController] Error in _on_move_made: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _on_key_press(self, key) -> None:
+        """Handle key events from GameManager subscription."""
+        # Keys are handled directly via on_key_event() routing
+        log.debug(f"[LocalController] _on_key_press: {key}")
+    
+    def _on_takeback(self) -> None:
+        """Handle takeback events from GameManager subscription."""
+        try:
+            log.info("[LocalController] _on_takeback")
+            
+            # Notify display callback
+            if self._takeback_callback:
+                self._takeback_callback()
+            
+            # Notify players
+            if self._player_manager:
+                self._player_manager.on_takeback(self._game_manager.chess_board)
+            
+            # Notify assistants
+            if self._assistant_manager:
+                self._assistant_manager.on_takeback(self._game_manager.chess_board)
+        except Exception as e:
+            log.error(f"[LocalController] Error in _on_takeback: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _update_display(self) -> None:
+        """Update display with current board position."""
+        if self._display_update_callback and self._game_manager:
+            try:
+                fen = self._game_manager.chess_board.fen()
+                self._display_update_callback(fen)
+            except Exception as e:
+                log.error(f"[LocalController] Error updating display: {e}")
+    
+    def _check_assistant_suggestion(self) -> None:
+        """Check for and process assistant suggestions."""
+        if not self._assistant_manager:
+            return
+        
+        suggestion = self._assistant_manager.get_suggestion(self._game_manager.chess_board)
+        if suggestion:
+            self._on_assistant_suggestion(suggestion)
+    
+    # =========================================================================
+    # Game Event Handling (legacy, kept for compatibility)
+    # =========================================================================
+    
+    def on_new_game(self) -> None:
+        """Handle new game event."""
+        if self._player_manager:
+            self._player_manager.on_new_game()
+        if self._assistant_manager:
+            self._assistant_manager.on_new_game()
+    
+    def on_turn_change(self) -> None:
+        """Handle turn change event.
+        
+        Requests move from current player and checks for assistant suggestions.
+        """
+        self._request_current_player_move()
+        self._check_assistant_suggestion()
+    
+    def on_takeback(self) -> None:
+        """Handle takeback event."""
+        if self._takeback_callback:
+            self._takeback_callback()
+        
+        if self._player_manager:
+            self._player_manager.on_takeback(self._game_manager.chess_board)
+        
+        if self._assistant_manager:
+            self._assistant_manager.on_takeback(self._game_manager.chess_board)
+    
+    def on_move_made(self, move: chess.Move) -> None:
+        """Handle move made on the board.
+        
+        Notifies players of the move.
+        """
+        if self._player_manager:
+            self._player_manager.on_move_made(move, self._game_manager.chess_board)
+        
+        self._update_display()
+    
+    # =========================================================================
+    # Assistant Handling
+    # =========================================================================
+    
+    def _on_assistant_suggestion(self, suggestion: 'Suggestion') -> None:
+        """Handle suggestion from assistant (Hand+Brain)."""
+        from DGTCentaurMods.assistants import SuggestionType
+        
+        if suggestion.suggestion_type == SuggestionType.PIECE_TYPE:
+            log.info(f"[LocalController] Suggestion: piece type {suggestion.piece_type} "
+                     f"(squares: {suggestion.squares})")
+            if self._suggestion_callback:
+                self._suggestion_callback(suggestion.piece_type or "", suggestion.squares)
+        elif suggestion.suggestion_type == SuggestionType.MOVE:
+            log.info(f"[LocalController] Suggestion: move "
+                     f"{suggestion.move.uci() if suggestion.move else 'none'}")
+    
+    def _check_assistant_suggestion(self) -> None:
+        """Check if assistant should provide a suggestion."""
+        if not self._assistant_manager:
+            return
+        
+        if not self._assistant_manager.is_active:
+            return
+        
+        if not self._assistant_manager.auto_suggest:
+            return
+        
+        chess_board = self._game_manager.chess_board
+        
+        # Only show suggestions for human players
+        if self._player_manager:
+            from DGTCentaurMods.players import PlayerType
+            current_player = self._player_manager.get_current_player(chess_board)
+            if current_player.player_type != PlayerType.HUMAN:
+                self._assistant_manager.clear_suggestion()
+                return
+        
+        if chess_board.is_game_over():
+            return
+        
+        log.debug("[LocalController] Requesting suggestion from assistant manager")
+        self._assistant_manager.request_suggestion(chess_board, chess_board.turn)
+    
+    # =========================================================================
+    # Lichess-Specific Callbacks
+    # =========================================================================
+    
+    def _on_lichess_clock_update(self, white_time: int, black_time: int) -> None:
+        """Handle clock update from Lichess."""
+        self._game_manager.set_clock(white_time, black_time)
+    
+    def _on_lichess_game_info(self, white_player: str, white_rating: str,
+                               black_player: str, black_rating: str) -> None:
+        """Handle game info update from Lichess."""
+        white_str = f"{white_player}({white_rating})"
+        black_str = f"{black_player}({black_rating})"
+        self._game_manager.set_game_info("", "", "", white_str, black_str)
+    
+    # =========================================================================
+    # Display Updates
+    # =========================================================================
+    
+    def _update_display(self) -> None:
+        """Update the display with current board position."""
+        if self._display_update_callback:
+            try:
+                fen = self._game_manager.chess_board.fen()
+                self._display_update_callback(fen)
+            except Exception as e:
+                log.error(f"[LocalController] Error updating display: {e}")

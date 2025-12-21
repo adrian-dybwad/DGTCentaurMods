@@ -6,8 +6,9 @@
 # This project started as a fork of DGTCentaur Mods by EdNekebno
 # ( https://github.com/EdNekebno/DGTCentaur )
 #
-# Manages protocol parsing and routing for chess app connections
-# (Millennium, Pegasus, Chessnut). Bridges external protocols to GameManager.
+# Manages player integrations, assistant management, and game callbacks.
+# Protocol emulation (Millennium, Pegasus, Chessnut) is now handled by
+# RemoteController in the controllers/ module.
 #
 # Player integrations are handled via the players/ module, which provides
 # clean abstractions for different player types (Human, Engine, Lichess).
@@ -23,26 +24,15 @@ _s = _t.time()
 from DGTCentaurMods.board.logging import log
 _logger.debug(f"[protocol import] board.logging: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
-from DGTCentaurMods.emulators.millennium import Millennium
-_logger.debug(f"[protocol import] millennium: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from DGTCentaurMods.emulators.pegasus import Pegasus
-log.debug(f"[protocol import] pegasus: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from DGTCentaurMods.emulators.chessnut import Chessnut
-log.debug(f"[protocol import] chessnut: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
-
-from DGTCentaurMods.managers.game import GameManager, EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
+from DGTCentaurMods.managers.game import GameManager
 log.debug(f"[protocol import] game: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
 # Import Player and Assistant managers
 from DGTCentaurMods.players import PlayerManager
 from DGTCentaurMods.managers.assistant import AssistantManager
-from DGTCentaurMods.assistants import Suggestion, SuggestionType
 log.debug(f"[protocol import] players/assistant managers: {(_t.time() - _s)*1000:.0f}ms"); _s = _t.time()
 
 import chess
-import threading
 from typing import Optional
 log.debug(f"[protocol import] stdlib: {(_t.time() - _s)*1000:.0f}ms")
 
@@ -118,33 +108,14 @@ class ProtocolManager:
         # Game manager (injected dependency)
         self.game_manager = game_manager
         
-        # Emulator instances - always create all emulators for auto-detection
+        # Note: Emulators are now created by RemoteController, not ProtocolManager.
+        # These fields are kept for backward compatibility but are no longer used.
         self._millennium = None
         self._pegasus = None
         self._chessnut = None
         
-        # Create all emulators for auto-detection from actual data
-        log.info(f"[ProtocolManager] Creating emulators for auto-detection (hint: {client_type or 'none'})")
-        
-        self._millennium = Millennium(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self.game_manager
-        )
-        log.debug("[ProtocolManager] Created Millennium emulator")
-        
-        self._pegasus = Pegasus(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self.game_manager
-        )
-        log.debug("[ProtocolManager] Created Pegasus emulator")
-        
-        self._chessnut = Chessnut(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self.game_manager
-        )
-        log.debug("[ProtocolManager] Created Chessnut emulator")
-        
-        self.subscribe_manager()
+        # Note: GameManager subscription is now handled by LocalController.start()
+        # ProtocolManager no longer subscribes directly.
         
         log.info(f"[ProtocolManager] Initialized")
     
@@ -260,37 +231,6 @@ class ProtocolManager:
         """Set callback for promotion selection. Callback(is_white) -> piece_symbol."""
         self.game_manager.on_promotion_needed = callback
     
-    # =========================================================================
-    # GameManager Action Methods (Law of Demeter compliance)
-    # =========================================================================
-    
-    def handle_resign(self, color=None):
-        """Handle a resignation.
-        
-        Args:
-            color: chess.WHITE or chess.BLACK, or None for current player
-        """
-        self.game_manager.handle_resign(color)
-        
-        # Notify players of resignation
-        if self._player_manager:
-            resign_color = color if color is not None else self.game_manager.chess_board.turn
-            self._player_manager.white_player.on_resign(resign_color)
-            self._player_manager.black_player.on_resign(resign_color)
-    
-    def handle_draw(self):
-        """Handle a draw agreement."""
-        self.game_manager.handle_draw()
-    
-    def handle_flag(self, color: str):
-        """Handle time expiration (flag) for a player.
-        
-        Args:
-            color: 'white' or 'black' - the player whose time expired
-        """
-        losing_color = chess.WHITE if color == 'white' else chess.BLACK
-        self.game_manager.handle_flag(losing_color)
-    
     def get_pending_response(self):
         """Get and clear the pending emulator response.
         
@@ -331,162 +271,6 @@ class ProtocolManager:
             log.debug(f"[ProtocolManager] Response match: {shadow_bytes.hex()}")
         
         return (match, emulator_response)
-    
-    def _manager_event_callback(self, event, piece_event=None, field=None, time_in_seconds=None):
-        """Handle game events from the manager.
-        
-        Routes events to the active emulator based on detected protocol.
-        Before protocol is confirmed, forwards to ALL emulators so that
-        whichever one is active will respond correctly.
-        
-        Also handles player turn and assistant suggestion triggers.
-        
-        Args:
-            event: Event constant (EVENT_NEW_GAME, EVENT_WHITE_TURN, etc.)
-            piece_event: Piece event type
-            field: Chess field index
-            time_in_seconds: Time since game start
-        """
-        try:
-            log.debug(f"[ProtocolManager] _manager_event_callback: {event} piece_event={piece_event}, field={field}")
-            log.debug(f"[ProtocolManager] Flags: is_millennium={self.is_millennium}, is_pegasus={self.is_pegasus}, is_chessnut={self.is_chessnut}, is_lichess={self.is_lichess}")
-            
-            # Route to byte-stream emulators if connected
-            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_event'):
-                log.debug("[ProtocolManager] Routing event to Millennium")
-                self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
-            elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_event'):
-                log.debug("[ProtocolManager] Routing event to Pegasus")
-                self._pegasus.handle_manager_event(event, piece_event, field, time_in_seconds)
-            elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
-                log.debug("[ProtocolManager] Routing event to Chessnut")
-                self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
-            elif not self.is_lichess:
-                # Protocol not yet confirmed - forward to ALL emulators
-                log.debug("[ProtocolManager] Protocol not confirmed, forwarding event to all emulators")
-                if self._millennium and hasattr(self._millennium, 'handle_manager_event'):
-                    self._millennium.handle_manager_event(event, piece_event, field, time_in_seconds)
-                if self._pegasus and hasattr(self._pegasus, 'handle_manager_event'):
-                    self._pegasus.handle_manager_event(event, piece_event, field, time_in_seconds)
-                if self._chessnut and hasattr(self._chessnut, 'handle_manager_event'):
-                    self._chessnut.handle_manager_event(event, piece_event, field, time_in_seconds)
-            
-            # Handle player and assistant events
-            if event == EVENT_NEW_GAME:
-                self._handle_new_game()
-                # Request first move for engine vs engine games
-                self._request_current_player_move()
-                self._check_assistant_suggestion()
-            elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
-                # Turn events are triggered AFTER the move is confirmed
-                self._request_current_player_move()
-                self._check_assistant_suggestion()
-            
-            # Notify external event callback
-            if self._external_event_callback:
-                try:
-                    self._external_event_callback(event)
-                except Exception as e:
-                    log.debug(f"[ProtocolManager] Error in external event callback: {e}")
-            
-            # Update display with current position
-            self._update_display()
-        except Exception as e:
-            log.error(f"[ProtocolManager] Error in _manager_event_callback: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def _manager_move_callback(self, move):
-        """Handle moves from the manager.
-        
-        Forwards to byte-stream emulators and notifies players of moves.
-        
-        Args:
-            move: Chess move object
-        """
-        try:
-            log.debug(f"[ProtocolManager] _manager_move_callback: {move}")
-            
-            # Route to byte-stream emulators
-            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_move'):
-                self._millennium.handle_manager_move(move)
-            elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_move'):
-                self._pegasus.handle_manager_move(move)
-            elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_move'):
-                self._chessnut.handle_manager_move(move)
-            elif not self.is_lichess:
-                # Protocol not yet confirmed - forward to ALL emulators
-                log.debug("[ProtocolManager] Protocol not confirmed, forwarding move to all emulators")
-                if self._millennium and hasattr(self._millennium, 'handle_manager_move'):
-                    self._millennium.handle_manager_move(move)
-                if self._pegasus and hasattr(self._pegasus, 'handle_manager_move'):
-                    self._pegasus.handle_manager_move(move)
-                if self._chessnut and hasattr(self._chessnut, 'handle_manager_move'):
-                    self._chessnut.handle_manager_move(move)
-            
-            # Notify players of the move
-            if self._player_manager:
-                chess_move = chess.Move.from_uci(str(move)) if not isinstance(move, chess.Move) else move
-                self._player_manager.on_move_made(chess_move, self.game_manager.chess_board)
-            
-            # Update display with current position
-            self._update_display()
-        except Exception as e:
-            log.error(f"[ProtocolManager] Error in _manager_move_callback: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def _manager_key_callback(self, key):
-        """Handle key presses forwarded from GameManager.
-        
-        Forwards key events to active byte-stream emulators.
-        
-        Args:
-            key: Key that was pressed (board.Key enum value)
-        """
-        try:
-            log.debug(f"[ProtocolManager] _manager_key_callback: {key}")
-            
-            # Forward to active byte-stream emulator
-            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_key'):
-                self._millennium.handle_manager_key(key)
-            elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_key'):
-                self._pegasus.handle_manager_key(key)
-            elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_key'):
-                self._chessnut.handle_manager_key(key)
-        except Exception as e:
-            log.error(f"[ProtocolManager] Error in _manager_key_callback: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def _manager_takeback_callback(self):
-        """Handle takeback requests from the manager."""
-        try:
-            log.info("[ProtocolManager] _manager_takeback_callback")
-            
-            # Notify display to sync analysis history with game state
-            if self._takeback_callback:
-                self._takeback_callback()
-            
-            # Notify players of takeback
-            if self._player_manager:
-                self._player_manager.on_takeback(self.game_manager.chess_board)
-
-            # Notify assistant manager of takeback
-            if self._assistant_manager:
-                self._assistant_manager.on_takeback(self.game_manager.chess_board)
-            
-            # Forward to byte-stream emulators
-            if self.is_millennium and self._millennium and hasattr(self._millennium, 'handle_manager_takeback'):
-                self._millennium.handle_manager_takeback()
-            elif self.is_pegasus and self._pegasus and hasattr(self._pegasus, 'handle_manager_takeback'):
-                self._pegasus.handle_manager_takeback()
-            elif self.is_chessnut and self._chessnut and hasattr(self._chessnut, 'handle_manager_takeback'):
-                self._chessnut.handle_manager_takeback()
-        except Exception as e:
-            log.error(f"[ProtocolManager] Error in _manager_takeback_callback: {e}")
-            import traceback
-            traceback.print_exc()
 
     def receive_key(self, key_id):
         """Receive a key event from the app coordinator and forward to GameManager.
@@ -515,113 +299,24 @@ class ProtocolManager:
             self.game_manager.receive_field(piece_event, field, time_in_seconds)
 
     def receive_data(self, byte_value):
-        """Receive one byte of data and route to appropriate emulator.
+        """Legacy method - data routing now handled by ControllerManager.
         
-        Auto-detects protocol from actual data. If a client_type hint was provided
-        at construction (from BLE service UUID), that protocol is tried first.
-        Once a protocol is detected, unused emulators are freed to save memory.
+        This method is no longer called. Protocol data is routed through
+        ControllerManager.receive_bluetooth_data() -> RemoteController.receive_data().
         
         Args:
             byte_value: Raw byte value from wire
             
         Returns:
-            True if byte was successfully parsed, False otherwise
+            False (no longer processes data)
         """
-        # If already detected, route directly to that emulator
-        if self.is_millennium and self._millennium:
-            return self._millennium.parse_byte(byte_value)
-        elif self.is_pegasus and self._pegasus:
-            return self._pegasus.parse_byte(byte_value)
-        elif self.is_chessnut and self._chessnut:
-            return self._chessnut.parse_byte(byte_value)
-        
-        # Auto-detect: try emulators in priority order based on hint
-        emulators_to_try = []
-        
-        if self._client_type_hint == self.CLIENT_MILLENNIUM:
-            emulators_to_try = [
-                (self._millennium, "Millennium", self.CLIENT_MILLENNIUM),
-                (self._pegasus, "Pegasus", self.CLIENT_PEGASUS),
-                (self._chessnut, "Chessnut", self.CLIENT_CHESSNUT),
-            ]
-        elif self._client_type_hint == self.CLIENT_PEGASUS:
-            emulators_to_try = [
-                (self._pegasus, "Pegasus", self.CLIENT_PEGASUS),
-                (self._millennium, "Millennium", self.CLIENT_MILLENNIUM),
-                (self._chessnut, "Chessnut", self.CLIENT_CHESSNUT),
-            ]
-        elif self._client_type_hint == self.CLIENT_CHESSNUT:
-            emulators_to_try = [
-                (self._chessnut, "Chessnut", self.CLIENT_CHESSNUT),
-                (self._millennium, "Millennium", self.CLIENT_MILLENNIUM),
-                (self._pegasus, "Pegasus", self.CLIENT_PEGASUS),
-            ]
-        else:
-            emulators_to_try = [
-                (self._millennium, "Millennium", self.CLIENT_MILLENNIUM),
-                (self._pegasus, "Pegasus", self.CLIENT_PEGASUS),
-                (self._chessnut, "Chessnut", self.CLIENT_CHESSNUT),
-            ]
-        
-        for emulator, name, client_type in emulators_to_try:
-            if emulator and emulator.parse_byte(byte_value):
-                hint_match = " (matches hint)" if self._client_type_hint == client_type else ""
-                hint_mismatch = f" (hint was {self._client_type_hint})" if self._client_type_hint and self._client_type_hint != client_type else ""
-                log.info(f"[ProtocolManager] {name} protocol detected via auto-detection{hint_match}{hint_mismatch}")
-                
-                self.client_type = client_type
-                
-                if client_type == self.CLIENT_MILLENNIUM:
-                    self.is_millennium = True
-                    self._pegasus = None
-                    self._chessnut = None
-                elif client_type == self.CLIENT_PEGASUS:
-                    self.is_pegasus = True
-                    self._millennium = None
-                    self._chessnut = None
-                elif client_type == self.CLIENT_CHESSNUT:
-                    self.is_chessnut = True
-                    self._millennium = None
-                    self._pegasus = None
-                
-                return True
-        
+        log.warning("[ProtocolManager] receive_data called but is now handled by ControllerManager")
         return False
 
     def reset_parser(self):
-        """Reset the packet parser state for all active emulators."""
-        if self._millennium:
-            self._millennium.reset_parser()
-        if self._pegasus:
-            self._pegasus.reset()
-        if self._chessnut:
-            self._chessnut.reset()
+        """Legacy method - emulator state now managed by RemoteController."""
+        log.debug("[ProtocolManager] reset_parser called but emulators are now in RemoteController")
 
-    def _update_display(self):
-        """Update the e-paper display with the current board position."""
-        if self._display_update_callback and self.game_manager:
-            try:
-                fen = self.game_manager.chess_board.fen()
-                self._display_update_callback(fen)
-            except Exception as e:
-                log.error(f"[ProtocolManager] Error updating display: {e}")
-
-    def subscribe_manager(self):
-        """Subscribe to the game manager with callbacks."""
-        try:
-            log.info("[ProtocolManager] Subscribing to game manager")
-            self.game_manager.subscribe_game(
-                self._manager_event_callback,
-                self._manager_move_callback,
-                self._manager_key_callback,
-                self._manager_takeback_callback
-            )
-            log.info("[ProtocolManager] Successfully subscribed to game manager")
-        except Exception as e:
-            log.error(f"[ProtocolManager] Failed to subscribe to game manager: {e}")
-            import traceback
-            traceback.print_exc()
-    
     # =========================================================================
     # Player Management
     # =========================================================================
@@ -647,125 +342,15 @@ class ProtocolManager:
         This is called when a player provides a move (via PlayerManager).
         Routes to GameManager as a forced move.
         
+        Note: When ControllerManager is used, moves are routed through
+        LocalController.on_player_move() which checks if the controller
+        is active before calling this method.
+        
         Args:
             move: The player's move.
         """
-        # Don't execute engine moves if a Bluetooth app is connected
-        # (except for Lichess which is a different kind of connection)
-        if self.is_app_connected() and not self.is_lichess:
-            log.info(f"[ProtocolManager] Ignoring player move {move.uci()} - external app is connected")
-            return
-        
         log.info(f"[ProtocolManager] Player move received: {move.uci()}")
         self.game_manager.computer_move(move.uci(), forced=True)
-    
-    def _handle_new_game(self):
-        """Handle new game event - notify players and assistants."""
-        if self._player_manager:
-            self._player_manager.on_new_game()
-        if self._assistant_manager:
-            self._assistant_manager.on_new_game()
-    
-    def _on_all_players_ready(self):
-        """Handle all players becoming ready.
-        
-        Called by PlayerManager when both players are ready.
-        Triggers the first move request if White is not human.
-        """
-        from DGTCentaurMods.players import PlayerType
-        
-        if not self._player_manager:
-            return
-        
-        white_player = self._player_manager.get_player(chess.WHITE)
-        if white_player.player_type != PlayerType.HUMAN:
-            log.info("[ProtocolManager] All players ready, requesting first move from White")
-            self._request_current_player_move()
-        else:
-            log.debug("[ProtocolManager] All players ready, waiting for human to move")
-    
-    def _request_current_player_move(self):
-        """Request a move from the current player.
-        
-        Called when turn changes. For human players, does nothing.
-        For engines/Lichess, starts move computation.
-        """
-        if self.is_app_connected() and not self.is_lichess:
-            return  # External app is connected, it handles moves
-        
-        if not self._player_manager:
-            return
-        
-        if not self._player_manager.is_ready:
-            return
-        
-        chess_board = self.game_manager.chess_board
-        
-        if chess_board.is_game_over():
-            return
-        
-        log.debug("[ProtocolManager] Requesting move from current player")
-        self._player_manager.request_move(chess_board)
-    
-    # =========================================================================
-    # Assistant Management
-    # =========================================================================
-    
-    def set_assistant_manager(self, assistant_manager: AssistantManager):
-        """Set the assistant manager for suggestions (Hand+Brain, hints).
-        
-        Args:
-            assistant_manager: The AssistantManager instance.
-        """
-        self._assistant_manager = assistant_manager
-        
-        # Wire suggestion callback
-        assistant_manager.set_suggestion_callback(self._on_assistant_suggestion)
-    
-    def _on_assistant_suggestion(self, suggestion: Suggestion):
-        """Handle suggestion from assistant (Hand+Brain).
-        
-        Args:
-            suggestion: The assistant's suggestion.
-        """
-        if suggestion.suggestion_type == SuggestionType.PIECE_TYPE:
-            log.info(f"[ProtocolManager] Suggestion: piece type {suggestion.piece_type} (squares: {suggestion.squares})")
-            if self._suggestion_callback:
-                self._suggestion_callback(suggestion.piece_type or "", suggestion.squares)
-        elif suggestion.suggestion_type == SuggestionType.MOVE:
-            log.info(f"[ProtocolManager] Suggestion: move {suggestion.move.uci() if suggestion.move else 'none'}")
-    
-    def _check_assistant_suggestion(self):
-        """Check if assistant should provide a suggestion.
-        
-        Called when turn changes. For auto-suggest assistants (like Hand+Brain),
-        requests a suggestion when it's the player's turn.
-        """
-        if not self._assistant_manager:
-            return
-        
-        if not self._assistant_manager.is_active:
-            return
-        
-        if not self._assistant_manager.auto_suggest:
-            return
-        
-        chess_board = self.game_manager.chess_board
-        
-        # Only show suggestions for human players (they need to decide a move)
-        # Engine/Lichess players already know what move to make
-        if self._player_manager:
-            from DGTCentaurMods.players import PlayerType
-            current_player = self._player_manager.get_current_player(chess_board)
-            if current_player.player_type != PlayerType.HUMAN:
-                self._assistant_manager.clear_suggestion()
-                return
-        
-        if chess_board.is_game_over():
-            return
-        
-        log.debug("[ProtocolManager] Requesting suggestion from assistant manager")
-        self._assistant_manager.request_suggestion(chess_board, chess_board.turn)
     
     # =========================================================================
     # Lichess-Specific Methods
@@ -818,123 +403,15 @@ class ProtocolManager:
             return self._player_manager.is_ready
         return False
     
-    @property
-    def lichess_board_flip(self) -> bool:
-        """Get board flip state for Lichess (True if local human plays black).
-        
-        Returns:
-            True if board should be flipped (playing as black).
-        """
-        from DGTCentaurMods.players import LichessPlayer
-        
-        if self._player_manager:
-            # Check which player is Lichess and return its board_flip
-            for player in [self._player_manager.white_player, self._player_manager.black_player]:
-                if isinstance(player, LichessPlayer):
-                    return player.board_flip
-        return False
-    
-    def set_lichess_on_game_connected(self, callback):
-        """Set callback for when Lichess game is connected and ready.
-        
-        Args:
-            callback: Function to call when game transitions to playing.
-        """
-        from DGTCentaurMods.players import LichessPlayer
-        
-        if self._player_manager:
-            for player in [self._player_manager.white_player, self._player_manager.black_player]:
-                if isinstance(player, LichessPlayer):
-                    player.set_on_game_connected(callback)
-    
-    def lichess_resign(self):
-        """Resign the current Lichess game."""
-        from DGTCentaurMods.players import LichessPlayer
-        
-        if self._player_manager:
-            for player in [self._player_manager.white_player, self._player_manager.black_player]:
-                if isinstance(player, LichessPlayer):
-                    player.on_resign(chess.WHITE)  # Lichess handles the actual resign
-                    return
-    
-    def lichess_abort(self):
-        """Abort the current Lichess game."""
-        from DGTCentaurMods.players import LichessPlayer
-        
-        if self._player_manager:
-            for player in [self._player_manager.white_player, self._player_manager.black_player]:
-                if isinstance(player, LichessPlayer):
-                    player.abort_game()
-                    return
-    
-    def lichess_offer_draw(self):
-        """Offer a draw in the current Lichess game."""
-        from DGTCentaurMods.players import LichessPlayer
-        
-        if self._player_manager:
-            for player in [self._player_manager.white_player, self._player_manager.black_player]:
-                if isinstance(player, LichessPlayer):
-                    player.on_draw_offer()
-                    return
-    
-    def set_lichess_game_over_callback(self, callback):
-        """Set callback for Lichess game over events.
-        
-        Args:
-            callback: Function(result, termination, winner) called when game ends.
-        """
-        from DGTCentaurMods.players import LichessPlayer
-        
-        if self._player_manager:
-            for player in [self._player_manager.white_player, self._player_manager.black_player]:
-                if isinstance(player, LichessPlayer):
-                    player.set_game_over_callback(callback)
-    
-    def set_lichess_takeback_offer_callback(self, callback):
-        """Set callback for Lichess takeback offers from opponent.
-        
-        Args:
-            callback: Function(accept_fn, decline_fn) called when opponent offers takeback.
-        """
-        from DGTCentaurMods.players import LichessPlayer
-        
-        if self._player_manager:
-            for player in [self._player_manager.white_player, self._player_manager.black_player]:
-                if isinstance(player, LichessPlayer):
-                    player.set_takeback_offer_callback(callback)
-    
-    def set_lichess_draw_offer_callback(self, callback):
-        """Set callback for Lichess draw offers from opponent.
-        
-        Args:
-            callback: Function(accept_fn, decline_fn) called when opponent offers draw.
-        """
-        from DGTCentaurMods.players import LichessPlayer
-        
-        if self._player_manager:
-            for player in [self._player_manager.white_player, self._player_manager.black_player]:
-                if isinstance(player, LichessPlayer):
-                    player.set_draw_offer_callback(callback)
-    
-    def set_lichess_info_message_callback(self, callback):
-        """Set callback for Lichess informational messages.
-        
-        Args:
-            callback: Function(message) called with info messages to display.
-        """
-        from DGTCentaurMods.players import LichessPlayer
-        
-        if self._player_manager:
-            for player in [self._player_manager.white_player, self._player_manager.black_player]:
-                if isinstance(player, LichessPlayer):
-                    player.set_info_message_callback(callback)
-    
     # =========================================================================
     # App Connection Management
     # =========================================================================
     
     def is_app_connected(self) -> bool:
         """Check if any chess app protocol has been detected.
+        
+        Note: When ControllerManager is used, controller switching is managed
+        by ControllerManager, not by checking this method.
         
         Returns:
             True if a chess app is connected (Millennium, Pegasus, Chessnut, or Lichess)
@@ -950,27 +427,16 @@ class ProtocolManager:
             self._player_manager.clear_pending_moves()
     
     def on_app_disconnected(self):
-        """Called when app disconnects - resume local players."""
+        """Called when app disconnects - resume local players.
+        
+        Emulator recreation is now handled by ControllerManager/RemoteController.
+        """
         log.info("[ProtocolManager] App disconnected - local players may resume")
         # Reset protocol detection flags
         self.is_millennium = False
         self.is_pegasus = False
         self.is_chessnut = False
         self.client_type = self.CLIENT_UNKNOWN
-        
-        # Recreate emulators for next connection
-        self._millennium = Millennium(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self.game_manager
-        )
-        self._pegasus = Pegasus(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self.game_manager
-        )
-        self._chessnut = Chessnut(
-            sendMessage_callback=self._handle_emulator_response,
-            manager=self.game_manager
-        )
         
         # Request move from current player
         self._request_current_player_move()
