@@ -308,6 +308,11 @@ class EPD:
         self.send_data2([0xFF] * int(self.width * self.height / 8))
         epdconfig.delay_ms(10)
         self.TurnOnDisplay()
+        
+        # Update internal buffer to match cleared display state (all white).
+        # Without this, the next DisplayPartial() would use stale buffer content
+        # as the "old" image, causing ghosting artifacts.
+        self.buffer = [0xFF] * int(self.width * self.height / 8)
 
     def sleep(self):
         self.send_command(0X50)
