@@ -59,10 +59,9 @@ def set_inactivity_timeout(seconds: int) -> None:
     """
     Settings.write('system', 'inactivity_timeout', str(seconds))
 
-# Battery/charger state - updated by BatteryWidget polling thread
-# chargerconnected is used by eventsThread to hold timeout when charging
-chargerconnected = 0
-batterylevel = -1
+# Battery/charger state is now in SystemState (state/system.py)
+# Import state for eventsThread to read charger status
+from DGTCentaurMods.state import get_system as _get_system_state
 
 # Board meta properties (extracted from DGT_SEND_TRADEMARK response)
 board_meta_properties: Optional[dict] = None
@@ -651,24 +650,6 @@ def printChessState(state = None, loglevel = logging.INFO):
     line += "\r\n\n"
     log.log(loglevel, line)
 
-def getBatteryLevel():
-    """Get battery level and charger status from the board.
-    
-    Returns:
-        Tuple of (batterylevel, chargerconnected) where:
-        - batterylevel: 0-20 (20 is fully charged, board dies around 1)
-        - chargerconnected: 1 if charging, 0 otherwise
-    
-    Note: BatteryWidget now polls this automatically every 5 seconds.
-    This function is kept for backward compatibility with emulators.
-    """
-    global batterylevel, chargerconnected
-    resp = controller.request_response(command.DGT_SEND_BATTERY_INFO)
-    val = resp[0]
-    batterylevel = val & 0x1F
-    chargerconnected = 1 if ((val >> 5) & 0x07) in (1, 2) else 0    
-    return batterylevel, chargerconnected
-
 #
 # Helper functions - used by other functions or useful in manipulating board data
 #
@@ -731,7 +712,9 @@ def eventsThread(keycallback, fieldcallback, tout):
     - Short presses: Key-up events passed to callback.
     """
     global eventsrunning
-    global chargerconnected
+    
+    # Get system state for charger status
+    system_state = _get_system_state()
     
     hold_timeout = False
     events_paused = False
@@ -763,7 +746,7 @@ def eventsThread(keycallback, fieldcallback, tout):
         loopstart = time.monotonic()
         if eventsrunning == 1:
             # Hold and restart timeout on charger attached
-            if chargerconnected == 1:
+            if system_state.charger_connected:
                 to = time.monotonic() + 100000
                 hold_timeout = True
                 # Cancel inactivity countdown if shown (charger connected)
@@ -778,7 +761,7 @@ def eventsThread(keycallback, fieldcallback, tout):
                     inactivity_countdown_shown = False
                     inactivity_countdown_splash = None
                     inactivity_last_displayed_seconds = None
-            if chargerconnected == 0 and hold_timeout:
+            if not system_state.charger_connected and hold_timeout:
                 # Re-read timeout from settings in case it changed
                 tout, timeout_disabled = get_current_timeout()
                 to = time.monotonic() + tout

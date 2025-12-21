@@ -315,7 +315,10 @@ class Pegasus:
         """Handle battery status packet.
         """
         log.info(f"[Pegasus Battery status] getting battery status")
-        batterylevel, chargerconnected = board.getBatteryLevel()
+        from DGTCentaurMods.state import get_system
+        state = get_system()
+        batterylevel = state.battery_level if state.battery_level is not None else 10
+        chargerconnected = 1 if state.charger_connected else 0
         log.warning(f"[Pegasus Battery status] battery status={batterylevel} chargerconnected={chargerconnected}")
 
         self.send_packet(command.BATTERY_STATUS_RESP, [0x58,0,0,0,0,0,0,0,2])

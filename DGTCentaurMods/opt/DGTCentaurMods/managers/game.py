@@ -30,7 +30,6 @@ from DGTCentaurMods.paths import FEN_LOG, TMP_DIR
 from DGTCentaurMods.paths import (
     DEFAULT_START_FEN,
     get_fen_log_path,
-    write_fen_log,
     get_current_fen,
     get_current_placement,
     get_current_turn,
@@ -39,6 +38,7 @@ from DGTCentaurMods.paths import (
     get_current_halfmove_clock,
 )
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.state import get_chess_game
 
 # Deferred imports - these are slow (~3s total on Raspberry Pi) and loaded in background
 # to avoid blocking startup. They're only needed when a game actually starts.
@@ -143,11 +143,7 @@ def _get_create_engine():
     return _deferred_create_engine
 
 
-# FEN functions are imported from paths.py and re-exported for backward compatibility.
-# They are in paths.py because they only do file I/O and don't need hardware access,
-# allowing the web app to use them without importing board.
-
-# Event constants - import from lightweight events module for backward compatibility
+# Event constants - used throughout game logic
 from DGTCentaurMods.managers.events import (
     EVENT_NEW_GAME,
     EVENT_BLACK_TURN,
@@ -355,9 +351,17 @@ class GameManager:
             save_to_database: If True, game moves are saved to the database.
                              If False, database operations are disabled (for position games).
         """
-        # Logical chess board - this is the AUTHORITY for game state
-        # Physical board must conform to this state
-        self.chess_board = chess.Board()
+        # Game state - holds the authoritative chess.Board
+        # GameManager mutates this directly for internal operations,
+        # then calls notify_position_change() at logical boundaries
+        self._game_state = get_chess_game()
+        self._game_state.reset()  # Ensure clean state for new game
+        
+        # Direct reference to board for convenience (internal operations)
+        # IMPORTANT: For position changes that widgets should see,
+        # call self._game_state.notify_position_change() after mutations
+        self.chess_board = self._game_state.board
+        
         self.move_state = MoveState()
         self.correction_mode = CorrectionMode()
         
@@ -601,6 +605,9 @@ class GameManager:
             # No database session, just cache the result
             self.cached_result = result_string
         
+        # Notify game over observers
+        self._game_state.notify_game_over(result_string, termination)
+        
         if self.event_callback is not None:
             self.event_callback(termination)
     
@@ -698,7 +705,7 @@ class GameManager:
                     self.database_session.commit()
             
             self.chess_board.pop()
-            write_fen_log(self.chess_board.fen())
+            self._game_state.notify_position_change()  # Notify observers (writes FEN log)
             board.beep(board.SOUND_GENERAL, event_type='game_event')
             
             self.takeback_callback()
@@ -1541,7 +1548,7 @@ class GameManager:
                 except Exception:
                     pass
         
-        write_fen_log(self.chess_board.fen())
+        self._game_state.notify_position_change()  # Notify observers (writes FEN log)
         
         # Call move callback to update display
         if self.move_callback is not None:
@@ -1712,7 +1719,7 @@ class GameManager:
             except Exception as db_error:
                 log.error(f"[GameManager._execute_late_castling] Database error: {db_error}")
         
-        write_fen_log(self.chess_board.fen())
+        self._game_state.notify_position_change()  # Notify observers (writes FEN log)
         
         # Call move callback to update display
         if self.move_callback is not None:
@@ -1948,8 +1955,8 @@ class GameManager:
                         except Exception:
                             pass
                 
-                # 2. FEN log
-                write_fen_log(fen_after_move)
+                # 2. State notification (writes FEN log via ChessGameService)
+                self._game_state.notify_position_change()
                 
                 # 3. Move callback (updates display, forwards to emulators)
                 if self.move_callback is not None:
@@ -2267,8 +2274,8 @@ class GameManager:
         # Capture state needed for async operations
         fen_after_move = str(self.chess_board.fen())
         
-        # Update FEN log for Chromecast/video display
-        write_fen_log(fen_after_move)
+        # Notify observers (writes FEN log via ChessGameService)
+        self._game_state.notify_position_change()
         
         # Check game outcome
         game_ended = False
@@ -2771,8 +2778,8 @@ class GameManager:
             self.game_db_id = -1
             log.info("[GameManager._reset_game] Reset game_db_id to -1 - new game will be created on first move")
             
-            # Step 9: Update FEN log
-            write_fen_log(self.chess_board.fen())
+            # Step 9: Notify observers (writes FEN log via ChessGameService)
+            self._game_state.notify_position_change()
             
             # Step 10: Notify callbacks of new game (but don't create DB entry yet)
             # Note: Do NOT fire turn event here - clock should only start on first actual move.
@@ -2839,8 +2846,8 @@ class GameManager:
         board.ledsOff()
         log.info("[GameManager._game_thread] Ready to receive events from app coordinator")
         
-        # Write initial FEN for Chromecast/video display
-        write_fen_log(self.chess_board.fen())
+        # Notify observers of initial position (writes FEN log via ChessGameService)
+        self._game_state.notify_position_change()
         
         # Note: GameManager no longer subscribes to board events directly.
         # Events are routed from the app coordinator (universal.py) through
@@ -3101,114 +3108,3 @@ class GameManager:
             self.game_thread.join(timeout=1.0)
             if self.game_thread.is_alive():
                 log.warning("[GameManager.unsubscribe_game] Game thread did not finish within timeout")
-
-
-# Global instance for backward compatibility
-_game_manager_instance = None
-
-
-def subscribeGame(event_callback, move_callback, key_callback, takeback_callback=None):
-    """Subscribe to the game manager (backward compatibility function)."""
-    global _game_manager_instance
-    _game_manager_instance = GameManager()
-    _game_manager_instance.subscribe_game(event_callback, move_callback, key_callback, takeback_callback)
-
-
-def unsubscribeGame():
-    """Unsubscribe from the game manager (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        _game_manager_instance.unsubscribe_game()
-        _game_manager_instance = None
-
-
-def setGameInfo(event, site, round_str, white, black):
-    """Set game metadata (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        _game_manager_instance.set_game_info(event, site, round_str, white, black)
-
-
-def setClock(white, black):
-    """Set clock times (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        _game_manager_instance.set_clock(white, black)
-
-
-def startClock():
-    """Start the clock (backward compatibility function).
-    
-    Note: Clock is now managed by DisplayManager via event callbacks.
-    This function is kept for backward compatibility but is a no-op.
-    """
-    pass
-
-
-def computerMove(mv, forced=True):
-    """Set computer move (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        _game_manager_instance.computer_move(mv, forced)
-
-
-def resignGame(side_resigning):
-    """Resign game (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        _game_manager_instance.resign_game(side_resigning)
-
-
-def drawGame():
-    """Draw game (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        _game_manager_instance.draw_game()
-
-
-def getResult():
-    """Get game result (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        return _game_manager_instance.get_result()
-    return "Unknown"
-
-
-def getBoard():
-    """Get chess board (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        return _game_manager_instance.get_board()
-    return None
-
-
-def getFEN():
-    """Get FEN string (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        return _game_manager_instance.get_fen()
-    return STARTING_FEN
-
-
-def resetMoveState():
-    """Reset move state (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        _game_manager_instance.move_state.reset()
-
-
-def resetBoard():
-    """Reset board (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        _game_manager_instance.chess_board.reset()
-        write_fen_log(_game_manager_instance.chess_board.fen())
-
-
-def setBoard(board_obj):
-    """Set board (backward compatibility function)."""
-    global _game_manager_instance
-    if _game_manager_instance is not None:
-        _game_manager_instance.chess_board = board_obj
-        write_fen_log(board_obj.fen())
-

@@ -868,27 +868,6 @@ def _clear_menu_state():
     ctx.clear()
 
 
-# Legacy compatibility functions
-def _save_menu_state(menu_path: str, selected_index: int = 0):
-    """Legacy function - use MenuContext.push() or MenuContext.update_index() instead.
-    
-    This function is maintained for backward compatibility during transition.
-    It replaces the entire context with a single-level state.
-    """
-    global _menu_context
-    
-    if not menu_path or menu_path == "Main":
-        _clear_menu_state()
-        return
-    
-    # Parse path and create new context
-    path_parts = menu_path.split('/')
-    # Create indices list - use selected_index for the last level, 0 for others
-    indices = [0] * (len(path_parts) - 1) + [selected_index] if path_parts else [selected_index]
-    
-    _menu_context = MenuContext(path_stack=path_parts, index_stack=indices)
-    _menu_context.save()
-
 
 def _load_menu_state() -> tuple:
     """Legacy function - use MenuContext.load() instead.
@@ -5827,6 +5806,15 @@ def cleanup_and_exit(reason: str = "Normal exit", system_shutdown: bool = False,
         else:
             log.info("[Cleanup] Protocol manager was None")
         
+        # Stop services
+        log.info("[Cleanup] Stopping services...")
+        try:
+            from DGTCentaurMods.services import get_system_service
+            get_system_service().stop()
+            log.info("[Cleanup] SystemPollingService stopped")
+        except Exception as e:
+            log.error(f"[Cleanup] Error stopping system service: {e}", exc_info=True)
+        
         # NOTE: Display manager cleanup is deferred until after shutdown splash/LEDs
         # so the display can show the shutdown message
         
@@ -6395,6 +6383,27 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     log.info("[Main] Signal handlers registered")
+    
+    # Initialize and start services
+    try:
+        log.info("[Main] Starting services...")
+        if startup_splash:
+            startup_splash.set_message("Services...")
+        
+        # Start system polling service (battery, wifi, bluetooth)
+        from DGTCentaurMods.services import get_system_service
+        _system_service = get_system_service()
+        _system_service.start()
+        log.info("[Main] SystemPollingService started")
+        
+        # Initialize chess game service (registers for position change callbacks)
+        from DGTCentaurMods.services import get_chess_game_service
+        _game_service = get_chess_game_service()
+        log.info("[Main] ChessGameService initialized")
+        
+    except Exception as e:
+        log.error(f"[Main] Failed to start services: {e}", exc_info=True)
+        # Continue anyway - services are not critical for basic operation
     
     # Setup BLE if enabled
     global ble_manager

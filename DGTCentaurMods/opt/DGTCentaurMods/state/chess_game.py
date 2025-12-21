@@ -143,16 +143,25 @@ class ChessGameState:
         if callback in self._on_game_over:
             self._on_game_over.remove(callback)
     
-    def _notify_position_change(self) -> None:
-        """Notify all position change observers."""
+    def notify_position_change(self) -> None:
+        """Notify all position change observers.
+        
+        Called automatically by mutation methods (push_move, pop_move, etc.).
+        Can also be called manually after direct board modifications.
+        """
         for callback in self._on_position_change:
             try:
                 callback()
             except Exception:
                 pass  # Don't let observer errors break the state
     
-    def _notify_game_over(self, result: str, termination: str) -> None:
-        """Notify all game over observers."""
+    def notify_game_over(self, result: str, termination: str) -> None:
+        """Notify all game over observers.
+        
+        Args:
+            result: Game result ('1-0', '0-1', '1/2-1/2')
+            termination: How game ended
+        """
         for callback in self._on_game_over:
             try:
                 callback(result, termination)
@@ -176,14 +185,14 @@ class ChessGameState:
             raise ValueError(f"Illegal move: {move.uci()}")
         
         self._board.push(move)
-        self._notify_position_change()
+        self.notify_position_change()
         
         # Check for game end by board state
         outcome = self._board.outcome()
         if outcome is not None:
             self._result = outcome.result()
             self._termination = str(outcome.termination.name).lower()
-            self._notify_game_over(self._result, self._termination)
+            self.notify_game_over(self._result, self._termination)
     
     def push_uci(self, uci: str) -> chess.Move:
         """Push a move by UCI string.
@@ -215,7 +224,7 @@ class ChessGameState:
         self._termination = None
         
         move = self._board.pop()
-        self._notify_position_change()
+        self.notify_position_change()
         return move
     
     def set_position(self, fen: str) -> None:
@@ -230,14 +239,14 @@ class ChessGameState:
         self._board.set_fen(fen)
         self._result = None
         self._termination = None
-        self._notify_position_change()
+        self.notify_position_change()
     
     def reset(self) -> None:
         """Reset to starting position."""
         self._board.reset()
         self._result = None
         self._termination = None
-        self._notify_position_change()
+        self.notify_position_change()
     
     def set_result(self, result: str, termination: str) -> None:
         """Set game result from external event (resignation, flag, draw agreement).
@@ -251,7 +260,7 @@ class ChessGameState:
         """
         self._result = result
         self._termination = termination
-        self._notify_game_over(result, termination)
+        self.notify_game_over(result, termination)
 
 
 # -----------------------------------------------------------------------------

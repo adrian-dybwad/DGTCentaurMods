@@ -23,8 +23,9 @@ import chess.engine
 
 from DGTCentaurMods.board import board
 from DGTCentaurMods.board.logging import log
-from DGTCentaurMods.services import get_chess_clock
+from DGTCentaurMods.services import get_chess_clock_service
 from DGTCentaurMods.state import get_chess_clock as get_clock_state
+from DGTCentaurMods.state import get_chess_game
 
 # Lazy imports for widgets to avoid loading all epaper modules at startup
 _widgets_loaded = False
@@ -123,9 +124,13 @@ class DisplayManager:
         self._analysis_mode = analysis_mode  # Whether to create analysis engine/widget at all
         self._on_exit = on_exit
         self._hand_brain_mode = hand_brain_mode
-        self._initial_fen = initial_fen or STARTING_FEN
-        self._current_fen = self._initial_fen  # Tracks current position, updated on each move
         self._time_control = time_control  # Minutes per player (0 = disabled)
+        
+        # Game state - authoritative source for position
+        # Set initial position if provided, otherwise use game state's current position
+        self._game_state = get_chess_game()
+        if initial_fen and initial_fen != STARTING_FEN:
+            self._game_state.set_position(initial_fen)
         self._show_board = show_board
         self._show_clock = show_clock
         self._show_graph = show_graph
@@ -160,7 +165,7 @@ class DisplayManager:
         
         # Get ChessClock singleton for this game
         # The clock persists across widget creation/destruction
-        self._clock = get_chess_clock()
+        self._clock = get_chess_clock_service()
         self._clock.configure(
             time_control_minutes=time_control,
             white_name=white_name,
@@ -257,10 +262,10 @@ class DisplayManager:
 
         # Create chess board widget at y=16 (below status bar)
         # Uses cached sprites from preload_sprites() if available
-        # Use _current_fen to preserve position when recreating widgets (e.g., after menu)
+        # Game state is the authoritative source for position
         self.chess_board_widget = _ChessBoardWidget(
             0, 16, board.display_manager.update,
-            fen=self._current_fen,
+            fen=self._game_state.fen,
             flip=self._flip_board
         )
         
@@ -375,12 +380,13 @@ class DisplayManager:
     def update_position(self, fen: str):
         """Update the chess board display with a new position.
         
-        Also tracks the current FEN for widget recreation (e.g., after menu).
+        Note: The game state (ChessGameState) is the authoritative source.
+        This method just updates the widget display to match.
         
         Args:
             fen: FEN string of the new position
         """
-        self._current_fen = fen
+        # No need to store - game state is the source of truth
         if self.chess_board_widget:
             try:
                 self.chess_board_widget.set_fen(fen)

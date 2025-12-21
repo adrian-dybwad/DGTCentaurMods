@@ -210,48 +210,6 @@ class ChessClockWidget(Widget):
             self._clock.on_flag(callback)
     
     # -------------------------------------------------------------------------
-    # Legacy methods (delegate to clock service for backward compatibility)
-    # These methods require the service for lifecycle control.
-    # -------------------------------------------------------------------------
-    
-    def _get_service(self):
-        """Get the clock service (lazy import to avoid circular imports)."""
-        from DGTCentaurMods.services import get_chess_clock_service
-        return get_chess_clock_service()
-    
-    def set_player_names(self, white_name: str, black_name: str) -> None:
-        """Set both player names. Deprecated - configure via service."""
-        log.debug("[ChessClockWidget] set_player_names is deprecated, use service")
-    
-    def set_times(self, white_seconds: int, black_seconds: int) -> None:
-        """Set the clock times for both players. Delegates to clock state."""
-        self._clock.set_times(white_seconds, black_seconds)
-    
-    def set_active(self, color: Optional[str]) -> None:
-        """Set which player's clock is active. Delegates to clock state."""
-        self._clock.set_active(color)
-    
-    def start(self, active_color: str = 'white') -> None:
-        """Start the clock. Delegates to clock service."""
-        self._get_service().start(active_color)
-    
-    def pause(self) -> None:
-        """Pause the clock. Delegates to clock service."""
-        self._get_service().pause()
-    
-    def resume(self, active_color: str) -> None:
-        """Resume the clock. Delegates to clock service."""
-        self._get_service().resume(active_color)
-    
-    def switch_turn(self) -> None:
-        """Switch which player's clock is running. Delegates to clock service."""
-        self._get_service().switch_turn()
-    
-    def get_final_times(self) -> tuple:
-        """Get the current times for both players."""
-        return (self._clock.white_time, self._clock.black_time)
-    
-    # -------------------------------------------------------------------------
     # Rendering
     # -------------------------------------------------------------------------
     

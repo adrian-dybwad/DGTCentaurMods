@@ -9,11 +9,13 @@ For state access, import from state/ directly. For lifecycle control, use servic
 """
 
 from .chromecast import ChromecastService, get_chromecast_service, write_epaper_jpg
-from .chess_clock import ChessClockService, get_chess_clock_service, get_chess_clock
+from .chess_clock import ChessClockService, get_chess_clock_service
 from .chess_game import ChessGameService, get_chess_game_service
+from .system import SystemPollingService, get_system_service
 
 __all__ = [
     'ChromecastService', 'get_chromecast_service', 'write_epaper_jpg',
-    'ChessClockService', 'get_chess_clock_service', 'get_chess_clock',
+    'ChessClockService', 'get_chess_clock_service',
     'ChessGameService', 'get_chess_game_service',
+    'SystemPollingService', 'get_system_service',
 ]

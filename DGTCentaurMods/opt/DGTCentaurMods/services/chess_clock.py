@@ -281,12 +281,3 @@ def get_chess_clock_service() -> ChessClockService:
                 _instance = ChessClockService()
     
     return _instance
-
-
-# Backwards compatibility alias
-def get_chess_clock() -> ChessClockService:
-    """Alias for get_chess_clock_service() for backwards compatibility.
-    
-    Note: For state access, use state.get_chess_clock() instead.
-    """
-    return get_chess_clock_service()

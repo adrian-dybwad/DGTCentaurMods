@@ -4,11 +4,13 @@ Bluetooth status module.
 Provides:
 - Functions to query Bluetooth adapter status and format information for menus
 - Widget for displaying Bluetooth connection state in the status bar
+
+The widget observes SystemState for Bluetooth status.
+The SystemPollingService handles the actual system polling.
 """
 
 from PIL import Image, ImageDraw
 from .framework.widget import Widget
-import threading
 import subprocess
 from typing import Optional, List
 
@@ -18,11 +20,10 @@ except ImportError:
     import logging
     log = logging.getLogger(__name__)
 
+# Import state (lightweight) - NOT service
+from DGTCentaurMods.state import get_system
+from DGTCentaurMods.state.system import BT_DISABLED, BT_DISCONNECTED, BT_CONNECTED
 
-# Bluetooth state constants (for widget)
-BT_DISABLED = 0
-BT_DISCONNECTED = 1
-BT_CONNECTED = 2
 
 # Advertised service names for different protocols
 ADVERTISED_NAMES = {
@@ -179,6 +180,9 @@ def disable_bluetooth() -> bool:
 class BluetoothStatusWidget(Widget):
     """Bluetooth status indicator widget showing connection state.
     
+    Observes SystemState for Bluetooth status.
+    The widget is view-only - SystemPollingService handles polling.
+    
     Displays a Bluetooth icon with different states:
     - Solid icon when connected
     - Outline icon when enabled but not connected
@@ -190,119 +194,32 @@ class BluetoothStatusWidget(Widget):
         width: Widget width in pixels
         height: Widget height in pixels
         update_callback: Callback to trigger display updates. Must not be None.
-        auto_update: If True, starts background thread for automatic updates
     """
     
-    def __init__(self, x: int, y: int, width: int, height: int, update_callback, auto_update: bool = True):
+    def __init__(self, x: int, y: int, width: int, height: int, update_callback):
         super().__init__(x, y, width, height, update_callback)
         self._width = width
         self._height = height
-        self._last_state: Optional[int] = None
-        self._running = False
-        self._thread: Optional[threading.Thread] = None
-        self._stop_event = threading.Event()
-        if auto_update:
-            self._start_update_loop()
+        
+        # Get state reference (lightweight state object, not service)
+        self._state = get_system()
+        
+        # Register for Bluetooth state changes
+        self._state.on_bluetooth_change(self._on_bluetooth_change)
+        
+        # Set initial visibility based on state
+        self.visible = self._state.bt_enabled
     
-    def _start_update_loop(self) -> None:
-        """Start the background update loop."""
-        if self._running:
-            return
-        self._running = True
-        self._thread = threading.Thread(
-            target=self._update_loop, 
-            name="bluetooth-status-widget", 
-            daemon=True
-        )
-        self._thread.start()
-    
-    def _stop_update_loop(self) -> None:
-        """Stop the background update loop."""
-        self._running = False
-        self._stop_event.set()
-        if self._thread:
-            self._thread.join(timeout=1.0)
-            self._thread = None
+    def _on_bluetooth_change(self) -> None:
+        """Called when Bluetooth state changes."""
+        self.visible = self._state.bt_enabled
+        self.invalidate_cache()
+        self.request_update(full=False)
     
     def stop(self) -> None:
-        """Stop the widget and perform cleanup tasks."""
-        self._stop_update_loop()
-    
-    def _update_loop(self) -> None:
-        """Background loop that checks Bluetooth state every 10 seconds."""
-        while self._running:
-            try:
-                state = self._get_bluetooth_status()
-                
-                # Update visibility based on Bluetooth enabled state
-                should_be_visible = state != BT_DISABLED
-                if self.visible != should_be_visible:
-                    self.visible = should_be_visible
-                    log.debug(f"Bluetooth widget visibility changed: {should_be_visible}")
-                
-                if state != self._last_state:
-                    self.invalidate_cache()
-                    self._last_state = state
-                    self.request_update(full=False)
-                    log.debug(f"Bluetooth status changed: state={state}")
-                
-                # Sleep for 10 seconds, interruptible
-                for _ in range(10):
-                    if not self._running:
-                        break
-                    self._stop_event.wait(timeout=1.0)
-                    self._stop_event.clear()
-            except Exception as e:
-                log.debug(f"Error in Bluetooth status update loop: {e}")
-                for _ in range(10):
-                    if not self._running:
-                        break
-                    self._stop_event.wait(timeout=1.0)
-                    self._stop_event.clear()
-    
-    def _is_bluetooth_enabled(self) -> bool:
-        """Check if Bluetooth is enabled (not blocked by rfkill)."""
-        try:
-            result = subprocess.run(
-                ['rfkill', 'list', 'bluetooth'],
-                capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0:
-                return 'blocked: yes' not in result.stdout.lower()
-        except Exception as e:
-            log.debug(f"Error checking Bluetooth enabled state: {e}")
-        return True  # Assume enabled if check fails
-    
-    def _is_bluetooth_connected(self) -> bool:
-        """Check if any Bluetooth device is connected.
-        
-        Uses bluetoothctl to check for connected devices.
-        """
-        try:
-            result = subprocess.run(
-                ['bluetoothctl', 'devices', 'Connected'],
-                capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0:
-                # Output contains "Device XX:XX:XX:XX:XX:XX Name" for each connected device
-                return len(result.stdout.strip()) > 0
-        except Exception as e:
-            log.debug(f"Error checking Bluetooth connection: {e}")
-        return False
-    
-    def _get_bluetooth_status(self) -> int:
-        """Get Bluetooth connection state.
-        
-        Returns:
-            BT_DISABLED, BT_DISCONNECTED, or BT_CONNECTED
-        """
-        if not self._is_bluetooth_enabled():
-            return BT_DISABLED
-        
-        if self._is_bluetooth_connected():
-            return BT_CONNECTED
-        
-        return BT_DISCONNECTED
+        """Stop the widget (unregister from state)."""
+        self._state.remove_observer(self._on_bluetooth_change)
+        log.debug("[BluetoothStatusWidget] Unregistered from SystemState")
     
     def _draw_bluetooth_icon(self, draw: ImageDraw.Draw, connected: bool = False) -> None:
         """Draw a Bluetooth icon onto sprite.
@@ -370,13 +287,16 @@ class BluetoothStatusWidget(Widget):
         """Render Bluetooth status icon onto sprite."""
         draw = ImageDraw.Draw(sprite)
         
+        # Read state
+        bt_state = self._state.bt_state
+        
         # Sprite is pre-filled white
         
-        if self._last_state == BT_DISABLED:
+        if bt_state == BT_DISABLED:
             # Draw icon with cross overlay
             self._draw_bluetooth_icon(draw, connected=False)
             self._draw_disabled_cross(draw)
-        elif self._last_state == BT_CONNECTED:
+        elif bt_state == BT_CONNECTED:
             # Draw solid icon
             self._draw_bluetooth_icon(draw, connected=True)
         else:
