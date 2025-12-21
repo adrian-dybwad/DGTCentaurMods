@@ -195,7 +195,8 @@ class Manager:
         """Clear all widgets and background from the display.
         
         Stops all widget background threads, clears the widget list, clears
-        the background, and performs a full refresh to eliminate e-paper ghosting.
+        the background, and performs a full refresh to eliminate e-paper ghosting
+        when transitioning between screens.
         
         E-paper displays retain pixel state from previous content during partial
         refreshes. A full refresh is required to completely clear artifacts from
@@ -203,6 +204,7 @@ class Manager:
         
         Callers that want a dithered background should call set_background() after this.
         """
+        had_widgets = len(self._widgets) > 0
         log.debug(f"Manager.clear_widgets() called, clearing {len(self._widgets)} widgets")
         
         # Clear pending refresh requests first to prevent stale updates
@@ -221,8 +223,10 @@ class Manager:
         # Clear background to revert to plain white
         self._background = None
         
-        # Force full refresh to clear e-paper ghosting from previous content
-        self.update(full=True)
+        # Force full refresh to clear e-paper ghosting, but only when transitioning
+        # between screens (had widgets before). Skip for empty clears during init.
+        if had_widgets:
+            self.update(full=True, immediate=True)
         
         # Create and add status bar widget
         if addStatusBar:
