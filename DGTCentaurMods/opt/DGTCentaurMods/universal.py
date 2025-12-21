@@ -1779,14 +1779,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     game_manager = GameManager(save_to_database=save_to_database)
     
     # Create ProtocolManager with GameManager dependency
-    protocol_manager = ProtocolManager(
-        game_manager=game_manager,
-        sendMessage_callback=sendMessage,
-        client_type=None,
-        compare_mode=relay_mode,
-        display_update_callback=update_display,
-        takeback_callback=_on_takeback
-    )
+    protocol_manager = ProtocolManager(game_manager=game_manager)
     
     # Create PlayerManager (callbacks wired by game_manager.set_player_manager)
     from DGTCentaurMods.players import PlayerManager
@@ -5246,7 +5239,6 @@ def _start_lichess_game(lichess_config) -> bool:
     # Create ProtocolManager with GameManager dependency
     protocol_manager = ProtocolManager(
         game_manager=game_manager,
-        display_update_callback=update_display,
     )
     
     # Create PlayerManager (callbacks wired by game_manager.set_player_manager)
@@ -6697,9 +6689,10 @@ def main():
         # Callback for data received from shadow target
         def _on_shadow_data(data: bytes):
             """Handle data received from shadow target."""
-            # Compare with emulator if in compare mode
-            if protocol_manager is not None and protocol_manager.compare_mode:
-                match, emulator_response = protocol_manager.compare_with_shadow(data)
+            # Compare with emulator if in compare mode (using RemoteController)
+            if controller_manager is not None and controller_manager.remote_controller is not None:
+                remote = controller_manager.remote_controller
+                match, emulator_response = remote.compare_with_shadow(data)
                 if match is False:
                     log.error("[Relay] MISMATCH: Emulator response differs from shadow host")
                 elif match is True:
