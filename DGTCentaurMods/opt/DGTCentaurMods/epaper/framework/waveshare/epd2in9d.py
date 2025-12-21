@@ -39,6 +39,10 @@ import RPi.GPIO as GPIO
 EPD_WIDTH       = 128
 EPD_HEIGHT      = 296
 
+# Debug flag for buffer diagnostics in DisplayPartial
+# Set to True to print buffer statistics on each partial refresh
+DEBUG_DISPLAY_PARTIAL = False
+
 class EPD:
     def __init__(self):
         self.reset_pin = epdconfig.RST_PIN
@@ -244,7 +248,11 @@ class EPD:
         self.TurnOnDisplay()
         
     def _dump_buffer(self, label, buf):
-        """Debug: dump buffer statistics."""
+        """Debug helper: print buffer statistics.
+        
+        Prints byte counts for black (0x00), white (0xFF), and other (gray) values,
+        plus first 16 bytes as hex. Useful for diagnosing partial refresh issues.
+        """
         buf_bytes = bytes(buf) if not isinstance(buf, bytes) else buf
         black = sum(1 for b in buf_bytes if b == 0x00)
         white = sum(1 for b in buf_bytes if b == 0xFF)
@@ -260,9 +268,9 @@ class EPD:
         Args:
             image: Buffer containing the new/current content (sent to 0x13)
         """
-        # DEBUG: Dump both buffers
-        self._dump_buffer("OLD_BUFFER_0x10", self.buffer)
-        self._dump_buffer("NEW_IMAGE_0x13", image)
+        if DEBUG_DISPLAY_PARTIAL:
+            self._dump_buffer("OLD_BUFFER_0x10", self.buffer)
+            self._dump_buffer("NEW_IMAGE_0x13", image)
         
         self.SetPartReg()
         self.send_command(0x91)
