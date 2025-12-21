@@ -38,13 +38,14 @@ _SplashScreen = None
 _BrainHintWidget = None
 _GameOverWidget = None
 _AlertWidget = None
+_PauseWidget = None
 
 
 def _load_widgets():
     """Lazily load widget classes."""
     global _widgets_loaded, _ChessBoardWidget, _GameAnalysisWidget, _ChessClockWidget
     global _IconMenuWidget, _IconMenuEntry, _SplashScreen, _BrainHintWidget
-    global _GameOverWidget, _AlertWidget
+    global _GameOverWidget, _AlertWidget, _PauseWidget
     
     if _widgets_loaded:
         return
@@ -55,6 +56,7 @@ def _load_widgets():
         AlertWidget
     )
     from DGTCentaurMods.epaper.game_over import GameOverWidget
+    from DGTCentaurMods.epaper.pause import PauseWidget
     _ChessBoardWidget = ChessBoardWidget
     _GameAnalysisWidget = GameAnalysisWidget
     _ChessClockWidget = ChessClockWidget
@@ -64,6 +66,7 @@ def _load_widgets():
     _BrainHintWidget = BrainHintWidget
     _GameOverWidget = GameOverWidget
     _AlertWidget = AlertWidget
+    _PauseWidget = PauseWidget
     _widgets_loaded = True
 
 
@@ -612,47 +615,7 @@ class DisplayManager:
         
         # Show pause widget (centered on screen)
         # Import here to avoid circular imports
-        from DGTCentaurMods.epaper.text import TextWidget, Justify
-        from DGTCentaurMods.epaper.framework.widget import Widget
-        from PIL import Image, ImageDraw
-        
-        # Create a custom pause widget with icon and text
-        class PauseWidget(Widget):
-            """Widget showing pause icon and PAUSED text."""
-            def __init__(self):
-                # Centered on 128x296 display
-                super().__init__(x=0, y=98, width=128, height=100)
-                self._text_widget = TextWidget(
-                    x=0, y=60, width=128, height=30,
-                    text="PAUSED", font_size=24,
-                    justify=Justify.CENTER, transparent=True
-                )
-            
-            def draw_on(self, img: Image.Image, draw_x: int, draw_y: int) -> None:
-                """Draw the pause widget onto the target image."""
-                # Draw background first
-                self.draw_background(img, draw_x, draw_y)
-                
-                draw = ImageDraw.Draw(img)
-                
-                # Draw pause icon (two vertical bars) centered at top
-                bar_width = 12
-                bar_height = 50
-                gap = 16
-                total_width = bar_width * 2 + gap
-                start_x = draw_x + (self.width - total_width) // 2
-                start_y = draw_y + 5
-                
-                # Left bar
-                draw.rectangle([start_x, start_y, start_x + bar_width, start_y + bar_height], fill=0)
-                # Right bar
-                draw.rectangle([start_x + bar_width + gap, start_y, 
-                               start_x + bar_width * 2 + gap, start_y + bar_height], fill=0)
-                
-                # Draw "PAUSED" text below
-                self._text_widget.draw_on(img, draw_x, draw_y + 60)
-        
-        self.pause_widget = PauseWidget()
+        self.pause_widget = _PauseWidget(update_callback=board.display_manager.update)
         board.display_manager.add_widget(self.pause_widget)
         
         log.info("[DisplayManager] Game paused")
