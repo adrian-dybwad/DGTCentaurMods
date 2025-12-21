@@ -213,6 +213,15 @@ class PlayerManager:
         self._white_player.stop()
         self._black_player.stop()
     
+    def clear_pending_moves(self) -> None:
+        """Clear any pending moves from both players.
+        
+        Called when an external app connects and takes over game control.
+        """
+        for player in [self._white_player, self._black_player]:
+            if hasattr(player, 'clear_pending_move'):
+                player.clear_pending_move()
+    
     def on_new_game(self) -> None:
         """Notify both players of new game."""
         self._white_player.on_new_game()

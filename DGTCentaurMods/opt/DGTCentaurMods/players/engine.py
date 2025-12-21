@@ -192,6 +192,17 @@ class EnginePlayer(Player):
         
         self._set_state(PlayerState.STOPPED)
     
+    def clear_pending_move(self) -> None:
+        """Clear any pending move.
+        
+        Called when an external app connects and takes over game control.
+        The engine may have computed a move that should now be discarded.
+        """
+        if self._pending_move is not None:
+            log.info(f"[EnginePlayer] Clearing pending move: {self._pending_move.uci()}")
+            self._pending_move = None
+            self._lifted_squares = []
+    
     def _do_request_move(self, board: chess.Board) -> None:
         """Request the engine to compute a move.
         

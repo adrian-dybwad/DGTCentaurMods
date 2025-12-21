@@ -650,6 +650,12 @@ class ProtocolManager:
         Args:
             move: The player's move.
         """
+        # Don't execute engine moves if a Bluetooth app is connected
+        # (except for Lichess which is a different kind of connection)
+        if self.is_app_connected() and not self.is_lichess:
+            log.info(f"[ProtocolManager] Ignoring player move {move.uci()} - external app is connected")
+            return
+        
         log.info(f"[ProtocolManager] Player move received: {move.uci()}")
         self.game_manager.computer_move(move.uci(), forced=True)
     
@@ -938,6 +944,10 @@ class ProtocolManager:
     def on_app_connected(self):
         """Called when an app connects - pause local player moves."""
         log.info("[ProtocolManager] App connected - local players paused")
+        
+        # Clear any pending engine moves so they don't interfere
+        if self._player_manager:
+            self._player_manager.clear_pending_moves()
     
     def on_app_disconnected(self):
         """Called when app disconnects - resume local players."""
