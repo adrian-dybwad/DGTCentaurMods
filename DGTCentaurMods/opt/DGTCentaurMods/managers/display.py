@@ -151,7 +151,6 @@ class DisplayManager:
         
         # Pause state
         self._is_paused = False
-        self._paused_active_color = None  # Which clock was running before pause
         self._on_resume_callback = None  # Called when game resumes to restore LEDs
         
         # Menu state
@@ -274,9 +273,11 @@ class DisplayManager:
             flip=self._flip_board
         )
         
-        # Subscribe to game state for analysis and clock updates
-        # (ChessBoardWidget handles its own position updates)
-        self._game_state.on_position_change(self._on_position_change)
+        # Note: Widgets subscribe to state directly for updates:
+        # - ChessBoardWidget observes ChessGameState for position
+        # - ChessClockWidget observes ChessGameState for turn indicator
+        # - ChessClockWidget observes ChessClockState for times
+        # - GameAnalysisWidget observes AnalysisState
         
         # Always add board widget, but hide if show_board=False
         board.display_manager.add_widget(self.chess_board_widget)
@@ -402,22 +403,6 @@ class DisplayManager:
             except Exception as e:
                 log.error(f"[DisplayManager] Error updating position: {e}")
     
-    def _on_position_change(self) -> None:
-        """Handle position change from game state.
-        
-        Called automatically when ChessGameState position changes.
-        Updates clock turn indicator.
-        
-        Note: ChessBoardWidget subscribes to game state directly and updates itself.
-        Note: AnalysisService subscribes to game state and updates AnalysisState,
-              which GameAnalysisWidget observes.
-        """
-        if not self._game_state:
-            return
-        
-        # Update clock turn indicator
-        self.set_clock_active(self._game_state.turn_name)
-    
     def set_player_names(self, white_name: str, black_name: str) -> None:
         """Set the player names displayed in the clock widget.
         
@@ -487,33 +472,20 @@ class DisplayManager:
         """
         self._clock.set_times(white_seconds, black_seconds)
     
-    def set_clock_active(self, color: str) -> None:
-        """Set which player's clock is active (whose turn it is).
-        
-        Args:
-            color: 'white', 'black', or None (paused)
-        """
-        self._clock.set_active(color)
-    
-    def start_clock(self, active_color: str = 'white') -> None:
-        """Start the chess clock.
+    def start_clock(self) -> None:
+        """Start the chess clock countdown.
         
         For timed games (time_control > 0), starts the countdown.
-        For untimed games (turn indicator mode), sets the active player.
+        For untimed games, this is a no-op since the turn indicator comes from
+        ChessGameState which the clock widget observes directly.
         
-        Args:
-            active_color: Which player's clock starts running / is active
+        Note: Turn indicator (whose turn it is) comes from ChessGameState, not
+        from manual clock switching. The ChessClockWidget observes game state
+        directly for turn changes.
         """
         if self._time_control > 0:
             # Timed mode: start the countdown
-            self._clock.start(active_color)
-        else:
-            # Untimed mode: just set the active color for turn indicator
-            self._clock.set_active(active_color)
-    
-    def switch_clock_turn(self) -> None:
-        """Switch which player's clock is running."""
-        self._clock.switch_turn()
+            self._clock.start()
     
     def pause_clock(self) -> None:
         """Pause the chess clock."""
@@ -560,9 +532,6 @@ class DisplayManager:
             return
         
         self._is_paused = True
-        
-        # Remember which clock was active so we can resume it
-        self._paused_active_color = self._clock.active_color
         self._clock.pause()
         
         # Turn off LEDs
@@ -587,12 +556,9 @@ class DisplayManager:
             board.display_manager.remove_widget(self.pause_widget)
             self.pause_widget = None
         
-        # Resume clock with previously active color
-        if self._paused_active_color:
-            self._clock.resume(self._paused_active_color)
-            log.info(f"[DisplayManager] Clock resumed for {self._paused_active_color}")
-        
-        self._paused_active_color = None
+        # Resume clock (turn indicator comes from ChessGameState, not clock service)
+        self._clock.resume()
+        log.info("[DisplayManager] Clock resumed")
         
         # Notify resume callback to restore LEDs if needed
         if self._on_resume_callback:
@@ -623,7 +589,6 @@ class DisplayManager:
                 board.display_manager.remove_widget(self.pause_widget)
                 self.pause_widget = None
             self._is_paused = False
-            self._paused_active_color = None
             log.info("[DisplayManager] Pause state cleared")
     
     def get_clock_times(self) -> tuple:
@@ -1055,15 +1020,6 @@ class DisplayManager:
                 log.info("[DisplayManager] Chess board widget cleaned up")
             except Exception as e:
                 log.debug(f"[DisplayManager] Error cleaning up chess board widget: {e}")
-        
-        # Unsubscribe DisplayManager from game state (for analysis/clock updates)
-        log.info("[DisplayManager] Unsubscribing from game state...")
-        if self._game_state:
-            try:
-                self._game_state.remove_observer(self._on_position_change)
-                log.info("[DisplayManager] Unsubscribed from game state")
-            except Exception as e:
-                log.debug(f"[DisplayManager] Error unsubscribing: {e}")
         
         # Stop clock service
         log.info("[DisplayManager] Stopping clock service...")

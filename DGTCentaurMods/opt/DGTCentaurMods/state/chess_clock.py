@@ -1,10 +1,11 @@
 """
 Chess clock state.
 
-Holds clock times and active player state. The countdown thread is managed
+Holds clock times and countdown state. The countdown thread is managed
 by the clock service - this is just the observable state.
 
-Widgets observe this state to display times and active player indicator.
+Active player (whose turn it is) comes from ChessGameState - this state
+just tracks time remaining for the countdown.
 """
 
 from typing import Optional, Callable, List
@@ -15,13 +16,15 @@ class ChessClockState:
     
     Holds:
     - Remaining time for each player (in seconds)
-    - Which player's clock is active
     - Whether clock is running/paused
     - Timed vs untimed mode
     
+    Active player comes from ChessGameState (single source of truth for turn).
+    This state just manages the countdown timer.
+    
     Observers are notified on:
     - Tick (every second when running)
-    - State changes (start, pause, resume, switch turn)
+    - State changes (start, pause, resume)
     - Flag (time expired)
     
     Thread safety: Properties are simple reads, but the service that owns
@@ -34,8 +37,8 @@ class ChessClockState:
         self._white_time: int = 0
         self._black_time: int = 0
         
-        # Active player
-        self._active_color: Optional[str] = None  # None, 'white', or 'black'
+        # Reference to game state for active player lookup
+        self._game_state = None
         
         # Running state
         self._is_running: bool = False
@@ -46,6 +49,14 @@ class ChessClockState:
         self._on_tick: List[Callable[[], None]] = []
         self._on_state_change: List[Callable[[], None]] = []
         self._on_flag: List[Callable[[str], None]] = []  # color that flagged
+    
+    def set_game_state(self, game_state) -> None:
+        """Set the game state reference for active player lookup.
+        
+        Args:
+            game_state: ChessGameState instance
+        """
+        self._game_state = game_state
     
     # -------------------------------------------------------------------------
     # Properties (read-only access to state)
@@ -63,8 +74,13 @@ class ChessClockState:
     
     @property
     def active_color(self) -> Optional[str]:
-        """Which player's clock is active ('white', 'black', or None)."""
-        return self._active_color
+        """Which player's turn it is (from game state).
+        
+        Returns 'white', 'black', or 'white' as default if game state not set.
+        """
+        if self._game_state is not None:
+            return self._game_state.turn_name
+        return 'white'  # Default before game state is connected
     
     @property
     def is_running(self) -> bool:
@@ -164,15 +180,6 @@ class ChessClockState:
         self._black_time = black_seconds
         self._notify_state_change()
     
-    def set_active(self, color: Optional[str]) -> None:
-        """Set which player's clock is active.
-        
-        Args:
-            color: 'white', 'black', or None.
-        """
-        self._active_color = color
-        self._notify_state_change()
-    
     def set_running(self, running: bool) -> None:
         """Set running state.
         
@@ -204,13 +211,15 @@ class ChessClockState:
         """Decrement active player's time by one second.
         
         Called by the clock service's countdown thread.
+        Uses active_color property which reads from ChessGameState.
         Notifies tick observers and checks for flag.
         """
-        if self._active_color == 'white':
+        active = self.active_color
+        if active == 'white':
             self._white_time = max(0, self._white_time - 1)
             if self._white_time == 0:
                 self._notify_flag('white')
-        elif self._active_color == 'black':
+        elif active == 'black':
             self._black_time = max(0, self._black_time - 1)
             if self._black_time == 0:
                 self._notify_flag('black')
@@ -218,10 +227,12 @@ class ChessClockState:
         self._notify_tick()
     
     def reset(self) -> None:
-        """Reset clock to initial stopped state."""
+        """Reset clock to initial stopped state.
+        
+        Note: active_color comes from game state, not managed here.
+        """
         self._white_time = 0
         self._black_time = 0
-        self._active_color = None
         self._is_running = False
         self._is_paused = False
         self._timed_mode = False
@@ -238,12 +249,17 @@ _instance: Optional[ChessClockState] = None
 def get_chess_clock() -> ChessClockState:
     """Get the singleton ChessClockState instance.
     
+    Automatically wires up the game state reference for active player lookup.
+    
     Returns:
         The global ChessClockState instance.
     """
     global _instance
     if _instance is None:
         _instance = ChessClockState()
+        # Wire up game state reference for active player lookup
+        from DGTCentaurMods.state.chess_game import get_chess_game
+        _instance.set_game_state(get_chess_game())
     return _instance
 
 
@@ -257,4 +273,7 @@ def reset_chess_clock() -> ChessClockState:
     """
     global _instance
     _instance = ChessClockState()
+    # Wire up game state reference for active player lookup
+    from DGTCentaurMods.state.chess_game import get_chess_game
+    _instance.set_game_state(get_chess_game())
     return _instance

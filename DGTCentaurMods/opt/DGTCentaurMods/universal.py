@@ -1768,11 +1768,14 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             board.ledArray(squares, repeat=20)
     
     def _on_takeback():
-        """Handle takeback - remove last analysis score and switch clock back."""
+        """Handle takeback - remove last analysis score.
+        
+        Note: Clock active color is updated automatically by DisplayManager._on_position_change
+        which observes game state changes. No explicit clock switch needed here.
+        """
         from DGTCentaurMods.services.analysis import get_analysis_service
         get_analysis_service().remove_last_score()
-        display_manager.switch_clock_turn()
-        log.debug("[App] Takeback: removed last analysis score and switched clock")
+        log.debug("[App] Takeback: removed last analysis score")
     
     # Create GameManager
     from DGTCentaurMods.managers.game import GameManager
@@ -1819,8 +1822,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     # Activate local controller by default (this starts players)
     controller_manager.activate_local()
     
-    # Set initial turn indicator (white to move at game start)
-    display_manager.set_clock_active("white")
+    # Note: Turn indicator comes from ChessGameState which the clock widget observes directly.
+    # No need to manually set clock active color here.
     
     # Wire up GameManager callbacks to DisplayManager
     protocol_manager.set_on_promotion_needed(display_manager.show_promotion_menu)
@@ -1928,24 +1931,19 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             display_manager.clear_brain_hint()
             # Reset clock started flag for new game
             _clock_started = False
-            # Set turn indicator to white (new game starts with white to move)
-            display_manager.set_clock_active("white")
+            # Note: Turn indicator comes from ChessGameState - clock widget observes directly
             # If we're in a position game and the starting position is set up,
             # signal transition to normal game mode
             if _is_position_game:
                 log.info("[App] Starting position detected in position game - signaling switch to normal game")
                 _switch_to_normal_game = True
         elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
-            # Handle turn events for clock management
-            active_color = "white" if event == EVENT_WHITE_TURN else "black"
+            # Start clock on first turn event (game has truly started)
+            # Turn indicator is handled by ChessClockWidget observing ChessGameState directly
             if not _clock_started:
-                # Start the clock on the first turn event (game has truly started)
-                display_manager.start_clock(active_color)
+                display_manager.start_clock()
                 _clock_started = True
-                log.debug(f"[App] Clock started, {active_color} to move")
-            else:
-                # Switch clock on subsequent turn events
-                display_manager.switch_clock_turn()
+                log.debug("[App] Clock started")
         elif isinstance(event, str) and event.startswith("Termination."):
             # Game ended (checkmate, stalemate, resign, draw, etc.)
             termination_type = event[12:]  # Remove "Termination." prefix
@@ -5384,15 +5382,12 @@ def _start_lichess_game(lichess_config) -> bool:
         nonlocal _clock_started
         
         if event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
-            active_color = "white" if event == EVENT_WHITE_TURN else "black"
+            # Start clock on first turn event (game has truly started)
+            # Turn indicator is handled by ChessClockWidget observing ChessGameState directly
             if not _clock_started:
-                # Start clock on first turn event
-                display_manager.start_clock(active_color)
+                display_manager.start_clock()
                 _clock_started = True
-                log.debug(f"[App] Lichess clock started, {active_color} to move")
-            else:
-                # Switch clock on subsequent turn events
-                display_manager.switch_clock_turn()
+                log.debug("[App] Lichess clock started")
             # Hide info overlay on new moves
             _info_overlay.hide()
     

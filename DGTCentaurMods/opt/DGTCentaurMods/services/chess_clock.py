@@ -101,7 +101,7 @@ class ChessClockService:
             
             self._state.set_timed_mode(timed)
             self._state.set_times(initial_seconds, initial_seconds)
-            self._state.set_active(None)
+            # Note: active_color comes from ChessGameState, not set here
             self._state.set_paused(False)
             self._state.set_running(False)
         
@@ -120,14 +120,14 @@ class ChessClockService:
     # Clock control methods
     # -------------------------------------------------------------------------
     
-    def start(self, active_color: str = 'white') -> None:
-        """Start the clock running.
+    def start(self) -> None:
+        """Start the clock countdown running.
         
-        Args:
-            active_color: Which player's clock starts ('white' or 'black')
+        Note: Turn indicator (whose turn it is) is NOT managed by the clock service.
+        ChessClockWidget observes ChessGameState directly for turn changes.
+        This service only manages the countdown timer.
         """
         with self._lock:
-            self._state.set_active(active_color)
             self._state.set_paused(False)
             
             if self._state._is_running:
@@ -146,7 +146,7 @@ class ChessClockService:
                 )
                 self._countdown_thread.start()
         
-        log.info(f"[ChessClockService] Started, active: {active_color}")
+        log.info("[ChessClockService] Started")
     
     def pause(self) -> None:
         """Pause the clock."""
@@ -157,49 +157,24 @@ class ChessClockService:
         
         log.info("[ChessClockService] Paused")
     
-    def resume(self, active_color: Optional[str] = None) -> None:
+    def resume(self) -> None:
         """Resume the clock after a pause.
         
-        Args:
-            active_color: Which player's clock resumes. If None, uses previous.
+        Note: Turn indicator is managed by ChessGameState, not here.
         """
         with self._lock:
-            if active_color is not None:
-                self._state.set_active(active_color)
-            
             if not self._state._is_running:
-                # Was stopped, not just paused
-                color = self._state.active_color or 'white'
+                # Was stopped, not just paused - restart
                 self._lock.release()
                 try:
-                    self.start(color)
+                    self.start()
                 finally:
                     self._lock.acquire()
                 return
             
             self._state.set_paused(False)
         
-        log.info(f"[ChessClockService] Resumed")
-    
-    def switch_turn(self) -> None:
-        """Switch which player's clock is running."""
-        current = self._state.active_color
-        if current == 'white':
-            self._state.set_active('black')
-        elif current == 'black':
-            self._state.set_active('white')
-        else:
-            self._state.set_active('white')
-        
-        log.debug(f"[ChessClockService] Switched to {self._state.active_color}")
-    
-    def set_active(self, color: Optional[str]) -> None:
-        """Set which player's clock is active.
-        
-        Args:
-            color: 'white', 'black', or None
-        """
-        self._state.set_active(color)
+        log.info("[ChessClockService] Resumed")
     
     def stop(self) -> None:
         """Stop the clock completely."""
@@ -224,7 +199,7 @@ class ChessClockService:
         
         with self._lock:
             self._state.set_times(self._initial_white_time, self._initial_black_time)
-            self._state.set_active(None)
+            # Note: active_color comes from ChessGameState, not set here
             self._state.set_paused(False)
         
         log.info("[ChessClockService] Reset")

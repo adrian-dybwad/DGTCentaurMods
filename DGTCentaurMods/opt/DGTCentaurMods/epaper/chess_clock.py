@@ -4,6 +4,9 @@ Chess clock widget displaying game time for both players.
 Layout:
 - Timed mode: Remaining time for white and black players with turn indicator
 - Untimed mode (compact): Just "White Turn" or "Black Turn" text
+
+Turn indicator comes from ChessGameState (single source of truth for whose turn).
+Time comes from ChessClockState (manages countdown).
 """
 
 from PIL import Image, ImageDraw
@@ -18,6 +21,7 @@ except ImportError:
     log = logging.getLogger(__name__)
 
 from DGTCentaurMods.state import get_chess_clock as get_clock_state
+from DGTCentaurMods.state import get_chess_game as get_game_state
 
 
 class ChessClockWidget(Widget):
@@ -54,9 +58,14 @@ class ChessClockWidget(Widget):
         self._white_name = white_name
         self._black_name = black_name
         
+        # Clock state for time management
         self._clock = get_clock_state()
         self._clock.on_state_change(self._on_clock_state_change)
         self._clock.on_tick(self._on_clock_tick)
+        
+        # Game state for turn indicator (single source of truth for whose turn)
+        self._game = get_game_state()
+        self._game.on_position_change(self._on_game_state_change)
         
         self._on_flag_callback: Optional[callable] = None
         
@@ -107,7 +116,7 @@ class ChessClockWidget(Widget):
         return self._update_callback(full, immediate)
     
     def _on_clock_state_change(self) -> None:
-        """Called when ChessClock state changes."""
+        """Called when ChessClockState changes (times, running state)."""
         self.invalidate_cache()
         self.request_update(full=False)
     
@@ -116,15 +125,21 @@ class ChessClockWidget(Widget):
         self.invalidate_cache()
         self.request_update(full=False)
     
+    def _on_game_state_change(self) -> None:
+        """Called when ChessGameState changes (turn changes after moves)."""
+        self.invalidate_cache()
+        self.request_update(full=False)
+    
     def stop(self) -> None:
         """Called when widget is removed from display.
         
-        Unregisters callbacks from clock state. Does NOT stop the clock -
+        Unregisters callbacks from state objects. Does NOT stop the clock -
         the service continues running independently.
         """
         self._clock.remove_observer(self._on_clock_state_change)
         self._clock.remove_observer(self._on_clock_tick)
-        log.debug("[ChessClockWidget] Unregistered from ChessClockState")
+        self._game.remove_observer(self._on_game_state_change)
+        log.debug("[ChessClockWidget] Unregistered from state observers")
     
     # -------------------------------------------------------------------------
     # Properties (read from ChessClock)
@@ -155,8 +170,8 @@ class ChessClockWidget(Widget):
     
     @property
     def active_color(self) -> Optional[str]:
-        """Which player's clock is active (from service)."""
-        return self._clock.active_color
+        """Which player's turn it is (from game state - single source of truth)."""
+        return self._game.turn_name
     
     @property
     def white_name(self) -> str:
@@ -236,10 +251,10 @@ class ChessClockWidget(Widget):
         """
         section_height = (self.height - 4) // 2  # -4 for top/middle separators
         
-        # Get state from clock state object
+        # Get times from clock state, turn from game state
         white_time = self._clock.white_time
         black_time = self._clock.black_time
-        active_color = self._clock.active_color
+        active_color = self._game.turn_name  # Single source of truth for turn
         # Player names are stored locally in widget (not in state)
         white_name = self._white_name
         black_name = self._black_name
@@ -333,8 +348,8 @@ class ChessClockWidget(Widget):
         
         Reads active color from clock state.
         """
-        # Get state from clock state object
-        active_color = self._clock.active_color
+        # Get turn from game state (single source of truth)
+        active_color = self._game.turn_name
         # Player names are stored locally in widget (not in state)
         white_name = self._white_name
         black_name = self._black_name
