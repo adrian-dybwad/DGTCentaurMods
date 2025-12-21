@@ -48,6 +48,8 @@ class LocalController(GameController):
         self._suggestion_callback: Optional[Callable] = None
         self._takeback_callback: Optional[Callable] = None
         self._display_update_callback: Optional[Callable] = None
+        # Callback to forward game events to RemoteController (for Bluetooth sync)
+        self._event_forward_callback: Optional[Callable] = None
     
     def set_player_manager(self, player_manager: 'PlayerManager') -> None:
         """Set the player manager.
@@ -101,6 +103,16 @@ class LocalController(GameController):
             callback: Function(fen) called to update display.
         """
         self._display_update_callback = callback
+    
+    def set_event_forward_callback(self, callback: Callable) -> None:
+        """Set callback for forwarding game events to RemoteController.
+        
+        Used by ControllerManager to sync events to Bluetooth apps.
+        
+        Args:
+            callback: Function(event_type, *args) called for each game event.
+        """
+        self._event_forward_callback = callback
     
     @property
     def player_manager(self) -> Optional['PlayerManager']:
@@ -252,6 +264,10 @@ class LocalController(GameController):
             
             # Update display with current position
             self._update_display()
+            
+            # Forward to RemoteController for Bluetooth sync
+            if self._event_forward_callback:
+                self._event_forward_callback('game_event', event, piece_event, field, time_seconds)
         except Exception as e:
             log.error(f"[LocalController] Error in _on_game_event: {e}")
             import traceback
@@ -271,6 +287,10 @@ class LocalController(GameController):
             
             # Update display with current position
             self._update_display()
+            
+            # Forward to RemoteController for Bluetooth sync
+            if self._event_forward_callback:
+                self._event_forward_callback('move_made', move)
         except Exception as e:
             log.error(f"[LocalController] Error in _on_move_made: {e}")
             import traceback
@@ -278,8 +298,10 @@ class LocalController(GameController):
     
     def _on_key_press(self, key) -> None:
         """Handle key events from GameManager subscription."""
-        # Keys are handled directly via on_key_event() routing
         log.debug(f"[LocalController] _on_key_press: {key}")
+        # Forward to RemoteController for Bluetooth sync
+        if self._event_forward_callback:
+            self._event_forward_callback('key_press', key)
     
     def _on_takeback(self) -> None:
         """Handle takeback events from GameManager subscription."""
@@ -297,6 +319,10 @@ class LocalController(GameController):
             # Notify assistants
             if self._assistant_manager:
                 self._assistant_manager.on_takeback(self._game_manager.chess_board)
+            
+            # Forward to RemoteController for Bluetooth sync
+            if self._event_forward_callback:
+                self._event_forward_callback('takeback')
         except Exception as e:
             log.error(f"[LocalController] Error in _on_takeback: {e}")
             import traceback

@@ -131,11 +131,12 @@ class RemoteController(GameController):
     def start(self) -> None:
         """Start the remote controller.
         
-        Creates emulators, subscribes to GameManager, and prepares for incoming connections.
+        Creates emulators and prepares for incoming connections.
+        Note: Does NOT subscribe to GameManager - events are routed through
+        ControllerManager from LocalController to avoid multiple game threads.
         """
         self._active = True
         self._create_emulators()
-        self.subscribe_to_game_manager()
         log.info("[RemoteController] Started")
     
     def stop(self) -> None:
@@ -300,42 +301,8 @@ class RemoteController(GameController):
             self._chessnut.reset()
     
     # =========================================================================
-    # Game Event Handling (from GameManager)
+    # Game Event Handling (from ControllerManager forwarding)
     # =========================================================================
-    
-    def subscribe_to_game_manager(self) -> None:
-        """Subscribe to GameManager events.
-        
-        Registers callbacks for events, moves, keys, and takebacks.
-        Called when RemoteController is activated.
-        """
-        if not self._game_manager:
-            log.warning("[RemoteController] Cannot subscribe - no GameManager")
-            return
-        
-        log.info("[RemoteController] Subscribing to GameManager events")
-        self._game_manager.subscribe_game(
-            self._on_manager_event,
-            self._on_manager_move,
-            self._on_manager_key,
-            self._on_manager_takeback
-        )
-    
-    def _on_manager_event(self, event, piece_event=None, field=None, time_seconds=None) -> None:
-        """GameManager callback for events (lift/place)."""
-        self.on_game_event(event, piece_event, field, time_seconds)
-    
-    def _on_manager_move(self, move) -> None:
-        """GameManager callback for moves."""
-        self.on_move_made(move)
-    
-    def _on_manager_key(self, key) -> None:
-        """GameManager callback for keys."""
-        self.on_key_from_game_manager(key)
-    
-    def _on_manager_takeback(self) -> None:
-        """GameManager callback for takebacks."""
-        self.on_takeback()
     
     def on_game_event(self, event, piece_event=None, field=None, time_seconds=None) -> None:
         """Handle game event from GameManager.

@@ -82,8 +82,35 @@ class ControllerManager:
             The LocalController instance.
         """
         self._local = LocalController(self._game_manager)
+        # Wire event forwarding to sync with RemoteController
+        self._local.set_event_forward_callback(self._forward_event_to_remote)
         log.info("[ControllerManager] Created LocalController")
         return self._local
+    
+    def _forward_event_to_remote(self, event_type: str, *args) -> None:
+        """Forward game events from LocalController to RemoteController.
+        
+        Called when LocalController receives events from GameManager.
+        Forwards to RemoteController for Bluetooth app sync.
+        
+        Args:
+            event_type: Type of event ('game_event', 'move_made', 'key_press', 'takeback')
+            *args: Event-specific arguments
+        """
+        if not self._remote or not self._remote.is_protocol_detected:
+            return
+        
+        if event_type == 'game_event':
+            event, piece_event, field, time_seconds = args
+            self._remote.on_game_event(event, piece_event, field, time_seconds)
+        elif event_type == 'move_made':
+            move = args[0]
+            self._remote.on_move_made(move)
+        elif event_type == 'key_press':
+            key = args[0]
+            self._remote.on_key_from_game_manager(key)
+        elif event_type == 'takeback':
+            self._remote.on_takeback()
     
     def create_remote_controller(self, send_callback: Optional[Callable] = None) -> RemoteController:
         """Create and return the remote controller.
