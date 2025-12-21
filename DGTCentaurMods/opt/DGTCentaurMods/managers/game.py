@@ -2166,12 +2166,10 @@ class GameManager:
         """
         # Handle BACK key - notify DisplayManager if game in progress
         if key_pressed == board.Key.BACK:
-            # Check if game is over (checkmate, stalemate, etc.)
-            outcome = self.chess_board.outcome(claim_draw=True)
-            if outcome is not None:
+            if self._game_state.is_game_over:
                 # Game is over - pass through to external callback for exit handling
-                log.info(f"[GameManager] BACK pressed after game over ({outcome.termination}) - passing to external callback")
-            elif self.is_game_in_progress():
+                log.info(f"[GameManager] BACK pressed after game over - passing to external callback")
+            elif self._game_state.is_game_in_progress:
                 log.info("[GameManager] BACK pressed during game - notifying display controller")
                 if self.on_back_pressed:
                     self.on_back_pressed()
@@ -2183,14 +2181,6 @@ class GameManager:
         # Pass other keys (and BACK when no game) to external callback
         if self.key_callback is not None:
             self.key_callback(key_pressed)
-    
-    def is_game_in_progress(self) -> bool:
-        """Check if a game is in progress (at least one move has been made).
-        
-        Returns:
-            True if at least one move has been made, False otherwise
-        """
-        return len(self.chess_board.move_stack) > 0
     
     def set_player_manager(self, player_manager) -> None:
         """Set the player manager for this game.
@@ -2662,6 +2652,20 @@ class GameManager:
         # Play sound and turn off LEDs
         board.beep(board.SOUND_GENERAL, event_type='game_event')
         board.ledsOff()
+    
+    def reset_kings_in_center_menu(self) -> None:
+        """Reset the kings-in-center menu flag.
+        
+        Called when the resign/draw menu is closed (user selected an option or cancelled).
+        """
+        self._kings_in_center_menu_active = False
+    
+    def reset_king_lift_resign_menu(self) -> None:
+        """Reset the king-lift resign menu flag.
+        
+        Called when the resign menu is closed (user selected an option or cancelled).
+        """
+        self._king_lift_resign_menu_active = False
     
     def handle_draw(self) -> None:
         """Handle draw claim/agreement by the human player.

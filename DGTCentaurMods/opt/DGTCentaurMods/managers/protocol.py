@@ -310,31 +310,6 @@ class ProtocolManager:
         losing_color = chess.WHITE if color == 'white' else chess.BLACK
         self.game_manager.handle_flag(losing_color)
     
-    def get_result(self) -> str:
-        """Get the game result string."""
-        return self.game_manager.get_result()
-    
-    def is_game_in_progress(self) -> bool:
-        """Check if a game is currently in progress."""
-        return self.game_manager.is_game_in_progress()
-    
-    def is_game_over(self) -> bool:
-        """Check if the current game is over (checkmate, stalemate, etc.)."""
-        outcome = self.game_manager.chess_board.outcome(claim_draw=True)
-        return outcome is not None
-    
-    def get_king_lifted_color(self):
-        """Get the color of the king that was lifted (for resign gesture)."""
-        return self.game_manager.move_state.king_lifted_color
-    
-    def reset_kings_in_center_menu_flag(self):
-        """Reset the kings-in-center menu active flag."""
-        self.game_manager._kings_in_center_menu_active = False
-    
-    def reset_king_lift_resign_menu_flag(self):
-        """Reset the king-lift resign menu active flag."""
-        self.game_manager._king_lift_resign_menu_active = False
-    
     def get_pending_response(self):
         """Get and clear the pending emulator response.
         

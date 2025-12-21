@@ -79,6 +79,11 @@ class ChessGameState:
         return list(self._board.move_stack)
     
     @property
+    def is_game_in_progress(self) -> bool:
+        """Whether a game is in progress (at least one move has been made)."""
+        return len(self._board.move_stack) > 0
+    
+    @property
     def is_check(self) -> bool:
         """Whether the current player is in check."""
         return self._board.is_check()

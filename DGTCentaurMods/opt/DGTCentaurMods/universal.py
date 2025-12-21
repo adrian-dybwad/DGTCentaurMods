@@ -1713,7 +1713,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         indicate which side is resigning.
         """
         # Reset the kings-in-center menu flag (in case this was triggered by that menu)
-        protocol_manager.reset_kings_in_center_menu_flag()
+        protocol_manager.game_manager.reset_kings_in_center_menu()
         
         if result == "resign":
             protocol_manager.handle_resign()
@@ -1813,11 +1813,11 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     def _on_king_lift_resign_result(result: str):
         """Handle result from king-lift resign menu."""
         # Reset the menu flag
-        protocol_manager.reset_king_lift_resign_menu_flag()
+        protocol_manager.game_manager.reset_king_lift_resign_menu()
         
         if result == "resign":
             # Get the color of the king that was lifted
-            king_color = protocol_manager.get_king_lifted_color()
+            king_color = protocol_manager.game_manager.move_state.king_lifted_color
             if king_color is not None:
                 protocol_manager.handle_resign(king_color)
                 color_name = "White" if king_color == chess.WHITE else "Black"
@@ -1898,7 +1898,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         elif isinstance(event, str) and event.startswith("Termination."):
             # Game ended (checkmate, stalemate, resign, draw, etc.)
             termination_type = event[12:]  # Remove "Termination." prefix
-            result = protocol_manager.get_result()
+            from DGTCentaurMods.state import get_chess_game
+            result = get_chess_game().result or "Unknown"
             log.info(f"[App] Game terminated: {termination_type}, result={result}")
             display_manager.stop_clock()
             display_manager.show_game_over(result, termination_type)
@@ -6164,14 +6165,16 @@ def key_callback(key_id):
             protocol_manager.receive_key(key_id)
             _reset_unhandled_key_count()
             
-            # Check if GameManager wants us to exit:
+            # Check if we should exit to menu:
+            # - BACK after game over (checkmate, stalemate, resign, time forfeit)
             # - BACK with no game in progress (no moves made)
-            # - BACK after game over (checkmate, stalemate, etc.)
             if key_id == board.Key.BACK:
-                if protocol_manager.is_game_over():
+                from DGTCentaurMods.state import get_chess_game
+                game_state = get_chess_game()
+                if game_state.is_game_over:
                     log.info("[App] BACK after game over - returning to menu")
                     _return_to_menu("Game over - BACK pressed")
-                elif not protocol_manager.is_game_in_progress():
+                elif not game_state.is_game_in_progress:
                     log.info("[App] BACK with no game - returning to menu")
                     _return_to_menu("BACK pressed")
             return
