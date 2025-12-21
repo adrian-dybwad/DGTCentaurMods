@@ -1790,14 +1790,13 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         takeback_callback=_on_takeback
     )
     
-    # Create PlayerManager
+    # Create PlayerManager (ready_callback set later after LocalController is created)
     from DGTCentaurMods.players import PlayerManager
     player_manager = PlayerManager(
         white_player=white_player,
         black_player=black_player,
         move_callback=protocol_manager._on_player_move,
         status_callback=lambda msg: log.info(f"[Player] {msg}"),
-        ready_callback=protocol_manager._on_all_players_ready
     )
     protocol_manager.set_player_manager(player_manager)
     
@@ -1818,8 +1817,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     local_controller.set_takeback_callback(_on_takeback)
     local_controller.set_display_update_callback(update_display)
     
-    # Rewire player move callback through local controller (respects active state)
+    # Wire player callbacks through local controller (respects active state)
     player_manager.set_move_callback(local_controller.on_player_move)
+    player_manager.set_ready_callback(local_controller.on_all_players_ready)
     
     # Create remote controller (for Bluetooth app connections)
     controller_manager.create_remote_controller(sendMessage)
@@ -5134,7 +5134,7 @@ def _start_lichess_game(lichess_config) -> bool:
     Returns:
         True if game started successfully, False otherwise
     """
-    global app_state, protocol_manager, display_manager
+    global app_state, protocol_manager, display_manager, controller_manager
     from DGTCentaurMods.players.lichess import LichessGameMode
     
     log.info(f"[App] Starting Lichess game (mode={lichess_config.mode})")
@@ -5249,16 +5249,27 @@ def _start_lichess_game(lichess_config) -> bool:
         display_update_callback=update_display,
     )
     
-    # Create PlayerManager
+    # Create PlayerManager (ready_callback set later after LocalController is created)
     from DGTCentaurMods.players import PlayerManager
     player_manager = PlayerManager(
         white_player=white_player,
         black_player=black_player,
         move_callback=protocol_manager._on_player_move,
         status_callback=lambda msg: log.info(f"[Player] {msg}"),
-        ready_callback=protocol_manager._on_all_players_ready
     )
     protocol_manager.set_player_manager(player_manager)
+    
+    # Create ControllerManager for routing events to local/remote controllers
+    controller_manager = ControllerManager(game_manager)
+    
+    # Create local controller (for Lichess games - local human + remote Lichess opponent)
+    local_controller = controller_manager.create_local_controller()
+    local_controller.set_player_manager(player_manager)
+    local_controller.set_display_update_callback(update_display)
+    
+    # Wire player callbacks through local controller
+    player_manager.set_move_callback(local_controller.on_player_move)
+    player_manager.set_ready_callback(local_controller.on_all_players_ready)
     
     # Set up display bridge for consolidated display operations
     protocol_manager.set_display_bridge(display_manager)
@@ -5397,6 +5408,12 @@ def _start_lichess_game(lichess_config) -> bool:
     
     # Register event callback for clock/turn updates
     protocol_manager._external_event_callback = _on_lichess_game_event
+    
+    # Activate local controller (handles game events via GameManager subscription)
+    controller_manager.activate_local()
+    
+    # Register controller_manager with ConnectionManager
+    _connection_manager.set_controller_manager(controller_manager)
     
     # Start the Lichess connection
     if not protocol_manager.start_lichess():

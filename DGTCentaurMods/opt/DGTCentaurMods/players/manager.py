@@ -162,6 +162,14 @@ class PlayerManager:
         self._white_player.set_pending_move_callback(callback)
         self._black_player.set_pending_move_callback(callback)
     
+    def set_ready_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for when all players are ready.
+        
+        Args:
+            callback: Function() called when both players are ready.
+        """
+        self._ready_callback = callback
+    
     def set_status_callback(self, callback: Callable[[str], None]) -> None:
         """Set callback for player status messages.
         
