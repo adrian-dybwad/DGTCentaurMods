@@ -670,16 +670,43 @@ class HandBrainPlayer(Player):
     # =========================================================================
     
     def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
-        """Notification that a move was made."""
+        """Notification that a move was made.
+        
+        This is called for EVERY move (both this player's and opponent's).
+        We only reset to IDLE if this was our own move being confirmed
+        (i.e., we were waiting for execution). If we're already waiting
+        for piece selection (our turn just started), we must preserve that phase.
+        
+        The key insight: `_do_request_move` may be called BEFORE this callback
+        arrives for the opponent's move due to async processing. So if we're
+        in WAITING_PIECE_SELECTION, that means our turn has already started
+        and we should NOT reset to IDLE.
+        """
         log.info(f"[HandBrain] on_move_made: {move.uci()}, prev_phase={self._phase.name}, state={self._state.name}")
-        self._pending_move = None
-        self._suggested_piece_type = None
-        self._selected_piece_type = None
-        self._phase = HandBrainPhase.IDLE
-        self._lifted_squares = []
+        
+        # Only reset phase if we were waiting for our move to be executed
+        # (WAITING_EXECUTION means it was OUR move being confirmed)
+        # If phase is WAITING_PIECE_SELECTION, our turn has already started
+        # via _do_request_move, so preserve it.
+        if self._phase == HandBrainPhase.WAITING_EXECUTION:
+            self._pending_move = None
+            self._suggested_piece_type = None
+            self._selected_piece_type = None
+            self._phase = HandBrainPhase.IDLE
+            self._lifted_squares = []
+            log.debug("[HandBrain] Our move confirmed, reset to IDLE")
+        elif self._phase == HandBrainPhase.WAITING_PIECE_SELECTION:
+            # Our turn already started, don't reset
+            log.debug("[HandBrain] Turn already started (WAITING_PIECE_SELECTION), preserving phase")
+        else:
+            # Other phases (IDLE, COMPUTING_*) - opponent's move, just clear pending
+            self._pending_move = None
+            self._lifted_squares = []
+            log.debug(f"[HandBrain] Move notification in phase {self._phase.name}, cleared pending state")
+        
         if self._state == PlayerState.THINKING:
             self._set_state(PlayerState.READY)
-            log.info(f"[HandBrain] State changed to READY")
+            log.info("[HandBrain] State changed to READY")
     
     def on_new_game(self) -> None:
         """Notification that a new game is starting."""
