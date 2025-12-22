@@ -22,20 +22,17 @@ from .base import Player, PlayerConfig, PlayerState, PlayerType
 class HumanPlayerConfig(PlayerConfig):
     """Configuration for human player.
     
-    Human players don't need much configuration - their moves
-    come from the physical board.
+    Human players' moves come from the physical board.
+    The engine settings are used for the hint assistant (? button).
     
     Attributes:
         name: Display name for the player.
-        hand_brain: If True, this player is playing in hand-brain mode where
-                    a partner suggests piece types and the player chooses specific moves.
-        assistant_engine: Engine name for hand-brain/hint suggestions.
-        assistant_elo: ELO section for the assistant engine.
+        engine: Engine name for hint suggestions.
+        elo: ELO section for the hint engine.
     """
     name: str = "Human"
-    hand_brain: bool = False
-    assistant_engine: str = "stockfish"
-    assistant_elo: str = "Default"
+    engine: str = "stockfish"
+    elo: str = "Default"
 
 
 class HumanPlayer(Player):
