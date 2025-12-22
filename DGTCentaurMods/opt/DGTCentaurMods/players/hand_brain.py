@@ -275,6 +275,10 @@ class HandBrainPlayer(Player):
         if self._init_thread and self._init_thread.is_alive():
             self._init_thread.join(timeout=1.0)
         
+        # Wait for think thread if running
+        if self._think_thread and self._think_thread.is_alive():
+            self._think_thread.join(timeout=2.0)
+        
         # Close engine
         with self._lock:
             if self._engine:
