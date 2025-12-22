@@ -509,7 +509,9 @@ def _load_game_settings():
         _player1_settings['hand_brain'] = load_player_bool_setting(PLAYER1_SECTION, 'hand_brain', False)
         _player1_settings['engine'] = Settings.read(PLAYER1_SECTION, 'engine', 'stockfish')
         _player1_settings['elo'] = Settings.read(PLAYER1_SECTION, 'elo', 'Default')
-        _player1_settings['assistant_engine'] = Settings.read(PLAYER1_SECTION, 'assistant_engine', 'stockfish')
+        # Assistant engine defaults to analysis engine (more likely to be installed)
+        analysis_engine_default = Settings.read(SETTINGS_SECTION, 'analysis_engine', 'stockfish')
+        _player1_settings['assistant_engine'] = Settings.read(PLAYER1_SECTION, 'assistant_engine', analysis_engine_default)
         _player1_settings['assistant_elo'] = Settings.read(PLAYER1_SECTION, 'assistant_elo', 'Default')
         
         # Player 2 settings (from [PlayerTwo] section)
@@ -518,7 +520,8 @@ def _load_game_settings():
         _player2_settings['hand_brain'] = load_player_bool_setting(PLAYER2_SECTION, 'hand_brain', False)
         _player2_settings['engine'] = Settings.read(PLAYER2_SECTION, 'engine', 'stockfish')
         _player2_settings['elo'] = Settings.read(PLAYER2_SECTION, 'elo', 'Default')
-        _player2_settings['assistant_engine'] = Settings.read(PLAYER2_SECTION, 'assistant_engine', 'stockfish')
+        # Assistant engine defaults to analysis engine (more likely to be installed)
+        _player2_settings['assistant_engine'] = Settings.read(PLAYER2_SECTION, 'assistant_engine', analysis_engine_default)
         _player2_settings['assistant_elo'] = Settings.read(PLAYER2_SECTION, 'assistant_elo', 'Default')
         
         # Time control (from [game] section)
