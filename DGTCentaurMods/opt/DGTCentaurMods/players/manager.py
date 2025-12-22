@@ -127,12 +127,8 @@ class PlayerManager:
         """Handle a player becoming ready.
         
         Fires the manager's ready callback when both players are ready.
-        Only fires once. Also updates PlayersState readiness.
+        Only fires once.
         """
-        # Update PlayersState readiness
-        players_state = get_players_state()
-        players_state.set_ready(self.is_ready)
-        
         if self._ready_fired:
             return
         
@@ -143,18 +139,15 @@ class PlayerManager:
                 self._ready_callback()
     
     def _update_players_state(self) -> None:
-        """Update the observable PlayersState with current player info.
+        """Update the observable PlayersState with current player names.
         
         Called when players are initialized or swapped.
         """
         players_state = get_players_state()
-        players_state.set_players(
+        players_state.set_player_names(
             white_name=self._white_player.name,
-            black_name=self._black_player.name,
-            white_type=self._white_player.player_type,
-            black_type=self._black_player.player_type
+            black_name=self._black_player.name
         )
-        players_state.set_ready(self.is_ready)
     
     # =========================================================================
     # Callback Setters
