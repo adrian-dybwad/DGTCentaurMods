@@ -276,6 +276,9 @@ class HandBrainPlayer(Player):
         Args:
             board: Current chess position.
         """
+        log.info(f"[HandBrain] _do_request_move called - mode={self._hb_config.mode.name}, "
+                 f"turn={'White' if board.turn else 'Black'}, state={self._state.name}")
+        
         self._current_board = board.copy()
         self._lifted_squares = []
         
@@ -631,16 +634,23 @@ class HandBrainPlayer(Player):
             square: The square index (0-63)
             board: Current chess position
         """
+        log.debug(f"[HandBrain] on_piece_event: {event_type} on {chess.square_name(square)}, "
+                  f"phase={self._phase.name}, state={self._state.name}, mode={self._hb_config.mode.name}")
+        
         if self._hb_config.mode == HandBrainMode.NORMAL:
             # In NORMAL mode, use standard piece event handling for human moves
             if self._phase in (HandBrainPhase.COMPUTING_SUGGESTION, HandBrainPhase.WAITING_HUMAN_MOVE):
                 super().on_piece_event(event_type, square, board)
+            else:
+                log.debug(f"[HandBrain] NORMAL mode ignoring event - phase is {self._phase.name}")
         else:
             # REVERSE mode
             if self._phase == HandBrainPhase.WAITING_PIECE_SELECTION:
                 self._handle_reverse_piece_selection(event_type, square, board)
             elif self._phase == HandBrainPhase.WAITING_EXECUTION:
                 super().on_piece_event(event_type, square, board)
+            else:
+                log.debug(f"[HandBrain] REVERSE mode ignoring event - phase is {self._phase.name}")
     
     def _on_move_formed(self, move: chess.Move) -> None:
         """Called when a move is formed from piece events.
@@ -661,7 +671,7 @@ class HandBrainPlayer(Player):
     
     def on_move_made(self, move: chess.Move, board: chess.Board) -> None:
         """Notification that a move was made."""
-        log.debug(f"[HandBrain] Move made: {move.uci()}")
+        log.info(f"[HandBrain] on_move_made: {move.uci()}, prev_phase={self._phase.name}, state={self._state.name}")
         self._pending_move = None
         self._suggested_piece_type = None
         self._selected_piece_type = None
@@ -669,6 +679,7 @@ class HandBrainPlayer(Player):
         self._lifted_squares = []
         if self._state == PlayerState.THINKING:
             self._set_state(PlayerState.READY)
+            log.info(f"[HandBrain] State changed to READY")
     
     def on_new_game(self) -> None:
         """Notification that a new game is starting."""
