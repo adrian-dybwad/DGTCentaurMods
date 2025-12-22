@@ -17,6 +17,7 @@
 # Licensed under the GNU General Public License v3.0 or later.
 # See LICENSE.md for details.
 
+import json
 import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -26,7 +27,74 @@ import chess
 import chess.engine
 
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.board.settings import Settings
 from .base import Player, PlayerConfig, PlayerState, PlayerType
+
+
+# Settings section and key for root_moves compatibility statistics
+_ROOT_MOVES_STATS_SECTION = "engine_stats"
+_ROOT_MOVES_STATS_KEY = "root_moves_compat"
+
+
+def _load_root_moves_stats() -> Dict[str, Dict[str, int]]:
+    """Load root_moves compatibility statistics from settings.
+    
+    Returns:
+        Dict mapping engine name to {success: int, total: int}
+    """
+    try:
+        raw = Settings.read(_ROOT_MOVES_STATS_SECTION, _ROOT_MOVES_STATS_KEY, '{}')
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _save_root_moves_stats(stats: Dict[str, Dict[str, int]]) -> None:
+    """Save root_moves compatibility statistics to settings.
+    
+    Args:
+        stats: Dict mapping engine name to {success: int, total: int}
+    """
+    Settings.write(_ROOT_MOVES_STATS_SECTION, _ROOT_MOVES_STATS_KEY, json.dumps(stats))
+
+
+def _record_root_moves_result(engine_name: str, success: bool) -> None:
+    """Record a root_moves test result for an engine.
+    
+    Args:
+        engine_name: Name of the engine
+        success: Whether root_moves was respected
+    """
+    stats = _load_root_moves_stats()
+    if engine_name not in stats:
+        stats[engine_name] = {"success": 0, "total": 0}
+    stats[engine_name]["total"] += 1
+    if success:
+        stats[engine_name]["success"] += 1
+    _save_root_moves_stats(stats)
+    
+    # Log the updated stats at info level so they always appear
+    s = stats[engine_name]
+    pct = (s["success"] / s["total"] * 100) if s["total"] > 0 else 0
+    log.info(f"[HandBrain] root_moves stats for {engine_name}: {s['success']}/{s['total']} ({pct:.0f}%)")
+
+
+def get_root_moves_compatibility(engine_name: str) -> Optional[float]:
+    """Get the root_moves compatibility percentage for an engine.
+    
+    Args:
+        engine_name: Name of the engine
+        
+    Returns:
+        Percentage (0-100) of successful root_moves constraints, or None if no data.
+    """
+    stats = _load_root_moves_stats()
+    if engine_name not in stats:
+        return None
+    s = stats[engine_name]
+    if s["total"] == 0:
+        return None
+    return (s["success"] / s["total"]) * 100
 
 
 class HandBrainMode(Enum):
@@ -588,8 +656,10 @@ class HandBrainPlayer(Player):
             self._set_pending_move(move)
             return
         
-        # Multiple moves - use engine to find best one
+        # Multiple moves - try root_moves first (faster), fall back to per-move analysis
+        # if the engine doesn't respect the constraint. Track statistics for UI display.
         board_copy = self._current_board.copy()
+        engine_name = self._hb_config.engine_name
         
         def _compute():
             try:
@@ -602,30 +672,40 @@ class HandBrainPlayer(Player):
                     if self._uci_options:
                         self._engine.configure(self._uci_options)
                     
-                    # Use root_moves to constrain engine to only our legal moves
-                    log.debug(f"[HandBrain] Constraining engine to {len(legal_moves)} moves: {[m.uci() for m in legal_moves]}")
+                    # Step 1: Try root_moves constraint (faster if engine respects it)
+                    log.debug(f"[HandBrain] Trying root_moves with {len(legal_moves)} moves: {[m.uci() for m in legal_moves]}")
                     result = self._engine.play(
                         board_copy,
                         chess.engine.Limit(time=self._hb_config.time_limit_seconds),
                         root_moves=legal_moves
                     )
                     move = result.move
-                
-                if move:
-                    # Validate that the engine returned a move from our constrained list
-                    # Some engines may not fully respect root_moves
-                    if move not in legal_moves:
-                        log.error(f"[HandBrain] Engine returned {move.uci()} which is NOT in constrained list!")
-                        # Fall back to first legal move for this piece type
-                        move = legal_moves[0]
-                        log.info(f"[HandBrain] Using fallback move: {move.uci()}")
                     
-                    log.info(f"[HandBrain] Best {piece_name} move: {move.uci()}")
-                    self._set_pending_move(move)
-                else:
-                    log.warning("[HandBrain] Engine returned no move")
-                    self._phase = HandBrainPhase.WAITING_PIECE_SELECTION
-                    self._report_status("Engine error - select again")
+                    # Validate the result
+                    if move and move in legal_moves:
+                        # Engine respected root_moves - record success and use the move
+                        _record_root_moves_result(engine_name, success=True)
+                        log.info(f"[HandBrain] Best {piece_name} move (root_moves): {move.uci()}")
+                        self._set_pending_move(move)
+                        return
+                    
+                    # Engine did NOT respect root_moves - record failure
+                    if move:
+                        log.warning(f"[HandBrain] Engine ignored root_moves: got {move.uci()}, expected one of {[m.uci() for m in legal_moves]}")
+                    else:
+                        log.warning("[HandBrain] Engine returned no move")
+                    _record_root_moves_result(engine_name, success=False)
+                    
+                    # Step 2: Fall back to per-move analysis
+                    log.info(f"[HandBrain] Falling back to per-move analysis for {len(legal_moves)} candidates")
+                    best_move = self._evaluate_candidates(board_copy, legal_moves, piece_name)
+                    
+                    if best_move:
+                        self._set_pending_move(best_move)
+                    else:
+                        # Last resort fallback
+                        log.warning("[HandBrain] Per-move analysis failed, using first legal move")
+                        self._set_pending_move(legal_moves[0])
                     
             except Exception as e:
                 log.error(f"[HandBrain] Error computing move: {e}")
@@ -640,6 +720,89 @@ class HandBrainPlayer(Player):
             daemon=True
         )
         self._think_thread.start()
+    
+    def _evaluate_candidates(
+        self, 
+        board: chess.Board, 
+        candidates: List[chess.Move],
+        piece_name: str
+    ) -> Optional[chess.Move]:
+        """Evaluate candidate moves by analyzing resulting positions.
+        
+        This method is used when the engine doesn't support root_moves properly.
+        It plays each candidate move on a temporary board and uses engine.analyse()
+        to evaluate the resulting position, selecting the move with the best score.
+        
+        Must be called with self._lock held.
+        
+        Args:
+            board: Current position.
+            candidates: Legal moves to evaluate.
+            piece_name: Name of the piece type (for logging).
+            
+        Returns:
+            The best move, or None if evaluation fails.
+        """
+        if not self._engine:
+            return None
+        
+        best_move = None
+        best_score = None
+        our_color = board.turn
+        
+        # Time allocation: divide configured time among candidates
+        time_per_move = self._hb_config.time_limit_seconds / len(candidates)
+        # Ensure at least 0.1 seconds per move, cap at 0.5 to avoid long waits
+        time_per_move = max(0.1, min(time_per_move, 0.5))
+        
+        total_candidates = len(candidates)
+        log.info(f"[HandBrain] Per-move analysis: {total_candidates} candidates ({time_per_move:.2f}s each)")
+        
+        for idx, candidate in enumerate(candidates, start=1):
+            # Make the move on a copy
+            test_board = board.copy()
+            test_board.push(candidate)
+            
+            try:
+                # Analyze the resulting position
+                info = self._engine.analyse(
+                    test_board,
+                    chess.engine.Limit(time=time_per_move)
+                )
+                
+                # Get the score from the analysis
+                score = info.get("score")
+                if score is None:
+                    log.info(f"[HandBrain] [{idx}/{total_candidates}] {candidate.uci()}: no score returned")
+                    continue
+                
+                # Convert to centipawns from our perspective
+                # After our move, it's opponent's turn, so use our color's POV
+                pov_score = score.white() if our_color == chess.WHITE else score.black()
+                
+                # Handle mate scores
+                if pov_score.is_mate():
+                    mate_in = pov_score.mate()
+                    cp_score = 10000 if mate_in > 0 else -10000
+                else:
+                    cp_score = pov_score.score()
+                
+                is_new_best = best_score is None or cp_score > best_score
+                best_marker = " [NEW BEST]" if is_new_best else ""
+                log.info(f"[HandBrain] [{idx}/{total_candidates}] {candidate.uci()}: score={cp_score}{best_marker}")
+                
+                if is_new_best:
+                    best_score = cp_score
+                    best_move = candidate
+                    
+            except Exception as e:
+                log.warning(f"[HandBrain] [{idx}/{total_candidates}] {candidate.uci()}: error - {e}")
+                continue
+        
+        if best_move:
+            log.info(f"[HandBrain] Best {piece_name} move (analyse): {best_move.uci()} (score={best_score})")
+        
+        return best_move
     
     def _get_legal_moves_for_piece_type(
         self, board: chess.Board, piece_type: chess.PieceType

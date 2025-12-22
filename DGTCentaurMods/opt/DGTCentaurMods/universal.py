@@ -1345,6 +1345,33 @@ def _get_installed_engines() -> List[str]:
     return installed
 
 
+def _format_engine_label_with_compat(engine_name: str, is_selected: bool, show_compat: bool = True) -> str:
+    """Format an engine label with optional root_moves compatibility info.
+    
+    For engines that have been tested in Reverse Hand+Brain mode, appends
+    the percentage of times the engine respected root_moves constraints.
+    This helps users choose engines that work well with Reverse mode.
+    
+    Args:
+        engine_name: Name of the engine.
+        is_selected: Whether this engine is currently selected (adds * prefix).
+        show_compat: Whether to show compatibility info (True for Reverse H+B context).
+        
+    Returns:
+        Formatted label string.
+    """
+    label = f"* {engine_name}" if is_selected else engine_name
+    
+    if show_compat:
+        from DGTCentaurMods.players.hand_brain import get_root_moves_compatibility
+        compat = get_root_moves_compatibility(engine_name)
+        if compat is not None:
+            # Show compatibility percentage
+            label = f"{label} ({compat:.0f}%)"
+    
+    return label
+
+
 def _load_engine_elo_levels(engine_name: str, uci_path: pathlib.Path) -> List[str]:
     """Load ELO levels from an engine's .uci file.
     
@@ -2671,15 +2698,24 @@ def _handle_player1_engine_selection():
     """Handle engine selection for Player 1.
     
     Only shows installed engines. Use Engine Manager to install more engines.
+    Shows root_moves compatibility percentage for Reverse Hand+Brain mode.
     
     Returns:
         Break result if user triggered a break action.
         None otherwise.
     """
     engines = _get_installed_engines()
+    
+    # Show compatibility info for Reverse Hand+Brain mode
+    is_reverse_hb = (
+        _player1_settings['type'] == 'hand_brain' and
+        _player1_settings.get('hand_brain_mode') == 'reverse'
+    )
+    
     engine_entries = []
     for engine in engines:
-        label = f"* {engine}" if engine == _player1_settings['engine'] else engine
+        is_selected = engine == _player1_settings['engine']
+        label = _format_engine_label_with_compat(engine, is_selected, show_compat=is_reverse_hb)
         engine_entries.append(
             IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
         )
@@ -2921,15 +2957,24 @@ def _handle_player2_engine_selection():
     """Handle engine selection for Player 2.
     
     Only shows installed engines. Use Engine Manager to install more engines.
+    Shows root_moves compatibility percentage for Reverse Hand+Brain mode.
     
     Returns:
         Break result if user triggered a break action.
         None otherwise.
     """
     engines = _get_installed_engines()
+    
+    # Show compatibility info for Reverse Hand+Brain mode
+    is_reverse_hb = (
+        _player2_settings['type'] == 'hand_brain' and
+        _player2_settings.get('hand_brain_mode') == 'reverse'
+    )
+    
     engine_entries = []
     for engine in engines:
-        label = f"* {engine}" if engine == _player2_settings['engine'] else engine
+        is_selected = engine == _player2_settings['engine']
+        label = _format_engine_label_with_compat(engine, is_selected, show_compat=is_reverse_hb)
         engine_entries.append(
             IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
         )
