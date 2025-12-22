@@ -145,6 +145,7 @@ class DisplayManager:
         self.brain_hint_widget = None
         self.alert_widget = None
         self.pause_widget = None
+        self.game_over_widget = None
         
         # Pause state
         self._is_paused = False
@@ -607,6 +608,22 @@ class DisplayManager:
         if self.brain_hint_widget:
             self.brain_hint_widget.clear()
     
+    def clear_game_over(self) -> None:
+        """Clear the game over widget and restore clock widget.
+        
+        Called when a new game starts after a game has ended.
+        Removes the game over widget from display and restores clock visibility.
+        """
+        if self.game_over_widget:
+            if board.display_manager:
+                board.display_manager.remove_widget(self.game_over_widget)
+            self.game_over_widget = None
+            log.info("[DisplayManager] Game over widget cleared")
+            
+            # Restore clock widget visibility if it should be shown
+            if self.clock_widget and self._show_clock:
+                self.clock_widget.show()
+    
     def show_promotion_menu(self, is_white: bool) -> str:
         """Show promotion piece selection menu.
         
@@ -950,10 +967,10 @@ class DisplayManager:
             
             if board.display_manager:
                 # Create game over widget (y=144, height=72 - same as clock)
-                game_over_widget = _GameOverWidget(0, 144, 128, 72, board.display_manager.update)
-                game_over_widget.set_result(result, termination_type, move_count, final_times)
+                self.game_over_widget = _GameOverWidget(0, 144, 128, 72, board.display_manager.update)
+                self.game_over_widget.set_result(result, termination_type, move_count, final_times)
                 
-                future = board.display_manager.add_widget(game_over_widget)
+                future = board.display_manager.add_widget(self.game_over_widget)
                 if future:
                     try:
                         future.result(timeout=2.0)
