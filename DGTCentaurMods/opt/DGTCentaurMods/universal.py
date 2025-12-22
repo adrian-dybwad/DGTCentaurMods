@@ -437,6 +437,8 @@ _player1_settings = {
     'hand_brain': False,        # Hand-brain mode (for human type only)
     'engine': 'stockfish',      # Engine name (when type is 'engine')
     'elo': 'Default',           # Engine ELO level (when type is 'engine')
+    'assistant_engine': 'stockfish',  # Engine for hand-brain/hints (human type only)
+    'assistant_elo': 'Default',       # Assistant engine ELO level
 }
 
 _player2_settings = {
@@ -445,6 +447,8 @@ _player2_settings = {
     'hand_brain': False,        # Hand-brain mode (for human type only)
     'engine': 'stockfish',      # Engine name (when type is 'engine')
     'elo': 'Default',           # Engine ELO level (when type is 'engine')
+    'assistant_engine': 'stockfish',  # Engine for hand-brain/hints (human type only)
+    'assistant_elo': 'Default',       # Assistant engine ELO level
 }
 
 # General game settings (stored in [game] section)
@@ -505,6 +509,8 @@ def _load_game_settings():
         _player1_settings['hand_brain'] = load_player_bool_setting(PLAYER1_SECTION, 'hand_brain', False)
         _player1_settings['engine'] = Settings.read(PLAYER1_SECTION, 'engine', 'stockfish')
         _player1_settings['elo'] = Settings.read(PLAYER1_SECTION, 'elo', 'Default')
+        _player1_settings['assistant_engine'] = Settings.read(PLAYER1_SECTION, 'assistant_engine', 'stockfish')
+        _player1_settings['assistant_elo'] = Settings.read(PLAYER1_SECTION, 'assistant_elo', 'Default')
         
         # Player 2 settings (from [PlayerTwo] section)
         _player2_settings['type'] = Settings.read(PLAYER2_SECTION, 'type', 'engine')
@@ -512,6 +518,8 @@ def _load_game_settings():
         _player2_settings['hand_brain'] = load_player_bool_setting(PLAYER2_SECTION, 'hand_brain', False)
         _player2_settings['engine'] = Settings.read(PLAYER2_SECTION, 'engine', 'stockfish')
         _player2_settings['elo'] = Settings.read(PLAYER2_SECTION, 'elo', 'Default')
+        _player2_settings['assistant_engine'] = Settings.read(PLAYER2_SECTION, 'assistant_engine', 'stockfish')
+        _player2_settings['assistant_elo'] = Settings.read(PLAYER2_SECTION, 'assistant_elo', 'Default')
         
         # Time control (from [game] section)
         time_control_str = Settings.read(SETTINGS_SECTION, 'time_control', '0')
@@ -540,10 +548,12 @@ def _load_game_settings():
 
         log.info(f"[Settings] Player1: type={_player1_settings['type']}, color={_player1_settings['color']}, "
                  f"name={_player1_settings['name'] or '(default)'}, hand_brain={_player1_settings['hand_brain']}, "
-                 f"engine={_player1_settings['engine']}, elo={_player1_settings['elo']}")
+                 f"engine={_player1_settings['engine']}, elo={_player1_settings['elo']}, "
+                 f"assistant={_player1_settings['assistant_engine']}@{_player1_settings['assistant_elo']}")
         log.info(f"[Settings] Player2: type={_player2_settings['type']}, "
                  f"name={_player2_settings['name'] or '(default)'}, hand_brain={_player2_settings['hand_brain']}, "
-                 f"engine={_player2_settings['engine']}, elo={_player2_settings['elo']}")
+                 f"engine={_player2_settings['engine']}, elo={_player2_settings['elo']}, "
+                 f"assistant={_player2_settings['assistant_engine']}@{_player2_settings['assistant_elo']}")
         log.info(f"[Settings] Game: time={_game_settings['time_control']} min, "
                  f"analysis={_game_settings['analysis_mode']}, analysis_engine={_game_settings['analysis_engine']}")
         log.info(f"[Settings] Display: board={_game_settings['show_board']}, "
@@ -1622,12 +1632,16 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     player1_hand_brain = _player1_settings['hand_brain']
     player1_engine = _player1_settings['engine']
     player1_elo = _player1_settings['elo']
-    
+    player1_assistant_engine = _player1_settings['assistant_engine']
+    player1_assistant_elo = _player1_settings['assistant_elo']
+
     player2_type = _player2_settings['type']
     player2_name = _player2_settings['name']
     player2_hand_brain = _player2_settings['hand_brain']
     player2_engine = _player2_settings['engine']
     player2_elo = _player2_settings['elo']
+    player2_assistant_engine = _player2_settings['assistant_engine']
+    player2_assistant_elo = _player2_settings['assistant_elo']
 
     # Player 1 is at the bottom of the board
     # Determine which color each player plays
@@ -1636,9 +1650,10 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     # Create players based on settings
     from DGTCentaurMods.players import HumanPlayer, HumanPlayerConfig, EnginePlayer, EnginePlayerConfig, LichessPlayer, LichessPlayerConfig, LichessGameMode
 
-    def create_player(player_type: str, color: chess.Color, player_name: str, hand_brain: bool, engine_name: str, engine_elo: str):
+    def create_player(player_type: str, color: chess.Color, player_name: str, hand_brain: bool, 
+                       engine_name: str, engine_elo: str, assistant_engine: str, assistant_elo: str):
         """Create a player based on type and color.
-        
+
         Args:
             player_type: 'human', 'engine', or 'lichess'
             color: chess.WHITE or chess.BLACK
@@ -1646,11 +1661,16 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             hand_brain: Hand-brain mode for human players
             engine_name: Engine name (for engine type)
             engine_elo: Engine ELO level (for engine type)
+            assistant_engine: Engine for hand-brain/hints (for human type)
+            assistant_elo: Assistant engine ELO level (for human type)
         """
         if player_type == 'human':
             # Use custom name if provided, otherwise default to 'Human'
             name = player_name if player_name else "Human"
-            config = HumanPlayerConfig(name=name, color=color, hand_brain=hand_brain)
+            config = HumanPlayerConfig(
+                name=name, color=color, hand_brain=hand_brain,
+                assistant_engine=assistant_engine, assistant_elo=assistant_elo
+            )
             return HumanPlayer(config)
         elif player_type == 'engine':
             config = EnginePlayerConfig(
@@ -1675,11 +1695,15 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     # Create White and Black players
     if player1_is_white:
-        white_player = create_player(player1_type, chess.WHITE, player1_name, player1_hand_brain, player1_engine, player1_elo)
-        black_player = create_player(player2_type, chess.BLACK, player2_name, player2_hand_brain, player2_engine, player2_elo)
+        white_player = create_player(player1_type, chess.WHITE, player1_name, player1_hand_brain, 
+                                     player1_engine, player1_elo, player1_assistant_engine, player1_assistant_elo)
+        black_player = create_player(player2_type, chess.BLACK, player2_name, player2_hand_brain, 
+                                     player2_engine, player2_elo, player2_assistant_engine, player2_assistant_elo)
     else:
-        white_player = create_player(player2_type, chess.WHITE, player2_name, player2_hand_brain, player2_engine, player2_elo)
-        black_player = create_player(player1_type, chess.BLACK, player1_name, player1_hand_brain, player1_engine, player1_elo)
+        white_player = create_player(player2_type, chess.WHITE, player2_name, player2_hand_brain, 
+                                     player2_engine, player2_elo, player2_assistant_engine, player2_assistant_elo)
+        black_player = create_player(player1_type, chess.BLACK, player1_name, player1_hand_brain, 
+                                     player1_engine, player1_elo, player1_assistant_engine, player1_assistant_elo)
     
     log.info(f"[App] Created players: {white_player.name} (White) vs {black_player.name} (Black)")
     
@@ -1826,6 +1850,45 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     local_controller.set_player_manager(player_manager)
     if is_hand_brain:
         local_controller.set_suggestion_callback(_on_suggestion)
+        # Create per-player AssistantManagers for Hand+Brain hints
+        # Each human player with hand_brain enabled gets their own assistant
+        # using their configured assistant_engine and assistant_elo settings.
+        from DGTCentaurMods.managers.assistant import (
+            AssistantManager, AssistantManagerConfig, AssistantType
+        )
+        from DGTCentaurMods.players import HumanPlayer
+        
+        # Check white player for hand-brain mode
+        if isinstance(white_player, HumanPlayer) and white_player._config.hand_brain:
+            white_config = AssistantManagerConfig(
+                assistant_type=AssistantType.HAND_BRAIN,
+                engine_name=white_player._config.assistant_engine,
+                elo_section=white_player._config.assistant_elo,
+                time_limit=2.0
+            )
+            white_assistant = AssistantManager(white_config)
+            local_controller.set_white_assistant_manager(white_assistant)
+            if white_assistant.start():
+                log.info(f"[App] White Hand+Brain assistant started: "
+                        f"{white_player._config.assistant_engine}@{white_player._config.assistant_elo}")
+            else:
+                log.warning("[App] White AssistantManager failed to start")
+        
+        # Check black player for hand-brain mode
+        if isinstance(black_player, HumanPlayer) and black_player._config.hand_brain:
+            black_config = AssistantManagerConfig(
+                assistant_type=AssistantType.HAND_BRAIN,
+                engine_name=black_player._config.assistant_engine,
+                elo_section=black_player._config.assistant_elo,
+                time_limit=2.0
+            )
+            black_assistant = AssistantManager(black_config)
+            local_controller.set_black_assistant_manager(black_assistant)
+            if black_assistant.start():
+                log.info(f"[App] Black Hand+Brain assistant started: "
+                        f"{black_player._config.assistant_engine}@{black_player._config.assistant_elo}")
+            else:
+                log.warning("[App] Black AssistantManager failed to start")
     local_controller.set_takeback_callback(_on_takeback)
     
     # Wire ready callback through local controller (respects active state)
@@ -2326,6 +2389,20 @@ def _handle_player1_menu():
                 icon_name=hand_brain_icon,
                 enabled=True
             ))
+            # If hand-brain is enabled, show assistant engine selection
+            if _player1_settings['hand_brain']:
+                entries.append(IconMenuEntry(
+                    key="AssistantEngine",
+                    label=f"Assistant\n{_player1_settings['assistant_engine']}",
+                    icon_name="engine",
+                    enabled=True
+                ))
+                entries.append(IconMenuEntry(
+                    key="AssistantELO",
+                    label=f"Asst. ELO\n{_player1_settings['assistant_elo']}",
+                    icon_name="elo",
+                    enabled=True
+                ))
 
         # If engine type, add engine selection
         if _player1_settings['type'] == 'engine':
@@ -2388,6 +2465,20 @@ def _handle_player1_menu():
             log.info(f"[Settings] Player1 hand_brain changed to {new_value}")
             board.beep(board.SOUND_GENERAL, event_type='key_press')
             # Continue loop to show updated menu
+        
+        elif result == "AssistantEngine":
+            ctx.enter_menu("AssistantEngine", 0)
+            engine_result = _handle_player1_assistant_engine_selection()
+            ctx.leave_menu()
+            if is_break_result(engine_result):
+                return engine_result
+        
+        elif result == "AssistantELO":
+            ctx.enter_menu("AssistantELO", 0)
+            elo_result = _handle_player1_assistant_elo_selection()
+            ctx.leave_menu()
+            if is_break_result(elo_result):
+                return elo_result
         
         elif result == "Engine":
             ctx.enter_menu("Engine", 0)
@@ -2455,6 +2546,20 @@ def _handle_player2_menu():
                 icon_name=hand_brain_icon,
                 enabled=True
             ))
+            # If hand-brain is enabled, show assistant engine selection
+            if _player2_settings['hand_brain']:
+                entries.append(IconMenuEntry(
+                    key="AssistantEngine",
+                    label=f"Assistant\n{_player2_settings['assistant_engine']}",
+                    icon_name="engine",
+                    enabled=True
+                ))
+                entries.append(IconMenuEntry(
+                    key="AssistantELO",
+                    label=f"Asst. ELO\n{_player2_settings['assistant_elo']}",
+                    icon_name="elo",
+                    enabled=True
+                ))
         
         # If engine type, add engine selection
         if _player2_settings['type'] == 'engine':
@@ -2510,6 +2615,20 @@ def _handle_player2_menu():
             log.info(f"[Settings] Player2 hand_brain changed to {new_value}")
             board.beep(board.SOUND_GENERAL, event_type='key_press')
             # Continue loop to show updated menu
+        
+        elif result == "AssistantEngine":
+            ctx.enter_menu("AssistantEngine", 0)
+            engine_result = _handle_player2_assistant_engine_selection()
+            ctx.leave_menu()
+            if is_break_result(engine_result):
+                return engine_result
+        
+        elif result == "AssistantELO":
+            ctx.enter_menu("AssistantELO", 0)
+            elo_result = _handle_player2_assistant_elo_selection()
+            ctx.leave_menu()
+            if is_break_result(elo_result):
+                return elo_result
         
         elif result == "Engine":
             ctx.enter_menu("Engine", 0)
@@ -2673,6 +2792,70 @@ def _handle_player1_elo_selection():
         old_elo = _player1_settings['elo']
         _save_player1_setting('elo', result)
         log.info(f"[Settings] Player1 ELO changed: {old_elo} -> {result}")
+        board.beep(board.SOUND_GENERAL, event_type='key_press')
+    
+    return None
+
+
+def _handle_player1_assistant_engine_selection():
+    """Handle assistant engine selection for Player 1 (Hand-Brain mode).
+    
+    Selects which engine powers the Hand-Brain assistant suggestions.
+    Shows installed engines.
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    engines = _get_installed_engines()
+    engine_entries = []
+    for engine in engines:
+        label = f"* {engine}" if engine == _player1_settings['assistant_engine'] else engine
+        engine_entries.append(
+            IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
+        )
+    
+    result = _show_menu(engine_entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result not in ["BACK", "SHUTDOWN", "HELP"]:
+        old_engine = _player1_settings['assistant_engine']
+        _save_player1_setting('assistant_engine', result)
+        log.info(f"[Settings] Player1 assistant engine changed: {old_engine} -> {result}")
+        # Reset assistant ELO to Default when engine changes
+        _save_player1_setting('assistant_elo', 'Default')
+        board.beep(board.SOUND_GENERAL, event_type='key_press')
+    
+    return None
+
+
+def _handle_player1_assistant_elo_selection():
+    """Handle assistant engine ELO selection for Player 1 (Hand-Brain mode).
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    current_engine = _player1_settings['assistant_engine']
+    elo_levels = _get_engine_elo_levels(current_engine)
+    elo_entries = []
+    for elo in elo_levels:
+        label = f"* {elo}" if elo == _player1_settings['assistant_elo'] else elo
+        elo_entries.append(
+            IconMenuEntry(key=elo, label=label, icon_name="elo", enabled=True)
+        )
+    
+    result = _show_menu(elo_entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result not in ["BACK", "SHUTDOWN", "HELP"]:
+        old_elo = _player1_settings['assistant_elo']
+        _save_player1_setting('assistant_elo', result)
+        log.info(f"[Settings] Player1 assistant ELO changed: {old_elo} -> {result}")
         board.beep(board.SOUND_GENERAL, event_type='key_press')
     
     return None
@@ -2876,6 +3059,70 @@ def _handle_player2_elo_selection():
         old_elo = _player2_settings['elo']
         _save_player2_setting('elo', result)
         log.info(f"[Settings] Player2 ELO changed: {old_elo} -> {result}")
+        board.beep(board.SOUND_GENERAL, event_type='key_press')
+
+    return None
+
+
+def _handle_player2_assistant_engine_selection():
+    """Handle assistant engine selection for Player 2 (Hand-Brain mode).
+    
+    Selects which engine powers the Hand-Brain assistant suggestions.
+    Shows installed engines.
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    engines = _get_installed_engines()
+    engine_entries = []
+    for engine in engines:
+        label = f"* {engine}" if engine == _player2_settings['assistant_engine'] else engine
+        engine_entries.append(
+            IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
+        )
+    
+    result = _show_menu(engine_entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result not in ["BACK", "SHUTDOWN", "HELP"]:
+        old_engine = _player2_settings['assistant_engine']
+        _save_player2_setting('assistant_engine', result)
+        log.info(f"[Settings] Player2 assistant engine changed: {old_engine} -> {result}")
+        # Reset assistant ELO to Default when engine changes
+        _save_player2_setting('assistant_elo', 'Default')
+        board.beep(board.SOUND_GENERAL, event_type='key_press')
+    
+    return None
+
+
+def _handle_player2_assistant_elo_selection():
+    """Handle assistant engine ELO selection for Player 2 (Hand-Brain mode).
+    
+    Returns:
+        Break result if user triggered a break action.
+        None otherwise.
+    """
+    current_engine = _player2_settings['assistant_engine']
+    elo_levels = _get_engine_elo_levels(current_engine)
+    elo_entries = []
+    for elo in elo_levels:
+        label = f"* {elo}" if elo == _player2_settings['assistant_elo'] else elo
+        elo_entries.append(
+            IconMenuEntry(key=elo, label=label, icon_name="elo", enabled=True)
+        )
+    
+    result = _show_menu(elo_entries)
+    
+    if is_break_result(result):
+        return result
+    
+    if result not in ["BACK", "SHUTDOWN", "HELP"]:
+        old_elo = _player2_settings['assistant_elo']
+        _save_player2_setting('assistant_elo', result)
+        log.info(f"[Settings] Player2 assistant ELO changed: {old_elo} -> {result}")
         board.beep(board.SOUND_GENERAL, event_type='key_press')
     
     return None

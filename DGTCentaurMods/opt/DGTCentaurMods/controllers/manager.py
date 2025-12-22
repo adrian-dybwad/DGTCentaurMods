@@ -289,9 +289,12 @@ class ControllerManager:
             self._active.stop()
             self._active = None
         
-        if self._local and hasattr(self._local, '_player_manager'):
-            if self._local._player_manager:
+        if self._local:
+            # Stop player manager if present
+            if hasattr(self._local, '_player_manager') and self._local._player_manager:
                 self._local._player_manager.stop()
+            # Clean up local controller (stops assistant manager)
+            self._local.cleanup()
         
         self._local = None
         self._remote = None

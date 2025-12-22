@@ -159,7 +159,6 @@ High-level managers that coordinate game logic, display, and communication.
 | `_IconMenuWidget` | Lazy-loaded IconMenuWidget class |
 | `_IconMenuEntry` | Lazy-loaded IconMenuEntry class |
 | `_SplashScreen` | Lazy-loaded SplashScreen class |
-| `_BrainHintWidget` | Lazy-loaded BrainHintWidget class |
 | `_GameOverWidget` | Lazy-loaded GameOverWidget class |
 | `_AlertWidget` | Lazy-loaded AlertWidget class |
 | `STARTING_FEN` | Starting position FEN string |
@@ -560,7 +559,6 @@ ePaper display framework with widget system.
 | `KeyboardWidget` | On-screen keyboard for text input |
 | `SplashScreen` | Modal splash messages |
 | `AlertWidget` | Check and queen threat alerts |
-| `BrainHintWidget` | Hand+Brain piece type hint display |
 | `GameOverWidget` | Game result and termination display |
 | `BatteryWidget` | Battery level indicator |
 | `ClockWidget` | Time display |

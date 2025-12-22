@@ -249,10 +249,11 @@ class ChessClockWidget(Widget):
     
     def set_brain_hint(self, color: str, piece_letter: str) -> None:
         """Set the brain hint piece letter for a player.
-        
+
         In hand-brain mode, shows the suggested piece type to the left of
-        that player's timer, replacing the turn indicator circle.
-        
+        that player's clock timer. The turn indicator circle remains visible.
+        The hint may overlap the player name label.
+
         Args:
             color: 'white' or 'black'
             piece_letter: Single letter (K, Q, R, B, N, P) or empty to clear
@@ -380,14 +381,10 @@ class ChessClockWidget(Widget):
         # === TOP SECTION ===
         top_y = 4
         
-        # Indicator: brain hint letter OR turn indicator circle
+        # Turn indicator circle (always drawn)
         indicator_size = 12
         indicator_y = top_y + (section_height - indicator_size) // 2
-        if top_brain_hint:
-            # Show brain hint letter instead of indicator
-            top_hint_widget.set_text(top_brain_hint)
-            top_hint_widget.draw_on(sprite, 0, indicator_y - 2)
-        elif active_color == top_color:
+        if active_color == top_color:
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
@@ -403,6 +400,11 @@ class ChessClockWidget(Widget):
             top_name_widget.set_text(display_name)
             top_name_widget.draw_on(sprite, 20, top_y + 12)
         
+        # Brain hint letter (to the left of clock, may overlap player name)
+        if top_brain_hint:
+            top_hint_widget.set_text(top_brain_hint)
+            top_hint_widget.draw_on(sprite, self.width - 88, top_y + 4)
+        
         # Top time using TextWidget - draw directly onto sprite
         top_time_widget.set_text(self._format_time(top_time))
         top_time_widget.draw_on(sprite, self.width - 68, top_y + 6)
@@ -414,13 +416,9 @@ class ChessClockWidget(Widget):
         # === BOTTOM SECTION ===
         bottom_y = separator_y + 4
         
-        # Indicator: brain hint letter OR turn indicator circle
+        # Turn indicator circle (always drawn)
         indicator_y = bottom_y + (section_height - indicator_size) // 2
-        if bottom_brain_hint:
-            # Show brain hint letter instead of indicator
-            bottom_hint_widget.set_text(bottom_brain_hint)
-            bottom_hint_widget.draw_on(sprite, 0, indicator_y - 2)
-        elif active_color == bottom_color:
+        if active_color == bottom_color:
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
@@ -435,6 +433,11 @@ class ChessClockWidget(Widget):
             display_name = bottom_name[:10] if len(bottom_name) > 10 else bottom_name
             bottom_name_widget.set_text(display_name)
             bottom_name_widget.draw_on(sprite, 20, bottom_y + 12)
+        
+        # Brain hint letter (to the left of clock, may overlap player name)
+        if bottom_brain_hint:
+            bottom_hint_widget.set_text(bottom_brain_hint)
+            bottom_hint_widget.draw_on(sprite, self.width - 88, bottom_y + 4)
         
         # Bottom time using TextWidget - draw directly onto sprite
         bottom_time_widget.set_text(self._format_time(bottom_time))

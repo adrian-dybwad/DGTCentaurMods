@@ -29,9 +29,13 @@ class HumanPlayerConfig(PlayerConfig):
         name: Display name for the player.
         hand_brain: If True, this player is playing in hand-brain mode where
                     a partner suggests piece types and the player chooses specific moves.
+        assistant_engine: Engine name for hand-brain/hint suggestions.
+        assistant_elo: ELO section for the assistant engine.
     """
     name: str = "Human"
     hand_brain: bool = False
+    assistant_engine: str = "stockfish"
+    assistant_elo: str = "Default"
 
 
 class HumanPlayer(Player):

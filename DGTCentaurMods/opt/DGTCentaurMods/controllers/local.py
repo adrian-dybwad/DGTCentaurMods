@@ -44,6 +44,11 @@ class LocalController(GameController):
         """
         super().__init__(game_manager)
         self._player_manager: Optional['PlayerManager'] = None
+        # Per-color assistant managers for Hand+Brain mode
+        # Each human player can have their own assistant engine configured
+        self._white_assistant_manager: Optional['AssistantManager'] = None
+        self._black_assistant_manager: Optional['AssistantManager'] = None
+        # Legacy single assistant manager for backward compatibility
         self._assistant_manager: Optional['AssistantManager'] = None
         self._suggestion_callback: Optional[Callable] = None
         self._takeback_callback: Optional[Callable] = None
@@ -73,13 +78,36 @@ class LocalController(GameController):
                  f"Black={player_manager.black_player.name}")
     
     def set_assistant_manager(self, assistant_manager: 'AssistantManager') -> None:
-        """Set the assistant manager for Hand+Brain hints.
+        """Set the assistant manager for Hand+Brain hints (legacy, single manager).
+        
+        For per-player assistant engines, use set_white_assistant_manager() and
+        set_black_assistant_manager() instead.
         
         Args:
             assistant_manager: The AssistantManager instance.
         """
         self._assistant_manager = assistant_manager
         assistant_manager.set_suggestion_callback(self._on_assistant_suggestion)
+    
+    def set_white_assistant_manager(self, assistant_manager: 'AssistantManager') -> None:
+        """Set the assistant manager for White player's Hand+Brain hints.
+        
+        Args:
+            assistant_manager: The AssistantManager instance for White.
+        """
+        self._white_assistant_manager = assistant_manager
+        assistant_manager.set_suggestion_callback(self._on_assistant_suggestion)
+        log.info("[LocalController] White assistant manager set")
+    
+    def set_black_assistant_manager(self, assistant_manager: 'AssistantManager') -> None:
+        """Set the assistant manager for Black player's Hand+Brain hints.
+        
+        Args:
+            assistant_manager: The AssistantManager instance for Black.
+        """
+        self._black_assistant_manager = assistant_manager
+        assistant_manager.set_suggestion_callback(self._on_assistant_suggestion)
+        log.info("[LocalController] Black assistant manager set")
     
     def set_suggestion_callback(self, callback: Callable) -> None:
         """Set callback for assistant suggestions.
@@ -362,32 +390,57 @@ class LocalController(GameController):
             log.info(f"[LocalController] Suggestion: move "
                      f"{suggestion.move.uci() if suggestion.move else 'none'}")
     
+    def _get_active_assistant_manager(self, color: bool) -> Optional['AssistantManager']:
+        """Get the assistant manager for the given color.
+        
+        Checks per-color assistants first, then falls back to legacy single assistant.
+        
+        Args:
+            color: chess.WHITE or chess.BLACK
+        
+        Returns:
+            The AssistantManager for that color, or None if none configured.
+        """
+        import chess
+        if color == chess.WHITE and self._white_assistant_manager:
+            return self._white_assistant_manager
+        elif color == chess.BLACK and self._black_assistant_manager:
+            return self._black_assistant_manager
+        return self._assistant_manager
+    
     def _check_assistant_suggestion(self) -> None:
-        """Check if assistant should provide a suggestion."""
-        if not self._assistant_manager:
-            return
+        """Check if assistant should provide a suggestion.
         
-        if not self._assistant_manager.is_active:
-            return
-        
-        if not self._assistant_manager.auto_suggest:
-            return
-        
+        Uses per-color assistant managers if configured, allowing each human player
+        to have their own assistant engine for Hand+Brain mode.
+        """
         chess_board = self._game_manager.chess_board
+        
+        # Get the assistant manager for the current turn's color
+        assistant_manager = self._get_active_assistant_manager(chess_board.turn)
+        
+        if not assistant_manager:
+            return
+        
+        if not assistant_manager.is_active:
+            return
+        
+        if not assistant_manager.auto_suggest:
+            return
         
         # Only show suggestions for human players
         if self._player_manager:
             from DGTCentaurMods.players import PlayerType
             current_player = self._player_manager.get_current_player(chess_board)
             if current_player.player_type != PlayerType.HUMAN:
-                self._assistant_manager.clear_suggestion()
+                assistant_manager.clear_suggestion()
                 return
         
         if chess_board.is_game_over():
             return
         
-        log.debug("[LocalController] Requesting suggestion from assistant manager")
-        self._assistant_manager.request_suggestion(chess_board, chess_board.turn)
+        log.debug(f"[LocalController] Requesting suggestion from assistant manager (color={chess_board.turn})")
+        assistant_manager.request_suggestion(chess_board, chess_board.turn)
     
     # =========================================================================
     # Lichess-Specific Callbacks
@@ -403,3 +456,33 @@ class LocalController(GameController):
         white_str = f"{white_player}({white_rating})"
         black_str = f"{black_player}({black_rating})"
         self._game_manager.set_game_info("", "", "", white_str, black_str)
+    
+    # =========================================================================
+    # Cleanup
+    # =========================================================================
+    
+    def cleanup(self) -> None:
+        """Clean up resources.
+        
+        Stops all assistant managers if active, releasing engine processes.
+        """
+        log.info("[LocalController] Cleaning up...")
+        
+        # Stop per-color assistant managers
+        if self._white_assistant_manager:
+            self._white_assistant_manager.stop()
+            self._white_assistant_manager = None
+            log.debug("[LocalController] White assistant manager stopped")
+        
+        if self._black_assistant_manager:
+            self._black_assistant_manager.stop()
+            self._black_assistant_manager = None
+            log.debug("[LocalController] Black assistant manager stopped")
+        
+        # Stop legacy single assistant manager
+        if self._assistant_manager:
+            self._assistant_manager.stop()
+            self._assistant_manager = None
+            log.debug("[LocalController] Assistant manager stopped")
+        
+        log.info("[LocalController] Cleanup complete")
