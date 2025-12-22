@@ -78,21 +78,6 @@ class Scheduler:
                     break
         log.debug("Scheduler.clear_pending(): Cleared pending refresh requests")
     
-    def reset_partial_mode(self) -> None:
-        """Reset partial mode flag so next update triggers display re-initialization.
-        
-        When transitioning between screens (e.g., splash to game), this forces the
-        scheduler to re-initialize the display in partial mode on the next update.
-        The init() and Clear() sequence clears any ghosting from previous content
-        without the jarring full refresh flash.
-        
-        This is preferred over a full refresh when transitioning between screens
-        that both use partial mode updates.
-        """
-        if self._in_partial_mode:
-            log.debug("Scheduler.reset_partial_mode(): Resetting partial mode for display re-initialization")
-            self._in_partial_mode = False
-    
     def submit_deferred(self, callback) -> None:
         """Schedule a callback to run on the scheduler thread.
         

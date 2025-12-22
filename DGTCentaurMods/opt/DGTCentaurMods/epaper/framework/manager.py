@@ -223,12 +223,6 @@ class Manager:
         # Clear background to revert to plain white
         self._background = None
         
-        # Reset partial mode when transitioning between screens (had widgets before).
-        # This forces the scheduler to re-initialize the display on the next update,
-        # which clears ghosting without a jarring full refresh flash.
-        if had_widgets:
-            self._scheduler.reset_partial_mode()
-        
         # Create and add status bar widget
         if addStatusBar:
             status_bar_widget = StatusBarWidget(0, 0, self.update)
