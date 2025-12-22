@@ -434,14 +434,16 @@ _player1_settings = {
     'color': 'white',           # Color Player 1 plays: 'white' or 'black'
     'type': 'human',            # Player type: 'human', 'engine', 'lichess'
     'name': '',                 # Player name (for human type, empty = use default)
-    'engine': 'stockfish',   # Engine name (when type is 'engine')
+    'hand_brain': False,        # Hand-brain mode (for human type only)
+    'engine': 'stockfish',      # Engine name (when type is 'engine')
     'elo': 'Default',           # Engine ELO level (when type is 'engine')
 }
 
 _player2_settings = {
     'type': 'engine',           # Player type: 'human', 'engine', 'lichess'
     'name': '',                 # Player name (for human type, empty = use default)
-    'engine': 'stockfish',   # Engine name (when type is 'engine')
+    'hand_brain': False,        # Hand-brain mode (for human type only)
+    'engine': 'stockfish',      # Engine name (when type is 'engine')
     'elo': 'Default',           # Engine ELO level (when type is 'engine')
 }
 
@@ -489,16 +491,25 @@ def _load_game_settings():
     try:
         from DGTCentaurMods.board.settings import Settings
         
+        # Helper to load boolean settings from player sections
+        def load_player_bool_setting(section: str, key: str, default: bool = False) -> bool:
+            value = Settings.read(section, key, 'true' if default else 'false')
+            if value.lower() in ('false', '0', ''):
+                return False
+            return True
+        
         # Player 1 settings (from [PlayerOne] section)
         _player1_settings['color'] = Settings.read(PLAYER1_SECTION, 'color', 'white')
         _player1_settings['type'] = Settings.read(PLAYER1_SECTION, 'type', 'human')
         _player1_settings['name'] = Settings.read(PLAYER1_SECTION, 'name', '')
+        _player1_settings['hand_brain'] = load_player_bool_setting(PLAYER1_SECTION, 'hand_brain', False)
         _player1_settings['engine'] = Settings.read(PLAYER1_SECTION, 'engine', 'stockfish')
         _player1_settings['elo'] = Settings.read(PLAYER1_SECTION, 'elo', 'Default')
         
         # Player 2 settings (from [PlayerTwo] section)
         _player2_settings['type'] = Settings.read(PLAYER2_SECTION, 'type', 'engine')
         _player2_settings['name'] = Settings.read(PLAYER2_SECTION, 'name', '')
+        _player2_settings['hand_brain'] = load_player_bool_setting(PLAYER2_SECTION, 'hand_brain', False)
         _player2_settings['engine'] = Settings.read(PLAYER2_SECTION, 'engine', 'stockfish')
         _player2_settings['elo'] = Settings.read(PLAYER2_SECTION, 'elo', 'Default')
         
@@ -528,10 +539,10 @@ def _load_game_settings():
         _game_settings['show_graph'] = load_bool_setting('show_graph')
 
         log.info(f"[Settings] Player1: type={_player1_settings['type']}, color={_player1_settings['color']}, "
-                 f"name={_player1_settings['name'] or '(default)'}, "
+                 f"name={_player1_settings['name'] or '(default)'}, hand_brain={_player1_settings['hand_brain']}, "
                  f"engine={_player1_settings['engine']}, elo={_player1_settings['elo']}")
         log.info(f"[Settings] Player2: type={_player2_settings['type']}, "
-                 f"name={_player2_settings['name'] or '(default)'}, "
+                 f"name={_player2_settings['name'] or '(default)'}, hand_brain={_player2_settings['hand_brain']}, "
                  f"engine={_player2_settings['engine']}, elo={_player2_settings['elo']}")
         log.info(f"[Settings] Game: time={_game_settings['time_control']} min, "
                  f"analysis={_game_settings['analysis_mode']}, analysis_engine={_game_settings['analysis_engine']}")
@@ -546,13 +557,17 @@ def _save_player1_setting(key: str, value):
     """Save a Player 1 setting to centaur.ini [PlayerOne] section.
     
     Args:
-        key: Setting key (color, type, engine, elo)
-        value: Setting value
+        key: Setting key (color, type, name, hand_brain, engine, elo)
+        value: Setting value (string or boolean - booleans stored as 'true'/'false')
     """
     global _player1_settings
     try:
         from DGTCentaurMods.board.settings import Settings
-        str_value = str(value)
+        # Convert to string for storage
+        if isinstance(value, bool):
+            str_value = 'true' if value else 'false'
+        else:
+            str_value = str(value)
         Settings.write(PLAYER1_SECTION, key, str_value)
         _player1_settings[key] = value
         log.debug(f"[Settings] Saved PlayerOne.{key}={str_value}")
@@ -564,13 +579,17 @@ def _save_player2_setting(key: str, value):
     """Save a Player 2 setting to centaur.ini [PlayerTwo] section.
     
     Args:
-        key: Setting key (type, engine, elo)
-        value: Setting value
+        key: Setting key (type, name, hand_brain, engine, elo)
+        value: Setting value (string or boolean - booleans stored as 'true'/'false')
     """
     global _player2_settings
     try:
         from DGTCentaurMods.board.settings import Settings
-        str_value = str(value)
+        # Convert to string for storage
+        if isinstance(value, bool):
+            str_value = 'true' if value else 'false'
+        else:
+            str_value = str(value)
         Settings.write(PLAYER2_SECTION, key, str_value)
         _player2_settings[key] = value
         log.debug(f"[Settings] Saved PlayerTwo.{key}={str_value}")
@@ -1600,11 +1619,13 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     player1_color = _player1_settings['color']
     player1_type = _player1_settings['type']
     player1_name = _player1_settings['name']
+    player1_hand_brain = _player1_settings['hand_brain']
     player1_engine = _player1_settings['engine']
     player1_elo = _player1_settings['elo']
     
     player2_type = _player2_settings['type']
     player2_name = _player2_settings['name']
+    player2_hand_brain = _player2_settings['hand_brain']
     player2_engine = _player2_settings['engine']
     player2_elo = _player2_settings['elo']
 
@@ -1615,20 +1636,21 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     # Create players based on settings
     from DGTCentaurMods.players import HumanPlayer, HumanPlayerConfig, EnginePlayer, EnginePlayerConfig, LichessPlayer, LichessPlayerConfig, LichessGameMode
 
-    def create_player(player_type: str, color: chess.Color, player_name: str, engine_name: str, engine_elo: str):
+    def create_player(player_type: str, color: chess.Color, player_name: str, hand_brain: bool, engine_name: str, engine_elo: str):
         """Create a player based on type and color.
         
         Args:
             player_type: 'human', 'engine', or 'lichess'
             color: chess.WHITE or chess.BLACK
             player_name: Custom name for human players (empty string uses default)
+            hand_brain: Hand-brain mode for human players
             engine_name: Engine name (for engine type)
             engine_elo: Engine ELO level (for engine type)
         """
         if player_type == 'human':
             # Use custom name if provided, otherwise default to 'Human'
             name = player_name if player_name else "Human"
-            config = HumanPlayerConfig(name=name, color=color)
+            config = HumanPlayerConfig(name=name, color=color, hand_brain=hand_brain)
             return HumanPlayer(config)
         elif player_type == 'engine':
             config = EnginePlayerConfig(
@@ -1653,17 +1675,21 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     
     # Create White and Black players
     if player1_is_white:
-        white_player = create_player(player1_type, chess.WHITE, player1_name, player1_engine, player1_elo)
-        black_player = create_player(player2_type, chess.BLACK, player2_name, player2_engine, player2_elo)
+        white_player = create_player(player1_type, chess.WHITE, player1_name, player1_hand_brain, player1_engine, player1_elo)
+        black_player = create_player(player2_type, chess.BLACK, player2_name, player2_hand_brain, player2_engine, player2_elo)
     else:
-        white_player = create_player(player2_type, chess.WHITE, player2_name, player2_engine, player2_elo)
-        black_player = create_player(player1_type, chess.BLACK, player1_name, player1_engine, player1_elo)
+        white_player = create_player(player2_type, chess.WHITE, player2_name, player2_hand_brain, player2_engine, player2_elo)
+        black_player = create_player(player1_type, chess.BLACK, player1_name, player1_hand_brain, player1_engine, player1_elo)
     
     log.info(f"[App] Created players: {white_player.name} (White) vs {black_player.name} (Black)")
     
     # Check for special modes
     is_two_player = (player1_type == 'human' and player2_type == 'human')
-    is_hand_brain = False  # TODO: implement hand+brain as an option
+    # Hand-brain mode is enabled if either human player has it enabled
+    is_hand_brain = (
+        (player1_type == 'human' and player1_hand_brain) or
+        (player2_type == 'human' and player2_hand_brain)
+    )
 
     # Get analysis engine path (only if analysis mode is enabled)
     from DGTCentaurMods.paths import get_engine_path
@@ -1690,18 +1716,6 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
              f"board={_game_settings['show_board']}, clock={_game_settings['show_clock']}, "
              f"analysis={_game_settings['show_analysis']}, "
              f"graph={_game_settings['show_graph']})")
-
-    # Display update callback - legacy, kept for ProtocolManager compatibility
-    # Note: DisplayManager now subscribes to ChessGameState directly, so this
-    # callback is rarely needed. Position updates and analysis happen automatically.
-    def update_display(fen):
-        """Manual display update - use only when state observer isn't available.
-        
-        In normal game flow, DisplayManager observes ChessGameState and updates
-        automatically. This callback exists for edge cases (Bluetooth sync, etc.)
-        """
-        if display_manager:
-            display_manager.update_position(fen)
 
     # Back menu result handler
     def _on_back_menu_result(result: str):
@@ -1809,7 +1823,6 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     if is_hand_brain:
         local_controller.set_suggestion_callback(_on_suggestion)
     local_controller.set_takeback_callback(_on_takeback)
-    local_controller.set_display_update_callback(update_display)
     
     # Wire ready callback through local controller (respects active state)
     # Note: move_callback is already wired by game_manager.set_player_manager()
@@ -2290,13 +2303,21 @@ def _handle_player1_menu():
             ),
         ]
 
-        # If human type, add name entry
+        # If human type, add name entry and hand-brain checkbox
         if _player1_settings['type'] == 'human':
             name_display = _player1_settings['name'] or 'Human'
             entries.append(IconMenuEntry(
                 key="Name",
                 label=f"Name\n{name_display}",
                 icon_name="universal_logo",
+                enabled=True
+            ))
+            # Hand-brain mode checkbox (only for human type)
+            hand_brain_icon = "checkbox_checked" if _player1_settings['hand_brain'] else "checkbox_empty"
+            entries.append(IconMenuEntry(
+                key="HandBrain",
+                label="Hand-Brain",
+                icon_name=hand_brain_icon,
                 enabled=True
             ))
 
@@ -2354,6 +2375,14 @@ def _handle_player1_menu():
             if is_break_result(name_result):
                 return name_result
         
+        elif result == "HandBrain":
+            # Toggle hand-brain mode (checkbox behavior - no submenu needed)
+            new_value = not _player1_settings['hand_brain']
+            _save_player1_setting('hand_brain', new_value)
+            log.info(f"[Settings] Player1 hand_brain changed to {new_value}")
+            board.beep(board.SOUND_GENERAL, event_type='key_press')
+            # Continue loop to show updated menu
+        
         elif result == "Engine":
             ctx.enter_menu("Engine", 0)
             engine_result = _handle_player1_engine_selection()
@@ -2403,13 +2432,21 @@ def _handle_player2_menu():
             ),
         ]
         
-        # If human type, add name entry
+        # If human type, add name entry and hand-brain checkbox
         if _player2_settings['type'] == 'human':
             name_display = _player2_settings['name'] or 'Human'
             entries.append(IconMenuEntry(
                 key="Name",
                 label=f"Name\n{name_display}",
                 icon_name="universal_logo",
+                enabled=True
+            ))
+            # Hand-brain mode checkbox (only for human type)
+            hand_brain_icon = "checkbox_checked" if _player2_settings['hand_brain'] else "checkbox_empty"
+            entries.append(IconMenuEntry(
+                key="HandBrain",
+                label="Hand-Brain",
+                icon_name=hand_brain_icon,
                 enabled=True
             ))
         
@@ -2459,6 +2496,14 @@ def _handle_player2_menu():
             ctx.leave_menu()
             if is_break_result(name_result):
                 return name_result
+        
+        elif result == "HandBrain":
+            # Toggle hand-brain mode (checkbox behavior - no submenu needed)
+            new_value = not _player2_settings['hand_brain']
+            _save_player2_setting('hand_brain', new_value)
+            log.info(f"[Settings] Player2 hand_brain changed to {new_value}")
+            board.beep(board.SOUND_GENERAL, event_type='key_press')
+            # Continue loop to show updated menu
         
         elif result == "Engine":
             ctx.enter_menu("Engine", 0)
@@ -5175,11 +5220,6 @@ def _start_lichess_game(lichess_config) -> bool:
     game_connected = False
     user_cancelled = False
     
-    def update_display(fen):
-        """Update display manager with new position."""
-        if display_manager:
-            display_manager.update_position(fen)
-    
     def on_game_connected():
         """Called when Lichess game is connected and ready to play.
         
@@ -5261,8 +5301,7 @@ def _start_lichess_game(lichess_config) -> bool:
     # Create local controller (for Lichess games - local human + remote Lichess opponent)
     local_controller = controller_manager.create_local_controller()
     local_controller.set_player_manager(player_manager)
-    local_controller.set_display_update_callback(update_display)
-    
+
     # Wire ready callback through local controller
     # Note: move_callback is already wired by game_manager.set_player_manager()
     # to GameManager._on_player_move which handles all player moves (human+engine)
@@ -5760,7 +5799,7 @@ def _on_ble_disconnected():
 # sendMessage callback for ProtocolManager
 # ============================================================================
 
-def sendMessage(data, message_type=None):
+def sendMessage(data):
     """Send a message via BLE or BT classic.
     
     Routes data to the appropriate transport based on current connection state:
@@ -5769,7 +5808,6 @@ def sendMessage(data, message_type=None):
     
     Args:
         data: Message data bytes (already formatted with messageType, length, payload)
-        message_type: Optional message type hint (currently unused, routing is automatic)
     """
     global _last_message, relay_mode, ble_manager, client_connected, client_sock
 

@@ -389,22 +389,6 @@ class DisplayManager:
         """
         self._key_callback = callback
     
-    def update_position(self, fen: str):
-        """Manually update the chess board display with a new position.
-        
-        Normally the ChessBoardWidget observes ChessGameState and updates
-        automatically. Use this method only for edge cases where the game
-        state hasn't been updated yet (e.g., game resume, position loading).
-        
-        Args:
-            fen: FEN string of the new position
-        """
-        if self.chess_board_widget:
-            try:
-                self.chess_board_widget.set_fen(fen)
-            except Exception as e:
-                log.error(f"[DisplayManager] Error updating position: {e}")
-    
     def get_hint_move(self, board_obj, time_limit: float = 1.0):
         """Get a hint move for the current position.
         

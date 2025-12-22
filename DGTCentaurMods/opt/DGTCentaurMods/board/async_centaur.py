@@ -242,7 +242,6 @@ class AsyncCentaur:
         - wait_ready(timeout=60): wait for discovery
         - request_response(command, data=b"", timeout=2.0, callback=None)
         - wait_for_key_up(timeout=None, accept=None)
-        - get_and_reset_last_key()
         - ledsOff(), led(), ledArray(), ledFromTo(), beep(), sleep()
 
     Notes:
@@ -270,10 +269,8 @@ class AsyncCentaur:
         self.response_buffer = bytearray()
         self.packet_count = 0
         self._closed = False
-        # queue to signal key-up events as (code, name)
+        # queue to signal key-up events
         self.key_up_queue = queue.Queue(maxsize=128)
-        # track last key-up (code, name) for non-blocking retrieval
-        self._last_key = None
         # single waiter for blocking request_response
         self._waiter_lock = threading.Lock()
         self._response_waiter = None  # dict with keys: expected_type:int, queue:Queue
@@ -651,7 +648,6 @@ class AsyncCentaur:
                     if not is_down:
                         key = Key(code_val)
                         log.info(f"key name: {key.name} value: {key.value}")
-                        self._last_key = key
                         try:
                             self.key_up_queue.put_nowait(key)
                         except queue.Full:
@@ -728,18 +724,6 @@ class AsyncCentaur:
                 if key == accept:
                     return key
             # otherwise continue waiting
-
-    def get_and_reset_last_key(self):
-        """
-        Non-blocking: return the last key-up event as Key and reset it.
-        Returns None if no key-up has been recorded since last call.
-        
-        NOTE: This method is deprecated for event handling. Use get_next_key()
-        or consume from key_up_queue directly to avoid missing rapid key presses.
-        """
-        last_key_pressed = self._last_key
-        self._last_key = None
-        return last_key_pressed
 
     def get_next_key(self, timeout=0.0):
         """
@@ -1086,21 +1070,6 @@ class AsyncCentaur:
             return b''
         return bytes(packet[5:len(packet)-1])
     
-    # def readSerial(self, num_bytes=1000):
-    #     """
-    #     Read data from serial port.
-        
-    #     Args:
-    #         num_bytes (int): number of bytes to attempt to read
-            
-    #     Returns:
-    #         bytes: data read from serial port
-    #     """
-    #     try:
-    #         return self.ser.read(num_bytes)
-    #     except:
-    #         return self.ser.read(num_bytes)
-    
     def _discover_board_address(self, packet=None):
         """
         Self-contained state machine for non-blocking board discovery.
@@ -1228,8 +1197,6 @@ class AsyncCentaur:
                 log.info("Serial port closed")
         except Exception:
             pass
-
-        self._last_key = None
 
     def getBoardMeta(self):
         """

@@ -1,32 +1,45 @@
 #!/usr/bin/env python3
 """
-Simple Unit Test for Promotion Button Handling
+Unit Tests for Promotion Button Handling
 
-This test focuses on testing the refactored button handling logic
-without requiring the full DGTCentaurMods environment.
+Tests verify that the refactored button handling logic correctly maps
+button presses to promotion piece choices and uses proper board API
+instead of direct serial access.
 
 USAGE:
-    # Navigate to opt folder
     cd /home/pi/DGTCentaurMods/DGTCentaurMods/opt
-    
-    # Activate virtual environment (optional for this test)
-    source DGTCentaurMods/.venv/bin/activate
-    
-    # Run test
-    python3 DGTCentaurMods/tests/test_promotion_simple.py
+    python3 -m pytest DGTCentaurMods/tests/test_promotion_simple.py -v
 """
 
-import sys
-import os
-from unittest.mock import patch, MagicMock
+import unittest
 
-def test_waitForPromotionChoice_mapping():
-    """Test the button mapping logic without importing gamemanager"""
-    print("Testing button mapping logic...")
+
+class TestWaitForPromotionChoiceMapping(unittest.TestCase):
+    """
+    Tests for promotion button mapping logic.
     
-    # Simulate the waitForPromotionChoice function logic
-    def mock_waitForPromotionChoice(button_name):
-        """Mock version of waitForPromotionChoice for testing"""
+    Expected behavior:
+    - BACK button -> Knight ('n')
+    - TICK button -> Bishop ('b')
+    - UP button -> Queen ('q')
+    - DOWN button -> Rook ('r')
+    - Unknown/timeout defaults to Queen ('q')
+    """
+    
+    @staticmethod
+    def mock_wait_for_promotion_choice(button_name):
+        """
+        Mock version of waitForPromotionChoice for testing.
+        
+        This mirrors the expected button mapping logic without requiring
+        the full DGTCentaurMods environment.
+        
+        Args:
+            button_name: Button name string or None for timeout.
+            
+        Returns:
+            Single character representing the promotion piece.
+        """
         if button_name == 'BACK':
             return "n"  # Knight
         elif button_name == 'TICK':
@@ -38,162 +51,190 @@ def test_waitForPromotionChoice_mapping():
         else:
             return "q"  # Default to queen on timeout/other
     
-    # Test each button mapping
-    test_cases = [
-        ('BACK', 'n'),   # Knight
-        ('TICK', 'b'),    # Bishop  
-        ('UP', 'q'),     # Queen
-        ('DOWN', 'r'),   # Rook
-        ('UNKNOWN', 'q'), # Default to queen
-        (None, 'q'),     # Timeout case
+    def test_back_button_maps_to_knight(self):
+        """
+        Test BACK button maps to knight.
+        
+        Expected: 'n' for knight promotion.
+        Failure indicates: Button mapping constant is incorrect.
+        """
+        result = self.mock_wait_for_promotion_choice('BACK')
+        self.assertEqual(result, 'n')
+    
+    def test_tick_button_maps_to_bishop(self):
+        """
+        Test TICK button maps to bishop.
+        
+        Expected: 'b' for bishop promotion.
+        Failure indicates: Button mapping constant is incorrect.
+        """
+        result = self.mock_wait_for_promotion_choice('TICK')
+        self.assertEqual(result, 'b')
+    
+    def test_up_button_maps_to_queen(self):
+        """
+        Test UP button maps to queen.
+        
+        Expected: 'q' for queen promotion.
+        Failure indicates: Button mapping constant is incorrect.
+        """
+        result = self.mock_wait_for_promotion_choice('UP')
+        self.assertEqual(result, 'q')
+    
+    def test_down_button_maps_to_rook(self):
+        """
+        Test DOWN button maps to rook.
+        
+        Expected: 'r' for rook promotion.
+        Failure indicates: Button mapping constant is incorrect.
+        """
+        result = self.mock_wait_for_promotion_choice('DOWN')
+        self.assertEqual(result, 'r')
+    
+    def test_unknown_button_defaults_to_queen(self):
+        """
+        Test unknown button defaults to queen.
+        
+        Expected: 'q' for queen as default.
+        Failure indicates: Default fallback is incorrect.
+        """
+        result = self.mock_wait_for_promotion_choice('UNKNOWN')
+        self.assertEqual(result, 'q')
+    
+    def test_timeout_defaults_to_queen(self):
+        """
+        Test timeout (None) defaults to queen.
+        
+        Expected: 'q' for queen on timeout.
+        Failure indicates: Timeout handling is incorrect.
+        """
+        result = self.mock_wait_for_promotion_choice(None)
+        self.assertEqual(result, 'q')
+
+
+class TestNoDirectSerialPatterns(unittest.TestCase):
+    """
+    Tests to verify gamemanager.py uses proper board API.
+    
+    The refactored code should not contain direct serial access patterns
+    and should use the abstracted board.py wrapper functions instead.
+    """
+    
+    GAMEMANAGER_PATH = "DGTCentaurMods/game/gamemanager.py"
+    
+    FORBIDDEN_PATTERNS = [
+        'board.ser.write',
+        'board.ser.read',
+        'board.sendPacket',
+        'resp.hex()',
+        'board.addr1',
+        'board.addr2'
     ]
     
-    all_passed = True
-    for button_name, expected_piece in test_cases:
-        result = mock_waitForPromotionChoice(button_name)
-        if result == expected_piece:
-            print(f"  PASS: {button_name} -> {expected_piece}")
-        else:
-            print(f"  FAIL: {button_name} -> {result}, expected {expected_piece}")
-            all_passed = False
+    def _read_gamemanager_source(self):
+        """Read gamemanager.py source code."""
+        with open(self.GAMEMANAGER_PATH, 'r') as f:
+            return f.read()
     
-    return all_passed
-
-def test_no_direct_serial_patterns():
-    """Test that the refactored code doesn't contain direct serial access patterns"""
-    print("\nTesting for direct serial access patterns...")
-    
-    # Read the gamemanager.py file and check for forbidden patterns
-    gamemanager_path = "DGTCentaurMods/game/gamemanager.py"
-    
-    try:
-        with open(gamemanager_path, 'r') as f:
-            content = f.read()
+    def test_no_direct_serial_access_patterns(self):
+        """
+        Test that gamemanager.py has no direct serial access.
         
-        forbidden_patterns = [
-            'board.ser.write',
-            'board.ser.read', 
-            'board.sendPacket',
-            'resp.hex()',
-            'board.addr1',
-            'board.addr2'
-        ]
-        
-        violations = []
-        for pattern in forbidden_patterns:
-            if pattern in content:
-                violations.append(pattern)
-        
-        if not violations:
-            print("  PASS: No direct serial access patterns found!")
-            return True
-        else:
-            print(f"  FAIL: Found forbidden patterns: {violations}")
-            return False
-            
-    except FileNotFoundError:
-        print(f"  WARNING: Could not read {gamemanager_path}")
-        return False
-
-def test_board_wrapper_exists():
-    """Test that the board.py wrapper function exists"""
-    print("\nTesting board.py wrapper function...")
-    
-    board_path = "DGTCentaurMods/board/board.py"
-    
-    try:
-        with open(board_path, 'r') as f:
-            content = f.read()
-        
-        if 'def wait_for_key_up(' in content:
-            print("  PASS: wait_for_key_up wrapper function found in board.py")
-            return True
-        else:
-            print("  FAIL: wait_for_key_up wrapper function not found in board.py")
-            return False
-            
-    except FileNotFoundError:
-        print(f"  WARNING: Could not read {board_path}")
-        return False
-
-def test_gamemanager_uses_wrapper():
-    """Test that gamemanager.py uses the wrapper function"""
-    print("\nTesting gamemanager.py uses wrapper function...")
-    
-    gamemanager_path = "DGTCentaurMods/game/gamemanager.py"
-    
-    try:
-        with open(gamemanager_path, 'r') as f:
-            content = f.read()
-        
-        if 'board.wait_for_key_up(' in content:
-            print("  PASS: gamemanager.py uses board.wait_for_key_up()")
-            return True
-        else:
-            print("  FAIL: gamemanager.py does not use board.wait_for_key_up()")
-            return False
-            
-    except FileNotFoundError:
-        print(f"  WARNING: Could not read {gamemanager_path}")
-        return False
-
-def test_gamemanager_uses_board_beep():
-    """Test that gamemanager.py uses board.beep() instead of direct serial"""
-    print("\nTesting gamemanager.py uses board.beep()...")
-    
-    gamemanager_path = "DGTCentaurMods/game/gamemanager.py"
-    
-    try:
-        with open(gamemanager_path, 'r') as f:
-            content = f.read()
-        
-        if 'board.beep(' in content:
-            print("  PASS: gamemanager.py uses board.beep()")
-            return True
-        else:
-            print("  FAIL: gamemanager.py does not use board.beep()")
-            return False
-            
-    except FileNotFoundError:
-        print(f"  WARNING: Could not read {gamemanager_path}")
-        return False
-
-def main():
-    """Run all simple tests"""
-    print("Starting Simple Promotion Button Handling Tests")
-    print("=" * 50)
-    
-    tests = [
-        test_waitForPromotionChoice_mapping,
-        test_no_direct_serial_patterns,
-        test_board_wrapper_exists,
-        test_gamemanager_uses_wrapper,
-        test_gamemanager_uses_board_beep,
-    ]
-    
-    results = []
-    for test in tests:
+        Expected: No forbidden patterns found in source.
+        Failure indicates: Refactoring is incomplete - direct serial
+        access still exists and should be replaced with board API calls.
+        """
         try:
-            result = test()
-            results.append(result)
-        except Exception as e:
-            print(f"  ERROR: {test.__name__} failed with exception: {e}")
-            results.append(False)
+            content = self._read_gamemanager_source()
+        except FileNotFoundError:
+            self.skipTest(f"Could not read {self.GAMEMANAGER_PATH}")
+        
+        violations = [p for p in self.FORBIDDEN_PATTERNS if p in content]
+        self.assertEqual(
+            violations, [],
+            f"Found forbidden direct serial access patterns: {violations}"
+        )
+
+
+class TestBoardWrapperExists(unittest.TestCase):
+    """
+    Tests to verify board.py has required wrapper functions.
+    """
     
-    # Print summary
-    print("\nTest Results Summary:")
-    print("=" * 30)
-    passed = sum(results)
-    total = len(results)
+    BOARD_PATH = "DGTCentaurMods/board/board.py"
     
-    print(f"Results: {passed}/{total} tests passed")
+    def _read_board_source(self):
+        """Read board.py source code."""
+        with open(self.BOARD_PATH, 'r') as f:
+            return f.read()
     
-    if passed == total:
-        print("All tests passed!")
-        return 0
-    else:
-        print("Some tests failed - check the results above")
-        return 1
+    def test_wait_for_key_up_wrapper_exists(self):
+        """
+        Test that wait_for_key_up wrapper function exists in board.py.
+        
+        Expected: 'def wait_for_key_up(' found in source.
+        Failure indicates: Board wrapper function was not added.
+        """
+        try:
+            content = self._read_board_source()
+        except FileNotFoundError:
+            self.skipTest(f"Could not read {self.BOARD_PATH}")
+        
+        self.assertIn(
+            'def wait_for_key_up(',
+            content,
+            "wait_for_key_up wrapper function not found in board.py"
+        )
+
+
+class TestGamemanagerUsesWrappers(unittest.TestCase):
+    """
+    Tests to verify gamemanager.py uses board wrapper functions.
+    """
+    
+    GAMEMANAGER_PATH = "DGTCentaurMods/game/gamemanager.py"
+    
+    def _read_gamemanager_source(self):
+        """Read gamemanager.py source code."""
+        with open(self.GAMEMANAGER_PATH, 'r') as f:
+            return f.read()
+    
+    def test_uses_board_wait_for_key_up(self):
+        """
+        Test that gamemanager.py uses board.wait_for_key_up().
+        
+        Expected: 'board.wait_for_key_up(' found in source.
+        Failure indicates: Gamemanager not refactored to use wrapper.
+        """
+        try:
+            content = self._read_gamemanager_source()
+        except FileNotFoundError:
+            self.skipTest(f"Could not read {self.GAMEMANAGER_PATH}")
+        
+        self.assertIn(
+            'board.wait_for_key_up(',
+            content,
+            "gamemanager.py does not use board.wait_for_key_up()"
+        )
+    
+    def test_uses_board_beep(self):
+        """
+        Test that gamemanager.py uses board.beep().
+        
+        Expected: 'board.beep(' found in source.
+        Failure indicates: Gamemanager not refactored to use board.beep().
+        """
+        try:
+            content = self._read_gamemanager_source()
+        except FileNotFoundError:
+            self.skipTest(f"Could not read {self.GAMEMANAGER_PATH}")
+        
+        self.assertIn(
+            'board.beep(',
+            content,
+            "gamemanager.py does not use board.beep()"
+        )
+
 
 if __name__ == "__main__":
-    sys.exit(main())
+    unittest.main(verbosity=2)

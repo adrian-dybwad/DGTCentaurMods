@@ -47,7 +47,6 @@ class LocalController(GameController):
         self._assistant_manager: Optional['AssistantManager'] = None
         self._suggestion_callback: Optional[Callable] = None
         self._takeback_callback: Optional[Callable] = None
-        self._display_update_callback: Optional[Callable] = None
         # Callback to forward game events to RemoteController (for Bluetooth sync)
         self._event_forward_callback: Optional[Callable] = None
         # Callback for external game event handling (reset analysis, clocks, etc.)
@@ -97,14 +96,6 @@ class LocalController(GameController):
             callback: Function() called when takeback detected.
         """
         self._takeback_callback = callback
-    
-    def set_display_update_callback(self, callback: Callable) -> None:
-        """Set callback for display updates.
-        
-        Args:
-            callback: Function(fen) called to update display.
-        """
-        self._display_update_callback = callback
     
     def set_event_forward_callback(self, callback: Callable) -> None:
         """Set callback for forwarding game events to RemoteController.
@@ -283,7 +274,11 @@ class LocalController(GameController):
                 self._external_event_callback(event)
             
             if event == EVENT_NEW_GAME:
-                self.on_new_game()
+                # Notify players and assistants of new game
+                if self._player_manager:
+                    self._player_manager.on_new_game()
+                if self._assistant_manager:
+                    self._assistant_manager.on_new_game()
                 self._request_current_player_move()
                 self._check_assistant_suggestion()
             elif event == EVENT_WHITE_TURN or event == EVENT_BLACK_TURN:
@@ -309,9 +304,6 @@ class LocalController(GameController):
             if self._player_manager:
                 chess_move = chess.Move.from_uci(str(move)) if not isinstance(move, chess.Move) else move
                 self._player_manager.on_move_made(chess_move, self._game_manager.chess_board)
-            
-            # Update display with current position
-            self._update_display()
             
             # Forward to RemoteController for Bluetooth sync
             if self._event_forward_callback:
@@ -352,64 +344,6 @@ class LocalController(GameController):
             log.error(f"[LocalController] Error in _on_takeback: {e}")
             import traceback
             traceback.print_exc()
-    
-    def _update_display(self) -> None:
-        """Update display with current board position."""
-        if self._display_update_callback and self._game_manager:
-            try:
-                fen = self._game_manager.chess_board.fen()
-                self._display_update_callback(fen)
-            except Exception as e:
-                log.error(f"[LocalController] Error updating display: {e}")
-    
-    def _check_assistant_suggestion(self) -> None:
-        """Check for and process assistant suggestions."""
-        if not self._assistant_manager:
-            return
-        
-        suggestion = self._assistant_manager.get_suggestion(self._game_manager.chess_board)
-        if suggestion:
-            self._on_assistant_suggestion(suggestion)
-    
-    # =========================================================================
-    # Game Event Handling (legacy, kept for compatibility)
-    # =========================================================================
-    
-    def on_new_game(self) -> None:
-        """Handle new game event."""
-        if self._player_manager:
-            self._player_manager.on_new_game()
-        if self._assistant_manager:
-            self._assistant_manager.on_new_game()
-    
-    def on_turn_change(self) -> None:
-        """Handle turn change event.
-        
-        Requests move from current player and checks for assistant suggestions.
-        """
-        self._request_current_player_move()
-        self._check_assistant_suggestion()
-    
-    def on_takeback(self) -> None:
-        """Handle takeback event."""
-        if self._takeback_callback:
-            self._takeback_callback()
-        
-        if self._player_manager:
-            self._player_manager.on_takeback(self._game_manager.chess_board)
-        
-        if self._assistant_manager:
-            self._assistant_manager.on_takeback(self._game_manager.chess_board)
-    
-    def on_move_made(self, move: chess.Move) -> None:
-        """Handle move made on the board.
-        
-        Notifies players of the move.
-        """
-        if self._player_manager:
-            self._player_manager.on_move_made(move, self._game_manager.chess_board)
-        
-        self._update_display()
     
     # =========================================================================
     # Assistant Handling
@@ -469,16 +403,3 @@ class LocalController(GameController):
         white_str = f"{white_player}({white_rating})"
         black_str = f"{black_player}({black_rating})"
         self._game_manager.set_game_info("", "", "", white_str, black_str)
-    
-    # =========================================================================
-    # Display Updates
-    # =========================================================================
-    
-    def _update_display(self) -> None:
-        """Update the display with current board position."""
-        if self._display_update_callback:
-            try:
-                fen = self._game_manager.chess_board.fen()
-                self._display_update_callback(fen)
-            except Exception as e:
-                log.error(f"[LocalController] Error updating display: {e}")

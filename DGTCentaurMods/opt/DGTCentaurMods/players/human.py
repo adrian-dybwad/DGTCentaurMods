@@ -24,8 +24,14 @@ class HumanPlayerConfig(PlayerConfig):
     
     Human players don't need much configuration - their moves
     come from the physical board.
+    
+    Attributes:
+        name: Display name for the player.
+        hand_brain: If True, this player is playing in hand-brain mode where
+                    a partner suggests piece types and the player chooses specific moves.
     """
     name: str = "Human"
+    hand_brain: bool = False
 
 
 class HumanPlayer(Player):

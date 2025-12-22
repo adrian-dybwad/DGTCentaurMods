@@ -21,7 +21,6 @@
 # This and any other notices must remain intact and unaltered in any
 # distribution, modification, variant, or derivative of this software.
 
-#import serial
 from DGTCentaurMods.epaper import Manager, SplashScreen
 from DGTCentaurMods.board.async_centaur import AsyncCentaur, command, Key
 from DGTCentaurMods.board.sync_centaur import SyncCentaur, command, Key

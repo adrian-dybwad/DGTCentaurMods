@@ -157,7 +157,6 @@ class SyncCentaur:
         
         # Key event handling
         self.key_up_queue = queue.Queue(maxsize=128)
-        self._last_key = None
         self._discard_stale_keys = True  # Discard key events until first empty poll response
         
         # Single waiter for blocking request_response
@@ -557,10 +556,6 @@ class SyncCentaur:
                 key = Key(key_code)
                 log.debug(f"key name: {key.name} value: {key.value}")
                 
-                # Only update _last_key for key-up events
-                if not is_down:
-                    self._last_key = key
-                
                 try:
                     self.key_up_queue.put_nowait(key)
                 except queue.Full:
@@ -863,17 +858,6 @@ class SyncCentaur:
                 if key == accept:
                     return key
     
-    def get_and_reset_last_key(self):
-        """
-        Non-blocking: return the last key-up event and reset it.
-        
-        NOTE: This method is deprecated for event handling. Use get_next_key()
-        or consume from key_up_queue directly to avoid missing rapid key presses.
-        """
-        last_key = self._last_key
-        self._last_key = None
-        return last_key
-    
     def get_next_key(self, timeout=0.0):
         """
         Get the next key from the queue (non-blocking by default).
@@ -1050,7 +1034,6 @@ class SyncCentaur:
                     
                     # _discard_stale_keys is already True (set in __init__ and run_background)
                     # Key events will be discarded until handle_key_payload sees an empty poll response
-                    self._last_key = None
 
                     self.ready = True
                     if DGT_NOTIFY_EVENTS is not None:
@@ -1172,8 +1155,6 @@ class SyncCentaur:
                 log.info("Serial port closed")
         except Exception:
             pass
-        
-        self._last_key = None
     
     def beep(self, sound_name: str):
         self.sendCommand(sound_name)
