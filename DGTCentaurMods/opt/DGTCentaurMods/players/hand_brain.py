@@ -603,6 +603,7 @@ class HandBrainPlayer(Player):
                         self._engine.configure(self._uci_options)
                     
                     # Use root_moves to constrain engine to only our legal moves
+                    log.debug(f"[HandBrain] Constraining engine to {len(legal_moves)} moves: {[m.uci() for m in legal_moves]}")
                     result = self._engine.play(
                         board_copy,
                         chess.engine.Limit(time=self._hb_config.time_limit_seconds),
@@ -611,6 +612,14 @@ class HandBrainPlayer(Player):
                     move = result.move
                 
                 if move:
+                    # Validate that the engine returned a move from our constrained list
+                    # Some engines may not fully respect root_moves
+                    if move not in legal_moves:
+                        log.error(f"[HandBrain] Engine returned {move.uci()} which is NOT in constrained list!")
+                        # Fall back to first legal move for this piece type
+                        move = legal_moves[0]
+                        log.info(f"[HandBrain] Using fallback move: {move.uci()}")
+                    
                     log.info(f"[HandBrain] Best {piece_name} move: {move.uci()}")
                     self._set_pending_move(move)
                 else:
