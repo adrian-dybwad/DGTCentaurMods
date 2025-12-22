@@ -1842,12 +1842,20 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             """Display brain hint on the clock widget."""
             display_manager.set_brain_hint(color, piece_symbol)
         
+        def _on_piece_squares_led(squares: List[int]) -> None:
+            """Light up squares for piece type selection (REVERSE mode)."""
+            if squares:
+                board.ledArray(squares, speed=3, intensity=5, repeat=0)
+        
         # Wire hint callback to any HandBrainPlayer in NORMAL mode
+        # Wire LED callback to any HandBrainPlayer in REVERSE mode
         if isinstance(white_player, HandBrainPlayer):
             white_player.set_brain_hint_callback(_on_brain_hint)
+            white_player.set_piece_squares_led_callback(_on_piece_squares_led)
             log.info(f"[App] White Hand+Brain player: {white_player.mode.name} mode")
         if isinstance(black_player, HandBrainPlayer):
             black_player.set_brain_hint_callback(_on_brain_hint)
+            black_player.set_piece_squares_led_callback(_on_piece_squares_led)
             log.info(f"[App] Black Hand+Brain player: {black_player.mode.name} mode")
     
     local_controller.set_takeback_callback(_on_takeback)

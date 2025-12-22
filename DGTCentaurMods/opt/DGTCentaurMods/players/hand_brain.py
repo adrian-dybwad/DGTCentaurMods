@@ -83,6 +83,10 @@ class HandBrainConfig(PlayerConfig):
 # Args: color ('white' or 'black'), piece_symbol (e.g., 'N', 'B', 'R')
 BrainHintCallback = Callable[[str, str], None]
 
+# Callback for lighting up squares with pieces of a given type (REVERSE mode)
+# Args: list of square indices (0-63)
+PieceSquaresLedCallback = Callable[[List[int]], None]
+
 
 class HandBrainPlayer(Player):
     """A hybrid player for Hand+Brain chess variants.
@@ -138,9 +142,14 @@ class HandBrainPlayer(Player):
         self._selected_piece_type: Optional[chess.PieceType] = None
         self._selection_lifted_square: Optional[int] = None
         self._pending_move: Optional[chess.Move] = None
+        self._piece_squares_led_callback: Optional[PieceSquaresLedCallback] = None
         
         # UCI options loaded from config file
         self._uci_options: Dict[str, str] = {}
+        
+        # Queue for piece events that arrive before player is ready
+        # Each entry is (event_type, square, board_fen)
+        self._pending_piece_events: List[tuple] = []
     
     @property
     def player_type(self) -> PlayerType:
@@ -188,6 +197,17 @@ class HandBrainPlayer(Player):
             callback: Function(color, piece_symbol) to display the hint.
         """
         self._brain_hint_callback = callback
+    
+    def set_piece_squares_led_callback(self, callback: PieceSquaresLedCallback) -> None:
+        """Set callback for lighting up piece squares (REVERSE mode).
+        
+        The callback is invoked when the user lifts a piece to select a type.
+        All squares containing pieces of that type are lit via LEDs.
+        
+        Args:
+            callback: Function(squares) to light up the squares.
+        """
+        self._piece_squares_led_callback = callback
     
     def start(self) -> bool:
         """Initialize and start the engine.
@@ -337,12 +357,16 @@ class HandBrainPlayer(Player):
                         
                         self._phase = HandBrainPhase.WAITING_HUMAN_MOVE
                         self._report_status(f"Move your {piece_name}")
+                        # Process any queued piece events
+                        self._process_pending_piece_events()
                     else:
                         log.warning("[HandBrain] Best move has no piece at from_square")
                         self._phase = HandBrainPhase.WAITING_HUMAN_MOVE
+                        self._process_pending_piece_events()
                 else:
                     log.warning("[HandBrain] Engine returned no move")
                     self._phase = HandBrainPhase.WAITING_HUMAN_MOVE
+                    self._process_pending_piece_events()
                     
             except Exception as e:
                 log.error(f"[HandBrain] Error computing suggestion: {e}")
@@ -350,6 +374,7 @@ class HandBrainPlayer(Player):
                 traceback.print_exc()
                 # Fall back to letting human move any piece
                 self._phase = HandBrainPhase.WAITING_HUMAN_MOVE
+                self._process_pending_piece_events()
             finally:
                 if self._state == PlayerState.THINKING:
                     self._set_state(PlayerState.READY)
@@ -414,6 +439,44 @@ class HandBrainPlayer(Player):
         
         self._set_state(PlayerState.THINKING)
         self._report_status("Lift piece to select type")
+        
+        # Process any queued piece events that arrived during initialization
+        self._process_pending_piece_events()
+    
+    def _get_squares_with_piece_type(
+        self, board: chess.Board, piece_type: chess.PieceType, color: chess.Color
+    ) -> List[int]:
+        """Get all squares containing pieces of a given type and color.
+        
+        Args:
+            board: Current chess position
+            piece_type: The piece type to find
+            color: The color of pieces to find
+            
+        Returns:
+            List of square indices (0-63) containing matching pieces.
+        """
+        squares = []
+        for sq in chess.SQUARES:
+            piece = board.piece_at(sq)
+            if piece is not None and piece.piece_type == piece_type and piece.color == color:
+                squares.append(sq)
+        return squares
+    
+    def _show_piece_type_leds(self, board: chess.Board, piece_type: chess.PieceType) -> None:
+        """Light up all squares with pieces of the given type.
+        
+        Args:
+            board: Current chess position
+            piece_type: The piece type to highlight
+        """
+        if self._piece_squares_led_callback is None:
+            return
+        
+        squares = self._get_squares_with_piece_type(board, piece_type, board.turn)
+        if squares:
+            log.debug(f"[HandBrain] Lighting up {len(squares)} squares for {chess.piece_name(piece_type)}")
+            self._piece_squares_led_callback(squares)
     
     def _handle_reverse_piece_selection(
         self, event_type: str, square: int, board: chess.Board
@@ -422,6 +485,7 @@ class HandBrainPlayer(Player):
         
         The human lifts a piece to indicate the type they want to move,
         then replaces it on the same square to confirm the selection.
+        LEDs light up all squares with pieces of that type when lifted.
         
         Args:
             event_type: "lift" or "place"
@@ -444,9 +508,27 @@ class HandBrainPlayer(Player):
             piece_name = chess.piece_name(piece.piece_type).capitalize()
             log.info(f"[HandBrain] Lifted {piece_name} from {chess.square_name(square)}")
             self._report_status(f"{piece_name} - replace to confirm")
+            
+            # Light up all squares with pieces of this type
+            self._show_piece_type_leds(board, piece.piece_type)
         
         elif event_type == "place":
             if self._selection_lifted_square is None:
+                # No lift was tracked. This can happen if:
+                # 1. The lift occurred while still INITIALIZING (missed)
+                # 2. User just placed a piece without lifting first
+                # 
+                # Check if the placed piece is one of ours - if so, treat this
+                # as a "direct selection" (the piece was lifted and replaced
+                # but we missed the lift event).
+                piece = board.piece_at(square)
+                if piece is not None and piece.color == board.turn:
+                    # This looks like a valid selection - the user lifted
+                    # one of our pieces and put it back, but we missed the lift.
+                    self._selected_piece_type = piece.piece_type
+                    piece_name = chess.piece_name(piece.piece_type).capitalize()
+                    log.info(f"[HandBrain] Direct piece selection (lift missed): {piece_name}")
+                    self._compute_constrained_move(piece.piece_type)
                 return
             
             if square == self._selection_lifted_square:
@@ -551,6 +633,9 @@ class HandBrainPlayer(Player):
     ) -> List[chess.Move]:
         """Get all legal moves where the moving piece is of the specified type.
         
+        Uses _get_squares_with_piece_type to find piece locations, then filters
+        legal moves by from_square.
+        
         Args:
             board: Current position.
             piece_type: The piece type to filter by.
@@ -558,12 +643,8 @@ class HandBrainPlayer(Player):
         Returns:
             List of legal moves starting with pieces of that type.
         """
-        matching_moves = []
-        for move in board.legal_moves:
-            piece = board.piece_at(move.from_square)
-            if piece and piece.piece_type == piece_type:
-                matching_moves.append(move)
-        return matching_moves
+        piece_squares = set(self._get_squares_with_piece_type(board, piece_type, board.turn))
+        return [move for move in board.legal_moves if move.from_square in piece_squares]
     
     def _set_pending_move(self, move: chess.Move) -> None:
         """Set the computed move and notify for LED display (REVERSE mode).
@@ -629,6 +710,9 @@ class HandBrainPlayer(Player):
     def on_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
         """Handle piece events based on current mode and phase.
         
+        If the player is still initializing, piece events are queued and
+        will be processed once the player becomes ready and the turn starts.
+        
         Args:
             event_type: "lift" or "place"
             square: The square index (0-63)
@@ -637,6 +721,23 @@ class HandBrainPlayer(Player):
         log.debug(f"[HandBrain] on_piece_event: {event_type} on {chess.square_name(square)}, "
                   f"phase={self._phase.name}, state={self._state.name}, mode={self._hb_config.mode.name}")
         
+        # Queue events during initialization - they'll be processed after
+        # request_move is called when the player becomes ready
+        if self._state == PlayerState.INITIALIZING:
+            log.info(f"[HandBrain] Queueing piece event during init: {event_type} on {chess.square_name(square)}")
+            self._pending_piece_events.append((event_type, square, board.fen()))
+            return
+        
+        self._process_piece_event(event_type, square, board)
+    
+    def _process_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
+        """Process a piece event (internal, after queuing logic).
+        
+        Args:
+            event_type: "lift" or "place"
+            square: The square index (0-63)
+            board: Current chess position
+        """
         if self._hb_config.mode == HandBrainMode.NORMAL:
             # In NORMAL mode, use standard piece event handling for human moves
             if self._phase in (HandBrainPhase.COMPUTING_SUGGESTION, HandBrainPhase.WAITING_HUMAN_MOVE):
@@ -717,6 +818,38 @@ class HandBrainPlayer(Player):
         self._phase = HandBrainPhase.IDLE
         self._current_board = None
         self._lifted_squares = []
+        self._pending_piece_events = []
+    
+    def _process_pending_piece_events(self) -> None:
+        """Process any piece events that were queued during initialization.
+        
+        This is called after the turn starts and phase is set correctly.
+        Only processes events that match the current board state.
+        """
+        if not self._pending_piece_events:
+            return
+        
+        if self._current_board is None:
+            log.warning("[HandBrain] Cannot process pending events - no current board")
+            self._pending_piece_events = []
+            return
+        
+        log.info(f"[HandBrain] Processing {len(self._pending_piece_events)} queued piece events")
+        
+        # Take the queued events and clear the queue
+        events = self._pending_piece_events
+        self._pending_piece_events = []
+        
+        current_fen = self._current_board.fen()
+        
+        for event_type, square, event_fen in events:
+            # Only process events from the current position
+            # (ignore stale events from different positions)
+            if event_fen == current_fen:
+                log.debug(f"[HandBrain] Replaying queued event: {event_type} on {chess.square_name(square)}")
+                self._process_piece_event(event_type, square, self._current_board)
+            else:
+                log.debug(f"[HandBrain] Skipping stale queued event: {event_type} on {chess.square_name(square)}")
     
     def on_takeback(self, board: chess.Board) -> None:
         """Notification that a takeback occurred."""
@@ -725,6 +858,7 @@ class HandBrainPlayer(Player):
         self._suggested_piece_type = None
         self._selected_piece_type = None
         self._phase = HandBrainPhase.IDLE
+        self._pending_piece_events = []
     
     def clear_pending_move(self) -> None:
         """Clear any pending move (for external app takeover)."""
@@ -733,6 +867,7 @@ class HandBrainPlayer(Player):
             self._pending_move = None
             self._phase = HandBrainPhase.IDLE
             self._lifted_squares = []
+            self._pending_piece_events = []
     
     def get_info(self) -> dict:
         """Get information about this player for display."""
