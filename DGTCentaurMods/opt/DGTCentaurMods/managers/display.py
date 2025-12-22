@@ -35,7 +35,6 @@ _ChessClockWidget = None
 _IconMenuWidget = None
 _IconMenuEntry = None
 _SplashScreen = None
-_BrainHintWidget = None
 _GameOverWidget = None
 _AlertWidget = None
 _PauseWidget = None
@@ -44,7 +43,7 @@ _PauseWidget = None
 def _load_widgets():
     """Lazily load widget classes."""
     global _widgets_loaded, _ChessBoardWidget, _GameAnalysisWidget, _ChessClockWidget
-    global _IconMenuWidget, _IconMenuEntry, _SplashScreen, _BrainHintWidget
+    global _IconMenuWidget, _IconMenuEntry, _SplashScreen
     global _GameOverWidget, _AlertWidget, _PauseWidget
     
     if _widgets_loaded:
@@ -52,7 +51,7 @@ def _load_widgets():
     
     from DGTCentaurMods.epaper import (
         ChessBoardWidget, GameAnalysisWidget, ChessClockWidget,
-        IconMenuWidget, IconMenuEntry, SplashScreen, BrainHintWidget,
+        IconMenuWidget, IconMenuEntry, SplashScreen,
         AlertWidget
     )
     from DGTCentaurMods.epaper.game_over import GameOverWidget
@@ -63,7 +62,6 @@ def _load_widgets():
     _IconMenuWidget = IconMenuWidget
     _IconMenuEntry = IconMenuEntry
     _SplashScreen = SplashScreen
-    _BrainHintWidget = BrainHintWidget
     _GameOverWidget = GameOverWidget
     _AlertWidget = AlertWidget
     _PauseWidget = PauseWidget
@@ -98,7 +96,7 @@ class DisplayManager:
     
     def __init__(self, flip_board: bool = False, show_analysis: bool = True,
                  analysis_engine_path: str = None, on_exit: callable = None,
-                 hand_brain_mode: bool = False, initial_fen: str = None,
+                 initial_fen: str = None,
                  time_control: int = 0, show_board: bool = True,
                  show_clock: bool = True,
                  show_graph: bool = True, analysis_mode: bool = True):
@@ -109,7 +107,6 @@ class DisplayManager:
             show_analysis: If True, show analysis widget (default visible)
             analysis_engine_path: Path to UCI engine for analysis (e.g., ct800)
             on_exit: Callback function() when user requests exit via back menu
-            hand_brain_mode: If True, show brain hint widget for Hand+Brain variant
             initial_fen: FEN string for initial position. If None, uses starting position.
             time_control: Time per player in minutes (0 = disabled/untimed, shows turn only)
             show_board: If True, show the chess board widget
@@ -118,6 +115,7 @@ class DisplayManager:
             analysis_mode: If True, create analysis engine/widget (may be hidden by show_analysis)
         
         Note: Player names are read from PlayersState by the clock widget.
+              Hand-brain hints are set per-player via set_brain_hint().
         """
         _load_widgets()
         
@@ -125,7 +123,6 @@ class DisplayManager:
         self._show_analysis = show_analysis
         self._analysis_mode = analysis_mode  # Whether to create analysis engine/widget at all
         self._on_exit = on_exit
-        self._hand_brain_mode = hand_brain_mode
         self._time_control = time_control  # Minutes per player (0 = disabled)
         
         # Game state - authoritative source for position
@@ -142,7 +139,6 @@ class DisplayManager:
         self.clock_widget = None
         self.analysis_widget = None
         self.analysis_engine = None
-        self.brain_hint_widget = None
         self.alert_widget = None
         self.pause_widget = None
         self.game_over_widget = None
@@ -309,17 +305,19 @@ class DisplayManager:
         # Create clock widget directly below board
         # Shows times if time_control > 0, otherwise shows turn indicator only
         # flip matches board orientation so clock top matches board top
+        # Hand-brain hints are shown in the clock widget via set_brain_hint()
         timed_mode = self._time_control > 0
-        self.clock_widget = _ChessClockWidget(
-            0, clock_y, 128, clock_height, board.display_manager.update,
-            timed_mode=timed_mode, flip=self._flip_board
-        )
+        
         # Set initial times only if clock hasn't been started yet
         # This preserves times when recreating widgets (e.g., after menu exit)
         if self._time_control > 0 and not self._clock.is_running:
             initial_seconds = self._time_control * 60
             self._clock.set_times(initial_seconds, initial_seconds)
         
+        self.clock_widget = _ChessClockWidget(
+            0, clock_y, 128, clock_height, board.display_manager.update,
+            timed_mode=timed_mode, flip=self._flip_board
+        )
         # Always add clock widget if timed mode, hidden if show_clock=False
         # For untimed mode, only add if show_clock=True
         if timed_mode:
@@ -371,15 +369,6 @@ class DisplayManager:
         )
         board.display_manager.add_widget(self.game_over_widget)
         log.info("[DisplayManager] Game over widget initialized (hidden, observes game state)")
-        
-        # Create brain hint widget for Hand+Brain mode (y=144, replaces clock)
-        if self._hand_brain_mode:
-            self.brain_hint_widget = _BrainHintWidget(0, 144, 128, 72, board.display_manager.update)
-            # Hide clock widget in hand+brain mode, brain hint takes its place
-            if self.clock_widget:
-                self.clock_widget.hide()
-            board.display_manager.add_widget(self.brain_hint_widget)
-            log.info("[DisplayManager] Brain hint widget initialized")
     
     def set_key_callback(self, callback: callable):
         """Set the key callback for routing keys during normal play.
@@ -589,19 +578,27 @@ class DisplayManager:
         """
         self._on_resume_callback = callback
     
-    def set_brain_hint(self, piece_symbol: str) -> None:
-        """Set the brain hint piece type for Hand+Brain mode.
+    def set_brain_hint(self, color: str, piece_symbol: str) -> None:
+        """Set the brain hint piece type for a player in Hand+Brain mode.
+        
+        Shows the piece letter in the clock widget next to the player's timer,
+        replacing the turn indicator circle.
         
         Args:
+            color: 'white' or 'black'
             piece_symbol: Piece symbol (K, Q, R, B, N, P) or empty to clear
         """
-        if self.brain_hint_widget:
-            self.brain_hint_widget.set_piece(piece_symbol)
+        if self.clock_widget:
+            self.clock_widget.set_brain_hint(color, piece_symbol)
     
-    def clear_brain_hint(self) -> None:
-        """Clear the brain hint display."""
-        if self.brain_hint_widget:
-            self.brain_hint_widget.clear()
+    def clear_brain_hint(self, color: str) -> None:
+        """Clear the brain hint for a player.
+        
+        Args:
+            color: 'white' or 'black'
+        """
+        if self.clock_widget:
+            self.clock_widget.clear_brain_hint(color)
     
     
     def show_promotion_menu(self, is_white: bool) -> str:

@@ -111,6 +111,19 @@ class ChessClockWidget(Widget):
         self._last_black_time = None
         self._last_active = None
         self._last_timed_mode = None
+        
+        # Hand-brain hints: piece letter to display for each player
+        # When set, shows the letter to the left of the timer (replacing indicator)
+        self._white_brain_hint: str = ""
+        self._black_brain_hint: str = ""
+        
+        # TextWidgets for brain hints (large letter)
+        self._white_hint_text = TextWidget(0, 0, 20, 20, self._handle_child_update,
+                                           text="", font_size=16,
+                                           justify=Justify.CENTER, transparent=True)
+        self._black_hint_text = TextWidget(0, 0, 20, 20, self._handle_child_update,
+                                           text="", font_size=16,
+                                           justify=Justify.CENTER, transparent=True)
     
     def _handle_child_update(self, full: bool = False, immediate: bool = False):
         """Handle update requests from child widgets by forwarding to parent callback."""
@@ -231,6 +244,41 @@ class ChessClockWidget(Widget):
             self._clock.on_flag(callback)
     
     # -------------------------------------------------------------------------
+    # Hand-Brain hints
+    # -------------------------------------------------------------------------
+    
+    def set_brain_hint(self, color: str, piece_letter: str) -> None:
+        """Set the brain hint piece letter for a player.
+        
+        In hand-brain mode, shows the suggested piece type to the left of
+        that player's timer, replacing the turn indicator circle.
+        
+        Args:
+            color: 'white' or 'black'
+            piece_letter: Single letter (K, Q, R, B, N, P) or empty to clear
+        """
+        hint = piece_letter.upper() if piece_letter else ""
+        
+        if color == 'white':
+            if self._white_brain_hint != hint:
+                self._white_brain_hint = hint
+                self.invalidate_cache()
+                self.request_update(full=False)
+        elif color == 'black':
+            if self._black_brain_hint != hint:
+                self._black_brain_hint = hint
+                self.invalidate_cache()
+                self.request_update(full=False)
+    
+    def clear_brain_hint(self, color: str) -> None:
+        """Clear the brain hint for a player.
+        
+        Args:
+            color: 'white' or 'black'
+        """
+        self.set_brain_hint(color, "")
+    
+    # -------------------------------------------------------------------------
     # Rendering
     # -------------------------------------------------------------------------
     
@@ -307,6 +355,10 @@ class ChessClockWidget(Widget):
             bottom_time_widget = self._black_time_text
             top_time = white_time
             bottom_time = black_time
+            top_brain_hint = self._white_brain_hint
+            bottom_brain_hint = self._black_brain_hint
+            top_hint_widget = self._white_hint_text
+            bottom_hint_widget = self._black_hint_text
         else:
             top_color = 'black'
             bottom_color = 'white'
@@ -320,14 +372,22 @@ class ChessClockWidget(Widget):
             bottom_time_widget = self._white_time_text
             top_time = black_time
             bottom_time = white_time
+            top_brain_hint = self._black_brain_hint
+            bottom_brain_hint = self._white_brain_hint
+            top_hint_widget = self._black_hint_text
+            bottom_hint_widget = self._white_hint_text
         
         # === TOP SECTION ===
         top_y = 4
         
-        # Indicator circle (larger for visibility)
+        # Indicator: brain hint letter OR turn indicator circle
         indicator_size = 12
         indicator_y = top_y + (section_height - indicator_size) // 2
-        if active_color == top_color:
+        if top_brain_hint:
+            # Show brain hint letter instead of indicator
+            top_hint_widget.set_text(top_brain_hint)
+            top_hint_widget.draw_on(sprite, 0, indicator_y - 2)
+        elif active_color == top_color:
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:
@@ -354,9 +414,13 @@ class ChessClockWidget(Widget):
         # === BOTTOM SECTION ===
         bottom_y = separator_y + 4
         
-        # Indicator circle
+        # Indicator: brain hint letter OR turn indicator circle
         indicator_y = bottom_y + (section_height - indicator_size) // 2
-        if active_color == bottom_color:
+        if bottom_brain_hint:
+            # Show brain hint letter instead of indicator
+            bottom_hint_widget.set_text(bottom_brain_hint)
+            bottom_hint_widget.draw_on(sprite, 0, indicator_y - 2)
+        elif active_color == bottom_color:
             draw.ellipse([(4, indicator_y), (4 + indicator_size, indicator_y + indicator_size)], 
                         fill=0, outline=0)
         else:

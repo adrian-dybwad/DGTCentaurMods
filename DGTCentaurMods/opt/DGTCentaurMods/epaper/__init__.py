@@ -20,7 +20,6 @@ from .game_over import GameOverWidget
 from .icon_button import IconButtonWidget
 from .icon_menu import IconMenuWidget, IconMenuEntry
 from .keyboard import KeyboardWidget
-from .brain_hint import BrainHintWidget
 from .alert_widget import AlertWidget
 from .chess_clock import ChessClockWidget
 from .info_overlay import InfoOverlayWidget
@@ -29,5 +28,5 @@ __all__ = ['Manager', 'Widget', 'ClockWidget', 'BatteryWidget', 'TextWidget', 'J
            'ChessBoardWidget', 'GameAnalysisWidget', 'CheckerboardWidget', 'BackgroundWidget',
            'SplashScreen', 'StatusBarWidget', 'WiFiStatusWidget', 'BluetoothStatusWidget',
            'ChromecastStatusWidget', 'GameOverWidget',
-           'IconButtonWidget', 'IconMenuWidget', 'IconMenuEntry', 'KeyboardWidget', 'BrainHintWidget',
+           'IconButtonWidget', 'IconMenuWidget', 'IconMenuEntry', 'KeyboardWidget',
            'AlertWidget', 'ChessClockWidget', 'InfoOverlayWidget']

@@ -14,11 +14,11 @@ from typing import Optional, Callable, List
 class PlayersState:
     """Observable players state.
     
-    Holds player names (white and black) for UI display.
+    Holds player names and hand-brain mode (white and black) for UI display.
     
-    Observers are notified when player names change (e.g., when a remote
-    client takes over from the local engine, or when Lichess game info
-    arrives with actual player names).
+    Observers are notified when player names or hand-brain settings change
+    (e.g., when a remote client takes over from the local engine, or when
+    Lichess game info arrives with actual player names).
     
     Thread safety: Properties are simple reads. The PlayerManager that owns
     the actual players should update this state atomically.
@@ -28,6 +28,8 @@ class PlayersState:
         """Initialize players state with defaults."""
         self._white_name: str = ""
         self._black_name: str = ""
+        self._white_hand_brain: bool = False
+        self._black_hand_brain: bool = False
         
         # Observer callbacks
         self._on_names_change: List[Callable[[str, str], None]] = []
@@ -45,6 +47,16 @@ class PlayersState:
     def black_name(self) -> str:
         """Black player's display name."""
         return self._black_name
+    
+    @property
+    def white_hand_brain(self) -> bool:
+        """Whether white player is in hand-brain mode."""
+        return self._white_hand_brain
+    
+    @property
+    def black_hand_brain(self) -> bool:
+        """Whether black player is in hand-brain mode."""
+        return self._black_hand_brain
     
     # -------------------------------------------------------------------------
     # Observer management
@@ -98,6 +110,18 @@ class PlayersState:
             self._black_name = black_name
             self._notify_names_change()
     
+    def set_hand_brain(self, white_hand_brain: bool, black_hand_brain: bool) -> None:
+        """Set hand-brain mode for each player.
+        
+        Called when PlayerManager is initialized with hand-brain settings.
+        
+        Args:
+            white_hand_brain: Whether white player is in hand-brain mode.
+            black_hand_brain: Whether black player is in hand-brain mode.
+        """
+        self._white_hand_brain = white_hand_brain
+        self._black_hand_brain = black_hand_brain
+    
     def reset(self) -> None:
         """Reset to initial state.
         
@@ -107,6 +131,8 @@ class PlayersState:
             self._white_name = ""
             self._black_name = ""
             self._notify_names_change()
+        self._white_hand_brain = False
+        self._black_hand_brain = False
 
 
 # -----------------------------------------------------------------------------

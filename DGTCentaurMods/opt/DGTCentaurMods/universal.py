@@ -1698,12 +1698,12 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
 
     # Create DisplayManager - handles all game widgets (chess board, analysis, clock)
     # Analysis runs in a background thread so it doesn't block move processing
+    # Hand-brain hints are set per-player via display_manager.set_brain_hint()
     display_manager = DisplayManager(
         flip_board=False,
         show_analysis=_game_settings['show_analysis'],
         analysis_engine_path=analysis_engine_path,
         on_exit=lambda: _return_to_menu("Menu exit"),
-        hand_brain_mode=is_hand_brain,
         initial_fen=starting_fen,
         time_control=_game_settings['time_control'],
         show_board=_game_settings['show_board'],
@@ -1773,10 +1773,14 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         """Handle suggestion from assistant (engine analysis).
         
         Updates the display with the suggested piece type and lights up
-        squares containing that piece type.
+        squares containing that piece type. The hint is shown for the
+        player whose turn it is.
         """
         if display_manager:
-            display_manager.set_brain_hint(piece_symbol)
+            # Get current turn from game state
+            from DGTCentaurMods.state import get_chess_game
+            turn_color = get_chess_game().turn_name  # 'white' or 'black'
+            display_manager.set_brain_hint(turn_color, piece_symbol)
         # Light up squares with the suggested piece type
         if squares:
             board.ledArray(squares, repeat=20)
@@ -1949,7 +1953,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             get_analysis_service().reset()
             display_manager.reset_clock()
             display_manager.clear_pause()
-            display_manager.clear_brain_hint()
+            # Clear brain hints for both players on new game
+            display_manager.clear_brain_hint('white')
+            display_manager.clear_brain_hint('black')
             # Note: GameOverWidget clears itself via position_change observer
             # Reset clock started flag for new game
             _clock_started = False
@@ -5193,7 +5199,6 @@ def _start_lichess_game(lichess_config) -> bool:
         show_analysis=_game_settings['show_analysis'],
         analysis_engine_path=analysis_engine_path,
         on_exit=lambda: _return_to_menu("Lichess exit"),
-        hand_brain_mode=False,
         initial_fen=None,
         time_control=0,  # Lichess manages its own clock (display shows turn indicator only)
         show_board=_game_settings['show_board'],

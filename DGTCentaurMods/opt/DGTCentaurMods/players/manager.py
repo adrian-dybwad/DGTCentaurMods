@@ -139,15 +139,21 @@ class PlayerManager:
                 self._ready_callback()
     
     def _update_players_state(self) -> None:
-        """Update the observable PlayersState with current player names.
+        """Update the observable PlayersState with current player info.
         
         Called when players are initialized or swapped.
+        Sets player names and hand-brain mode for each player.
         """
         players_state = get_players_state()
         players_state.set_player_names(
             white_name=self._white_player.name,
             black_name=self._black_player.name
         )
+        
+        # Set hand-brain mode from player configs (only HumanPlayerConfig has this)
+        white_hand_brain = getattr(self._white_player._config, 'hand_brain', False)
+        black_hand_brain = getattr(self._black_player._config, 'hand_brain', False)
+        players_state.set_hand_brain(white_hand_brain, black_hand_brain)
     
     # =========================================================================
     # Callback Setters
