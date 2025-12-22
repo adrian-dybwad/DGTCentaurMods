@@ -1931,6 +1931,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             display_manager.reset_clock()
             display_manager.clear_pause()
             display_manager.clear_brain_hint()
+            display_manager.clear_game_over()
             # Reset clock started flag for new game
             _clock_started = False
             # Note: Turn indicator comes from ChessGameState - clock widget observes directly
