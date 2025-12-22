@@ -259,7 +259,9 @@ class ControllerManager:
     def on_bluetooth_disconnected(self) -> None:
         """Handle Bluetooth client disconnection.
         
-        Reactivates local controller and recreates emulators for next connection.
+        Reactivates local controller, recreates emulators for next connection,
+        and requests a move from the current player (in case an engine player
+        was just restored and it's their turn).
         """
         if self._remote:
             self._remote.stop()
@@ -267,6 +269,12 @@ class ControllerManager:
             self._remote._create_emulators(force=True)
         
         self.activate_local()
+        
+        # Request move from current player after restoring local control
+        # This triggers the engine to compute if it's the engine's turn
+        if self._local:
+            self._local._request_current_player_move()
+        
         log.info("[ControllerManager] Bluetooth disconnected, activated local")
     
     # =========================================================================

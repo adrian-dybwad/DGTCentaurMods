@@ -22,6 +22,7 @@ except ImportError:
 
 from DGTCentaurMods.state import get_chess_clock as get_clock_state
 from DGTCentaurMods.state import get_chess_game as get_game_state
+from DGTCentaurMods.state.players import get_players_state
 
 
 class ChessClockWidget(Widget):
@@ -37,8 +38,7 @@ class ChessClockWidget(Widget):
     DEFAULT_HEIGHT = 72
     
     def __init__(self, x: int, y: int, width: int, height: int, update_callback,
-                 timed_mode: bool = True, flip: bool = False,
-                 white_name: str = "", black_name: str = ""):
+                 timed_mode: bool = True, flip: bool = False):
         """Initialize chess clock widget.
         
         Args:
@@ -49,14 +49,10 @@ class ChessClockWidget(Widget):
             update_callback: Callback to trigger display updates. Must not be None.
             timed_mode: Whether to show times (True) or just turn indicator (False)
             flip: If True, show Black on top (matching flipped board perspective)
-            white_name: Optional name for white player
-            black_name: Optional name for black player
         """
         super().__init__(x, y, width, height, update_callback)
         self._timed_mode = timed_mode
         self._flip = flip
-        self._white_name = white_name
-        self._black_name = black_name
         
         # Clock state for time management
         self._clock = get_clock_state()
@@ -66,6 +62,10 @@ class ChessClockWidget(Widget):
         # Game state for turn indicator (single source of truth for whose turn)
         self._game = get_game_state()
         self._game.on_position_change(self._on_game_state_change)
+        
+        # Players state for names (observes player swaps)
+        self._players = get_players_state()
+        self._players.on_names_change(self._on_player_names_change)
         
         self._on_flag_callback: Optional[callable] = None
         
@@ -129,7 +129,17 @@ class ChessClockWidget(Widget):
         """Called when ChessGameState changes (turn changes after moves)."""
         self.invalidate_cache()
         self.request_update(full=False)
-    
+
+    def _on_player_names_change(self, white_name: str, black_name: str) -> None:
+        """Called when PlayersState names change (player swap).
+        
+        Args:
+            white_name: New white player name.
+            black_name: New black player name.
+        """
+        self.invalidate_cache()
+        self.request_update(full=False)
+
     def stop(self) -> None:
         """Called when widget is removed from display.
         
@@ -139,6 +149,7 @@ class ChessClockWidget(Widget):
         self._clock.remove_observer(self._on_clock_state_change)
         self._clock.remove_observer(self._on_clock_tick)
         self._game.remove_observer(self._on_game_state_change)
+        self._players.remove_observer(self._on_player_names_change)
         log.debug("[ChessClockWidget] Unregistered from state observers")
     
     # -------------------------------------------------------------------------
@@ -175,13 +186,13 @@ class ChessClockWidget(Widget):
     
     @property
     def white_name(self) -> str:
-        """White player's name (configured at widget creation)."""
-        return self._white_name
+        """White player's name (from PlayersState)."""
+        return self._players.white_name
     
     @property
     def black_name(self) -> str:
-        """Black player's name (configured at widget creation)."""
-        return self._black_name
+        """Black player's name (from PlayersState)."""
+        return self._players.black_name
     
     @property
     def on_flag(self) -> Optional[callable]:
@@ -251,13 +262,12 @@ class ChessClockWidget(Widget):
         """
         section_height = (self.height - 4) // 2  # -4 for top/middle separators
         
-        # Get times from clock state, turn from game state
+        # Get times from clock state, turn from game state, names from players state
         white_time = self._clock.white_time
         black_time = self._clock.black_time
         active_color = self._game.turn_name  # Single source of truth for turn
-        # Player names are stored locally in widget (not in state)
-        white_name = self._white_name
-        black_name = self._black_name
+        white_name = self._players.white_name
+        black_name = self._players.black_name
         
         # Determine which color goes on top based on flip setting
         if self._flip:
@@ -348,11 +358,10 @@ class ChessClockWidget(Widget):
         
         Reads active color from clock state.
         """
-        # Get turn from game state (single source of truth)
+        # Get turn from game state, names from players state
         active_color = self._game.turn_name
-        # Player names are stored locally in widget (not in state)
-        white_name = self._white_name
-        black_name = self._black_name
+        white_name = self._players.white_name
+        black_name = self._players.black_name
         
         # Determine text and player name
         if active_color == 'black':

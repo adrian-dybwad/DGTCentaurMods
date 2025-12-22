@@ -101,8 +101,7 @@ class DisplayManager:
                  hand_brain_mode: bool = False, initial_fen: str = None,
                  time_control: int = 0, show_board: bool = True,
                  show_clock: bool = True,
-                 show_graph: bool = True, analysis_mode: bool = True,
-                 white_name: str = "", black_name: str = ""):
+                 show_graph: bool = True, analysis_mode: bool = True):
         """Initialize the display controller.
         
         Args:
@@ -117,8 +116,8 @@ class DisplayManager:
             show_clock: If True, show the clock/turn indicator widget
             show_graph: If True, show the history graph in analysis widget
             analysis_mode: If True, create analysis engine/widget (may be hidden by show_analysis)
-            white_name: Name for white player (displayed in clock widget)
-            black_name: Name for black player (displayed in clock widget)
+        
+        Note: Player names are read from PlayersState by the clock widget.
         """
         _load_widgets()
         
@@ -137,8 +136,6 @@ class DisplayManager:
         self._show_board = show_board
         self._show_clock = show_clock
         self._show_graph = show_graph
-        self._white_name = white_name
-        self._black_name = black_name
         
         # Widgets
         self.chess_board_widget = None
@@ -169,11 +166,7 @@ class DisplayManager:
         # Get ChessClock singleton for this game
         # The clock persists across widget creation/destruction
         self._clock = get_chess_clock_service()
-        self._clock.configure(
-            time_control_minutes=time_control,
-            white_name=white_name,
-            black_name=black_name
-        )
+        self._clock.configure(time_control_minutes=time_control)
         
         # Initialize widgets first (fast, non-blocking)
         self._init_widgets()
@@ -318,8 +311,7 @@ class DisplayManager:
         timed_mode = self._time_control > 0
         self.clock_widget = _ChessClockWidget(
             0, clock_y, 128, clock_height, board.display_manager.update,
-            timed_mode=timed_mode, flip=self._flip_board,
-            white_name=self._white_name, black_name=self._black_name
+            timed_mode=timed_mode, flip=self._flip_board
         )
         # Set initial times only if clock hasn't been started yet
         # This preserves times when recreating widgets (e.g., after menu exit)
@@ -400,21 +392,6 @@ class DisplayManager:
                 self.chess_board_widget.set_fen(fen)
             except Exception as e:
                 log.error(f"[DisplayManager] Error updating position: {e}")
-    
-    def set_player_names(self, white_name: str, black_name: str) -> None:
-        """Set the player names displayed in the clock widget.
-        
-        Can be called after initialization when player names become available
-        (e.g., after Lichess game info is received).
-        
-        Args:
-            white_name: Name for white player
-            black_name: Name for black player
-        """
-        self._white_name = white_name
-        self._black_name = black_name
-        if self.clock_widget:
-            self.clock_widget.set_player_names(white_name, black_name)
     
     def get_hint_move(self, board_obj, time_limit: float = 1.0):
         """Get a hint move for the current position.

@@ -1682,9 +1682,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
         show_board=_game_settings['show_board'],
         show_clock=_game_settings['show_clock'],
         show_graph=_game_settings['show_graph'],
-        analysis_mode=analysis_mode,
-        white_name=white_player.name,
-        black_name=black_player.name
+        analysis_mode=analysis_mode
     )
     log.info(f"[App] DisplayManager initialized (time_control={_game_settings['time_control']} min, "
              f"analysis_mode={analysis_mode}, "

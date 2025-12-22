@@ -14,6 +14,7 @@ from typing import Optional, Callable
 import chess
 
 from DGTCentaurMods.board.logging import log
+from DGTCentaurMods.state.players import get_players_state
 from .base import Player, PlayerType
 
 
@@ -90,6 +91,9 @@ class PlayerManager:
         # Wire callbacks
         self._wire_callbacks()
         
+        # Update observable PlayersState
+        self._update_players_state()
+        
         log.info(f"[PlayerManager] Created with White={white_player.name} ({white_player.player_type.name}), "
                  f"Black={black_player.name} ({black_player.player_type.name})")
     
@@ -123,8 +127,12 @@ class PlayerManager:
         """Handle a player becoming ready.
         
         Fires the manager's ready callback when both players are ready.
-        Only fires once.
+        Only fires once. Also updates PlayersState readiness.
         """
+        # Update PlayersState readiness
+        players_state = get_players_state()
+        players_state.set_ready(self.is_ready)
+        
         if self._ready_fired:
             return
         
@@ -133,6 +141,20 @@ class PlayerManager:
             log.info("[PlayerManager] All players ready")
             if self._ready_callback:
                 self._ready_callback()
+    
+    def _update_players_state(self) -> None:
+        """Update the observable PlayersState with current player info.
+        
+        Called when players are initialized or swapped.
+        """
+        players_state = get_players_state()
+        players_state.set_players(
+            white_name=self._white_player.name,
+            black_name=self._black_player.name,
+            white_type=self._white_player.player_type,
+            black_type=self._black_player.player_type
+        )
+        players_state.set_ready(self.is_ready)
     
     # =========================================================================
     # Callback Setters
@@ -299,6 +321,9 @@ class PlayerManager:
         
         # Start the new player
         player.start()
+        
+        # Update observable PlayersState
+        self._update_players_state()
         
         log.info(f"[PlayerManager] Replaced {old_player.name} with {player.name} for {'White' if color == chess.WHITE else 'Black'}")
         

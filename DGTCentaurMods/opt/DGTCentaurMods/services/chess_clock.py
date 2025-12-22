@@ -83,14 +83,13 @@ class ChessClockService:
     # Configuration methods
     # -------------------------------------------------------------------------
     
-    def configure(self, time_control_minutes: int, white_name: str = "", 
-                  black_name: str = "") -> None:
+    def configure(self, time_control_minutes: int) -> None:
         """Configure the clock for a new game.
         
         Args:
             time_control_minutes: Minutes per player (0 for untimed mode)
-            white_name: Optional name for white player (not stored in state)
-            black_name: Optional name for black player (not stored in state)
+        
+        Note: Player names are managed by PlayersState, not the clock service.
         """
         with self._lock:
             timed = time_control_minutes > 0

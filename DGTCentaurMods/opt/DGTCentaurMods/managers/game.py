@@ -2842,7 +2842,11 @@ class GameManager:
                     self.database_engine = None
     
     def set_game_info(self, event: str, site: str, round_str: str, white: str, black: str):
-        """Set game metadata for PGN files."""
+        """Set game metadata for PGN files.
+        
+        Also updates PlayersState if player names have changed,
+        which triggers UI updates in widgets observing the state.
+        """
         self.game_info = {
             'event': event,
             'site': site,
@@ -2850,6 +2854,18 @@ class GameManager:
             'white': white,
             'black': black
         }
+        
+        # Update PlayersState with new names if provided
+        # This allows Lichess games to update UI with actual player names
+        if white or black:
+            from DGTCentaurMods.state.players import get_players_state
+            players_state = get_players_state()
+            current_white = players_state.white_name
+            current_black = players_state.black_name
+            new_white = white if white else current_white
+            new_black = black if black else current_black
+            if new_white != current_white or new_black != current_black:
+                players_state.set_player_names(new_white, new_black)
     
     def set_clock(self, white_seconds: int, black_seconds: int):
         """Set the clock times for both players.

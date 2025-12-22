@@ -376,25 +376,8 @@ class ProtocolManager:
         self.is_chessnut = False
         self.client_type = self.CLIENT_UNKNOWN
         
-        # Request move from current player
-        self._request_current_player_move()
-    
-    def _request_current_player_move(self) -> None:
-        """Request a move from the current player.
-        
-        Called after restoring a player when remote client disconnects.
-        Triggers the engine to start computing a move if it's the engine's turn.
-        """
-        if not self._player_manager:
-            return
-        
-        if not self._player_manager.is_ready:
-            return
-        
-        if not self.game_manager:
-            return
-        
-        self._player_manager.request_move(self.game_manager.chess_board)
+        # Note: Move request is handled by ControllerManager.on_bluetooth_disconnected()
+        # which calls LocalController._request_current_player_move() after activating local
     
     def cleanup(self):
         """Clean up resources including players, assistants, and game manager."""
