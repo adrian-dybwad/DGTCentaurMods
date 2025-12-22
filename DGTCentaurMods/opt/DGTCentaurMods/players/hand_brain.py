@@ -909,17 +909,25 @@ class HandBrainPlayer(Player):
     def _process_piece_event(self, event_type: str, square: int, board: chess.Board) -> None:
         """Process a piece event (internal, after queuing logic).
         
+        Always calls the base class to maintain lift/place tracking and enable
+        error detection (which triggers correction mode in GameManager).
+        Mode/phase-specific handling is added on top of base behavior.
+        
         Args:
             event_type: "lift" or "place"
             square: The square index (0-63)
             board: Current chess position
         """
         if self._hb_config.mode == HandBrainMode.NORMAL:
-            # In NORMAL mode, use standard piece event handling for human moves
+            # In NORMAL mode, always use base class for human move tracking
+            # Error detection and correction mode will trigger automatically
             if self._phase in (HandBrainPhase.COMPUTING_SUGGESTION, HandBrainPhase.WAITING_HUMAN_MOVE):
                 super().on_piece_event(event_type, square, board)
             else:
-                log.debug(f"[HandBrain] NORMAL mode ignoring event - phase is {self._phase.name}")
+                # Unexpected phase - still call base class for error detection
+                # and correction mode triggering
+                log.info(f"[HandBrain] NORMAL mode: unexpected event in phase {self._phase.name}, forwarding for error detection")
+                super().on_piece_event(event_type, square, board)
         else:
             # REVERSE mode
             if self._phase == HandBrainPhase.WAITING_PIECE_SELECTION:
@@ -927,20 +935,37 @@ class HandBrainPlayer(Player):
             elif self._phase == HandBrainPhase.WAITING_EXECUTION:
                 super().on_piece_event(event_type, square, board)
             else:
-                log.debug(f"[HandBrain] REVERSE mode ignoring event - phase is {self._phase.name}")
+                # Unexpected phase - still call base class for error detection
+                # and correction mode triggering
+                log.info(f"[HandBrain] REVERSE mode: unexpected event in phase {self._phase.name}, forwarding for error detection")
+                super().on_piece_event(event_type, square, board)
     
     def _on_move_formed(self, move: chess.Move) -> None:
         """Called when a move is formed from piece events.
         
-        Delegates to mode-specific handling.
+        Delegates to mode-specific handling. If a move is formed during an
+        unexpected phase (e.g., during engine computation), reports an error
+        to trigger correction mode rather than processing the move.
         
         Args:
             move: The formed move.
         """
+        # Check if we're in a phase where moves should be processed
         if self._hb_config.mode == HandBrainMode.NORMAL:
-            self._handle_normal_mode_move(move)
+            if self._phase in (HandBrainPhase.COMPUTING_SUGGESTION, HandBrainPhase.WAITING_HUMAN_MOVE):
+                self._handle_normal_mode_move(move)
+            else:
+                # Move formed during unexpected phase (IDLE, etc.)
+                log.warning(f"[HandBrain] NORMAL mode: move formed during unexpected phase {self._phase.name}, triggering error")
+                self._report_error("unexpected_move")
         else:
-            self._handle_reverse_mode_execution(move)
+            # REVERSE mode
+            if self._phase == HandBrainPhase.WAITING_EXECUTION:
+                self._handle_reverse_mode_execution(move)
+            else:
+                # Move formed during unexpected phase (IDLE, COMPUTING_MOVE, etc.)
+                log.warning(f"[HandBrain] REVERSE mode: move formed during unexpected phase {self._phase.name}, triggering error")
+                self._report_error("unexpected_move")
     
     # =========================================================================
     # Game Event Handlers
