@@ -59,9 +59,10 @@ class ChessClockWidget(Widget):
         self._clock.on_state_change(self._on_clock_state_change)
         self._clock.on_tick(self._on_clock_tick)
         
-        # Game state for turn indicator (single source of truth for whose turn)
+        # Game state for turn indicator and game over detection
         self._game = get_game_state()
         self._game.on_position_change(self._on_game_state_change)
+        self._game.on_game_over(self._on_game_over)
         
         # Players state for names (observes player swaps)
         self._players = get_players_state()
@@ -126,9 +127,31 @@ class ChessClockWidget(Widget):
         self.request_update(full=False)
     
     def _on_game_state_change(self) -> None:
-        """Called when ChessGameState changes (turn changes after moves)."""
+        """Called when ChessGameState changes (turn changes after moves).
+        
+        Also handles showing clock when a new game starts after game over.
+        If game was over (widget hidden) and now is_game_over is False,
+        the widget shows itself for the new game.
+        """
+        # If game is no longer over and we're hidden, show ourselves
+        if not self._game.is_game_over and not self.visible:
+            log.debug("[ChessClockWidget] Game reset detected - showing clock")
+            self.show()
+        
         self.invalidate_cache()
         self.request_update(full=False)
+
+    def _on_game_over(self, result: str, termination: str) -> None:
+        """Called when game ends (checkmate, resignation, flag, etc.).
+        
+        Hides the clock widget so the game over display can be shown.
+        
+        Args:
+            result: Game result ('1-0', '0-1', '1/2-1/2').
+            termination: How game ended ('checkmate', 'resignation', etc.).
+        """
+        log.debug(f"[ChessClockWidget] Game over ({result}, {termination}) - hiding clock")
+        self.hide()
 
     def _on_player_names_change(self, white_name: str, black_name: str) -> None:
         """Called when PlayersState names change (player swap).
@@ -149,6 +172,7 @@ class ChessClockWidget(Widget):
         self._clock.remove_observer(self._on_clock_state_change)
         self._clock.remove_observer(self._on_clock_tick)
         self._game.remove_observer(self._on_game_state_change)
+        self._game.remove_observer(self._on_game_over)
         self._players.remove_observer(self._on_player_names_change)
         log.debug("[ChessClockWidget] Unregistered from state observers")
     

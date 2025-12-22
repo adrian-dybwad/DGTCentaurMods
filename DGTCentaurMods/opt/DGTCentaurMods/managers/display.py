@@ -361,6 +361,17 @@ class DisplayManager:
         board.display_manager.add_widget(self.alert_widget)
         log.info("[DisplayManager] Alert widget initialized (hidden)")
         
+        # Create game over widget (y=144, same position as clock)
+        # Widget observes ChessGameState and shows/hides itself automatically:
+        # - Shows on game_over event (checkmate, stalemate, resignation, etc.)
+        # - Hides on position_change when game is no longer over (new game started)
+        # ChessClockWidget also observes game_over and manages its own visibility.
+        self.game_over_widget = _GameOverWidget(
+            0, 144, 128, 72, board.display_manager.update
+        )
+        board.display_manager.add_widget(self.game_over_widget)
+        log.info("[DisplayManager] Game over widget initialized (hidden, observes game state)")
+        
         # Create brain hint widget for Hand+Brain mode (y=144, replaces clock)
         if self._hand_brain_mode:
             self.brain_hint_widget = _BrainHintWidget(0, 144, 128, 72, board.display_manager.update)
@@ -608,21 +619,6 @@ class DisplayManager:
         if self.brain_hint_widget:
             self.brain_hint_widget.clear()
     
-    def clear_game_over(self) -> None:
-        """Clear the game over widget and restore clock widget.
-        
-        Called when a new game starts after a game has ended.
-        Removes the game over widget from display and restores clock visibility.
-        """
-        if self.game_over_widget:
-            if board.display_manager:
-                board.display_manager.remove_widget(self.game_over_widget)
-            self.game_over_widget = None
-            log.info("[DisplayManager] Game over widget cleared")
-            
-            # Restore clock widget visibility if it should be shown
-            if self.clock_widget and self._show_clock:
-                self.clock_widget.show()
     
     def show_promotion_menu(self, is_white: bool) -> str:
         """Show promotion piece selection menu.
@@ -930,56 +926,6 @@ class DisplayManager:
         except Exception as e:
             log.debug(f"[DisplayManager] Error showing splash: {e}")
     
-    def show_game_over(self, result: str, termination_type: str = None, move_count: int = 0):
-        """
-        Show the game over widget, replacing the clock widget.
-        
-        The board remains visible. The game over widget occupies y=144, height=72
-        (same as clock) to display the winner, termination reason, and times.
-        The analysis widget stays in place (y=216, height=80) showing eval history.
-        
-        Args:
-            result: Game result string (e.g., "1-0", "0-1", "1/2-1/2")
-            termination_type: Type of termination (e.g., "CHECKMATE", "STALEMATE", "RESIGN")
-            move_count: Number of moves played in the game
-        """
-        _load_widgets()
-
-        
-        try:
-            log.info(f"[DisplayManager] Showing game over: result={result}, termination={termination_type}")
-            
-            # Get final times from clock service before stopping
-            final_times = None
-            if self._time_control > 0:
-                final_times = self._clock.get_times()
-                self._clock.stop()
-            
-            # Hide clock widget
-            if self.clock_widget:
-                self.clock_widget.hide()
-            
-            # Analysis widget stays in place - game over widget is same size as clock
-            
-            # Hide brain hint widget if present
-            if self.brain_hint_widget:
-                self.brain_hint_widget.hide()
-            
-            if board.display_manager:
-                # Create game over widget (y=144, height=72 - same as clock)
-                self.game_over_widget = _GameOverWidget(0, 144, 128, 72, board.display_manager.update)
-                self.game_over_widget.set_result(result, termination_type, move_count, final_times)
-                
-                future = board.display_manager.add_widget(self.game_over_widget)
-                if future:
-                    try:
-                        future.result(timeout=2.0)
-                    except Exception:
-                        pass
-                        
-                log.info("[DisplayManager] Game over widget displayed")
-        except Exception as e:
-            log.error(f"[DisplayManager] Error showing game over: {e}")
     
     def cleanup(self, for_shutdown: bool = False):
         """Clean up resources (analysis engine, widgets) and clear display.
@@ -1038,6 +984,14 @@ class DisplayManager:
                 log.info("[DisplayManager] Analysis widget cleaned up")
             except Exception as e:
                 log.debug(f"[DisplayManager] Error cleaning up analysis widget: {e}")
+        
+        # Cleanup game over widget (unsubscribe from game state)
+        if self.game_over_widget:
+            try:
+                self.game_over_widget.cleanup()
+                log.info("[DisplayManager] Game over widget cleaned up")
+            except Exception as e:
+                log.debug(f"[DisplayManager] Error cleaning up game over widget: {e}")
         
         # Quit analysis engine
         log.info("[DisplayManager] Quitting analysis engine...")

@@ -508,14 +508,14 @@ class TestGameOverWidgetIntegration(unittest.TestCase):
         mock_board.display_manager.remove_widget = MagicMock()
     
     def test_game_over_widget_shown_on_checkmate(self):
-        """Test that game over widget is shown when checkmate occurs.
+        """Test that game over notification fires on checkmate.
         
         After a checkmate:
         1. ChessGameState.notify_game_over() is called
-        2. DisplayManager.show_game_over() should be called
+        2. Observers receive the (result, termination) callback
         
-        Expected: show_game_over called with correct result.
-        Failure: Widget not shown or wrong result displayed.
+        Expected: Game over observers are notified with correct result.
+        Failure: Observers not notified.
         """
         from DGTCentaurMods.managers.display import DisplayManager
         
@@ -549,52 +549,57 @@ class TestGameOverWidgetIntegration(unittest.TestCase):
         self.assertEqual(len(game_over_called), 1)
         self.assertEqual(game_over_called[0], ('0-1', 'checkmate'))
     
-    def test_game_over_widget_cleared_on_new_game(self):
-        """Test that game over widget is cleared when a new game starts.
+    def test_game_over_widget_hides_on_new_game(self):
+        """Test that game over widget hides itself when a new game starts.
         
-        After checkmate, when reset is called:
-        1. clear_game_over() should remove the widget
-        2. Clock widget should be restored
+        The GameOverWidget uses the observer pattern:
+        1. It subscribes to ChessGameState.on_game_over() and on_position_change()
+        2. It shows itself when game_over is triggered
+        3. It hides itself when position_change is triggered and is_game_over is False
         
-        Expected: Widget cleared and clock restored.
-        Failure: Widget remains or clock not restored.
+        This test verifies the widget's behavior with the actual ChessGameState.
+        
+        Note: Clock widget manages its own visibility via game_over observer,
+        not via GameOverWidget. See test_chess_clock_widget_visibility.py.
+        
+        Expected: Widget hides itself on game reset.
+        Failure: Widget remains visible after reset.
         """
-        from DGTCentaurMods.managers.display import DisplayManager
-        import DGTCentaurMods.managers.display as display_module
+        from DGTCentaurMods.epaper.game_over import GameOverWidget
         
-        # Create a fresh mock board for this test
-        test_mock_board = MagicMock()
-        test_mock_board.display_manager = MagicMock()
-        test_mock_board.display_manager.remove_widget = MagicMock()
+        # Create real game over widget with our test game state
+        widget = GameOverWidget(
+            0, 144, 128, 72, 
+            update_callback=MagicMock(),
+            game_state=self.game_state
+        )
         
-        with patch.object(DisplayManager, '_init_widgets'):
-            display_module.get_chess_game = MagicMock(return_value=self.game_state)
-            display_module._load_widgets = MagicMock()
-            display_module.get_chess_clock_service = MagicMock(return_value=MagicMock())
-            display_module.get_clock_state = MagicMock(return_value=MagicMock())
-            # Patch the board at module level
-            display_module.board = test_mock_board
-            
-            dm = DisplayManager()
-            dm._clock = MagicMock()
-            dm.clock_widget = MagicMock()
-            dm._show_clock = True
+        # Verify widget starts hidden
+        self.assertFalse(widget.visible, "Widget should start hidden")
         
-        # Simulate game over widget being shown
-        mock_game_over_widget = MagicMock()
-        dm.game_over_widget = mock_game_over_widget
+        # Play to checkmate (fool's mate)
+        self.game_state.push_uci('f2f3')
+        self.game_state.push_uci('e7e5')
+        self.game_state.push_uci('g2g4')
+        self.game_state.push_uci('d8h4')  # Qh4#
         
-        # Clear game over (what EVENT_NEW_GAME would trigger)
-        dm.clear_game_over()
+        # Verify widget is now visible (shown by game_over observer)
+        self.assertTrue(widget.visible, "Widget should be visible after checkmate")
+        self.assertEqual(widget.result, '0-1')
+        self.assertEqual(widget.winner, 'Black wins')
         
-        # Verify widget was removed (using the test mock board)
-        test_mock_board.display_manager.remove_widget.assert_called_once_with(mock_game_over_widget)
+        # Reset the game (new game)
+        self.game_state.reset()
         
-        # Verify reference cleared
-        self.assertIsNone(dm.game_over_widget)
+        # Verify widget is now hidden (hidden by position_change observer)
+        self.assertFalse(widget.visible, "Widget should be hidden after game reset")
         
-        # Verify clock was restored
-        dm.clock_widget.show.assert_called_once()
+        # Verify widget state was cleared
+        self.assertEqual(widget.result, "")
+        self.assertEqual(widget.winner, "")
+        
+        # Cleanup
+        widget.cleanup()
 
 
 if __name__ == "__main__":

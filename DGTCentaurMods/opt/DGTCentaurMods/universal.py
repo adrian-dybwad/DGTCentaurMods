@@ -1031,7 +1031,7 @@ def _resume_game(game_data: dict) -> bool:
         
         # Check if physical board matches the resumed position
         current_physical_state = board.getChessState()
-        expected_logical_state = gm._chess_board_to_state(gm.chess_board)
+        expected_logical_state = game_state.to_piece_presence_state()
         
         if current_physical_state is not None and expected_logical_state is not None:
             if not ChessGameState.states_match(current_physical_state, expected_logical_state):
@@ -1043,7 +1043,7 @@ def _resume_game(game_data: dict) -> bool:
                 # Board is correct - trigger turn event and prompt current player
                 # Uses _switch_turn_with_event which also calls request_move on the player
                 # If engine is still initializing, the request will be queued
-                log.info(f"[Resume] Triggering {'WHITE' if gm.chess_board.turn == chess.WHITE else 'BLACK'} turn")
+                log.info(f"[Resume] Triggering {'WHITE' if game_state.turn == chess.WHITE else 'BLACK'} turn")
                 gm._switch_turn_with_event()
         else:
             log.warning("[Resume] Could not validate physical board state")
@@ -1206,7 +1206,7 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
         
         # Check if physical board matches the loaded position
         current_physical_state = board.getChessState()
-        expected_logical_state = gm._chess_board_to_state(gm.chess_board)
+        expected_logical_state = game_state.to_piece_presence_state()
         
         if current_physical_state is not None and expected_logical_state is not None:
             if not ChessGameState.states_match(current_physical_state, expected_logical_state):
@@ -1224,16 +1224,17 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
                 board.beep(board.SOUND_GENERAL, event_type='game_event')
                 
                 # Check if position is already a terminal state (checkmate, stalemate, etc.)
-                outcome = gm.chess_board.outcome(claim_draw=True)
+                outcome = game_state.board.outcome(claim_draw=True)
                 if outcome is not None:
-                    # Game is already over - show game over screen
-                    result_string = str(gm.chess_board.result())
+                    # Game is already over - set result on game state (widget observes and shows)
+                    result_string = game_state.result or str(game_state.board.result())
                     termination = str(outcome.termination).replace("Termination.", "")
                     log.info(f"[Positions] Position is already terminal: {termination} ({result_string})")
                     
-                    # Show game over screen via display manager
+                    # Set result triggers game over widget via observer
+                    game_state.set_result(result_string, termination)
                     if display_manager:
-                        display_manager.show_game_over(result_string, termination)
+                        display_manager.stop_clock()
                 else:
                     # Show hint LEDs if provided
                     if hint_from_sq is not None and hint_to_sq is not None:
@@ -1242,7 +1243,7 @@ def _start_from_position(fen: str, position_name: str, hint_move: str = None) ->
                     
                     # Board is correct - trigger turn event
                     if gm.event_callback is not None:
-                        if gm.chess_board.turn == chess.WHITE:
+                        if game_state.turn == chess.WHITE:
                             log.info("[Positions] White to move")
                             gm.event_callback(EVENT_WHITE_TURN)
                         else:
@@ -1719,7 +1720,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
                 player_manager.black_player.on_resign(resign_color)
         
         if result == "resign":
-            resign_color = game_manager.chess_board.turn
+            from DGTCentaurMods.state import get_chess_game
+            resign_color = get_chess_game().turn
             game_manager.handle_resign(resign_color)
             _notify_players_resign(resign_color)
             _return_to_menu("Resigned")
@@ -1874,7 +1876,8 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
                 _return_to_menu(f"{color_name} Resigned")
             else:
                 # Fallback - shouldn't happen but handle gracefully
-                resign_color = game_manager.chess_board.turn
+                from DGTCentaurMods.state import get_chess_game
+                resign_color = get_chess_game().turn
                 game_manager.handle_resign(resign_color)
                 _notify_players_resign(resign_color)
                 _return_to_menu("Resigned")
@@ -1892,7 +1895,10 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
     def _on_terminal_position(result: str, termination: str):
         """Handle terminal position detection after correction mode exits."""
         log.info(f"[App] Terminal position detected: {termination} ({result})")
-        display_manager.show_game_over(result, termination)
+        # Set result triggers game over widget via observer
+        from DGTCentaurMods.state import get_chess_game
+        get_chess_game().set_result(result, termination)
+        display_manager.stop_clock()
     
     protocol_manager.set_on_terminal_position(_on_terminal_position)
     
@@ -1931,7 +1937,7 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
             display_manager.reset_clock()
             display_manager.clear_pause()
             display_manager.clear_brain_hint()
-            display_manager.clear_game_over()
+            # Note: GameOverWidget clears itself via position_change observer
             # Reset clock started flag for new game
             _clock_started = False
             # Note: Turn indicator comes from ChessGameState - clock widget observes directly
@@ -1949,12 +1955,9 @@ def _start_game_mode(starting_fen: str = None, is_position_game: bool = False):
                 log.debug("[App] Clock started")
         elif isinstance(event, str) and event.startswith("Termination."):
             # Game ended (checkmate, stalemate, resign, draw, etc.)
-            termination_type = event[12:]  # Remove "Termination." prefix
-            from DGTCentaurMods.state import get_chess_game
-            result = get_chess_game().result or "Unknown"
-            log.info(f"[App] Game terminated: {termination_type}, result={result}")
+            # GameOverWidget already showed itself via ChessGameState observer
+            # Just stop the clock
             display_manager.stop_clock()
-            display_manager.show_game_over(result, termination_type)
     local_controller.set_external_event_callback(_on_game_event)
     
     # Register controller_manager with ConnectionManager - this also processes any queued data
@@ -5293,8 +5296,9 @@ def _start_lichess_game(lichess_config) -> bool:
         """Handle Lichess game over event."""
         log.info(f"[App] Lichess game over: result={result}, termination={termination}, winner={winner}")
         display_manager.stop_clock()
-        move_count = len(protocol_manager.game_manager.chess_board.move_stack) if protocol_manager.game_manager else 0
-        display_manager.show_game_over(result, termination, move_count)
+        # Set result triggers game over widget via observer
+        from DGTCentaurMods.state import get_chess_game
+        get_chess_game().set_result(result, termination)
     
     def _on_lichess_takeback_offer(accept_fn, decline_fn):
         """Handle takeback offer from opponent - show confirmation menu."""
@@ -6250,8 +6254,8 @@ def key_callback(key_id):
         if key_id == board.Key.HELP:
             # Show move hint (best move from analysis engine)
             if display_manager and protocol_manager and protocol_manager.game_manager:
-                gm = protocol_manager.game_manager
-                hint_move = display_manager.get_hint_move(gm.chess_board)
+                from DGTCentaurMods.state import get_chess_game
+                hint_move = display_manager.get_hint_move(get_chess_game().board)
                 if hint_move:
                     # Show hint on display widget and LEDs
                     display_manager.show_hint(hint_move)
