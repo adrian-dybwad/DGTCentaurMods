@@ -54,6 +54,13 @@ from DGTCentaurMods.menus import (
     create_system_entries,
     _get_player_type_label,
     toggle_hand_brain_mode,
+    handle_engine_selection,
+    handle_elo_selection,
+    handle_system_menu,
+    handle_positions_menu,
+    handle_time_control_menu,
+    handle_chromecast_menu,
+    handle_inactivity_timeout,
 )
 
 # Flag set if previous shutdown was incomplete (filesystem errors detected)
@@ -2033,56 +2040,52 @@ def _handle_settings(initial_selection: str = None):
                 return
         
         elif result == "TimeControl":
-            initial_time_index = ctx.enter_menu("TimeControl", 0)
-            # Time control selection submenu
-            time_entries = []
-            current_time = _game_settings['time_control']
-            
-            for minutes in TIME_CONTROL_OPTIONS:
-                is_selected = (minutes == current_time)
-                # Icon indicates selection - no need for star prefix
-                label = "Disabled" if minutes == 0 else f"{minutes} min"
-                icon = "timer_checked" if is_selected else "timer"
-                
-                time_entries.append(
-                    IconMenuEntry(key=str(minutes), label=label, icon_name=icon, enabled=True)
-                )
-            
-            time_result = _show_menu(time_entries, initial_index=initial_time_index)
-            ctx.update_index(find_entry_index(time_entries, time_result))
-            ctx.leave_menu()  # Pop TimeControl, restore to Settings level
+            time_result = handle_time_control_menu(
+                ctx=ctx,
+                game_settings=_game_settings,
+                time_control_options=TIME_CONTROL_OPTIONS,
+                show_menu=_show_menu,
+                find_entry_index=find_entry_index,
+                save_game_setting=_save_game_setting,
+                board=board,
+                log=log,
+            )
             if is_break_result(time_result):
                 ctx.clear()
                 app_state = AppState.MENU
                 return time_result
-            if time_result not in ["BACK", "SHUTDOWN", "HELP"]:
-                try:
-                    new_time = int(time_result)
-                    old_time = _game_settings['time_control']
-                    _save_game_setting('time_control', str(new_time))
-                    _game_settings['time_control'] = new_time
-                    log.info(f"[Settings] Time control changed: {old_time} -> {new_time} min")
-                    board.beep(board.SOUND_GENERAL, event_type='key_press')
-                except ValueError:
-                    pass
-            # Stay in settings menu to allow further configuration
         
         elif result == "Positions":
             ctx.enter_menu("Positions", 0)
-            position_result = _handle_positions_menu()
+            position_result = handle_positions_menu(
+                ctx=ctx,
+                load_positions_config=_load_positions_config,
+                start_from_position=_start_from_position,
+                show_menu=_show_menu,
+                find_entry_index=find_entry_index,
+                board=board,
+                log=log,
+                last_position_category_index_ref=[_last_position_category_index],
+                last_position_index_ref=[_last_position_index],
+                last_position_category_ref=[_last_position_category],
+            )
             ctx.leave_menu()  # Pop Positions, restore to Settings level
             if is_break_result(position_result):
                 ctx.clear()
                 app_state = AppState.MENU
                 return position_result
             if position_result:
-                # Position was loaded, exit settings and go to game
                 ctx.clear()
                 return
         
         elif result == "Chromecast":
             ctx.enter_menu("Chromecast", 0)
-            chromecast_result = _handle_chromecast_menu()
+            chromecast_result = handle_chromecast_menu(
+                show_menu=_show_menu,
+                board=board,
+                log=log,
+                get_chromecast_service=lambda: __import__("DGTCentaurMods.services", fromlist=["get_chromecast_service"]).get_chromecast_service(),
+            )
             ctx.leave_menu()  # Pop Chromecast, restore to Settings level
             if is_break_result(chromecast_result):
                 ctx.clear()
@@ -2357,36 +2360,18 @@ def _handle_player1_engine_selection():
         Break result if user triggered a break action.
         None otherwise.
     """
-    engines = _get_installed_engines()
-    
-    # Show compatibility info for Reverse Hand+Brain mode
-    is_reverse_hb = (
-        _player1_settings['type'] == 'hand_brain' and
-        _player1_settings.get('hand_brain_mode') == 'reverse'
+    return handle_engine_selection(
+        player_settings=_player1_settings,
+        show_menu=_show_menu,
+        is_break_result=is_break_result,
+        get_installed_engines=_get_installed_engines,
+        format_engine_label_with_compat=lambda eng, is_sel, show_compat: _format_engine_label_with_compat(
+            eng, is_sel, show_compat=show_compat
+        ),
+        save_player_setting=_save_player1_setting,
+        log=log,
+        board=board,
     )
-    
-    engine_entries = []
-    for engine in engines:
-        is_selected = engine == _player1_settings['engine']
-        label = _format_engine_label_with_compat(engine, is_selected, show_compat=is_reverse_hb)
-        engine_entries.append(
-            IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
-        )
-    
-    result = _show_menu(engine_entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result not in ["BACK", "SHUTDOWN", "HELP"]:
-        old_engine = _player1_settings['engine']
-        _save_player1_setting('engine', result)
-        log.info(f"[Settings] Player1 engine changed: {old_engine} -> {result}")
-        # Reset ELO to Default when engine changes
-        _save_player1_setting('elo', 'Default')
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
 
 
 def _handle_player1_elo_selection():
@@ -2396,27 +2381,15 @@ def _handle_player1_elo_selection():
         Break result if user triggered a break action.
         None otherwise.
     """
-    current_engine = _player1_settings['engine']
-    elo_levels = _get_engine_elo_levels(current_engine)
-    elo_entries = []
-    for elo in elo_levels:
-        label = f"* {elo}" if elo == _player1_settings['elo'] else elo
-        elo_entries.append(
-            IconMenuEntry(key=elo, label=label, icon_name="elo", enabled=True)
-        )
-    
-    result = _show_menu(elo_entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result not in ["BACK", "SHUTDOWN", "HELP"]:
-        old_elo = _player1_settings['elo']
-        _save_player1_setting('elo', result)
-        log.info(f"[Settings] Player1 ELO changed: {old_elo} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
+    return handle_elo_selection(
+        player_settings=_player1_settings,
+        show_menu=_show_menu,
+        is_break_result=is_break_result,
+        get_engine_elo_levels=_get_engine_elo_levels,
+        save_player_setting=_save_player1_setting,
+        log=log,
+        board=board,
+    )
 
 
 def _handle_player1_hand_brain_mode_selection():
@@ -2604,36 +2577,18 @@ def _handle_player2_engine_selection():
         Break result if user triggered a break action.
         None otherwise.
     """
-    engines = _get_installed_engines()
-    
-    # Show compatibility info for Reverse Hand+Brain mode
-    is_reverse_hb = (
-        _player2_settings['type'] == 'hand_brain' and
-        _player2_settings.get('hand_brain_mode') == 'reverse'
+    return handle_engine_selection(
+        player_settings=_player2_settings,
+        show_menu=_show_menu,
+        is_break_result=is_break_result,
+        get_installed_engines=_get_installed_engines,
+        format_engine_label_with_compat=lambda eng, is_sel, show_compat: _format_engine_label_with_compat(
+            eng, is_sel, show_compat=show_compat
+        ),
+        save_player_setting=_save_player2_setting,
+        log=log,
+        board=board,
     )
-    
-    engine_entries = []
-    for engine in engines:
-        is_selected = engine == _player2_settings['engine']
-        label = _format_engine_label_with_compat(engine, is_selected, show_compat=is_reverse_hb)
-        engine_entries.append(
-            IconMenuEntry(key=engine, label=label, icon_name="engine", enabled=True)
-        )
-    
-    result = _show_menu(engine_entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result not in ["BACK", "SHUTDOWN", "HELP"]:
-        old_engine = _player2_settings['engine']
-        _save_player2_setting('engine', result)
-        log.info(f"[Settings] Player2 engine changed: {old_engine} -> {result}")
-        # Reset ELO to Default when engine changes
-        _save_player2_setting('elo', 'Default')
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    
-    return None
 
 
 def _handle_player2_elo_selection():
@@ -2643,27 +2598,15 @@ def _handle_player2_elo_selection():
         Break result if user triggered a break action.
         None otherwise.
     """
-    current_engine = _player2_settings['engine']
-    elo_levels = _get_engine_elo_levels(current_engine)
-    elo_entries = []
-    for elo in elo_levels:
-        label = f"* {elo}" if elo == _player2_settings['elo'] else elo
-        elo_entries.append(
-            IconMenuEntry(key=elo, label=label, icon_name="elo", enabled=True)
-        )
-    
-    result = _show_menu(elo_entries)
-    
-    if is_break_result(result):
-        return result
-    
-    if result not in ["BACK", "SHUTDOWN", "HELP"]:
-        old_elo = _player2_settings['elo']
-        _save_player2_setting('elo', result)
-        log.info(f"[Settings] Player2 ELO changed: {old_elo} -> {result}")
-        board.beep(board.SOUND_GENERAL, event_type='key_press')
-
-    return None
+    return handle_elo_selection(
+        player_settings=_player2_settings,
+        show_menu=_show_menu,
+        is_break_result=is_break_result,
+        get_engine_elo_levels=_get_engine_elo_levels,
+        save_player_setting=_save_player2_setting,
+        log=log,
+        board=board,
+    )
 
 
 def _handle_player2_hand_brain_mode_selection():
@@ -3221,130 +3164,21 @@ def _get_wifi_password_from_board(ssid: str) -> Optional[str]:
 
 
 def _handle_wifi_settings():
-    """Handle WiFi settings submenu.
-
-    Shows WiFi status information with a toggle for enable/disable.
-    Displays:
-    - SSID, IP address, signal strength, frequency
-    - Scan button for connecting to networks
-    - Enable toggle (checkbox style)
-    
-    Uses the wifi_info module for status queries and control.
-    Subscribes to WiFi status updates to refresh the display when
-    connection status changes (connect, disconnect, signal change).
-    """
-    global _menu_manager
-    from DGTCentaurMods.epaper import wifi_info
-    
-    last_selected = 1  # Default to Scan button (first selectable after status display)
-    
-    # Callback to refresh menu when WiFi status changes
-    def _on_wifi_status_change(status: dict):
-        """Refresh the menu when WiFi status changes."""
-        if _menu_manager.active_widget is not None:
-            log.debug(f"[WiFi Settings] Status changed, refreshing menu: connected={status.get('connected')}")
-            _menu_manager.cancel_selection("WIFI_REFRESH")
-    
-    # Subscribe to WiFi status updates
-    wifi_info.subscribe(_on_wifi_status_change)
-    
-    try:
-        while True:
-            # Get current status
-            wifi_status = wifi_info.get_wifi_status()
-            
-            # Format status label
-            status_label = wifi_info.format_status_label(wifi_status)
-            
-            # Determine WiFi status icon based on actual state
-            # Uses same logic as WiFiStatusWidget from status bar
-            is_enabled = wifi_status['enabled']
-            is_connected = wifi_status['connected']
-            signal = wifi_status.get('signal', 0)
-            
-            if not is_enabled:
-                status_icon = "wifi_disabled"
-            elif not is_connected:
-                status_icon = "wifi_disconnected"
-            elif signal >= 70:
-                status_icon = "wifi_strong"
-            elif signal >= 40:
-                status_icon = "wifi_medium"
-            else:
-                status_icon = "wifi_weak"
-            
-            # Enable toggle uses checkbox icon
-            enable_icon = "timer_checked" if is_enabled else "timer"
-            enable_label = "Enabled" if is_enabled else "Disabled"
-
-            wifi_entries = [
-                # Status info display with dynamic WiFi icon (non-selectable)
-                IconMenuEntry(
-                    key="Info",
-                    label=status_label,
-                    icon_name=status_icon,
-                    enabled=True,
-                    selectable=False,
-                    height_ratio=1.8,
-                    icon_size=52,
-                    layout="vertical",
-                    font_size=12,
-                    border_width=1
-                ),
-                # Scan button
-                IconMenuEntry(
-                    key="Scan",
-                    label="Scan",
-                    icon_name="wifi",
-                    enabled=True,
-                    selectable=True,
-                    height_ratio=0.9,
-                    icon_size=28,
-                    layout="horizontal",
-                    font_size=14
-                ),
-                # Enable/Disable toggle (checkbox style)
-                IconMenuEntry(
-                    key="Toggle",
-                    label=enable_label,
-                    icon_name=enable_icon,
-                    enabled=True,
-                    selectable=True,
-                    height_ratio=0.7,
-                    layout="horizontal",
-                    font_size=14
-                ),
-            ]
-
-            wifi_result = _show_menu(wifi_entries, initial_index=last_selected)
-
-            # Handle break results - exit to main loop
-            if is_break_result(wifi_result):
-                return wifi_result
-
-            # Handle refresh from WiFi status change
-            if wifi_result == "WIFI_REFRESH":
-                # Keep current selection and rebuild menu
-                continue
-
-            # Update last_selected for when we return from a submenu
-            last_selected = find_entry_index(wifi_entries, wifi_result)
-
-            if wifi_result in ["BACK", "SHUTDOWN", "HELP"]:
-                return
-
-            if wifi_result == "Scan":
-                _handle_wifi_scan()
-            elif wifi_result == "Toggle":
-                # Toggle WiFi state
-                if is_enabled:
-                    wifi_info.disable_wifi()
-                else:
-                    if wifi_info.enable_wifi():
-                        board.beep(board.SOUND_GENERAL, event_type='key_press')
-    finally:
-        # Always unsubscribe when exiting the menu
-        wifi_info.unsubscribe(_on_wifi_status_change)
+    """Legacy stub kept for compatibility; handled via menus.wifi_menu."""
+    return handle_wifi_settings_menu(
+        menu_manager=_menu_manager,
+        wifi_info_module=__import__("DGTCentaurMods.epaper.wifi_info", fromlist=["wifi_info"]).wifi_info,
+        show_menu=_show_menu,
+        find_entry_index=find_entry_index,
+        on_scan=_handle_wifi_scan,
+        on_toggle_enable=lambda is_enabled: (
+            __import__("DGTCentaurMods.epaper.wifi_info", fromlist=["wifi_info"]).wifi_info.disable_wifi()
+            if is_enabled
+            else __import__("DGTCentaurMods.epaper.wifi_info", fromlist=["wifi_info"]).wifi_info.enable_wifi()
+        ),
+        board=board,
+        log=log,
+    )
 
 
 def _handle_wifi_scan():
@@ -4478,92 +4312,46 @@ def _handle_system_menu():
     Uses MenuContext for tracking selection state.
     """
     ctx = _get_menu_context()
-    
-    def handle_selection(result: MenuSelection):
-        """Handle system menu selection."""
-        # Route to submenus - propagate break results
-        # Use is_break_result() since some handlers return strings, some return MenuSelection
-        if result.key == "Display":
-            ctx.enter_menu("Display", 0)
-            sub_result = _handle_display_settings()
-            ctx.leave_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Sound":
-            ctx.enter_menu("Sound", 0)
-            sub_result = _handle_sound_settings()
-            ctx.leave_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "AnalysisMode":
-            ctx.enter_menu("AnalysisMode", 0)
-            sub_result = _handle_analysis_mode_menu()
-            ctx.leave_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Engines":
-            ctx.enter_menu("Engines", 0)
-            sub_result = _handle_engine_manager_menu()
-            ctx.leave_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "WiFi":
-            ctx.enter_menu("WiFi", 0)
-            sub_result = _handle_wifi_settings()
-            ctx.leave_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Bluetooth":
-            ctx.enter_menu("Bluetooth", 0)
-            sub_result = _handle_bluetooth_settings()
-            ctx.leave_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Chromecast":
-            ctx.enter_menu("Chromecast", 0)
-            sub_result = _handle_chromecast_menu()
-            ctx.leave_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Accounts":
-            ctx.enter_menu("Accounts", 0)
-            sub_result = _handle_accounts_menu()
-            ctx.leave_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Inactivity":
-            ctx.enter_menu("Inactivity", 0)
-            sub_result = _handle_inactivity_timeout()
-            ctx.leave_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "ResetSettings":
-            ctx.enter_menu("ResetSettings", 0)
-            sub_result = _handle_reset_settings()
-            ctx.leave_menu()
-            if is_break_result(sub_result):
-                return sub_result
-        elif result.key == "Shutdown":
-            ctx.clear()
-            _shutdown("Shutdown")
-            return result  # Exit after shutdown
-        elif result.key == "Reboot":
-            # LED cascade pattern for reboot
-            ctx.clear()
-            try:
-                for i in range(0, 8):
-                    board.led(i, repeat=0)
-                    time.sleep(0.2)
-            except Exception:
-                pass
-            _shutdown("Rebooting", reboot=True)
-            return result  # Exit after reboot
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(
-        lambda: create_system_entries(board, _game_settings),
-        handle_selection,
-        initial_index=ctx.current_index()
+    return handle_system_menu(
+        ctx=ctx,
+        board=board,
+        game_settings=_game_settings,
+        menu_manager=_menu_manager,
+        create_entries=lambda: create_system_entries(board, _game_settings),
+        handle_display_settings=_handle_display_settings,
+        handle_sound_settings=_handle_sound_settings,
+        handle_analysis_mode_menu=_handle_analysis_mode_menu,
+        handle_engine_manager_menu=_handle_engine_manager_menu,
+        handle_wifi_settings=lambda: handle_wifi_settings_menu(
+            menu_manager=_menu_manager,
+            wifi_info_module=__import__("DGTCentaurMods.epaper.wifi_info", fromlist=["wifi_info"]).wifi_info,
+            show_menu=_show_menu,
+            find_entry_index=find_entry_index,
+            on_scan=_handle_wifi_scan,
+            on_toggle_enable=lambda is_enabled: (
+                __import__("DGTCentaurMods.epaper.wifi_info", fromlist=["wifi_info"]).wifi_info.disable_wifi()
+                if is_enabled
+                else __import__("DGTCentaurMods.epaper.wifi_info", fromlist=["wifi_info"]).wifi_info.enable_wifi()
+            ),
+            board=board,
+            log=log,
+        ),
+        handle_bluetooth_settings=_handle_bluetooth_settings,
+        handle_chromecast_menu=lambda: handle_chromecast_menu(
+            show_menu=_show_menu,
+            board=board,
+            log=log,
+            get_chromecast_service=lambda: __import__("DGTCentaurMods.services", fromlist=["get_chromecast_service"]).get_chromecast_service(),
+        ),
+        handle_accounts_menu=_handle_accounts_menu,
+        handle_inactivity_timeout=lambda: handle_inactivity_timeout(
+            board=board,
+            log=log,
+            menu_manager=_menu_manager,
+        ),
+        handle_reset_settings=_handle_reset_settings,
+        shutdown_fn=lambda reason, reboot=False: _shutdown(reason, reboot=reboot),
+        log=log,
     )
 
 
@@ -5279,49 +5067,6 @@ def _start_lichess_game(lichess_config) -> bool:
     
     log.info("[App] Lichess connection started - waiting for game match")
     return True
-
-
-def _handle_inactivity_timeout():
-    """Handle inactivity timeout setting submenu.
-
-    The currently active timeout option displays a timer icon with a checkmark
-    overlay to indicate selection. Other options show a plain timer icon.
-    
-    This is a one-shot selection menu - select a timeout and return.
-    """
-    # Available timeout options in minutes (0 = disabled)
-    timeout_options = [
-        (0, "Disabled"),
-        (5, "5 min"),
-        (10, "10 min"),
-        (15, "15 min"),
-        (30, "30 min"),
-        (60, "1 hour"),
-    ]
-
-    current_timeout = board.get_inactivity_timeout()
-
-    entries = []
-    for minutes, label in timeout_options:
-        seconds = minutes * 60
-        is_current = seconds == current_timeout
-        icon = "timer_checked" if is_current else "timer"
-        entries.append(IconMenuEntry(key=str(seconds), label=label, icon_name=icon, enabled=True))
-
-    result = _menu_manager.show_menu(entries)
-
-    if result.is_break:
-        return result
-    
-    if not result.is_exit():
-        try:
-            new_timeout = int(result.key)
-            board.set_inactivity_timeout(new_timeout)
-            log.info(f"[Settings] Inactivity timeout set to {new_timeout}s")
-        except ValueError:
-            pass
-    
-    return result
 
 
 def _mask_token(token: str) -> str:

@@ -55,9 +55,32 @@ class _StubIconMenuEntry:
 epaper_module = types.ModuleType("DGTCentaurMods.epaper")
 icon_menu_module = types.ModuleType("DGTCentaurMods.epaper.icon_menu")
 icon_menu_module.IconMenuEntry = _StubIconMenuEntry
+
+class _StubIconMenuWidget:
+    pass
+
+icon_menu_module.IconMenuWidget = _StubIconMenuWidget
 epaper_module.icon_menu = icon_menu_module
 sys.modules.setdefault("DGTCentaurMods.epaper", epaper_module)
 sys.modules.setdefault("DGTCentaurMods.epaper.icon_menu", icon_menu_module)
+
+# Stub SplashScreen for Chromecast menu import chain
+epaper_module.SplashScreen = MagicMock()
+sys.modules["DGTCentaurMods.epaper"] = epaper_module
+
+# Stub managers.menu to avoid pulling full stack (numpy, etc.).
+managers_menu_module = types.ModuleType("DGTCentaurMods.managers.menu")
+class _StubMenuSelection:
+    def __init__(self, key: str):
+        self.key = key
+        self.result_type = None
+        self.is_break = False
+managers_menu_module.MenuSelection = _StubMenuSelection
+def _stub_is_break_result(result):
+    return False
+managers_menu_module.is_break_result = _stub_is_break_result
+sys.modules.setdefault("DGTCentaurMods.managers.menu", managers_menu_module)
+sys.modules.setdefault("DGTCentaurMods.managers", types.ModuleType("DGTCentaurMods.managers"))
 
 from DGTCentaurMods.menus.hand_brain_menu import build_hand_brain_mode_entries
 from DGTCentaurMods.menus.hand_brain_menu import (
