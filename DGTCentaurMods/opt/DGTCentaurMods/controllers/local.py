@@ -238,9 +238,6 @@ class LocalController(GameController):
         """
         from DGTCentaurMods.players import PlayerType
         
-        if not self._player_manager or not self._active:
-            return
-        
         white_player = self._player_manager.get_player(chess.WHITE)
         if white_player.player_type != PlayerType.HUMAN:
             log.info("[LocalController] All players ready, requesting first move from White")
