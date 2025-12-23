@@ -952,8 +952,6 @@ class GameManager:
         if current_physical_state is not None and len(current_physical_state) == BOARD_SIZE:
             if ChessGameState.is_starting_position(current_physical_state):
                 log.warning("[GameManager._handle_field_event_in_correction_mode] Starting position detected during correction mode - abandoning current game and starting new game")
-                # Exit correction mode first (this will clean up correction state)
-                self._exit_correction_mode()
                 # Then reset game (this will clean up all game state and mark previous game as abandoned)
                 self._reset_game()
                 return
