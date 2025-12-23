@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.epaper import Manager, SplashScreen, IconMenuWidget, IconMenuEntry, KeyboardWidget
 from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
+from DGTCentaurMods.hand_brain_menu import build_hand_brain_mode_entries
 
 # Flag set if previous shutdown was incomplete (filesystem errors detected)
 # Accessible via universal.incomplete_shutdown for display in About menu
@@ -2771,6 +2772,7 @@ def _handle_player1_hand_brain_mode_selection():
     
     Selects between Normal mode (engine suggests, human moves) and
     Reverse mode (human suggests, engine moves).
+    Uses checkbox icons so the active mode (including Reverse) is visually clear.
     
     Returns:
         Break result if user triggered a break action.
@@ -2778,20 +2780,7 @@ def _handle_player1_hand_brain_mode_selection():
     """
     current_mode = _player1_settings['hand_brain_mode']
     
-    entries = [
-        IconMenuEntry(
-            key="normal",
-            label="* Normal" if current_mode == 'normal' else "Normal",
-            icon_name="engine",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="reverse",
-            label="* Reverse" if current_mode == 'reverse' else "Reverse",
-            icon_name="engine",
-            enabled=True
-        ),
-    ]
+    entries = build_hand_brain_mode_entries(current_mode)
     
     result = _show_menu(entries)
     
@@ -3030,6 +3019,7 @@ def _handle_player2_hand_brain_mode_selection():
     
     Selects between Normal mode (engine suggests, human moves) and
     Reverse mode (human suggests, engine moves).
+    Uses checkbox icons so the active mode (including Reverse) is visually clear.
     
     Returns:
         Break result if user triggered a break action.
@@ -3037,20 +3027,7 @@ def _handle_player2_hand_brain_mode_selection():
     """
     current_mode = _player2_settings['hand_brain_mode']
     
-    entries = [
-        IconMenuEntry(
-            key="normal",
-            label="* Normal" if current_mode == 'normal' else "Normal",
-            icon_name="engine",
-            enabled=True
-        ),
-        IconMenuEntry(
-            key="reverse",
-            label="* Reverse" if current_mode == 'reverse' else "Reverse",
-            icon_name="engine",
-            enabled=True
-        ),
-    ]
+    entries = build_hand_brain_mode_entries(current_mode)
     
     result = _show_menu(entries)
     
