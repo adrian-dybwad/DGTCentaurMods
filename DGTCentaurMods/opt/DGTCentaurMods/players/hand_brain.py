@@ -545,7 +545,9 @@ class HandBrainPlayer(Player):
         if self._piece_squares_led_callback is None:
             return
         
+        log.info(f"[HandBrain] LED request for {chess.piece_name(piece_type)}, turn={'W' if board.turn else 'B'}")
         squares = self._get_squares_with_piece_type(board, piece_type, board.turn)
+        log.info(f"[HandBrain] LED squares: {[chess.square_name(sq) for sq in squares]}")
         if squares:
             log.debug(f"[HandBrain] Lighting up {len(squares)} squares for {chess.piece_name(piece_type)}")
             self._piece_squares_led_callback(squares)
@@ -565,6 +567,7 @@ class HandBrainPlayer(Player):
             board: Current chess position
         """
         if event_type == "lift":
+            log.info(f"[HandBrain] LIFT {chess.square_name(square)}, phase={self._phase.name}, state={self._state.name}, turn={'W' if board.turn else 'B'}")
             piece = board.piece_at(square)
             if piece is None:
                 log.debug(f"[HandBrain] Lift on empty square {chess.square_name(square)}")
