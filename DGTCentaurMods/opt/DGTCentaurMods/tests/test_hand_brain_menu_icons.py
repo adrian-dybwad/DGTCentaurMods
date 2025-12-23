@@ -59,8 +59,8 @@ epaper_module.icon_menu = icon_menu_module
 sys.modules.setdefault("DGTCentaurMods.epaper", epaper_module)
 sys.modules.setdefault("DGTCentaurMods.epaper.icon_menu", icon_menu_module)
 
-from DGTCentaurMods.hand_brain_menu import build_hand_brain_mode_entries
-from DGTCentaurMods.hand_brain_menu import (
+from DGTCentaurMods.menus.hand_brain_menu import build_hand_brain_mode_entries
+from DGTCentaurMods.menus.hand_brain_menu import (
     build_hand_brain_mode_toggle_entry,
     toggle_hand_brain_mode,
 )

@@ -44,9 +44,15 @@ from dataclasses import dataclass, field
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.epaper import Manager, SplashScreen, IconMenuWidget, IconMenuEntry, KeyboardWidget
 from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
-from DGTCentaurMods.hand_brain_menu import (
+from DGTCentaurMods.menus import (
     build_hand_brain_mode_entries,
     build_hand_brain_mode_toggle_entry,
+    handle_player1_menu,
+    handle_player2_menu,
+    create_main_menu_entries,
+    create_settings_entries,
+    create_system_entries,
+    _get_player_type_label,
     toggle_hand_brain_mode,
 )
 
@@ -1440,167 +1446,8 @@ def _get_engine_elo_levels(engine_name: str) -> List[str]:
 
 
 # ============================================================================
-# Menu Functions
+# Menu Functions (moved to DGTCentaurMods.menus helpers)
 # ============================================================================
-
-def create_main_menu_entries(centaur_available: bool = True) -> List[IconMenuEntry]:
-    """Create the standard main menu entry configuration.
-    
-    Layout (top to bottom):
-    1. Universal - prominent top button with large centered knight icon (2x height)
-       Uses vertical layout (icon on top, text below)
-    2. Settings - standard height, horizontal layout
-    3. Original Centaur - smaller bottom option (2/3 height, smaller knight)
-    
-    Args:
-        centaur_available: Whether DGT Centaur software is available
-        
-    Returns:
-        List of IconMenuEntry for main menu
-    """
-    entries = []
-    
-    # Universal at top - prominent with large centered knight icon
-    # Vertical layout: icon centered on top, text centered below
-    entries.append(IconMenuEntry(
-        key="Universal",
-        label="PLAY",
-        icon_name="universal_logo",
-        enabled=True,
-        height_ratio=2.0,
-        icon_size=80,
-        layout="vertical",
-        font_size=32,  # Larger text for prominent button
-        bold=True
-    ))
-    
-    # Settings in middle - standard height, horizontal layout
-    entries.append(IconMenuEntry(
-        key="Settings",
-        label="Settings",
-        icon_name="settings",
-        enabled=True,
-        height_ratio=1.0,
-        layout="horizontal",
-        font_size=16
-    ))
-    
-    # Original Centaur at bottom - smaller (2/3 height)
-    if centaur_available:
-        entries.append(IconMenuEntry(
-            key="Centaur",
-            label="Original\nCentaur",
-            icon_name="centaur",
-            enabled=True,
-            height_ratio=0.67,
-            icon_size=28,
-            layout="horizontal",
-            font_size=14  # Smaller text for compact button
-        ))
-    
-    return entries
-
-
-def _get_player_type_label(player_type: str) -> str:
-    """Get display label for player type."""
-    type_labels = {
-        'human': 'Human',
-        'engine': 'Engine',
-        'lichess': 'Lichess',
-        'hand_brain': 'H+B'
-    }
-    return type_labels.get(player_type, player_type.capitalize())
-
-
-def _get_players_summary() -> str:
-    """Get a summary string for current player configuration.
-
-    Returns a string like "Human vs Engine" or "Human vs Lichess".
-    """
-    p1_type = _get_player_type_label(_player1_settings['type'])
-    p2_type = _get_player_type_label(_player2_settings['type'])
-
-    # If player is engine, show which engine
-    if _player1_settings['type'] == 'engine':
-        p1_type = _player1_settings['engine'].capitalize()
-    elif _player1_settings['type'] == 'hand_brain':
-        mode = 'N' if _player1_settings['hand_brain_mode'] == 'normal' else 'R'
-        p1_type = f"H+B {mode}"
-    if _player2_settings['type'] == 'engine':
-        p2_type = _player2_settings['engine'].capitalize()
-    elif _player2_settings['type'] == 'hand_brain':
-        mode = 'N' if _player2_settings['hand_brain_mode'] == 'normal' else 'R'
-        p2_type = f"H+B {mode}"
-
-    return f"{p1_type}\nvs {p2_type}"
-
-
-def create_settings_entries() -> List[IconMenuEntry]:
-    """Create entries for the settings submenu.
-    
-    Uses current values from _game_settings.
-    Multi-line labels are used to show the setting name and current value.
-    Time control shows current setting and opens a selection menu.
-
-    Returns:
-        List of IconMenuEntry for settings menu
-    """
-    # Players summary for the Players menu item
-    players_label = _get_players_summary()
-    
-    # Time control: show current setting, icon indicates enabled/disabled
-    time_control = _game_settings['time_control']
-    if time_control == 0:
-        time_label = "Time\nDisabled"
-        time_icon = "timer"
-    else:
-        time_label = f"Time\n{time_control} min"
-        time_icon = "timer_checked"
-    
-    return [
-        IconMenuEntry(key="Players", label=players_label, icon_name="players", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="TimeControl", label=time_label, icon_name=time_icon, enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="Positions", label="Positions", icon_name="positions", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="Chromecast", label="Chromecast", icon_name="cast", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="System", label="System", icon_name="system", enabled=True, font_size=12, height_ratio=0.8),
-        IconMenuEntry(key="About", label="About", icon_name="info", enabled=True, font_size=12, height_ratio=0.8),
-    ]
-
-
-def create_system_entries() -> List[IconMenuEntry]:
-    """Create entries for the system submenu.
-    
-    Includes sound, WiFi, sleep timer, shutdown, and reboot options.
-    Sleep timer uses checked box icon when enabled, empty box when disabled.
-
-    Returns:
-        List of IconMenuEntry for system menu
-    """
-    # Get current inactivity timeout for display
-    timeout = board.get_inactivity_timeout()
-    if timeout == 0:
-        timeout_label = "Sleep Timer\nDisabled"
-        timeout_icon = "timer"  # Empty box
-    else:
-        timeout_label = f"Sleep Timer\n{timeout // 60} min"
-        timeout_icon = "timer_checked"  # Checked box
-    
-    # Analysis mode checkbox
-    analysis_mode_icon = "checkbox_checked" if _game_settings['analysis_mode'] else "checkbox_empty"
-    
-    return [
-        IconMenuEntry(key="Display", label="Display", icon_name="display", enabled=True),
-        IconMenuEntry(key="WiFi", label="WiFi", icon_name="wifi", enabled=True),
-        IconMenuEntry(key="Bluetooth", label="Bluetooth", icon_name="bluetooth", enabled=True),
-        IconMenuEntry(key="Accounts", label="Accounts", icon_name="account", enabled=True),
-        IconMenuEntry(key="Sound", label="Sound", icon_name="sound", enabled=True),
-        IconMenuEntry(key="AnalysisMode", label="Analysis\nMode", icon_name=analysis_mode_icon, enabled=True),
-        IconMenuEntry(key="Engines", label="Engine\nManager", icon_name="engine", enabled=True),
-        IconMenuEntry(key="Inactivity", label=timeout_label, icon_name=timeout_icon, enabled=True),
-        IconMenuEntry(key="ResetSettings", label="Reset\nSettings", icon_name="cancel", enabled=True),
-        IconMenuEntry(key="Shutdown", label="Shutdown", icon_name="shutdown", enabled=True),
-        IconMenuEntry(key="Reboot", label="Reboot", icon_name="reboot", enabled=True),
-    ]
 
 
 def _show_menu(entries: List[IconMenuEntry], initial_index: int = 0) -> str:
@@ -2139,7 +1986,7 @@ def _handle_settings(initial_selection: str = None):
     pending_selection = initial_selection
     
     while app_state == AppState.SETTINGS:
-        entries = create_settings_entries()
+        entries = create_settings_entries(_game_settings, _player1_settings, _player2_settings)
         
         # If we have a pending selection from state restoration, use it
         if pending_selection:
@@ -2360,124 +2207,23 @@ def _handle_player1_menu():
     """
     ctx = _get_menu_context()
     
-    while True:
-        p1_color = _player1_settings['color'].capitalize()
-        p1_type = _get_player_type_label(_player1_settings['type'])
-
-        entries = [
-            IconMenuEntry(
-                key="Color",
-                label=f"Color\n{p1_color}",
-                icon_name="white_piece" if _player1_settings['color'] == 'white' else "black_piece",
-                enabled=True
-            ),
-            IconMenuEntry(
-                key="Type",
-                label=f"Type\n{p1_type}",
-                icon_name="universal_logo",
-                enabled=True
-            ),
-        ]
-
-        # If human type, add name entry
-        if _player1_settings['type'] == 'human':
-            name_display = _player1_settings['name'] or 'Human'
-            entries.append(IconMenuEntry(
-                key="Name",
-                label=f"Name\n{name_display}",
-                icon_name="universal_logo",
-                enabled=True
-            ))
-
-        # If hand_brain type, add mode selection
-        if _player1_settings['type'] == 'hand_brain':
-            entries.append(build_hand_brain_mode_toggle_entry(_player1_settings['hand_brain_mode']))
-
-        # If human, engine, or hand_brain type, add engine selection
-        # For human: used for hint assistant when pressing ?
-        # For engine: the opponent engine
-        # For hand_brain: the engine that suggests/computes moves
-        if _player1_settings['type'] in ('human', 'engine', 'hand_brain'):
-            entries.append(IconMenuEntry(
-                key="Engine",
-                label=f"Engine\n{_player1_settings['engine']}",
-                icon_name="engine",
-                enabled=True
-            ))
-            entries.append(IconMenuEntry(
-                key="ELO",
-                label=f"ELO\n{_player1_settings['elo']}",
-                icon_name="elo",
-                enabled=True
-            ))
-
-        # If Lichess type, add Lichess settings
-        if _player1_settings['type'] == 'lichess':
-            entries.append(IconMenuEntry(
-                key="LichessSettings",
-                label="Lichess\nSettings",
-                icon_name="lichess",
-                enabled=True
-            ))
-
-        result = _show_menu(entries, initial_index=ctx.current_index())
-        ctx.update_index(find_entry_index(entries, result))
-        
-        if is_break_result(result):
-            return result
-        
-        if result == "BACK":
-            return None
-        
-        if result == "Color":
-            ctx.enter_menu("Color", 0)
-            color_result = _handle_player1_color_selection()
-            ctx.leave_menu()
-            if is_break_result(color_result):
-                return color_result
-        
-        elif result == "Type":
-            ctx.enter_menu("Type", 0)
-            type_result = _handle_player1_type_selection()
-            ctx.leave_menu()
-            if is_break_result(type_result):
-                return type_result
-        
-        elif result == "Name":
-            ctx.enter_menu("Name", 0)
-            name_result = _handle_player1_name_input()
-            ctx.leave_menu()
-            if is_break_result(name_result):
-                return name_result
-        
-        elif result == "HBMode":
-            old_mode = _player1_settings['hand_brain_mode']
-            new_mode = toggle_hand_brain_mode(old_mode)
-            _save_player1_setting('hand_brain_mode', new_mode)
-            log.info(f"[Settings] Player1 hand_brain_mode toggled: {old_mode} -> {new_mode}")
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-            continue
-        
-        elif result == "Engine":
-            ctx.enter_menu("Engine", 0)
-            engine_result = _handle_player1_engine_selection()
-            ctx.leave_menu()
-            if is_break_result(engine_result):
-                return engine_result
-        
-        elif result == "ELO":
-            ctx.enter_menu("ELO", 0)
-            elo_result = _handle_player1_elo_selection()
-            ctx.leave_menu()
-            if is_break_result(elo_result):
-                return elo_result
-        
-        elif result == "LichessSettings":
-            ctx.enter_menu("LichessSettings", 0)
-            lichess_result = _handle_lichess_menu()
-            ctx.leave_menu()
-            if is_break_result(lichess_result):
-                return lichess_result
+    return handle_player1_menu(
+        ctx=ctx,
+        player1_settings=_player1_settings,
+        show_menu=_show_menu,
+        find_entry_index=find_entry_index,
+        is_break_result=is_break_result,
+        board=board,
+        log=log,
+        save_player1_setting=_save_player1_setting,
+        handle_color_selection=_handle_player1_color_selection,
+        handle_type_selection=_handle_player1_type_selection,
+        handle_name_input=_handle_player1_name_input,
+        handle_engine_selection=_handle_player1_engine_selection,
+        handle_elo_selection=_handle_player1_elo_selection,
+        handle_lichess_menu=_handle_lichess_menu,
+        toggle_hand_brain_mode_fn=toggle_hand_brain_mode,
+    )
 
 
 def _handle_player2_menu():
@@ -2495,110 +2241,22 @@ def _handle_player2_menu():
     """
     ctx = _get_menu_context()
     
-    while True:
-        p2_type = _get_player_type_label(_player2_settings['type'])
-        
-        entries = [
-            IconMenuEntry(
-                key="Type",
-                label=f"Type\n{p2_type}",
-                icon_name="universal_logo",
-                enabled=True
-            ),
-        ]
-        
-        # If human type, add name entry
-        if _player2_settings['type'] == 'human':
-            name_display = _player2_settings['name'] or 'Human'
-            entries.append(IconMenuEntry(
-                key="Name",
-                label=f"Name\n{name_display}",
-                icon_name="universal_logo",
-                enabled=True
-            ))
-
-        # If hand_brain type, add mode selection
-        if _player2_settings['type'] == 'hand_brain':
-            entries.append(build_hand_brain_mode_toggle_entry(_player2_settings['hand_brain_mode']))
-        
-        # If human, engine, or hand_brain type, add engine selection
-        # For human: used for hint assistant when pressing ?
-        # For engine: the opponent engine
-        # For hand_brain: the engine that suggests/computes moves
-        if _player2_settings['type'] in ('human', 'engine', 'hand_brain'):
-            entries.append(IconMenuEntry(
-                key="Engine",
-                label=f"Engine\n{_player2_settings['engine']}",
-                icon_name="engine",
-                enabled=True
-            ))
-            entries.append(IconMenuEntry(
-                key="ELO",
-                label=f"ELO\n{_player2_settings['elo']}",
-                icon_name="elo",
-                enabled=True
-            ))
-        
-        # If Lichess type, add Lichess settings
-        if _player2_settings['type'] == 'lichess':
-            entries.append(IconMenuEntry(
-                key="LichessSettings",
-                label="Lichess\nSettings",
-                icon_name="lichess",
-                enabled=True
-            ))
-        
-        result = _show_menu(entries, initial_index=ctx.current_index())
-        ctx.update_index(find_entry_index(entries, result))
-        
-        if is_break_result(result):
-            return result
-        
-        if result == "BACK":
-            return None
-        
-        if result == "Type":
-            ctx.enter_menu("Type", 0)
-            type_result = _handle_player2_type_selection()
-            ctx.leave_menu()
-            if is_break_result(type_result):
-                return type_result
-        
-        elif result == "Name":
-            ctx.enter_menu("Name", 0)
-            name_result = _handle_player2_name_input()
-            ctx.leave_menu()
-            if is_break_result(name_result):
-                return name_result
-        
-        elif result == "HBMode":
-            old_mode = _player2_settings['hand_brain_mode']
-            new_mode = toggle_hand_brain_mode(old_mode)
-            _save_player2_setting('hand_brain_mode', new_mode)
-            log.info(f"[Settings] Player2 hand_brain_mode toggled: {old_mode} -> {new_mode}")
-            board.beep(board.SOUND_GENERAL, event_type='key_press')
-            continue
-        
-        elif result == "Engine":
-            ctx.enter_menu("Engine", 0)
-            engine_result = _handle_player2_engine_selection()
-            ctx.leave_menu()
-            if is_break_result(engine_result):
-                return engine_result
-        
-        elif result == "ELO":
-            ctx.enter_menu("ELO", 0)
-            elo_result = _handle_player2_elo_selection()
-            ctx.leave_menu()
-            if is_break_result(elo_result):
-                return elo_result
-        
-        elif result == "LichessSettings":
-            ctx.enter_menu("LichessSettings", 0)
-            lichess_result = _handle_lichess_menu()
-            ctx.leave_menu()
-            if is_break_result(lichess_result):
-                return lichess_result
+    return handle_player2_menu(
+        ctx=ctx,
+        player2_settings=_player2_settings,
+        show_menu=_show_menu,
+        find_entry_index=find_entry_index,
+        is_break_result=is_break_result,
+        board=board,
+        log=log,
+        save_player2_setting=_save_player2_setting,
+        handle_type_selection=_handle_player2_type_selection,
+        handle_name_input=_handle_player2_name_input,
+        handle_engine_selection=_handle_player2_engine_selection,
+        handle_elo_selection=_handle_player2_elo_selection,
+        handle_lichess_menu=_handle_lichess_menu,
+        toggle_hand_brain_mode_fn=toggle_hand_brain_mode,
+    )
 
 
 def _handle_player1_color_selection():
@@ -4902,7 +4560,11 @@ def _handle_system_menu():
             return result  # Exit after reboot
         return None  # Continue loop
     
-    return _menu_manager.run_menu_loop(create_system_entries, handle_selection, initial_index=ctx.current_index())
+    return _menu_manager.run_menu_loop(
+        lambda: create_system_entries(board, _game_settings),
+        handle_selection,
+        initial_index=ctx.current_index()
+    )
 
 
 # =============================================================================
