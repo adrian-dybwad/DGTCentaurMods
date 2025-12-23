@@ -285,12 +285,18 @@ class LocalController(GameController):
         try:
             from DGTCentaurMods.managers.game import EVENT_NEW_GAME, EVENT_WHITE_TURN, EVENT_BLACK_TURN
             from DGTCentaurMods.managers.events import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
+            from DGTCentaurMods.players.hand_brain import HandBrainPlayer, HandBrainMode
             
             log.debug(f"[LocalController] _on_game_event: {event}")
             
-            # Piece lift/place events don't need special handling - just forward to BT
+            # Piece lift/place events: for Hand+Brain REVERSE, do not forward to BT (avoid emulator clearing LEDs)
             if event == EVENT_LIFT_PIECE or event == EVENT_PLACE_PIECE:
-                if self._event_forward_callback:
+                skip_bt = False
+                if self._player_manager:
+                    current = self._player_manager.get_player(self._game_manager.chess_board.turn)
+                    if isinstance(current, HandBrainPlayer) and current.mode == HandBrainMode.REVERSE:
+                        skip_bt = True
+                if (not skip_bt) and self._event_forward_callback:
                     self._event_forward_callback('game_event', event, piece_event, field, time_seconds)
                 return
             
