@@ -184,6 +184,17 @@ class RemoteController(GameController):
         if not self._active:
             return
         
+        # Skip forwarding lift/place while HandBrain REVERSE is consuming events locally
+        try:
+            pm = getattr(self._game_manager, "_player_manager", None)
+            if pm is not None:
+                current = pm.get_player(self._game_manager.chess_board.turn)
+                from DGTCentaurMods.players.hand_brain import HandBrainPlayer, HandBrainMode
+                if isinstance(current, HandBrainPlayer) and current.mode == HandBrainMode.REVERSE:
+                    return
+        except Exception:
+            pass
+        
         # Forward to active emulator
         from DGTCentaurMods.managers.events import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
         event = EVENT_LIFT_PIECE if piece_event == 0 else EVENT_PLACE_PIECE
@@ -347,6 +358,19 @@ class RemoteController(GameController):
         """
         if not self._active:
             return
+        
+        # Skip forwarding lift/place while HandBrain REVERSE is consuming events locally
+        try:
+            from DGTCentaurMods.managers.events import EVENT_LIFT_PIECE, EVENT_PLACE_PIECE
+            if event == EVENT_LIFT_PIECE or event == EVENT_PLACE_PIECE:
+                pm = getattr(self._game_manager, "_player_manager", None)
+                if pm is not None:
+                    current = pm.get_player(self._game_manager.chess_board.turn)
+                    from DGTCentaurMods.players.hand_brain import HandBrainPlayer, HandBrainMode
+                    if isinstance(current, HandBrainPlayer) and current.mode == HandBrainMode.REVERSE:
+                        return
+        except Exception:
+            pass
         
         if self._is_millennium and self._millennium:
             if hasattr(self._millennium, 'handle_manager_event'):
