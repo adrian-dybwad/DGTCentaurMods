@@ -254,9 +254,6 @@ class LocalController(GameController):
         Called when turn changes. For human players, does nothing.
         For engines/Lichess, starts move computation.
         """
-        if not self._active:
-            return
-        
         if not self._player_manager:
             return
         
