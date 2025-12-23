@@ -60,6 +60,10 @@ sys.modules.setdefault("DGTCentaurMods.epaper", epaper_module)
 sys.modules.setdefault("DGTCentaurMods.epaper.icon_menu", icon_menu_module)
 
 from DGTCentaurMods.hand_brain_menu import build_hand_brain_mode_entries
+from DGTCentaurMods.hand_brain_menu import (
+    build_hand_brain_mode_toggle_entry,
+    toggle_hand_brain_mode,
+)
 
 
 class TestHandBrainMenuIcons(unittest.TestCase):
@@ -90,4 +94,16 @@ class TestHandBrainMenuIcons(unittest.TestCase):
 
         self.assertEqual(normal_entry.icon_name, "checkbox_checked")
         self.assertEqual(reverse_entry.icon_name, "checkbox_empty")
+
+    def test_toggle_entry_uses_checkbox(self):
+        """Toggle entry uses checkbox to show reverse state."""
+        reverse_entry = build_hand_brain_mode_toggle_entry("reverse")
+        normal_entry = build_hand_brain_mode_toggle_entry("normal")
+        self.assertEqual(reverse_entry.icon_name, "checkbox_checked")
+        self.assertEqual(normal_entry.icon_name, "checkbox_empty")
+
+    def test_toggle_function_flips_modes(self):
+        """Toggle helper flips between normal and reverse."""
+        self.assertEqual(toggle_hand_brain_mode("normal"), "reverse")
+        self.assertEqual(toggle_hand_brain_mode("reverse"), "normal")
 

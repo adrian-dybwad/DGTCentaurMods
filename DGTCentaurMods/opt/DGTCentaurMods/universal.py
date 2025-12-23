@@ -44,7 +44,11 @@ from dataclasses import dataclass, field
 from DGTCentaurMods.board.logging import log
 from DGTCentaurMods.epaper import Manager, SplashScreen, IconMenuWidget, IconMenuEntry, KeyboardWidget
 from DGTCentaurMods.epaper.status_bar import STATUS_BAR_HEIGHT
-from DGTCentaurMods.hand_brain_menu import build_hand_brain_mode_entries
+from DGTCentaurMods.hand_brain_menu import (
+    build_hand_brain_mode_entries,
+    build_hand_brain_mode_toggle_entry,
+    toggle_hand_brain_mode,
+)
 
 # Flag set if previous shutdown was incomplete (filesystem errors detected)
 # Accessible via universal.incomplete_shutdown for display in About menu
@@ -2387,13 +2391,7 @@ def _handle_player1_menu():
 
         # If hand_brain type, add mode selection
         if _player1_settings['type'] == 'hand_brain':
-            mode_display = 'Normal' if _player1_settings['hand_brain_mode'] == 'normal' else 'Reverse'
-            entries.append(IconMenuEntry(
-                key="HBMode",
-                label=f"Mode\n{mode_display}",
-                icon_name="engine",
-                enabled=True
-            ))
+            entries.append(build_hand_brain_mode_toggle_entry(_player1_settings['hand_brain_mode']))
 
         # If human, engine, or hand_brain type, add engine selection
         # For human: used for hint assistant when pressing ?
@@ -2453,11 +2451,12 @@ def _handle_player1_menu():
                 return name_result
         
         elif result == "HBMode":
-            ctx.enter_menu("HBMode", 0)
-            mode_result = _handle_player1_hand_brain_mode_selection()
-            ctx.leave_menu()
-            if is_break_result(mode_result):
-                return mode_result
+            old_mode = _player1_settings['hand_brain_mode']
+            new_mode = toggle_hand_brain_mode(old_mode)
+            _save_player1_setting('hand_brain_mode', new_mode)
+            log.info(f"[Settings] Player1 hand_brain_mode toggled: {old_mode} -> {new_mode}")
+            board.beep(board.SOUND_GENERAL, event_type='key_press')
+            continue
         
         elif result == "Engine":
             ctx.enter_menu("Engine", 0)
@@ -2520,13 +2519,7 @@ def _handle_player2_menu():
 
         # If hand_brain type, add mode selection
         if _player2_settings['type'] == 'hand_brain':
-            mode_display = 'Normal' if _player2_settings['hand_brain_mode'] == 'normal' else 'Reverse'
-            entries.append(IconMenuEntry(
-                key="HBMode",
-                label=f"Mode\n{mode_display}",
-                icon_name="engine",
-                enabled=True
-            ))
+            entries.append(build_hand_brain_mode_toggle_entry(_player2_settings['hand_brain_mode']))
         
         # If human, engine, or hand_brain type, add engine selection
         # For human: used for hint assistant when pressing ?
@@ -2579,11 +2572,12 @@ def _handle_player2_menu():
                 return name_result
         
         elif result == "HBMode":
-            ctx.enter_menu("HBMode", 0)
-            mode_result = _handle_player2_hand_brain_mode_selection()
-            ctx.leave_menu()
-            if is_break_result(mode_result):
-                return mode_result
+            old_mode = _player2_settings['hand_brain_mode']
+            new_mode = toggle_hand_brain_mode(old_mode)
+            _save_player2_setting('hand_brain_mode', new_mode)
+            log.info(f"[Settings] Player2 hand_brain_mode toggled: {old_mode} -> {new_mode}")
+            board.beep(board.SOUND_GENERAL, event_type='key_press')
+            continue
         
         elif result == "Engine":
             ctx.enter_menu("Engine", 0)
