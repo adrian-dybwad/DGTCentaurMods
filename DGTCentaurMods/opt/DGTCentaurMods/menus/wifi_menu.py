@@ -4,6 +4,7 @@ from typing import Callable
 
 from DGTCentaurMods.epaper.icon_menu import IconMenuEntry
 from DGTCentaurMods.managers.menu import is_break_result
+from DGTCentaurMods.epaper import SplashScreen
 
 
 def handle_wifi_settings_menu(
@@ -105,4 +106,66 @@ def handle_wifi_settings_menu(
                 board.beep(board.SOUND_GENERAL, event_type="key_press")
     finally:
         wifi_info_module.unsubscribe(_on_wifi_status_change)
+
+
+def handle_wifi_scan_menu(
+    scan_networks: Callable[[], list],
+    show_menu: Callable[[list], str],
+    is_break_result_fn: Callable[[str], bool],
+    get_password: Callable[[str], str],
+    connect_fn: Callable[[str, str], bool],
+    board,
+    log,
+):
+    """Handle WiFi scan/connect submenu."""
+    log.info("[WiFi] Starting network scan...")
+    networks = scan_networks()
+    log.info(f"[WiFi] Scan complete, found {len(networks)} networks")
+
+    if not networks:
+        board.display_manager.clear_widgets(addStatusBar=False)
+        promise = board.display_manager.add_widget(
+            SplashScreen(board.display_manager.update, message="No networks found", leave_room_for_status_bar=False)
+        )
+        if promise:
+            try:
+                promise.result(timeout=2.0)
+            except Exception:
+                pass
+        import time as _time
+        _time.sleep(2)
+        return
+
+    network_entries = []
+    for net in networks[:10]:
+        signal = net["signal"]
+        if signal >= 70:
+            icon_name = "wifi_strong"
+        elif signal >= 40:
+            icon_name = "wifi_medium"
+        else:
+            icon_name = "wifi_weak"
+        ssid_display = net["ssid"][:18] if len(net["ssid"]) > 18 else net["ssid"]
+        network_entries.append(
+            IconMenuEntry(key=net["ssid"], label=ssid_display, icon_name=icon_name, enabled=True, font_size=14)
+        )
+
+    result = show_menu(network_entries)
+    if is_break_result_fn(result):
+        return result
+    if result in ["BACK", "SHUTDOWN", "HELP"]:
+        return
+
+    selected_network = next((n for n in networks if n["ssid"] == result), None)
+    if not selected_network:
+        return
+
+    needs_password = selected_network.get("security", "") != ""
+    if needs_password:
+        password = get_password(selected_network["ssid"])
+        if password is None:
+            return
+        connect_fn(selected_network["ssid"], password)
+    else:
+        connect_fn(selected_network["ssid"], None)
 

@@ -61,6 +61,9 @@ from DGTCentaurMods.menus import (
     handle_time_control_menu,
     handle_chromecast_menu,
     handle_inactivity_timeout,
+    handle_wifi_settings_menu,
+    handle_wifi_scan_menu,
+    handle_bluetooth_menu,
 )
 
 # Flag set if previous shutdown was incomplete (filesystem errors detected)
@@ -3183,133 +3186,30 @@ def _handle_wifi_settings():
 
 def _handle_wifi_scan():
     """Handle WiFi network scanning and selection."""
-    log.info("[WiFi] Starting network scan...")
-    networks = _scan_wifi_networks()
-    log.info(f"[WiFi] Scan complete, found {len(networks)} networks")
-
-    if not networks:
-        # Show no networks found message (full screen, no status bar)
-        board.display_manager.clear_widgets(addStatusBar=False)
-        promise = board.display_manager.add_widget(SplashScreen(board.display_manager.update, message="No networks found", leave_room_for_status_bar=False))
-        if promise:
-            try:
-                promise.result(timeout=2.0)
-            except Exception:
-                pass
-        time.sleep(2)
-        return
-
-    # Create menu entries for networks
-    network_entries = []
-    for net in networks[:10]:  # Limit to 10 networks
-        # Signal strength determines icon (icon indicates strength visually)
-        signal = net['signal']
-        if signal >= 70:
-            icon_name = "wifi_strong"
-        elif signal >= 40:
-            icon_name = "wifi_medium"
-        else:
-            icon_name = "wifi_weak"
-
-        # Truncate SSID if too long - no signal text, icon shows strength
-        ssid_display = net['ssid'][:18] if len(net['ssid']) > 18 else net['ssid']
-
-        network_entries.append(
-            IconMenuEntry(key=net['ssid'], label=ssid_display, icon_name=icon_name, enabled=True, font_size=14)
-        )
-        log.debug(f"[WiFi] Added network entry: {net['ssid']} ({signal}%)")
-
-    log.info(f"[WiFi] Showing menu with {len(network_entries)} entries")
-    network_result = _show_menu(network_entries)
-    log.info(f"[WiFi] Menu result: {network_result}")
-
-    if is_break_result(network_result):
-        return network_result
-    if network_result in ["BACK", "SHUTDOWN", "HELP"]:
-        return
-    
-    # User selected a network - find it in the list
-    selected_network = None
-    for net in networks:
-        if net['ssid'] == network_result:
-            selected_network = net
-            break
-    
-    if not selected_network:
-        return
-    
-    # Check if network needs password
-    needs_password = selected_network.get('security', '') != ''
-    
-    if needs_password:
-        # Get password using board input
-        password = _get_wifi_password_from_board(selected_network['ssid'])
-        if password is None:
-            return
-        _connect_to_wifi(selected_network['ssid'], password)
-    else:
-        _connect_to_wifi(selected_network['ssid'])
+    return handle_wifi_scan_menu(
+        scan_networks=_scan_wifi_networks,
+        show_menu=_show_menu,
+        is_break_result_fn=is_break_result,
+        get_password=_get_wifi_password_from_board,
+        connect_fn=_connect_to_wifi,
+        board=board,
+        log=log,
+    )
 
 
 def _handle_bluetooth_settings():
-    """Handle Bluetooth settings submenu.
-    
-    Shows Bluetooth status information with a toggle for enable/disable.
-    Displays:
-    - Device name and MAC address
-    - Connection status and connected client type
-    - Advertised host names
-    - Enable toggle (checkbox style)
-    
-    Uses the bluetooth_status module for status queries and control.
-    """
-    from DGTCentaurMods.epaper import bluetooth_status
-    
-    def build_entries():
-        """Build Bluetooth settings menu entries."""
-        device_name = _args.device_name if _args else 'DGT PEGASUS'
-        bt_status = bluetooth_status.get_bluetooth_status(
-            device_name=device_name,
-            ble_manager=ble_manager,
-            rfcomm_connected=client_connected
-        )
-        status_label = bluetooth_status.format_status_label(bt_status)
-        advertised_label = bluetooth_status.get_advertised_names_label()
-        is_enabled = bt_status['enabled']
-        
-        return [
-            IconMenuEntry(
-                key="Info", label=status_label, icon_name="bluetooth",
-                enabled=True, selectable=False, height_ratio=1.5, icon_size=36,
-                layout="vertical", font_size=11, border_width=1
-            ),
-            IconMenuEntry(
-                key="Names", label=advertised_label, icon_name="bluetooth",
-                enabled=True, selectable=False, height_ratio=1.2, icon_size=24,
-                layout="vertical", font_size=10, border_width=1
-            ),
-            IconMenuEntry(
-                key="Toggle", label="Enabled" if is_enabled else "Disabled",
-                icon_name="timer_checked" if is_enabled else "timer",
-                enabled=True, selectable=True, height_ratio=0.8, layout="horizontal", font_size=14
-            ),
-        ]
-    
-    def handle_selection(result: MenuSelection):
-        """Handle Bluetooth toggle."""
-        if result.key == "Toggle":
-            device_name = _args.device_name if _args else 'DGT PEGASUS'
-            bt_status = bluetooth_status.get_bluetooth_status(
-                device_name=device_name, ble_manager=ble_manager, rfcomm_connected=client_connected
-            )
-            if bt_status['enabled']:
-                bluetooth_status.disable_bluetooth()
-            else:
-                if bluetooth_status.enable_bluetooth():
-                    board.beep(board.SOUND_GENERAL, event_type='key_press')
-        return None  # Continue loop
-    
-    return _menu_manager.run_menu_loop(build_entries, handle_selection, initial_index=2)
+    """Legacy shim; handled via menus.bluetooth_menu."""
+    return handle_bluetooth_menu(
+        menu_manager=_menu_manager,
+        bluetooth_status_module=__import__("DGTCentaurMods.epaper.bluetooth_status", fromlist=["bluetooth_status"]).bluetooth_status,
+        show_menu=_show_menu,
+        find_entry_index=find_entry_index,
+        args_device_name=_args.device_name if _args else "DGT PEGASUS",
+        ble_manager=ble_manager,
+        client_connected=client_connected,
+        board=board,
+        log=log,
+    )
 
 
 def _handle_analysis_mode_menu():
@@ -4336,7 +4236,17 @@ def _handle_system_menu():
             board=board,
             log=log,
         ),
-        handle_bluetooth_settings=_handle_bluetooth_settings,
+        handle_bluetooth_settings=lambda: handle_bluetooth_menu(
+            menu_manager=_menu_manager,
+            bluetooth_status_module=__import__("DGTCentaurMods.epaper.bluetooth_status", fromlist=["bluetooth_status"]).bluetooth_status,
+            show_menu=_show_menu,
+            find_entry_index=find_entry_index,
+            args_device_name=_args.device_name if _args else "DGT PEGASUS",
+            ble_manager=ble_manager,
+            client_connected=client_connected,
+            board=board,
+            log=log,
+        ),
         handle_chromecast_menu=lambda: handle_chromecast_menu(
             show_menu=_show_menu,
             board=board,
