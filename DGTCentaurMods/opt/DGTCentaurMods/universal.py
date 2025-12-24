@@ -3740,21 +3740,21 @@ def _handle_system_menu():
         handle_engine_manager_menu=_handle_engine_manager_menu,
         handle_wifi_settings=lambda: handle_wifi_settings_menu(
             menu_manager=_menu_manager,
-            wifi_info_module=__import__("DGTCentaurMods.epaper.wifi_info", fromlist=["wifi_info"]).wifi_info,
+            wifi_info_module=__import__("DGTCentaurMods.epaper.wifi_info", fromlist=["get_wifi_status"]),
             show_menu=_show_menu,
             find_entry_index=find_entry_index,
             on_scan=_handle_wifi_scan,
             on_toggle_enable=lambda is_enabled: (
-                __import__("DGTCentaurMods.epaper.wifi_info", fromlist=["wifi_info"]).wifi_info.disable_wifi()
+                __import__("DGTCentaurMods.epaper.wifi_info", fromlist=["disable_wifi"]).disable_wifi()
                 if is_enabled
-                else __import__("DGTCentaurMods.epaper.wifi_info", fromlist=["wifi_info"]).wifi_info.enable_wifi()
+                else __import__("DGTCentaurMods.epaper.wifi_info", fromlist=["enable_wifi"]).enable_wifi()
             ),
             board=board,
             log=log,
         ),
         handle_bluetooth_settings=lambda: handle_bluetooth_menu(
             menu_manager=_menu_manager,
-            bluetooth_status_module=__import__("DGTCentaurMods.epaper.bluetooth_status", fromlist=["bluetooth_status"]).bluetooth_status,
+            bluetooth_status_module=__import__("DGTCentaurMods.epaper.bluetooth_status", fromlist=["get_bluetooth_status"]),
             show_menu=_show_menu,
             find_entry_index=find_entry_index,
             args_device_name=_args.device_name if _args else "DGT PEGASUS",
