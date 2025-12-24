@@ -380,6 +380,48 @@ class TestReverseModeReselectionEdgeCases(unittest.TestCase):
         assert player._pending_move == chess.Move(chess.E4, chess.F6), \
             "Pending move changed after bumping opponent's piece"
 
+    def test_piece_placed_on_wrong_square_triggers_correction_mode(self):
+        """Test that moving a piece to a different square triggers correction mode.
+        
+        In REVERSE mode, when a user lifts a piece for selection but places it
+        on a different square (not the original square), this creates a physical
+        board inconsistency. The player should report an error to trigger
+        correction mode in the GameManager.
+        
+        Expected: _report_error("move_mismatch") is called.
+        Failure: Error not triggered; board would be out of sync.
+        """
+        player = self._create_player()
+        player.set_piece_squares_led_callback(MagicMock())
+        player.set_move_callback(MagicMock())
+        player.set_pending_move_callback(MagicMock())
+        
+        errors_received = []
+        def error_callback(error_type):
+            errors_received.append(error_type)
+        player.set_error_callback(error_callback)
+        
+        # Position: white knight on e4
+        board = chess.Board()
+        board.set_piece_at(chess.E4, chess.Piece(chess.KNIGHT, chess.WHITE))
+        
+        player._do_request_move(board)
+        
+        # User lifts knight from e4
+        player.on_piece_event("lift", chess.E4, board)
+        
+        # User places it on a different square (not e4) - this is wrong
+        # Simulate the board change
+        board.remove_piece_at(chess.E4)
+        board.set_piece_at(chess.F6, chess.Piece(chess.KNIGHT, chess.WHITE))
+        player.on_piece_event("place", chess.F6, board)
+        
+        # Error should have been reported
+        assert len(errors_received) == 1, \
+            f"Expected 1 error, got {len(errors_received)}: {errors_received}"
+        assert errors_received[0] == "move_mismatch", \
+            f"Expected 'move_mismatch' error, got '{errors_received[0]}'"
+
 
 if __name__ == '__main__':
     unittest.main()

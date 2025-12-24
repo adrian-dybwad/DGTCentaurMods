@@ -627,10 +627,15 @@ class HandBrainPlayer(Player):
                 # Start engine computation with this piece type
                 self._compute_constrained_move(piece.piece_type)
             else:
-                # Piece placed on different square - reset
-                log.debug("[HandBrain] Piece placed elsewhere - ignoring")
+                # Piece placed on a different square than where it was lifted from.
+                # This means the physical board is now inconsistent with the logical
+                # board (a piece has moved illegally). Trigger correction mode.
+                log.warning(
+                    f"[HandBrain] Piece moved from {chess.square_name(self._selection_lifted_square)} "
+                    f"to {chess.square_name(square)} during selection - entering correction mode"
+                )
                 self._selection_lifted_square = None
-                self._report_status("Lift piece to select type")
+                self._report_error("move_mismatch")
     
     def _compute_constrained_move(self, piece_type: chess.PieceType) -> None:
         """Find the best move using only the specified piece type (REVERSE mode).
